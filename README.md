@@ -60,6 +60,9 @@ module, `modules.secure-development`, holding the target list and
 without changing anything else in the file. Copy `event.yaml.example` and
 fill in `github.org`, `modules.secure-development.targets` (any subset of
 the six target keys above), `admins` (GitHub logins), and `event.url`.
+What a module must provide to plug in — config block, scoring contract,
+transports, security requirements, provisioning — is documented in
+[docs/modules.md](docs/modules.md).
 
 `ctf-setup.sh org` authenticates via your existing `gh auth login` session
 (the same one `check` verifies) and your local `docker` login to
