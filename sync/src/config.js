@@ -16,7 +16,13 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
   const doc = parseYaml(readFileSync(path, "utf8"));
   const org = doc?.github?.org;
   if (!org) throw new Error("event.yaml: github.org is required");
-  const targets = doc?.targets;
+  const modules = doc?.modules;
+  if (!modules || typeof modules !== "object") throw new Error("event.yaml: modules.secure-development is required");
+  const unknown = Object.keys(modules).filter((k) => k !== "secure-development");
+  if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (v1 supports only secure-development)`);
+  const mod = modules["secure-development"];
+  if (!mod) throw new Error("event.yaml: modules.secure-development is required");
+  const targets = mod.targets;
   if (!Array.isArray(targets) || targets.length === 0) throw new Error("event.yaml: targets must be a non-empty list");
   const bad = targets.filter((t) => !TARGETS.includes(t));
   if (bad.length) throw new Error(`event.yaml: unknown targets: ${bad.join(", ")}`);

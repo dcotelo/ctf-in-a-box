@@ -6,8 +6,10 @@ event:
 github:
   org: my-event-org                # disposable per-event org
   oauth_client_id: Iv1.xxxx        # OAuth app client id (secret goes in .env)
-targets: [juice-shop, dvwa]        # any subset of the six
+modules:
+  secure-development:
+    targets: [juice-shop, dvwa]    # any subset of the six
+    score_ingest: poll             # poll | push
 teams: { enabled: true, max_size: 4 }
 hints: { enabled: false }
 admins: [your-github-login]
-score_ingest: poll                 # poll | push

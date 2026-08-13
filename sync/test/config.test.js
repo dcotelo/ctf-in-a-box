@@ -15,7 +15,7 @@ function writeYaml(text) {
 }
 
 test("loads org, targets and defaults", () => {
-  const p = writeYaml(`github: { org: my-org }\ntargets: [dvwa, juice-shop]\n`);
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa, juice-shop]\n`);
   const cfg = loadConfig(p, ENV);
   assert.equal(cfg.org, "my-org");
   assert.deepEqual(cfg.targets, ["dvwa", "juice-shop"]);
@@ -26,14 +26,14 @@ test("loads org, targets and defaults", () => {
 });
 
 test("rejects unknown target", () => {
-  const p = writeYaml(`github: { org: o }\ntargets: [dvwa, nope]\n`);
+  const p = writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa, nope]\n`);
   assert.throws(() => loadConfig(p, ENV), /unknown targets: nope/);
 });
 
 test("rejects missing org, empty targets, missing secrets", () => {
-  assert.throws(() => loadConfig(writeYaml(`targets: [dvwa]\n`), ENV), /github.org/);
-  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\ntargets: []\n`), ENV), /targets/);
-  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\ntargets: [dvwa]\n`), { SCORER_TOKEN: "t" }), /GITHUB_PAT/);
+  assert.throws(() => loadConfig(writeYaml(`modules:\n  secure-development:\n    targets: [dvwa]\n`), ENV), /github.org/);
+  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: []\n`), ENV), /targets/);
+  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`), { SCORER_TOKEN: "t" }), /GITHUB_PAT/);
 });
 
 test("REPO_NAMES maps every valid target", () => {
@@ -41,4 +41,14 @@ test("REPO_NAMES maps every valid target", () => {
     "juice-shop": "juice-shop", dvwa: "DVWA", webgoat: "WebGoat",
     securityshepherd: "SecurityShepherd", vulnerableapp: "VulnerableApp", vampi: "VAmPI",
   });
+});
+
+test("rejects unknown module key", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  forensics: {}\n`);
+  assert.throws(() => loadConfig(p, ENV), /unknown module: forensics/);
+});
+
+test("rejects missing modules section or missing secure-development", () => {
+  assert.throws(() => loadConfig(writeYaml(`github: { org: my-org }\n`), ENV), /modules.secure-development/);
+  assert.throws(() => loadConfig(writeYaml(`github: { org: my-org }\nmodules: {}\n`), ENV), /modules.secure-development/);
 });
