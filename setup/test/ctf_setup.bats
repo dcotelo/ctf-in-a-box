@@ -157,3 +157,46 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"config not found: nonexistent.yaml"* ]]
 }
+
+@test "check succeeds without event.yaml (regression fix)" {
+  # Create a directory with no event.yaml; stub tools so check passes
+  mkdir -p stubs
+  cat > stubs/gh <<'EOF'
+#!/bin/bash
+if [[ "$1" == "auth" && "$2" == "status" ]]; then
+  echo "logged in"
+  exit 0
+fi
+exit 1
+EOF
+  cat > stubs/docker <<'EOF'
+#!/bin/bash
+if [[ "$1" == "compose" && "$2" == "version" ]]; then
+  echo "Docker Compose version v2.0"
+  exit 0
+fi
+exit 1
+EOF
+  cat > stubs/openssl <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+  chmod +x stubs/gh stubs/docker stubs/openssl
+
+  # Run check with stubs in PATH (no event.yaml in directory)
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" check
+  [ "$status" -eq 0 ]
+  # Must NOT fail with "config not found"
+  [[ "$output" != *"config not found"* ]]
+  [[ "$output" == *"OK: prerequisites present"* ]]
+}
+
+@test "secrets succeeds without event.yaml (regression fix)" {
+  # secrets does not need event.yaml; should succeed even without it
+  run bash "$SCRIPT" secrets --out .env.secrets.test
+  [ "$status" -eq 0 ]
+  # Verify file was created with required variables
+  for var in BETTER_AUTH_SECRET SRH_TOKEN SCORER_TOKEN; do
+    grep -qE "^${var}=.{20,}" .env.secrets.test
+  done
+}

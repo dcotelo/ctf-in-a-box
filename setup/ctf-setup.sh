@@ -24,8 +24,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Verify config file exists
-[ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
+# Verify config file exists (only for subcommands that need it)
+require_config() {
+  [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
+}
 
 # target key -> upstream repo name
 repo_for() {
@@ -91,6 +93,7 @@ cmd_secrets() {
 }
 
 cmd_org() {
+  require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
   local targets_arr=() repos=()
@@ -128,6 +131,7 @@ EOF
 }
 
 cmd_teardown() {
+  require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
   while IFS= read -r t; do
