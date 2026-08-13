@@ -16,8 +16,7 @@ export async function tick(cfg, state, deps = {}) {
       log(`poll ${repo}: ${err.message}`);
       continue;
     }
-    rs.since = result.cursor.since;
-    rs.etag = result.cursor.etag;
+    let stopAt;
     for (const c of result.comments) {
       if (!markSeen(rs, c.id)) continue;
       const payload = parseScoreComment(c.body, cfg);
@@ -26,9 +25,13 @@ export async function tick(cfg, state, deps = {}) {
         await submitScore(cfg, payload, fetchImpl);
       } catch (err) {
         rs.seen = rs.seen.filter((id) => id !== c.id); // retry next tick
+        stopAt ??= c.updated_at; // record first failure's timestamp
         log(`submit ${repo}#${payload.pr}: ${err.message}`);
       }
     }
+    // advance cursor to first failure or to full batch, reset etag if any failure
+    rs.since = stopAt ?? result.cursor.since;
+    rs.etag = stopAt ? null : result.cursor.etag;
   }
   return state;
 }

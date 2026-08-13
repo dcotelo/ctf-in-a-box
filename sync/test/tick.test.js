@@ -49,3 +49,70 @@ test("scorer 5xx un-marks the comment so it retries next tick", async () => {
   await tick(CFG, state, { fetchImpl: f, log: () => {} });
   assert.equal(state.repos.DVWA.seen.includes(1), false);
 });
+
+test("2-comment batch: first fails 5xx, second succeeds 202; cursor stops at first", async () => {
+  const posts = [];
+  const comment1 = ghComment(1, `<!-- ctf-score: {"author":"octocat","target":"dvwa","solved":["sqli-low"],"pr":7,"sha":"abc"} -->`);
+  comment1.updated_at = "2026-08-13T11:00:00Z";
+  const comment2 = ghComment(2, `<!-- ctf-score: {"author":"mona","target":"dvwa","solved":["xss"],"pr":8,"sha":"def"} -->`);
+  comment2.updated_at = "2026-08-13T11:01:00Z";
+
+  const f = async (url, opts) => {
+    const u = String(url);
+    if (u.includes("/issues/comments")) {
+      return new Response(JSON.stringify([comment1, comment2]), { status: 200, headers: { etag: 'W/"batch"' } });
+    }
+    if (u.endsWith("/score")) {
+      const payload = JSON.parse(opts.body);
+      posts.push(payload);
+      // 5xx for octocat, 202 for mona
+      return new Response(null, { status: payload.author === "octocat" ? 503 : 202 });
+    }
+    throw new Error(`unexpected url ${u}`);
+  };
+
+  const state = { repos: {} };
+  const logs = [];
+  await tick(CFG, state, { fetchImpl: f, log: (m) => logs.push(m) });
+
+  // both were attempted to be submitted
+  assert.equal(posts.length, 2);
+  assert.equal(posts[0].author, "octocat");
+  assert.equal(posts[1].author, "mona");
+
+  // seen: 1 was un-marked (failed), 2 was kept (succeeded)
+  assert.equal(state.repos.DVWA.seen.includes(1), false);
+  assert.equal(state.repos.DVWA.seen.includes(2), true);
+
+  // cursor stops at first failure's updated_at
+  assert.equal(state.repos.DVWA.since, "2026-08-13T11:00:00Z");
+  assert.equal(state.repos.DVWA.etag, null);
+
+  // second tick: fetch again from first comment's time, both succeed
+  const posts2 = [];
+  const f2 = async (url, opts) => {
+    const u = String(url);
+    if (u.includes("/issues/comments")) {
+      // both comments returned again
+      return new Response(JSON.stringify([comment1, comment2]), { status: 200, headers: { etag: 'W/"batch2"' } });
+    }
+    if (u.endsWith("/score")) {
+      const payload = JSON.parse(opts.body);
+      posts2.push(payload);
+      return new Response(null, { status: 202 });
+    }
+    throw new Error(`unexpected url ${u}`);
+  };
+
+  await tick(CFG, state, { fetchImpl: f2, log: () => {} });
+
+  // comment 1 was re-submitted (un-marked on first tick), comment 2 was skipped (still in seen)
+  assert.equal(posts2.length, 1);
+  assert.equal(posts2[0].author, "octocat");
+
+  // both in seen now, cursor advanced fully
+  assert.equal(state.repos.DVWA.seen.includes(1), true);
+  assert.equal(state.repos.DVWA.seen.includes(2), true);
+  assert.equal(state.repos.DVWA.since, "2026-08-13T11:01:00Z");
+  assert.equal(state.repos.DVWA.etag, 'W/"batch2"');
+});
