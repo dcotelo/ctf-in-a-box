@@ -13,6 +13,24 @@ Contestants sign in, pick from up to six vulnerable target apps
 scores the PR and the score lands on your box's leaderboard — either pushed
 in directly or picked up by a poller, depending on your network.
 
+## What contestants see
+
+![Demo: leaderboard and challenge browser](docs/assets/demo.gif)
+
+| Leaderboard | Challenge browser |
+|---|---|
+| ![Leaderboard](docs/assets/leaderboard.jpg) | ![Challenges](docs/assets/challenges.jpg) |
+
+Captured from the contestant app running locally in mock-data mode (no
+backend configured — the app ships demo data by design, so the kit is
+inspectable before any event exists). Event name, dates, and branding are
+currently baked into the upstream app; making them — and the set of enabled
+modules — configurable per event is upstream work item 3 in
+[Status / upstream dependencies](#status--upstream-dependencies). An
+organizer admin panel (score adjustments, player removal, hint toggles) is
+planned alongside it and will be documented here with its own screenshots
+when it lands.
+
 ## Prerequisites
 
 - Docker with Compose v2 (`docker compose version` must work).
@@ -164,8 +182,13 @@ three changes landing in other OWASP-CTF repos:
    (pass/fail and points only, no exploit detail), and a cap on scoring
    re-runs per PR.
 3. **`ctf-owasp-org`** — a published container image and event-config
-   support (event name, dates, targets, branding read from `event.yaml`
-   instead of hardcoded event values). Until this lands, `images/app/Dockerfile`
+   support: event name, dates, targets, and branding read from `event.yaml`
+   instead of hardcoded event values; UI rendered dynamically from the
+   enabled `modules` (nav sections, challenge lists, and leaderboard
+   columns appear per enabled module — see
+   [docs/modules.md](docs/modules.md)); and an organizer admin panel
+   (score adjustments, player removal, hint toggles) gated by the
+   `admins` allowlist. Until this lands, `images/app/Dockerfile`
    in this repo builds the app from source as a bridge.
 
 Until those land, treat `scripts/smoke.sh` as the source of truth that the
