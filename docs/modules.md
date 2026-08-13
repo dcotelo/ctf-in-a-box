@@ -155,7 +155,51 @@ catalogue, scoring transport — lives under `modules.<name>`.
    provenance (a contestant's recorded solve no longer maps to any current
    challenge). Treat catalogue IDs like a public API: add, don't rename.
 
-## 5. Security requirements (non-negotiable)
+## 5. UI / presentation contract
+
+**Honesty constraint up front:** v1's contestant app does not yet do any of
+this. It is upstream work on `ctf-owasp-org` — `README.md`'s "Status /
+upstream dependencies" item 3 lists dynamic UI-from-modules (nav sections,
+challenge lists, and leaderboard columns appearing per enabled module) as
+not yet landed, alongside event-config branding and the admin panel;
+`images/app/Dockerfile` in this repo still builds the app from upstream
+source as a bridge, with no module-driven rendering. This section is the
+contract that upstream work is expected to implement, published now so a
+module author can build against a stable target instead of waiting for it
+to land.
+
+1. **Display metadata.** A module MUST provide a human-readable display
+   name, a short description, and a nav label, sourced from the module's
+   own config/catalogue — never hardcoded into the app per module. Worked
+   example: `secure-development` supplies "Secure Development" as its
+   display name (not a string baked into `ctf-owasp-org`'s UI layer).
+
+2. **Challenge catalogue for UI.** A module MUST expose, per challenge: id,
+   title, target/app grouping, and point value — built on the same
+   catalogue and the same stable challenge IDs required for scoring (item
+   4.2 above). The UI reads challenge titles and groupings from this
+   catalogue; it MUST NOT need a code change per challenge to render a new
+   one. Renaming a challenge ID breaks its UI history exactly as it breaks
+   scoring provenance (item 4.3) — one stability rule, not two.
+
+3. **Leaderboard presentation.** A module MUST define its own progress
+   semantics: what columns and progress indicators the leaderboard/app show
+   for it. Worked example: `secure-development` shows a patched/total count
+   per target (e.g. `dvwa: <solved>/<total>`) across its up-to-six
+   configured targets, `<total>` coming from that target's per-challenge
+   count in the catalogue (item 4.2) — a module with a different structure
+   (e.g. no per-app grouping) MUST specify its own equivalent rather than
+   forcing the patched/total shape.
+
+4. **Enablement rule.** A module's UI surfaces (nav entry, challenge list,
+   leaderboard columns) MUST appear if and only if the module's key is
+   present under `event.yaml`'s `modules:` map — the same map the config
+   loader validates (section 1). Nothing about a module absent from
+   `modules:` may leak into nav, leaderboard, or challenge listings; an
+   organizer who omits a module from their event config gets an app with no
+   trace of it, not a greyed-out or hidden-but-present surface.
+
+## 6. Security requirements (non-negotiable)
 
 1. Contestant code MUST run only inside sandboxed containers on an internal
    Docker network — never on the host, never with any token access. This
@@ -193,7 +237,7 @@ catalogue, scoring transport — lives under `modules.<name>`.
    result is zero points — so a rubric bug can never hand out free points
    for doing nothing.
 
-## 6. Provisioning & lifecycle hooks
+## 7. Provisioning & lifecycle hooks
 
 `ctf-setup.sh` implements `secure-development`'s provisioning today
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):
@@ -222,7 +266,7 @@ satisfies this because every provisioned artifact (forked repo, mirrored
 image, installed workflow) lives entirely inside the disposable per-event
 org.
 
-## 7. Versioning
+## 8. Versioning
 
 Targets MUST be pinned to exact versions/digests — never `:latest`.
 `secure-development` inherits this from its upstream: the event org's fork
