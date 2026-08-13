@@ -3,8 +3,8 @@
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
-ships exactly one module, `secure-development` (the DEF CON 34
-patch-the-vulnerability format: fork target app, find + patch the vuln, PR
+ships exactly one module, `secure-development` (the OWASP Secure Development
+CTF patch-the-vulnerability format: fork target app, find + patch the vuln, PR
 back, GitHub Actions scores the patch). This document is the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
 `secure-development` as the worked example throughout.
@@ -137,8 +137,7 @@ catalogue, scoring transport — lives under `modules.<name>`.
    (`test/fixtures/mock-scorer.mjs`) returns `{leaderboard: [{author,
    points, solved}]}` computed as one point per solved challenge ID — a
    simplified stand-in for smoke-testing, not the real scoring/pricing
-   logic (that lives in the private `dc34-owasp-secure-development-ctf`
-   scorer image). The real scorer's leaderboard entries carry, per author,
+   logic (that lives in the private upstream scorer image). The real scorer's leaderboard entries carry, per author,
    points plus a per-target solved/total breakdown.
 
 2. A module MUST define its own challenge catalogue: a fixed set of target
@@ -166,7 +165,7 @@ catalogue, scoring transport — lives under `modules.<name>`.
    secrets) lives, while the untrusted PR code under test executes in a
    sandboxed container on an internal Docker network with no access to
    that token — the isolation pattern documented in the consumer docs of
-   `OWASP-CTF/dc34-owasp-secure-development-ctf`, the same
+   the upstream scorer repo, the same
    `pull_request_target.yml` workflow `setup/ctf-setup.sh`'s `cmd_org`
    fetches and installs into each forked target repo. A module MUST
    reproduce this isolation for its own scoring workflow, not just inherit
@@ -202,7 +201,7 @@ catalogue, scoring transport — lives under `modules.<name>`.
 1. **Fork** each configured target from `OWASP-CTF/<repo>` into the event
    org (`gh repo fork "OWASP-CTF/$r" --org "$org"`).
 2. **Install** the scoring workflow: fetch the consumer's
-   `pull_request_target.yml` from the `dc34-owasp-secure-development-ctf`
+   `pull_request_target.yml` from the upstream scorer repo's
    docs and commit it as `.github/workflows/ctf-score.yml` in each forked
    repo (inherited workflows must be disabled in repo Settings).
 3. **Mirror** the scorer image into the event org's own private GHCR

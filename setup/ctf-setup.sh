@@ -109,7 +109,7 @@ cmd_org() {
     run gh repo fork "OWASP-CTF/$r" --org "$org" --clone=false
   done
 
-  echo "== installing scoring workflow (fetched from dc34 consumer docs)"
+  echo "== installing scoring workflow (fetched from upstream consumer docs)"
   for i in "${!repos[@]}"; do
     local t="${targets_arr[$i]}" r="${repos[$i]}"
     run gh api "repos/OWASP-CTF/dc34-owasp-secure-development-ctf/contents/docs/${t}-consumer/pull_request_target.yml" \

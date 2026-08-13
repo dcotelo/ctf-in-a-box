@@ -1,6 +1,6 @@
 # CTF-in-a-box
 
-Self-hosted OWASP CTF: run the DEF CON 34 patch-the-vulnerability format
+Self-hosted OWASP CTF: run the OWASP Secure Development CTF — the patch-the-vulnerability format
 (fork target app → find + patch the vuln → PR back → GitHub Actions scores
 the patch) on your own hardware. One box, one free GitHub org, no cloud
 dependencies. See
@@ -155,7 +155,7 @@ exercises the whole poll pipeline offline, and `sync` has unit tests for
 parsing, cursors, and idempotency. Real, live-GitHub scoring depends on
 three changes landing in other OWASP-CTF repos:
 
-1. **`dc34` scorer** — a bearer-token auth mode for `POST /score` (accept
+1. **upstream scorer** — a bearer-token auth mode for `POST /score` (accept
    `Authorization: Bearer <token>` as an alternative to Actions OIDC), so
    both `sync` and push mode can authenticate without an OIDC provider.
 2. **`score-action`** — optional `leaderboard-url` / `leaderboard-token`
@@ -165,7 +165,7 @@ three changes landing in other OWASP-CTF repos:
    re-runs per PR.
 3. **`ctf-owasp-org`** — a published container image and event-config
    support (event name, dates, targets, branding read from `event.yaml`
-   instead of hardcoded DC34 values). Until this lands, `images/app/Dockerfile`
+   instead of hardcoded event values). Until this lands, `images/app/Dockerfile`
    in this repo builds the app from source as a bridge.
 
 Until those land, treat `scripts/smoke.sh` as the source of truth that the
