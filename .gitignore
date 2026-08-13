@@ -2,3 +2,6 @@ node_modules/
 .env
 event.yaml
 state/
+
+# internal planning docs — keep local, never commit
+docs/superpowers/
