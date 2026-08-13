@@ -1,0 +1,9 @@
+{$EVENT_HOST}
+
+handle /score {
+	reverse_proxy scorer:4000
+}
+
+handle {
+	reverse_proxy app:3000
+}

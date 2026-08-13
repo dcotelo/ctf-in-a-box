@@ -1,0 +1,70 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./caddy/Caddyfile.${SCORE_INGEST:-poll}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    environment:
+      EVENT_HOST: ${EVENT_URL:-http://localhost}
+
+  app:
+    profiles: ["app"]
+    build: ./images/app
+    restart: unless-stopped
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${EVENT_URL:-http://localhost}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      LEADERBOARD_SOURCE: lambda          # plain-HTTP adapter; reads the local scorer
+      LEADERBOARD_API_URL: http://scorer:4000
+      UPSTASH_REDIS_REST_URL: http://srh:80
+      UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
+      TEAM_WRITES_ENABLED: "true"
+      CTF_DATA_BACKEND: upstash           # no DynamoDB in self-host
+    depends_on: [srh, scorer]
+
+  scorer:
+    image: ${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}
+    command: ["score", "serve"]
+    restart: unless-stopped
+    environment:
+      UPSTASH_REDIS_REST_URL: http://srh:80
+      UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
+      CTF_SCORE_BEARER_TOKEN: ${SCORER_TOKEN}   # requires upstream scorer bearer-auth mode
+    depends_on: [srh]
+
+  srh:
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${SRH_TOKEN}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on: [redis]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+
+  sync:
+    profiles: ["poll"]
+    build: ./sync
+    restart: unless-stopped
+    environment:
+      GITHUB_PAT: ${GITHUB_PAT}
+      SCORER_TOKEN: ${SCORER_TOKEN}
+      SCORER_URL: http://scorer:4000
+    volumes:
+      - ./event.yaml:/config/event.yaml:ro
+      - sync-state:/state
+    depends_on: [scorer]
+
+volumes:
+  caddy-data:
+  redis-data:
+  sync-state:

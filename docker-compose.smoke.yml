@@ -1,0 +1,17 @@
+services:
+  scorer:
+    image: !reset null
+    build: ./test/fixtures
+    command: ["node", "mock-scorer.mjs"]
+    environment:
+      SCORER_TOKEN: ${SCORER_TOKEN}
+    ports: ["4000:4000"]
+
+  mock-github:
+    build: ./test/fixtures
+    command: ["node", "mock-github.mjs"]
+
+  sync:
+    environment:
+      GITHUB_API_URL: http://mock-github:8080
+      POLL_INTERVAL_MS: "1000"
