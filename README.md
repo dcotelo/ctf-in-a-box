@@ -23,6 +23,10 @@ in directly or picked up by a poller, depending on your network.
   OWASP-CTF "self-host organizers" team. The scorer image bakes in the
   challenge rubric and stays private; `ctf-setup org` mirrors it into your
   own event org so your forks' Actions can pull it.
+- `docker login ghcr.io` with a token that has `write:packages`. The
+  `org` subcommand's image-mirror step ends with
+  `docker push ghcr.io/<org>/score:latest`, which needs write access to
+  your event org's GHCR packages, not just read access to the upstream one.
 
 ## Quickstart
 
@@ -42,7 +46,10 @@ from it.
 `secrets` writes `.env` with generated `BETTER_AUTH_SECRET`, `SRH_TOKEN`,
 and `SCORER_TOKEN`, plus empty `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
 / `GITHUB_PAT` for you to fill in (see [GitHub OAuth app](#github-oauth-app)
-and below for the PAT). It refuses to overwrite an existing `.env`.
+for the client id/secret; `GITHUB_PAT` is consumed at runtime by the `sync`
+service for poll-mode comment polling, not by `ctf-setup.sh` — see
+[Poll vs push](#poll-vs-push)). A classic-scope PAT with repo read on the
+event org suffices. It refuses to overwrite an existing `.env`.
 
 `event.yaml` uses a **modules** schema: platform settings (`event`,
 `github`, `teams`, `hints`, `admins`) sit at the top level, and the actual
@@ -54,12 +61,13 @@ without changing anything else in the file. Copy `event.yaml.example` and
 fill in `github.org`, `modules.secure-development.targets` (any subset of
 the six target keys above), `admins` (GitHub logins), and `event.url`.
 
-`ctf-setup.sh org` needs a `GITHUB_PAT` in `.env` (org-scoped, repo read/write
-on the event org) and forks each target into the org, fetches and reports
-where to install the scoring workflow, and mirrors the scorer image into
-your org's GHCR. Every subcommand takes flags *after* the subcommand name,
-e.g. `./setup/ctf-setup.sh org --dry-run` to preview without touching
-anything.
+`ctf-setup.sh org` authenticates via your existing `gh auth login` session
+(the same one `check` verifies) and your local `docker` login to
+`ghcr.io` — it doesn't read `.env` at all. It forks each target into the
+org, fetches and reports where to install the scoring workflow, and
+mirrors the scorer image into your org's GHCR. Every subcommand takes
+flags *after* the subcommand name, e.g. `./setup/ctf-setup.sh org --dry-run`
+to preview without touching anything.
 
 ## GitHub OAuth app
 
@@ -81,6 +89,11 @@ ways, set via `modules.secure-development.score_ingest` in `event.yaml`
 |---|---|---|---|
 | `poll` (default) | The `sync` service polls the org's target repos for score comments with your organizer PAT | Nothing extra — works behind NAT, on a laptop, anywhere | ~30 s |
 | `push` | The scoring Action POSTs the score directly to your box | A public URL for the box; set `SCORE_INGEST=push` and org Actions secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` | Near-instant |
+
+Push mode additionally depends on upstream item 2 below (`score-action`'s
+`leaderboard-url`/`leaderboard-token` inputs) actually shipping — see
+[Status / upstream dependencies](#status--upstream-dependencies). Poll mode
+is what `scripts/smoke.sh` proves working today.
 
 Poll mode has zero inbound network surface — nothing needs to reach your
 box from the internet. Push mode needs `LEADERBOARD_URL` (the box's public
