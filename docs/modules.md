@@ -209,9 +209,10 @@ to land.
    secrets) lives, while the untrusted PR code under test executes in a
    sandboxed container on an internal Docker network with no access to
    that token — the isolation pattern documented in the consumer docs of
-   the upstream scorer repo, the same
-   `pull_request_target.yml` workflow `setup/ctf-setup.sh`'s `cmd_org`
-   fetches and installs into each forked target repo. A module MUST
+   the upstream scorer repo, the same `pull_request_target.yml` workflow
+   `setup/ctf-setup.sh`'s `cmd_org` fetches and prints manual install steps
+   for into each forked target repo (§7.2 — installation itself is a manual
+   step, not automated by `cmd_org`). A module MUST
    reproduce this isolation for its own scoring workflow, not just inherit
    it by accident.
 
