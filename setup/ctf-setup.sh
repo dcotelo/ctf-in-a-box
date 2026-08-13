@@ -24,6 +24,9 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Verify config file exists
+[ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
+
 # target key -> upstream repo name
 repo_for() {
   case "$1" in
@@ -37,12 +40,24 @@ repo_for() {
   esac
 }
 
-# Minimal YAML extraction — grep/sed on two known lines (org, and the
-# flow-style targets list under modules.secure-development at any indent);
-# the sync service re-validates the same file with a real parser at runtime.
-yaml_org() { sed -n 's/^[[:space:]]*org:[[:space:]]*//p' "$CONFIG" | head -1; }
+# YAML extraction with comment stripping and flow-style support.
+# org: extracts from both block-style (org: value) and flow-style (github: { org: value })
+# targets: extracts flow-style list scoped to modules.secure-development block
+yaml_org() {
+  # Try block-style: org: value [# comment]
+  local org
+  org=$(sed -n 's/^[[:space:]]*org:[[:space:]]*\([^#]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//')
+  [ -n "$org" ] && { echo "$org"; return; }
+  # Try flow-style: { org: value [, ...] }
+  org=$(sed -n 's/.*{[^}]*org:[[:space:]]*\([^},]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//')
+  echo "$org"
+}
+
 yaml_targets() {
-  sed -n 's/^[[:space:]]*targets:[[:space:]]*\[\(.*\)\].*/\1/p' "$CONFIG" | head -1 | tr -d ' ' | tr ',' '\n'
+  # Extract targets from modules.secure-development block only (awk range from
+  # secure-development: to next line at equal-or-lower indent), then parse flow-style list.
+  awk '/^[[:space:]]*secure-development:/{flag=1; next} flag && /^[[:space:]]{0,2}[^[:space:]]/{flag=0} flag' "$CONFIG" | \
+    sed -n 's/^[[:space:]]*targets:[[:space:]]*\[\(.*\)\].*/\1/p' | head -1 | tr -d ' ' | tr ',' '\n'
 }
 
 run() {
@@ -52,6 +67,7 @@ run() {
 cmd_check() {
   command -v gh >/dev/null || { echo "gh CLI missing: https://cli.github.com"; exit 1; }
   command -v docker >/dev/null || { echo "docker missing"; exit 1; }
+  command -v openssl >/dev/null || { echo "openssl missing"; exit 1; }
   docker compose version >/dev/null || { echo "docker compose v2 missing"; exit 1; }
   gh auth status || { echo "run: gh auth login"; exit 1; }
   echo "OK: prerequisites present"
@@ -77,9 +93,10 @@ cmd_secrets() {
 cmd_org() {
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  local repos=()
+  local targets_arr=() repos=()
   while IFS= read -r t; do
     [ -n "$t" ] || continue
+    targets_arr+=("$t")
     repos+=("$(repo_for "$t")")
   done < <(yaml_targets)
   [ ${#repos[@]} -gt 0 ] || { echo "event.yaml: no targets" >&2; exit 1; }
@@ -91,8 +108,7 @@ cmd_org() {
 
   echo "== installing scoring workflow (fetched from dc34 consumer docs)"
   for i in "${!repos[@]}"; do
-    local t r
-    t="$(yaml_targets | sed -n "$((i + 1))p")"; r="${repos[$i]}"
+    local t="${targets_arr[$i]}" r="${repos[$i]}"
     run gh api "repos/OWASP-CTF/dc34-owasp-secure-development-ctf/contents/docs/${t}-consumer/pull_request_target.yml" \
       --jq .content
     echo "   -> decode + commit as .github/workflows/ctf-score.yml in $org/$r (disable inherited workflows in repo Settings > Actions)"
@@ -113,9 +129,11 @@ EOF
 
 cmd_teardown() {
   local org; org="$(yaml_org)"
+  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    run gh repo archive "$org/$(repo_for "$t")" --yes
+    local r; r="$(repo_for "$t")" || exit 1
+    run gh repo archive "$org/$r" --yes
   done < <(yaml_targets)
   echo "== revoke the organizer PAT and delete org secrets manually"
 }
