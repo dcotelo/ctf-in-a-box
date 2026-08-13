@@ -15,3 +15,5 @@ services:
     environment:
       GITHUB_API_URL: http://mock-github:8080
       POLL_INTERVAL_MS: "1000"
+    volumes:
+      - ./.smoke-event.yaml:/config/event.yaml:ro

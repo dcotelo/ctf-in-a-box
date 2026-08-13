@@ -7,15 +7,19 @@ cd "$(dirname "$0")/.."
 export SRH_TOKEN=smoke-srh SCORER_TOKEN=smoke-scorer GITHUB_PAT=smoke-pat
 compose() { docker compose -f docker-compose.yml -f docker-compose.smoke.yml --profile poll "$@"; }
 
-# Fixture comments cover dvwa + juice-shop; write a minimal matching config.
-cat > event.yaml <<'YAML'
+# Fixture comments cover dvwa + juice-shop; write a minimal matching config to
+# a scratch file — never the organizer's real event.yaml. docker-compose.smoke.yml
+# mounts this over /config/event.yaml in the sync service (compose merges the
+# sync service's volumes list by target path, so this override replaces the
+# base compose file's ./event.yaml bind rather than stacking alongside it).
+cat > .smoke-event.yaml <<'YAML'
 github: { org: evt-org }
 modules:
   secure-development:
     targets: [juice-shop, dvwa]
 YAML
 
-cleanup() { compose down -v --remove-orphans >/dev/null 2>&1 || true; }
+cleanup() { compose down -v --remove-orphans >/dev/null 2>&1 || true; rm -f .smoke-event.yaml; }
 trap cleanup EXIT
 
 compose up -d --build redis srh scorer mock-github sync

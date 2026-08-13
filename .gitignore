@@ -1,6 +1,7 @@
 node_modules/
 .env
 event.yaml
+.smoke-event.yaml
 state/
 
 # internal planning docs — keep local, never commit
