@@ -42,6 +42,20 @@ test("poll failure for one repo is logged, not thrown", async () => {
   assert.match(logs[0], /DVWA/);
 });
 
+test("scorer 4xx logs a rejection and permanently drops the comment", async () => {
+  const posts = [];
+  const f = routes(() => new Response(JSON.stringify([ghComment(1)]), { status: 200, headers: {} }), 401, posts);
+  const state = { repos: {} };
+  const logs = [];
+  await tick(CFG, state, { fetchImpl: f, log: (m) => logs.push(m) });
+  assert.equal(posts.length, 1);
+  // logged as a rejected/dropped submission, not silently swallowed
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /rejected \(4xx\), dropped/);
+  // comment stays marked seen (permanent drop) — unlike the 5xx retry case
+  assert.equal(state.repos.DVWA.seen.includes(1), true);
+});
+
 test("scorer 5xx un-marks the comment so it retries next tick", async () => {
   const posts = [];
   const f = routes(() => new Response(JSON.stringify([ghComment(1)]), { status: 200, headers: {} }), 503, posts);

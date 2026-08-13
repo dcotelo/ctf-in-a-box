@@ -22,7 +22,8 @@ export async function tick(cfg, state, deps = {}) {
       const payload = parseScoreComment(c.body, cfg);
       if (!payload) continue;
       try {
-        await submitScore(cfg, payload, fetchImpl);
+        const ok = await submitScore(cfg, payload, fetchImpl);
+        if (!ok) log(`submit ${repo}#${payload.pr}: rejected (4xx), dropped`);
       } catch (err) {
         rs.seen = rs.seen.filter((id) => id !== c.id); // retry next tick
         stopAt ??= c.updated_at; // record first failure's timestamp
