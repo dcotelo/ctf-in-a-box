@@ -56,10 +56,10 @@ catalogue, scoring transport — lives under `modules.<name>`.
 ## 2. Scoring ingestion contract (the hard boundary)
 
 1. MUST submit every score through the single writer: `POST /score` on the
-   local scorer (`sync/src/submit.js` — this is also the only path
-   `score-action` push mode uses; see `docs/superpowers/specs/...`, "Both
-   push and poll paths go through `POST /score` — no second write path").
-   A module MUST NOT invent a second ingestion route.
+   local scorer. `sync/src/submit.js` is the only write path this repo
+   implements — both the poll pipeline (`sync`) and push-mode
+   (`score-action` POSTing directly) land on the same endpoint; there is no
+   second write path. A module MUST NOT invent one.
 
 2. Payload MUST be `{author, target, solved: string[], pr: number, sha:
    string}`, delivered as a bearer-authenticated JSON POST, and a success
@@ -148,8 +148,9 @@ catalogue, scoring transport — lives under `modules.<name>`.
    set of challenge IDs with known totals, so the leaderboard can render
    "solved / total" and unsolved counts read as remaining work, not as
    absent data. `secure-development`'s challenge IDs (e.g. `sqli-low`,
-   `exec-low`, `restfulXss` — see `sync/test/parse.test.js` fixtures) are
-   opaque strings scoped per target; the module owns their meaning.
+   `exec-low`, `restfulXss` — see the fixture score comments in
+   `test/fixtures/mock-github.mjs`) are opaque strings scoped per target;
+   the module owns their meaning.
 
 3. Challenge IDs are stable keys once published — renaming one breaks
    provenance (a contestant's recorded solve no longer maps to any current
@@ -163,10 +164,13 @@ catalogue, scoring transport — lives under `modules.<name>`.
    scoring workflow runs in the base (org) repo's context, where the org
    `GITHUB_TOKEN` (needed to pull the private scorer image and read org
    secrets) lives, while the untrusted PR code under test executes in a
-   container with no access to that token (`docs/superpowers/specs/...`:
-   "PR code runs only inside containers on an `--internal` docker network
-   and can never read the token"). A module MUST reproduce this isolation
-   for its own scoring workflow, not just inherit it by accident.
+   sandboxed container on an internal Docker network with no access to
+   that token — the isolation pattern documented in the consumer docs of
+   `OWASP-CTF/dc34-owasp-secure-development-ctf`, the same
+   `pull_request_target.yml` workflow `setup/ctf-setup.sh`'s `cmd_org`
+   fetches and installs into each forked target repo. A module MUST
+   reproduce this isolation for its own scoring workflow, not just inherit
+   it by accident.
 
 2. **Oracle discipline**: contestant-visible output (PR comment, push/poll
    payload) MUST be pass/fail plus points only — never failing-test names,
