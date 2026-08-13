@@ -52,7 +52,7 @@ when it lands.
 ./setup/ctf-setup.sh check
 ./setup/ctf-setup.sh secrets
 cp event.yaml.example event.yaml   # edit: org, targets, admins, url
-./setup/ctf-setup.sh org           # fork targets, install workflow, mirror image
+./setup/ctf-setup.sh org           # fork targets, fetch workflow (manual install), mirror image
 docker compose --profile poll --profile app up -d
 ```
 
@@ -72,8 +72,10 @@ event org suffices. It refuses to overwrite an existing `.env`.
 `event.yaml` uses a **modules** schema: platform settings (`event`,
 `github`, `teams`, `hints`, `admins`) sit at the top level, and the actual
 challenge content is namespaced under `modules.<name>`. v1 ships exactly one
-module, `modules.secure-development`, holding the target list and
-`score_ingest` mode. Future CTF verticals (forensics, API security, cloud,
+module, `modules.secure-development`, holding the target list and a
+`score_ingest` field that documents the intended poll/push mode (the
+operative switch is `SCORE_INGEST` in `.env` — see [Poll vs
+push](#poll-vs-push)). Future CTF verticals (forensics, API security, cloud,
 ...) are expected to plug in as sibling keys next to `secure-development`
 without changing anything else in the file. Copy `event.yaml.example` and
 fill in `github.org`, `modules.secure-development.targets` (any subset of
@@ -95,16 +97,22 @@ to preview without touching anything.
 Contestants sign in with GitHub, so you need an OAuth app:
 
 1. In the event org (or your personal account), create a new OAuth app.
-2. Set the callback URL to `<EVENT_URL>/api/auth/callback/github` (the
-   `event.url` you put in `event.yaml`).
+2. Set the callback URL to `<EVENT_URL>/api/auth/callback/github`, where
+   `EVENT_URL` is the value you set in `.env` — that's what Caddy and the
+   app's auth flow actually use. (`event.yaml`'s `event.url` is a separate,
+   unsynced field; see [Poll vs push](#poll-vs-push) for the same
+   env-vs-config-file split with `SCORE_INGEST`.)
 3. Put the client ID in `GITHUB_CLIENT_ID` and the client secret in
    `GITHUB_CLIENT_SECRET` in `.env`.
 
 ## Poll vs push
 
 Scores travel from the scoring GitHub Action back to your box one of two
-ways, set via `modules.secure-development.score_ingest` in `event.yaml`
-(and `SCORE_INGEST` in `.env`):
+ways. **`SCORE_INGEST` in `.env` is the operative switch** — it's what
+`docker-compose.yml` and the Caddy profile actually read.
+`modules.secure-development.score_ingest` in `event.yaml` only documents the
+organizer's intent for the same choice; nothing syncs the two, so keep them
+matching yourself:
 
 | Mode | How it works | Requirements | Latency |
 |---|---|---|---|
@@ -128,7 +136,7 @@ contestant-facing app). Push mode doesn't need the `sync` service running.
 
 ## During the event
 
-- Leaderboard and app live at the `event.url` you configured.
+- Leaderboard and app live at the `EVENT_URL` you configured in `.env`.
 - Poller logs: `docker compose logs -f sync`.
 - All state (Redis data, sync cursor) lives in named Docker volumes, so a
   box reboot doesn't lose scores or progress.
@@ -190,6 +198,13 @@ three changes landing in other OWASP-CTF repos:
    (score adjustments, player removal, hint toggles) gated by the
    `admins` allowlist. Until this lands, `images/app/Dockerfile`
    in this repo builds the app from source as a bridge.
+
+`srh` (`hiett/serverless-redis-http`), the Upstash-compatible REST proxy in
+front of Redis, implements only a subset of Upstash's REST API (see the
+notes in `scripts/smoke.sh` — no path-style `GET /get/<key>` shortcut, for
+example). Whether the app image's Redis client stays within that subset
+(pipelining, `EVAL`, etc.) is verified as part of upstream item 3 above,
+once the app reads from `srh` for real rather than mock data.
 
 Until those land, treat `scripts/smoke.sh` as the source of truth that the
 kit itself works; a real event additionally needs the scorer's bearer-auth

@@ -244,10 +244,12 @@ to land.
 
 1. **Fork** each configured target from `OWASP-CTF/<repo>` into the event
    org (`gh repo fork "OWASP-CTF/$r" --org "$org"`).
-2. **Install** the scoring workflow: fetch the consumer's
-   `pull_request_target.yml` from the upstream scorer repo's
-   docs and commit it as `.github/workflows/ctf-score.yml` in each forked
-   repo (inherited workflows must be disabled in repo Settings).
+2. **Fetch + print install steps** for the scoring workflow: `cmd_org` reads
+   the consumer's `pull_request_target.yml` from the upstream scorer repo's
+   docs via the GitHub API and prints where the organizer must decode and
+   commit it — as `.github/workflows/ctf-score.yml` in each forked repo,
+   with inherited workflows disabled in repo Settings — but does not commit
+   it itself; that step is manual.
 3. **Mirror** the scorer image into the event org's own private GHCR
    (`docker pull` the upstream image, `docker tag`/`docker push` to
    `ghcr.io/$org/score:latest`) so forked repos' Actions can pull it with

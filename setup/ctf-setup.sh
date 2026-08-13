@@ -4,7 +4,7 @@
 # Subcommands:
 #   check     verify local prerequisites (gh auth, docker, compose)
 #   secrets   generate .env secret values
-#   org       fork targets, install scoring workflow, mirror scorer image, print grant steps
+#   org       fork targets, fetch scoring workflow + print install steps, mirror scorer image
 #   teardown  archive event repos after the event
 #
 # Global flags: --dry-run (print mutating commands), --config <path> (default event.yaml)
