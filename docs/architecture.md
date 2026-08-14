@@ -9,7 +9,8 @@ how an organizer's `event.yaml` becomes the app's branding, and what the
 security model actually rests on. For *why* these choices were made instead
 of alternatives, see [docs/decisions.md](decisions.md). For the contract a
 new CTF vertical must satisfy, see [docs/modules.md](modules.md). For
-day-to-day operation, see [README.md](../README.md).
+day-to-day operation, see
+[README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md).
 
 ## System overview
 
@@ -96,7 +97,8 @@ state; everything else that touches scores goes through it.
    `score-action`'s `leaderboard-url`/`leaderboard-token` inputs, which
    push mode needs to know where and how to POST, are still an unlanded
    upstream change (README's [Status / upstream
-   dependencies](../README.md#status--upstream-dependencies), item 2).
+   dependencies](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md#status--upstream-dependencies),
+   item 2).
 4. In poll mode, `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
    `fetchNewScoreComments` (`sync/src/github.js`), which fetches issue
    comments since the last cursor and **filters by comment author
@@ -193,7 +195,8 @@ config change").
   side, not a double-count. The real (private) `scorer` image doesn't
   accept bearer-token auth on `POST /score` yet — that's an unlanded
   upstream change (see README's [Status / upstream
-  dependencies](../README.md#status--upstream-dependencies), item 1); the
+  dependencies](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md#status--upstream-dependencies),
+  item 1); the
   offline mock scorer in `scripts/smoke.sh` is today's end-to-end proof of
   this write path, not a live scorer.
 - **Per-event disposable orgs.** Each event gets its own GitHub org

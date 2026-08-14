@@ -9,7 +9,7 @@ Context / Decision / Consequences. For how these decisions fit together as
 a running system, see [docs/architecture.md](architecture.md). For the
 contract a new CTF module must satisfy, see
 [docs/modules.md](modules.md). For operator-facing instructions, see
-[README.md](../README.md).
+[README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md).
 
 ## 1. Keep the GitHub fork/PR/Action flow — it is the pedagogy
 
