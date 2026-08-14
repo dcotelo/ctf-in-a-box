@@ -41,7 +41,7 @@ export default function EventCountdown({
    *  happens at zero (e.g. the leaderboard's mock-data notice). */
   hideWhenComplete?: boolean;
 }) {
-  const targetMs = new Date(event.ctfStartsAt).getTime();
+  const targetMs = event.ctfStartsAt ? new Date(event.ctfStartsAt).getTime() : 0;
   const [mounted, setMounted] = useState(false);
   const [remaining, setRemaining] = useState<Remaining | null>(null);
 

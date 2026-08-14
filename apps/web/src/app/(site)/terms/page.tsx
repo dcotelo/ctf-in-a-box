@@ -118,10 +118,15 @@ export default function TermsPage() {
 
       <p className="text-sm leading-relaxed text-muted">
         Questions about any of this? Ask an organizer at the OWASP CTF area or in the{" "}
-        <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>, or email{" "}
-        <a href={`mailto:${event.contactEmail}`} className="ds-link font-mono">
-          {event.contactEmail}
-        </a>
+        <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>
+        {event.contactEmail && (
+          <>
+            , or email{" "}
+            <a href={`mailto:${event.contactEmail}`} className="ds-link font-mono">
+              {event.contactEmail}
+            </a>
+          </>
+        )}
         .
       </p>
     </div>

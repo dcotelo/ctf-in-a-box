@@ -42,20 +42,6 @@ export default function CodeOfConductPage() {
             <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
             <span>
               The{" "}
-              <ExternalLink href={event.defconCodeOfConductUrl}>
-                DEF CON Code of Conduct
-              </ExternalLink>{" "}
-              governs the venue and everyone in it: attendees, speakers, press, volunteers,
-              and Goons alike. DEF CON states it does not condone harassment against any
-              participant, for any reason, and that harassment includes deliberate intimidation
-              and targeting people in a way that makes them feel uncomfortable, unwelcome, or
-              afraid.
-            </span>
-          </li>
-          <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
-            <span>
-              The{" "}
               <ExternalLink href={event.owaspCodeOfConductUrl}>
                 OWASP Code of Conduct
               </ExternalLink>{" "}
@@ -85,34 +71,6 @@ export default function CodeOfConductPage() {
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
             <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
             <span>
-              <span className="font-semibold text-white">At the conference</span>: contact any
-              Goon, the registration desk, or an info booth. DEF CON also runs a safety hotline
-              you can call or text:{" "}
-              <a
-                href={`tel:+1${event.defconSafetyHotline.replace(/-/g, "")}`}
-                className="font-mono ds-link"
-              >
-                {event.defconSafetyHotline}
-              </a>
-              .
-            </span>
-          </li>
-          <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
-            <span>
-              <span className="font-semibold text-white">Year-round, to DEF CON</span>:{" "}
-              <a
-                href={`mailto:${event.defconSafetyEmail}`}
-                className="font-mono ds-link"
-              >
-                {event.defconSafetyEmail}
-              </a>
-              .
-            </span>
-          </li>
-          <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
-            <span>
               <span className="font-semibold text-white">For anything CTF-specific</span>: find
               an organizer at the OWASP CTF area, or message the organizers in the{" "}
               <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>. This is also the
@@ -120,18 +78,20 @@ export default function CodeOfConductPage() {
               scorer.
             </span>
           </li>
-          <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
-            <span>
-              <span className="font-semibold text-white">In writing, and in private</span>:{" "}
-              <a href={`mailto:${event.contactEmail}`} className="font-mono ds-link">
-                {event.contactEmail}
-              </a>
-              . This reaches the CTF organizers directly. Use it if the report involves someone
-              you would rather not approach in person, or if you want a written record instead
-              of a conversation in a shared Discord.
-            </span>
-          </li>
+          {event.contactEmail && (
+            <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
+              <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
+              <span>
+                <span className="font-semibold text-white">In writing, and in private</span>:{" "}
+                <a href={`mailto:${event.contactEmail}`} className="font-mono ds-link">
+                  {event.contactEmail}
+                </a>
+                . This reaches the CTF organizers directly. Use it if the report involves someone
+                you would rather not approach in person, or if you want a written record instead
+                of a conversation in a shared Discord.
+              </span>
+            </li>
+          )}
         </ul>
       </section>
 

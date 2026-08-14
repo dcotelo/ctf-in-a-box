@@ -1,17 +1,16 @@
 // Central site config: event facts and primary navigation.
 // Keep route copy in one place so the header, footer, and metadata stay in sync.
 
+import { eventConfig } from "@/lib/event-config";
+
 export const event = {
-  name: "OWASP CTF @ DEF CON 34",
-  theme: "Agency",
-  dates: "August 7–9, 2026",
-  location: "Las Vegas Convention Center",
-  // Friday, August 7, 2026, 10:00 AM Pacific Daylight Time (Las Vegas).
-  // ISO with explicit offset so it resolves to the same instant everywhere.
-  ctfStartsAt: "2026-08-07T10:00:00-07:00",
-  // Full DEF CON schedule (talks, villages, timing) lives in HackerTracker,
-  // not on this site — we only own CTF-specific content.
-  hackerTrackerUrl: "https://hackertracker.app",
+  name: eventConfig.name,
+  theme: eventConfig.theme,
+  dates: eventConfig.dates,
+  location: eventConfig.location,
+  ctfStartsAt: eventConfig.ctfStartsAt,
+  url: eventConfig.url,
+
   // Live contestant support during the event: scoring questions, stuck runs,
   // organizer announcements. Resolves to the public #general channel and never
   // expires. If this is ever reissued, check the target channel first — the
@@ -28,15 +27,13 @@ export const event = {
   owaspCodeOfConductUrl: "https://policy.owasp.org/operational/code-of-conduct",
   // OWASP publishes no Terms of Service; the General Disclaimer is the analogue.
   owaspDisclaimerUrl: "https://policy.owasp.org/operational/general-disclaimer",
-  defconCodeOfConductUrl: "https://defcon.org/html/links/dc-code-of-conduct.html",
   // The CTF team's own inbox: the one address on this site that reaches the
   // organizers rather than the Foundation or DEF CON. Use it for anything that
   // needs a private, written channel and shouldn't go in a public Discord.
-  contactEmail: "defcon-ctf@owasp.org",
+  // "" (unset in event config) means pages hide their contact-email lines.
+  contactEmail: eventConfig.contactEmail,
   // As published on the OWASP privacy policy — note .com, not .org.
   privacyContactEmail: "privacy@owasp.com",
-  defconSafetyEmail: "safety@defcon.org",
-  defconSafetyHotline: "725-222-0934",
 } as const;
 
 export type NavLink = { href: string; label: string };

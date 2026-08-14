@@ -5,6 +5,7 @@
 // need no explanation. Static-safe Server Component (flag is baked at build).
 
 import EventCountdown from "./event-countdown";
+import { event } from "@/lib/site";
 
 export default function HintNotice({ active, cost }: { active: boolean; cost: number }) {
   if (active) {
@@ -38,7 +39,7 @@ export default function HintNotice({ active, cost }: { active: boolean; cost: nu
           </p>
         </div>
       </div>
-      <EventCountdown variant="compact" hideWhenComplete />
+      {event.ctfStartsAt && <EventCountdown variant="compact" hideWhenComplete />}
     </div>
   );
 }

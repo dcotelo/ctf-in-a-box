@@ -2,6 +2,7 @@
 // data. Only rendered while LEADERBOARD_SOURCE=mock — see getLeaderboardSourceMode.
 
 import EventCountdown from "./event-countdown";
+import { event } from "@/lib/site";
 
 export default function MockDataNotice() {
   return (
@@ -15,7 +16,7 @@ export default function MockDataNotice() {
           Once the CTF opens and the first patches land, this board switches over to live scores.
         </p>
       </div>
-      <EventCountdown variant="compact" hideWhenComplete />
+      {event.ctfStartsAt && <EventCountdown variant="compact" hideWhenComplete />}
     </div>
   );
 }

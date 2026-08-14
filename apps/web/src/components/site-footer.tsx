@@ -13,9 +13,11 @@ export default function SiteFooter() {
             <p className="font-mono text-sm text-white">
               <span className="text-[#22c55e]">$</span> owasp-ctf
             </p>
-            <p className="mt-1 text-sm text-muted">
-              {event.dates} · {event.location}
-            </p>
+            {(event.dates || event.location) && (
+              <p className="mt-1 text-sm text-muted">
+                {[event.dates, event.location].filter(Boolean).join(" · ")}
+              </p>
+            )}
           </div>
           <nav className="flex flex-wrap gap-x-5 gap-y-2">
             {navLinks.map((link) => (
@@ -54,12 +56,14 @@ export default function SiteFooter() {
               {link.label}
             </Link>
           ))}
-          <a
-            href={`mailto:${event.contactEmail}`}
-            className="text-xs text-muted transition-colors hover:text-zinc-300"
-          >
-            Contact
-          </a>
+          {event.contactEmail && (
+            <a
+              href={`mailto:${event.contactEmail}`}
+              className="text-xs text-muted transition-colors hover:text-zinc-300"
+            >
+              Contact
+            </a>
+          )}
         </nav>
       </div>
     </footer>

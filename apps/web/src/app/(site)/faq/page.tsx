@@ -118,24 +118,6 @@ const faqs: QA[] = [
       </>
     ),
   },
-  {
-    q: "Where's the full event schedule?",
-    a: (
-      <>
-        This page only covers the CTF itself. For the full DEF CON 34 schedule (talks, villages,
-        and timing), check{" "}
-        <a
-          href={event.hackerTrackerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ds-link"
-        >
-          HackerTracker
-        </a>
-        .
-      </>
-    ),
-  },
 ];
 
 // Kept out of `faqs` so it can be appended conditionally. The `id` is the

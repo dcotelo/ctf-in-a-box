@@ -104,13 +104,15 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 text-sm text-zinc-400">
-            <span>{event.dates}</span>
-            <span className="text-zinc-600">&middot;</span>
-            <span>{event.location}</span>
-          </div>
+          {(event.dates || event.location) && (
+            <div className="flex items-center gap-3 text-sm text-zinc-400">
+              {event.dates && <span>{event.dates}</span>}
+              {event.dates && event.location && <span className="text-zinc-600">&middot;</span>}
+              {event.location && <span>{event.location}</span>}
+            </div>
+          )}
 
-          <EventCountdown />
+          {event.ctfStartsAt && <EventCountdown />}
 
           {/* CTAs */}
           <div className="flex flex-wrap items-center justify-center gap-3">

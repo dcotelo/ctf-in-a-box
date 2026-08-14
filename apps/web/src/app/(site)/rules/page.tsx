@@ -50,9 +50,8 @@ const sections: { heading: string; rules: React.ReactNode[] }[] = [
     rules: [
       <>
         The{" "}
-        <ExternalLink href={event.defconCodeOfConductUrl}>DEF CON Code of Conduct</ExternalLink>{" "}
-        applies at all times, alongside the{" "}
-        <ExternalLink href={event.owaspCodeOfConductUrl}>OWASP Code of Conduct</ExternalLink>.
+        <ExternalLink href={event.owaspCodeOfConductUrl}>OWASP Code of Conduct</ExternalLink>{" "}
+        applies at all times.
         Harassment of any kind ends your event. See our{" "}
         <Link
           href="/code-of-conduct"
