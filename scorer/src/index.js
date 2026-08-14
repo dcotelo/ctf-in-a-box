@@ -1,4 +1,5 @@
 import { serve } from "./serve.js";
+import { judge } from "./judge.js";
 
 const USAGE = "usage: score <serve|judge>";
 
@@ -9,8 +10,8 @@ async function main() {
     return;
   }
   if (cmd === "judge") {
-    console.error("judge: implemented in a later task");
-    process.exit(2);
+    await judge();
+    return;
   }
   console.error(USAGE);
   process.exit(2);

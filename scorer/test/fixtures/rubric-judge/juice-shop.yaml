@@ -1,0 +1,27 @@
+# Judge fixture: every probe path and expect string is a REDACTED-* sentinel
+# so tests can assert none of them leak into ctf-score.md.
+target: juice-shop
+challenges:
+  - id: xss-search
+    name: "Search box no longer reflects HTML"
+    points: 10
+    probes:
+      - request: { method: GET, path: "/REDACTED-search?q=REDACTED-PAYLOAD" }
+        expect: { status: 200, bodyMissing: "REDACTED-MISSING" }
+  - id: admin-panel
+    name: "Admin panel requires auth"
+    points: 5
+    probes:
+      - request: { method: GET, path: "/REDACTED-admin" }
+        expect: { status: [401, 403] }
+      - request:
+          method: POST
+          path: "/REDACTED-admin/login"
+          headers: { x-probe: "REDACTED-HEADER" }
+          body: "REDACTED-BODY"
+        expect: { status: 200, bodyIncludes: "REDACTED-INCLUDES" }
+  - id: still-vulnerable
+    name: "Debug endpoint removed"
+    probes:
+      - request: { method: GET, path: "/REDACTED-debug" }
+        expect: { status: 404 }
