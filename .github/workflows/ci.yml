@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: corepack enable
-      - run: corepack pnpm install --frozen-lockfile || (corepack pnpm approve-builds --all && corepack pnpm install --frozen-lockfile)
+      - run: corepack pnpm install --frozen-lockfile
         working-directory: apps/web
       - run: corepack pnpm test
         working-directory: apps/web

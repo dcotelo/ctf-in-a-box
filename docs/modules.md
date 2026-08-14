@@ -162,8 +162,8 @@ this. It is upstream work on `ctf-owasp-org` — `README.md`'s "Status /
 upstream dependencies" item 3 lists dynamic UI-from-modules (nav sections,
 challenge lists, and leaderboard columns appearing per enabled module) as
 not yet landed, alongside event-config branding and the admin panel;
-`images/app/Dockerfile` in this repo still builds the app from upstream
-source as a bridge, with no module-driven rendering. This section is the
+The app is now vendored at `apps/web/` (see `apps/web/VENDORED.md`) and
+built from local source, with no module-driven rendering yet. This section is the
 contract that upstream work is expected to implement, published now so a
 module author can build against a stable target instead of waiting for it
 to land.
