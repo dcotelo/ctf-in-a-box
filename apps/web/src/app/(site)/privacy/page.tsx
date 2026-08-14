@@ -274,10 +274,8 @@ export default function PrivacyPage() {
               including the leaderboard.
             </>,
             <>
-              <span className="text-white">Vercel</span>: hosts this site, so it processes
-              requests and keeps standard server logs. We also use Vercel Web Analytics, which
-              records which page was viewed. It sets no cookie, and we send it no identifiers,
-              so it cannot tell who you are.
+              <span className="text-white">The event organizer</span>: hosts this site on their
+              own infrastructure, so they process requests and keep standard server logs.
             </>,
             <>
               <span className="text-white">AWS and Upstash</span>: store the competition data

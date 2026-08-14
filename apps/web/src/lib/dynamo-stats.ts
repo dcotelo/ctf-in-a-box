@@ -23,9 +23,9 @@ import { STATS_PK, countrySk } from "@/lib/dynamo-shapes";
  * rough signal rather than a figure to publish precisely.
  */
 
-/** ISO 3166-1 alpha-2, as Vercel's geo header supplies it. Anything else is
- *  dropped rather than stored — this value becomes part of a sort key, so it
- *  is validated, never interpolated on trust. */
+/** ISO 3166-1 alpha-2, as an edge/proxy geo header supplies it. Anything else
+ *  is dropped rather than stored — this value becomes part of a sort key, so
+ *  it is validated, never interpolated on trust. */
 const ISO_3166_ALPHA2 = /^[A-Z]{2}$/;
 
 export function normalizeCountry(raw: string | null | undefined): string | null {

@@ -10,8 +10,9 @@ import { clearGateThrottle, consumeGateAttempt } from "@/lib/dynamo-gate-store";
 export async function POST(request: NextRequest) {
   if (!isGateActive()) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  // Vercel sets x-forwarded-for at its edge, so the first value is trustworthy
-  // there; locally it is absent and everyone shares the "unknown" bucket.
+  // A reverse proxy in front of the app (see the kit's Caddy config) sets
+  // x-forwarded-for, so the first value is trustworthy there; without one in
+  // front it is absent and everyone shares the "unknown" bucket.
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 
   const body = await request.json().catch(() => ({}));

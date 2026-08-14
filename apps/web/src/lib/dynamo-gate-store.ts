@@ -13,8 +13,8 @@ import { GATE_PK, gateSk, getN } from "@/lib/dynamo-shapes";
 /**
  * Brute-force throttle for the challenges gate, one item per client IP under
  * pk=GATE. Five failed password attempts lock the IP for 24 hours. Used in
- * every CTF_DATA_BACKEND mode — DynamoDB credentials are ambient (Vercel OIDC
- * / the SDK default chain).
+ * every CTF_DATA_BACKEND mode — DynamoDB credentials are ambient (the AWS SDK
+ * default chain).
  *
  * These items hold a client IP address, which is personal data, so they carry
  * a 30-day `ttl` for DynamoDB to reap. Two things to understand about that:

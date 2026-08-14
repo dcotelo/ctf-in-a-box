@@ -1,28 +1,28 @@
 import "server-only";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 
 /**
  * DynamoDB access for the leaderboard migration (the scorer writes solves to
  * Upstash AND DynamoDB; the web app moves its team/hint writes with it).
  *
- * On Vercel the app authenticates to AWS with NO stored keys: Vercel mints an OIDC
- * token per deployment, and `awsCredentialsProvider` exchanges it for the
- * `ctf-web-dynamodb` role (trust + table access are defined in the scorer repo's
- * terraform/vercel-aws.tf). Locally the role trust doesn't cover the development
- * environment, so the client falls back to the SDK default credential chain —
- * `aws sso login` + AWS_PROFILE works out of the box. Nothing here holds a secret.
+ * Credentials come entirely from the AWS SDK's default credential chain —
+ * environment variables, a shared config/credentials file, `AWS_PROFILE` /
+ * `aws sso login`, or (when running on AWS compute) the ambient instance/task
+ * role. Nothing here holds a secret; whoever deploys this configures AWS
+ * credentials the normal way for their environment.
  *
- * Config is HARDCODED for now so it works with zero Vercel setup; each value still
- * reads an env var first, so any of them can move to Vercel-managed env vars
- * (Project → Settings → Environment Variables) without touching this file.
+ * Config is HARDCODED for now so it works with zero extra setup; each value
+ * still reads an env var first, so any of them can be overridden per
+ * deployment without touching this file.
  *
  *   CTF_AWS_REGION   where the table lives. Deliberately NOT the standard AWS_REGION:
- *                    Vercel injects that with the function's own execution region
- *                    (us-east-1 for iad1), which silently pointed every request at
- *                    the wrong region — the IAM policy is scoped to the table's ARN
- *                    in us-west-2, so writes failed with AccessDenied.
- *   AWS_ROLE_ARN     the role Vercel's OIDC token may assume.
+ *                    some hosts inject that with the function's own execution region,
+ *                    which can silently point requests at the wrong region — the IAM
+ *                    policy is scoped to the table's ARN in us-west-2, so writes would
+ *                    fail with AccessDenied.
+ *   AWS_ROLE_ARN     unused unless credentials are configured to assume a role
+ *                    (e.g. via the SDK's `AssumeRoleWithWebIdentity` / profile-based
+ *                    role assumption); kept as a documented override point.
  *   CTF_DYNAMO_TABLE the single leaderboard table, shared with the scorer.
  */
 export const AWS_REGION = process.env.CTF_AWS_REGION ?? "us-west-2";
@@ -53,23 +53,19 @@ if (rawBackend && rawBackend !== DATA_BACKEND) {
 
 let client: DynamoDBClient | undefined;
 
-/** Lazily-built client. On Vercel the OIDC credential provider is lazy too — it
- *  resolves the token per request, not at module load, so importing this file never
- *  reaches for AWS. Gate on VERCEL rather than VERCEL_OIDC_TOKEN: `vercel env pull`
- *  writes a development-environment token into .env.local that the role trust
- *  rejects, while the default chain (AWS_PROFILE / SSO) just works locally.
+/** Lazily-built client. Credentials are resolved by the SDK's default chain,
+ *  which itself resolves lazily per request rather than at module load, so
+ *  importing this file never reaches for AWS.
  *
- *  IAM note: the role grants PutItem/UpdateItem/DeleteItem/GetItem/Query/
- *  BatchGetItem only. Transactions authorize per entry as those actions, but a
- *  ConditionCheck entry would need dynamodb:ConditionCheckItem added in the scorer
- *  repo's terraform/vercel-aws.tf — the stores deliberately avoid ConditionCheck.
+ *  IAM note: whatever role or user backs the resolved credentials must grant
+ *  PutItem/UpdateItem/DeleteItem/GetItem/Query/BatchGetItem at minimum.
+ *  Transactions authorize per entry as those actions, but a ConditionCheck
+ *  entry would additionally need dynamodb:ConditionCheckItem — the stores
+ *  deliberately avoid ConditionCheck.
  */
 export function getDynamoClient(): DynamoDBClient {
   if (!client) {
-    client = new DynamoDBClient({
-      region: AWS_REGION,
-      credentials: process.env.VERCEL === "1" ? awsCredentialsProvider({ roleArn: AWS_ROLE_ARN }) : undefined,
-    });
+    client = new DynamoDBClient({ region: AWS_REGION });
   }
   return client;
 }

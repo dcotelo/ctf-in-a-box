@@ -1,8 +1,8 @@
 // Unit tests for the DynamoDB config module — most importantly that the table
-// region ignores the ambient AWS_REGION. Vercel injects AWS_REGION with the
-// function's own execution region (us-east-1), which once pointed every write
-// at the wrong region and failed AccessDenied against the us-west-2-scoped IAM
-// policy.
+// region ignores the ambient AWS_REGION. Some hosts inject AWS_REGION with the
+// function's own execution region (e.g. us-east-1), which would silently point
+// every write at the wrong region and fail AccessDenied against the
+// us-west-2-scoped IAM policy.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -19,8 +19,8 @@ afterEach(() => {
 });
 
 describe("region pinning", () => {
-  it("ignores the ambient AWS_REGION Vercel injects", async () => {
-    const dynamo = await loadDynamo({ AWS_REGION: "us-east-1", VERCEL: "1" });
+  it("ignores the ambient AWS_REGION some hosts inject", async () => {
+    const dynamo = await loadDynamo({ AWS_REGION: "us-east-1" });
     expect(dynamo.AWS_REGION).toBe("us-west-2");
   });
 

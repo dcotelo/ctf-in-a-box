@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Poppins, Barlow, Geist_Mono } from "next/font/google";
-import { Analytics } from "@vercel/analytics/next";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
 import { event } from "@/lib/site";
@@ -41,7 +40,6 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <SiteHeader />
         {children}
-        <Analytics />
         <VisitBeacon />
       </body>
     </html>

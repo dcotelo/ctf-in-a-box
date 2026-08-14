@@ -45,7 +45,7 @@ export const HINT_COST = 10;
  *  In upstash/dual modes the hint text lives only in Upstash, so credentials
  *  must also be present (read/write — revealing writes to Redis, already
  *  required for TEAM_WRITES_ENABLED); in dynamo mode everything comes from
- *  DynamoDB, whose credentials are ambient (Vercel OIDC / the SDK chain). */
+ *  DynamoDB, whose credentials are ambient (the AWS SDK default chain). */
 export const HINTS_ENABLED =
   process.env.HINTS_ENABLED === "true" &&
   (DATA_BACKEND === "dynamo" ||
