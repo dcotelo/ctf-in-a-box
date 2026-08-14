@@ -329,7 +329,18 @@ still open here:
    the scoring Action always emitting a machine-readable result comment
    (pass/fail and points only, no exploit detail), and a cap on scoring re-runs
    per PR.
-3. **admin panel** — an organizer panel (score adjustments, player removal, hint
+3. **rubric fidelity, Security Shepherd** — the vendored helper that decides
+   whether a challenge was solved (`extractSolutionKey`) accepts any 32-128
+   character hex run found in the response. At least one challenge
+   (`Challenge-10-IDOR-2`) echoes the attacker-supplied identifier — itself pure
+   hex — back into the page precisely when a *correct* patch blocks the lookup,
+   so the helper reads a "solution key" out of noise and the challenge scores as
+   unpatched however good the fix. The bias runs toward "not patched", so the
+   stock-scores-zero gate is unaffected and no contestant gains a free point;
+   the cost is that one Shepherd challenge can under-credit a correct patch.
+   The rubrics are vendored read-only, so the fix belongs upstream: tighten the
+   helper to require a result-key-shaped match rather than any bare hex run.
+4. **admin panel** — an organizer panel (score adjustments, player removal, hint
    toggles) gated by the `admins` allowlist is specified but not yet built.
    Event-config support and module-driven UI already ship in-repo. Offering the
    vendoring delta back to `OWASP-CTF/ctf-owasp-org` waits on upstream write
@@ -340,7 +351,7 @@ front of Redis, implements only a subset of Upstash's REST API — no path-style
 `GET /get/<key>` shortcut, for example. The app is wired to it today for real
 team-membership and hint-purchase data. What remains unverified is whether the
 app's Redis client stays inside that subset end to end (pipelining, `EVAL`);
-that check is tracked alongside item 3.
+that check is tracked alongside item 4.
 
 Until items 1 and 2 land, treat `scripts/smoke.sh` as the source of truth that
 the kit works; a live event additionally needs the scorer's bearer-auth mode to
