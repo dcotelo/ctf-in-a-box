@@ -179,10 +179,13 @@ config change").
   no `/score` route at all; nothing needs to reach the box from the
   internet. `caddy/Caddyfile.push` is the only Caddyfile that exposes
   `/score` externally, and only when the organizer opts into push mode.
-- **Private scorer image, per-event mirror.** `ghcr.io/owasp-ctf/score`
-  stays private; `setup/ctf-setup.sh org` mirrors it into the event org's
-  own GHCR (`ghcr.io/$org/score:latest`) so forked repos' Actions can pull
-  it with their own `GITHUB_TOKEN`. Access control, not obfuscation, is the
+- **Private scorer image, per-event mirror.** The scorer image stays
+  private (it bakes in the rubric). `setup/ctf-setup.sh org` mirrors
+  whatever `SCORE_IMAGE` names — default `ghcr.io/owasp-ctf/score:latest`,
+  which has no formal access process yet (ask the OWASP-CTF maintainers,
+  or build your own image against the contract in `docs/modules.md`) —
+  into the event org's own GHCR (`ghcr.io/$org/score:latest`) so forked
+  repos' Actions can pull it with their own `GITHUB_TOKEN`. Access control, not obfuscation, is the
   actual defense — reverse-engineering the rubric out of the image is
   assumed possible; the goal is to limit who can pull it, not to make it
   unreadable.

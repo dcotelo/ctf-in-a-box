@@ -39,10 +39,15 @@ screenshots when it lands.
 - [`gh` CLI](https://cli.github.com), authenticated (`gh auth login`).
 - A GitHub org for the event (create one free org per event; see
   [Poll vs push](#poll-vs-push) and [After the event](#after-the-event)).
-- Read access to `ghcr.io/owasp-ctf/score` — request it from the
-  OWASP-CTF "self-host organizers" team. The scorer image bakes in the
-  challenge rubric and stays private; `ctf-setup org` mirrors it into your
-  own event org so your forks' Actions can pull it.
+- A scorer image. The default is `ghcr.io/owasp-ctf/score`, which bakes in
+  the official challenge rubric and is private — there is no formal access
+  process for it yet, so you currently have to ask the OWASP-CTF
+  maintainers directly. Alternatively, build your own scorer image against
+  the contract in [docs/modules.md](docs/modules.md) and point
+  `SCORE_IMAGE` in `.env` at it — the kit never hardcodes the upstream
+  image. Either way the image must stay private (it contains the answers);
+  `ctf-setup org` mirrors whatever `SCORE_IMAGE` names into your own event
+  org so your forks' Actions can pull it.
 - `docker login ghcr.io` with a token that has `write:packages`. The
   `org` subcommand's image-mirror step ends with
   `docker push ghcr.io/<org>/score:latest`, which needs write access to

@@ -117,9 +117,18 @@ cmd_org() {
     echo "   -> decode + commit as .github/workflows/ctf-score.yml in $org/$r (disable inherited workflows in repo Settings > Actions)"
   done
 
-  echo "== mirroring scorer image into $org (needs read access to ghcr.io/owasp-ctf/score)"
-  run docker pull ghcr.io/owasp-ctf/score:latest
-  run docker tag ghcr.io/owasp-ctf/score:latest "ghcr.io/$org/score:latest"
+  # Scorer source image: SCORE_IMAGE env var, else .env, else the upstream
+  # default (private — no formal access process yet; ask OWASP-CTF
+  # maintainers, or build your own against docs/modules.md and set SCORE_IMAGE).
+  local src="${SCORE_IMAGE:-}"
+  if [ -z "$src" ] && [ -f .env ]; then
+    src="$(sed -n 's/^SCORE_IMAGE=//p' .env | tail -1)"
+  fi
+  src="${src:-ghcr.io/owasp-ctf/score:latest}"
+
+  echo "== mirroring scorer image $src into $org (needs pull access to it)"
+  run docker pull "$src"
+  run docker tag "$src" "ghcr.io/$org/score:latest"
   run docker push "ghcr.io/$org/score:latest"
 
   cat <<EOF
