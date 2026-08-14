@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 
 const score = (author, target, solved, pr) =>
   `Scored ✅\n<!-- ctf-score: ${JSON.stringify({ author, target, solved, pr, sha: "deadbeef" })} -->`;
@@ -12,10 +13,19 @@ const comments = [
     body: score("mona", "juice-shop", ["restfulXss"], 3) },
 ];
 
+// A 4th, initially-hidden comment — smoke.sh's freeze stage touches
+// EXTRA_COMMENT_FLAG to make it appear mid-run, simulating a fresh
+// contributor score landing while ingestion is paused, without needing to
+// rebuild this fixture (or the sync image) mid-test.
+const EXTRA_COMMENT_FLAG = "/tmp/extra-comment";
+const extraComment = { id: 4, user: { login: "github-actions[bot]" }, updated_at: "2026-08-13T10:15:00Z",
+  body: score("trinity", "dvwa", ["csrf-low"], 9) };
+
 createServer((req, res) => {
   if (/^\/repos\/[^/]+\/[^/]+\/issues\/comments/.test(req.url)) {
+    const body = existsSync(EXTRA_COMMENT_FLAG) ? [...comments, extraComment] : comments;
     res.writeHead(200, { "content-type": "application/json", etag: 'W/"fixture"' });
-    res.end(JSON.stringify(comments));
+    res.end(JSON.stringify(body));
     return;
   }
   res.writeHead(404).end();

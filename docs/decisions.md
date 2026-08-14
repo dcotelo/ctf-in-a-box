@@ -481,3 +481,78 @@ vendored read-only, so the fix belongs upstream — tighten the helper to
 require a result-key-shaped match rather than any bare hex run. This is
 already recorded in README's "Status / upstream dependencies" list; keep
 the two consistent.
+
+## 19. Organizer admin panel: runtime override layer
+
+**Context.** Everything up to this point is either build-time config
+(`event.yaml`, decision 12) or a one-shot event of no return (a score
+write). An organizer running a live event needs something in between: a
+way to see the pipeline is healthy, and a way to intervene — hold
+ingestion during an incident, or adjust hints — without a rebuild or a
+restart, and without giving up the kit's no-cloud, single-box posture.
+
+**Decision.** Add a small runtime-override layer living in the same Redis
+the rest of the kit already uses: `ctf:admin:settings` (a hash: `paused`,
+`hintsEnabled`, `hintCost`, plus `updatedBy`/`updatedAt`) and
+`ctf:admin:audit` (a capped list of every change, written atomically with
+the change via one Lua script — a setting can never land without its
+audit line). Every reader applies **override-else-default** precedence:
+an explicit value in `ctf:admin:settings` wins, an absent field falls
+through to the build-time default (`hint-store.ts`'s `resolveHintConfig`:
+`s.hintsEnabled ?? HINTS_ENABLED`) — `??`, not `||`, so an explicit
+`false`/`0` override is honored rather than treated as "unset." Access is
+gated by `event.yaml`'s existing `admins` allowlist (case-insensitive
+GitHub login match, `apps/web/src/lib/admin-auth.ts`), the same list
+`event.yaml.example` already asked organizers to fill in — no new secret,
+no new identity system.
+
+The headline control, **freeze, means freeze ingestion — not stop
+execution.** Pausing never touches fork Actions or GitHub: contestants'
+PRs keep getting judged and commented on exactly as before. In poll mode,
+`sync`'s `tick()` checks the pause flag first and skips the whole
+fetch/parse/submit loop while paused, leaving the per-repo cursor and ETag
+untouched — a queued score is deferred, never lost, and ingests normally
+on the next tick after the organizer clears the flag. In push mode,
+`scorer`'s `POST /score` returns `503` while paused, so a contestant's
+Action retries rather than having its submission silently dropped. Both
+readers fail open on a Redis error (a transient Redis blip must not freeze
+a live event by accident), and `scripts/smoke.sh`'s freeze stage proves
+the poll-mode path directly against Redis (the app isn't in the smoke
+profile, but `sync` reads the identical key either way).
+
+**v1 scope boundary.** Shipped: status visibility (poller heartbeat, last
+error, leaderboard freshness) and flow control (freeze/unfreeze, hint
+enable/cost). Deliberately deferred, each for a reason: **score
+adjustments** (no manual point-editing UI — the single-writer model,
+decision 5, is a load-bearing invariant, and a manual override path would
+be a second writer in disguise); **player removal** (no ban/disqualify
+control — the kit has no notion of a removable "player" independent of a
+GitHub identity, and forging that model is a larger feature than a v1
+admin panel warrants); **GitHub-workflow control** (no start/stop/rerun of
+Actions from the panel — that is GitHub's surface, not this kit's, and
+reaching into it would mean the panel holding GitHub credentials with
+write scope beyond what anything else in the kit needs).
+
+**Known limitation, accepted rather than fixed in v1: the hint toggle is
+only live at the reveal boundary.** `resolveHintConfig()` (and therefore
+`revealHint`, called by the `/api/hints` reveal route) resolves the
+`hintsEnabled`/`hintCost` override live, so a flip takes effect on the very
+next reveal attempt. But `getViewerHints`, `getHintPenalties`, and
+`getHintAvailability` — which drive the challenges-page hint button, the
+hint-notice banner, and the leaderboard's hint-penalty display — all still
+gate on the module-level `HINTS_ENABLED` constant, resolved once from the
+build-time env var. An organizer flipping hints mid-event changes whether
+a hint **can be bought** instantly; it does not instantly change whether
+the UI **offers** the button, or whether the read-time penalty display
+reflects it. Making those three call sites live too is future work, not a
+bug fix — it is out of scope for this decision because it touches
+statically-rendered page output and cached leaderboard reads, not just a
+single write path.
+
+**Consequences.** The admin panel adds no new infrastructure — no new
+service, no new dependency, same Redis, same `srh` proxy, same allowlist
+identity source as everything else in the kit. The trade-off is the
+limitation above: v1 ships a toggle whose effect is real but partial, and
+that partiality must stay documented (README, this entry, and
+`docs/architecture.md`'s "Organizer admin panel" section) rather than
+implied to be complete.

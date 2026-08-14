@@ -13,4 +13,4 @@ modules:
     score_ingest: poll             # poll | push
 teams: { enabled: true, max_size: 4 }
 hints: { enabled: false }
-admins: [your-github-login]
+admins: [your-github-login]     # allowlist for /admin (status, freeze, hint controls) — case-insensitive

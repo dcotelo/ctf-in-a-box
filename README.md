@@ -284,6 +284,34 @@ credentials or delete secrets — do that yourself: revoke the organizer
 `GITHUB_PAT`, and delete the event org's Actions secrets (`LEADERBOARD_TOKEN`
 if you used push mode).
 
+## Organizer admin panel
+
+Anyone listed in `event.yaml`'s `admins` (checked case-insensitively against
+their GitHub login) can sign in and reach `/admin` — everyone else gets a
+403, on both the page and its API routes. The panel shows:
+
+- **Status** — the sync poller's heartbeat (last poll time, comments
+  ingested, repos polled, last error) and a best-effort leaderboard
+  freshness read.
+- **Freeze** — a pause switch. Pausing **freezes ingestion, not fork
+  Actions**: contestants' PRs keep getting judged and commented on exactly
+  as before, poll mode's cursor just holds in place (nothing is lost, only
+  deferred), and push mode's `POST /score` returns `503` so a contestant's
+  Action retries instead of silently dropping the submission. Un-pausing
+  picks up right where it left off.
+- **Hint controls** — an override for whether hints are enabled and what
+  they cost, on top of the build-time default. This takes effect
+  immediately for whether a hint **can be bought** (`resolveHintConfig`,
+  which the reveal endpoint uses). It does **not** currently change, live,
+  whether the challenges page **offers** the hint button, the hint-notice
+  banner, or the leaderboard's hint-penalty display — those still reflect
+  whatever `HINTS_ENABLED` was baked in at build time. See
+  [docs/architecture.md](docs/architecture.md#organizer-admin-panel-runtime-overrides)
+  for the full breakdown of this limitation.
+
+Every settings change is recorded in a capped audit log (who, when, what
+changed) alongside the setting itself.
+
 ## Verifying it works
 
 No GitHub org, Action runs, or scorer image access needed to check the kit
