@@ -1,6 +1,6 @@
-# OWASP CTF @ DEF CON 34
+# OWASP CTF
 
-The contestant-facing web app for the OWASP Capture The Flag competition at DEF CON 34 (August 7–9, 2026, Las Vegas Convention Center). The DC34 theme is **Agency**.
+The contestant-facing web app for the OWASP Capture The Flag competition. Event name, dates, location, and theme are configured per-deployment via the kit's `event.yaml` (see below) rather than hardcoded here.
 
 Contestants patch real vulnerabilities in six deliberately-insecure OWASP training apps and submit the fix as a GitHub pull request. A CI scorer validates each patch and pushes results to the leaderboard — no flag submission, no manual grading.
 
@@ -193,4 +193,4 @@ Rollout: set the two gate env vars and rebuild/restart the `app` service (see [R
 ## Branding
 
 - **OWASP**: Logo and favicon sourced from the official mark at [owasp.org](https://owasp.org); typography follows the [OWASP Brand Guidelines 2024](https://policy.owasp.org/operational/branding)
-- **DEF CON 34**: Dark blue-gray palette (`#1a1a2e`), accent colors (red, yellow, blue, teal) inspired by the [DC34 theme page](https://defcon.org/html/defcon-34/dc-34-theme.html)
+- **Event theme**: Dark blue-gray palette (`#1a1a2e`), accent colors (red, yellow, blue, teal) — see `DESIGN_SYSTEM.md` for the full token set and rationale

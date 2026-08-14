@@ -1,9 +1,8 @@
-# OWASP CTF @ DEF CON 34 — Design System
+# OWASP CTF — Design System
 
 A dark, cyberpunk-terminal aesthetic for the OWASP Capture The Flag site.
-Theme: **Agency** (DC34). The look is "security operations console" — deep
-navy canvas, neon accents, CRT scanlines, monospace terminal cues, and subtle
-glow/float motion.
+The look is "security operations console" — deep navy canvas, neon accents,
+CRT scanlines, monospace terminal cues, and subtle glow/float motion.
 
 ---
 
@@ -66,7 +65,7 @@ Three Google fonts, loaded as CSS variables via `next/font`.
 | Code / terminal | **Geist Mono** | default | `--font-geist-mono` (`--font-mono`) |
 
 ### Type patterns
-- **Display title (h1):** `text-5xl`→`sm:text-7xl`, `font-bold`, `tracking-tight`, white. Often paired with a colored accent character (`CTF @ DEF CON 34`, where `@` is blue).
+- **Display title (h1):** `text-5xl`→`sm:text-7xl`, `font-bold`, `tracking-tight`, white. Often paired with a colored accent character (e.g. `CTF @ <event>`, where `@` is blue).
 - **Eyebrow / subtitle:** `text-lg`, `font-medium`, `uppercase`, `tracking-[0.25em]`, teal.
 - **Section emphasis (e.g. "Coming Soon"):** `text-3xl`, `font-bold`, `uppercase`, `tracking-widest`, white.
 - **Body / meta:** `text-sm`, zinc-400.
@@ -99,7 +98,7 @@ flex items-center justify-center
 ```
 rounded-md, border border-white/10, bg-white/[0.03], px-5 py-2.5
 ```
-Label in `text-muted`, value in accent-blue `font-semibold`. (e.g. `DC34 Theme: Agency`)
+Label in `text-muted`, value in accent-blue `font-semibold`. (e.g. `Theme: <event theme>`)
 
 ### Gradient divider
 A 1px horizontal rule that fades in from transparent:
@@ -148,8 +147,8 @@ All animations are slow, infinite loops. Defined as keyframes; applied inline.
 
 ## 7. Voice & Content
 
-- Use **terminal/CLI phrasing** for utility text: `owasp-ctf init --theme agency`.
-- Dates as ranges with en-dashes: `August 7–9, 2026`.
+- Use **terminal/CLI phrasing** for utility text: `owasp-ctf init --theme <event-theme>`.
+- Dates as ranges with en-dashes: `Month D–D, YYYY`.
 - Separate meta items with a muted middle-dot `·` (zinc-600).
 - Security-domain iconography: clock, shield, lock, people.
 
