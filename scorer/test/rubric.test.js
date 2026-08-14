@@ -92,3 +92,28 @@ test("bad target charset throws", () => {
   const dir = tmpRubric("target: Juice_Shop\nchallenges: []\n", "Juice_Shop.yaml");
   assert.throws(() => loadRubric(dir), /target must match/);
 });
+
+test("loads an exec rubric from a <target>/tests/challenges directory", () => {
+  const r = loadRubric(fixture("rubric-exec"));
+  assert.deepEqual([...r.targets.keys()], ["vampi"]);
+  const [c] = r.targets.get("vampi").challenges;
+  assert.equal(c.id, "challenge-1-ok");
+  assert.equal(c.exec.key, "Challenge-1-Ok");
+  assert.equal(c.exec.byName, true);
+  assert.equal(c.probes, undefined);
+});
+
+test("exec challenges price from catalogue difficulty", () => {
+  const r = loadRubric(fixture("rubric-exec"));
+  assert.equal(r.pointsFor("vampi", "challenge-1-ok"), 3);
+  assert.equal(r.totalFor("vampi"), 1);
+});
+
+test("a rubric dir may mix a YAML target and an exec target", () => {
+  const r = loadRubric(fixture("rubric-mixed"));
+  assert.deepEqual([...r.targets.keys()].sort(), ["juice-shop", "vampi"]);
+  const js = r.targets.get("juice-shop").challenges[0];
+  const vp = r.targets.get("vampi").challenges[0];
+  assert.ok(Array.isArray(js.probes), "yaml target keeps declarative probes");
+  assert.ok(vp.exec, "exec target carries an exec descriptor");
+});

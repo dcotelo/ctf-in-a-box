@@ -2,25 +2,62 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { RUBRIC_ID } from "./rubric-id.js";
+import { loadCatalogue } from "./catalogue.js";
+import { getTarget } from "./targets.js";
 
 export { RUBRIC_ID } from "./rubric-id.js";
 
 const TOP_KEYS = new Set(["target", "challenges"]);
 const CHALLENGE_KEYS = new Set(["id", "name", "points", "probes"]);
 
-// Loads every <target>.yaml in the rubric dir. Returns null when the dir is
-// missing or holds no rubric files — allowed for `serve` (degenerate mode),
-// while `judge` demands a rubric itself. Any INVALID content throws loudly.
+// An exec target is a subdirectory named for the target holding
+// tests/challenges/catalogue.<target>.json. Returns null when `name` is not one.
+function loadExecTarget(dir, name) {
+  if (!getTarget(name)) return null;
+  const testsDir = join(dir, name, "tests", "challenges");
+  const entries = loadCatalogue(testsDir, name);
+  if (!entries) return null;
+
+  const { byName } = getTarget(name);
+  const points = new Map();
+  const challenges = entries.map((e) => {
+    points.set(e.id, e.points);
+    return {
+      id: e.id,
+      name: e.name,
+      points: e.points,
+      exec: { file: e.file, key: e.key, byName, testsDir },
+    };
+  });
+  return { challenges, points };
+}
+
+// Loads every <target>.yaml and <target>/tests/challenges exec dir in the
+// rubric dir. Returns null when the dir is missing or holds no rubric content
+// — allowed for `serve` (degenerate mode), while `judge` demands a rubric
+// itself. Any INVALID content throws loudly.
 export function loadRubric(dir = process.env.RUBRIC_DIR ?? "/rubric") {
-  let files;
+  let dirents;
   try {
-    files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort();
+    dirents = readdirSync(dir, { withFileTypes: true });
   } catch {
     return null;
   }
-  if (files.length === 0) return null;
 
   const targets = new Map();
+
+  // Exec targets first: a <target>/tests/challenges/catalogue.<target>.json dir.
+  for (const d of dirents.filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const loaded = loadExecTarget(dir, d.name);
+    if (loaded) targets.set(d.name, loaded);
+  }
+
+  // Then declarative <target>.yaml files (existing loop body, unchanged).
+  const files = dirents
+    .filter((d) => d.isFile() && /\.ya?ml$/.test(d.name))
+    .map((d) => d.name)
+    .sort();
+
   for (const file of files) {
     const fail = (msg) => {
       throw new Error(`rubric ${file}: ${msg}`);
@@ -63,6 +100,8 @@ export function loadRubric(dir = process.env.RUBRIC_DIR ?? "/rubric") {
     });
     targets.set(target, { challenges: list, points });
   }
+
+  if (targets.size === 0) return null;
 
   return {
     targets,
