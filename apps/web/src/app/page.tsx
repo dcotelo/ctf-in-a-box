@@ -6,28 +6,36 @@ import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints } from "@/li
 import { getChallengeCatalog } from "@/lib/challenges";
 import { event } from "@/lib/site";
 
-const STEPS = [
-  {
-    title: "Pick a target",
-    body: "Choose from six real, deliberately vulnerable OWASP apps: Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI.",
-  },
-  {
-    title: "Find the vulnerability",
-    body: "Work through the OWASP Top 10 (Web and API) to identify a real flaw in the target's source. Please use AI. Point an agent at the codebase. That's the workflow this event is built to teach.",
-  },
-  {
-    title: "Patch it and open a PR",
-    body: "Fix the vulnerability in your fork, then submit a pull request against the repo's dc34-ctf branch. This is secure development, not flag hunting.",
-  },
-  {
-    title: "Get scored automatically",
-    body: "A GitHub Action runs that challenge's regression test against your patched app. A passing test scores points immediately, no manual grading.",
-  },
-];
+// Joins app names for prose: "DVWA" / "DVWA, and Juice Shop" / "DVWA, Juice Shop, and WebGoat".
+function joinAppNames(names: string[]): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
+}
 
 export default async function Home() {
   const catalog = await getChallengeCatalog();
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
+
+  const appList = joinAppNames(enabledApps.map((a) => a.name));
+  const topByPoints = [...enabledApps].sort((a, b) => b.maxPoints - a.maxPoints).slice(0, 2);
+  const topAppsList = joinAppNames(topByPoints.map((a) => a.name));
+  const STEPS = [
+    {
+      title: "Pick a target",
+      body: `Choose from ${enabledApps.length} real, deliberately vulnerable OWASP ${enabledApps.length === 1 ? "app" : "apps"}: ${appList}.`,
+    },
+    {
+      title: "Find the vulnerability",
+      body: "Work through the OWASP Top 10 (Web and API) to identify a real flaw in the target's source. Please use AI. Point an agent at the codebase. That's the workflow this event is built to teach.",
+    },
+    {
+      title: "Patch it and open a PR",
+      body: "Fix the vulnerability in your fork, then submit a pull request against the repo's dc34-ctf branch. This is secure development, not flag hunting.",
+    },
+    {
+      title: "Get scored automatically",
+      body: "A GitHub Action runs that challenge's regression test against your patched app. A passing test scores points immediately, no manual grading.",
+    },
+  ];
   return (
     <div className="flex flex-1 flex-col">
       <div className="relative flex flex-col items-center justify-center overflow-hidden bg-[#1a1a2e] py-20">
@@ -253,7 +261,7 @@ export default async function Home() {
             </h2>
             <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
               Each app is a well-known, deliberately vulnerable OWASP project. Points scale with
-              difficulty, and the deeper flaws in VulnerableApp and WebGoat pay out the most.
+              difficulty, and the deeper flaws in {topAppsList} pay out the most.
             </p>
             <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
           </div>

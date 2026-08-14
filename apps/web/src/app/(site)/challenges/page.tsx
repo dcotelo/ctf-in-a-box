@@ -7,9 +7,16 @@ import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store";
 import { event } from "@/lib/site";
 
+// Joins app names for prose: "DVWA" / "DVWA, and Juice Shop" / "DVWA, Juice Shop, and WebGoat".
+function joinAppNames(names: string[]): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
+}
+
+const appList = joinAppNames(enabledApps.map((a) => a.name));
+
 export const metadata: Metadata = {
   title: "Challenges",
-  description: "Six vulnerable OWASP apps to patch: Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI.",
+  description: `${enabledApps.length} vulnerable OWASP ${enabledApps.length === 1 ? "app" : "apps"} to patch: ${appList}.`,
 };
 
 export default async function ChallengesPage() {
@@ -21,9 +28,10 @@ export default async function ChallengesPage() {
   ]);
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
+  const appNoun = enabledApps.length === 1 ? "app" : "apps";
   const description = catalog
-    ? `${catalog.total} challenges across six vulnerable apps, each tagged with its OWASP Top 10 category. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`
-    : `${enabledTotalChallenges} challenges across six vulnerable apps, worth ${enabledTotalMaxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
+    ? `${catalog.total} challenges across ${enabledApps.length} vulnerable ${appNoun}, each tagged with its OWASP Top 10 category. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`
+    : `${enabledTotalChallenges} challenges across ${enabledApps.length} vulnerable ${appNoun}, worth ${enabledTotalMaxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
 
   return (
     <div className="flex flex-col gap-8">
