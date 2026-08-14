@@ -3,6 +3,7 @@ import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames, workedExampleVariant } from "@/lib/apps";
 import { event } from "@/lib/site";
+import { eventConfig } from "@/lib/event-config";
 
 const appList = joinAppNames(enabledApps.map((a) => a.name));
 const exampleVariant = workedExampleVariant(enabledApps);
@@ -27,7 +28,7 @@ const steps = [
   },
   {
     title: "Patch it and open a pull request",
-    body: "Fork the target's repo under the OWASP-CTF org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's main branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.",
+    body: `Fork the target's repo under the ${eventConfig.githubOrg} org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's main branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.`,
   },
   {
     title: "Get scored automatically",
@@ -46,9 +47,9 @@ type WalkthroughStep = { title: string; body: string; code?: string; lang?: "she
 const juiceShopWalkthrough: WalkthroughStep[] = [
   {
     title: "Fork the target and clone your fork",
-    body: "Fork OWASP-CTF/juice-shop on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.",
+    body: `Fork ${eventConfig.githubOrg}/juice-shop on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.`,
     lang: "shell",
-    code: `gh repo fork OWASP-CTF/juice-shop --clone
+    code: `gh repo fork ${eventConfig.githubOrg}/juice-shop --clone
 cd juice-shop`,
   },
   {
@@ -93,9 +94,9 @@ git push -u origin fix/login-sql-injection`,
   },
   {
     title: "Open the PR against main",
-    body: "The base repo is OWASP-CTF/juice-shop and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.",
+    body: `The base repo is ${eventConfig.githubOrg}/juice-shop and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
     lang: "shell",
-    code: `gh pr create --repo OWASP-CTF/juice-shop --base main \\
+    code: `gh pr create --repo ${eventConfig.githubOrg}/juice-shop --base main \\
   --title "Fix SQL injection in login route" \\
   --body "Replaced string-interpolated SQL with bind parameters."`,
   },
@@ -112,9 +113,9 @@ git push -u origin fix/login-sql-injection`,
 const genericWalkthrough: WalkthroughStep[] = [
   {
     title: "Fork the target and clone your fork",
-    body: "Fork the target's repo under the OWASP-CTF org on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.",
+    body: `Fork the target's repo under the ${eventConfig.githubOrg} org on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.`,
     lang: "shell",
-    code: `gh repo fork OWASP-CTF/<target> --clone
+    code: `gh repo fork ${eventConfig.githubOrg}/<target> --clone
 cd <target>`,
   },
   {
@@ -141,9 +142,9 @@ git push -u origin fix/<short-description>`,
   },
   {
     title: "Open the PR against main",
-    body: "The base repo is the target's fork under OWASP-CTF and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.",
+    body: `The base repo is the target's fork under ${eventConfig.githubOrg} and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
     lang: "shell",
-    code: `gh pr create --repo OWASP-CTF/<target> --base main \\
+    code: `gh pr create --repo ${eventConfig.githubOrg}/<target> --base main \\
   --title "Fix <vulnerability>" \\
   --body "Describe the fix and the vulnerability it closes."`,
   },
@@ -352,15 +353,20 @@ export default function HowToPlayPage() {
       </div>
 
       <p className="text-sm leading-relaxed text-muted">
-        Stuck, or need an organizer? Find one at the OWASP CTF area, or ask in the{" "}
-        <a
-          href={event.discordUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ds-link"
-        >
-          CTF Discord
-        </a>
+        Stuck, or need an organizer? Find one at the OWASP CTF area
+        {event.discordUrl && (
+          <>
+            , or ask in the{" "}
+            <a
+              href={event.discordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ds-link"
+            >
+              CTF Discord
+            </a>
+          </>
+        )}
         .
       </p>
     </div>

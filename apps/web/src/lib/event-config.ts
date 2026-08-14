@@ -9,6 +9,8 @@ export type EventConfig = {
   ctfStartsAt: string | null;
   url: string;
   contactEmail: string;
+  githubOrg: string;
+  discordUrl: string;
   targets: readonly AppId[];
   admins: readonly string[];
 };

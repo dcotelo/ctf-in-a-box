@@ -17,4 +17,9 @@ describe("site event", () => {
     expect(event.contactEmail).toBe(eventConfig.contactEmail);
     if (event.contactEmail) expect(event.contactEmail).toContain("@");
   });
+  it("tracks discordUrl from config, hidden when unset", () => {
+    // "" under neutral defaults is expected — pages hide Discord links in that case.
+    expect(event.discordUrl).toBe(eventConfig.discordUrl);
+    if (event.discordUrl) expect(event.discordUrl).toMatch(/^https:\/\//);
+  });
 });

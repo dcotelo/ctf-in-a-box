@@ -27,13 +27,15 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"name": "OWASP CTF"`);
     expect(out).toContain(`"ctfStartsAt": null`);
     expect(out).not.toMatch(/DEF CON|DC34|Las Vegas/i);
+    expect(out).toContain(`"githubOrg": "OWASP-CTF"`);
+    expect(out).toContain(`"discordUrl": ""`);
     for (const t of ["juice-shop", "dvwa", "webgoat", "securityshepherd", "vulnerableapp", "vampi"])
       expect(out).toContain(`"${t}"`);
   });
 
   it("reads the kit event.yaml schema", () => {
     const out = generate({}, [
-      'event: { name: "Chapter CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, url: "http://box" }',
+      'event: { name: "Chapter CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, url: "http://box", discord: "https://discord.gg/chapter" }',
       "github: { org: evt }",
       "modules:",
       "  secure-development:",
@@ -43,9 +45,21 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"name": "Chapter CTF"`);
     expect(out).toContain(`"dates": "October 1, 2026"`);
     expect(out).toContain(`"ctfStartsAt": "2026-10-01T09:00:00-03:00"`);
+    expect(out).toContain(`"githubOrg": "evt"`);
+    expect(out).toContain(`"discordUrl": "https://discord.gg/chapter"`);
     expect(out).toMatch(/"targets":\s*\[\s*"dvwa",\s*"vampi"\s*\]/);
     expect(out).toContain(`"dcotelo"`);
     expect(out).not.toContain("juice-shop");
+  });
+
+  it("yaml without github.org falls back to the OWASP-CTF default", () => {
+    const out = generate({}, [
+      'event: { name: "No Org CTF", url: "http://box" }',
+      "modules:",
+      "  secure-development:",
+      "    targets: [dvwa]",
+    ].join("\n"));
+    expect(out).toContain(`"githubOrg": "OWASP-CTF"`);
   });
 
   it("env vars work without a file", () => {
@@ -54,10 +68,23 @@ describe("generate-event-config", () => {
       EVENT_START: "2026-11-05T10:00:00-03:00",
       EVENT_END: "2026-11-06T18:00:00-03:00",
       EVENT_TARGETS: "webgoat,vampi",
+      EVENT_GITHUB_ORG: "env-org",
+      EVENT_DISCORD: "https://discord.gg/envevent",
     });
     expect(out).toContain(`"name": "Env Event"`);
     expect(out).toContain(`"dates": "November 5–6, 2026"`);
+    expect(out).toContain(`"githubOrg": "env-org"`);
+    expect(out).toContain(`"discordUrl": "https://discord.gg/envevent"`);
     expect(out).toMatch(/"targets":\s*\[\s*"webgoat",\s*"vampi"\s*\]/);
+  });
+
+  it("env vars without EVENT_GITHUB_ORG/EVENT_DISCORD fall back to defaults", () => {
+    const out = generate({
+      EVENT_NAME: "Env Event",
+      EVENT_START: "2026-11-05T10:00:00-03:00",
+    });
+    expect(out).toContain(`"githubOrg": "OWASP-CTF"`);
+    expect(out).toContain(`"discordUrl": ""`);
   });
 
   it("rejects unknown module, unknown target, bad dates, empty targets", () => {

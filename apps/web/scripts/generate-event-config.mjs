@@ -16,6 +16,10 @@ const DEFAULTS = {
   ctfStartsAt: null,
   url: "http://localhost:3000",
   contactEmail: "",
+  // Canonical forks live under OWASP-CTF; self-hosted events override via
+  // event.yaml's github.org (the same key the kit's sync loader requires).
+  githubOrg: "OWASP-CTF",
+  discordUrl: "",
   targets: TARGETS,
   admins: [],
 };
@@ -85,6 +89,8 @@ function fromYaml(path) {
     ctfStartsAt: startIso,
     url: ev.url ?? DEFAULTS.url,
     contactEmail: ev.contact ? String(ev.contact) : "",
+    githubOrg: doc?.github?.org ? String(doc.github.org) : DEFAULTS.githubOrg,
+    discordUrl: ev.discord ? String(ev.discord) : "",
     targets: validateTargets(mod.targets),
     admins: Array.isArray(doc?.admins) ? doc.admins.map(String) : [],
   };
@@ -99,6 +105,8 @@ function fromEnv(env) {
     ctfStartsAt: env.EVENT_START ?? null,
     url: env.EVENT_URL ?? DEFAULTS.url,
     contactEmail: env.EVENT_CONTACT ?? "",
+    githubOrg: env.EVENT_GITHUB_ORG ?? DEFAULTS.githubOrg,
+    discordUrl: env.EVENT_DISCORD ?? "",
     targets: env.EVENT_TARGETS ? validateTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim())) : TARGETS,
     admins: env.EVENT_ADMINS ? env.EVENT_ADMINS.split(",").map((s) => s.trim()) : [],
   };

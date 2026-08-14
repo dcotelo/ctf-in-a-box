@@ -8,6 +8,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
+import { eventConfig } from "@/lib/event-config";
 
 export const metadata: Metadata = {
   title: "Code of Conduct",
@@ -46,8 +47,8 @@ export default function CodeOfConductPage() {
                 OWASP Code of Conduct
               </ExternalLink>{" "}
               governs this competition as an OWASP activity, and applies to the CTF Discord,
-              the OWASP-CTF GitHub organization, and any pull requests or reviews you take part
-              in.
+              the {eventConfig.githubOrg} GitHub organization, and any pull requests or reviews
+              you take part in.
             </span>
           </li>
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
@@ -71,10 +72,15 @@ export default function CodeOfConductPage() {
             <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
             <span>
               <span className="font-semibold text-white">For anything CTF-specific</span>: find
-              an organizer at the OWASP CTF area, or message the organizers in the{" "}
-              <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>. This is also the
-              right route for scoring disputes and for reporting a bug in a challenge or the
-              scorer.
+              an organizer at the OWASP CTF area
+              {event.discordUrl && (
+                <>
+                  , or message the organizers in the{" "}
+                  <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>
+                </>
+              )}
+              . This is also the right route for scoring disputes and for reporting a bug in a
+              challenge or the scorer.
             </span>
           </li>
           {event.contactEmail && (

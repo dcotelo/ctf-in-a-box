@@ -46,16 +46,18 @@ export default function SiteHeader() {
           ))}
           {/* External, so it can't come from navLinks — those are internal
               routes and drive the active-link state. */}
-          <li>
-            <a
-              href={event.discordUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-md px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
-            >
-              Discord
-            </a>
-          </li>
+          {event.discordUrl && (
+            <li>
+              <a
+                href={event.discordUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+              >
+                Discord
+              </a>
+            </li>
+          )}
         </ul>
 
         <div className="flex items-center gap-2">
@@ -99,17 +101,19 @@ export default function SiteHeader() {
               </Link>
             </li>
           ))}
-          <li>
-            <a
-              href={event.discordUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setOpen(false)}
-              className="block rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-white"
-            >
-              Discord
-            </a>
-          </li>
+          {event.discordUrl && (
+            <li>
+              <a
+                href={event.discordUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="block rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-white"
+              >
+                Discord
+              </a>
+            </li>
+          )}
         </ul>
       )}
     </header>

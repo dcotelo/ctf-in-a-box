@@ -284,10 +284,15 @@ export default function PrivacyPage() {
               described above. AWS is reached with short-lived credentials rather than stored
               keys.
             </>,
-            <>
-              <span className="text-white">Discord</span>: only ever a link from this site. If
-              you join, Discord&apos;s own privacy policy governs what happens there.
-            </>,
+            ...(event.discordUrl
+              ? [
+                  <>
+                    <span className="text-white">Discord</span>: only ever a link from this
+                    site. If you join, Discord&apos;s own privacy policy governs what happens
+                    there.
+                  </>,
+                ]
+              : []),
           ]}
         />
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
@@ -315,20 +320,29 @@ export default function PrivacyPage() {
           , the address published in the{" "}
           <ExternalLink href={event.owaspPrivacyUrl}>OWASP Privacy Policy</ExternalLink>,
           which also sets out the rights available to you, including the additional rights of
-          EEA and California residents. For CTF-specific data such as team membership or hint
-          purchases,{" "}
-          {event.contactEmail && (
+          EEA and California residents.
+          {(event.contactEmail || event.discordUrl) && (
             <>
-              email the organizers at{" "}
-              <a href={`mailto:${event.contactEmail}`} className="ds-link font-mono">
-                {event.contactEmail}
-              </a>
-              , or{" "}
+              {" "}For CTF-specific data such as team membership or hint purchases,{" "}
+              {event.contactEmail && (
+                <>
+                  email the organizers at{" "}
+                  <a href={`mailto:${event.contactEmail}`} className="ds-link font-mono">
+                    {event.contactEmail}
+                  </a>
+                  {event.discordUrl ? ", or " : "."}
+                </>
+              )}
+              {event.discordUrl && (
+                <>
+                  ask an organizer in the{" "}
+                  <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink> if you want it
+                  dealt with faster. You never have to join Discord to exercise a right over your
+                  own data.
+                </>
+              )}
             </>
-          )}
-          ask an organizer in the{" "}
-          <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink> if you want it dealt
-          with faster. You never have to join Discord to exercise a right over your own data.
+          )}{" "}
           One honest caveat: removing your scores from the leaderboard means withdrawing from
           the competition.
         </p>

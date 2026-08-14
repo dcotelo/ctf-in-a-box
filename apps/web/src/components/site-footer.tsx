@@ -29,14 +29,16 @@ export default function SiteFooter() {
                 {link.label}
               </Link>
             ))}
-            <a
-              href={event.discordUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-zinc-400 transition-colors hover:text-[#2563eb]"
-            >
-              Discord
-            </a>
+            {event.discordUrl && (
+              <a
+                href={event.discordUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-zinc-400 transition-colors hover:text-[#2563eb]"
+              >
+                Discord
+              </a>
+            )}
           </nav>
         </div>
 

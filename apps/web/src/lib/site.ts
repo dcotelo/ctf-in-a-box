@@ -12,11 +12,12 @@ export const event = {
   url: eventConfig.url,
 
   // Live contestant support during the event: scoring questions, stuck runs,
-  // organizer announcements. Resolves to the public #general channel and never
-  // expires. If this is ever reissued, check the target channel first — the
-  // header, hero, rules, how-to-play, 404, and FAQ all funnel contestants here,
-  // and a previous invite pointed at an organizers-only channel.
-  discordUrl: "https://discord.gg/UV63TUea8d",
+  // organizer announcements. Sourced from event.yaml's event.discord (or
+  // EVENT_DISCORD) — the header, hero, rules, how-to-play, 404, and FAQ all
+  // funnel contestants here. "" (unset in event config, the default) means
+  // pages hide their Discord links and mentions entirely, same pattern as
+  // contactEmail below.
+  discordUrl: eventConfig.discordUrl,
   // OWASP's own project: OWASP-grounded procedures an AI agent follows to do
   // security engineering work. The recommended way to point an agent at a target.
   secureAgentPlaybookUrl: "https://github.com/OWASP/secure-agent-playbook",

@@ -8,6 +8,7 @@ import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames } from "@/lib/apps";
 import { event } from "@/lib/site";
+import { eventConfig } from "@/lib/event-config";
 
 export const metadata: Metadata = {
   title: "Terms",
@@ -39,7 +40,7 @@ const sections: { heading: string; items: React.ReactNode[] }[] = [
   {
     heading: "Scope of authorized testing",
     items: [
-      `Your authorization to test covers the ${enabledApps.length} challenge ${enabledApps.length === 1 ? "target" : "targets"} only: ${appList}, in your own fork under the OWASP-CTF organization.`,
+      `Your authorization to test covers the ${enabledApps.length} challenge ${enabledApps.length === 1 ? "target" : "targets"} only: ${appList}, in your own fork under the ${eventConfig.githubOrg} organization.`,
       "Explicitly out of scope: the CI scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts, forks, or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
       "Found a real vulnerability in the scorer or this site? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
       "Automated mass-submission, or spamming pull requests to farm scoring runs, will get your account rate-limited or disqualified.",
@@ -119,8 +120,13 @@ export default function TermsPage() {
       </div>
 
       <p className="text-sm leading-relaxed text-muted">
-        Questions about any of this? Ask an organizer at the OWASP CTF area or in the{" "}
-        <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>
+        Questions about any of this? Ask an organizer at the OWASP CTF area
+        {event.discordUrl && (
+          <>
+            {" "}or in the{" "}
+            <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>
+          </>
+        )}
         {event.contactEmail && (
           <>
             , or email{" "}

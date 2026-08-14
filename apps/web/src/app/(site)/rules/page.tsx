@@ -109,8 +109,14 @@ export default function RulesPage() {
       </div>
 
       <p className="text-sm leading-relaxed text-muted">
-        Stuck, or need an organizer? Find one at the OWASP CTF area, or ask in the{" "}
-        <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>. See also the{" "}
+        Stuck, or need an organizer? Find one at the OWASP CTF area
+        {event.discordUrl && (
+          <>
+            , or ask in the{" "}
+            <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>
+          </>
+        )}
+        . See also the{" "}
         <Link href="/terms" className="ds-link">
           terms
         </Link>{" "}

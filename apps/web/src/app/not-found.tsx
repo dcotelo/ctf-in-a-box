@@ -53,15 +53,20 @@ export default function NotFound() {
           </div>
 
           <p className="text-sm leading-relaxed text-zinc-400">
-            Landed here from a link on this site? Tell an organizer, or say so in the{" "}
-            <a
-              href={event.discordUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ds-link"
-            >
-              CTF Discord
-            </a>
+            Landed here from a link on this site? Tell an organizer
+            {event.discordUrl && (
+              <>
+                , or say so in the{" "}
+                <a
+                  href={event.discordUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ds-link"
+                >
+                  CTF Discord
+                </a>
+              </>
+            )}
             .
           </p>
         </div>

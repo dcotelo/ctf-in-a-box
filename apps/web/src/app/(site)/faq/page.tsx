@@ -4,6 +4,7 @@ import PageHeader from "@/components/page-header";
 import FaqAccordion, { type QA } from "@/components/faq-accordion";
 import CopyButton from "@/components/copy-button";
 import { event } from "@/lib/site";
+import { eventConfig } from "@/lib/event-config";
 
 export const metadata: Metadata = {
   title: "FAQ",
@@ -38,7 +39,8 @@ const faqs: QA[] = [
     q: "How do I submit a solution?",
     a: (
       <>
-        There&apos;s no flag to type in. Fork the target&apos;s repo under the OWASP-CTF org, fix
+        There&apos;s no flag to type in. Fork the target&apos;s repo under the{" "}
+        {eventConfig.githubOrg} org, fix
         the vulnerability on a branch in your fork, and open a pull request against the
         repo&apos;s <code className="font-mono text-zinc-200">main</code>{" "}
         branch. That&apos;s the only branch the scorer watches, and there is no per-challenge
@@ -101,16 +103,22 @@ const faqs: QA[] = [
     q: "Where do I ask for help during the event?",
     a: (
       <>
-        Find an organizer at the OWASP CTF area, or join the{" "}
-        <a
-          href={event.discordUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ds-link"
-        >
-          CTF Discord
-        </a>
-        , where scoring questions, stuck runs, and organizer announcements go.
+        Find an organizer at the OWASP CTF area
+        {event.discordUrl && (
+          <>
+            , or join the{" "}
+            <a
+              href={event.discordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ds-link"
+            >
+              CTF Discord
+            </a>
+            , where scoring questions, stuck runs, and organizer announcements go
+          </>
+        )}
+        .
       </>
     ),
   },
@@ -155,15 +163,20 @@ const alliedOps: QA = {
         .
       </p>
       <p className="text-muted">
-        Key not working? Grab an organizer at the OWASP CTF area, or ask in the{" "}
-        <a
-          href={event.discordUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ds-link"
-        >
-          CTF Discord
-        </a>
+        Key not working? Grab an organizer at the OWASP CTF area
+        {event.discordUrl && (
+          <>
+            , or ask in the{" "}
+            <a
+              href={event.discordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ds-link"
+            >
+              CTF Discord
+            </a>
+          </>
+        )}
         .
       </p>
     </div>
@@ -178,16 +191,22 @@ export default function FaqPage() {
         title="FAQ"
         description={
           <>
-            Quick answers to the things contestants ask most. Still stuck? Ask in the{" "}
-            <a
-              href={event.discordUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ds-link"
-            >
-              CTF Discord
-            </a>{" "}
-            or find an organizer at the OWASP CTF area.
+            Quick answers to the things contestants ask most. Still stuck? Find an organizer at
+            the OWASP CTF area
+            {event.discordUrl && (
+              <>
+                , or ask in the{" "}
+                <a
+                  href={event.discordUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ds-link"
+                >
+                  CTF Discord
+                </a>
+              </>
+            )}
+            .
           </>
         }
       />
