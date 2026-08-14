@@ -186,7 +186,17 @@ What each one accepts:
 - **`juice-shop`, `dvwa`, `vampi`, `vulnerableapp`** — run `APP_IMAGE` if it
   is set, else `docker build` the contestant's checked-out fork from a
   workspace `Dockerfile`, else exit non-zero.
-- **`webgoat`** — requires `APP_IMAGE`.
+- **`webgoat`** — the same three branches, with a two-stage source build. The
+  fork's root `Dockerfile` is runtime-only (it `COPY target/webgoat-*.jar`), so
+  the workspace is staged into a named volume, a JDK sibling runs the fork's own
+  `./mvnw package`, and a docker-CLI sibling builds the image from the volume —
+  both siblings on the default bridge, because `$NETWORK` is `--internal` and
+  Maven needs the internet. It takes about two minutes end to end, gated by
+  `scripts/acceptance-target.sh webgoat none`. (An earlier version of this file
+  claimed a WebGoat fork's Maven build could not fit a runner's budget and made
+  `APP_IMAGE` mandatory. That was wrong: upstream's own consumer workflow
+  Maven-builds the PR's jar on a stock runner, and the measured build here is
+  nowhere near the budget.)
 - **`securityshepherd`** — ignores `APP_IMAGE` and always builds from pinned
   upstream source, because the WAR, the MariaDB schema and the Mongo seed are
   outputs of one Maven run and a prebuilt Tomcat image paired with freshly
@@ -213,10 +223,17 @@ strategies in order:
    `APP_URL` and boot nothing. Right for heavyweight targets you keep
    running yourself.
 
-A heavyweight target of your own stays your responsibility: a WebGoat fork
-that needs a multi-minute Maven build won't fit strategy 2's timeout budget
-on a stock runner. Options: publish a prebuilt patched-app image per PR and
-use `APP_IMAGE`, add a thin Dockerfile to the fork that layers the PR's
+A heavyweight target of your own stays your responsibility, but "heavyweight"
+turns out to mean less than it sounds: strategy 2 handles a compiled app fine
+(WebGoat's Maven build plus its image takes about a minute and a half here,
+Security Shepherd's whole three-image build about the same). What strategy 2
+does *not* handle is a fork whose `Dockerfile` cannot build the app on its own
+— WebGoat's, for instance, is runtime-only and `COPY`s a jar Maven has to have
+produced first. Give such a target its own bring-up script that runs the build
+stage before the image stage (`scorer/entrypoints/webgoat.sh` is the worked
+example, and it also shows the named-volume handoff a sibling `docker build`
+needs). The alternatives remain: publish a prebuilt patched-app image per PR
+and use `APP_IMAGE`, add a thin Dockerfile to the fork that layers the PR's
 diff onto a prebuilt base, or run the target organizer-side (strategy 3 —
 noting that then the judge probes *your* deployment, not the contestant's
 patch, so it only fits challenges scored against a shared instance).

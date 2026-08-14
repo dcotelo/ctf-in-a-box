@@ -82,7 +82,10 @@ Full prerequisites, OAuth setup, and operational details live in the
 
 The kit is complete and tested offline: the smoke test (`scripts/smoke.sh`)
 exercises the whole poll pipeline end to end, and every target's rubric is
-gated against its stock image. Real, live-GitHub scoring depends on a small
+gated against the unpatched app — the published stock image where the target
+has one, a build of pinned upstream source where it does not, and for WebGoat
+both, so the path a contestant's own fork takes is gated too. Real,
+live-GitHub scoring depends on a small
 number of changes still landing in other OWASP-CTF repos. See
 [Status and upstream dependencies](https://github.com/dcotelo/ctf-in-a-box#status-and-upstream-dependencies)
 in the README for the current state.

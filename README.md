@@ -138,7 +138,7 @@ target's challenges are executable `node:test` suites, priced by difficulty.
 | Target | Challenges | Points | Notes |
 |---|---:|---:|---|
 | `vulnerableapp` | 110 | 187 | Largest target; scored 8-way parallel |
-| `webgoat` | 69 | 137 | Prebuilt image only — a Maven fork build exceeds a runner's budget |
+| `webgoat` | 69 | 137 | Two-stage build: Maven, then the fork's runtime-only Dockerfile |
 | `dvwa` | 55 | 108 | Needs a MariaDB sibling and a schema init |
 | `securityshepherd` | 40 | 79 | HTTPS, three-container stack, strictly serial |
 | `juice-shop` | 38 | 141 | The only target whose difficulty runs to 6 stars |
