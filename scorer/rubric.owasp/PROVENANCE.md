@@ -10,7 +10,7 @@ Do not edit these trees by hand — re-run the script against a newer ref.
 ## Targets
 
 - `juice-shop` — 38 challenges
-- `dvwa` — not yet vendored
+- `dvwa` — 55 challenges
 - `webgoat` — not yet vendored
 - `securityshepherd` — not yet vendored
 - `vulnerableapp` — 110 challenges

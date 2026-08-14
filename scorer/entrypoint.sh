@@ -29,11 +29,15 @@ APP_HOST="$(printf '%s' "$APP_URL" | sed -e 's,^[a-zA-Z][a-zA-Z0-9+.-]*://,,' -e
 
 BOOTED=""
 cleanup() {
-  # Only tear down a container THIS script booted (strategies a/b). Strategy c
-  # uses an organizer-managed app we must not touch.
+  # Only tear down containers THIS script booted (strategies a/b). Strategy c
+  # uses an organizer-managed app we must not touch. EXTRA_CONTAINERS is set by
+  # a per-target bring-up script that starts siblings of its own (DVWA's db).
   if [ -n "$BOOTED" ]; then
     docker rm -f "$BOOTED" >/dev/null 2>&1 || true
   fi
+  for c in ${EXTRA_CONTAINERS:-}; do
+    docker rm -f "$c" >/dev/null 2>&1 || true
+  done
 }
 trap cleanup EXIT INT TERM
 
