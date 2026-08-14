@@ -189,15 +189,14 @@ three changes landing in other OWASP-CTF repos:
    scoring Action always emitting a machine-readable result comment
    (pass/fail and points only, no exploit detail), and a cap on scoring
    re-runs per PR.
-3. **`ctf-owasp-org`** — a published container image and event-config
-   support: event name, dates, targets, and branding read from `event.yaml`
-   instead of hardcoded event values; UI rendered dynamically from the
-   enabled `modules` (nav sections, challenge lists, and leaderboard
-   columns appear per enabled module — see
+3. **`ctf-owasp-org`** — event-config support: event name, dates, targets,
+   and branding read from `event.yaml` instead of hardcoded event values;
+   UI rendered dynamically from the enabled `modules` (nav sections,
+   challenge lists, and leaderboard columns appear per enabled module — see
    [docs/modules.md](docs/modules.md)); and an organizer admin panel
    (score adjustments, player removal, hint toggles) gated by the
-   `admins` allowlist. Until this lands, `images/app/Dockerfile`
-   in this repo builds the app from source as a bridge.
+   `admins` allowlist. The app is currently vendored at `apps/web/`
+   (see `apps/web/VENDORED.md`).
 
 `srh` (`hiett/serverless-redis-http`), the Upstash-compatible REST proxy in
 front of Redis, implements only a subset of Upstash's REST API (see the

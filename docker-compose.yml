@@ -11,7 +11,11 @@ services:
 
   app:
     profiles: ["app"]
-    build: ./images/app
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
     restart: unless-stopped
     environment:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
