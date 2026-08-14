@@ -31,7 +31,9 @@ BOOTED=""
 cleanup() {
   # Only tear down a container THIS script booted (strategies a/b). Strategy c
   # uses an organizer-managed app we must not touch.
-  [ -n "$BOOTED" ] && docker rm -f "$BOOTED" >/dev/null 2>&1 || true
+  if [ -n "$BOOTED" ]; then
+    docker rm -f "$BOOTED" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT INT TERM
 
