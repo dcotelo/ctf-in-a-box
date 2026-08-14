@@ -1,0 +1,5 @@
+target: juice-shop
+challenges:
+  - id: sqli-low
+    name: "Wrong file name for this target"
+    probes: [{ request: { method: GET, path: "/" }, expect: { status: 200 } }]

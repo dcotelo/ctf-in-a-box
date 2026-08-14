@@ -1,0 +1,7 @@
+target: dvwa
+challenges:
+  - id: sqli-low
+    name: "SQL injection (low) is patched"
+    probes:
+      - request: { method: GET, path: "/vulnerabilities/sqli/?id=1" }
+        expect: { status: 200 }

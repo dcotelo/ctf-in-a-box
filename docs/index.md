@@ -28,7 +28,7 @@ scores the PR and the score lands on your box's leaderboard.
 ./setup/ctf-setup.sh check
 ./setup/ctf-setup.sh secrets
 cp event.yaml.example event.yaml   # edit: org, targets, admins, url
-./setup/ctf-setup.sh org           # fork targets, fetch workflow, mirror image
+./setup/ctf-setup.sh org           # fork targets, render workflows, mirror image
 docker compose --profile poll --profile app up -d
 ```
 
@@ -41,6 +41,9 @@ Full prerequisites, OAuth setup, and operational details live in the
   challenge catalogue, scoring transport) must satisfy to plug in.
 - [Architecture](architecture.md) — what runs where, how a score gets
   from a contestant's PR to the leaderboard.
+- [Scorer](scorer.md) — author a rubric, build your own private scorer
+  image from the in-repo engine, and wire the self-contained scoring
+  workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the
   way it is.
 

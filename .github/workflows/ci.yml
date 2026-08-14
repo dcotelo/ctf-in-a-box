@@ -16,12 +16,24 @@ jobs:
       - run: npm test
         working-directory: sync
 
+  scorer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: scorer/package-lock.json }
+      - run: npm ci
+        working-directory: scorer
+      - run: npm test
+        working-directory: scorer
+      - run: ./scripts/acceptance-scorer.sh
+
   shell:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
-      - run: shellcheck scripts/*.sh setup/*.sh
+      - run: shellcheck scripts/*.sh setup/*.sh scorer/entrypoint.sh
       - run: bats setup/test/
 
   smoke:

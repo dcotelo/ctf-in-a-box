@@ -1,0 +1,10 @@
+# Passes the loader (probes merely present) but fails the judge's probe
+# grammar: `retry` is not a probe key.
+target: juice-shop
+challenges:
+  - id: xss-search
+    name: "Search box no longer reflects HTML"
+    probes:
+      - request: { method: GET, path: "/search" }
+        expect: { status: 200 }
+        retry: 3

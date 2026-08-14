@@ -39,15 +39,19 @@ screenshots when it lands.
 - [`gh` CLI](https://cli.github.com), authenticated (`gh auth login`).
 - A GitHub org for the event (create one free org per event; see
   [Poll vs push](#poll-vs-push) and [After the event](#after-the-event)).
-- A scorer image. The default is `ghcr.io/owasp-ctf/score`, which bakes in
-  the official challenge rubric and is private — there is no formal access
-  process for it yet, so you currently have to ask the OWASP-CTF
-  maintainers directly. Alternatively, build your own scorer image against
-  the contract in [docs/modules.md](docs/modules.md) and point
-  `SCORE_IMAGE` in `.env` at it — the kit never hardcodes the upstream
-  image. Either way the image must stay private (it contains the answers);
+- A scorer image, named by `SCORE_IMAGE` in `.env` — there is no default.
+  The self-contained path: build your own from the engine the kit ships in
+  `scorer/` (rubric-authoring and build guide in
+  [docs/scorer.md](docs/scorer.md)) — no upstream access needed. The
+  upstream image, `ghcr.io/owasp-ctf/score` (bakes in the official
+  rubric), is private with no formal access process yet — if the
+  OWASP-CTF maintainers do grant you access, point `SCORE_IMAGE` at it
+  instead. Either way the image must stay private
+  (it bakes in the rubric — see docs/scorer.md for what that does and
+  doesn't protect);
   `ctf-setup org` mirrors whatever `SCORE_IMAGE` names into your own event
-  org so your forks' Actions can pull it.
+  org so your forks' Actions can pull it, and refuses to run until
+  `SCORE_IMAGE` is set.
 - `docker login ghcr.io` with a token that has `write:packages`. The
   `org` subcommand's image-mirror step ends with
   `docker push ghcr.io/<org>/score:latest`, which needs write access to
@@ -59,7 +63,7 @@ screenshots when it lands.
 ./setup/ctf-setup.sh check
 ./setup/ctf-setup.sh secrets
 cp event.yaml.example event.yaml   # edit: org, targets, admins, url
-./setup/ctf-setup.sh org           # fork targets, fetch workflow (manual install), mirror image
+./setup/ctf-setup.sh org           # fork targets, render workflows from the in-repo template (manual install), mirror image
 docker compose --profile poll --profile app up -d
 ```
 
@@ -96,9 +100,12 @@ instead of the alternatives, see [docs/decisions.md](docs/decisions.md).
 
 `ctf-setup.sh org` authenticates via your existing `gh auth login` session
 (the same one `check` verifies) and your local `docker` login to
-`ghcr.io` — it doesn't read `.env` at all. It forks each target into the
-org, fetches and reports where to install the scoring workflow, and
-mirrors the scorer image into your org's GHCR. Every subcommand takes
+`ghcr.io` — the only `.env` value it reads is `SCORE_IMAGE`. It forks each
+target into the org (the targets are public OSS — the only upstream repos
+touched), renders the scoring workflow per target from the in-repo
+template (`scorer/consumer-workflow.example.yml`) into `dist/workflows/`
+and reports where to install each file, and mirrors the scorer image into
+your org's GHCR. Every subcommand takes
 flags *after* the subcommand name, e.g. `./setup/ctf-setup.sh org --dry-run`
 to preview without touching anything.
 
@@ -207,6 +214,12 @@ a forged comment from an untrusted author is dropped, and unauthenticated
 `POST /score` is rejected. It's what CI runs (see `.github/workflows/ci.yml`)
 and it's the fastest way to sanity-check a change to `sync`, the compose
 stack, or the setup script without any live GitHub or scorer access.
+
+The scorer engine (`scorer/` — the serve + judge image the kit ships so
+you can build your own scorer, see [docs/scorer.md](docs/scorer.md)) has
+its own offline acceptance, `./scripts/acceptance-scorer.sh`: it builds
+the image with the example rubric and closes the judge → PR-comment marker
+→ leaderboard loop against a fake target app, in both push and poll mode.
 
 ## Status / upstream dependencies
 
