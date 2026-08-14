@@ -272,3 +272,30 @@ test("judges an exec target and reports solved challenges by lowercased id", asy
   // Oracle discipline: no test file name, no assertion text.
   assert.doesNotMatch(report, /\.test\.js/);
 });
+
+// Guards the cross-target hazard flagged by Task 3's review: a rubric dir
+// holding BOTH a YAML target and an exec target must not throw when judging
+// the YAML target. Before the fix, the validation loop called validateProbes
+// unconditionally for every target's challenges, so an exec sibling's
+// undefined `probes` broke judging of an unrelated declarative target. This
+// must fail if the fix regresses to gating the skip on `target === TARGET`
+// instead of on `c.exec` alone — a per-target guard would still validate the
+// exec sibling's challenges whenever a DIFFERENT target is being judged.
+test("judges a YAML target in a rubric dir that also holds an exec target sibling", async () => {
+  const env = {
+    TARGET: "juice-shop",
+    APP_URL: "http://app.invalid",
+    RUBRIC_DIR: fileURLToPath(new URL("./fixtures/rubric-mixed/", import.meta.url)),
+    GITHUB_WORKSPACE: mkdtempSync(join(tmpdir(), "workspace-")),
+    GITHUB_EVENT_PATH: writeEvent(),
+    APP_READY_TRIES: "1",
+    APP_READY_DELAY: "0",
+  };
+
+  const { solved, total } = await judge(env, {
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => "" }),
+  });
+
+  assert.equal(total, 3);
+  assert.deepEqual(solved, ["reflected-xss-search"]);
+});
