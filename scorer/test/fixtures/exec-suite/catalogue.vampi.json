@@ -1,0 +1,4 @@
+[
+  { "key": "Sub-Pass", "file": "Mixed.test.js", "name": "Passing subtest", "difficulty": 1 },
+  { "key": "Sub-Fail", "file": "Mixed.test.js", "name": "Failing subtest", "difficulty": 1 }
+]
