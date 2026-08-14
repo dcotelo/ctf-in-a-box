@@ -23,13 +23,15 @@ in directly or picked up by a poller, depending on your network.
 
 Captured from the contestant app running locally in mock-data mode (no
 backend configured — the app ships demo data by design, so the kit is
-inspectable before any event exists). Event name, dates, and branding are
-currently baked into the upstream app; making them — and the set of enabled
-modules — configurable per event is upstream work item 3 in
-[Status / upstream dependencies](#status--upstream-dependencies). An
-organizer admin panel (score adjustments, player removal, hint toggles) is
-planned alongside it and will be documented here with its own screenshots
-when it lands.
+inspectable before any event exists). Event name, dates, targets, and
+branding now come from `event.yaml` at image-build time — see
+[Rebuilding the app after a config change](#rebuilding-the-app-after-a-config-change).
+These screenshots predate that work and were captured from a
+DEF CON 34-branded build, so they're stale against the neutral "OWASP CTF"
+default a fresh build now ships; re-capturing them is a follow-up, not done
+here. An organizer admin panel (score adjustments, player removal, hint
+toggles) is still planned and will be documented here with its own
+screenshots when it lands.
 
 ## Prerequisites
 
@@ -82,7 +84,10 @@ fill in `github.org`, `modules.secure-development.targets` (any subset of
 the six target keys above), `admins` (GitHub logins), and `event.url`.
 What a module must provide to plug in — config block, scoring contract,
 transports, security requirements, provisioning — is documented in
-[docs/modules.md](docs/modules.md).
+[docs/modules.md](docs/modules.md). For how the whole stack fits together
+(diagram, score data flow, security model, testing strategy), see
+[docs/architecture.md](docs/architecture.md); for why it's built this way
+instead of the alternatives, see [docs/decisions.md](docs/decisions.md).
 
 `ctf-setup.sh org` authenticates via your existing `gh auth login` session
 (the same one `check` verifies) and your local `docker` login to
@@ -91,6 +96,30 @@ org, fetches and reports where to install the scoring workflow, and
 mirrors the scorer image into your org's GHCR. Every subcommand takes
 flags *after* the subcommand name, e.g. `./setup/ctf-setup.sh org --dry-run`
 to preview without touching anything.
+
+## Rebuilding the app after a config change
+
+The contestant app (`apps/web/`, vendored — see
+[`apps/web/VENDORED.md`](apps/web/VENDORED.md)) bakes its event name, dates,
+URL, enabled-target list, fork org (`github.org`), and Discord link
+(`event.discord`, optional) from `event.yaml` in at image-build time, via
+the `EVENT_CONFIG_B64` compose build arg. The fork org also drives every
+"fork this repo" link the app renders on the Challenges page and in its
+How to Play / FAQ copy, so self-hosted contestants are pointed at the org
+`ctf-setup org` actually forked into, not the upstream canonical one.
+`docker compose --profile app up -d` alone won't pick up an `event.yaml`
+edit — Compose only rebuilds an image when told to. After changing
+`event.yaml`, rebuild the `app` image explicitly:
+
+```sh
+EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile app build app
+```
+
+then bring the stack back up (`docker compose --profile poll --profile app
+up -d`) to run the freshly built image. Leaving `EVENT_CONFIG_B64` unset (or
+building without it) falls back to the neutral "OWASP CTF" defaults baked
+into the vendored app — see `apps/web/scripts/generate-event-config.mjs` for
+the full `EVENT_CONFIG` yaml > `EVENT_*` env var > default precedence.
 
 ## GitHub OAuth app
 
@@ -178,8 +207,9 @@ stack, or the setup script without any live GitHub or scorer access.
 
 This kit is complete and tested against fixtures — `scripts/smoke.sh`
 exercises the whole poll pipeline offline, and `sync` has unit tests for
-parsing, cursors, and idempotency. Real, live-GitHub scoring depends on
-three changes landing in other OWASP-CTF repos:
+parsing, cursors, and idempotency. Real, live-GitHub scoring depends on two
+changes landing in other OWASP-CTF repos, plus one item still open in this
+repo:
 
 1. **upstream scorer** — a bearer-token auth mode for `POST /score` (accept
    `Authorization: Bearer <token>` as an alternative to Actions OIDC), so
@@ -189,22 +219,26 @@ three changes landing in other OWASP-CTF repos:
    scoring Action always emitting a machine-readable result comment
    (pass/fail and points only, no exploit detail), and a cap on scoring
    re-runs per PR.
-3. **`ctf-owasp-org`** — a published container image and event-config
-   support: event name, dates, targets, and branding read from `event.yaml`
-   instead of hardcoded event values; UI rendered dynamically from the
-   enabled `modules` (nav sections, challenge lists, and leaderboard
-   columns appear per enabled module — see
-   [docs/modules.md](docs/modules.md)); and an organizer admin panel
-   (score adjustments, player removal, hint toggles) gated by the
-   `admins` allowlist. Until this lands, `images/app/Dockerfile`
-   in this repo builds the app from source as a bridge.
+3. **admin panel + upstreaming** — event-config support (event name, dates,
+   targets, and branding read from `event.yaml`) and module-driven UI (nav,
+   challenge list, and leaderboard columns filtered to the enabled module's
+   targets — see [docs/modules.md](docs/modules.md) §5) are now shipped
+   in-repo: the app is vendored at `apps/web/` and built from local source
+   rather than pulled from an upstream image (see `apps/web/VENDORED.md`).
+   What remains: an organizer admin panel (score adjustments, player
+   removal, hint toggles) gated by the `admins` allowlist — Spec B, tracked
+   in this repo, not yet built — and offering the vendoring delta back to
+   `OWASP-CTF/ctf-owasp-org` as a PR once upstream write access opens (see
+   the "Intent" note in `apps/web/VENDORED.md`).
 
 `srh` (`hiett/serverless-redis-http`), the Upstash-compatible REST proxy in
 front of Redis, implements only a subset of Upstash's REST API (see the
 notes in `scripts/smoke.sh` — no path-style `GET /get/<key>` shortcut, for
-example). Whether the app image's Redis client stays within that subset
-(pipelining, `EVAL`, etc.) is verified as part of upstream item 3 above,
-once the app reads from `srh` for real rather than mock data.
+example). The app is already wired to `srh` today for real (not mock) data
+in Compose — team membership and hint purchases read and write through it.
+What's still unverified is whether the app image's Redis client stays
+within that subset end-to-end (pipelining, `EVAL`, etc.); that verification
+is a follow-up, tracked alongside upstream item 3 above.
 
 Until those land, treat `scripts/smoke.sh` as the source of truth that the
 kit itself works; a real event additionally needs the scorer's bearer-auth

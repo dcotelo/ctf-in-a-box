@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 260" width="420" height="260" role="img" aria-label="An empty winners' podium with an unclaimed flag on the top step">
+  <title>An empty podium, waiting for its first solve</title>
+
+  <defs>
+    <!-- Atmospheric glow behind the top step (accent-blue at low alpha). -->
+    <radialGradient id="glow" cx="50%" cy="52%" r="50%">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.16" />
+      <stop offset="60%" stop-color="#2563eb" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- CRT scanlines: 1px line every 4px, per the design system. -->
+    <pattern id="scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="#ffffff" fill-opacity="0.05" />
+    </pattern>
+
+    <!-- Faint vertical fade so each block dissolves toward the floor. -->
+    <linearGradient id="blockFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.045" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.012" />
+    </linearGradient>
+
+    <linearGradient id="groundLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0" />
+      <stop offset="50%" stop-color="#2563eb" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Feathers the scanline overlay so it dissolves into the card instead of
+         ending on a hard rectangular edge. -->
+    <radialGradient id="vignette" cx="50%" cy="50%" r="58%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="1" />
+      <stop offset="65%" stop-color="#ffffff" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <mask id="scanlineMask">
+      <rect width="420" height="260" fill="url(#vignette)" />
+    </mask>
+  </defs>
+
+  <style>
+    /* Quiet motion only — one slow breath on the glow and the flag. */
+    @media (prefers-reduced-motion: no-preference) {
+      .breathe { animation: breathe 5s ease-in-out infinite; transform-origin: 210px 140px; }
+      .sway    { animation: sway 6s ease-in-out infinite; transform-origin: 210px 118px; }
+      @keyframes breathe { 0%, 100% { opacity: 0.75 } 50% { opacity: 1 } }
+      @keyframes sway    { 0%, 100% { transform: rotate(-1.2deg) } 50% { transform: rotate(1.2deg) } }
+    }
+  </style>
+
+  <ellipse class="breathe" cx="210" cy="136" rx="200" ry="112" fill="url(#glow)" />
+
+  <!-- ── The unclaimed flag on the top step ───────────────────────────── -->
+  <g class="sway">
+    <line x1="210" y1="118" x2="210" y2="50" stroke="#52525b" stroke-width="2" stroke-linecap="round" />
+    <!-- Pennant, drawn as a soft wave so it reads as cloth, not a triangle. -->
+    <path d="M212 55 C 232 59, 244 66, 258 62 C 250 72, 250 80, 256 88 C 238 84, 224 90, 212 86 Z"
+          fill="#2563eb" fill-opacity="0.22" stroke="#2563eb" stroke-opacity="0.75" stroke-width="1.5"
+          stroke-linejoin="round" />
+    <circle cx="210" cy="48" r="2.5" fill="#2563eb" fill-opacity="0.9" />
+  </g>
+
+  <!-- ── Podium: 2nd (left), 1st (centre), 3rd (right) ────────────────── -->
+  <!-- Dashed edges = the slot is open. Numerals sit dim until someone claims them. -->
+
+  <!-- 2nd place -->
+  <g>
+    <rect x="72" y="148" width="90" height="62" rx="3" fill="url(#blockFill)"
+          stroke="#a1a1aa" stroke-opacity="0.28" stroke-width="1.5" stroke-dasharray="7 5" />
+    <text x="117" y="187" text-anchor="middle" font-family="ui-monospace, 'Geist Mono', monospace"
+          font-size="26" font-weight="700" fill="#a1a1aa" fill-opacity="0.4">2</text>
+  </g>
+
+  <!-- 1st place -->
+  <g>
+    <rect x="165" y="118" width="90" height="92" rx="3" fill="url(#blockFill)"
+          stroke="#d4a017" stroke-opacity="0.42" stroke-width="1.5" stroke-dasharray="7 5" />
+    <text x="210" y="172" text-anchor="middle" font-family="ui-monospace, 'Geist Mono', monospace"
+          font-size="32" font-weight="700" fill="#d4a017" fill-opacity="0.55">1</text>
+  </g>
+
+  <!-- 3rd place -->
+  <g>
+    <rect x="258" y="168" width="90" height="42" rx="3" fill="url(#blockFill)"
+          stroke="#14b8a6" stroke-opacity="0.28" stroke-width="1.5" stroke-dasharray="7 5" />
+    <text x="303" y="197" text-anchor="middle" font-family="ui-monospace, 'Geist Mono', monospace"
+          font-size="22" font-weight="700" fill="#14b8a6" fill-opacity="0.4">3</text>
+  </g>
+
+  <!-- Floor -->
+  <rect x="20" y="209.5" width="380" height="1.5" fill="url(#groundLine)" />
+
+  <!-- Terminal cue under the floor: the board is listening. -->
+  <text x="210" y="238" text-anchor="middle" font-family="ui-monospace, 'Geist Mono', monospace"
+        font-size="12" fill="#22c55e" fill-opacity="0.55">
+    $ awaiting first solve
+    <tspan fill="#2563eb" fill-opacity="0.9">_</tspan>
+  </text>
+
+  <!-- Scanline overlay, last so it sits over everything. -->
+  <rect width="420" height="260" fill="url(#scanlines)" mask="url(#scanlineMask)" />
+</svg>

@@ -11,7 +11,11 @@ services:
 
   app:
     profiles: ["app"]
-    build: ./images/app
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
     restart: unless-stopped
     environment:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
@@ -23,7 +27,6 @@ services:
       UPSTASH_REDIS_REST_URL: http://srh:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
       TEAM_WRITES_ENABLED: "true"
-      CTF_DATA_BACKEND: upstash           # no DynamoDB in self-host
     depends_on: [srh, scorer]
 
   scorer:

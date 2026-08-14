@@ -30,10 +30,17 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/smoke.sh
 
-  app-image:
-    # Catches bridge-Dockerfile rot against upstream; not part of smoke (slow).
+  app:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t ctf-app:ci images/app/
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
+        working-directory: apps/web
+      - run: corepack pnpm test
+        working-directory: apps/web
+      - run: BETTER_AUTH_SECRET=ci-dummy BETTER_AUTH_URL=http://localhost:3000 corepack pnpm build
+        working-directory: apps/web
+      - run: ./scripts/acceptance-app.sh

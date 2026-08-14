@@ -1,0 +1,12 @@
+title: CTF-in-a-box
+description: >-
+  Self-hosted OWASP CTF: fork the target app, patch the vuln, PR it back,
+  GitHub Actions scores it — one box, one free GitHub org, no cloud.
+theme: jekyll-theme-cayman
+
+# docs/superpowers is a gitignored local planning scratch dir that should
+# never end up in the repo, but exclude it here too as a second layer of
+# safety in case it's ever present when Jekyll builds.
+exclude:
+  - superpowers
+  - _site

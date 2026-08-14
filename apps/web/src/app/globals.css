@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+:root {
+  --background: #1a1a2e;
+  --foreground: #d4d4d8;
+  --accent-blue: #2563eb;
+  /* Accent blue is a chrome/brand colour: at 3.3:1 on --background it is fine
+     for borders, bars, and large or bold accents, but it fails WCAG AA (4.5:1)
+     for body-size text. Inline text links use this lighter step instead —
+     6.7:1 on --background, same hue family. */
+  --accent-blue-link: #60a5fa;
+  /* Muted label text. zinc-500 (#71717b) is only 3.5:1 on --background and
+     3.3:1 inside the bg-white/[0.03] input fill — under the WCAG AA 4.5:1
+     floor, and no muted label here is large enough for the 3:1 exemption.
+     This step is 4.9:1 on the worst surface and 5.3:1 on --background while
+     staying a clear tier below zinc-400 (6.5:1), so "low-contrast chrome,
+     high-contrast content" survives. Use it for every muted *label*; zinc-600
+     stays for separators and disabled chrome only. */
+  --text-muted: #8f8f9b;
+  --accent-green: #22c55e;
+  --accent-red: #e53e3e;
+  --accent-yellow: #d4a017;
+  --accent-teal: #14b8a6;
+  --sidebar-bg: #12121e;
+  --card-bg: #16162a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--text-muted);
+  --font-sans: var(--font-barlow), sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-barlow), sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-poppins), sans-serif;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    text-shadow: 0 0 20px rgba(37, 99, 235, 0.3), 0 0 40px rgba(37, 99, 235, 0.1);
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(37, 99, 235, 0.5), 0 0 60px rgba(37, 99, 235, 0.2);
+  }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Shared hover treatment for interactive cards (leaderboard rows, challenge
+   tiles, FAQ items). The glow picks up each card's --accent when one is set,
+   falling back to the brand blue. */
+.ds-card:hover {
+  box-shadow:
+    0 8px 30px -14px color-mix(in srgb, var(--accent, #2563eb) 45%, transparent);
+}
+
+/* Inline prose link. Colour alone can't carry the link affordance:
+   --accent-blue-link against zinc-400 body text is only 1.03:1, so WCAG 1.4.1
+   (Use of Color, Level A) needs a non-colour cue. The underline is always on;
+   hover just strengthens it. Chrome/nav links are a different case — they sit
+   alone rather than inside a sentence — and keep their bare colour treatment. */
+.ds-link {
+  color: var(--accent-blue-link);
+  text-decoration-line: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--accent-blue-link) 40%, transparent);
+}
+.ds-link:hover {
+  text-decoration-color: var(--accent-blue-link);
+}
+
+/* WCAG 2.5.8 (24x24 minimum pointer target). The OWASP and hint chips in the
+   challenge rows render ~23x15. Growing the visual box would cost ~30% of the
+   row density on lists that run to 110 challenges, and the 2.5.8 spacing
+   exception doesn't apply because the two chips sit only 8px apart. So the
+   pointer target is grown with a transparent pseudo-element instead: 24px
+   tall, at least 24px wide, centred, zero layout impact. Row pitch is 24px,
+   so adjacent rows' targets tile rather than overlap. */
+.ds-tap-24 {
+  position: relative;
+}
+.ds-tap-24::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  height: 24px;
+  width: max(100%, 24px);
+}
+
+/* Respect users who ask for less motion: neutralize the looping hero
+   animations and shorten transitions instead of removing them outright. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
