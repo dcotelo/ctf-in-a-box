@@ -44,5 +44,8 @@ RUN printf '#!/bin/sh\nexec node /app/src/index.js "$@"\n' > /usr/local/bin/scor
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Per-target bring-up scripts, sourced by entrypoint.sh when TARGET matches.
+COPY entrypoints /usr/local/lib/ctf/entrypoints
+
 # Bare `docker run` of the image = leaderboard API (compose overrides nothing).
 CMD ["score", "serve"]

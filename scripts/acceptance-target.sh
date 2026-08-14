@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Stock-scores-zero gate (docs/modules.md §6.4) against a REAL target.
+#
+# Boots the stock, unpatched upstream image and scores the vendored rubric
+# against it. Every challenge MUST fail: a vendored test that passes here is a
+# free point for every contestant, which is the exact failure the golden rule
+# ("assert the fix, not the exploit") exists to prevent.
+#
+# Usage: scripts/acceptance-target.sh <target> <stock-image>
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+TARGET="${1:?usage: $0 <target> <stock-image>}"
+STOCK_IMAGE="${2:?usage: $0 <target> <stock-image>}"
+
+IMG="ctf-score:acceptance-$TARGET"
+NET="ctf-acceptance-$TARGET"
+TMP="$(mktemp -d)"
+WS="$TMP/workspace"
+mkdir -p "$WS"
+
+cleanup() {
+  docker rm -f "ctf-app-$TARGET" db >/dev/null 2>&1 || true
+  docker network rm "$NET" >/dev/null 2>&1 || true
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+
+echo "Building scorer image with the vendored rubric…"
+docker build -q -t "$IMG" scorer/ >/dev/null
+
+docker network create --internal "$NET" >/dev/null 2>&1 || true
+
+# Some targets' apps hardcode a nonstandard listen port inside their own image
+# (there is no way to discover this at runtime — it is a fact about the
+# vendor's Dockerfile/entrypoint, not something docker networking can smooth
+# over). This mirrors the read-only reference engine's own per-target app-url
+# convention (dc34 .github/workflows/stock-scores-zero.yml): VAmPI's Flask app
+# is hardcoded to `app.run(port=5000)`, so APP_URL must carry :5000 or the app
+# is simply unreachable at the default :80 — the exact "bad port" this gate
+# exists to catch.
+case "$TARGET" in
+  vampi) APP_PORT=":5000" ;;
+  *) APP_PORT="" ;;
+esac
+
+cat > "$TMP/event.json" <<'JSON'
+{"pull_request":{"user":{"login":"stock-check"},"number":1,"head":{"sha":"0000000000000000000000000000000000000000"}}}
+JSON
+
+echo "Scoring STOCK $TARGET — expecting every challenge to FAIL…"
+docker run --rm \
+  --network "$NET" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$WS:/github/workspace" \
+  -v "$TMP/event.json:/github/event.json:ro" \
+  -e "TARGET=$TARGET" \
+  -e "APP_URL=http://$TARGET$APP_PORT" \
+  -e "APP_IMAGE=$STOCK_IMAGE" \
+  -e "NETWORK=$NET" \
+  --entrypoint /usr/local/bin/entrypoint.sh \
+  "$IMG"
+
+REPORT="$WS/ctf-score.md"
+[ -f "$REPORT" ] || { echo "FAIL: no ctf-score.md produced"; exit 1; }
+
+SCORE="$(sed -n 's/.*\*\*\([0-9][0-9]*\) \/ \([0-9][0-9]*\)\*\* challenges patched.*/\1 \2/p' "$REPORT")"
+SOLVED="${SCORE% *}"
+TOTAL="${SCORE#* }"
+
+echo "stock $TARGET scored $SOLVED / $TOTAL"
+
+if [ "$SOLVED" != "0" ]; then
+  echo
+  echo "FAIL: $SOLVED challenge(s) passed against the STOCK app."
+  echo "Those tests assert the exploit rather than the fix, or the stock image is"
+  echo "already hardened. Offending challenges:"
+  grep -F "✅ Patched" "$REPORT" || true
+  exit 1
+fi
+
+[ "$TOTAL" -gt 0 ] || { echo "FAIL: rubric scored 0 challenges total — is it wired up?"; exit 1; }
+
+echo "PASS: stock $TARGET scores 0 / $TOTAL"

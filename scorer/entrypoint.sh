@@ -59,6 +59,20 @@ boot_app() {
   BOOTED="$APP_CONTAINER"
 }
 
+# Per-target bring-up. Targets needing more than "run one container" (a database
+# sibling, a schema init, a readiness handshake) ship a script here. It runs
+# INSTEAD of the generic boot below and is responsible for leaving the app
+# reachable at APP_URL on $NETWORK.
+TARGET_BOOT="/usr/local/lib/ctf/entrypoints/${TARGET}.sh"
+if [ -f "$TARGET_BOOT" ]; then
+  echo "entrypoint: booting $TARGET via its bring-up script"
+  # shellcheck disable=SC1090
+  NETWORK="$NETWORK" APP_HOST="$APP_HOST" APP_URL="$APP_URL" \
+    APP_CONTAINER="$APP_CONTAINER" APP_IMAGE="${APP_IMAGE:-}" \
+    . "$TARGET_BOOT"
+  exec score judge
+fi
+
 if [ -n "${APP_IMAGE:-}" ]; then
   # (a) Prebuilt image — pull and run as a sibling.
   echo "entrypoint: booting app from APP_IMAGE=$APP_IMAGE"
