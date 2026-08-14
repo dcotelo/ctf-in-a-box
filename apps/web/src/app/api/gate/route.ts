@@ -10,9 +10,16 @@ import { clearGateThrottle, consumeGateAttempt } from "@/lib/dynamo-gate-store";
 export async function POST(request: NextRequest) {
   if (!isGateActive()) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  // A reverse proxy in front of the app (see the kit's Caddy config) sets
-  // x-forwarded-for, so the first value is trustworthy there; without one in
-  // front it is absent and everyone shares the "unknown" bucket.
+  // The leftmost x-forwarded-for value is client-controlled, not trustworthy:
+  // the kit's Caddy config appends the real client IP to whatever XFF a
+  // request already carries (like nginx's proxy_add_x_forwarded_for) rather
+  // than replacing it, and no trusted_proxies is configured — so a caller can
+  // prepend an arbitrary IP and get a fresh throttle bucket on every attempt.
+  // This makes the 5-attempts/24h throttle best-effort against casual
+  // guessing, not a hard rate limit; header-spoofing bypasses it. Accepted
+  // risk: the gate protects pre-event visibility of the challenge board, not
+  // accounts or funds. Without any proxy in front at all, the header is
+  // simply absent and everyone shares the "unknown" bucket.
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 
   const body = await request.json().catch(() => ({}));

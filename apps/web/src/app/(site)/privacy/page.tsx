@@ -279,8 +279,8 @@ export default function PrivacyPage() {
             </>,
             <>
               <span className="text-white">AWS and Upstash</span>: store the competition data
-              described above. AWS is reached with short-lived credentials rather than stored
-              keys.
+              described above. The app itself stores no AWS credentials; it uses whatever the
+              organizer&apos;s AWS setup provides for the box it runs on.
             </>,
             ...(event.discordUrl
               ? [

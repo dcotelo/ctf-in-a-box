@@ -4,20 +4,22 @@ import { recordCountryVisit } from "@/lib/dynamo-stats";
 /**
  * Bumps the aggregate per-country reach counter by one.
  *
- * The country is read from an edge/reverse-proxy-supplied geo header (e.g.
- * Cloudflare's `cf-ipcountry`, or an equivalent header your front door sets)
- * and NEVER from the request body — the client has no say in what gets
- * counted, and the value is validated as ISO-3166 alpha-2 before it goes
- * anywhere near a sort key. Whatever IP the header's country was derived from
- * is not read here, not logged, and not stored.
- *
- * A bare self-hosted deployment with no such proxy in front simply never
- * populates this header, so the counter stays at zero — that's expected, not
- * a bug; see README.md for how to wire one up if you want the counter live.
+ * The country is read from a geo header (`cf-ipcountry`, as set by
+ * Cloudflare, or the generic `x-geo-country` some other front door might
+ * set) and never from the request body. That header is only as trustworthy
+ * as whatever sits in front of this app: a real edge/CDN that overwrites it
+ * on every request makes the value reliable, but the kit's own Caddy config
+ * does not set, strip, or validate either header — so on a bare self-hosted
+ * deployment a client can simply send one directly and the tally can be
+ * gamed. That is an accepted trade-off for an approximate, unauthenticated,
+ * no-PII reach counter (see README.md), not a security boundary. Regardless
+ * of where the value came from, it is validated as ISO-3166 alpha-2 before
+ * it goes anywhere near a sort key, and no IP is ever read, logged, or
+ * stored here.
  *
  * Always answers 204, whether or not anything was counted. There is nothing
  * useful to tell the caller, and a uniform response means the endpoint can't
- * be used to probe what geo your edge assigned you.
+ * be used to probe what geo header value was actually received.
  */
 export async function POST(request: NextRequest) {
   const country = request.headers.get("cf-ipcountry") ?? request.headers.get("x-geo-country");

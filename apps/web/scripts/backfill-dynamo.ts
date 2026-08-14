@@ -33,8 +33,9 @@ for (const file of [path.resolve(process.cwd(), ".env.local")]) {
 
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-// CTF_AWS_REGION, not AWS_REGION — the ambient var lies on Vercel and can lie
-// locally too (profiles/default region); the table lives in us-west-2.
+// CTF_AWS_REGION, not AWS_REGION — the ambient var can lie on some hosts
+// (injected as the process's own execution region) and locally too
+// (profiles/default region); the table lives in us-west-2.
 const AWS_REGION = process.env.CTF_AWS_REGION ?? "us-west-2";
 const TABLE = process.env.CTF_DYNAMO_TABLE ?? "ctf-leaderboard";
 const HINT_COST = 10; // purchase items get the current price; the spend total below is the authoritative number
