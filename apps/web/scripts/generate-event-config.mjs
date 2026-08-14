@@ -26,17 +26,37 @@ function fail(msg) {
 }
 
 function displayDates(startIso, endIso) {
+  // Validate ISO strings first
   const start = new Date(startIso);
   if (Number.isNaN(start.getTime())) fail(`invalid event.start: ${startIso}`);
   const end = endIso ? new Date(endIso) : start;
   if (Number.isNaN(end.getTime())) fail(`invalid event.end: ${endIso}`);
-  const md = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" });
-  const y = start.getUTCFullYear();
-  const sameDay = start.toDateString() === end.toDateString();
-  if (sameDay) return `${md.format(start)}, ${y}`;
-  const sameMonth = start.getMonth() === end.getMonth() && y === end.getUTCFullYear();
-  if (sameMonth) return `${md.format(start)}–${end.getDate()}, ${y}`;
-  return `${md.format(start)} – ${md.format(end)}, ${end.getUTCFullYear()}`;
+
+  // Parse wall-clock date textually from ISO string (before timezone offset)
+  const parseWallClockDate = (iso) => {
+    const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+    return { y, m, d };
+  };
+
+  const startDate = parseWallClockDate(startIso);
+  const endDate = parseWallClockDate(endIso || startIso);
+
+  // Month names from UTC-aware Intl.DateTimeFormat (noon UTC avoids boundaries)
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const formatDate = (y, m, d) => fmt.format(new Date(Date.UTC(y, m - 1, d, 12)));
+
+  // Compare wall-clock dates textually
+  const sameDay = startDate.y === endDate.y && startDate.m === endDate.m && startDate.d === endDate.d;
+  if (sameDay) return `${formatDate(startDate.y, startDate.m, startDate.d)}, ${startDate.y}`;
+
+  const sameMonth = startDate.y === endDate.y && startDate.m === endDate.m;
+  if (sameMonth) return `${formatDate(startDate.y, startDate.m, startDate.d)}–${endDate.d}, ${startDate.y}`;
+
+  return `${formatDate(startDate.y, startDate.m, startDate.d)} – ${formatDate(endDate.y, endDate.m, endDate.d)}, ${endDate.y}`;
 }
 
 function validateTargets(targets) {

@@ -1,5 +1,5 @@
 {
-  "name": "dc34-owasp-ctf",
+  "name": "owasp-ctf-web",
   "version": "0.3.0",
   "private": true,
   "scripts": {
