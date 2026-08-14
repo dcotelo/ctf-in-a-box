@@ -1,10 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { RUBRIC_ID } from "./rubric-id.js";
 
-// Targets and challenge ids share one charset: both become Redis key/field
-// segments (`ctf:solves:<target>`, `<author>:<challengeId>`).
-export const RUBRIC_ID = /^[a-z0-9][a-z0-9-]*$/;
+export { RUBRIC_ID } from "./rubric-id.js";
 
 const TOP_KEYS = new Set(["target", "challenges"]);
 const CHALLENGE_KEYS = new Set(["id", "name", "points", "probes"]);
