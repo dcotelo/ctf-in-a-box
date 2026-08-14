@@ -403,3 +403,73 @@ of upstream behavior. The score-action output regexes (title line, `**N /
 M** challenges patched`, `not-recorded` marker) are deliberately preserved
 verbatim, so an upstream event could adopt this engine later without
 touching its existing tooling.
+
+## 18. Exec-probe rubrics for all six targets; the rubric ships public
+
+**Context.** Decision 17 split the scorer into a public engine and a
+private rubric, and shipped one instructive example (`juice-shop.yaml`,
+three declarative probes). Meanwhile the kit advertised six targets:
+`sync/src/config.js`'s `TARGETS` enum accepts all six and the contestant
+app renders counts for all six, but enabling any target other than Juice
+Shop produced `400 unknown target`.
+
+The rubrics already existed. `OWASP-CTF/dc34-owasp-secure-development-ctf`
+holds 321 authored, pass-on-patch challenges across all six targets — but
+as executable `node:test` suites, not declarative probes. They need
+authenticated sessions (all 40 Security Shepherd challenges, all 19 DVWA
+category files), multi-request sequences, structural JSON assertions
+(110 VulnerableApp challenges), and timing comparisons (VAmPI's ReDoS
+challenge). None of that fits `status` / `bodyIncludes` / `bodyMissing`.
+
+**Decision.** Promote exec-probes from documented follow-up to shipped
+feature (`scorer/src/exec.js`), and vendor the upstream rubric into
+`scorer/rubric.owasp/`, baked by default. The declarative grammar stays
+supported and `rubric.example/juice-shop.yaml` stays as its tutorial; a
+rubric directory may mix both shapes, though defining one target twice is
+an error. Upstream is treated as **read-only**: `scripts/vendor-rubric.sh`
+clones at a pinned SHA recorded in `PROVENANCE.md` and has no push path.
+
+The rubric ships **public**, reversing decision 17's posture. This CTF is
+educational, all six targets are open source, and their solutions are
+already published. The check-gaming exposure decision 17 guarded against
+is accepted as a trade-off rather than treated as a blocker.
+
+**Consequences.** All six targets score out of the box; `event.yaml` can
+name any subset. Points come from `catalogue.<target>.json`'s `difficulty`
+rather than a YAML `points:` field, so the price list has one source.
+Challenge ids are the catalogue key lowercased — the keys are CamelCase
+and all 321 fail `RUBRIC_ID`, while lowercasing collides on none.
+
+The kit now runs untrusted-adjacent code in the judge: exec children are
+`node --test` processes spawned inside the scorer container. They were
+already running contestant-patched application code as a sibling
+container, so this widens the existing boundary rather than crossing a
+new one, but it is a real change to what the judge executes.
+
+Oracle discipline (decision 7) is unaffected — `ctf-score.md` still
+carries challenge name, points, and ✅/❌ only. Test output, assertion
+text, and file names never reach the contestant-visible comment.
+
+Check-gaming is now mitigated by rubric *shape* rather than secrecy:
+exec probes assert timing and response structure, which a patch cannot
+satisfy without changing real behaviour the way a `bodyMissing` substring
+can be.
+
+All six targets now genuinely score `0 / N` against their unpatched
+upstream image, verified by `scripts/acceptance-target.sh`: vampi 9,
+vulnerableapp 110, juice-shop 38, dvwa 55, webgoat 69, securityshepherd 40
+— 321 challenges, 668 points across the six.
+
+A known scoring-fidelity gap ships with this. Security Shepherd's vendored
+`extractSolutionKey` helper accepts any 32-128 character hex run found in
+the response. At least one challenge (`Challenge-10-IDOR-2`) echoes the
+attacker-supplied identifier — itself pure hex — back into the page
+precisely when a *correct* patch blocks the lookup, so the helper reads a
+"solution key" out of noise and the challenge scores as unpatched however
+good the fix. The bias runs toward "not patched," so the stock-scores-zero
+gate is unaffected and no contestant gains a free point; the cost is that
+one Shepherd challenge can under-credit a correct patch. The rubrics are
+vendored read-only, so the fix belongs upstream — tighten the helper to
+require a result-key-shaped match rather than any bare hex run. This is
+already recorded in README's "Status / upstream dependencies" list; keep
+the two consistent.

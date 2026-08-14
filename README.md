@@ -57,7 +57,7 @@ to a neutral "OWASP CTF". Re-capturing them is a known follow-up.</sup>
 ```console
 $ ./setup/ctf-setup.sh check
 $ docker compose --profile poll --profile app up -d
-$ ./scripts/acceptance-target.sh vampi erev0s/vampi:latest
+$ ./scripts/acceptance-target.sh vampi erev0s/vampi@sha256:0a5a224b6e14ae7da6a6ea265178ff71286ff903aec74adee98f660bb0e4ca12
 PASS: stock vampi scores 0 / 9
 ```
 
@@ -304,7 +304,7 @@ The scorer engine has two more gates of its own:
 
 ```sh
 ./scripts/acceptance-scorer.sh                                   # declarative probe path
-./scripts/acceptance-target.sh vampi erev0s/vampi:latest         # a real target, end to end
+./scripts/acceptance-target.sh vampi erev0s/vampi@sha256:0a5a224b6e14ae7da6a6ea265178ff71286ff903aec74adee98f660bb0e4ca12  # a real target, end to end
 ```
 
 `acceptance-scorer.sh` closes the judge → PR-comment marker → leaderboard loop
