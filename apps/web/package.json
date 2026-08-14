@@ -3,6 +3,10 @@
   "version": "0.3.0",
   "private": true,
   "scripts": {
+    "generate:config": "node scripts/generate-event-config.mjs",
+    "predev": "pnpm generate:config",
+    "prebuild": "pnpm generate:config",
+    "pretest": "pnpm generate:config",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -30,6 +34,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "yaml": "^2.5.0"
   }
 }
