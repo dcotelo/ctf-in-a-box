@@ -6,3 +6,8 @@ state/
 
 # internal planning docs — keep local, never commit
 docs/superpowers/
+
+# vendored app build artifacts
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.env.local

@@ -1,0 +1,9 @@
+# Vendored from OWASP-CTF/ctf-owasp-org
+
+- Upstream: https://github.com/OWASP-CTF/ctf-owasp-org
+- Commit: 90ab68b145d6a0477f85ea3935eaba9762424130
+- Date: 2026-08-14
+- Reason: upstream is read-only for this project; the kit vendors the app to
+  ship event-config and module-driven UI (see docs/modules.md).
+- Intent: offer the delta back upstream as one PR when write access opens.
+- Dropped in vendoring: `.git/`, `.github/` (kit CI owns builds), `node_modules/`.
