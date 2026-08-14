@@ -306,4 +306,7 @@ an unpinned branch.
 (Note: the *scorer* image itself is currently referenced as
 `ghcr.io/owasp-ctf/score:latest` in `docker-compose.yml`/`.env` — that is a
 platform-level convenience for v1, not a module-authored target, and is a
-separate concern from target version pinning above.)
+separate concern from target version pinning above. The reference
+implementation of the scorer contract lives in this repo at `scorer/` —
+one image, serve + judge modes — and [docs/scorer.md](scorer.md) documents
+authoring a rubric and building your own image against it.)

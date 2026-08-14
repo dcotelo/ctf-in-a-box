@@ -41,6 +41,9 @@ Full prerequisites, OAuth setup, and operational details live in the
   challenge catalogue, scoring transport) must satisfy to plug in.
 - [Architecture](architecture.md) — what runs where, how a score gets
   from a contestant's PR to the leaderboard.
+- [Scorer](scorer.md) — author a rubric, build your own private scorer
+  image from the in-repo engine, and wire the self-contained scoring
+  workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the
   way it is.
 

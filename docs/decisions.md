@@ -358,3 +358,43 @@ monotonic/idempotent write guarantee (decision 5) to be a safe no-op. The
 alternative — advancing the cursor past the whole batch regardless of a
 mid-batch failure — would guarantee the failed comment's score is silently
 dropped. Retry semantics were chosen over cursor precision.
+
+## 17. Public scorer engine, private rubric
+
+**Context.** The upstream scorer image (`ghcr.io/owasp-ctf/score`) is
+private with no formal access process — you have to ask the maintainers
+directly, and during this kit's development it emerged that the upstream
+team is not reachable on demand. That left the kit's scoring path
+documented but not runnable by a self-hosted organizer. Meanwhile the
+threat model doesn't actually require secrecy of scoring *logic*: the
+targets are open source and their vulnerabilities/solutions are already
+public (Juice Shop ships an official solutions guide) — this is an
+educational CTF. What privacy buys is scoring integrity during the event:
+a contestant who can read the exact probes can craft a patch that
+satisfies the probe string without fixing the vulnerability
+(check-gaming).
+
+**Decision.** Split the scorer into a public engine and a private rubric.
+The engine (`scorer/` — serve + judge modes, probe grammar, entrypoint)
+and an instructive example rubric (`scorer/rubric.example/`) live in this
+repo, public. Organizers bake their own private rubric at image-build time
+(`--build-arg RUBRIC_DIR=rubric` after copying it to the gitignored
+`scorer/rubric/`) and keep only the built image private during the event —
+publishing the rubric afterward as teaching material is encouraged. A
+self-contained consumer workflow (`scorer/consumer-workflow.example.yml`)
+replaces the dependency on upstream `score-action`: it runs the mirrored
+image and posts the comment itself via `github-script`. Authoring and
+operation are documented in `docs/scorer.md`.
+
+**Consequences.** The kit is fully self-sufficient — an organizer with a
+rubric can run a real event with zero upstream access, and
+`scripts/acceptance-scorer.sh` proves the whole loop offline. The official
+OWASP rubric remains upstream-gated; this decision routes around the
+access problem, it doesn't solve it. The comment marker
+(`<!-- ctf-score: {...} -->`) now carries the JSON contract end-to-end
+between components this repo owns on both sides (judge writes it, sync
+parses it), so the contract is pinned by tests rather than by observation
+of upstream behavior. The score-action output regexes (title line, `**N /
+M** challenges patched`, `not-recorded` marker) are deliberately preserved
+verbatim, so an upstream event could adopt this engine later without
+touching its existing tooling.

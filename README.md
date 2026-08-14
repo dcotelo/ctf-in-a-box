@@ -45,7 +45,11 @@ screenshots when it lands.
   maintainers directly. Alternatively, build your own scorer image against
   the contract in [docs/modules.md](docs/modules.md) and point
   `SCORE_IMAGE` in `.env` at it — the kit never hardcodes the upstream
-  image. Either way the image must stay private (it contains the answers);
+  image, and it ships everything needed for this path: the scorer engine
+  in `scorer/` plus a rubric-authoring and build guide in
+  [docs/scorer.md](docs/scorer.md). Either way the image must stay private
+  (it bakes in the rubric — see docs/scorer.md for what that does and
+  doesn't protect);
   `ctf-setup org` mirrors whatever `SCORE_IMAGE` names into your own event
   org so your forks' Actions can pull it.
 - `docker login ghcr.io` with a token that has `write:packages`. The
@@ -207,6 +211,12 @@ a forged comment from an untrusted author is dropped, and unauthenticated
 `POST /score` is rejected. It's what CI runs (see `.github/workflows/ci.yml`)
 and it's the fastest way to sanity-check a change to `sync`, the compose
 stack, or the setup script without any live GitHub or scorer access.
+
+The scorer engine (`scorer/` — the serve + judge image the kit ships so
+you can build your own scorer, see [docs/scorer.md](docs/scorer.md)) has
+its own offline acceptance, `./scripts/acceptance-scorer.sh`: it builds
+the image with the example rubric and closes the judge → PR-comment marker
+→ leaderboard loop against a fake target app, in both push and poll mode.
 
 ## Status / upstream dependencies
 
