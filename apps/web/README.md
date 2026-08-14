@@ -24,9 +24,15 @@ Pre-event, backend wired up. Core site, GitHub sign-in, leaderboard, profile, an
 - **Styling**: [Tailwind CSS](https://tailwindcss.com/) 4 — see `DESIGN_SYSTEM.md` for tokens and component patterns
 - **Fonts**: Poppins (headings) + Barlow (body) per [OWASP brand guidelines](https://policy.owasp.org/operational/branding)
 - **Package manager**: [pnpm](https://pnpm.io/)
-- **Hosting**: [Vercel](https://vercel.com/)
+- **Hosting**: self-hosted Docker, built and run by the kit — see the kit's
+  [`../../README.md` Quickstart](../../README.md#quickstart) and
+  [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)
+  for how `event.yaml` is baked into the image via `EVENT_CONFIG_B64`
 
 ## Getting Started
+
+This app is normally built and run as part of the kit (see the links above);
+the commands below are for iterating on the app itself.
 
 ```bash
 pnpm install
@@ -50,11 +56,11 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
 | `HINTS_ENABLED` | No | `true` turns on paid hints on `/challenges` (needs the Upstash vars). Leave unset until the event so contestants can't buy hints early |
 | `CTF_DATA_BACKEND` | No | Which store backs team + hint state: `dual` (default) writes Upstash as the source of truth and mirrors into DynamoDB, `upstash` disables the DynamoDB side, `dynamo` makes DynamoDB the only store — see [DynamoDB migration](#dynamodb-migration) |
-| `CTF_AWS_REGION` / `AWS_ROLE_ARN` / `CTF_DYNAMO_TABLE` | No | DynamoDB overrides — working defaults are hardcoded in `src/lib/dynamo.ts`, normally leave unset. (`CTF_AWS_REGION` on purpose, not `AWS_REGION` — Vercel injects the latter with the function's own execution region) |
+| `CTF_AWS_REGION` / `AWS_ROLE_ARN` / `CTF_DYNAMO_TABLE` | No | DynamoDB overrides — working defaults are hardcoded in `src/lib/dynamo.ts`, normally leave unset. (`CTF_AWS_REGION` on purpose, not `AWS_REGION` — some hosts inject the latter with the function's own execution region, which can silently point requests at the wrong region) |
 | `CHALLENGES_GATE_ENABLED` | No | `true` locks `/challenges` behind the pre-event password gate — see [Pre-event challenges gate](#pre-event-challenges-gate) |
 | `CHALLENGES_GATE_PASSWORD` | Only if `CHALLENGES_GATE_ENABLED=true` | The shared access password. Server-side only; the gate stays open if this is unset |
 
-> Env var changes on Vercel only take effect on the **next deployment** — redeploy after adding or changing one.
+> Env var changes only take effect on the **next build/restart** of the container — rebuild the image (see [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)) or restart the `app` service after adding or changing one.
 
 ## Scripts
 
@@ -199,9 +205,11 @@ Retention: those items hold a client IP, so each one carries a `ttl` attribute s
 
 ## Reach counters
 
-`pk=STATS` / `sk=COUNTRY#<iso2>` holds one integer per country, incremented once per browser session via `POST /api/stats/visit`. The country comes from Vercel's `x-vercel-ip-country` edge header and is validated as ISO-3166 alpha-2 before it is used in a sort key — the request body is ignored entirely. No login, IP, timestamp, or session id is stored alongside it, deliberately: `/privacy` makes a specific promise that this item is a bare tally. Counts are approximate and unauthenticated — a measure of reach, not a headcount.
+`pk=STATS` / `sk=COUNTRY#<iso2>` holds one integer per country, incremented once per browser session via `POST /api/stats/visit`. The country comes from an edge/reverse-proxy-supplied geo header (`cf-ipcountry` or `x-geo-country`) and is validated as ISO-3166 alpha-2 before it is used in a sort key — the request body is ignored entirely. No login, IP, timestamp, or session id is stored alongside it, deliberately: `/privacy` makes a specific promise that this item is a bare tally. Counts are approximate and unauthenticated — a measure of reach, not a headcount.
 
-Rollout: set the two env vars in Vercel and redeploy. At conference start, flip `CHALLENGES_GATE_ENABLED` to `false` (or remove it) and redeploy — outstanding unlock cookies become inert. Rotating the password is the same edit + redeploy; cookies issued earlier stay valid because they are signed by `BETTER_AUTH_SECRET`, not the password.
+**Self-hosted note**: a bare `docker compose` deployment with no CDN or reverse proxy setting one of those headers in front of it will never populate this counter — it's inert by default, not broken. If you want it live, put something in front (e.g. Cloudflare, which sets `cf-ipcountry`) that supplies a country header before the request reaches the app.
+
+Rollout: set the two gate env vars and rebuild/restart the `app` service (see [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)). At conference start, flip `CHALLENGES_GATE_ENABLED` to `false` (or remove it) and rebuild/restart — outstanding unlock cookies become inert. Rotating the password is the same edit + rebuild; cookies issued earlier stay valid because they are signed by `BETTER_AUTH_SECRET`, not the password.
 
 ## DynamoDB migration
 
@@ -226,7 +234,7 @@ pk=HINTS          sk=HINT#<app>#<id>    hint text, copied from the scorer-seeded
                                         hashes by the backfill (read in dynamo mode)
 ```
 
-**Credentials.** On Vercel there are no stored keys: deployments exchange a Vercel OIDC token for the `ctf-web-dynamodb` IAM role (trust + table policy live in the dc34 repo's `terraform/vercel-aws.tf`; the trust covers production + preview only). Locally the SDK default chain is used instead:
+**Credentials.** There are no stored keys in the app: credentials come entirely from the AWS SDK's default credential chain — environment variables, a shared config/credentials file, `AWS_PROFILE` / `aws sso login`, or (when the container runs on AWS compute) an ambient instance/task role. Configure whichever fits your deployment; locally that usually looks like:
 
 ```
 aws sso login --profile AWSAdministratorAccess-942548380662
