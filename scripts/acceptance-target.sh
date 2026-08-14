@@ -8,15 +8,24 @@
 #
 # Usage: scripts/acceptance-target.sh <target> <stock-image>
 #
-# <stock-image> may be the literal `none`, meaning "this target HAS no published stock
-# image — its bring-up builds the pinned upstream source instead". That is not a
-# convenience: securityshepherd genuinely has none (`owaspsecurityshepherd/shepherd`
-# does not exist, and `owasp/security-shepherd` was last pushed in 2018, years before
-# the release-17 tree the rubric targets), which is why upstream's own six-target CI
-# matrix leaves that one row's app-image empty. `none` becomes an empty APP_IMAGE,
-# which keeps the two-argument contract intact and states the intent at the call site
-# instead of overloading a missing argument. A target whose bring-up cannot build from
-# source still fails loudly on the empty APP_IMAGE, exactly as it does today.
+# <stock-image> may be the literal `none`, meaning "score this target from SOURCE, not
+# from a published image". `none` becomes an empty APP_IMAGE, which keeps the
+# two-argument contract intact and states the intent at the call site instead of
+# overloading a missing argument. Two targets use it, for different reasons:
+#
+#   * securityshepherd — has no published stock image at all
+#     (`owaspsecurityshepherd/shepherd` does not exist, and `owasp/security-shepherd`
+#     was last pushed in 2018, years before the release-17 tree the rubric targets),
+#     which is why upstream's own six-target CI matrix leaves that row's app-image
+#     empty. Its bring-up clones the pinned upstream source itself.
+#   * webgoat — HAS a stock image (and the matrix gates that row too), but its
+#     bring-up ALSO builds a contestant's fork from source, and that path deserves a
+#     gate of its own. Here the source is staged into the WORKSPACE rather than left
+#     to the bring-up, precisely so the run takes the same branch a contestant's PR
+#     takes: workspace Dockerfile present -> Maven -> image. See stage_source below.
+#
+# A target whose bring-up can do neither still fails loudly on the empty APP_IMAGE,
+# exactly as it does today.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -34,10 +43,11 @@ mkdir -p "$WS"
 # EXTRA_CONTAINERS) on its own EXIT. This is the belt-and-braces for the case where
 # the scorer container itself dies hard and never runs that trap — so it names every
 # sibling any bring-up can start: dvwa's `db`, and securityshepherd's three (plus the
-# source volume its Maven handoff creates, which would otherwise leak a GB of disk).
+# source volumes the securityshepherd and webgoat Maven handoffs create, which would
+# otherwise leak a GB of disk apiece).
 cleanup() {
   docker rm -f "ctf-app-$TARGET" db secshep_tomcat secshep_mariadb secshep_mongo >/dev/null 2>&1 || true
-  docker volume rm -f ss_src >/dev/null 2>&1 || true
+  docker volume rm -f ss_src webgoat_src >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -86,6 +96,40 @@ case "$TARGET" in
   securityshepherd) APP_SCHEME="https"; APP_URL_SUFFIX=":8443" ;;
   *) APP_URL_SUFFIX="" ;;
 esac
+
+# Pinned upstream source for the targets whose SOURCE path this gate exercises (see
+# the `none` note in the header). Pinned to a COMMIT, never a branch and never a bare
+# tag: a branch moves, and a tag can be re-pointed — either would silently score a
+# different app on some later run and could quietly inflate the stock score. This SHA
+# is what `WebGoat/WebGoat`'s v2025.3 tag points at, the same release as the prebuilt
+# `webgoat/webgoat:v2025.3` the other matrix row runs (pom.xml at this commit reads
+# <version>2025.3</version>), so both rows score the same app by two different routes.
+# Bump it only together with the image pin, and with a fresh run of both rows.
+# `securityshepherd` needs no entry here: its own bring-up clones its pin
+# (SS_UPSTREAM_REF) because its build has no workspace-Dockerfile branch to take.
+WG_UPSTREAM_REPO="${WG_UPSTREAM_REPO:-WebGoat/WebGoat}"
+WG_UPSTREAM_REF="${WG_UPSTREAM_REF:-c3ed45a733377bc7313b93f57ff518254d81380f}"
+
+# `none` on a target that HAS a published image means "prove the source path". Stage
+# the pinned tree into the WORKSPACE — not into the bring-up — so the bring-up sees
+# exactly what a contestant's PR checkout looks like (a fork tree with a root
+# Dockerfile) and takes exactly the branch that PR would take.
+if [ -z "$STOCK_IMAGE" ] && [ "$TARGET" = "webgoat" ]; then
+  echo "Staging $WG_UPSTREAM_REPO@${WG_UPSTREAM_REF:0:12} into the workspace (source path)…"
+  # `git clone -b` cannot take a bare commit SHA, so init + fetch + checkout the ref.
+  git init -q "$WS"
+  git -C "$WS" remote add origin "https://github.com/$WG_UPSTREAM_REPO.git"
+  git -C "$WS" fetch --depth 1 -q origin "$WG_UPSTREAM_REF"
+  git -C "$WS" checkout -q FETCH_HEAD
+  # Assert the precondition rather than discovering it as a confusing bring-up
+  # failure: without this file the bring-up falls through to "need APP_IMAGE or a
+  # workspace Dockerfile" and the gate would look like a packaging bug.
+  [ -f "$WS/Dockerfile" ] || {
+    echo "FAIL: $WG_UPSTREAM_REPO@$WG_UPSTREAM_REF has no root Dockerfile — the"
+    echo "bring-up's source branch keys on that file and would never fire."
+    exit 1
+  }
+fi
 
 cat > "$TMP/event.json" <<'JSON'
 {"pull_request":{"user":{"login":"stock-check"},"number":1,"head":{"sha":"0000000000000000000000000000000000000000"}}}
