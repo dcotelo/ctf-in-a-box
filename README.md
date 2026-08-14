@@ -1,8 +1,8 @@
 <h1 align="center">🛡 CTF-in-a-box</h1>
 
 <p align="center">
-  <em>The OWASP Secure Development CTF, on your own hardware.<br>
-  One box, one free GitHub org, no cloud account anywhere.</em>
+  <em>Run the OWASP Secure Development CTF at your own event.<br>
+  A university, a high school, an OWASP chapter, a meetup — one box, one free GitHub org.</em>
 </p>
 
 <p align="center">
@@ -15,18 +15,31 @@
 </p>
 
 <p align="center">
-  <strong>Running this CTF used to mean five cloud accounts. Now it means one laptop.</strong>
+  <strong>This CTF was built for a conference. This kit is for everyone else.</strong>
 </p>
 
-The OWASP Secure Development CTF is the patch-the-vulnerability format: a
-contestant forks a deliberately vulnerable app, finds the flaw, patches it,
-and opens a PR. A GitHub Action scores the patch and the score lands on a
-leaderboard. The canonical event runs that leaderboard on Vercel, Upstash,
-Lambda and DynamoDB.
+The OWASP Secure Development CTF teaches defence rather than attack: a
+contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
+and opens a pull request. A GitHub Action scores the patch and the score lands
+on a leaderboard. It is a genuinely good way to teach secure coding — and until
+now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB, holding
+the cloud bill, and having access to a private scoring image.
 
-This kit replaces all of it with Docker Compose on one machine, plus a free
-GitHub org for the forks. Nothing else, nothing billed, nothing to shut down
-afterwards.
+That is a reasonable ask for a conference with a budget. It is an unreasonable
+ask for a university security course, a high-school club, an OWASP chapter
+night, or a weekend workshop.
+
+This kit removes it. Everything runs from Docker Compose on one machine you
+already have — a laptop, a spare desktop, a small VPS — plus one free GitHub
+org for the forks. The rubrics for all six targets ship inside the box, so there
+is no private image to request and no scoring code to write. Nothing is billed,
+nothing phones home, and when the event ends you archive the repos and stop the
+stack.
+
+**Who this is for:** anyone who wants to run this event and does not want to
+become a cloud operator to do it — course instructors, club organizers, OWASP
+chapter leads, workshop facilitators, security teams running an internal
+training day.
 
 <p align="center">
   <img alt="Leaderboard and challenge browser" src="docs/assets/demo.gif" width="720">
@@ -60,11 +73,16 @@ PASS: stock vampi scores 0 / 9
   every contestant, so the kit refuses to ship it. See
   [Verifying it works](#verifying-it-works).
 - **Poll mode has zero inbound network surface.** Nothing has to reach your box
-  from the internet — it polls GitHub for score comments. Works behind NAT, on
-  a laptop, on conference wifi. [Push mode](#poll-vs-push) is there when you
-  have a public URL.
+  from the internet — it polls GitHub for score comments instead. That is what
+  makes a campus network, a locked-down lab, a NAT'd office, or venue wifi
+  workable without asking anyone for a firewall change or a public hostname.
+  [Push mode](#poll-vs-push) is there if you do have a public URL.
 - **Everything survives a reboot.** Redis data and the sync cursor live in named
-  Docker volumes, so power-cycling the box does not lose scores.
+  Docker volumes, so power-cycling the box mid-event does not lose scores.
+- **Nothing is branded until you brand it.** Event name, dates, URL, enabled
+  targets, fork org and Discord link all come from one `event.yaml`; a fresh
+  build ships as a neutral "OWASP CTF". Scale the event by picking a subset of
+  targets — nine challenges for a two-hour club session, all 321 for a semester.
 - **It is one module, not one event.** `event.yaml` namespaces challenge content
   under `modules.<name>`; `secure-development` is simply the first. Future
   verticals plug in as sibling keys. See [docs/modules.md](docs/modules.md).
