@@ -30,6 +30,11 @@ setup() {
 }
 
 @test "PROVENANCE.md pins the upstream commit" {
-  run grep -qE '^- Upstream commit: \`[0-9a-f]{40}\`$' "$REPO_ROOT/scorer/rubric.owasp/PROVENANCE.md"
+  # The backticks are NOT escaped: single quotes already pass them through
+  # literally, and a backslash-backtick reaching grep is the GNU ERE
+  # start-of-buffer anchor (`\``), which can never match here — GNU grep failed
+  # this test while BSD grep, which reads the same bytes as a literal backtick,
+  # passed it. POSIX ERE has no escape for a backtick; don't add one back.
+  run grep -qE '^- Upstream commit: `[0-9a-f]{40}`$' "$REPO_ROOT/scorer/rubric.owasp/PROVENANCE.md"
   [ "$status" -eq 0 ]
 }
