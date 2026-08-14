@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/dynamo-gate-store", () => ({
+vi.mock("@/lib/gate-store", () => ({
   consumeGateAttempt: (...args: unknown[]) => {
     mocks.calls.push("consume");
     return mocks.consumeGateAttempt(...args);

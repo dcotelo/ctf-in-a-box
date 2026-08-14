@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { GATE_COOKIE, GATE_COOKIE_MAX_AGE, isGateActive, signGateCookie, verifyGatePassword } from "@/lib/gate";
-import { clearGateThrottle, consumeGateAttempt } from "@/lib/dynamo-gate-store";
+import { clearGateThrottle, consumeGateAttempt } from "@/lib/gate-store";
 
 /** Unlocks the pre-event challenges gate. The password only ever exists
  *  server-side; one attempt is CHARGED against the per-IP budget before the

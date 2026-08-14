@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { recordCountryVisit } from "@/lib/dynamo-stats";
+import { recordCountryVisit } from "@/lib/stats-store";
 
 /**
  * Bumps the aggregate per-country reach counter by one.
