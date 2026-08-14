@@ -23,6 +23,14 @@ const SUMMARY_MARKER = /\bduration_ms\b/;
 // failure from one genuinely slow challenge, capping waste at ~2 × safety.
 const UNREACHABLE_ABORT_THRESHOLD = 2;
 
+// How long to keep reading stdout after the child process itself is gone. See
+// the "exit" handler in runChild: "exit" is not ordered against the stdout
+// "data" events still queued behind it, so settling on it directly can drop the
+// tail of a fast child's output — the very chunk carrying the reporter's
+// verdict. Short enough not to matter next to the safety timeout, long enough
+// for the pipe to be drained by the event loop.
+const EXIT_DRAIN_MS = 300;
+
 function safetyTimeoutMs(env) {
   const raw = Number(env.CTF_SCORE_SAFETY_MS);
   return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 30_000;
@@ -68,6 +76,7 @@ function runChild(args, env, isDone) {
     let done = false;
     let safetyFired = false;
     let hardKill;
+    let drain;
 
     const killGroup = (signal) => {
       try {
@@ -102,14 +111,29 @@ function runChild(args, env, isDone) {
       settled = true;
       clearTimeout(safety);
       if (hardKill) clearTimeout(hardKill);
+      if (drain) clearTimeout(drain);
       resolve({ output: buf, bareTimeout: safetyFired && !done });
     };
+    // "close" is the primary settle: it fires only after stdio EOF, so `buf`
+    // is guaranteed complete.
     child.on("close", finish);
     child.on("error", finish);
-    // "close" waits for stdio EOF, which a grandchild still holding the
-    // pipes can keep open even after SIGKILL — wire "exit" too so the
-    // promise still settles once the process itself is gone.
-    child.on("exit", finish);
+    // But "close" waits for stdio EOF, which a grandchild still holding the
+    // pipes can keep open even after SIGKILL — so "exit" has to be wired too,
+    // or such a run wedges until the whole job times out. "exit" fires when the
+    // process is reaped, which is NOT ordered against stdout "data" events
+    // already queued: a child that finishes fast and exits on its own can reach
+    // it with the tail of its output still unread, and that tail is where the
+    // reporter's verdict lives — settling there would grade a solved challenge
+    // as unpatched. So "exit" only ARMS a short drain window; "close" still
+    // wins whenever it arrives, and finish() clears the timer so it can neither
+    // fire after a close-driven settle nor outlive it. Deliberately not
+    // unref()'d: this timer may be the last thing keeping the loop alive, and
+    // an unref'd one could let the process exit with the promise unsettled.
+    child.on("exit", () => {
+      if (settled || drain) return;
+      drain = setTimeout(finish, EXIT_DRAIN_MS);
+    });
   });
 }
 
@@ -121,7 +145,13 @@ function scoreOne(challenge, abort, env) {
   // report from any challenge (even one that armed the abort a moment ago)
   // proves the target reachable after all, so the gate must stay disarmed
   // once that happens rather than latching permanently on `aborted` alone.
-  if (abort.aborted && !abort.anyReported) return Promise.resolve(false);
+  // Counted, not just returned: a skipped challenge was never MEASURED, and
+  // runExec reports that fact so the judge can refuse to publish a score built
+  // partly out of challenges nobody ran.
+  if (abort.aborted && !abort.anyReported) {
+    abort.skipped += 1;
+    return Promise.resolve(false);
+  }
 
   // Deliberately NO --test-force-exit. WebGoat's rubric registers assignments
   // with top-level `await test(...)`; force-exit tears the child down before the
@@ -192,7 +222,13 @@ function scoreOne(challenge, abort, env) {
 }
 
 /**
- * Run every challenge's test in isolation and return the solved ids in input order.
+ * Run every challenge's test in isolation.
+ *
+ * Returns `{ solved, aborted }`: the solved ids in input order, and whether the
+ * run gave up early because the target proved unreachable. `aborted` is NOT a
+ * score — the short-circuited challenges were never attempted, so a caller that
+ * reported `solved` alone would be telling the contestant their patch earned
+ * nothing when in truth nothing was measured. Callers must fail loudly on it.
  *
  * @param {Array} challenges  challenge objects carrying an `exec` descriptor
  * @param {object} opts
@@ -200,11 +236,19 @@ function scoreOne(challenge, abort, env) {
  * @param {object} opts.env          process env forwarded to children
  */
 export async function runExec(challenges, { concurrency = 1, env = process.env } = {}) {
-  const abort = { bareTimeouts: 0, aborted: false, anyReported: false };
+  const abort = { bareTimeouts: 0, aborted: false, anyReported: false, skipped: 0 };
   const outcomes = await runPool(
     challenges,
     (c) => scoreOne(c, abort, env),
     resolveConcurrency(challenges.length, concurrency, env),
   );
-  return challenges.filter((_, i) => outcomes[i]).map((c) => c.id);
+  return {
+    solved: challenges.filter((_, i) => outcomes[i]).map((c) => c.id),
+    // Keyed on challenges actually SKIPPED rather than on the abort flag: a
+    // late report can disarm the gate (proving the target reachable after all)
+    // and let the rest of the run proceed, but whatever was short-circuited in
+    // the meantime still went unmeasured, and a score is only honest if every
+    // challenge in it was tried.
+    aborted: abort.skipped > 0,
+  };
 }

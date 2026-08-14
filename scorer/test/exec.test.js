@@ -6,19 +6,27 @@ import { tmpdir } from "node:os";
 import { runExec } from "../src/exec.js";
 
 const testsDir = join(import.meta.dirname, "fixtures", "exec-suite");
+// runExec returns { solved, aborted }; most cases only care about the ids.
+const solvedIds = async (...args) => (await runExec(...args)).solved;
 const keyed = (key, id) => ({ id, name: key, points: 1, exec: { file: "Mixed.test.js", key, byName: true, testsDir } });
 const whole = (file, id) => ({ id, name: file, points: 1, exec: { file, key: file, byName: false, testsDir } });
 
 test("a keyed subtest that passes is solved", async () => {
-  assert.deepEqual(await runExec([keyed("Sub-Pass", "sub-pass")], { concurrency: 1 }), ["sub-pass"]);
+  assert.deepEqual(await solvedIds([keyed("Sub-Pass", "sub-pass")], { concurrency: 1 }), ["sub-pass"]);
+});
+
+test("a run that completed is not reported as aborted", async () => {
+  const { solved, aborted } = await runExec([keyed("Sub-Pass", "sub-pass")], { concurrency: 1 });
+  assert.deepEqual(solved, ["sub-pass"]);
+  assert.equal(aborted, false, "a completed run must not look like an unreachable target");
 });
 
 test("a keyed subtest that fails is not solved", async () => {
-  assert.deepEqual(await runExec([keyed("Sub-Fail", "sub-fail")], { concurrency: 1 }), []);
+  assert.deepEqual(await solvedIds([keyed("Sub-Fail", "sub-fail")], { concurrency: 1 }), []);
 });
 
 test("a keyed subtest isolates its sibling — one file, independent results", async () => {
-  const solved = await runExec(
+  const solved = await solvedIds(
     [keyed("Sub-Pass", "sub-pass"), keyed("Sub-Fail", "sub-fail")],
     { concurrency: 1 },
   );
@@ -26,21 +34,21 @@ test("a keyed subtest isolates its sibling — one file, independent results", a
 });
 
 test("a key matching no subtest is not solved", async () => {
-  assert.deepEqual(await runExec([keyed("Sub-Absent", "sub-absent")], { concurrency: 1 }), []);
+  assert.deepEqual(await solvedIds([keyed("Sub-Absent", "sub-absent")], { concurrency: 1 }), []);
 });
 
 test("a whole-file run is solved only when every test in it passes", async () => {
-  assert.deepEqual(await runExec([whole("Whole-File-Pass.test.js", "wf-pass")], { concurrency: 1 }), ["wf-pass"]);
-  assert.deepEqual(await runExec([whole("Whole-File-Fail.test.js", "wf-fail")], { concurrency: 1 }), []);
+  assert.deepEqual(await solvedIds([whole("Whole-File-Pass.test.js", "wf-pass")], { concurrency: 1 }), ["wf-pass"]);
+  assert.deepEqual(await solvedIds([whole("Whole-File-Fail.test.js", "wf-fail")], { concurrency: 1 }), []);
 });
 
 test("a missing test file is not solved and does not throw", async () => {
   const missing = { id: "gone", name: "gone", points: 1, exec: { file: "Nope.test.js", key: "Nope", byName: false, testsDir } };
-  assert.deepEqual(await runExec([missing], { concurrency: 1 }), []);
+  assert.deepEqual(await solvedIds([missing], { concurrency: 1 }), []);
 });
 
 test("results keep catalogue order regardless of concurrency", async () => {
-  const solved = await runExec(
+  const solved = await solvedIds(
     [keyed("Sub-Pass", "a-pass"), keyed("Sub-Fail", "b-fail"), keyed("Sub-Pass", "c-pass")],
     { concurrency: 3 },
   );
@@ -80,7 +88,7 @@ test("concurrency 1 runs children strictly one at a time", async () => {
 
   try {
     const serialMarker = join(markerDir, "serial");
-    await runExec([win("a"), win("b"), win("c")], {
+    await solvedIds([win("a"), win("b"), win("c")], {
       concurrency: 1,
       env: { ...process.env, EXEC_WINDOW_MARKER: serialMarker },
     });
@@ -89,7 +97,7 @@ test("concurrency 1 runs children strictly one at a time", async () => {
     assert.equal(overlaps(serial), 0, `concurrency 1 must not overlap any windows, got ${JSON.stringify(serial)}`);
 
     const parallelMarker = join(markerDir, "parallel");
-    await runExec([win("a"), win("b"), win("c")], {
+    await solvedIds([win("a"), win("b"), win("c")], {
       concurrency: 3,
       env: { ...process.env, EXEC_WINDOW_MARKER: parallelMarker },
     });
@@ -123,7 +131,7 @@ test("stops spawning once the target proves unreachable", async () => {
   });
   const safetyMs = 300;
   const started = Date.now();
-  const solved = await runExec([hang("a"), hang("b"), hang("c"), hang("d"), hang("e")], {
+  const { solved, aborted } = await runExec([hang("a"), hang("b"), hang("c"), hang("d"), hang("e")], {
     concurrency: 1,
     env: { ...process.env, CTF_SCORE_SAFETY_MS: String(safetyMs), HANG_SPAWN_MARKER: marker },
   });
@@ -132,6 +140,10 @@ test("stops spawning once the target proves unreachable", async () => {
   rmSync(markerDir, { recursive: true, force: true });
 
   assert.deepEqual(solved, []);
+  // The zero above is NOT a score, and runExec has to say so: three of the five
+  // challenges were never attempted. judge.js turns this flag into a thrown
+  // error rather than a confident 0/5 in the contestant's PR comment.
+  assert.equal(aborted, true, "an unreachable target must report aborted");
   // Effect-based proof: exactly the two children that armed the abort ever
   // spawned; c, d, and e were short-circuited by the abort gate.
   assert.equal(spawnCount, 2, `expected exactly 2 children spawned before abort armed, got ${spawnCount}`);

@@ -108,9 +108,20 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
 
   const { author, pr, sha } = readEvent(env.GITHUB_EVENT_PATH ?? "/github/event.json");
 
+  // A literal APP_READY_TRIES=0 means "a bring-up script already proved this app
+  // ready — do not probe it from here". Security Shepherd's bring-up sets it: it
+  // proves readiness with a real admin login (a much stronger signal than any
+  // 200), and its TLS certificate expired in 2019, so probing it from THIS
+  // process would mean disabling certificate verification process-wide — in the
+  // same process that then carries SCORE_TOKEN to the organizer's leaderboard.
+  // An unreachable app is still caught: every exec child fails to report and the
+  // run aborts. Matched as an exact string, so a typo'd or empty value keeps the
+  // old behaviour (probe, then fail loudly) instead of silently skipping.
   const tries = Number(env.APP_READY_TRIES ?? 60);
   const delayMs = Number(env.APP_READY_DELAY ?? 5) * 1000; // seconds, like the 60×5s default
-  if (!(await waitForApp(APP_URL, { tries, delayMs, fetchImpl }))) {
+  if (String(env.APP_READY_TRIES ?? "").trim() === "0") {
+    console.error(`ctf-score-engine: readiness probe skipped (APP_READY_TRIES=0) — the bring-up script vouched for ${APP_URL}`);
+  } else if (!(await waitForApp(APP_URL, { tries, delayMs, fetchImpl }))) {
     throw new Error(`judge: ${APP_URL} never became reachable after ${tries} tries`);
   }
 
@@ -121,10 +132,20 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
     // just proved reachable, passed down the target's conventional URL env var
     // as well as APP_URL so a test can read either.
     const urlEnv = getTarget(TARGET)?.urlEnv;
-    solved = await runExec(challenges, {
+    const run = await runExec(challenges, {
       concurrency: getTarget(TARGET)?.defaultConcurrency ?? 1,
       env: { ...env, ...(urlEnv ? { [urlEnv]: APP_URL } : {}) },
     });
+    // An aborted run measured nothing: the runner short-circuited the remaining
+    // challenges because the target stopped answering. Its zero is NOT a score,
+    // and writing it would tell the contestant their patch earned nothing —
+    // then the consumer workflow's cooldown would lock them out on the strength
+    // of it. Throw instead: with no ctf-score.md the workflow renders
+    // "❌ Scoring did not complete" with a link to this run, which is the truth.
+    if (run.aborted) {
+      throw new Error(`judge: ${APP_URL} stopped answering — the run aborted before every challenge was scored, so no score was written`);
+    }
+    solved = run.solved;
   } else {
     solved = [];
     for (const c of challenges) {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -180,6 +180,20 @@ test("readiness: unreachable APP_URL exits 1 through the real CLI", async (t) =>
   assert.match(stderr, /never became reachable/);
 });
 
+// APP_READY_TRIES=0 is the bring-up's way of saying "I already proved this app
+// ready by a stronger route than an HTTP GET". Security Shepherd's bring-up
+// needs it: its certificate expired in 2019, and the alternative — exporting
+// NODE_TLS_REJECT_UNAUTHORIZED=0 into the judge — would strip verification from
+// the leaderboard POST that carries SCORE_TOKEN. So a judge told zero tries must
+// score the app WITHOUT probing it, even when a probe would have failed outright.
+test("readiness: APP_READY_TRIES=0 skips the probe instead of failing on it", async (t) => {
+  const env = await baseEnv(t, { APP_READY_TRIES: "0", APP_READY_DELAY: "0" });
+  const { total } = await judge(env, {
+    fetchImpl: async () => { throw new Error("readiness probe must not run"); },
+  });
+  assert.ok(total >= 1);
+});
+
 test("push mode: 2xx from SCORE_API records the score, no not-recorded marker", async (t) => {
   const { createServer } = await import("node:http");
   const posts = [];
@@ -271,6 +285,40 @@ test("judges an exec target and reports solved challenges by lowercased id", asy
   assert.match(report, /\*\*1 \/ 1\*\* challenges patched/);
   // Oracle discipline: no test file name, no assertion text.
   assert.doesNotMatch(report, /\.test\.js/);
+});
+
+// An aborted exec run is not a zero: the runner short-circuited challenges it
+// never attempted, so publishing its `solved` would tell the contestant their
+// patch achieved nothing AND (via the consumer workflow's cooldown) lock them
+// out on the strength of a measurement that never happened. The judge must fail
+// loudly instead, leaving no ctf-score.md — which is what makes the workflow
+// render "❌ Scoring did not complete" with a link to the run.
+test("an aborted exec run throws instead of writing a confident 0 / N", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "judge-exec-abort-"));
+  const workspace = join(dir, "workspace");
+  mkdirSync(workspace, { recursive: true });
+  writeFileSync(join(dir, "event.json"), JSON.stringify({
+    pull_request: { user: { login: "octocat" }, number: 7, head: { sha: "deadbeef" } },
+  }));
+
+  await assert.rejects(
+    judge({
+      TARGET: "vampi",
+      APP_URL: "http://app.invalid",
+      RUBRIC_DIR: join(import.meta.dirname, "fixtures", "rubric-exec-unreachable"),
+      GITHUB_WORKSPACE: workspace,
+      GITHUB_EVENT_PATH: join(dir, "event.json"),
+      APP_READY_TRIES: "1",
+      APP_READY_DELAY: "0",
+      // Two bare timeouts arm the abort; keep each one short.
+      CTF_SCORE_SAFETY_MS: "400",
+      CTF_SCORE_CONCURRENCY: "1",
+    }, { fetchImpl: async () => ({ ok: true, status: 200, text: async () => "" }) }),
+    /aborted before every challenge was scored/,
+  );
+
+  // The decisive assertion: no report at all, rather than a report saying 0 / 3.
+  assert.equal(existsSync(join(workspace, "ctf-score.md")), false);
 });
 
 // Guards the cross-target hazard flagged by Task 3's review: a rubric dir
