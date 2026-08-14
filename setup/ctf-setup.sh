@@ -53,9 +53,9 @@ repo_for() {
 # are the targets' STOCK ports — verify each one against your rubric's boot
 # strategy (docs/scorer.md, "Booting hard targets") before the event.
 #
-# scripts/acceptance-target.sh carries its own per-target port table (an
-# APP_PORT case) for the same reason — the two are intentionally separate (no
-# derivation, no sourcing this script from the gate) — a new target's port
+# scripts/acceptance-target.sh carries its own per-target URL-suffix table (an
+# APP_URL_SUFFIX case) for the same reason — the two are intentionally separate
+# (no derivation, no sourcing this script from the gate) — a new target's URL
 # needs an entry in BOTH.
 app_url_for() {
   case "$1" in
@@ -63,7 +63,7 @@ app_url_for() {
     dvwa) echo "http://dvwa:80" ;;
     webgoat) echo "http://webgoat:8080/WebGoat" ;;
     securityshepherd) echo "http://securityshepherd:80" ;;
-    vulnerableapp) echo "http://vulnerableapp:9090" ;;
+    vulnerableapp) echo "http://vulnerableapp:9090/VulnerableApp" ;;
     vampi) echo "http://vampi:5000" ;;
     *) echo "unknown target: $1" >&2; return 1 ;;
   esac

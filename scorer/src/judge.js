@@ -123,7 +123,7 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
     const urlEnv = getTarget(TARGET)?.urlEnv;
     solved = await runExec(challenges, {
       concurrency: getTarget(TARGET)?.defaultConcurrency ?? 1,
-      env: { ...env, APP_URL, ...(urlEnv ? { [urlEnv]: APP_URL } : {}) },
+      env: { ...env, ...(urlEnv ? { [urlEnv]: APP_URL } : {}) },
     });
   } else {
     solved = [];

@@ -31,28 +31,30 @@ docker build -q -t "$IMG" scorer/ >/dev/null
 
 docker network create --internal "$NET" >/dev/null 2>&1 || true
 
-# Some targets' apps hardcode a nonstandard listen port inside their own image
-# (there is no way to discover this at runtime — it is a fact about the
-# vendor's Dockerfile/entrypoint, not something docker networking can smooth
-# over). This mirrors the read-only reference engine's own per-target app-url
-# convention (dc34 .github/workflows/stock-scores-zero.yml): VAmPI's Flask app
-# is hardcoded to `app.run(port=5000)`, so APP_URL must carry :5000 or the app
-# is simply unreachable at the default :80 — the exact "bad port" this gate
-# exists to catch. VulnerableApp additionally hardcodes a servlet context path
+# Some targets' apps hardcode a nonstandard listen port, a servlet context
+# path, or both, inside their own image (there is no way to discover this at
+# runtime — it is a fact about the vendor's Dockerfile/entrypoint, not
+# something docker networking can smooth over). This mirrors the read-only
+# reference engine's own per-target app-url convention (dc34
+# .github/workflows/stock-scores-zero.yml): VAmPI's Flask app is hardcoded to
+# `app.run(port=5000)`, so the suffix must carry :5000 or the app is simply
+# unreachable at the default :80 — the exact "bad port" this gate exists to
+# catch. VulnerableApp additionally hardcodes a servlet context path
 # (`server.servlet.context-path=/VulnerableApp` baked into the image): the
-# stock container 404s at `/` and only answers under `/VulnerableApp`, so this
+# stock container 404s at `/` and only answers under `/VulnerableApp`, so its
 # suffix carries the path as well as the port — verified directly against the
 # stock image (`curl :9090/` -> 404, `curl :9090/VulnerableApp/allEndPointJson`
-# -> 200).
+# -> 200). Hence APP_URL_SUFFIX, not APP_PORT: it is whatever string turns
+# `http://$TARGET` into the real, reachable app URL — port, path, or both.
 #
-# setup/ctf-setup.sh's app_url_for() carries the same per-target port facts
+# setup/ctf-setup.sh's app_url_for() carries the same per-target URL facts
 # for the rendered organizer workflow. The two tables are intentionally NOT
 # derived from one another (that script has provisioning side effects; this
-# gate should not source it) — a new target's port needs an entry in BOTH.
+# gate should not source it) — a new target's suffix needs an entry in BOTH.
 case "$TARGET" in
-  vampi) APP_PORT=":5000" ;;
-  vulnerableapp) APP_PORT=":9090/VulnerableApp" ;;
-  *) APP_PORT="" ;;
+  vampi) APP_URL_SUFFIX=":5000" ;;
+  vulnerableapp) APP_URL_SUFFIX=":9090/VulnerableApp" ;;
+  *) APP_URL_SUFFIX="" ;;
 esac
 
 cat > "$TMP/event.json" <<'JSON'
@@ -66,7 +68,7 @@ docker run --rm \
   -v "$WS:/github/workspace" \
   -v "$TMP/event.json:/github/event.json:ro" \
   -e "TARGET=$TARGET" \
-  -e "APP_URL=http://$TARGET$APP_PORT" \
+  -e "APP_URL=http://$TARGET$APP_URL_SUFFIX" \
   -e "APP_IMAGE=$STOCK_IMAGE" \
   -e "NETWORK=$NET" \
   --entrypoint /usr/local/bin/entrypoint.sh \
