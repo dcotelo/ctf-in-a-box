@@ -1,0 +1,39 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  sync-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: sync/package-lock.json }
+      - run: npm ci
+        working-directory: sync
+      - run: npm test
+        working-directory: sync
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
+      - run: shellcheck scripts/*.sh setup/*.sh
+      - run: bats setup/test/
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/smoke.sh
+
+  app-image:
+    # Catches bridge-Dockerfile rot against upstream; not part of smoke (slow).
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ctf-app:ci images/app/

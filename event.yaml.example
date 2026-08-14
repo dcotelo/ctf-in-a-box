@@ -1,0 +1,15 @@
+event:
+  name: "OWASP Chapter CTF"
+  start: 2026-10-01T09:00:00-03:00
+  end: 2026-10-01T18:00:00-03:00
+  url: http://192.168.1.10        # box URL contestants reach; public URL in push mode
+github:
+  org: my-event-org                # disposable per-event org
+  oauth_client_id: Iv1.xxxx        # OAuth app client id (secret goes in .env)
+modules:
+  secure-development:
+    targets: [juice-shop, dvwa]    # any subset of the six
+    score_ingest: poll             # poll | push
+teams: { enabled: true, max_size: 4 }
+hints: { enabled: false }
+admins: [your-github-login]

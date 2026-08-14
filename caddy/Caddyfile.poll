@@ -1,0 +1,3 @@
+{$EVENT_HOST}
+
+reverse_proxy app:3000
