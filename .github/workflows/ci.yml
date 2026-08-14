@@ -39,12 +39,7 @@ jobs:
       # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing
       # script that reads them. Nothing else is excluded — a finding here is a bug to
       # fix in the script, not a rule to widen.
-      - run: shellcheck -s sh --exclude=SC2034 $(ls scorer/entrypoints/*.sh | grep -v '/webgoat\.sh$')
-      # webgoat.sh is quarantined, not exempt: it is the only fragment with findings
-      # beyond SC2034 (SC2155 ×2, SC2016 ×1), all in code a follow-up task is about to
-      # rewrite for source builds. It is still linted for every other rule. Delete this
-      # step and let the glob above cover it once that rewrite lands.
-      - run: shellcheck -s sh --exclude=SC2034,SC2155,SC2016 scorer/entrypoints/webgoat.sh
+      - run: shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
       - run: bats setup/test/
 
   smoke:
