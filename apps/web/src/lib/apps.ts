@@ -3,6 +3,8 @@
 // from `${LEADERBOARD_API_URL}/challenges` (see lib/challenges.ts) and only
 // shows these when that fetch fails.
 
+import { eventConfig } from "@/lib/event-config";
+
 export type AppId =
   | "juice-shop"
   | "dvwa"
@@ -100,3 +102,9 @@ export const appsById = Object.fromEntries(apps.map((a) => [a.id, a])) as Record
 
 export const totalChallenges = apps.reduce((n, a) => n + a.challengeCount, 0);
 export const totalMaxPoints = apps.reduce((n, a) => n + a.maxPoints, 0);
+
+/** Targets enabled for this event (config ∩ catalogue), canonical order. */
+export const enabledApps: AppMeta[] = apps.filter((a) => eventConfig.targets.includes(a.id));
+export const enabledAppsById = Object.fromEntries(enabledApps.map((a) => [a.id, a])) as Partial<Record<AppId, AppMeta>>;
+export const enabledTotalChallenges = enabledApps.reduce((n, a) => n + a.challengeCount, 0);
+export const enabledTotalMaxPoints = enabledApps.reduce((n, a) => n + a.maxPoints, 0);

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import PageHeader from "@/components/page-header";
 import ChallengeGrid from "@/components/challenge-grid";
 import HintNotice from "@/components/hint-notice";
-import { apps, totalChallenges, totalMaxPoints } from "@/lib/apps";
+import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store";
 import { event } from "@/lib/site";
@@ -19,11 +19,11 @@ export default async function ChallengesPage() {
     getChallengeCatalog(),
     getHintAvailability(),
   ]);
-  const sortedApps = [...apps].sort((a, b) => a.name.localeCompare(b.name));
+  const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
   const description = catalog
     ? `${catalog.total} challenges across six vulnerable apps, each tagged with its OWASP Top 10 category. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`
-    : `${totalChallenges} challenges across six vulnerable apps, worth ${totalMaxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
+    : `${enabledTotalChallenges} challenges across six vulnerable apps, worth ${enabledTotalMaxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
 
   return (
     <div className="flex flex-col gap-8">

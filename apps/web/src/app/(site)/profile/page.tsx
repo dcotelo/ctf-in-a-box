@@ -11,7 +11,7 @@ import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import AppChallengeList from "@/components/app-challenge-list";
 import TeamCard from "@/components/team-card";
-import { appsById } from "@/lib/apps";
+import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
 import { getViewerHints } from "@/lib/hint-store";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
@@ -118,7 +118,7 @@ export default async function ProfilePage() {
 
       <TeamCard team={team} writesEnabled={TEAM_WRITES_ENABLED} maxMembers={TEAM_MAX_MEMBERS} />
 
-      {!profile || profile.apps.length === 0 ? (
+      {!profile || profile.apps.filter((app) => enabledAppsById[app.app]).length === 0 ? (
         <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
           <p className="text-sm text-zinc-400">No scored PRs yet. Submit a patch to start earning points.</p>
           <Link href="/how-to-play" className="mt-3 inline-block text-sm ds-link">
@@ -127,8 +127,8 @@ export default async function ProfilePage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {profile.apps.map((app) => {
-            const meta = appsById[app.app];
+          {profile.apps.filter((app) => enabledAppsById[app.app]).map((app) => {
+            const meta = enabledAppsById[app.app]!;
             return (
               <div key={app.app} className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-4" style={{ ["--accent" as string]: meta.accent }}>
                 <div className="flex items-center justify-between">

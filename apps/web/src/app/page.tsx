@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import EventCountdown from "@/components/event-countdown";
 import SiteFooter from "@/components/site-footer";
-import { apps, totalChallenges, totalMaxPoints } from "@/lib/apps";
+import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { event } from "@/lib/site";
 
@@ -27,7 +27,7 @@ const STEPS = [
 
 export default async function Home() {
   const catalog = await getChallengeCatalog();
-  const sortedApps = [...apps].sort((a, b) => a.name.localeCompare(b.name));
+  const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div className="flex flex-1 flex-col">
       <div className="relative flex flex-col items-center justify-center overflow-hidden bg-[#1a1a2e] py-20">
@@ -249,7 +249,7 @@ export default async function Home() {
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
               {catalog
                 ? `${catalog.total} challenges up for grabs`
-                : `${totalChallenges} challenges, ${totalMaxPoints} points up for grabs`}
+                : `${enabledTotalChallenges} challenges, ${enabledTotalMaxPoints} points up for grabs`}
             </h2>
             <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
               Each app is a well-known, deliberately vulnerable OWASP project. Points scale with

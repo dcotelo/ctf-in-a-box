@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { apps as appList } from "@/lib/apps";
+import { enabledApps as appList } from "@/lib/apps";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
