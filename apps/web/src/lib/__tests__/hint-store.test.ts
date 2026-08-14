@@ -8,12 +8,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn<(script: string, keys: string[], args: (string | number)[]) => Promise<unknown>>(),
   upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
+  getAdminSettings: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({
   upstashEval: mocks.upstashEval,
   upstashPipeline: mocks.upstashPipeline,
+}));
+vi.mock("@/lib/admin-store", () => ({
+  getAdminSettings: mocks.getAdminSettings,
 }));
 
 type HintStore = typeof import("@/lib/hint-store");
@@ -30,6 +34,15 @@ async function loadStore(enabled = true, { creds = enabled }: { creds?: boolean 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: no admin override present, so every test not exercising the
+  // override sees only the baked env default (as before this override existed).
+  mocks.getAdminSettings.mockResolvedValue({
+    paused: false,
+    hintsEnabled: null,
+    hintCost: null,
+    updatedBy: null,
+    updatedAt: null,
+  });
 });
 
 afterEach(() => {
@@ -127,6 +140,52 @@ describe("revealHint", () => {
     const result = await store.revealHint("octocat", "juice-shop", "Challenge-1");
     expect(result).toEqual({ ok: false, error: "Hint reveal failed. Try again" });
     consoleError.mockRestore();
+  });
+});
+
+describe("runtime hint override", () => {
+  it("charges the overridden cost when set", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: null,
+      hintCost: 25,
+      updatedBy: null,
+      updatedAt: null,
+    });
+    mocks.upstashEval.mockResolvedValue(["charged", "the hint", 25]);
+    const r = await store.revealHint("alice", "juice-shop", "Challenge-1-X");
+    expect(r).toMatchObject({ ok: true, spent: 25 });
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    expect(args).toContain(25);
+  });
+
+  it("honors an enabled=false override even when the env default is on", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: false,
+      hintCost: null,
+      updatedBy: null,
+      updatedAt: null,
+    });
+    const r = await store.revealHint("alice", "juice-shop", "Challenge-1-X");
+    expect(r).toEqual({ ok: false, error: "Hints are not enabled" });
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the baked default when no override is present", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: null,
+      hintCost: null,
+      updatedBy: null,
+      updatedAt: null,
+    });
+    mocks.upstashEval.mockResolvedValue(["charged", "the hint", 10]);
+    const r = await store.revealHint("alice", "juice-shop", "Challenge-1-X");
+    expect(r).toMatchObject({ ok: true, spent: 10 });
   });
 });
 

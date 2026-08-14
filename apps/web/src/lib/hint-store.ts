@@ -1,4 +1,5 @@
 import "server-only";
+import { getAdminSettings } from "@/lib/admin-store";
 import { apps, appsById, type AppId } from "@/lib/apps";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 
@@ -60,8 +61,20 @@ export type RevealResult =
   | { ok: true; hint: string; alreadyOwned: boolean; spent: number }
   | { ok: false; error: string; missing?: boolean };
 
+/** Resolves the effective hint config for this request: an admin override
+ *  (Task 1's `getAdminSettings`) wins when set, else the baked default.
+ *  `??` (not `||`) so an explicit `false`/`0` override beats an "on" default. */
+export async function resolveHintConfig(): Promise<{ enabled: boolean; cost: number }> {
+  const s = await getAdminSettings();
+  return {
+    enabled: s.hintsEnabled ?? HINTS_ENABLED,
+    cost: s.hintCost ?? HINT_COST,
+  };
+}
+
 export async function revealHint(login: string, app: string, id: string): Promise<RevealResult> {
-  if (!HINTS_ENABLED) return { ok: false, error: "Hints are not enabled" };
+  const { enabled, cost } = await resolveHintConfig();
+  if (!enabled) return { ok: false, error: "Hints are not enabled" };
   if (!isAppId(app)) return { ok: false, error: "Unknown app" };
   if (!CHALLENGE_ID_RE.test(id)) return { ok: false, error: "Invalid challenge id" };
 
@@ -70,7 +83,7 @@ export async function revealHint(login: string, app: string, id: string): Promis
     verdict = await upstashEval(
       REVEAL_SCRIPT,
       [userHintsKey(login), SPENT_KEY, hintHashKey(app)],
-      [id, `${app}/${id}`, login, HINT_COST],
+      [id, `${app}/${id}`, login, cost],
     );
   } catch (err) {
     console.error("Hint reveal failed:", err);
