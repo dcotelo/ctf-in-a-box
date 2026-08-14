@@ -19,7 +19,7 @@ import { getViewerTeam, TEAM_MAX_MEMBERS, TEAM_WRITES_ENABLED } from "@/lib/team
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Profile · ${event.name}`,
+  title: "Profile",
   description: `Your personal progress across ${event.name} challenges.`,
 };
 

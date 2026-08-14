@@ -10,9 +10,9 @@ import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Code of Conduct · ${event.name}`,
+  title: "Code of Conduct",
   description:
-    `The codes of conduct that govern the ${event.name} secure development CTF, and how to report a problem.`,
+    `The codes of conduct that govern ${event.name}, and how to report a problem.`,
 };
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (

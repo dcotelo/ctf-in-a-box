@@ -8,7 +8,7 @@ import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store"
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Challenges · ${event.name}`,
+  title: "Challenges",
   description: "Six vulnerable OWASP apps to patch: Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI.",
 };
 

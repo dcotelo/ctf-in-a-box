@@ -9,7 +9,7 @@ import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Terms · ${event.name}`,
+  title: "Terms",
   description:
     `Participation terms for the ${event.name} secure development CTF: eligibility, testing scope, submissions, scoring, and prizes.`,
 };

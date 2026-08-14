@@ -58,7 +58,7 @@ export default async function Home() {
             className="invert"
           />
 
-          {/* DEF CON 34 icon row - security themed, matching DC34 colorful circle style */}
+          {/* Security-themed icon row */}
           <div className="flex items-center gap-4">
             {/* Clock / Time - red */}
             <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#e53e3e] text-[#e53e3e]">

@@ -6,7 +6,7 @@ import CopyButton from "@/components/copy-button";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `FAQ · ${event.name}`,
+  title: "FAQ",
   description: `Frequently asked questions about the ${event.name} secure development CTF.`,
 };
 

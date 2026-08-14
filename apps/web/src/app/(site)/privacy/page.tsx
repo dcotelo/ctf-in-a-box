@@ -24,7 +24,7 @@ import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Privacy · ${event.name}`,
+  title: "Privacy",
   description:
     `What the ${event.name} site collects, where it's stored, who can see it, and how to ask for it to be deleted.`,
 };

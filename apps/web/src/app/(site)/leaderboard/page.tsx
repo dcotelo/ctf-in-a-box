@@ -15,7 +15,7 @@ import { auth } from "@/lib/auth";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Leaderboard · ${event.name}`,
+  title: "Leaderboard",
   description: `Live contestant standings for ${event.name}.`,
 };
 

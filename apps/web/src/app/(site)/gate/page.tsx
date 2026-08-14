@@ -7,7 +7,7 @@ import { GATE_COOKIE, isGateActive, verifyGateCookie } from "@/lib/gate";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Access · ${event.name}`,
+  title: "Access",
   robots: { index: false },
 };
 
