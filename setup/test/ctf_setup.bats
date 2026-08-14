@@ -22,6 +22,22 @@ EOF
   [[ "$output" == *"Manage Actions access"* ]]
 }
 
+@test "org --dry-run honors SCORE_IMAGE env var for the mirror source" {
+  run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"docker pull ghcr.io/myorg/custom-score:v2"* ]]
+  [[ "$output" == *"docker tag ghcr.io/myorg/custom-score:v2 ghcr.io/test-event-org/score:latest"* ]]
+  [[ "$output" != *"docker pull ghcr.io/owasp-ctf/score:latest"* ]]
+}
+
+@test "org --dry-run reads SCORE_IMAGE from .env when env var unset" {
+  echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > .env
+  run bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"docker pull ghcr.io/other/score:pinned"* ]]
+  [[ "$output" == *"docker tag ghcr.io/other/score:pinned ghcr.io/test-event-org/score:latest"* ]]
+}
+
 @test "secrets generates all required values" {
   run bash "$SCRIPT" secrets --config event.yaml --out .env.test
   [ "$status" -eq 0 ]
