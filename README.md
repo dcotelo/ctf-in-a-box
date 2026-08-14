@@ -124,7 +124,7 @@ target's challenges are executable `node:test` suites, priced by difficulty.
 | `dvwa` | 55 | 108 | Needs a MariaDB sibling and a schema init |
 | `securityshepherd` | 40 | 79 | HTTPS, three-container stack, strictly serial |
 | `juice-shop` | 38 | 141 | The only target whose difficulty runs to 6 stars |
-| `vampi` | 9 | 22 | Self-contained; the quickest end-to-end proof |
+| `vampi` | 9 | 16 | Self-contained; the quickest end-to-end proof |
 
 Enable any subset in `modules.secure-development.targets`. The rubrics live in
 `scorer/rubric.owasp/`, vendored from
