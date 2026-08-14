@@ -6,7 +6,7 @@
 // compared. A refactor that restores the old shape — read, decide, compare,
 // then write — passes every store test and reintroduces the vulnerability.
 //
-// The store is mocked, so no AWS credentials are needed.
+// The store is mocked, so no Upstash credentials are needed.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -94,7 +94,7 @@ describe("POST /api/gate", () => {
   });
 
   it("fails closed with 500 when the budget cannot be charged", async () => {
-    mocks.consumeGateAttempt.mockRejectedValue(new Error("dynamo down"));
+    mocks.consumeGateAttempt.mockRejectedValue(new Error("upstash down"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await POST(post("correct"));
     expect(res.status).toBe(500);

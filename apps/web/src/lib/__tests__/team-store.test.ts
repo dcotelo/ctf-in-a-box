@@ -11,27 +11,11 @@ const mocks = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
 }));
 
-// The DynamoDB half is mocked as a module so these tests stay hermetic; its own
-// behavior is covered by dynamo-team-store.test.ts. mirrorTeamOp still invokes
-// the runner (like the real one) so dual-mode tests can assert what would run.
-const dynamoMocks = vi.hoisted(() => ({
-  dynamoCreateTeam: vi.fn<(...args: unknown[]) => Promise<string>>().mockResolvedValue("ok"),
-  dynamoJoinTeam: vi.fn<(...args: unknown[]) => Promise<string>>().mockResolvedValue("ok"),
-  dynamoLeaveTeam: vi.fn<(...args: unknown[]) => Promise<string>>().mockResolvedValue("ok"),
-  dynamoGetUserTeamSlug: vi.fn<(login: string) => Promise<string | null>>().mockResolvedValue(null),
-  dynamoGetViewerTeam: vi.fn<(login: string) => Promise<unknown>>().mockResolvedValue(null),
-  dynamoListTeams: vi.fn<() => Promise<unknown[]>>().mockResolvedValue([]),
-  mirrorTeamOp: vi.fn(async (_op: string, run: () => Promise<unknown>) => {
-    await run().catch(() => {});
-  }),
-}));
-
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({
   upstashEval: mocks.upstashEval,
   upstashPipeline: mocks.upstashPipeline,
 }));
-vi.mock("@/lib/dynamo-team-store", () => dynamoMocks);
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (mocks.cookieJar.has(name) ? { name, value: mocks.cookieJar.get(name) } : undefined),
@@ -42,12 +26,11 @@ vi.mock("next/headers", () => ({
 
 type TeamStore = typeof import("@/lib/team-store");
 
-/** TEAM_WRITES_ENABLED and CTF_DATA_BACKEND are read at module load, so each
- *  test re-imports the store with the env it needs. No backend = "dual". */
-async function loadStore(writesEnabled: boolean, backend?: "dual" | "upstash" | "dynamo"): Promise<TeamStore> {
+/** TEAM_WRITES_ENABLED is read at module load, so each test re-imports the
+ *  store with the env it needs. */
+async function loadStore(writesEnabled: boolean): Promise<TeamStore> {
   vi.resetModules();
   vi.stubEnv("TEAM_WRITES_ENABLED", writesEnabled ? "true" : "");
-  if (backend) vi.stubEnv("CTF_DATA_BACKEND", backend);
   return import("@/lib/team-store");
 }
 
@@ -238,105 +221,6 @@ describe("listTeams", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["0", []] }]);
     expect(await store.listTeams()).toEqual([]);
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("data backend dispatch (CTF_DATA_BACKEND)", () => {
-  it("dual (default) mirrors a successful create into DynamoDB", async () => {
-    const store = await loadStore(true); // no backend env = dual
-    mocks.upstashEval.mockResolvedValueOnce("ok");
-    const result = await store.createTeam("octocat", "Red Team");
-    expect(result).toEqual({ ok: true, team: "red-team" });
-    expect(dynamoMocks.mirrorTeamOp).toHaveBeenCalledWith("team:create", expect.any(Function));
-    expect(dynamoMocks.dynamoCreateTeam).toHaveBeenCalledWith("octocat", "red-team", "Red Team", expect.any(String));
-  });
-
-  it("dual mirrors join and leave with the same identity Upstash used", async () => {
-    const store = await loadStore(true);
-    mocks.upstashEval.mockResolvedValueOnce("ok");
-    await store.joinTeam("octocat", "red-team");
-    expect(dynamoMocks.dynamoJoinTeam).toHaveBeenCalledWith("octocat", "red-team", 4);
-
-    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
-    mocks.upstashEval.mockResolvedValueOnce("ok");
-    await store.leaveTeam("octocat");
-    expect(dynamoMocks.dynamoLeaveTeam).toHaveBeenCalledWith("octocat", "red-team");
-  });
-
-  it("dual skips the mirror when Upstash rejects the write", async () => {
-    const store = await loadStore(true);
-    mocks.upstashEval.mockResolvedValueOnce("name-taken");
-    await store.createTeam("octocat", "Red Team");
-    expect(dynamoMocks.mirrorTeamOp).not.toHaveBeenCalled();
-    expect(dynamoMocks.dynamoCreateTeam).not.toHaveBeenCalled();
-  });
-
-  it("upstash mode never touches DynamoDB", async () => {
-    const store = await loadStore(true, "upstash");
-    mocks.upstashEval.mockResolvedValueOnce("ok");
-    const result = await store.joinTeam("octocat", "red-team");
-    expect(result).toEqual({ ok: true, team: "red-team" });
-    expect(dynamoMocks.mirrorTeamOp).not.toHaveBeenCalled();
-    expect(dynamoMocks.dynamoJoinTeam).not.toHaveBeenCalled();
-  });
-
-  it("dynamo mode writes through DynamoDB and skips Upstash entirely", async () => {
-    const store = await loadStore(true, "dynamo");
-    dynamoMocks.dynamoJoinTeam.mockResolvedValueOnce("ok");
-    const result = await store.joinTeam("octocat", "red-team");
-    expect(result).toEqual({ ok: true, team: "red-team" });
-    expect(mocks.upstashEval).not.toHaveBeenCalled();
-    expect(dynamoMocks.mirrorTeamOp).not.toHaveBeenCalled(); // it IS the store, not a mirror
-  });
-
-  it("dynamo mode maps verdicts to the same user-facing messages", async () => {
-    const store = await loadStore(true, "dynamo");
-    dynamoMocks.dynamoJoinTeam.mockResolvedValueOnce("full");
-    expect(await store.joinTeam("octocat", "red-team")).toEqual({
-      ok: false,
-      error: 'Team "red-team" is full (4 players max)',
-    });
-    dynamoMocks.dynamoJoinTeam.mockResolvedValueOnce("not-found");
-    expect(await store.joinTeam("octocat", "ghost-team")).toEqual({
-      ok: false,
-      error: 'No team "ghost-team". Check the slug or create it',
-    });
-    dynamoMocks.dynamoCreateTeam.mockResolvedValueOnce("already-on-team");
-    expect(await store.createTeam("octocat", "Blue Team")).toEqual({
-      ok: false,
-      error: "Leave your current team before creating one",
-    });
-    dynamoMocks.dynamoCreateTeam.mockResolvedValueOnce("error");
-    expect(await store.createTeam("octocat", "Blue Team")).toEqual({
-      ok: false,
-      error: "Team update failed. Try again",
-    });
-  });
-
-  it("dynamo mode leave treats a stale membership as already left", async () => {
-    const store = await loadStore(true, "dynamo");
-    dynamoMocks.dynamoGetUserTeamSlug.mockResolvedValueOnce("red-team");
-    dynamoMocks.dynamoLeaveTeam.mockResolvedValueOnce("stale");
-    expect(await store.leaveTeam("octocat")).toEqual({ ok: true, team: null });
-    expect(mocks.upstashEval).not.toHaveBeenCalled();
-  });
-
-  it("dynamo mode reads the viewer team and team list from DynamoDB", async () => {
-    const store = await loadStore(true, "dynamo");
-    const team = { slug: "red-team", name: "Red Team", members: ["octocat"] };
-    dynamoMocks.dynamoGetViewerTeam.mockResolvedValueOnce(team);
-    expect(await store.getViewerTeam("octocat")).toEqual(team);
-    dynamoMocks.dynamoListTeams.mockResolvedValueOnce([team]);
-    expect(await store.listTeams()).toEqual([team]);
-    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
-  });
-
-  it("cookie mock ignores the backend flag when writes are disabled", async () => {
-    const store = await loadStore(false, "dynamo");
-    const result = await store.joinTeam("octocat", "Red Team");
-    expect(result).toEqual({ ok: true, team: "red-team" });
-    expect(mocks.cookieJar.get("ctf-mock-team")).toBe("red-team");
-    expect(dynamoMocks.dynamoJoinTeam).not.toHaveBeenCalled();
   });
 });
 

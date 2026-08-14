@@ -27,7 +27,6 @@ services:
       UPSTASH_REDIS_REST_URL: http://srh:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
       TEAM_WRITES_ENABLED: "true"
-      CTF_DATA_BACKEND: upstash           # no DynamoDB in self-host
     depends_on: [srh, scorer]
 
   scorer:

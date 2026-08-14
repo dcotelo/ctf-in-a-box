@@ -4,7 +4,7 @@
 // cookie is HMAC-signed with BETTER_AUTH_SECRET so it can't be forged.
 //
 // Deliberately imports ONLY node:crypto — this module is bundled into the
-// proxy (Node runtime), so no "server-only" marker and no DynamoDB here.
+// proxy (Node runtime), so no "server-only" marker and no Upstash client here.
 
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 

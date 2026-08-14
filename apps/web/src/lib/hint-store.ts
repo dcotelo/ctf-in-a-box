@@ -1,16 +1,6 @@
 import "server-only";
 import { apps, appsById, type AppId } from "@/lib/apps";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
-import { DATA_BACKEND } from "@/lib/dynamo";
-import {
-  dynamoChargeHint,
-  dynamoGetHintAvailability,
-  dynamoGetHintPenalties,
-  dynamoGetHintText,
-  dynamoGetHintTexts,
-  dynamoGetViewerPurchases,
-  mirrorHintCharge,
-} from "@/lib/dynamo-hint-store";
 
 /**
  * Paid hints. Hint text lives in the scorer-owned hashes `hints:<app>`
@@ -23,14 +13,6 @@ import {
  * leaderboard/hint-penalties.ts) — the scorer's leaderboard ZSET is never
  * decremented.
  *
- * CTF_DATA_BACKEND (see lib/dynamo.ts) picks where purchases are recorded:
- * "dual" (default) keeps the Upstash Lua verdict authoritative and mirrors each
- * fresh charge into DynamoDB best-effort; "dynamo" stores purchases and reads
- * penalties, hint text, and availability from DynamoDB instead (pk=HINTS, kept
- * in sync from the scorer-seeded Upstash hashes by the backfill — re-run it
- * after any hint re-seeding). Upstash creds are therefore only required for
- * hints in the upstash/dual modes; dynamo mode is fully Upstash-free.
- *
  * Callers (the /api/hints route handlers) are responsible for authenticating
  * the session and deriving `login` server-side — nothing here trusts
  * client-supplied identity.
@@ -42,14 +24,12 @@ export const HINT_COST = 10;
 
 /** Master switch for paid hints: HINTS_ENABLED=true opts in explicitly (so
  *  hints stay hidden until the event even where the backend is configured).
- *  In upstash/dual modes the hint text lives only in Upstash, so credentials
- *  must also be present (read/write — revealing writes to Redis, already
- *  required for TEAM_WRITES_ENABLED); in dynamo mode everything comes from
- *  DynamoDB, whose credentials are ambient (the AWS SDK default chain). */
+ *  The hint text lives only in Upstash, so credentials must also be present
+ *  (read/write — revealing writes to Redis, already required for
+ *  TEAM_WRITES_ENABLED). */
 export const HINTS_ENABLED =
   process.env.HINTS_ENABLED === "true" &&
-  (DATA_BACKEND === "dynamo" ||
-    Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN));
+  Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 
 const SPENT_KEY = "ctf:hints:spent";
 const userHintsKey = (login: string) => `ctf:user:${login}:hints`;
@@ -85,25 +65,6 @@ export async function revealHint(login: string, app: string, id: string): Promis
   if (!isAppId(app)) return { ok: false, error: "Unknown app" };
   if (!CHALLENGE_ID_RE.test(id)) return { ok: false, error: "Invalid challenge id" };
 
-  if (DATA_BACKEND === "dynamo") {
-    // Text from pk=HINTS, charge in DynamoDB. The text lookup isn't atomic
-    // with the charge (unlike the Lua re-check), which is fine: hint items
-    // change rarely and the charge-once guard is what matters — a hint deleted
-    // mid-flight just can't be charged for twice.
-    let text: string | null = null;
-    try {
-      text = await dynamoGetHintText(app, id);
-    } catch (err) {
-      console.error("Hint text lookup failed:", err);
-      return { ok: false, error: "Hint reveal failed. Try again" };
-    }
-    if (!text) return { ok: false, missing: true, error: "No hint available for this challenge" };
-
-    const charge = await dynamoChargeHint(login, app, id, HINT_COST);
-    if (charge.status === "error") return { ok: false, error: "Hint reveal failed. Try again" };
-    return { ok: true, hint: text, alreadyOwned: charge.status === "owned", spent: charge.spent };
-  }
-
   let verdict: unknown;
   try {
     verdict = await upstashEval(
@@ -121,8 +82,6 @@ export async function revealHint(login: string, app: string, id: string): Promis
     return { ok: false, missing: true, error: "No hint available for this challenge" };
   }
   if ((status === "charged" || status === "owned") && typeof hint === "string") {
-    // Only a fresh purchase ("charged") is a real write worth mirroring.
-    if (status === "charged" && DATA_BACKEND === "dual") await mirrorHintCharge(login, app, id, HINT_COST);
     return { ok: true, hint, alreadyOwned: status === "owned", spent: Number(spent) || 0 };
   }
   return { ok: false, error: "Hint reveal failed. Try again" };
@@ -142,34 +101,23 @@ const NO_HINTS: ViewerHints = { purchased: {}, spent: 0, count: 0 };
 export async function getViewerHints(login: string): Promise<ViewerHints> {
   if (!HINTS_ENABLED) return NO_HINTS;
 
-  let owned: { app: AppId; id: string }[];
-  let spent: number;
-  if (DATA_BACKEND === "dynamo") {
-    const viewer = await dynamoGetViewerPurchases(login);
-    owned = viewer.purchases.flatMap(({ app, id }) => (isAppId(app) ? [{ app, id }] : []));
-    spent = viewer.spent;
-  } else {
-    const [members, spentRes] = await upstashPipeline([
-      ["SMEMBERS", userHintsKey(login)],
-      ["HGET", SPENT_KEY, login],
-    ]);
-    owned = (Array.isArray(members.result) ? (members.result as string[]) : []).flatMap((member) => {
-      const slash = member.indexOf("/");
-      if (slash === -1) return [];
-      const app = member.slice(0, slash);
-      return isAppId(app) ? [{ app, id: member.slice(slash + 1) }] : [];
-    });
-    spent = Number(spentRes.result) || 0;
-  }
+  const [members, spentRes] = await upstashPipeline([
+    ["SMEMBERS", userHintsKey(login)],
+    ["HGET", SPENT_KEY, login],
+  ]);
+  const owned = (Array.isArray(members.result) ? (members.result as string[]) : []).flatMap((member) => {
+    const slash = member.indexOf("/");
+    if (slash === -1) return [];
+    const app = member.slice(0, slash);
+    return isAppId(app) ? [{ app, id: member.slice(slash + 1) }] : [];
+  });
+  const spent = Number(spentRes.result) || 0;
 
   const purchased: ViewerHints["purchased"] = {};
   if (owned.length > 0) {
-    const texts =
-      DATA_BACKEND === "dynamo"
-        ? await dynamoGetHintTexts(owned)
-        : (await upstashPipeline(owned.map(({ app, id }) => ["HGET", hintHashKey(app), id]))).map(({ result }) =>
-            typeof result === "string" && result ? result : null,
-          );
+    const texts = (await upstashPipeline(owned.map(({ app, id }) => ["HGET", hintHashKey(app), id]))).map(
+      ({ result }) => (typeof result === "string" && result ? result : null),
+    );
     owned.forEach(({ app, id }, i) => {
       const text = texts[i];
       // A hint deleted after purchase just drops out of the reveal list.
@@ -187,7 +135,6 @@ export async function getViewerHints(login: string): Promise<ViewerHints> {
 /** Penalty points per login — one HGETALL serves the whole leaderboard. */
 export async function getHintPenalties(): Promise<Map<string, number>> {
   if (!HINTS_ENABLED) return new Map();
-  if (DATA_BACKEND === "dynamo") return dynamoGetHintPenalties();
 
   const [res] = await upstashPipeline([["HGETALL", SPENT_KEY]]);
   const flat = Array.isArray(res.result) ? (res.result as string[]) : [];
@@ -221,18 +168,6 @@ async function cachedHkeys(key: string): Promise<string[]> {
 export async function getHintAvailability(): Promise<Partial<Record<AppId, string[]>>> {
   if (!HINTS_ENABLED) return {};
   try {
-    if (DATA_BACKEND === "dynamo") {
-      // Unlike the no-store pipeline client, an AWS SDK call isn't a fetch and
-      // can't flip the challenges page to dynamic rendering — it simply runs
-      // each time the (still static) page revalidates.
-      const byApp = await dynamoGetHintAvailability();
-      const availability: Partial<Record<AppId, string[]>> = {};
-      for (const app of apps) {
-        const ids = byApp[app.id];
-        if (ids && ids.length > 0) availability[app.id] = ids;
-      }
-      return availability;
-    }
     const ids = await Promise.all(apps.map((app) => cachedHkeys(hintHashKey(app.id))));
     const availability: Partial<Record<AppId, string[]>> = {};
     apps.forEach((app, i) => {
