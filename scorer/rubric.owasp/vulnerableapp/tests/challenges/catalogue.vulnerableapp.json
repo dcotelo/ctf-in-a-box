@@ -1,0 +1,1458 @@
+[
+  {
+    "key": "Challenge-1-Authentication-Level-1",
+    "file": "Challenge-1-Authentication-Level-1.test.js",
+    "doc": "Challenge-1-Authentication-Level-1.md",
+    "name": "AuthenticationVulnerability (LEVEL_1)",
+    "vulnerabilityName": "AuthenticationVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A07",
+    "vulnTypes": [
+      "ERROR_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-2-Authentication-Level-2",
+    "file": "Challenge-2-Authentication-Level-2.test.js",
+    "doc": "Challenge-2-Authentication-Level-2.md",
+    "name": "AuthenticationVulnerability (LEVEL_2)",
+    "vulnerabilityName": "AuthenticationVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A07",
+    "vulnTypes": [
+      "PLAINTEXT_PASSWORD_STORAGE"
+    ]
+  },
+  {
+    "key": "Challenge-3-Authentication-Level-3",
+    "file": "Challenge-3-Authentication-Level-3.test.js",
+    "doc": "Challenge-3-Authentication-Level-3.md",
+    "name": "AuthenticationVulnerability (LEVEL_3)",
+    "vulnerabilityName": "AuthenticationVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A07",
+    "vulnTypes": [
+      "PLAINTEXT_PASSWORD_STORAGE"
+    ]
+  },
+  {
+    "key": "Challenge-4-Authentication-Level-7",
+    "file": "Challenge-4-Authentication-Level-7.test.js",
+    "doc": "Challenge-4-Authentication-Level-7.md",
+    "name": "AuthenticationVulnerability (LEVEL_7)",
+    "vulnerabilityName": "AuthenticationVulnerability",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A07",
+    "vulnTypes": [
+      "USERNAME_ENUMERATION"
+    ]
+  },
+  {
+    "key": "Challenge-5-Authentication-Level-8",
+    "file": "Challenge-5-Authentication-Level-8.test.js",
+    "doc": "Challenge-5-Authentication-Level-8.md",
+    "name": "AuthenticationVulnerability (LEVEL_8)",
+    "vulnerabilityName": "AuthenticationVulnerability",
+    "level": "LEVEL_8",
+    "difficulty": 3,
+    "owasp": "A07",
+    "vulnTypes": [
+      "WEAK_PASSWORD_HASHING"
+    ]
+  },
+  {
+    "key": "Challenge-6-Authentication-Level-10",
+    "file": "Challenge-6-Authentication-Level-10.test.js",
+    "doc": "Challenge-6-Authentication-Level-10.md",
+    "name": "AuthenticationVulnerability (LEVEL_10)",
+    "vulnerabilityName": "AuthenticationVulnerability",
+    "level": "LEVEL_10",
+    "difficulty": 3,
+    "owasp": "A07",
+    "vulnTypes": [
+      "WEAK_PASSWORD_HASHING"
+    ]
+  },
+  {
+    "key": "Challenge-7-Blind-SQLi-Level-1",
+    "file": "Challenge-7-Blind-SQLi-Level-1.test.js",
+    "doc": "Challenge-7-Blind-SQLi-Level-1.md",
+    "name": "BlindSQLInjectionVulnerability (LEVEL_1)",
+    "vulnerabilityName": "BlindSQLInjectionVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "BLIND_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-8-Blind-SQLi-Level-2",
+    "file": "Challenge-8-Blind-SQLi-Level-2.test.js",
+    "doc": "Challenge-8-Blind-SQLi-Level-2.md",
+    "name": "BlindSQLInjectionVulnerability (LEVEL_2)",
+    "vulnerabilityName": "BlindSQLInjectionVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "BLIND_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-9-Cache-Poisoning-Level-1",
+    "file": "Challenge-9-Cache-Poisoning-Level-1.test.js",
+    "doc": "Challenge-9-Cache-Poisoning-Level-1.md",
+    "name": "CachePoisoning (LEVEL_1)",
+    "vulnerabilityName": "CachePoisoning",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "REFLECTED_XSS",
+      "WEB_CACHE_POISONING"
+    ]
+  },
+  {
+    "key": "Challenge-10-Cache-Poisoning-Level-2",
+    "file": "Challenge-10-Cache-Poisoning-Level-2.test.js",
+    "doc": "Challenge-10-Cache-Poisoning-Level-2.md",
+    "name": "CachePoisoning (LEVEL_2)",
+    "vulnerabilityName": "CachePoisoning",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "REFLECTED_XSS",
+      "WEB_CACHE_POISONING"
+    ]
+  },
+  {
+    "key": "Challenge-11-Cache-Poisoning-Level-3",
+    "file": "Challenge-11-Cache-Poisoning-Level-3.test.js",
+    "doc": "Challenge-11-Cache-Poisoning-Level-3.md",
+    "name": "CachePoisoning (LEVEL_3)",
+    "vulnerabilityName": "CachePoisoning",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "REFLECTED_XSS",
+      "WEB_CACHE_POISONING"
+    ]
+  },
+  {
+    "key": "Challenge-12-Cache-Poisoning-Level-4",
+    "file": "Challenge-12-Cache-Poisoning-Level-4.test.js",
+    "doc": "Challenge-12-Cache-Poisoning-Level-4.md",
+    "name": "CachePoisoning (LEVEL_4)",
+    "vulnerabilityName": "CachePoisoning",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "WEB_CACHE_POISONING"
+    ]
+  },
+  {
+    "key": "Challenge-13-Clickjacking-Level-1",
+    "file": "Challenge-13-Clickjacking-Level-1.test.js",
+    "doc": "Challenge-13-Clickjacking-Level-1.md",
+    "name": "ClickjackingVulnerability (LEVEL_1)",
+    "vulnerabilityName": "ClickjackingVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "CLICKJACKING"
+    ]
+  },
+  {
+    "key": "Challenge-14-Clickjacking-Level-2",
+    "file": "Challenge-14-Clickjacking-Level-2.test.js",
+    "doc": "Challenge-14-Clickjacking-Level-2.md",
+    "name": "ClickjackingVulnerability (LEVEL_2)",
+    "vulnerabilityName": "ClickjackingVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "CLICKJACKING"
+    ]
+  },
+  {
+    "key": "Challenge-15-Clickjacking-Level-3",
+    "file": "Challenge-15-Clickjacking-Level-3.test.js",
+    "doc": "Challenge-15-Clickjacking-Level-3.md",
+    "name": "ClickjackingVulnerability (LEVEL_3)",
+    "vulnerabilityName": "ClickjackingVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "CLICKJACKING"
+    ]
+  },
+  {
+    "key": "Challenge-16-Clickjacking-Level-6",
+    "file": "Challenge-16-Clickjacking-Level-6.test.js",
+    "doc": "Challenge-16-Clickjacking-Level-6.md",
+    "name": "ClickjackingVulnerability (LEVEL_6)",
+    "vulnerabilityName": "ClickjackingVulnerability",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "CLICKJACKING"
+    ]
+  },
+  {
+    "key": "Challenge-17-Clickjacking-Level-7",
+    "file": "Challenge-17-Clickjacking-Level-7.test.js",
+    "doc": "Challenge-17-Clickjacking-Level-7.md",
+    "name": "ClickjackingVulnerability (LEVEL_7)",
+    "vulnerabilityName": "ClickjackingVulnerability",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "CLICKJACKING"
+    ]
+  },
+  {
+    "key": "Challenge-18-Command-Injection-Level-1",
+    "file": "Challenge-18-Command-Injection-Level-1.test.js",
+    "doc": "Challenge-18-Command-Injection-Level-1.md",
+    "name": "CommandInjection (LEVEL_1)",
+    "vulnerabilityName": "CommandInjection",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "COMMAND_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-19-Command-Injection-Level-2",
+    "file": "Challenge-19-Command-Injection-Level-2.test.js",
+    "doc": "Challenge-19-Command-Injection-Level-2.md",
+    "name": "CommandInjection (LEVEL_2)",
+    "vulnerabilityName": "CommandInjection",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "COMMAND_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-20-Command-Injection-Level-3",
+    "file": "Challenge-20-Command-Injection-Level-3.test.js",
+    "doc": "Challenge-20-Command-Injection-Level-3.md",
+    "name": "CommandInjection (LEVEL_3)",
+    "vulnerabilityName": "CommandInjection",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "COMMAND_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-21-Command-Injection-Level-4",
+    "file": "Challenge-21-Command-Injection-Level-4.test.js",
+    "doc": "Challenge-21-Command-Injection-Level-4.md",
+    "name": "CommandInjection (LEVEL_4)",
+    "vulnerabilityName": "CommandInjection",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "COMMAND_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-22-Command-Injection-Level-5",
+    "file": "Challenge-22-Command-Injection-Level-5.test.js",
+    "doc": "Challenge-22-Command-Injection-Level-5.md",
+    "name": "CommandInjection (LEVEL_5)",
+    "vulnerabilityName": "CommandInjection",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "COMMAND_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-23-Cryptographic-Failures-Level-1",
+    "file": "Challenge-23-Cryptographic-Failures-Level-1.test.js",
+    "doc": "Challenge-23-Cryptographic-Failures-Level-1.md",
+    "name": "CryptographicFailures (LEVEL_1)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A04",
+    "vulnTypes": [
+      "INSECURE_CRYPTOGRAPHIC_STORAGE"
+    ]
+  },
+  {
+    "key": "Challenge-24-Cryptographic-Failures-Level-2",
+    "file": "Challenge-24-Cryptographic-Failures-Level-2.test.js",
+    "doc": "Challenge-24-Cryptographic-Failures-Level-2.md",
+    "name": "CryptographicFailures (LEVEL_2)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A04",
+    "vulnTypes": [
+      "INSECURE_CRYPTOGRAPHIC_STORAGE"
+    ]
+  },
+  {
+    "key": "Challenge-25-Cryptographic-Failures-Level-3",
+    "file": "Challenge-25-Cryptographic-Failures-Level-3.test.js",
+    "doc": "Challenge-25-Cryptographic-Failures-Level-3.md",
+    "name": "CryptographicFailures (LEVEL_3)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A04",
+    "vulnTypes": [
+      "USE_OF_BROKEN_CRYPTOGRAPHIC_ALGORITHM"
+    ]
+  },
+  {
+    "key": "Challenge-26-Cryptographic-Failures-Level-4",
+    "file": "Challenge-26-Cryptographic-Failures-Level-4.test.js",
+    "doc": "Challenge-26-Cryptographic-Failures-Level-4.md",
+    "name": "CryptographicFailures (LEVEL_4)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A04",
+    "vulnTypes": [
+      "USE_OF_BROKEN_CRYPTOGRAPHIC_ALGORITHM"
+    ]
+  },
+  {
+    "key": "Challenge-27-Cryptographic-Failures-Level-5",
+    "file": "Challenge-27-Cryptographic-Failures-Level-5.test.js",
+    "doc": "Challenge-27-Cryptographic-Failures-Level-5.md",
+    "name": "CryptographicFailures (LEVEL_5)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A04",
+    "vulnTypes": [
+      "WEAK_CRYPTOGRAPHIC_HASH"
+    ]
+  },
+  {
+    "key": "Challenge-28-Cryptographic-Failures-Level-6",
+    "file": "Challenge-28-Cryptographic-Failures-Level-6.test.js",
+    "doc": "Challenge-28-Cryptographic-Failures-Level-6.md",
+    "name": "CryptographicFailures (LEVEL_6)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A04",
+    "vulnTypes": [
+      "WEAK_CRYPTOGRAPHIC_HASH"
+    ]
+  },
+  {
+    "key": "Challenge-29-Cryptographic-Failures-Level-7",
+    "file": "Challenge-29-Cryptographic-Failures-Level-7.test.js",
+    "doc": "Challenge-29-Cryptographic-Failures-Level-7.md",
+    "name": "CryptographicFailures (LEVEL_7)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A04",
+    "vulnTypes": [
+      "WEAK_CRYPTOGRAPHIC_HASH"
+    ]
+  },
+  {
+    "key": "Challenge-30-Cryptographic-Failures-Level-8",
+    "file": "Challenge-30-Cryptographic-Failures-Level-8.test.js",
+    "doc": "Challenge-30-Cryptographic-Failures-Level-8.md",
+    "name": "CryptographicFailures (LEVEL_8)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_8",
+    "difficulty": 3,
+    "owasp": "A04",
+    "vulnTypes": [
+      "WEAK_CRYPTOGRAPHIC_HASH"
+    ]
+  },
+  {
+    "key": "Challenge-31-Cryptographic-Failures-Level-9",
+    "file": "Challenge-31-Cryptographic-Failures-Level-9.test.js",
+    "doc": "Challenge-31-Cryptographic-Failures-Level-9.md",
+    "name": "CryptographicFailures (LEVEL_9)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_9",
+    "difficulty": 3,
+    "owasp": "A04",
+    "vulnTypes": [
+      "WEAK_CRYPTOGRAPHIC_HASH"
+    ]
+  },
+  {
+    "key": "Challenge-32-Cryptographic-Failures-Level-10",
+    "file": "Challenge-32-Cryptographic-Failures-Level-10.test.js",
+    "doc": "Challenge-32-Cryptographic-Failures-Level-10.md",
+    "name": "CryptographicFailures (LEVEL_10)",
+    "vulnerabilityName": "CryptographicFailures",
+    "level": "LEVEL_10",
+    "difficulty": 3,
+    "owasp": "A04",
+    "vulnTypes": [
+      "USE_OF_BROKEN_CRYPTOGRAPHIC_ALGORITHM"
+    ]
+  },
+  {
+    "key": "Challenge-33-Error-SQLi-Level-1",
+    "file": "Challenge-33-Error-SQLi-Level-1.test.js",
+    "doc": "Challenge-33-Error-SQLi-Level-1.md",
+    "name": "ErrorBasedSQLInjectionVulnerability (LEVEL_1)",
+    "vulnerabilityName": "ErrorBasedSQLInjectionVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "ERROR_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-34-Error-SQLi-Level-2",
+    "file": "Challenge-34-Error-SQLi-Level-2.test.js",
+    "doc": "Challenge-34-Error-SQLi-Level-2.md",
+    "name": "ErrorBasedSQLInjectionVulnerability (LEVEL_2)",
+    "vulnerabilityName": "ErrorBasedSQLInjectionVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "ERROR_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-35-Error-SQLi-Level-3",
+    "file": "Challenge-35-Error-SQLi-Level-3.test.js",
+    "doc": "Challenge-35-Error-SQLi-Level-3.md",
+    "name": "ErrorBasedSQLInjectionVulnerability (LEVEL_3)",
+    "vulnerabilityName": "ErrorBasedSQLInjectionVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "ERROR_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-36-Error-SQLi-Level-4",
+    "file": "Challenge-36-Error-SQLi-Level-4.test.js",
+    "doc": "Challenge-36-Error-SQLi-Level-4.md",
+    "name": "ErrorBasedSQLInjectionVulnerability (LEVEL_4)",
+    "vulnerabilityName": "ErrorBasedSQLInjectionVulnerability",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "ERROR_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-37-Open-Redirect-Level-1",
+    "file": "Challenge-37-Open-Redirect-Level-1.test.js",
+    "doc": "Challenge-37-Open-Redirect-Level-1.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_1)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-38-Open-Redirect-Level-2",
+    "file": "Challenge-38-Open-Redirect-Level-2.test.js",
+    "doc": "Challenge-38-Open-Redirect-Level-2.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_2)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-39-Open-Redirect-Level-3",
+    "file": "Challenge-39-Open-Redirect-Level-3.test.js",
+    "doc": "Challenge-39-Open-Redirect-Level-3.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_3)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-40-Open-Redirect-Level-4",
+    "file": "Challenge-40-Open-Redirect-Level-4.test.js",
+    "doc": "Challenge-40-Open-Redirect-Level-4.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_4)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-41-Open-Redirect-Level-5",
+    "file": "Challenge-41-Open-Redirect-Level-5.test.js",
+    "doc": "Challenge-41-Open-Redirect-Level-5.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_5)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-42-Open-Redirect-Level-6",
+    "file": "Challenge-42-Open-Redirect-Level-6.test.js",
+    "doc": "Challenge-42-Open-Redirect-Level-6.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_6)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-43-Open-Redirect-Level-7",
+    "file": "Challenge-43-Open-Redirect-Level-7.test.js",
+    "doc": "Challenge-43-Open-Redirect-Level-7.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_7)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-44-Open-Redirect-Level-9",
+    "file": "Challenge-44-Open-Redirect-Level-9.test.js",
+    "doc": "Challenge-44-Open-Redirect-Level-9.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_9)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_9",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-45-Open-Redirect-Level-10",
+    "file": "Challenge-45-Open-Redirect-Level-10.test.js",
+    "doc": "Challenge-45-Open-Redirect-Level-10.md",
+    "name": "Http3xxStatusCodeBasedInjection (LEVEL_10)",
+    "vulnerabilityName": "Http3xxStatusCodeBasedInjection",
+    "level": "LEVEL_10",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "OPEN_REDIRECT_3XX_STATUS_CODE"
+    ]
+  },
+  {
+    "key": "Challenge-46-IDOR-Level-1",
+    "file": "Challenge-46-IDOR-Level-1.test.js",
+    "doc": "Challenge-46-IDOR-Level-1.md",
+    "name": "IDORVulnerability (LEVEL_1)",
+    "vulnerabilityName": "IDORVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "INSECURE_DIRECT_OBJECT_REFERENCE"
+    ]
+  },
+  {
+    "key": "Challenge-47-IDOR-Level-2",
+    "file": "Challenge-47-IDOR-Level-2.test.js",
+    "doc": "Challenge-47-IDOR-Level-2.md",
+    "name": "IDORVulnerability (LEVEL_2)",
+    "vulnerabilityName": "IDORVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "INSECURE_DIRECT_OBJECT_REFERENCE"
+    ]
+  },
+  {
+    "key": "Challenge-48-IDOR-Level-3",
+    "file": "Challenge-48-IDOR-Level-3.test.js",
+    "doc": "Challenge-48-IDOR-Level-3.md",
+    "name": "IDORVulnerability (LEVEL_3)",
+    "vulnerabilityName": "IDORVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "INSECURE_DIRECT_OBJECT_REFERENCE"
+    ]
+  },
+  {
+    "key": "Challenge-49-IDOR-Level-4",
+    "file": "Challenge-49-IDOR-Level-4.test.js",
+    "doc": "Challenge-49-IDOR-Level-4.md",
+    "name": "IDORVulnerability (LEVEL_4)",
+    "vulnerabilityName": "IDORVulnerability",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "INSECURE_DIRECT_OBJECT_REFERENCE"
+    ]
+  },
+  {
+    "key": "Challenge-50-JWT-Level-1",
+    "file": "Challenge-50-JWT-Level-1.test.js",
+    "doc": "Challenge-50-JWT-Level-1.md",
+    "name": "JWTVulnerability (LEVEL_1)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-51-JWT-Level-2",
+    "file": "Challenge-51-JWT-Level-2.test.js",
+    "doc": "Challenge-51-JWT-Level-2.md",
+    "name": "JWTVulnerability (LEVEL_2)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-52-JWT-Level-3",
+    "file": "Challenge-52-JWT-Level-3.test.js",
+    "doc": "Challenge-52-JWT-Level-3.md",
+    "name": "JWTVulnerability (LEVEL_3)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-53-JWT-Level-4",
+    "file": "Challenge-53-JWT-Level-4.test.js",
+    "doc": "Challenge-53-JWT-Level-4.md",
+    "name": "JWTVulnerability (LEVEL_4)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT",
+      "INSECURE_CONFIGURATION_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-54-JWT-Level-5",
+    "file": "Challenge-54-JWT-Level-5.test.js",
+    "doc": "Challenge-54-JWT-Level-5.md",
+    "name": "JWTVulnerability (LEVEL_5)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT",
+      "SERVER_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-55-JWT-Level-6",
+    "file": "Challenge-55-JWT-Level-6.test.js",
+    "doc": "Challenge-55-JWT-Level-6.md",
+    "name": "JWTVulnerability (LEVEL_6)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT",
+      "SERVER_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-56-JWT-Level-7",
+    "file": "Challenge-56-JWT-Level-7.test.js",
+    "doc": "Challenge-56-JWT-Level-7.md",
+    "name": "JWTVulnerability (LEVEL_7)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-57-JWT-Level-8",
+    "file": "Challenge-57-JWT-Level-8.test.js",
+    "doc": "Challenge-57-JWT-Level-8.md",
+    "name": "JWTVulnerability (LEVEL_8)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_8",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT",
+      "SERVER_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-58-JWT-Level-9",
+    "file": "Challenge-58-JWT-Level-9.test.js",
+    "doc": "Challenge-58-JWT-Level-9.md",
+    "name": "JWTVulnerability (LEVEL_9)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_9",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT",
+      "SERVER_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-59-JWT-Level-10",
+    "file": "Challenge-59-JWT-Level-10.test.js",
+    "doc": "Challenge-59-JWT-Level-10.md",
+    "name": "JWTVulnerability (LEVEL_10)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_10",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "CLIENT_SIDE_VULNERABLE_JWT",
+      "SERVER_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-60-JWT-Level-13",
+    "file": "Challenge-60-JWT-Level-13.test.js",
+    "doc": "Challenge-60-JWT-Level-13.md",
+    "name": "JWTVulnerability (LEVEL_13)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_13",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "HEADER_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-61-JWT-Level-14",
+    "file": "Challenge-61-JWT-Level-14.test.js",
+    "doc": "Challenge-61-JWT-Level-14.md",
+    "name": "JWTVulnerability (LEVEL_14)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_14",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "INSECURE_CONFIGURATION_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-62-JWT-Level-15",
+    "file": "Challenge-62-JWT-Level-15.test.js",
+    "doc": "Challenge-62-JWT-Level-15.md",
+    "name": "JWTVulnerability (LEVEL_15)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_15",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "SERVER_SIDE_VULNERABLE_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-63-JWT-Level-16",
+    "file": "Challenge-63-JWT-Level-16.test.js",
+    "doc": "Challenge-63-JWT-Level-16.md",
+    "name": "JWTVulnerability (LEVEL_16)",
+    "vulnerabilityName": "JWTVulnerability",
+    "level": "LEVEL_16",
+    "difficulty": 3,
+    "owasp": "A08",
+    "vulnTypes": [
+      "INSECURE_CONFIGURATION_JWT"
+    ]
+  },
+  {
+    "key": "Challenge-64-LDAP-Injection-Level-1",
+    "file": "Challenge-64-LDAP-Injection-Level-1.test.js",
+    "doc": "Challenge-64-LDAP-Injection-Level-1.md",
+    "name": "LDAPInjectionVulnerability (LEVEL_1)",
+    "vulnerabilityName": "LDAPInjectionVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "LDAP_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-65-LDAP-Injection-Level-2",
+    "file": "Challenge-65-LDAP-Injection-Level-2.test.js",
+    "doc": "Challenge-65-LDAP-Injection-Level-2.md",
+    "name": "LDAPInjectionVulnerability (LEVEL_2)",
+    "vulnerabilityName": "LDAPInjectionVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "LDAP_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-66-LDAP-Injection-Level-3",
+    "file": "Challenge-66-LDAP-Injection-Level-3.test.js",
+    "doc": "Challenge-66-LDAP-Injection-Level-3.md",
+    "name": "LDAPInjectionVulnerability (LEVEL_3)",
+    "vulnerabilityName": "LDAPInjectionVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "LDAP_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-67-LDAP-Injection-Level-4",
+    "file": "Challenge-67-LDAP-Injection-Level-4.test.js",
+    "doc": "Challenge-67-LDAP-Injection-Level-4.md",
+    "name": "LDAPInjectionVulnerability (LEVEL_4)",
+    "vulnerabilityName": "LDAPInjectionVulnerability",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "LDAP_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-68-LDAP-Injection-Level-5",
+    "file": "Challenge-68-LDAP-Injection-Level-5.test.js",
+    "doc": "Challenge-68-LDAP-Injection-Level-5.md",
+    "name": "LDAPInjectionVulnerability (LEVEL_5)",
+    "vulnerabilityName": "LDAPInjectionVulnerability",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "LDAP_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-69-Path-Traversal-Level-1",
+    "file": "Challenge-69-Path-Traversal-Level-1.test.js",
+    "doc": "Challenge-69-Path-Traversal-Level-1.md",
+    "name": "PathTraversal (LEVEL_1)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-70-Path-Traversal-Level-2",
+    "file": "Challenge-70-Path-Traversal-Level-2.test.js",
+    "doc": "Challenge-70-Path-Traversal-Level-2.md",
+    "name": "PathTraversal (LEVEL_2)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-71-Path-Traversal-Level-3",
+    "file": "Challenge-71-Path-Traversal-Level-3.test.js",
+    "doc": "Challenge-71-Path-Traversal-Level-3.md",
+    "name": "PathTraversal (LEVEL_3)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-72-Path-Traversal-Level-4",
+    "file": "Challenge-72-Path-Traversal-Level-4.test.js",
+    "doc": "Challenge-72-Path-Traversal-Level-4.md",
+    "name": "PathTraversal (LEVEL_4)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-73-Path-Traversal-Level-5",
+    "file": "Challenge-73-Path-Traversal-Level-5.test.js",
+    "doc": "Challenge-73-Path-Traversal-Level-5.md",
+    "name": "PathTraversal (LEVEL_5)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-74-Path-Traversal-Level-6",
+    "file": "Challenge-74-Path-Traversal-Level-6.test.js",
+    "doc": "Challenge-74-Path-Traversal-Level-6.md",
+    "name": "PathTraversal (LEVEL_6)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-75-Path-Traversal-Level-7",
+    "file": "Challenge-75-Path-Traversal-Level-7.test.js",
+    "doc": "Challenge-75-Path-Traversal-Level-7.md",
+    "name": "PathTraversal (LEVEL_7)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-76-Path-Traversal-Level-8",
+    "file": "Challenge-76-Path-Traversal-Level-8.test.js",
+    "doc": "Challenge-76-Path-Traversal-Level-8.md",
+    "name": "PathTraversal (LEVEL_8)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_8",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-77-Path-Traversal-Level-9",
+    "file": "Challenge-77-Path-Traversal-Level-9.test.js",
+    "doc": "Challenge-77-Path-Traversal-Level-9.md",
+    "name": "PathTraversal (LEVEL_9)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_9",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-78-Path-Traversal-Level-10",
+    "file": "Challenge-78-Path-Traversal-Level-10.test.js",
+    "doc": "Challenge-78-Path-Traversal-Level-10.md",
+    "name": "PathTraversal (LEVEL_10)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_10",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-79-Path-Traversal-Level-11",
+    "file": "Challenge-79-Path-Traversal-Level-11.test.js",
+    "doc": "Challenge-79-Path-Traversal-Level-11.md",
+    "name": "PathTraversal (LEVEL_11)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_11",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-80-Path-Traversal-Level-12",
+    "file": "Challenge-80-Path-Traversal-Level-12.test.js",
+    "doc": "Challenge-80-Path-Traversal-Level-12.md",
+    "name": "PathTraversal (LEVEL_12)",
+    "vulnerabilityName": "PathTraversal",
+    "level": "LEVEL_12",
+    "difficulty": 3,
+    "owasp": "A01",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-81-Persistent-XSS-Level-1",
+    "file": "Challenge-81-Persistent-XSS-Level-1.test.js",
+    "doc": "Challenge-81-Persistent-XSS-Level-1.md",
+    "name": "PersistentXSSInHTMLTagVulnerability (LEVEL_1)",
+    "vulnerabilityName": "PersistentXSSInHTMLTagVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "PERSISTENT_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-82-Persistent-XSS-Level-2",
+    "file": "Challenge-82-Persistent-XSS-Level-2.test.js",
+    "doc": "Challenge-82-Persistent-XSS-Level-2.md",
+    "name": "PersistentXSSInHTMLTagVulnerability (LEVEL_2)",
+    "vulnerabilityName": "PersistentXSSInHTMLTagVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "PERSISTENT_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-83-Persistent-XSS-Level-3",
+    "file": "Challenge-83-Persistent-XSS-Level-3.test.js",
+    "doc": "Challenge-83-Persistent-XSS-Level-3.md",
+    "name": "PersistentXSSInHTMLTagVulnerability (LEVEL_3)",
+    "vulnerabilityName": "PersistentXSSInHTMLTagVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "PERSISTENT_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-84-Persistent-XSS-Level-4",
+    "file": "Challenge-84-Persistent-XSS-Level-4.test.js",
+    "doc": "Challenge-84-Persistent-XSS-Level-4.md",
+    "name": "PersistentXSSInHTMLTagVulnerability (LEVEL_4)",
+    "vulnerabilityName": "PersistentXSSInHTMLTagVulnerability",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "PERSISTENT_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-85-Persistent-XSS-Level-5",
+    "file": "Challenge-85-Persistent-XSS-Level-5.test.js",
+    "doc": "Challenge-85-Persistent-XSS-Level-5.md",
+    "name": "PersistentXSSInHTMLTagVulnerability (LEVEL_5)",
+    "vulnerabilityName": "PersistentXSSInHTMLTagVulnerability",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "PERSISTENT_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-86-Persistent-XSS-Level-6",
+    "file": "Challenge-86-Persistent-XSS-Level-6.test.js",
+    "doc": "Challenge-86-Persistent-XSS-Level-6.md",
+    "name": "PersistentXSSInHTMLTagVulnerability (LEVEL_6)",
+    "vulnerabilityName": "PersistentXSSInHTMLTagVulnerability",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "PERSISTENT_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-89-SSRF-Level-1",
+    "file": "Challenge-89-SSRF-Level-1.test.js",
+    "doc": "Challenge-89-SSRF-Level-1.md",
+    "name": "SSRFVulnerability (LEVEL_1)",
+    "vulnerabilityName": "SSRFVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "SIMPLE_SSRF"
+    ]
+  },
+  {
+    "key": "Challenge-90-SSRF-Level-2",
+    "file": "Challenge-90-SSRF-Level-2.test.js",
+    "doc": "Challenge-90-SSRF-Level-2.md",
+    "name": "SSRFVulnerability (LEVEL_2)",
+    "vulnerabilityName": "SSRFVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "SIMPLE_SSRF"
+    ]
+  },
+  {
+    "key": "Challenge-91-SSRF-Level-3",
+    "file": "Challenge-91-SSRF-Level-3.test.js",
+    "doc": "Challenge-91-SSRF-Level-3.md",
+    "name": "SSRFVulnerability (LEVEL_3)",
+    "vulnerabilityName": "SSRFVulnerability",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A01",
+    "vulnTypes": [
+      "SIMPLE_SSRF"
+    ]
+  },
+  {
+    "key": "Challenge-93-Union-SQLi-Level-1",
+    "file": "Challenge-93-Union-SQLi-Level-1.test.js",
+    "doc": "Challenge-93-Union-SQLi-Level-1.md",
+    "name": "UnionBasedSQLInjectionVulnerability (LEVEL_1)",
+    "vulnerabilityName": "UnionBasedSQLInjectionVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "UNION_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-94-Union-SQLi-Level-2",
+    "file": "Challenge-94-Union-SQLi-Level-2.test.js",
+    "doc": "Challenge-94-Union-SQLi-Level-2.md",
+    "name": "UnionBasedSQLInjectionVulnerability (LEVEL_2)",
+    "vulnerabilityName": "UnionBasedSQLInjectionVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "UNION_BASED_SQL_INJECTION"
+    ]
+  },
+  {
+    "key": "Challenge-95-File-Upload-Level-1",
+    "file": "Challenge-95-File-Upload-Level-1.test.js",
+    "doc": "Challenge-95-File-Upload-Level-1.md",
+    "name": "UnrestrictedFileUpload (LEVEL_1)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PATH_TRAVERSAL",
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-96-File-Upload-Level-2",
+    "file": "Challenge-96-File-Upload-Level-2.test.js",
+    "doc": "Challenge-96-File-Upload-Level-2.md",
+    "name": "UnrestrictedFileUpload (LEVEL_2)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-97-File-Upload-Level-3",
+    "file": "Challenge-97-File-Upload-Level-3.test.js",
+    "doc": "Challenge-97-File-Upload-Level-3.md",
+    "name": "UnrestrictedFileUpload (LEVEL_3)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-98-File-Upload-Level-4",
+    "file": "Challenge-98-File-Upload-Level-4.test.js",
+    "doc": "Challenge-98-File-Upload-Level-4.md",
+    "name": "UnrestrictedFileUpload (LEVEL_4)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-99-File-Upload-Level-5",
+    "file": "Challenge-99-File-Upload-Level-5.test.js",
+    "doc": "Challenge-99-File-Upload-Level-5.md",
+    "name": "UnrestrictedFileUpload (LEVEL_5)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-100-File-Upload-Level-6",
+    "file": "Challenge-100-File-Upload-Level-6.test.js",
+    "doc": "Challenge-100-File-Upload-Level-6.md",
+    "name": "UnrestrictedFileUpload (LEVEL_6)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_6",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-101-File-Upload-Level-7",
+    "file": "Challenge-101-File-Upload-Level-7.test.js",
+    "doc": "Challenge-101-File-Upload-Level-7.md",
+    "name": "UnrestrictedFileUpload (LEVEL_7)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_7",
+    "difficulty": 2,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PERSISTENT_XSS",
+      "REFLECTED_XSS",
+      "UNRESTRICTED_FILE_UPLOAD"
+    ]
+  },
+  {
+    "key": "Challenge-102-File-Upload-Level-8",
+    "file": "Challenge-102-File-Upload-Level-8.test.js",
+    "doc": "Challenge-102-File-Upload-Level-8.md",
+    "name": "UnrestrictedFileUpload (LEVEL_8)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_8",
+    "difficulty": 3,
+    "owasp": "A02",
+    "vulnTypes": [
+      "PATH_TRAVERSAL"
+    ]
+  },
+  {
+    "key": "Challenge-103-File-Upload-Level-9",
+    "file": "Challenge-103-File-Upload-Level-9.test.js",
+    "doc": "Challenge-103-File-Upload-Level-9.md",
+    "name": "UnrestrictedFileUpload (LEVEL_9)",
+    "vulnerabilityName": "UnrestrictedFileUpload",
+    "level": "LEVEL_9",
+    "difficulty": 3,
+    "owasp": "A02",
+    "vulnTypes": [
+      "DENIAL_OF_SERVICE",
+      "PATH_TRAVERSAL",
+      "UNCONTROLLED_RESOURCE_CONSUMPTION"
+    ]
+  },
+  {
+    "key": "Challenge-104-XSS-Img-Attr-Level-1",
+    "file": "Challenge-104-XSS-Img-Attr-Level-1.test.js",
+    "doc": "Challenge-104-XSS-Img-Attr-Level-1.md",
+    "name": "XSSInImgTagAttribute (LEVEL_1)",
+    "vulnerabilityName": "XSSInImgTagAttribute",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-105-XSS-Img-Attr-Level-2",
+    "file": "Challenge-105-XSS-Img-Attr-Level-2.test.js",
+    "doc": "Challenge-105-XSS-Img-Attr-Level-2.md",
+    "name": "XSSInImgTagAttribute (LEVEL_2)",
+    "vulnerabilityName": "XSSInImgTagAttribute",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-106-XSS-Img-Attr-Level-3",
+    "file": "Challenge-106-XSS-Img-Attr-Level-3.test.js",
+    "doc": "Challenge-106-XSS-Img-Attr-Level-3.md",
+    "name": "XSSInImgTagAttribute (LEVEL_3)",
+    "vulnerabilityName": "XSSInImgTagAttribute",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-107-XSS-Img-Attr-Level-4",
+    "file": "Challenge-107-XSS-Img-Attr-Level-4.test.js",
+    "doc": "Challenge-107-XSS-Img-Attr-Level-4.md",
+    "name": "XSSInImgTagAttribute (LEVEL_4)",
+    "vulnerabilityName": "XSSInImgTagAttribute",
+    "level": "LEVEL_4",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-108-XSS-Img-Attr-Level-5",
+    "file": "Challenge-108-XSS-Img-Attr-Level-5.test.js",
+    "doc": "Challenge-108-XSS-Img-Attr-Level-5.md",
+    "name": "XSSInImgTagAttribute (LEVEL_5)",
+    "vulnerabilityName": "XSSInImgTagAttribute",
+    "level": "LEVEL_5",
+    "difficulty": 2,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-109-XSS-HTML-Tag-Level-1",
+    "file": "Challenge-109-XSS-HTML-Tag-Level-1.test.js",
+    "doc": "Challenge-109-XSS-HTML-Tag-Level-1.md",
+    "name": "XSSWithHtmlTagInjection (LEVEL_1)",
+    "vulnerabilityName": "XSSWithHtmlTagInjection",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-110-XSS-HTML-Tag-Level-2",
+    "file": "Challenge-110-XSS-HTML-Tag-Level-2.test.js",
+    "doc": "Challenge-110-XSS-HTML-Tag-Level-2.md",
+    "name": "XSSWithHtmlTagInjection (LEVEL_2)",
+    "vulnerabilityName": "XSSWithHtmlTagInjection",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-111-XSS-HTML-Tag-Level-3",
+    "file": "Challenge-111-XSS-HTML-Tag-Level-3.test.js",
+    "doc": "Challenge-111-XSS-HTML-Tag-Level-3.md",
+    "name": "XSSWithHtmlTagInjection (LEVEL_3)",
+    "vulnerabilityName": "XSSWithHtmlTagInjection",
+    "level": "LEVEL_3",
+    "difficulty": 1,
+    "owasp": "A05",
+    "vulnTypes": [
+      "REFLECTED_XSS"
+    ]
+  },
+  {
+    "key": "Challenge-112-XXE-Level-1",
+    "file": "Challenge-112-XXE-Level-1.test.js",
+    "doc": "Challenge-112-XXE-Level-1.md",
+    "name": "XXEVulnerability (LEVEL_1)",
+    "vulnerabilityName": "XXEVulnerability",
+    "level": "LEVEL_1",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "XXE"
+    ]
+  },
+  {
+    "key": "Challenge-113-XXE-Level-2",
+    "file": "Challenge-113-XXE-Level-2.test.js",
+    "doc": "Challenge-113-XXE-Level-2.md",
+    "name": "XXEVulnerability (LEVEL_2)",
+    "vulnerabilityName": "XXEVulnerability",
+    "level": "LEVEL_2",
+    "difficulty": 1,
+    "owasp": "A02",
+    "vulnTypes": [
+      "XXE"
+    ]
+  }
+]

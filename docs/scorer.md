@@ -105,8 +105,9 @@ are heavyweight and the kit cannot boot them generically.
 
 `scorer/rubric.example/` is the living documentation: `juice-shop.yaml`
 is commented as a tutorial and its README covers the authoring workflow.
-It is also the rubric baked into a default build, which is what
-`scripts/acceptance-scorer.sh` scores against.
+It is no longer what a default build bakes (that's the vendored
+`scorer/rubric.owasp/`), but it is still what `scripts/acceptance-scorer.sh`
+scores against, via `--build-arg RUBRIC_DIR=rubric.example`.
 
 ## Building and mirroring your private image
 
@@ -120,8 +121,10 @@ cp -r /path/to/my-rubric scorer/rubric
 docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 ```
 
-Omit `--build-arg` to bake the example rubric instead (useful for
-rehearsals, useless for a real event — contestants can read it here).
+Pass `--build-arg RUBRIC_DIR=rubric.example` to bake the example rubric
+instead (useful for rehearsals, useless for a real event — contestants can
+read it here). Omit `--build-arg` entirely to bake the vendored
+`rubric.owasp/` rubric — the stock default.
 
 Then let the kit distribute it: set `SCORE_IMAGE` in `.env` to your image
 and run `./setup/ctf-setup.sh org` — the mirror step pushes whatever
@@ -173,32 +176,74 @@ swap in a PAT or a third-party commenter action; that breaks the filter.
 
 ## Booting hard targets
 
-The judge entrypoint picks one of three boot strategies, in order:
+**For the six kit targets there is no strategy to pick.** Each one ships a
+bring-up script (`scorer/entrypoints/<target>.sh`) that the entrypoint runs
+*instead of* the generic ladder below, and that script is responsible for
+leaving the app reachable at `APP_URL` on the ctf network — a database
+sibling, a schema seed, a readiness handshake, whatever the target needs.
+What each one accepts:
+
+- **`juice-shop`, `dvwa`, `vampi`, `vulnerableapp`** — run `APP_IMAGE` if it
+  is set, else `docker build` the contestant's checked-out fork from a
+  workspace `Dockerfile`, else exit non-zero.
+- **`webgoat`** — the same three branches, with a two-stage source build. The
+  fork's root `Dockerfile` is runtime-only (it `COPY target/webgoat-*.jar`), so
+  the workspace is staged into a named volume, a JDK sibling runs the fork's own
+  `./mvnw package`, and a docker-CLI sibling builds the image from the volume —
+  both siblings on the default bridge, because `$NETWORK` is `--internal` and
+  Maven needs the internet. It takes about two minutes end to end, gated by
+  `scripts/acceptance-target.sh webgoat none`. (An earlier version of this file
+  claimed a WebGoat fork's Maven build could not fit a runner's budget and made
+  `APP_IMAGE` mandatory. That was wrong: upstream's own consumer workflow
+  Maven-builds the PR's jar on a stock runner, and the measured build here is
+  nowhere near the budget.)
+- **`securityshepherd`** — ignores `APP_IMAGE` and always builds from pinned
+  upstream source, because the WAR, the MariaDB schema and the Mongo seed are
+  outputs of one Maven run and a prebuilt Tomcat image paired with freshly
+  built siblings would boot against a schema it was never compiled for. The
+  whole build (Maven, then three images) takes roughly a minute and a half on
+  a stock runner, so it does fit an Actions job — that was the open question
+  when this section was first written, and the answer turned out to be yes.
+
+So **pointing the scorer at an instance you already run is not available for
+these six**: the bring-up dispatch happens before the fallbacks below, and
+every bring-up either boots something or fails.
+
+A target with **no** bring-up script — one you add to your own rubric — falls
+through to the entrypoint's generic ladder, which picks one of three boot
+strategies in order:
 
 1. **`APP_IMAGE` set** — pull that prebuilt image and run it as a sibling
    container on the internal network. Right for targets whose PR flow
    patches source that an existing image build consumes.
 2. **Workspace `Dockerfile`** — the default PR-patch path: `docker build`
    the contestant's checked-out code and run it. This is how a fork with a
-   Dockerfile at its root (Juice Shop et al.) gets judged.
+   Dockerfile at its root gets judged.
 3. **Neither** — assume an organizer-managed app is already reachable at
    `APP_URL` and boot nothing. Right for heavyweight targets you keep
    running yourself.
 
-Heavyweight targets are the rubric author's responsibility, deliberately:
-a WebGoat fork that needs a multi-minute Maven build, or Security Shepherd
-with its multi-container layout, won't fit strategy 2's timeout budget on
-a stock runner. Options: publish a prebuilt patched-app image per PR and
-use `APP_IMAGE`, add a thin Dockerfile to the fork that layers the PR's
+A heavyweight target of your own stays your responsibility, but "heavyweight"
+turns out to mean less than it sounds: strategy 2 handles a compiled app fine
+(WebGoat's Maven build plus its image takes about a minute and a half here,
+Security Shepherd's whole three-image build about the same). What strategy 2
+does *not* handle is a fork whose `Dockerfile` cannot build the app on its own
+— WebGoat's, for instance, is runtime-only and `COPY`s a jar Maven has to have
+produced first. Give such a target its own bring-up script that runs the build
+stage before the image stage (`scorer/entrypoints/webgoat.sh` is the worked
+example, and it also shows the named-volume handoff a sibling `docker build`
+needs). The alternatives remain: publish a prebuilt patched-app image per PR
+and use `APP_IMAGE`, add a thin Dockerfile to the fork that layers the PR's
 diff onto a prebuilt base, or run the target organizer-side (strategy 3 —
 noting that then the judge probes *your* deployment, not the contestant's
 patch, so it only fits challenges scored against a shared instance).
 
 ## Limits (v1)
 
-- **Probe grammar only** — declarative HTTP request/expect probes. No
-  exec-script probes yet (running a target's own test suite, driving a
-  headless browser); that's a documented follow-up, not a v1 feature.
+- **Two probe shapes** — declarative HTTP request/expect probes
+  (`<target>.yaml`) and exec probes that run a target's own `node:test` suite
+  (`<target>/tests/challenges/`, priced by `catalogue.<target>.json`). Driving a
+  headless browser is still out of scope.
 - **`score serve` requires `SCORER_TOKEN`** (or `CTF_SCORE_BEARER_TOKEN`)
   and refuses to start without one — there is no unauthenticated write
   mode.

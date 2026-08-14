@@ -1,7 +1,9 @@
 // The six vulnerable-app targets contestants patch. challengeCount/maxPoints/
 // stars are a static FALLBACK — the challenges page prefers the live counts
 // from `${LEADERBOARD_API_URL}/challenges` (see lib/challenges.ts) and only
-// shows these when that fetch fails.
+// shows these when that fetch fails. They are pinned to the vendored rubric's
+// catalogues by lib/__tests__/apps-catalogue.test.ts; regenerate them after any
+// `scripts/vendor-rubric.sh` run rather than editing them by hand.
 
 import { eventConfig } from "@/lib/event-config";
 
@@ -54,8 +56,8 @@ export const apps: AppMeta[] = [
     accent: "#d4a017",
     icon: "M8 2h8l-1 7H9L8 2ZM9 9h6l1 13H8L9 9Z",
     repo: repoUrl("juice-shop"),
-    challengeCount: 24,
-    maxPoints: 91,
+    challengeCount: 38,
+    maxPoints: 141,
     stars: [1, 6],
   },
   {
@@ -76,8 +78,8 @@ export const apps: AppMeta[] = [
     accent: "#2563eb",
     icon: "M4 8c2-3 6-4 8-4s6 1 8 4l-2 10a6 6 0 0 1-12 0L4 8Z",
     repo: repoUrl("webgoat"),
-    challengeCount: 83,
-    maxPoints: 158,
+    challengeCount: 69,
+    maxPoints: 137,
     stars: [1, 3],
   },
   {
@@ -87,8 +89,8 @@ export const apps: AppMeta[] = [
     accent: "#14b8a6",
     icon: "M12 3 4 9v12h16V9l-8-6ZM9 21v-6h6v6",
     repo: repoUrl("securityshepherd"),
-    challengeCount: 42,
-    maxPoints: 82,
+    challengeCount: 40,
+    maxPoints: 79,
     stars: [1, 3],
   },
   {
@@ -98,8 +100,8 @@ export const apps: AppMeta[] = [
     accent: "#22c55e",
     icon: "M12 2v4M12 18v4M2 12h4M18 12h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z",
     repo: repoUrl("vulnerableapp"),
-    challengeCount: 113,
-    maxPoints: 191,
+    challengeCount: 110,
+    maxPoints: 187,
     stars: [1, 3],
   },
   {

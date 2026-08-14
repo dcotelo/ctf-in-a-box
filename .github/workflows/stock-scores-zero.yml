@@ -1,0 +1,73 @@
+name: stock-scores-zero
+
+# Every vendored challenge MUST fail against the stock, unpatched app. A test
+# that passes here hands every contestant a free point, so this gates the
+# rubric on the invariant in docs/modules.md §6.4.
+on:
+  pull_request:
+    paths:
+      - 'scorer/**'
+      - 'scripts/acceptance-target.sh'
+      - '.github/workflows/stock-scores-zero.yml'
+  workflow_dispatch:
+
+# Security Shepherd's vendored helpers.js hardcodes the container names
+# secshep_mariadb / secshep_tomcat for `docker exec`, so two overlapping runs
+# of this workflow on the same Docker daemon would collide with each other's
+# containers. Matrix jobs already get their own runners, so the matrix itself
+# is safe; this group only serializes separate *workflow runs* (e.g. two
+# pushes to the same PR in quick succession) so they queue rather than race.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stock:
+    runs-on: ubuntu-latest
+    # Real cost here is image pulls, not compile time: Security Shepherd's own
+    # Maven build measures ~35s and its whole gate ~86s. The slow, rate-limit-
+    # prone part is pulling roughly 1.5GB of base images per target on a cold
+    # runner, which is what this budget is actually for.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pins below are upstream's own, taken from
+          # OWASP-CTF/dc34-owasp-secure-development-ctf's
+          # .github/workflows/stock-scores-zero.yml at the rubric's pinned SHA
+          # (see scorer/rubric.owasp/PROVENANCE.md) — not resolved by us.
+          # Pinning is not cosmetic: on this branch, stock juice-shop:latest
+          # scored 1/38 where v20.0.0 scored 0/38, because upstream hardened a
+          # vulnerability after the rubric was authored. An unpinned matrix
+          # will eventually fail this build for reasons that have nothing to
+          # do with any contestant's patch.
+          - target: vampi
+            image: "erev0s/vampi@sha256:0a5a224b6e14ae7da6a6ea265178ff71286ff903aec74adee98f660bb0e4ca12"
+          - target: vulnerableapp
+            image: sasanlabs/owasp-vulnerableapp:2.1.37
+          - target: juice-shop
+            image: bkimminich/juice-shop:v20.0.0
+          - target: dvwa
+            image: "ghcr.io/digininja/dvwa@sha256:091498cedec31b4a3091a1262e6a5a0ce5ec32d4bd26486558818346ccc89d67"
+          - target: webgoat
+            image: webgoat/webgoat:v2025.3
+          # WebGoat is scored two ways and both have to stay honest: the row above
+          # runs the published stock image, this one runs the SOURCE path a
+          # contestant's PR takes (pinned upstream tree staged into the workspace ->
+          # Maven -> the fork's own Dockerfile). A regression in either is invisible
+          # from the other, and only the source row proves a forked WebGoat can be
+          # scored at all. Measured at 95-121s wall clock over three runs on a warm
+          # daemon (~60s of that is Maven, ~17s scoring all 69 challenges); a cold
+          # runner adds the JDK/docker-CLI/alpine pulls on top.
+          - target: webgoat
+            image: none
+          - target: securityshepherd
+            # No published stock image exists for this target (see
+            # scripts/acceptance-target.sh's header comment); `none` tells the
+            # gate to build the pinned upstream source instead.
+            image: none
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stock target must score zero
+        run: ./scripts/acceptance-target.sh "${{ matrix.target }}" "${{ matrix.image }}"

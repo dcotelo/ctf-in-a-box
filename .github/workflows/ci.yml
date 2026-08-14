@@ -34,6 +34,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
       - run: shellcheck scripts/*.sh setup/*.sh scorer/entrypoint.sh
+      # The per-target bring-ups are POSIX sh FRAGMENTS sourced by entrypoint.sh, so
+      # they get -s sh (they never run under bash) and SC2034 is excluded: BOOTED and
+      # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing
+      # script that reads them. Nothing else is excluded — a finding here is a bug to
+      # fix in the script, not a rule to widen.
+      - run: shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
       - run: bats setup/test/
 
   smoke:

@@ -1,0 +1,20 @@
+[
+  {
+    "key": "Hang-1",
+    "file": "Hang.test.js",
+    "name": "A challenge whose child never reports",
+    "difficulty": 3
+  },
+  {
+    "key": "Hang-2",
+    "file": "Hang.test.js",
+    "name": "A second challenge whose child never reports",
+    "difficulty": 3
+  },
+  {
+    "key": "Hang-3",
+    "file": "Hang.test.js",
+    "name": "A third challenge, short-circuited by the abort",
+    "difficulty": 3
+  }
+]

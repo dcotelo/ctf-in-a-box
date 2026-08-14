@@ -1,0 +1,4 @@
+[
+  { "key": "Challenge-1-Dupe", "file": "a.test.js", "name": "One", "difficulty": 1 },
+  { "key": "challenge-1-dupe", "file": "b.test.js", "name": "Two", "difficulty": 1 }
+]

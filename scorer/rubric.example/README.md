@@ -1,8 +1,22 @@
 # Example rubric
 
-This directory is the **instructive default** rubric baked into the scorer image
-when you build `scorer/` with no `RUBRIC_DIR` override. It exists to teach the
-format — `juice-shop.yaml` is commented as a tutorial. Read it first.
+This directory is the **declarative-grammar tutorial** — `juice-shop.yaml` is
+commented as a step-by-step guide to writing HTTP request/expect probes. Read it
+first if you are authoring your own rubric from scratch.
+
+It is no longer what a stock build bakes. Three rubric directories now live
+under `scorer/`:
+
+| Directory | What it is | Baked by default |
+|---|---|---|
+| `rubric.owasp/` | The vendored six-target rubric — executable `node:test` suites covering all 321 challenges | yes |
+| `rubric.example/` | This tutorial: one target, three declarative YAML probes | no (`--build-arg RUBRIC_DIR=rubric.example`) |
+| `rubric/` | Your own private rubric — gitignored, never committed | no (`--build-arg RUBRIC_DIR=rubric`) |
+
+Both rubric shapes are supported by the engine simultaneously, and a single
+rubric directory may mix them: `<target>.yaml` files use the declarative probe
+grammar, `<target>/tests/challenges/` directories use executable tests priced by
+`catalogue.<target>.json`.
 
 The targets are open source and their solutions are already public, so a rubric
 is not a secret. Keeping *your* rubric private during an event is about
@@ -39,7 +53,7 @@ cp -r ./my-rubric scorer/rubric
 docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 ```
 
-(Omit `--build-arg` to bake this example rubric instead.)
+(Add `--build-arg RUBRIC_DIR=rubric.example` to bake this tutorial rubric instead.)
 
 ## Keep it private during the event, publish it after
 

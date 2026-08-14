@@ -29,11 +29,15 @@ APP_HOST="$(printf '%s' "$APP_URL" | sed -e 's,^[a-zA-Z][a-zA-Z0-9+.-]*://,,' -e
 
 BOOTED=""
 cleanup() {
-  # Only tear down a container THIS script booted (strategies a/b). Strategy c
-  # uses an organizer-managed app we must not touch.
+  # Only tear down containers THIS script booted (strategies a/b). Strategy c
+  # uses an organizer-managed app we must not touch. EXTRA_CONTAINERS is set by
+  # a per-target bring-up script that starts siblings of its own (DVWA's db).
   if [ -n "$BOOTED" ]; then
     docker rm -f "$BOOTED" >/dev/null 2>&1 || true
   fi
+  for c in ${EXTRA_CONTAINERS:-}; do
+    docker rm -f "$c" >/dev/null 2>&1 || true
+  done
 }
 trap cleanup EXIT INT TERM
 
@@ -58,6 +62,20 @@ boot_app() {
     "$1" >/dev/null
   BOOTED="$APP_CONTAINER"
 }
+
+# Per-target bring-up. Targets needing more than "run one container" (a database
+# sibling, a schema init, a readiness handshake) ship a script here. It runs
+# INSTEAD of the generic boot below and is responsible for leaving the app
+# reachable at APP_URL on $NETWORK.
+TARGET_BOOT="/usr/local/lib/ctf/entrypoints/${TARGET}.sh"
+if [ -f "$TARGET_BOOT" ]; then
+  echo "entrypoint: booting $TARGET via its bring-up script"
+  # shellcheck disable=SC1090
+  NETWORK="$NETWORK" APP_HOST="$APP_HOST" APP_URL="$APP_URL" \
+    APP_CONTAINER="$APP_CONTAINER" APP_IMAGE="${APP_IMAGE:-}" \
+    . "$TARGET_BOOT"
+  exec score judge
+fi
 
 if [ -n "${APP_IMAGE:-}" ]; then
   # (a) Prebuilt image — pull and run as a sibling.

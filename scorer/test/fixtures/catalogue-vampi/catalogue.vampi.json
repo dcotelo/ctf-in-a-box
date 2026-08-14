@@ -1,0 +1,14 @@
+[
+  {
+    "key": "Challenge-1-Excessive-Data-Exposure",
+    "file": "Challenge-1-Excessive-Data-Exposure.test.js",
+    "name": "Excessive Data Exposure via Debug Endpoint",
+    "difficulty": 1,
+    "owasp": "API3"
+  },
+  {
+    "key": "Challenge-2-No-Difficulty",
+    "file": "Challenge-1-Excessive-Data-Exposure.test.js",
+    "name": "Entry with no difficulty field"
+  }
+]

@@ -252,6 +252,12 @@ one worked example.
    result is zero points — so a rubric bug can never hand out free points
    for doing nothing.
 
+   The invariant is enforced twice. `scripts/acceptance-scorer.sh` proves it
+   offline against a synthetic stock app (fast, no network), and
+   `scripts/acceptance-target.sh <target> <stock-image>` proves it against
+   each real stock target in CI. A challenge that passes against the stock
+   app is a free point for every contestant and fails the build.
+
 ## 7. Provisioning & lifecycle hooks
 
 `ctf-setup.sh` implements `secure-development`'s provisioning today

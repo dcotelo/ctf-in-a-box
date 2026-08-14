@@ -1,12 +1,16 @@
 # ctf scorer engine — one image, two modes (serve + judge).
 #
-# Default build bakes the instructive example rubric at /rubric:
+# Default build bakes the vendored six-target rubric at /rubric:
 #   docker build -t ghcr.io/<org>/score:latest scorer/
+#
+# Three rubric directories live under the build context, and RUBRIC_DIR picks one:
+#   rubric.owasp/    vendored exec rubrics for all six targets (the default)
+#   rubric.example/  the declarative-grammar tutorial (juice-shop.yaml)
+#   rubric/          the organizer's own rubric — gitignored, never committed
 #
 # Private-rubric build. COPY can only read paths INSIDE the build context, and
 # the context here is scorer/, so a rubric that lives outside the repo cannot be
-# referenced with `../my-rubric`. The robust, verified pattern is to place the
-# private rubric at scorer/rubric/ (gitignored) and point RUBRIC_DIR at it:
+# referenced with `../my-rubric`. Place it at scorer/rubric/ and point RUBRIC_DIR:
 #   cp -r /path/to/private-rubric scorer/rubric
 #   docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 # RUBRIC_DIR is resolved relative to the context root (scorer/); keep it inside.
@@ -25,9 +29,9 @@ RUN npm ci --omit=dev
 
 COPY src ./src
 
-# Bake the rubric. Default = the readable example; override with RUBRIC_DIR
-# (see the private-rubric build note above).
-ARG RUBRIC_DIR=rubric.example
+# Bake the rubric. Default = the vendored six-target rubric; override with
+# RUBRIC_DIR (see the rubric-directory note above).
+ARG RUBRIC_DIR=rubric.owasp
 COPY ${RUBRIC_DIR} /rubric
 
 # `score` on PATH so `command: ["score", "serve"]` (docker-compose) and
@@ -39,6 +43,9 @@ RUN printf '#!/bin/sh\nexec node /app/src/index.js "$@"\n' > /usr/local/bin/scor
 # (--entrypoint /usr/local/bin/entrypoint.sh); serve mode uses the CMD below.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Per-target bring-up scripts, sourced by entrypoint.sh when TARGET matches.
+COPY entrypoints /usr/local/lib/ctf/entrypoints
 
 # Bare `docker run` of the image = leaderboard API (compose overrides nothing).
 CMD ["score", "serve"]

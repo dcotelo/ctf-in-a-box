@@ -1,0 +1,692 @@
+[
+  {
+    "key": "Challenge-15-Authorization-Bypass",
+    "file": "access-control.test.js",
+    "doc": "Challenge-15-Authorization-Bypass.md",
+    "name": "Auth Bypass — Verify Account",
+    "lesson": "AuthBypass",
+    "endpoint": "/auth-bypass/verify-account",
+    "difficulty": 2,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-10-Field-Restriction-Bypass",
+    "file": "general-lessons.test.js",
+    "doc": "Challenge-10-Field-Restriction-Bypass.md",
+    "name": "Bypass Field Restrictions",
+    "lesson": "BypassRestrictions",
+    "endpoint": "/BypassRestrictions/FieldRestrictions",
+    "difficulty": 1,
+    "owasp": "A04"
+  },
+  {
+    "key": "Challenge-11-Frontend-Validation-Bypass",
+    "file": "general-lessons.test.js",
+    "doc": "Challenge-11-Frontend-Validation-Bypass.md",
+    "name": "Bypass Front-end Validation",
+    "lesson": "BypassRestrictions",
+    "endpoint": "/BypassRestrictions/frontendValidation",
+    "difficulty": 1,
+    "owasp": "A04"
+  },
+  {
+    "key": "Challenge-40-CSRF-Flag",
+    "file": "csrf.test.js",
+    "doc": "Challenge-40-CSRF-Flag.md",
+    "name": "CSRF — Basic GET Flag",
+    "lesson": "CSRF",
+    "endpoint": "/csrf/confirm-flag-1",
+    "difficulty": 1,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-39-CSRF-Feedback",
+    "file": "csrf.test.js",
+    "doc": "Challenge-39-CSRF-Feedback.md",
+    "name": "CSRF — Feedback",
+    "lesson": "CSRF",
+    "endpoint": "/csrf/feedback",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-37-CSRF-Login",
+    "file": "csrf.test.js",
+    "doc": "Challenge-37-CSRF-Login.md",
+    "name": "CSRF — Login",
+    "lesson": "CSRF",
+    "endpoint": "/csrf/login",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-38-CSRF-Review",
+    "file": "csrf.test.js",
+    "doc": "Challenge-38-CSRF-Review.md",
+    "name": "CSRF — Forged Review",
+    "lesson": "CSRF",
+    "endpoint": "/csrf/review",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-78-XSS-Stego-Challenge",
+    "file": "challenges.test.js",
+    "doc": "Challenge-78-XSS-Stego-Challenge.md",
+    "name": "Challenge 1 — Admin Password (stego)",
+    "lesson": "Challenge1",
+    "endpoint": "/challenge/1",
+    "difficulty": 2,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-79-SQL-Injection-Challenge",
+    "file": "challenges.test.js",
+    "doc": "Challenge-79-SQL-Injection-Challenge.md",
+    "name": "Challenge 5 — SQL Injection",
+    "lesson": "Challenge5",
+    "endpoint": "/challenge/5",
+    "difficulty": 3,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-80-Password-Reset-Git-Challenge",
+    "file": "challenges.test.js",
+    "doc": "Challenge-80-Password-Reset-Git-Challenge.md",
+    "name": "Challenge 7 — Password Reset Link",
+    "lesson": "Challenge7",
+    "endpoint": "/challenge/7",
+    "difficulty": 3,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-81-JWT-Voting-Challenge",
+    "file": "challenges.test.js",
+    "doc": "Challenge-81-JWT-Voting-Challenge.md",
+    "name": "Challenge 8 — JWT/VERB Bypass",
+    "lesson": "Challenge8",
+    "endpoint": "/challenge/8/vote",
+    "difficulty": 3,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-9-Hidden-Data-Exposure",
+    "file": "general-lessons.test.js",
+    "doc": "Challenge-9-Hidden-Data-Exposure.md",
+    "name": "Client Side Filtering — Free Coupon",
+    "lesson": "ClientSideFiltering",
+    "endpoint": "/clientSideFiltering/getItForFree",
+    "difficulty": 1,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-32-XSS-DOM-Sink",
+    "file": "xss.test.js",
+    "doc": "Challenge-32-XSS-DOM-Sink.md",
+    "name": "XSS — Reflected Script",
+    "lesson": "CrossSiteScripting",
+    "endpoint": "/CrossSiteScripting/attack5a",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-33-XSS-DOM-Followup",
+    "file": "xss.test.js",
+    "doc": "Challenge-33-XSS-DOM-Followup.md",
+    "name": "XSS — DOM Follow Up",
+    "lesson": "CrossSiteScripting",
+    "endpoint": "/CrossSiteScripting/dom-follow-up",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-34-XSS-Phone-Home",
+    "file": "xss.test.js",
+    "doc": "Challenge-34-XSS-Phone-Home.md",
+    "name": "XSS — DOM Phone Home",
+    "lesson": "CrossSiteScripting",
+    "endpoint": "/CrossSiteScripting/phone-home-xss",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-35-XSS-Stored",
+    "file": "xss.test.js",
+    "doc": "Challenge-35-XSS-Stored.md",
+    "name": "XSS — Stored Comment",
+    "lesson": "CrossSiteScriptingStored",
+    "endpoint": "/CrossSiteScriptingStored/stored-xss",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-36-XSS-Stored-Followup",
+    "file": "xss.test.js",
+    "doc": "Challenge-36-XSS-Stored-Followup.md",
+    "name": "XSS — Stored Follow Up",
+    "lesson": "CrossSiteScriptingStored",
+    "endpoint": "/CrossSiteScriptingStored/stored-xss-follow-up",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-63-Crypto-Signing",
+    "file": "cryptography.test.js",
+    "doc": "Challenge-63-Crypto-Signing.md",
+    "name": "Crypto — Signature Verify",
+    "lesson": "Cryptography",
+    "endpoint": "/crypto/signing/verify",
+    "difficulty": 3,
+    "owasp": "A04"
+  },
+  {
+    "key": "Challenge-13-Session-Hijacking",
+    "file": "access-control.test.js",
+    "doc": "Challenge-13-Session-Hijacking.md",
+    "name": "Hijack Session — Predict ID",
+    "lesson": "HijackSession",
+    "endpoint": "/HijackSession/login",
+    "difficulty": 3,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-7-HTML-Tampering",
+    "file": "general-lessons.test.js",
+    "doc": "Challenge-7-HTML-Tampering.md",
+    "name": "HTML Tampering — Price",
+    "lesson": "HtmlTampering",
+    "endpoint": "/HtmlTampering/task",
+    "difficulty": 1,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-43-IDOR-Attribute-Discovery",
+    "file": "access-control.test.js",
+    "doc": "Challenge-43-IDOR-Attribute-Discovery.md",
+    "name": "IDOR — Diff Attributes",
+    "lesson": "IDOR",
+    "endpoint": "/IDOR/diff-attributes",
+    "difficulty": 1,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-41-IDOR-Login",
+    "file": "access-control.test.js",
+    "doc": "Challenge-41-IDOR-Login.md",
+    "name": "IDOR — Login",
+    "lesson": "IDOR",
+    "endpoint": "/IDOR/login",
+    "difficulty": 1,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-42-IDOR-Own-Profile",
+    "file": "access-control.test.js",
+    "doc": "Challenge-42-IDOR-Own-Profile.md",
+    "name": "IDOR — Alt Path",
+    "lesson": "IDOR",
+    "endpoint": "/IDOR/profile/alt-path",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-45-IDOR-Edit-Other-Profile",
+    "file": "access-control.test.js",
+    "doc": "Challenge-45-IDOR-Edit-Other-Profile.md",
+    "name": "IDOR — Edit Other Profile",
+    "lesson": "IDOR",
+    "endpoint": "/IDOR/profile/{userId}",
+    "difficulty": 3,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-44-IDOR-View-Other-Profile",
+    "file": "access-control.test.js",
+    "doc": "Challenge-44-IDOR-View-Other-Profile.md",
+    "name": "IDOR — View Other Profile",
+    "lesson": "IDOR",
+    "endpoint": "/IDOR/profile/{userId}",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-74-Insecure-Deserialization",
+    "file": "misc-lessons.test.js",
+    "doc": "Challenge-74-Insecure-Deserialization.md",
+    "name": "Insecure Deserialization — RCE Gadget",
+    "lesson": "InsecureDeserialization",
+    "endpoint": "/InsecureDeserialization/task",
+    "difficulty": 3,
+    "owasp": "A08"
+  },
+  {
+    "key": "Challenge-12-Insecure-Login",
+    "file": "general-lessons.test.js",
+    "doc": "Challenge-12-Insecure-Login.md",
+    "name": "Insecure Login — Plaintext Creds",
+    "lesson": "InsecureLogin",
+    "endpoint": "/InsecureLogin/task",
+    "difficulty": 1,
+    "owasp": "A04"
+  },
+  {
+    "key": "Challenge-56-JWT-Refresh-Token",
+    "file": "jwt.test.js",
+    "doc": "Challenge-56-JWT-Refresh-Token.md",
+    "name": "JWT — alg:none",
+    "lesson": "JWT",
+    "endpoint": "/JWT/refresh/checkout",
+    "difficulty": 2,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-54-JWT-Secret-Cracking",
+    "file": "jwt.test.js",
+    "doc": "Challenge-54-JWT-Secret-Cracking.md",
+    "name": "JWT — Weak Secret Forge",
+    "lesson": "JWT",
+    "endpoint": "/JWT/secret",
+    "difficulty": 2,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-55-JWT-Algorithm-Bypass",
+    "file": "jwt.test.js",
+    "doc": "Challenge-55-JWT-Algorithm-Bypass.md",
+    "name": "JWT — Votes Admin Forge",
+    "lesson": "JWT",
+    "endpoint": "/JWT/votings",
+    "difficulty": 3,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-57-JWT-JKU-Injection",
+    "file": "jwt.test.js",
+    "doc": "Challenge-57-JWT-JKU-Injection.md",
+    "name": "JWT — JKU Injection",
+    "lesson": "JWT",
+    "endpoint": "/JWTjku/delete",
+    "difficulty": 3,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-58-JWT-KID-Injection",
+    "file": "jwt.test.js",
+    "doc": "Challenge-58-JWT-KID-Injection.md",
+    "name": "JWT — KID Injection",
+    "lesson": "JWT",
+    "endpoint": "/JWTkid/delete",
+    "difficulty": 3,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-72-Log-Injection-Bleeding",
+    "file": "misc-lessons.test.js",
+    "doc": "Challenge-72-Log-Injection-Bleeding.md",
+    "name": "Log Bleeding — Leaked Secret",
+    "lesson": "LogSpoofing",
+    "endpoint": "/LogSpoofing/log-bleeding",
+    "difficulty": 2,
+    "owasp": "A09"
+  },
+  {
+    "key": "Challenge-73-Log-Injection-Spoofing",
+    "file": "misc-lessons.test.js",
+    "doc": "Challenge-73-Log-Injection-Spoofing.md",
+    "name": "Log Spoofing — CRLF",
+    "lesson": "LogSpoofing",
+    "endpoint": "/LogSpoofing/log-spoofing",
+    "difficulty": 1,
+    "owasp": "A09"
+  },
+  {
+    "key": "Challenge-64-Broken-Access-Control-Hidden-Menu",
+    "file": "access-control.test.js",
+    "doc": "Challenge-64-Broken-Access-Control-Hidden-Menu.md",
+    "name": "Missing Function AC — Hidden Menu",
+    "lesson": "MissingFunctionAC",
+    "endpoint": "/access-control/hidden-menu",
+    "difficulty": 1,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-65-Broken-Access-Control-User-Hash",
+    "file": "access-control.test.js",
+    "doc": "Challenge-65-Broken-Access-Control-User-Hash.md",
+    "name": "Missing Function AC — User Hash",
+    "lesson": "MissingFunctionAC",
+    "endpoint": "/access-control/user-hash",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-66-Broken-Access-Control-Fix",
+    "file": "access-control.test.js",
+    "doc": "Challenge-66-Broken-Access-Control-Fix.md",
+    "name": "Missing Function AC — User Hash (fix)",
+    "lesson": "MissingFunctionAC",
+    "endpoint": "/access-control/user-hash-fix",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-70-Password-Reset-Token-Prediction",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-70-Password-Reset-Token-Prediction.md",
+    "name": "Password Reset — Create Link",
+    "lesson": "PasswordReset",
+    "endpoint": "/PasswordReset/ForgotPassword/create-password-reset-link",
+    "difficulty": 3,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-68-Password-Reset-Weak-Questions",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-68-Password-Reset-Weak-Questions.md",
+    "name": "Password Reset — Weak Questions",
+    "lesson": "PasswordReset",
+    "endpoint": "/PasswordReset/SecurityQuestions",
+    "difficulty": 1,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-67-Password-Reset-Questions",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-67-Password-Reset-Questions.md",
+    "name": "Password Reset — Security Question",
+    "lesson": "PasswordReset",
+    "endpoint": "/PasswordReset/questions",
+    "difficulty": 1,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-69-Password-Reset-Login",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-69-Password-Reset-Login.md",
+    "name": "Password Reset — Reset Link Takeover",
+    "lesson": "PasswordReset",
+    "endpoint": "/PasswordReset/reset/login",
+    "difficulty": 3,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-71-Password-Reset-Email",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-71-Password-Reset-Email.md",
+    "name": "Password Reset — Simple Mail",
+    "lesson": "PasswordReset",
+    "endpoint": "/PasswordReset/simple-mail",
+    "difficulty": 2,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-46-Path-Traversal-Upload",
+    "file": "path-traversal.test.js",
+    "doc": "Challenge-46-Path-Traversal-Upload.md",
+    "name": "Path Traversal — Profile Upload",
+    "lesson": "PathTraversal",
+    "endpoint": "/PathTraversal/profile-upload",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-48-Path-Traversal-Secure-Upload",
+    "file": "path-traversal.test.js",
+    "doc": "Challenge-48-Path-Traversal-Secure-Upload.md",
+    "name": "Path Traversal — Upload Fix Bypass",
+    "lesson": "PathTraversal",
+    "endpoint": "/PathTraversal/profile-upload-fix",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-47-Path-Traversal-Partial-Fix",
+    "file": "path-traversal.test.js",
+    "doc": "Challenge-47-Path-Traversal-Partial-Fix.md",
+    "name": "Path Traversal — Filename",
+    "lesson": "PathTraversal",
+    "endpoint": "/PathTraversal/profile-upload-remove-user-input",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-49-Path-Traversal-Directory",
+    "file": "path-traversal.test.js",
+    "doc": "Challenge-49-Path-Traversal-Directory.md",
+    "name": "Path Traversal — Random Picture",
+    "lesson": "PathTraversal",
+    "endpoint": "/PathTraversal/random",
+    "difficulty": 2,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-52-SSRF-Basic",
+    "file": "ssrf-xxe.test.js",
+    "doc": "Challenge-52-SSRF-Basic.md",
+    "name": "SSRF — Task 1",
+    "lesson": "SSRF",
+    "endpoint": "/SSRF/task1",
+    "difficulty": 1,
+    "owasp": "A10"
+  },
+  {
+    "key": "Challenge-53-SSRF-External",
+    "file": "ssrf-xxe.test.js",
+    "doc": "Challenge-53-SSRF-External.md",
+    "name": "SSRF — Task 2",
+    "lesson": "SSRF",
+    "endpoint": "/SSRF/task2",
+    "difficulty": 2,
+    "owasp": "A10"
+  },
+  {
+    "key": "Challenge-14-Cookie-Spoofing",
+    "file": "access-control.test.js",
+    "doc": "Challenge-14-Cookie-Spoofing.md",
+    "name": "Spoof Cookie — Forge Auth",
+    "lesson": "SpoofCookie",
+    "endpoint": "/SpoofCookie/login",
+    "difficulty": 3,
+    "owasp": "A01"
+  },
+  {
+    "key": "Challenge-21-SQL-Injection-UNION",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-21-SQL-Injection-UNION.md",
+    "name": "SQL Injection (Intro) — 5a",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/assignment5a",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-22-SQL-Injection-Column-Discovery",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-22-SQL-Injection-Column-Discovery.md",
+    "name": "SQL Injection (Intro) — 5b",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/assignment5b",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-25-SQL-Injection-Blind-Inference",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-25-SQL-Injection-Blind-Inference.md",
+    "name": "SQL Injection (Intro) — Attack 10",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack10",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-17-SQL-Injection-DQL",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-17-SQL-Injection-DQL.md",
+    "name": "SQL Injection (Intro) — Attack 2",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack2",
+    "difficulty": 1,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-18-SQL-Injection-String-Completion",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-18-SQL-Injection-String-Completion.md",
+    "name": "SQL Injection (Intro) — Attack 3",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack3",
+    "difficulty": 1,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-19-SQL-Injection-Numeric",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-19-SQL-Injection-Numeric.md",
+    "name": "SQL Injection (Intro) — Attack 4",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack4",
+    "difficulty": 1,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-20-SQL-Injection-Compromise",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-20-SQL-Injection-Compromise.md",
+    "name": "SQL Injection (Intro) — Attack 5",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack5",
+    "difficulty": 1,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-23-SQL-Injection-DML-Update",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-23-SQL-Injection-DML-Update.md",
+    "name": "SQL Injection (Intro) — Attack 8",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack8",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-24-SQL-Injection-DDL-Drop",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-24-SQL-Injection-DDL-Drop.md",
+    "name": "SQL Injection (Intro) — Attack 9",
+    "lesson": "SqlInjection",
+    "endpoint": "/SqlInjection/attack9",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-28-SQL-Injection-UNION-Advanced",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-28-SQL-Injection-UNION-Advanced.md",
+    "name": "SQL Injection (Adv) — 6a UNION",
+    "lesson": "SqlInjectionAdvanced",
+    "endpoint": "/SqlInjectionAdvanced/attack6a",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-29-SQL-Injection-Blind-Boolean",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-29-SQL-Injection-Blind-Boolean.md",
+    "name": "SQL Injection (Adv) — 6b Blind",
+    "lesson": "SqlInjectionAdvanced",
+    "endpoint": "/SqlInjectionAdvanced/attack6b",
+    "difficulty": 3,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-30-SQL-Injection-Login-Bypass",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-30-SQL-Injection-Login-Bypass.md",
+    "name": "SQL Injection (Adv) — Login as Tom",
+    "lesson": "SqlInjectionAdvanced",
+    "endpoint": "/SqlInjectionAdvanced/login",
+    "difficulty": 3,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-31-SQL-Order-By-Defense",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-31-SQL-Order-By-Defense.md",
+    "name": "SQLi Mitigations — 12a",
+    "lesson": "SqlInjectionMitigations",
+    "endpoint": "/SqlInjectionMitigations/attack12a",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-26-SQL-Input-Validation",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-26-SQL-Input-Validation.md",
+    "name": "SQLi — Input Validation Bypass",
+    "lesson": "SqlInjectionMitigations",
+    "endpoint": "/SqlOnlyInputValidation/attack",
+    "difficulty": 3,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-27-SQL-Keyword-Filter-Bypass",
+    "file": "sql-injection.test.js",
+    "doc": "Challenge-27-SQL-Keyword-Filter-Bypass.md",
+    "name": "SQLi — Keyword Filter Bypass",
+    "lesson": "SqlInjectionMitigations",
+    "endpoint": "/SqlOnlyInputValidationOnKeywords/attack",
+    "difficulty": 3,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-75-Vulnerable-Components",
+    "file": "misc-lessons.test.js",
+    "doc": "Challenge-75-Vulnerable-Components.md",
+    "name": "Vulnerable Components — XStream RCE",
+    "lesson": "VulnerableComponents",
+    "endpoint": "/VulnerableComponents/attack1",
+    "difficulty": 3,
+    "owasp": "A03"
+  },
+  {
+    "key": "Challenge-76-WebWolf-Landing",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-76-WebWolf-Landing.md",
+    "name": "WebWolf — Landing",
+    "lesson": "WebWolfIntroduction",
+    "endpoint": "/WebWolf/landing",
+    "difficulty": 1,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-77-WebWolf-Mail",
+    "file": "webwolf-passwordreset.test.js",
+    "doc": "Challenge-77-WebWolf-Mail.md",
+    "name": "WebWolf — Mail",
+    "lesson": "WebWolfIntroduction",
+    "endpoint": "/WebWolf/mail",
+    "difficulty": 1,
+    "owasp": "A07"
+  },
+  {
+    "key": "Challenge-51-XXE-Content-Type",
+    "file": "ssrf-xxe.test.js",
+    "doc": "Challenge-51-XXE-Content-Type.md",
+    "name": "XXE — Content-Type",
+    "lesson": "XXE",
+    "endpoint": "/xxe/content-type",
+    "difficulty": 2,
+    "owasp": "A05"
+  },
+  {
+    "key": "Challenge-50-XXE-Simple",
+    "file": "ssrf-xxe.test.js",
+    "doc": "Challenge-50-XXE-Simple.md",
+    "name": "XXE — Simple",
+    "lesson": "XXE",
+    "endpoint": "/xxe/simple",
+    "difficulty": 2,
+    "owasp": "A05"
+  }
+]
