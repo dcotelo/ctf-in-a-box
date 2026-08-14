@@ -6,12 +6,20 @@
 # in addition to APP_URL, and the app needs its startup grace period before the
 # first challenge child spawns — 110 children at concurrency 8 would otherwise
 # all race an unready app and trip the unreachable early-abort.
-: "${APP_IMAGE:?vulnerableapp: APP_IMAGE is required}"
+if [ -n "${APP_IMAGE:-}" ]; then
+  docker pull "$APP_IMAGE" >/dev/null
+  IMAGE="$APP_IMAGE"
+elif [ -f "${GITHUB_WORKSPACE:-/github/workspace}/Dockerfile" ]; then
+  docker build -t ctf-app-under-test "${GITHUB_WORKSPACE:-/github/workspace}" >/dev/null
+  IMAGE=ctf-app-under-test
+else
+  echo "vulnerableapp: need APP_IMAGE or a workspace Dockerfile" >&2
+  exit 1
+fi
 
-docker pull "$APP_IMAGE" >/dev/null
 docker run -d --rm \
   --network "$NETWORK" \
   --network-alias "$APP_HOST" \
   --name "$APP_CONTAINER" \
-  "$APP_IMAGE" >/dev/null
+  "$IMAGE" >/dev/null
 BOOTED="$APP_CONTAINER"
