@@ -30,6 +30,10 @@ services:
     depends_on: [srh, scorer]
 
   scorer:
+    # Set SCORE_IMAGE in .env to your own build from scorer/ (docs/scorer.md).
+    # The fallback is the upstream image, which is private — it only pulls if
+    # the OWASP-CTF maintainers granted you access. Kept as a fallback (not
+    # required) so parse-time interpolation doesn't break the smoke override.
     image: ${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}
     command: ["score", "serve"]
     restart: unless-stopped
