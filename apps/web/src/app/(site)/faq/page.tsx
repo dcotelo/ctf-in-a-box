@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import FaqAccordion, { type QA } from "@/components/faq-accordion";
-import CopyButton from "@/components/copy-button";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
@@ -10,17 +9,6 @@ export const metadata: Metadata = {
   title: "FAQ",
   description: `Frequently asked questions about the ${event.name} secure development CTF.`,
 };
-
-// Cross-CTF promo with Blue Team Village (issue #39): BTV ships a GPG-encrypted
-// forensics artifact whose passphrase lives here, so their players land inside
-// the OWASP CTF on their way to decrypting it.
-//
-// Trimmed because a trailing space in a deploy env value is invisible on the
-// rendered page but breaks every decrypt attempt. Unset — the default, and every
-// local checkout — means the entry below is never appended, so it is absent from
-// the HTML rather than hidden, and nothing leaks before the event. Baked at build
-// like the other flags in this repo: changing it needs a redeploy.
-const alliedOpsKey = (process.env.ALLIED_OPS_KEY ?? "").trim();
 
 const faqs: QA[] = [
   {
@@ -124,65 +112,6 @@ const faqs: QA[] = [
   },
 ];
 
-// Kept out of `faqs` so it can be appended conditionally. The `id` is the
-// anchor BTV's breadcrumb points at — /faq#allied-ops — and is agreed with
-// their organizers, so it must not be renamed.
-const alliedOps: QA = {
-  id: "allied-ops",
-  q: "A Blue Team Village artifact sent me here. What's the passphrase?",
-  a: (
-    <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
-        Allied Ops &middot; Blue Team Village
-      </p>
-      <p>
-        Blue Team Village encrypted that evidence file. This is the key that opens it.
-      </p>
-      <div className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-[#12121e] p-4">
-        {/* `white-space: pre-wrap` because a run of internal spaces in the
-            passphrase would otherwise collapse to one on screen — invisible
-            here, but CopyButton still copies the exact raw string, so a
-            player reading (not copying) the key would retype the wrong
-            value. `break-all` still soft-wraps long tokens; pre-wrap adds no
-            characters, so manual select-and-copy stays byte-for-byte exact. */}
-        <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-sm text-[#22c55e]">
-          {alliedOpsKey}
-        </code>
-        <CopyButton value={alliedOpsKey} />
-      </div>
-      <p className="font-mono text-xs text-muted">gpg --decrypt &lt;artifact&gt;.gpg</p>
-      <p>
-        First time on this site? You&apos;ve landed in the{" "}
-        <span className="text-zinc-200">OWASP Secure Development CTF</span>: you find a
-        real vulnerability in a real OWASP app, patch it, and ship the fix as a pull
-        request. CI builds your patch and scores it automatically. There are no flags
-        to type in.{" "}
-        <Link href="/how-to-play" className="ds-link">
-          How to Play
-        </Link>
-        .
-      </p>
-      <p className="text-muted">
-        Key not working? Grab an organizer at the OWASP CTF area
-        {event.discordUrl && (
-          <>
-            , or ask in the{" "}
-            <a
-              href={event.discordUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ds-link"
-            >
-              CTF Discord
-            </a>
-          </>
-        )}
-        .
-      </p>
-    </div>
-  ),
-};
-
 export default function FaqPage() {
   return (
     <div className="flex flex-col gap-8">
@@ -210,7 +139,7 @@ export default function FaqPage() {
           </>
         }
       />
-      <FaqAccordion items={alliedOpsKey ? [...faqs, alliedOps] : faqs} />
+      <FaqAccordion items={faqs} />
     </div>
   );
 }

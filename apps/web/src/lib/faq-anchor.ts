@@ -1,5 +1,5 @@
 // Maps a URL hash to the index of the FAQ item carrying that id, so a deep link
-// like /faq#allied-ops can open the right accordion panel.
+// like /faq#<id> can open the right accordion panel.
 //
 // Deliberately pure and DOM-free: vitest runs `environment: "node"` in this repo
 // and there is no component-test harness, so the matching logic lives here where

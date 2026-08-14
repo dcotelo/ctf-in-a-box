@@ -17,7 +17,7 @@ export default function FaqAccordion({ items }: { items: QA[] }) {
   const base = useId();
   const listRef = useRef<HTMLUListElement>(null);
 
-  // Deep links like /faq#allied-ops. The hash is never sent to the server, so
+  // Deep links like /faq#<id>. The hash is never sent to the server, so
   // the matching panel can only be opened after hydration — by which point the
   // browser has already done its native scroll to a still-collapsed <li>. Open
   // the panel, then re-scroll now that it has its expanded height.
