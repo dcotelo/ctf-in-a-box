@@ -1,0 +1,5 @@
+target: juice-shop
+challenges:
+  - id: "Bad_ID"
+    name: "Id charset violation"
+    probes: [{ request: { method: GET, path: "/" }, expect: { status: 200 } }]

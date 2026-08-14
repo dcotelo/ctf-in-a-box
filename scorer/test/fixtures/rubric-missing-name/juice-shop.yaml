@@ -1,0 +1,4 @@
+target: juice-shop
+challenges:
+  - id: reflected-xss-search
+    probes: [{ request: { method: GET, path: "/" }, expect: { status: 200 } }]

@@ -1,0 +1,6 @@
+target: juice-shop
+notes: "unknown top-level key"
+challenges:
+  - id: sqli-low
+    name: "Fine otherwise"
+    probes: [{ request: { method: GET, path: "/" }, expect: { status: 200 } }]

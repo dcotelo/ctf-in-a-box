@@ -1,0 +1,14 @@
+target: juice-shop
+challenges:
+  - id: reflected-xss-search
+    name: "Search box no longer reflects HTML"
+    points: 10
+    probes:
+      - request: { method: GET, path: "/rest/products/search?q=<script>x</script>" }
+        expect: { status: 200, bodyMissing: "<script>x</script>" }
+  - id: sql-injection-login
+    name: "Login rejects SQL injection"
+    points: 5
+    probes:
+      - request: { method: POST, path: "/rest/user/login" }
+        expect: { status: 401 }
