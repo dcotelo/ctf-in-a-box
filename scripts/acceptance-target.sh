@@ -66,10 +66,11 @@ docker network create --internal "$NET" >/dev/null 2>&1 || true
 #
 # The SCHEME is per-target for the same reason: securityshepherd is the only one
 # that speaks HTTPS (Tomcat's TLS connector on 8443, with a self-signed cert that
-# expired in 2019 — its bring-up exports NODE_TLS_REJECT_UNAUTHORIZED=0 rather than
-# re-issuing it, because the rubric's helpers disable verification deliberately and
-# several tests assert on TLS-level behaviour). It defaults to http, so the other
-# five compose exactly the URLs they always have.
+# expired in 2019 — its bring-up tolerates that rather than re-issuing it, because the
+# rubric's helpers disable verification deliberately and several tests assert on
+# TLS-level behaviour; the tolerance is scoped to the bring-up's own readiness probes,
+# never exported into the judge). It defaults to http, so the other five compose
+# exactly the URLs they always have.
 #
 # setup/ctf-setup.sh's app_url_for() carries the same per-target URL facts
 # for the rendered organizer workflow. The two tables are intentionally NOT

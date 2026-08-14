@@ -1,6 +1,5 @@
 # scorer/entrypoints/vampi.sh
-# VAmPI bring-up. Sourced by entrypoint.sh with NETWORK / APP_HOST / APP_URL /
-# APP_CONTAINER / APP_IMAGE already set.
+# VAmPI bring-up. Sourced by entrypoint.sh.
 #
 # VAmPI is a single Flask container with a self-contained SQLite database; the
 # rubric's own createDb() helper seeds it over HTTP, so there is no database

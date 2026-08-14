@@ -65,9 +65,10 @@ app_url_for() {
     # The only HTTPS target: its bring-up builds Security Shepherd from pinned
     # upstream source and Tomcat's TLS connector listens on 8443. The certificate
     # is self-signed and expired in 2019 — deliberately not re-issued (the rubric's
-    # helpers disable verification and several tests assert on TLS behaviour), so
-    # the bring-up exports NODE_TLS_REJECT_UNAUTHORIZED=0 instead. Verified against
-    # a real boot by `scripts/acceptance-target.sh securityshepherd none`.
+    # helpers disable verification and several tests assert on TLS behaviour), so the
+    # bring-up sets NODE_TLS_REJECT_UNAUTHORIZED=0 on its own readiness probes only
+    # (never exported, or it would reach the judge's authenticated leaderboard POST).
+    # Verified against a real boot by `scripts/acceptance-target.sh securityshepherd none`.
     securityshepherd) echo "https://securityshepherd:8443" ;;
     vulnerableapp) echo "http://vulnerableapp:9090/VulnerableApp" ;;
     vampi) echo "http://vampi:5000" ;;

@@ -28,8 +28,15 @@
 # TLS: the bundled self-signed certificate expired in 2019, so chain verification can
 # never succeed. Do NOT terminate TLS or re-issue the cert — the rubric's helpers
 # disable verification deliberately and several tests assert on TLS-level behaviour.
-# NODE_TLS_REJECT_UNAUTHORIZED is exported instead, so the judge's own waitForApp probe
-# (and every exec child it spawns) accepts it too.
+# NODE_TLS_REJECT_UNAUTHORIZED=0 is therefore needed, but it is deliberately NOT
+# exported: entrypoint.sh `exec`s the judge from this same shell, so an export would
+# reach the judge's authenticated POST to $SCORE_API — silently stripping certificate
+# verification from the one request carrying $SCORE_TOKEN, to a leaderboard that is
+# usually off-box. Instead it is set per-command on the two readiness probes below,
+# which are the only things here that speak to the expired cert. The exec children do
+# not need it either: the vendored tests/helpers.js sets it for itself (all 40 test
+# files import that helper). And the judge's own waitForApp is switched off with
+# APP_READY_TRIES=0 — see step 5, where readiness is proven far more strongly.
 
 # APP_IMAGE is deliberately UNUSED here, and it is the only bring-up that ignores it: the
 # three images are one unit — the WAR, the MariaDB schema and the Mongo seed are all
@@ -146,9 +153,15 @@ docker run -d --name secshep_mongo --network "$NETWORK" "$IMG_MONGO" >/dev/null
 docker run -d --name secshep_tomcat --network "$NETWORK" --network-alias "$APP_HOST" \
   "$IMG_TOMCAT" >/dev/null
 
-# The expired cert has to be tolerated by this process AND by every exec child the judge
-# spawns, so export rather than set per-command.
-export NODE_TLS_REJECT_UNAUTHORIZED=0
+# The judge must not probe this app itself: its only tool is a plain fetch, which the
+# 2019-expired certificate fails, and making that fetch succeed would mean disabling
+# certificate verification for the whole judge process — including the leaderboard POST
+# that carries $SCORE_TOKEN. The handshake in step 5 is a strictly stronger readiness
+# signal anyway (a completed admin LOGIN, not a 200 from any URL), so hand the judge that
+# guarantee instead of a downgraded transport. An app that dies after this point is still
+# caught: every exec child then fails to report and the judge aborts rather than
+# publishing a zero.
+export APP_READY_TRIES=0
 
 # 5) Wait for readiness and bootstrap the admin password.
 #
@@ -166,7 +179,7 @@ export NODE_TLS_REJECT_UNAUTHORIZED=0
 # whole sequence is retried, because an early failure usually just means the DB is still
 # seeding.
 echo "securityshepherd: waiting for the app and bootstrapping the admin password…"
-APP_URL="$APP_URL" node -e '
+NODE_TLS_REJECT_UNAUTHORIZED=0 APP_URL="$APP_URL" node -e '
   const B = process.env.APP_URL;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const get = (u, o = {}) => fetch(u, { signal: AbortSignal.timeout(8000), ...o });
@@ -209,7 +222,7 @@ docker restart secshep_tomcat >/dev/null
 
 # Re-verify the login after the reload rather than just waiting for /login.jsp: the same
 # vacuous-zero risk applies to a Tomcat that came back up but lost its DB connection.
-APP_URL="$APP_URL" node -e '
+NODE_TLS_REJECT_UNAUTHORIZED=0 APP_URL="$APP_URL" node -e '
   const B = process.env.APP_URL;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const get = (u, o = {}) => fetch(u, { signal: AbortSignal.timeout(8000), ...o });
