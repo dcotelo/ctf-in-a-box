@@ -84,7 +84,10 @@ fill in `github.org`, `modules.secure-development.targets` (any subset of
 the six target keys above), `admins` (GitHub logins), and `event.url`.
 What a module must provide to plug in — config block, scoring contract,
 transports, security requirements, provisioning — is documented in
-[docs/modules.md](docs/modules.md).
+[docs/modules.md](docs/modules.md). For how the whole stack fits together
+(diagram, score data flow, security model, testing strategy), see
+[docs/architecture.md](docs/architecture.md); for why it's built this way
+instead of the alternatives, see [docs/decisions.md](docs/decisions.md).
 
 `ctf-setup.sh org` authenticates via your existing `gh auth login` session
 (the same one `check` verifies) and your local `docker` login to
