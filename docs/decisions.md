@@ -387,7 +387,12 @@ image and posts the comment itself via `github-script`. Authoring and
 operation are documented in `docs/scorer.md`.
 
 **Consequences.** The kit is fully self-sufficient — an organizer with a
-rubric can run a real event with zero upstream access, and
+rubric can run a real event with zero upstream access, scoped precisely:
+the only upstream repos touched are the public target projects themselves
+(`gh repo fork OWASP-CTF/<target>` — public OSS, no special access).
+`setup/ctf-setup.sh org` renders the consumer workflow locally from the
+in-repo template and mirrors an organizer-supplied `SCORE_IMAGE` (no
+upstream image default), never reading the private upstream scorer repos.
 `scripts/acceptance-scorer.sh` proves the whole loop offline. The official
 OWASP rubric remains upstream-gated; this decision routes around the
 access problem, it doesn't solve it. The comment marker

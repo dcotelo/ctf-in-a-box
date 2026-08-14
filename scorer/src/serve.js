@@ -8,6 +8,11 @@ const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?:\[bot
 // Targets and challenge ids share the rubric charset (Redis key/field segments).
 const SEGMENT = /^[a-z0-9][a-z0-9-]*$/;
 
+// A legitimate score payload is well under 1 KiB; 64 KiB is generous headroom.
+// Callers are bearer-authed only, so this is defense-in-depth — a leaked token
+// or a misbehaving CI job must not be able to buffer unbounded bytes in memory.
+const MAX_BODY_BYTES = 64 * 1024;
+
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -23,7 +28,18 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
   async function score(req, res) {
     if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
     let body = "";
-    for await (const chunk of req) body += chunk;
+    let bytes = 0;
+    for await (const chunk of req) {
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        // 413 first, then kill the socket once the response is flushed so the
+        // client stops streaming a body we will never read.
+        res.writeHead(413, { "content-type": "application/json", connection: "close" });
+        res.end(JSON.stringify({ error: `body exceeds ${MAX_BODY_BYTES} bytes` }), () => req.destroy());
+        return;
+      }
+      body += chunk;
+    }
     let data;
     try {
       data = JSON.parse(body);

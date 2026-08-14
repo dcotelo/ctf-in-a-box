@@ -12,14 +12,50 @@ EOF
   SCRIPT="$BATS_TEST_DIRNAME/../ctf-setup.sh"
 }
 
-@test "org --dry-run plans fork, workflow, image mirror and grant per target" {
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+@test "org --dry-run plans fork, workflow render, image mirror and grant per target" {
+  run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org test-event-org"* ]]
   [[ "$output" == *"gh repo fork OWASP-CTF/VAmPI --org test-event-org"* ]]
-  [[ "$output" == *"ctf-score.yml"* ]]
-  [[ "$output" == *"docker tag ghcr.io/owasp-ctf/score:latest ghcr.io/test-event-org/score:latest"* ]]
+  # Workflow comes from the in-repo template, rendered per target — never
+  # fetched from the private upstream repo.
+  [[ "$output" == *"in-repo template"* ]]
+  [[ "$output" == *"render template (EVENT_ORG=test-event-org TARGET=dvwa APP_URL=http://dvwa:80) -> dist/workflows/dvwa.ctf-score.yml"* ]]
+  [[ "$output" == *"render template (EVENT_ORG=test-event-org TARGET=vampi APP_URL=http://vampi:5000) -> dist/workflows/vampi.ctf-score.yml"* ]]
+  [[ "$output" == *"commit dist/workflows/dvwa.ctf-score.yml as .github/workflows/ctf-score.yml in test-event-org/DVWA"* ]]
+  [[ "$output" != *"OWASP-CTF/dc34"* ]]
+  [[ "$output" == *"docker tag ghcr.io/myorg/custom-score:v2 ghcr.io/test-event-org/score:latest"* ]]
   [[ "$output" == *"Manage Actions access"* ]]
+  # dry-run must not write anything
+  [ ! -e dist ]
+}
+
+@test "org fails loudly when SCORE_IMAGE is unset (no upstream image default)" {
+  run bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SCORE_IMAGE not set"* ]]
+  [[ "$output" == *"docs/scorer.md"* ]]
+  # Must fail before planning any mutation
+  [[ "$output" != *"gh repo fork"* ]]
+  [[ "$output" != *"ghcr.io/owasp-ctf/score"* ]]
+}
+
+@test "render writes per-target workflows with all placeholders substituted" {
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  [ -f dist/workflows/dvwa.ctf-score.yml ]
+  [ -f dist/workflows/vampi.ctf-score.yml ]
+  grep -q "EVENT_ORG: test-event-org" dist/workflows/dvwa.ctf-score.yml
+  grep -q "TARGET: dvwa" dist/workflows/dvwa.ctf-score.yml
+  grep -q "APP_URL: http://dvwa:80" dist/workflows/dvwa.ctf-score.yml
+  grep -q "APP_URL: http://vampi:5000" dist/workflows/vampi.ctf-score.yml
+  # No placeholder survives rendering
+  ! grep -qE "<EVENT_ORG>|<TARGET>|<APP_URL>" dist/workflows/dvwa.ctf-score.yml
+  ! grep -qE "<EVENT_ORG>|<TARGET>|<APP_URL>" dist/workflows/vampi.ctf-score.yml
+  # The rendered workflow keeps the re-run cap (modules.md section 6.3)
+  grep -q "concurrency:" dist/workflows/dvwa.ctf-score.yml
+  grep -q "group: ctf-score-dvwa-" dist/workflows/dvwa.ctf-score.yml
+  grep -q "COOLDOWN_MINUTES" dist/workflows/dvwa.ctf-score.yml
 }
 
 @test "org --dry-run honors SCORE_IMAGE env var for the mirror source" {
@@ -74,11 +110,11 @@ modules:
   secure-development:
     targets: [dvwa, vampi]
 EOF
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must use exact org name without comment suffix
   [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org my-event-org"* ]]
-  [[ "$output" == *"docker tag ghcr.io/owasp-ctf/score:latest ghcr.io/my-event-org/score:latest"* ]]
+  [[ "$output" == *"docker tag ghcr.io/myorg/score:v1 ghcr.io/my-event-org/score:latest"* ]]
   # Ensure comment is not included
   [[ "$output" != *"disposable per-event org"* ]]
 }
@@ -116,7 +152,7 @@ modules:
   secure-development:
     targets: [dvwa, vampi]
 EOF
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org flow-event-org"* ]]
   [[ "$output" == *"gh repo fork OWASP-CTF/VAmPI --org flow-event-org"* ]]
@@ -130,23 +166,13 @@ modules:
   secure-development:
     targets: [dvwa,,vampi]
 EOF
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  # Must pair correctly: dvwa with DVWA consumer, vampi with VAmPI consumer
-  output_lines=("${lines[@]}")
-  # Check that the workflow fetch lines are paired correctly
-  dvwa_found=0
-  vampi_found=0
-  for line in "${output_lines[@]}"; do
-    if [[ "$line" == *"dvwa-consumer"* ]]; then
-      dvwa_found=1
-    fi
-    if [[ "$line" == *"vampi-consumer"* ]]; then
-      vampi_found=1
-    fi
-  done
-  [ "$dvwa_found" -eq 1 ]
-  [ "$vampi_found" -eq 1 ]
+  # Must pair correctly: dvwa's workflow into DVWA, vampi's into VAmPI
+  [[ "$output" == *"TARGET=dvwa APP_URL=http://dvwa:80"* ]]
+  [[ "$output" == *"TARGET=vampi APP_URL=http://vampi:5000"* ]]
+  [[ "$output" == *"dist/workflows/dvwa.ctf-score.yml as .github/workflows/ctf-score.yml in test-event-org/DVWA"* ]]
+  [[ "$output" == *"dist/workflows/vampi.ctf-score.yml as .github/workflows/ctf-score.yml in test-event-org/VAmPI"* ]]
 }
 
 @test "org ignores decoy targets line outside modules.secure-development (MEDIUM fix #5)" {
@@ -159,7 +185,7 @@ modules:
   secure-development:
     targets: [dvwa, vampi]
 EOF
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must use the correct targets (dvwa, vampi), not the decoy (webgoat)
   [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org test-event-org"* ]]

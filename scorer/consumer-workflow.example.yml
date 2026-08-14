@@ -28,6 +28,9 @@
 #                baked rubric, e.g. juice-shop)
 #   <APP_URL>    where the app under test answers ON the ctf network, e.g.
 #                http://<TARGET>:3000 (no host ports are published)
+#
+# KNOB (not a placeholder): COOLDOWN_MINUTES in the job env below — minimum
+# minutes between scored runs on one PR (default 5, see the cooldown step).
 # ---------------------------------------------------------------------------
 
 name: CTF Patch Score
@@ -41,6 +44,13 @@ permissions:
   packages: read
   pull-requests: write
 
+# One scoring run per PR at a time; a new push cancels the superseded run.
+# Without this, two overlapping runs can interleave their comment upserts and
+# leave a stale "⏳ Scoring in progress…" body on top of a finished result.
+concurrency:
+  group: ctf-score-<TARGET>-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   score:
     runs-on: ubuntu-latest
@@ -49,11 +59,59 @@ jobs:
       TARGET: <TARGET>
       APP_URL: <APP_URL>
       NETWORK: ctfnet
+      COOLDOWN_MINUTES: "5"
     steps:
-      # (1) Upsert a "scoring in progress" comment so the contestant sees the
+      # (1) Re-run cooldown — the rate cap docs/modules.md §6.3 requires. WHY:
+      # every scoring run hands the contestant a fresh per-challenge ✅/❌
+      # verdict — a fast, free oracle. Rapid re-pushes let them iterate a
+      # check-gaming patch against the private rubric (tweak, push, read the
+      # ❌s, repeat); the cooldown bounds that feedback loop (and, secondarily,
+      # Actions minutes). If the previous RESULT comment is younger than
+      # COOLDOWN_MINUTES, this push is not scored; the comment gains a note
+      # telling the contestant when pushing again will be scored. A leftover
+      # "⏳" pending body never triggers the cooldown — that means the previous
+      # run died or was cancelled, and must not lock the contestant out.
+      - name: Re-run cooldown gate
+        id: cooldown
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.setOutput('skip', 'false');
+            const cooldownMs = Number(process.env.COOLDOWN_MINUTES || 5) * 60 * 1000;
+            const marker = `<!-- ctf-score:${process.env.TARGET} -->`;
+            const untilRe = /<!-- ctf-score-cooldown-until:(\S+) -->/;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (!existing) return; // first run on this PR — nothing to rate-limit
+            if (existing.body.includes('⏳ Scoring in progress')) return; // stale pending
+            // If a cooldown deadline is already stamped in the comment, honor it
+            // without editing (an edit would bump updated_at and re-arm the
+            // window on every push, extending the lockout indefinitely).
+            const stamped = existing.body.match(untilRe);
+            const until = stamped
+              ? new Date(stamped[1]).getTime()
+              : new Date(existing.updated_at).getTime() + cooldownMs;
+            if (Date.now() >= until) return; // cooldown over — score this push
+            if (!stamped) {
+              const note = `\n\n⏱️ On cooldown — this push was **not scored**. ` +
+                `Push again after ${new Date(until).toUTCString()} to be re-scored. ` +
+                `<!-- ctf-score-cooldown-until:${new Date(until).toISOString()} -->`;
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body: existing.body + note,
+              });
+            }
+            core.setOutput('skip', 'true');
+
+      # (2) Upsert a "scoring in progress" comment so the contestant sees the
       # run started. Target-scoped marker lets multiple target workflows coexist
       # on one PR without clobbering each other's comments.
       - name: Post pending comment
+        if: steps.cooldown.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -77,30 +135,34 @@ jobs:
               });
             }
 
-      # (2) Check out the PR HEAD — this is UNTRUSTED contestant code. It is only
+      # (3) Check out the PR HEAD — this is UNTRUSTED contestant code. It is only
       # ever `docker build`+run inside a container on the internal network by the
-      # scorer (step 5); nothing here runs it on the runner host.
+      # scorer (step 6); nothing here runs it on the runner host.
       - name: Checkout PR head
+        if: steps.cooldown.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # (3) Log in to GHCR to pull the (private) mirrored scorer image.
+      # (4) Log in to GHCR to pull the (private) mirrored scorer image.
       - name: Log in to GHCR
+        if: steps.cooldown.outputs.skip != 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # (4) Create the ctf network the scorer attaches itself and the app to.
+      # (5) Create the ctf network the scorer attaches itself and the app to.
       - name: Create ctf network
+        if: steps.cooldown.outputs.skip != 'true'
         run: docker network create "$NETWORK" 2>/dev/null || true
 
-      # (5) Run the scorer. --entrypoint drives the judge path (boot app + probe).
+      # (6) Run the scorer. --entrypoint drives the judge path (boot app + probe).
       # docker.sock lets it boot the app under test as a sibling container; the
       # workspace + event.json mounts give it the PR checkout and webhook payload.
       # Push-mode secrets are OPTIONAL: leave LEADERBOARD_URL/LEADERBOARD_TOKEN
       # unset for poll mode (the engine skips the leaderboard POST and the sync
       # poller records the comment instead).
       - name: Run scorer
+        if: steps.cooldown.outputs.skip != 'true'
         run: |
           docker run --rm \
             --entrypoint /usr/local/bin/entrypoint.sh \
@@ -116,14 +178,17 @@ jobs:
             -e SCORE_TOKEN="${{ secrets.LEADERBOARD_TOKEN }}" \
             "ghcr.io/${EVENT_ORG}/score:latest"
 
-      # (6) Always upsert the final comment, replacing the pending one (same
+      # (7) Always upsert the final comment, replacing the pending one (same
       # marker). ctf-score.md already carries the sync JSON marker
       # (<!-- ctf-score: {...} -->) that the poller parses; we keep the
       # target-scoped marker AND the file body together. If the score step failed
       # or produced no file, fall back to a "did not complete" message with a run
-      # link — mirroring the upstream action's failure behaviour.
+      # link — mirroring the upstream action's failure behaviour. Gated on the
+      # cooldown skip too: a skipped run writes no ctf-score.md, and this step
+      # must not clobber the previous (still fresh) result with a "did not
+      # complete" body — the cooldown step already annotated the comment.
       - name: Post final comment
-        if: always()
+        if: always() && steps.cooldown.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           script: |

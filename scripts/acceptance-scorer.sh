@@ -7,6 +7,9 @@
 # The fake app deliberately PASSES two example-rubric challenges and FAILS one,
 # so the asserted "2 / 3" count proves the probes actually discriminate — an
 # all-pass or all-fail app could green-light a judge that ignores its rubric.
+# A second, "stock" fake app then fails EVERY probe (unpatched behaviour) and
+# the asserted "0 / 3" plus its absence from the leaderboard proves the
+# stock-scores-zero invariant (docs/modules.md §6.4) mechanically.
 #
 # Asserts, against the real artifacts (no mocks on the scorer side):
 #   - ctf-score.md carries the two score-action regexes verbatim
@@ -24,14 +27,16 @@ IMG=ctf-score:acceptance
 NET=ctf-scorer-acceptance
 SERVE_CTR=ctf-scorer-acceptance-serve
 APP_CTR=ctf-scorer-acceptance-app
+STOCK_CTR=ctf-scorer-acceptance-stock
 SERVE_PORT=4102
 TMP=$(mktemp -d /tmp/ctf-scorer-acceptance.XXXXXX)
 WS_PUSH="$TMP/workspace-push"
 WS_POLL="$TMP/workspace-poll"
-mkdir -p "$WS_PUSH" "$WS_POLL"
+WS_STOCK="$TMP/workspace-stock"
+mkdir -p "$WS_PUSH" "$WS_POLL" "$WS_STOCK"
 
 cleanup() {
-  docker rm -f "$SERVE_CTR" "$APP_CTR" >/dev/null 2>&1 || true
+  docker rm -f "$SERVE_CTR" "$APP_CTR" "$STOCK_CTR" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   docker rmi "$IMG" >/dev/null 2>&1 || true
   rm -rf "$TMP"
@@ -142,6 +147,68 @@ process.stdin.on("data", (c) => (s += c)).on("end", () => {
     console.error("FAIL: unexpected leaderboard: " + s); process.exit(1);
   }
   console.log("leaderboard ok: " + s);
+});
+'
+
+echo "--- stock-scores-zero (modules.md 6.4): judge an unpatched fake app"
+# Second webhook payload: a different author, so the leaderboard check below
+# can prove the stock run recorded nothing for them specifically.
+cat > "$TMP/event-stock.json" <<'JSON'
+{ "pull_request": { "number": 8, "user": { "login": "mallory" }, "head": { "sha": "0000000000ck" } } }
+JSON
+
+# "Stock" fake app: hits every example-rubric probe's FAIL branch —
+#   reflected-xss-search  FAIL (200 but the payload is echoed back verbatim)
+#   sqli-login-bypass     FAIL (200 + token: the SQLi bypass still logs in)
+#   confidential-ftp-doc  FAIL (200: the document is still served)
+STOCK_APP_JS=$(cat <<'JS'
+require("node:http").createServer((req, res) => {
+  const url = req.url || "";
+  if (url.startsWith("/rest/products/search")) { res.writeHead(200); res.end("<h1>Results for <script>alert(1)</script></h1>"); return; }
+  if (url === "/rest/user/login") { res.writeHead(200); res.end('{"authentication":{"token":"stock-jwt"}}'); return; }
+  if (url === "/ftp/acquisitions.md") { res.writeHead(200); res.end("top secret acquisitions"); return; }
+  res.writeHead(200); res.end("ok");
+}).listen(3000, () => console.error("stock fake app on :3000"));
+JS
+)
+docker run -d --name "$STOCK_CTR" --network "$NET" \
+  node:22-alpine node -e "$STOCK_APP_JS" >/dev/null
+
+docker run --rm \
+  --entrypoint /usr/local/bin/entrypoint.sh \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$WS_STOCK:/github/workspace" \
+  -v "$TMP/event-stock.json:/github/event.json:ro" \
+  -e TARGET=juice-shop \
+  -e APP_URL="http://$STOCK_CTR:3000" \
+  -e NETWORK="$NET" \
+  -e GITHUB_WORKSPACE=/github/workspace \
+  -e GITHUB_EVENT_PATH=/github/event.json \
+  -e APP_READY_TRIES=15 -e APP_READY_DELAY=1 \
+  -e SCORE_API="http://$SERVE_CTR:4000" \
+  -e SCORE_TOKEN=test-token \
+  "$IMG"
+
+STOCK_REPORT="$WS_STOCK/ctf-score.md"
+[ -f "$STOCK_REPORT" ] || { echo "FAIL: stock judge wrote no ctf-score.md"; exit 1; }
+grep -qF '**0 / 3** challenges patched' "$STOCK_REPORT"
+if grep -qF '<!-- ctf-score:not-recorded -->' "$STOCK_REPORT"; then
+  echo "FAIL: stock run's empty-solve push must still be recorded (202)"; exit 1
+fi
+
+echo "--- leaderboard: the stock author gained nothing (zero/absent entry)"
+curl -sf "http://127.0.0.1:$SERVE_PORT/leaderboard" | node -e '
+let s = "";
+process.stdin.on("data", (c) => (s += c)).on("end", () => {
+  const { leaderboard } = JSON.parse(s);
+  const mallory = leaderboard.find((e) => e.author === "mallory");
+  if (mallory && (mallory.points !== 0 || mallory.apps["juice-shop"].solved !== 0)) {
+    console.error("FAIL: stock target handed out points: " + s); process.exit(1);
+  }
+  if (leaderboard.length !== 1 || leaderboard[0].author !== "octocat") {
+    console.error("FAIL: unexpected leaderboard after stock run: " + s); process.exit(1);
+  }
+  console.log("stock-zero ok: " + s);
 });
 '
 

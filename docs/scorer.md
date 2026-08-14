@@ -96,7 +96,12 @@ only when the vulnerability is actually fixed. If it passes against the
 stock vulnerable app, it is wrong — that's the stock-scores-zero invariant
 from [docs/modules.md](modules.md) §6.4. Prefer one small, stable
 substring (`bodyIncludes`) or the exact payload that must vanish
-(`bodyMissing`) over brittle full-body matches.
+(`bodyMissing`) over brittle full-body matches. The kit's
+`scripts/acceptance-scorer.sh` proves the all-fail path mechanically (an
+unpatched fake app scores `0 / 3` and gains nothing on the leaderboard),
+but verifying that **your** rubric scores a true stock target at zero is
+the rubric author's §6.4 obligation before the event — the stock targets
+are heavyweight and the kit cannot boot them generically.
 
 `scorer/rubric.example/` is the living documentation: `juice-shop.yaml`
 is commented as a tutorial and its README covers the authoring workflow.
@@ -129,16 +134,26 @@ don't assume) and leave it private until the event ends.
 
 ## Installing the consumer workflow
 
-Copy `scorer/consumer-workflow.example.yml` into **each** forked target
-repo as `.github/workflows/ctf-score.yml`, fill in the three placeholders,
-and disable any inherited upstream workflows in the fork's Settings →
-Actions:
+`./setup/ctf-setup.sh org` renders `scorer/consumer-workflow.example.yml`
+locally — one file per target, placeholders pre-filled — into
+`dist/workflows/<target>.ctf-score.yml` (re-render alone with
+`./setup/ctf-setup.sh render`; no upstream access either way). Commit each
+rendered file into the matching forked target repo as
+`.github/workflows/ctf-score.yml` and disable any inherited upstream
+workflows in the fork's Settings → Actions. Filling the template in by
+hand works too; the placeholders are:
 
 | Placeholder | Meaning |
 |---|---|
 | `<EVENT_ORG>` | The GitHub org the scorer image was mirrored into (`ghcr.io/<EVENT_ORG>/score:latest`) |
 | `<TARGET>` | The repo's rubric target id — must match a `<target>.yaml` in the baked rubric, e.g. `juice-shop` |
 | `<APP_URL>` | Where the app under test answers **on the ctf network**, e.g. `http://<TARGET>:3000` — no host ports are published |
+
+The renderer fills `<APP_URL>` with each target's **stock** port
+(`http://juice-shop:3000`, `http://dvwa:80`, `http://webgoat:8080/WebGoat`,
+…) on the assumption that the target self-boots as a sibling container —
+verify the URL against your rubric's boot strategy (see
+[Booting hard targets](#booting-hard-targets)) before committing the file.
 
 Poll vs push is decided by two optional org Actions secrets:
 
@@ -191,10 +206,18 @@ patch, so it only fits challenges scored against a shared instance).
   POST-command-array subset of the Upstash REST API the rest of the kit
   uses (see the notes in `scripts/smoke.sh`); it is not a general Redis
   client.
-- **No re-run rate cap** — capping scoring re-runs per PR
-  ([docs/modules.md](modules.md) §6.3) is not enforced by the engine; the
-  monotonic write model means brute-forcing re-runs gains nothing on the
-  leaderboard, but it can still burn Actions minutes.
+- **The re-run rate cap lives in the workflow, not the engine** — the
+  engine's monotonic writes mean re-runs gain nothing on the leaderboard,
+  but every run still hands the contestant a fresh per-challenge ✅/❌
+  verdict: a fast, free oracle to iterate a check-gaming patch against
+  (tweak, push, read the ❌s, repeat) — that feedback loop, not Actions
+  minutes, is the real threat. The shipped consumer workflow therefore
+  enforces [docs/modules.md](modules.md) §6.3 itself: a `concurrency`
+  group (one run per PR, superseded runs cancelled) plus a cooldown gate
+  that skips scoring while the previous result comment is younger than
+  `COOLDOWN_MINUTES` (default 5 — a plain env value at the top of the
+  workflow) and annotates the comment with when the next push will be
+  scored.
 
 `scripts/acceptance-scorer.sh` is the offline proof of all of the above:
 it builds the image with the example rubric, judges a fake target that

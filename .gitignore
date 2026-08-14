@@ -13,6 +13,9 @@ docs/_site/
 # organizer's private rubric (built into their scorer image, never committed)
 scorer/rubric/
 
+# rendered per-event artifacts (ctf-setup.sh org/render writes dist/workflows/)
+dist/
+
 # vendored app build artifacts
 apps/web/node_modules/
 apps/web/.next/

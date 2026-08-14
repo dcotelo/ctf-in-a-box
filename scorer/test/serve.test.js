@@ -72,6 +72,17 @@ test("POST validation: 400 on bad author, bad target, bad solved, broken JSON", 
   assert.equal((await post(solve("octocat[bot]", "dvwa", []))).status, 202); // bot suffix OK
 });
 
+test("POST /score rejects bodies over 64 KiB with 413 (authed callers, defense-in-depth)", async (t) => {
+  const { post, board } = await boot(t);
+  // Valid auth, oversized JSON body: one giant string inside a real payload.
+  const big = JSON.stringify(solve("octocat", "dvwa", ["x".repeat(80 * 1024)]));
+  const res = await post(big);
+  assert.equal(res.status, 413);
+  // Nothing was recorded and a normal-size request still works afterwards.
+  assert.deepEqual(await board(), { leaderboard: [] });
+  assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]))).status, 202);
+});
+
 test("unknown challenge ids are dropped silently, request still 202s", async (t) => {
   const { post, board } = await boot(t);
   const res = await post(solve("octocat", "dvwa", ["sqli-low", "not-in-rubric"]));

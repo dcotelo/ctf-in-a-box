@@ -80,8 +80,9 @@ state; everything else that touches scores goes through it.
 
 1. A contestant forks a target repo in the event org, patches a
    vulnerability, and opens a PR back to the org's copy.
-2. A `pull_request_target` GitHub Action (installed per target by
-   `setup/ctf-setup.sh org`, see
+2. A `pull_request_target` GitHub Action (rendered per target from the
+   in-repo template `scorer/consumer-workflow.example.yml` by
+   `setup/ctf-setup.sh org` and installed manually, see
    [docs/modules.md §6.1](modules.md#6-security-requirements-non-negotiable))
    runs in the *base* repo's context — where org secrets live — and scores
    the patch using the private `scorer` image, while the contestant's PR
@@ -181,11 +182,11 @@ config change").
   `/score` externally, and only when the organizer opts into push mode.
 - **Private scorer image, per-event mirror.** The scorer image stays
   private (it bakes in the rubric). `setup/ctf-setup.sh org` mirrors
-  whatever `SCORE_IMAGE` names — default `ghcr.io/owasp-ctf/score:latest`,
-  which has no formal access process yet (ask the OWASP-CTF maintainers,
-  or build your own image against the contract in `docs/modules.md` — the
-  self-contained path: the in-repo engine `scorer/` plus your own private
-  rubric, see [docs/scorer.md](scorer.md)) —
+  whatever `SCORE_IMAGE` names — no default: the expected path is the
+  self-contained one, the in-repo engine `scorer/` plus your own private
+  rubric (see [docs/scorer.md](scorer.md)); the upstream
+  `ghcr.io/owasp-ctf/score:latest` works too but is private with no formal
+  access process yet (ask the OWASP-CTF maintainers) —
   into the event org's own GHCR (`ghcr.io/$org/score:latest`) so forked
   repos' Actions can pull it with their own `GITHUB_TOKEN`. Access control, not obfuscation, is the
   actual defense — reverse-engineering the rubric out of the image is

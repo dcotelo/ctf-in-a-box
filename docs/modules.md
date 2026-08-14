@@ -220,10 +220,11 @@ one worked example.
    `GITHUB_TOKEN` (needed to pull the private scorer image and read org
    secrets) lives, while the untrusted PR code under test executes in a
    sandboxed container on an internal Docker network with no access to
-   that token — the isolation pattern documented in the consumer docs of
-   the upstream scorer repo, the same `pull_request_target.yml` workflow
-   `setup/ctf-setup.sh`'s `cmd_org` fetches and prints manual install steps
-   for into each forked target repo (§7.2 — installation itself is a manual
+   that token — the isolation pattern the kit's own consumer workflow
+   template (`scorer/consumer-workflow.example.yml`) implements, the same
+   workflow `setup/ctf-setup.sh`'s `cmd_org` renders per target into
+   `dist/workflows/` and prints manual install steps for into each forked
+   target repo (§7.2 — installation itself is a manual
    step, not automated by `cmd_org`). A module MUST
    reproduce this isolation for its own scoring workflow, not just inherit
    it by accident.
@@ -238,11 +239,12 @@ one worked example.
 
 3. Scoring re-runs per submission MUST be rate-capped (e.g. N re-scores per
    PR per hour), so a contestant cannot brute-force the scorer's judgment
-   with rapid speculative pushes. (Upstream dependency for
-   `secure-development`: `score-action` doesn't yet enforce this — see
-   `README.md`'s "Status / upstream dependencies" — but any new module's
-   scoring workflow MUST ship its own cap regardless of what
-   `secure-development` currently has landed.)
+   with rapid speculative pushes. (`secure-development`'s shipped consumer
+   workflow, `scorer/consumer-workflow.example.yml`, enforces this itself
+   with a per-PR `concurrency` group plus a `COOLDOWN_MINUTES` gate; the
+   upstream `score-action` path still doesn't — see `README.md`'s "Status /
+   upstream dependencies". Any new module's scoring workflow MUST ship its
+   own cap regardless.)
 
 4. **Stock-scores-zero invariant**: an unpatched, stock copy of a target
    MUST score 0. A module MUST ship a guard (a test or CI check) that
@@ -257,16 +259,20 @@ one worked example.
 
 1. **Fork** each configured target from `OWASP-CTF/<repo>` into the event
    org (`gh repo fork "OWASP-CTF/$r" --org "$org"`).
-2. **Fetch + print install steps** for the scoring workflow: `cmd_org` reads
-   the consumer's `pull_request_target.yml` from the upstream scorer repo's
-   docs via the GitHub API and prints where the organizer must decode and
-   commit it — as `.github/workflows/ctf-score.yml` in each forked repo,
-   with inherited workflows disabled in repo Settings — but does not commit
+2. **Render + print install steps** for the scoring workflow: `cmd_org`
+   renders the in-repo template (`scorer/consumer-workflow.example.yml`)
+   per target — substituting the event org, the target id, and a default
+   `APP_URL` — into `dist/workflows/<target>.ctf-score.yml` (no upstream
+   access; also available standalone as the `render` subcommand) and
+   prints where the organizer must commit each file — as
+   `.github/workflows/ctf-score.yml` in the matching forked repo, with
+   inherited workflows disabled in repo Settings — but does not commit
    it itself; that step is manual.
 3. **Mirror** the scorer image into the event org's own private GHCR
-   (`docker pull` the upstream image, `docker tag`/`docker push` to
-   `ghcr.io/$org/score:latest`) so forked repos' Actions can pull it with
-   their own `GITHUB_TOKEN` rather than organizer credentials.
+   (`docker pull` whatever `SCORE_IMAGE` names — the organizer's own
+   image; there is no upstream default — then `docker tag`/`docker push`
+   to `ghcr.io/$org/score:latest`) so forked repos' Actions can pull it
+   with their own `GITHUB_TOKEN` rather than organizer credentials.
 4. **Teardown**: `gh repo archive "$org/$r" --yes` for every target repo,
    plus a manual reminder to revoke the organizer PAT and delete org
    Actions secrets — `ctf-setup.sh` does not do this automatically.

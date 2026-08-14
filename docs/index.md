@@ -28,7 +28,7 @@ scores the PR and the score lands on your box's leaderboard.
 ./setup/ctf-setup.sh check
 ./setup/ctf-setup.sh secrets
 cp event.yaml.example event.yaml   # edit: org, targets, admins, url
-./setup/ctf-setup.sh org           # fork targets, fetch workflow, mirror image
+./setup/ctf-setup.sh org           # fork targets, render workflows, mirror image
 docker compose --profile poll --profile app up -d
 ```
 
