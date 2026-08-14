@@ -68,6 +68,34 @@ describe("updateAdminSettings write", () => {
     expect(args.some((a) => String(a).includes('"paused":true'))).toBe(true);
     expect(out.paused).toBe(true);
   });
+
+  it("clears paused via HDEL instead of writing the string \"0\" when unpausing", async () => {
+    // paused is a two-state field (\"1\" or absent) — false must mean absent,
+    // not the string "0", so the sync poller and scorer's presence checks
+    // don't misread an un-pause as still-paused.
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+    const out = await updateAdminSettings({ paused: false }, "alice");
+    expect(mocks.upstashEval).toHaveBeenCalledOnce();
+    const [script, , args] = mocks.upstashEval.mock.calls[0];
+
+    // updatedBy/updatedAt and the audit line are still written — unpausing is
+    // a real audited change.
+    expect(args).toContain("alice");
+    expect(args.some((a) => String(a).includes('"paused":false'))).toBe(true);
+
+    // "paused" must appear only as a field slated for deletion, never as an
+    // HSET pair with value "0" or "1".
+    const strArgs = args.map(String);
+    const pausedIdx = strArgs.indexOf("paused");
+    expect(pausedIdx).toBeGreaterThan(-1);
+    expect(strArgs[pausedIdx + 1]).not.toBe("0");
+    expect(strArgs[pausedIdx + 1]).not.toBe("1");
+
+    // The script itself must HDEL, not just HSET, the settings hash.
+    expect(String(script)).toContain("HDEL");
+
+    expect(out.paused).toBe(false);
+  });
 });
 
 describe("getSyncStatus", () => {

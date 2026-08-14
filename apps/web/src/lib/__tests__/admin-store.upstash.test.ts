@@ -57,4 +57,22 @@ describe.skipIf(!configured)("admin-store against a live SRH proxy", () => {
     const [len] = await upstashPipeline([["LLEN", "ctf:admin:audit"]]);
     expect(Number(len.result)).toBe(AUDIT_CAP);
   });
+
+  it("clears the paused field to absent (not \"0\") when unpausing", async () => {
+    await updateAdminSettings({ paused: true }, "alice");
+    const [setGet] = await upstashPipeline([["HGET", "ctf:admin:settings", "paused"]]);
+    expect(setGet.result).toBe("1");
+
+    await updateAdminSettings({ paused: false }, "alice");
+    const [clearedExists, clearedUpdatedAt] = await upstashPipeline([
+      ["HEXISTS", "ctf:admin:settings", "paused"],
+      ["HGET", "ctf:admin:settings", "updatedAt"],
+    ]);
+    expect(Number(clearedExists.result)).toBe(0);
+    expect(typeof clearedUpdatedAt.result).toBe("string");
+    expect(clearedUpdatedAt.result).toBeTruthy();
+
+    const settings = await getAdminSettings();
+    expect(settings.paused).toBe(false);
+  });
 });

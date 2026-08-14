@@ -41,9 +41,10 @@ function flatToObject(flat: unknown): Record<string, string> {
   return obj;
 }
 
-export async function getAdminSettings(): Promise<AdminSettings> {
-  const [res] = await upstashPipeline([["HGETALL", ADMIN_SETTINGS_KEY]]);
-  const h = flatToObject(res.result);
+// `paused` is two-state on the wire — "1" or absent — so false and
+// never-set are the same value. `hintsEnabled` is deliberately three-state
+// ("1"/"0"/absent) since absent means "no override, use the env default".
+function decodeSettings(h: Record<string, string>): AdminSettings {
   return {
     paused: h.paused === "1",
     hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
@@ -51,6 +52,11 @@ export async function getAdminSettings(): Promise<AdminSettings> {
     updatedBy: h.updatedBy ?? null,
     updatedAt: h.updatedAt ?? null,
   };
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  const [res] = await upstashPipeline([["HGETALL", ADMIN_SETTINGS_KEY]]);
+  return decodeSettings(flatToObject(res.result));
 }
 
 export async function getSyncStatus(): Promise<SyncStatus | null> {
@@ -66,12 +72,16 @@ export async function getSyncStatus(): Promise<SyncStatus | null> {
   };
 }
 
-// HSET the changed fields + updatedBy/updatedAt, LPUSH one audit line, LTRIM the
-// list — one atomic script so a change can never land without its audit record.
-// ARGV: [1]=updatedBy [2]=updatedAt [3]=auditLine [4]=cap-1 [5..]=field,value pairs
+// HDEL the fields being cleared, HSET the changed fields + updatedBy/updatedAt,
+// LPUSH one audit line, LTRIM the list — one atomic script so a change can
+// never land without its audit record.
+// ARGV: [1]=updatedBy [2]=updatedAt [3]=auditLine [4]=cap-1 [5]=numDels
+//       [6 .. 5+numDels]=field names to HDEL  [6+numDels ..]=field,value pairs to HSET
 const UPDATE_SCRIPT = `
+local numDels = tonumber(ARGV[5])
 redis.call('HSET', KEYS[1], 'updatedBy', ARGV[1], 'updatedAt', ARGV[2])
-for i = 5, #ARGV, 2 do redis.call('HSET', KEYS[1], ARGV[i], ARGV[i+1]) end
+for i = 1, numDels do redis.call('HDEL', KEYS[1], ARGV[5 + i]) end
+for i = 6 + numDels, #ARGV, 2 do redis.call('HSET', KEYS[1], ARGV[i], ARGV[i+1]) end
 redis.call('LPUSH', KEYS[2], ARGV[3])
 redis.call('LTRIM', KEYS[2], 0, tonumber(ARGV[4]))
 return redis.call('HGETALL', KEYS[1])`;
@@ -80,9 +90,18 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
   const keys = Object.keys(patch);
   if (keys.length === 0) throw new AdminValidationError("patch", "empty patch");
   const fields: string[] = [];
+  const dels: string[] = [];
   const changed: Record<string, boolean | number> = {};
   for (const [k, v] of Object.entries(patch)) {
-    if (k === "paused" || k === "hintsEnabled") {
+    if (k === "paused") {
+      if (typeof v !== "boolean") throw new AdminValidationError(k, `${k} must be a boolean`);
+      // Two-state on the wire: "1" or absent. False must clear the field
+      // (HDEL) rather than write "0" — the sync poller and scorer read this
+      // key independently with a presence check, so false must equal absent.
+      if (v) fields.push(k, "1");
+      else dels.push(k);
+      changed[k] = v;
+    } else if (k === "hintsEnabled") {
       if (typeof v !== "boolean") throw new AdminValidationError(k, `${k} must be a boolean`);
       fields.push(k, v ? "1" : "0");
       changed[k] = v;
@@ -101,14 +120,7 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
   const result = await upstashEval(
     UPDATE_SCRIPT,
     [ADMIN_SETTINGS_KEY, ADMIN_AUDIT_KEY],
-    [actor, at, audit, String(AUDIT_CAP - 1), ...fields],
+    [actor, at, audit, String(AUDIT_CAP - 1), String(dels.length), ...dels, ...fields],
   );
-  const h = flatToObject(result);
-  return {
-    paused: h.paused === "1",
-    hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
-    hintCost: h.hintCost === undefined ? null : Number(h.hintCost),
-    updatedBy: h.updatedBy ?? null,
-    updatedAt: h.updatedAt ?? null,
-  };
+  return decodeSettings(flatToObject(result));
 }
