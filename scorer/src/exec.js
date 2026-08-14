@@ -56,25 +56,41 @@ async function runPool(items, worker, concurrency) {
 // child that never reports at all.
 function runChild(args, env, isDone) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, args, { env });
+    // Detached: the child becomes the leader of its own process group, so a
+    // signal to -child.pid reaches it AND any worker process it spawns
+    // internally — `node --test` spawns a further, isolated worker process
+    // per test file by default. Signalling child.pid alone would kill only
+    // the harness and leave that inner worker orphaned (reparented to init),
+    // still running the hung test file for as long as it likes.
+    const child = spawn(process.execPath, args, { env, detached: true });
     let buf = "";
     let settled = false;
     let done = false;
     let safetyFired = false;
     let hardKill;
 
+    const killGroup = (signal) => {
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        // No POSIX process group available — fall back to the harness alone
+        // rather than throwing.
+        try { child.kill(signal); } catch { /* already gone */ }
+      }
+    };
+
     const safety = setTimeout(() => {
       safetyFired = true;
-      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+      killGroup("SIGKILL");
     }, safetyTimeoutMs(env));
 
     const maybeKill = () => {
       if (done || !isDone(buf)) return;
       done = true;
-      try { child.kill("SIGTERM"); } catch { /* already gone */ }
+      killGroup("SIGTERM");
       // Escalate if the graceful signal is ignored (open TLS sockets delay exit).
       hardKill = setTimeout(() => {
-        try { child.kill("SIGKILL"); } catch { /* already gone */ }
+        killGroup("SIGKILL");
       }, 2_000);
     };
 
@@ -90,6 +106,10 @@ function runChild(args, env, isDone) {
     };
     child.on("close", finish);
     child.on("error", finish);
+    // "close" waits for stdio EOF, which a grandchild still holding the
+    // pipes can keep open even after SIGKILL — wire "exit" too so the
+    // promise still settles once the process itself is gone.
+    child.on("exit", finish);
   });
 }
 
@@ -97,8 +117,11 @@ function scoreOne(challenge, abort, env) {
   const { file, key, byName, testsDir } = challenge.exec;
   const testPath = join(testsDir, file);
   if (!existsSync(testPath)) return Promise.resolve(false);
-  // The target already proved unreachable — don't spawn, don't wait.
-  if (abort.aborted) return Promise.resolve(false);
+  // The target already proved unreachable — don't spawn, don't wait. But a
+  // report from any challenge (even one that armed the abort a moment ago)
+  // proves the target reachable after all, so the gate must stay disarmed
+  // once that happens rather than latching permanently on `aborted` alone.
+  if (abort.aborted && !abort.anyReported) return Promise.resolve(false);
 
   // Deliberately NO --test-force-exit. WebGoat's rubric registers assignments
   // with top-level `await test(...)`; force-exit tears the child down before the
@@ -109,8 +132,13 @@ function scoreOne(challenge, abort, env) {
     ? [...baseArgs, `--test-name-pattern=^${escapeRegExp(keyed)}$`, testPath]
     : [...baseArgs, testPath];
 
-  const passLine = keyed ? new RegExp(`✔\\s+${escapeRegExp(keyed)}\\b`) : null;
-  const failLine = keyed ? new RegExp(`✖\\s+${escapeRegExp(keyed)}\\b`) : null;
+  // Anchored to line start (with `m`) and closed with a lookahead rather than
+  // `\b`, so the marker can only match the reporter's own summary line, never
+  // a substring elsewhere in the buffer (defense-in-depth against a key
+  // ending in a non-word character, which `\b` would fail to bound — no
+  // real catalogue key does this today; RUBRIC_ID pins key charset).
+  const passLine = keyed ? new RegExp(`^\\s*✔\\s+${escapeRegExp(keyed)}(?=\\s|$)`, "m") : null;
+  const failLine = keyed ? new RegExp(`^\\s*✖\\s+${escapeRegExp(keyed)}(?=\\s|$)`, "m") : null;
 
   const isDone = (buf) => {
     const c = stripAnsi(buf);
@@ -135,10 +163,14 @@ function scoreOne(challenge, abort, env) {
 
     const clean = stripAnsi(output);
     let patched;
+    let reported;
     if (keyed) {
       // The subtest must have actually run and passed. A zero-match pattern
       // produces neither line, so it stays unpatched.
-      patched = passLine.test(clean) && !failLine.test(clean);
+      const passed = passLine.test(clean);
+      const failed = failLine.test(clean);
+      reported = passed || failed;
+      patched = passed && !failed;
     } else {
       const num = (re) => {
         const m = clean.match(re);
@@ -146,10 +178,15 @@ function scoreOne(challenge, abort, env) {
       };
       const passN = num(/^[^\n]*\bpass (\d+)\s*$/m);
       const failN = num(/^[^\n]*\bfail (\d+)\s*$/m);
+      reported = SUMMARY_MARKER.test(clean);
       patched = Number.isFinite(failN) && failN === 0 && passN >= 1;
     }
 
-    abort.anyReported = true;
+    // Only a child that actually emitted a reporter marker proves the target
+    // reachable. A child that died before reporting (e.g. a syntax error or
+    // bad import in a rubric's test file) must not permanently disarm
+    // unreachable detection for the rest of the run.
+    if (reported) abort.anyReported = true;
     return patched;
   });
 }
