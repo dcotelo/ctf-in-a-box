@@ -60,6 +60,18 @@ for t in $WANT; do
   # Drop upstream's aggregate runners: the engine spawns one child per challenge
   # and a run-all import would re-run the whole suite inside every child.
   rm -f "$DEST/$t/tests/run-all.mjs"
+  # Declare ESM. Every vendored test file uses `import` in a plain `.js` file, and
+  # in the built image the rubric lands at /rubric with NO parent package.json — so
+  # the children today parse only because Node >= 22.7 detects module syntax by
+  # itself. If the floating `node:22-alpine` base ever resolved to an earlier 22.x
+  # (or an organizer built with a pinned older Node), every child would die with a
+  # SyntaxError before reporting, and that reads as a clean 0 / N which the
+  # stock-scores-zero gate would happily pass. Generated here, never hand-written:
+  # these trees are clobbered on the next vendor run. Upstream's own package.json
+  # (juice-shop ships one) always wins.
+  if [ ! -f "$DEST/$t/tests/package.json" ]; then
+    printf '{ "type": "module" }\n' > "$DEST/$t/tests/package.json"
+  fi
 done
 
 {
