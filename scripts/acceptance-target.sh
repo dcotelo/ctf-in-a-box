@@ -7,11 +7,22 @@
 # ("assert the fix, not the exploit") exists to prevent.
 #
 # Usage: scripts/acceptance-target.sh <target> <stock-image>
+#
+# <stock-image> may be the literal `none`, meaning "this target HAS no published stock
+# image — its bring-up builds the pinned upstream source instead". That is not a
+# convenience: securityshepherd genuinely has none (`owaspsecurityshepherd/shepherd`
+# does not exist, and `owasp/security-shepherd` was last pushed in 2018, years before
+# the release-17 tree the rubric targets), which is why upstream's own six-target CI
+# matrix leaves that one row's app-image empty. `none` becomes an empty APP_IMAGE,
+# which keeps the two-argument contract intact and states the intent at the call site
+# instead of overloading a missing argument. A target whose bring-up cannot build from
+# source still fails loudly on the empty APP_IMAGE, exactly as it does today.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TARGET="${1:?usage: $0 <target> <stock-image>}"
-STOCK_IMAGE="${2:?usage: $0 <target> <stock-image>}"
+TARGET="${1:?usage: $0 <target> <stock-image|none>}"
+STOCK_IMAGE="${2:?usage: $0 <target> <stock-image|none>}"
+if [ "$STOCK_IMAGE" = "none" ]; then STOCK_IMAGE=""; fi
 
 IMG="ctf-score:acceptance-$TARGET"
 NET="ctf-acceptance-$TARGET"
@@ -19,8 +30,14 @@ TMP="$(mktemp -d)"
 WS="$TMP/workspace"
 mkdir -p "$WS"
 
+# entrypoint.sh already reaps the containers its bring-up started (BOOTED plus
+# EXTRA_CONTAINERS) on its own EXIT. This is the belt-and-braces for the case where
+# the scorer container itself dies hard and never runs that trap — so it names every
+# sibling any bring-up can start: dvwa's `db`, and securityshepherd's three (plus the
+# source volume its Maven handoff creates, which would otherwise leak a GB of disk).
 cleanup() {
-  docker rm -f "ctf-app-$TARGET" db >/dev/null 2>&1 || true
+  docker rm -f "ctf-app-$TARGET" db secshep_tomcat secshep_mariadb secshep_mongo >/dev/null 2>&1 || true
+  docker volume rm -f ss_src >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -47,15 +64,25 @@ docker network create --internal "$NET" >/dev/null 2>&1 || true
 # -> 200). Hence APP_URL_SUFFIX, not APP_PORT: it is whatever string turns
 # `http://$TARGET` into the real, reachable app URL — port, path, or both.
 #
+# The SCHEME is per-target for the same reason: securityshepherd is the only one
+# that speaks HTTPS (Tomcat's TLS connector on 8443, with a self-signed cert that
+# expired in 2019 — its bring-up exports NODE_TLS_REJECT_UNAUTHORIZED=0 rather than
+# re-issuing it, because the rubric's helpers disable verification deliberately and
+# several tests assert on TLS-level behaviour). It defaults to http, so the other
+# five compose exactly the URLs they always have.
+#
 # setup/ctf-setup.sh's app_url_for() carries the same per-target URL facts
 # for the rendered organizer workflow. The two tables are intentionally NOT
 # derived from one another (that script has provisioning side effects; this
-# gate should not source it) — a new target's suffix needs an entry in BOTH.
+# gate should not source it) — a new target's scheme and suffix need an entry
+# in BOTH.
+APP_SCHEME="http"
 case "$TARGET" in
   vampi) APP_URL_SUFFIX=":5000" ;;
   vulnerableapp) APP_URL_SUFFIX=":9090/VulnerableApp" ;;
   juice-shop) APP_URL_SUFFIX=":3000" ;;
   webgoat) APP_URL_SUFFIX=":8080/WebGoat" ;;
+  securityshepherd) APP_SCHEME="https"; APP_URL_SUFFIX=":8443" ;;
   *) APP_URL_SUFFIX="" ;;
 esac
 
@@ -70,7 +97,7 @@ docker run --rm \
   -v "$WS:/github/workspace" \
   -v "$TMP/event.json:/github/event.json:ro" \
   -e "TARGET=$TARGET" \
-  -e "APP_URL=http://$TARGET$APP_URL_SUFFIX" \
+  -e "APP_URL=$APP_SCHEME://$TARGET$APP_URL_SUFFIX" \
   -e "APP_IMAGE=$STOCK_IMAGE" \
   -e "NETWORK=$NET" \
   --entrypoint /usr/local/bin/entrypoint.sh \

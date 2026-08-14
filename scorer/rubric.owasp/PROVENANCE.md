@@ -12,6 +12,6 @@ Do not edit these trees by hand — re-run the script against a newer ref.
 - `juice-shop` — 38 challenges
 - `dvwa` — 55 challenges
 - `webgoat` — 69 challenges
-- `securityshepherd` — not yet vendored
+- `securityshepherd` — 40 challenges
 - `vulnerableapp` — 110 challenges
 - `vampi` — 9 challenges

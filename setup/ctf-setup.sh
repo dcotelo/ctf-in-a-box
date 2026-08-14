@@ -53,16 +53,22 @@ repo_for() {
 # are the targets' STOCK ports — verify each one against your rubric's boot
 # strategy (docs/scorer.md, "Booting hard targets") before the event.
 #
-# scripts/acceptance-target.sh carries its own per-target URL-suffix table (an
-# APP_URL_SUFFIX case) for the same reason — the two are intentionally separate
-# (no derivation, no sourcing this script from the gate) — a new target's URL
-# needs an entry in BOTH.
+# scripts/acceptance-target.sh carries its own per-target scheme + URL-suffix
+# table (an APP_SCHEME / APP_URL_SUFFIX case) for the same reason — the two are
+# intentionally separate (no derivation, no sourcing this script from the gate)
+# — a new target's URL needs an entry in BOTH.
 app_url_for() {
   case "$1" in
     juice-shop) echo "http://juice-shop:3000" ;;
     dvwa) echo "http://dvwa:80" ;;
     webgoat) echo "http://webgoat:8080/WebGoat" ;;
-    securityshepherd) echo "http://securityshepherd:80" ;;
+    # The only HTTPS target: its bring-up builds Security Shepherd from pinned
+    # upstream source and Tomcat's TLS connector listens on 8443. The certificate
+    # is self-signed and expired in 2019 — deliberately not re-issued (the rubric's
+    # helpers disable verification and several tests assert on TLS behaviour), so
+    # the bring-up exports NODE_TLS_REJECT_UNAUTHORIZED=0 instead. Verified against
+    # a real boot by `scripts/acceptance-target.sh securityshepherd none`.
+    securityshepherd) echo "https://securityshepherd:8443" ;;
     vulnerableapp) echo "http://vulnerableapp:9090/VulnerableApp" ;;
     vampi) echo "http://vampi:5000" ;;
     *) echo "unknown target: $1" >&2; return 1 ;;
