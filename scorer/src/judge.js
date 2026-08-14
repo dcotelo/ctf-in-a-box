@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadRubric } from "./rubric.js";
 import { validateProbes, runProbes, waitForApp } from "./probe.js";
+import { runExec } from "./exec.js";
+import { getTarget } from "./targets.js";
 
 // Mirrors sync/src/parse.js — same grammar, because the author becomes a
 // Redis field segment (`<author>:<challengeId>`) in the solves hash.
@@ -96,8 +98,12 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
   }
   // The loader passes probes through untouched; the judge validates the whole
   // rubric's grammar here, before touching the network or the event file.
+  // Exec challenges carry a test file instead of probes — there is no probe
+  // grammar to validate, and their test files are only reachable at run time.
   for (const [target, { challenges }] of rubric.targets) {
-    for (const c of challenges) validateProbes(c.probes, `${target}/${c.id}`);
+    for (const c of challenges) {
+      if (!c.exec) validateProbes(c.probes, `${target}/${c.id}`);
+    }
   }
 
   const { author, pr, sha } = readEvent(env.GITHUB_EVENT_PATH ?? "/github/event.json");
@@ -109,9 +115,20 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
   }
 
   const { challenges } = rubric.targets.get(TARGET);
-  const solved = [];
-  for (const c of challenges) {
-    if (await runProbes(APP_URL, c.probes, { fetchImpl })) solved.push(c.id);
+  let solved;
+  if (challenges.some((c) => c.exec)) {
+    // Exec rubric: children reach the app through the same APP_URL this process
+    // just proved reachable, passed down the target's conventional URL env var
+    // as well as APP_URL so a test can read either.
+    solved = await runExec(challenges, {
+      concurrency: getTarget(TARGET)?.defaultConcurrency ?? 1,
+      env: { ...env, APP_URL },
+    });
+  } else {
+    solved = [];
+    for (const c of challenges) {
+      if (await runProbes(APP_URL, c.probes, { fetchImpl })) solved.push(c.id);
+    }
   }
 
   const reportPath = join(env.GITHUB_WORKSPACE ?? "/github/workspace", "ctf-score.md");

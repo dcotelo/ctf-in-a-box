@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -244,4 +244,31 @@ test("renderReport pins column layout and JSON key order", () => {
   assert.match(md, /\| Challenge \| Points \| Result \|/);
   assert.match(md, /\*\*0 \/ 1\*\* challenges patched/);
   assert.ok(md.includes('<!-- ctf-score: {"author":"octocat","target":"juice-shop","solved":[],"pr":7,"sha":"abc123"} -->'));
+});
+
+test("judges an exec target and reports solved challenges by lowercased id", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "judge-exec-"));
+  const workspace = join(dir, "workspace");
+  mkdirSync(workspace, { recursive: true });
+  writeFileSync(join(dir, "event.json"), JSON.stringify({
+    pull_request: { user: { login: "octocat" }, number: 7, head: { sha: "deadbeef" } },
+  }));
+
+  const { solved, total } = await judge({
+    TARGET: "vampi",
+    APP_URL: "http://app.invalid",
+    RUBRIC_DIR: join(import.meta.dirname, "fixtures", "rubric-exec"),
+    GITHUB_WORKSPACE: workspace,
+    GITHUB_EVENT_PATH: join(dir, "event.json"),
+    APP_READY_TRIES: "1",
+    APP_READY_DELAY: "0",
+  }, { fetchImpl: async () => ({ ok: true, status: 200, text: async () => "" }) });
+
+  assert.equal(total, 1);
+  assert.deepEqual(solved, ["challenge-1-ok"]);
+
+  const report = readFileSync(join(workspace, "ctf-score.md"), "utf8");
+  assert.match(report, /\*\*1 \/ 1\*\* challenges patched/);
+  // Oracle discipline: no test file name, no assertion text.
+  assert.doesNotMatch(report, /\.test\.js/);
 });
