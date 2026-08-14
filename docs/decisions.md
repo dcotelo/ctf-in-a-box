@@ -59,7 +59,11 @@ route). Push mode needs a public URL for the box plus org Actions secrets
 instead of poll's ~30s cadence. `event.yaml`'s
 `modules.secure-development.score_ingest` field only documents the
 organizer's intent — the operative switch is the `SCORE_INGEST` env var in
-`.env`, and nothing syncs the two (README, "Poll vs push").
+`.env`, and nothing syncs the two (README, "Poll vs push"). Neither mode
+authenticates against a live scorer yet: both need the scorer's
+bearer-token auth mode, and push additionally needs `score-action`'s
+`leaderboard-url`/`leaderboard-token` inputs — both unlanded upstream
+changes tracked in README's "Status / upstream dependencies".
 
 ## 4. SRH as the Upstash-REST proxy in front of local Redis
 
@@ -124,7 +128,11 @@ the scorer; even a comment from the trusted author must carry a
 well-formed login before that string is trusted as a key. Any new
 transport a module adds must reproduce both checks, not just one
 (`docs/modules.md §3.2`: "trust here is entirely the GitHub-authenticated
-comment author, not anything in the payload").
+comment author, not anything in the payload"). The filter itself is
+proven today (`scripts/smoke.sh`'s forged-comment case); what it feeds —
+a bearer-authed `POST /score` against the real scorer — is not, pending
+the same upstream scorer auth mode noted in README's "Status / upstream
+dependencies".
 
 ## 7. Oracle discipline: pass/fail and points only, never diagnostics
 

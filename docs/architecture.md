@@ -88,6 +88,11 @@ state; everything else that touches scores goes through it.
    - **poll** (default): posts a PR comment authored as
      `github-actions[bot]` containing a machine-readable marker,
      `<!-- ctf-score: {...} -->` (`sync/src/parse.js`'s `MARKER`).
+
+   `score-action`'s `leaderboard-url`/`leaderboard-token` inputs, which
+   push mode needs to know where and how to POST, are still an unlanded
+   upstream change (README's [Status / upstream
+   dependencies](../README.md#status--upstream-dependencies), item 2).
 4. In poll mode, `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
    `fetchNewScoreComments` (`sync/src/github.js`), which fetches issue
    comments since the last cursor and **filters by comment author
@@ -181,7 +186,12 @@ config change").
   submit failure, `sync`'s `tick()` un-marks the comment as seen and
   retries it next tick (`rs.seen = rs.seen.filter((id) => id !== c.id);`).
   A replayed already-applied score is expected to be a no-op on the scorer
-  side, not a double-count.
+  side, not a double-count. The real (private) `scorer` image doesn't
+  accept bearer-token auth on `POST /score` yet — that's an unlanded
+  upstream change (see README's [Status / upstream
+  dependencies](../README.md#status--upstream-dependencies), item 1); the
+  offline mock scorer in `scripts/smoke.sh` is today's end-to-end proof of
+  this write path, not a live scorer.
 - **Per-event disposable orgs.** Each event gets its own GitHub org
   (`setup/ctf-setup.sh org` forks targets into it; `teardown` archives them
   afterward). Contestant PR code runs via `pull_request_target` in the
