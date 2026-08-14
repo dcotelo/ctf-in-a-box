@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
-import { enabledApps, joinAppNames } from "@/lib/apps";
+import { enabledApps, joinAppNames, workedExampleVariant } from "@/lib/apps";
 import { event } from "@/lib/site";
 
 const appList = joinAppNames(enabledApps.map((a) => a.name));
+const exampleVariant = workedExampleVariant(enabledApps);
 
 export const metadata: Metadata = {
   title: "How to Play",
@@ -34,11 +35,15 @@ const steps = [
   },
 ];
 
-// Worked example: the Login Admin SQL injection in the Juice Shop fork. The
-// before/after mirrors routes/login.ts on the target's default branch and the
-// canonical parameterized-query fix, so a contestant who follows this
-// verbatim genuinely scores (and closes the two sibling login challenges).
-const walkthrough: { title: string; body: string; code?: string; lang?: "shell" | "ts" }[] = [
+type WalkthroughStep = { title: string; body: string; code?: string; lang?: "shell" | "ts" };
+
+// Worked example, Juice Shop variant: the Login Admin SQL injection in the
+// Juice Shop fork. The before/after mirrors routes/login.ts on the target's
+// default branch and the canonical parameterized-query fix, so a contestant
+// who follows this verbatim genuinely scores (and closes the two sibling
+// login challenges). Only rendered when juice-shop is an enabled target —
+// see the generic fallback below for events where it isn't.
+const juiceShopWalkthrough: WalkthroughStep[] = [
   {
     title: "Fork the target and clone your fork",
     body: "Fork OWASP-CTF/juice-shop on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.",
@@ -99,6 +104,56 @@ git push -u origin fix/login-sql-injection`,
     body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏁 Score recorded” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
   },
 ];
+
+// Worked example, generic variant: same loop as the Juice Shop walkthrough
+// (fork, branch, find the flaw, patch, push, PR, get scored), but with no
+// concrete app name or app-specific file path — for events where juice-shop
+// isn't an enabled target.
+const genericWalkthrough: WalkthroughStep[] = [
+  {
+    title: "Fork the target and clone your fork",
+    body: "Fork the target's repo under the OWASP-CTF org on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.",
+    lang: "shell",
+    code: `gh repo fork OWASP-CTF/<target> --clone
+cd <target>`,
+  },
+  {
+    title: "Create a branch for your fix",
+    body: "One branch per fix keeps your PRs clean and easy to re-score.",
+    lang: "shell",
+    code: "git checkout -b fix/<short-description>",
+  },
+  {
+    title: "Find the flaw",
+    body: "Read the challenge description on the Challenges page, then trace it back to the vulnerable code in the target's source. Point an AI agent at the codebase if you want a head start on the audit.",
+  },
+  {
+    title: "Patch it",
+    body: "Apply the fix that closes the vulnerability class the challenge is testing for, without breaking the app's behavior for legitimate use.",
+  },
+  {
+    title: "Commit and push to your fork",
+    body: "Write the commit message like you would on a real security fix: say what was vulnerable and how the patch closes it.",
+    lang: "shell",
+    code: `git add -A
+git commit -m "Fix <vulnerability> in <component>"
+git push -u origin fix/<short-description>`,
+  },
+  {
+    title: "Open the PR against main",
+    body: "The base repo is the target's fork under OWASP-CTF and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.",
+    lang: "shell",
+    code: `gh pr create --repo OWASP-CTF/<target> --base main \\
+  --title "Fix <vulnerability>" \\
+  --body "Describe the fix and the vulnerability it closes."`,
+  },
+  {
+    title: "Watch the scorer do its thing",
+    body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏁 Score recorded” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
+  },
+];
+
+const walkthrough = exampleVariant === "juice-shop" ? juiceShopWalkthrough : genericWalkthrough;
 
 function CodeBlock({ code }: { code: string }) {
   return (
@@ -184,10 +239,20 @@ export default function HowToPlayPage() {
             Your first patch, end to end
           </h2>
           <p className="max-w-2xl text-sm leading-relaxed text-zinc-400">
-            Here&rsquo;s the whole loop on a real challenge: <span className="text-zinc-200">Login Admin</span> in
-            Juice Shop, a classic SQL injection. Follow it verbatim to land your first points and
-            see exactly what a scoring run looks like, then repeat the pattern on every other
-            challenge.
+            {exampleVariant === "juice-shop" ? (
+              <>
+                Here&rsquo;s the whole loop on a real challenge:{" "}
+                <span className="text-zinc-200">Login Admin</span> in Juice Shop, a classic SQL
+                injection. Follow it verbatim to land your first points and see exactly what a
+                scoring run looks like, then repeat the pattern on every other challenge.
+              </>
+            ) : (
+              <>
+                Here&rsquo;s the whole loop, end to end, on whichever target and challenge you
+                pick: fork it, find the flaw, patch it, and open a PR. See exactly what a scoring
+                run looks like, then repeat the pattern on every other challenge.
+              </>
+            )}
           </p>
         </div>
 
@@ -214,11 +279,22 @@ export default function HowToPlayPage() {
         <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">Bonus</p>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            That one-line fix doesn&rsquo;t just close Login Admin. The same injection powers the{" "}
-            <span className="text-zinc-200">Login Bender</span> and{" "}
-            <span className="text-zinc-200">Login Jim</span> challenges, so a single parameterized
-            query scores all three. Real fixes often cascade like this: patch the root cause, not
-            the symptom.
+            {exampleVariant === "juice-shop" ? (
+              <>
+                That one-line fix doesn&rsquo;t just close Login Admin. The same injection powers
+                the <span className="text-zinc-200">Login Bender</span> and{" "}
+                <span className="text-zinc-200">Login Jim</span> challenges, so a single
+                parameterized query scores all three. Real fixes often cascade like this: patch
+                the root cause, not the symptom.
+              </>
+            ) : (
+              <>
+                A root-cause fix like this often closes more than one challenge at once, if
+                several exercise the same underlying flaw. Real fixes often cascade like that:
+                patch the root cause, not the symptom, and check whether your score picked up
+                more than the one challenge you were aiming at.
+              </>
+            )}
           </p>
         </div>
       </section>

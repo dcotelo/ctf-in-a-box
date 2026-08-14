@@ -113,3 +113,14 @@ export const enabledTotalMaxPoints = enabledApps.reduce((n, a) => n + a.maxPoint
 export function joinAppNames(names: string[]): string {
   return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
 }
+
+/**
+ * Which worked-example variant the how-to-play page should render. The detailed
+ * Login Admin / Juice Shop walkthrough names a concrete app, a concrete file
+ * (routes/login.ts), and a concrete repo — so it must only render when Juice Shop
+ * is actually one of the event's enabled targets. Otherwise the page falls back
+ * to a target-agnostic version of the same loop.
+ */
+export function workedExampleVariant(apps: AppMeta[] = enabledApps): "juice-shop" | "generic" {
+  return apps.some((a) => a.id === "juice-shop") ? "juice-shop" : "generic";
+}
