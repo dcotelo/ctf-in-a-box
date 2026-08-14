@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Vendor challenge rubrics from the READ-ONLY upstream into scorer/rubric.owasp/.
+#
+# Upstream (OWASP-CTF/dc34-owasp-secure-development-ctf) is the source of truth
+# for all six targets' rubrics. This script only ever READS it: it clones at a
+# pinned commit, copies the rubric trees out, and records the SHA. There is
+# deliberately no push path here — never add one.
+#
+# Usage:
+#   scripts/vendor-rubric.sh --target vampi [--ref <sha-or-branch>] [--dry-run]
+#   scripts/vendor-rubric.sh --all [--ref <sha-or-branch>]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+UPSTREAM="${UPSTREAM_REPO:-OWASP-CTF/dc34-owasp-secure-development-ctf}"
+DEST="scorer/rubric.owasp"
+TARGETS="juice-shop dvwa webgoat securityshepherd vulnerableapp vampi"
+
+REF="main"
+WANT=""
+DRY=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target) WANT="$2"; shift 2 ;;
+    --all)    WANT="$TARGETS"; shift ;;
+    --ref)    REF="$2"; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    *) echo "usage: $0 (--target <name> | --all) [--ref <sha>] [--dry-run]" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$WANT" ] || { echo "$0: one of --target or --all is required" >&2; exit 2; }
+
+for t in $WANT; do
+  case " $TARGETS " in
+    *" $t "*) ;;
+    *) echo "$0: unknown target: $t" >&2; exit 1 ;;
+  esac
+done
+
+[ "$DRY" -eq 1 ] && { echo "would vendor: $WANT from $UPSTREAM@$REF"; exit 0; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+echo "Cloning $UPSTREAM@$REF (read-only)…"
+gh repo clone "$UPSTREAM" "$WORK/src" -- --quiet --no-checkout
+git -C "$WORK/src" fetch --quiet origin "$REF"
+git -C "$WORK/src" checkout --quiet FETCH_HEAD
+SHA="$(git -C "$WORK/src" rev-parse HEAD)"
+
+for t in $WANT; do
+  src="$WORK/src/$t/tests"
+  [ -d "$src" ] || { echo "$0: upstream has no $t/tests" >&2; exit 1; }
+  echo "Vendoring $t..."
+  rm -rf "${DEST:?}/$t"
+  mkdir -p "$DEST/$t/tests"
+  cp -R "$src/." "$DEST/$t/tests/"
+  # Drop upstream's aggregate runners: the engine spawns one child per challenge
+  # and a run-all import would re-run the whole suite inside every child.
+  rm -f "$DEST/$t/tests/run-all.mjs"
+done
+
+{
+  echo "# Rubric provenance"
+  echo
+  echo "Vendored from the read-only upstream by \`scripts/vendor-rubric.sh\`."
+  echo "Do not edit these trees by hand — re-run the script against a newer ref."
+  echo
+  echo "- Upstream: \`$UPSTREAM\`"
+  echo "- Upstream commit: \`$SHA\`"
+  echo "- Vendored on: $(date -u +%Y-%m-%d)"
+  echo
+  echo "## Targets"
+  echo
+  for t in $TARGETS; do
+    cat="$DEST/$t/tests/challenges/catalogue.$t.json"
+    if [ -f "$cat" ]; then
+      n="$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('$cat','utf8')).length))")"
+      echo "- \`$t\` — $n challenges"
+    else
+      echo "- \`$t\` — not yet vendored"
+    fi
+  done
+} > "$DEST/PROVENANCE.md"
+
+echo "Done. Wrote $DEST/PROVENANCE.md at $SHA"

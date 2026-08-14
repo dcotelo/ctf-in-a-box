@@ -1,0 +1,92 @@
+[
+  {
+    "key": "Challenge-1-Excessive-Data-Exposure",
+    "file": "Challenge-1-Excessive-Data-Exposure.test.js",
+    "doc": "Challenge-1-Excessive-Data-Exposure.md",
+    "name": "Excessive Data Exposure via Debug Endpoint",
+    "challengeNumber": 1,
+    "difficulty": 1,
+    "owasp": "API3",
+    "endpoint": "GET /users/v1/_debug"
+  },
+  {
+    "key": "Challenge-2-User-And-Pass-Enumeration",
+    "file": "Challenge-2-User-And-Pass-Enumeration.test.js",
+    "doc": "Challenge-2-User-And-Pass-Enumeration.md",
+    "name": "User and Password Enumeration",
+    "challengeNumber": 2,
+    "difficulty": 1,
+    "owasp": "API2",
+    "endpoint": "POST /users/v1/login"
+  },
+  {
+    "key": "Challenge-3-SQLi",
+    "file": "Challenge-3-SQLi.test.js",
+    "doc": "Challenge-3-SQLi.md",
+    "name": "SQL Injection in Username Lookup",
+    "challengeNumber": 3,
+    "difficulty": 2,
+    "owasp": "API1",
+    "endpoint": "GET /users/v1/{username}"
+  },
+  {
+    "key": "Challenge-4-Mass-Assignment",
+    "file": "Challenge-4-Mass-Assignment.test.js",
+    "doc": "Challenge-4-Mass-Assignment.md",
+    "name": "Mass Assignment Privilege Escalation",
+    "challengeNumber": 4,
+    "difficulty": 1,
+    "owasp": "API6",
+    "endpoint": "POST /users/v1/register"
+  },
+  {
+    "key": "Challenge-5-BOLA",
+    "file": "Challenge-5-BOLA.test.js",
+    "doc": "Challenge-5-BOLA.md",
+    "name": "Broken Object Level Authorization on Books",
+    "challengeNumber": 5,
+    "difficulty": 2,
+    "owasp": "API1",
+    "endpoint": "GET /books/v1/{book_title}"
+  },
+  {
+    "key": "Challenge-6-Unauthorized-Password-Change",
+    "file": "Challenge-6-Unauthorized-Password-Change.test.js",
+    "doc": "Challenge-6-Unauthorized-Password-Change.md",
+    "name": "Unauthorized Password Change",
+    "challengeNumber": 6,
+    "difficulty": 2,
+    "owasp": "API1",
+    "endpoint": "PUT /users/v1/{username}/password"
+  },
+  {
+    "key": "Challenge-7-Weak-JWT",
+    "file": "Challenge-7-Weak-JWT.test.js",
+    "doc": "Challenge-7-Weak-JWT.md",
+    "name": "Weak JWT Signing Key",
+    "challengeNumber": 7,
+    "difficulty": 3,
+    "owasp": "API2",
+    "endpoint": "Any authenticated endpoint (e.g. GET /me)"
+  },
+  {
+    "key": "Challenge-8-Regex-DoS",
+    "file": "Challenge-8-Regex-DoS.test.js",
+    "doc": "Challenge-8-Regex-DoS.md",
+    "name": "Regular Expression Denial of Service",
+    "challengeNumber": 8,
+    "difficulty": 3,
+    "owasp": "API4",
+    "endpoint": "PUT /users/v1/{username}/email"
+  },
+  {
+    "key": "Challenge-9-No-Rate-Limit",
+    "file": "Challenge-9-No-Rate-Limit.test.js",
+    "doc": "Challenge-9-No-Rate-Limit.md",
+    "name": "Lack of Rate Limiting",
+    "challengeNumber": 9,
+    "difficulty": 1,
+    "owasp": "API4",
+    "endpoint": "POST /users/v1/login"
+  }
+]
