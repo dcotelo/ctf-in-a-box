@@ -97,7 +97,7 @@ export default async function Home() {
               className="text-5xl font-bold tracking-tight text-white sm:text-7xl"
               style={{ animation: "pulse-glow 4s ease-in-out infinite" }}
             >
-              CTF <span className="text-[#2563eb]">@</span> DEF CON 34
+              {event.name}
             </h1>
             <p className="text-lg font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
               Secure Development CTF

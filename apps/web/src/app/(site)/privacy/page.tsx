@@ -24,9 +24,9 @@ import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Privacy · OWASP CTF @ DEF CON 34",
+  title: `Privacy · ${event.name}`,
   description:
-    "What the OWASP CTF site at DEF CON 34 collects, where it's stored, who can see it, and how to ask for it to be deleted.",
+    `What the ${event.name} site collects, where it's stored, who can see it, and how to ask for it to be deleted.`,
 };
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (

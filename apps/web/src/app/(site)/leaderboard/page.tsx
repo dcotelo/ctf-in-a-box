@@ -12,10 +12,11 @@ import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { auth } from "@/lib/auth";
+import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Leaderboard · OWASP CTF @ DEF CON 34",
-  description: "Live contestant standings for the OWASP Capture The Flag at DEF CON 34.",
+  title: `Leaderboard · ${event.name}`,
+  description: `Live contestant standings for ${event.name}.`,
 };
 
 export default async function LeaderboardPage() {

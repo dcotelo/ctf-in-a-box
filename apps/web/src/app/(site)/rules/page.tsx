@@ -4,8 +4,8 @@ import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Rules · OWASP CTF @ DEF CON 34",
-  description: "Competition rules for the OWASP secure development CTF at DEF CON 34.",
+  title: `Rules · ${event.name}`,
+  description: `Competition rules for the ${event.name} secure development CTF.`,
 };
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (

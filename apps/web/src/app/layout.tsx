@@ -3,6 +3,7 @@ import { Poppins, Barlow, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
+import { event } from "@/lib/site";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -23,9 +24,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OWASP CTF @ DEF CON 34",
-  description:
-    "OWASP Capture The Flag competition at DEF CON 34. Theme: Agency. August 7-9, 2026, Las Vegas Convention Center.",
+  title: { default: event.name, template: `%s · ${event.name}` },
+  description: `${event.name} — patch real vulnerabilities in OWASP training apps${event.dates ? ` — ${event.dates}` : ""}${event.location ? `, ${event.location}` : ""}.`,
 };
 
 export default function RootLayout({

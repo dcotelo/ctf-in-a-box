@@ -6,8 +6,8 @@ import CopyButton from "@/components/copy-button";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "FAQ · OWASP CTF @ DEF CON 34",
-  description: "Frequently asked questions about the OWASP secure development CTF at DEF CON 34.",
+  title: `FAQ · ${event.name}`,
+  description: `Frequently asked questions about the ${event.name} secure development CTF.`,
 };
 
 // Cross-CTF promo with Blue Team Village (issue #39): BTV ships a GPG-encrypted

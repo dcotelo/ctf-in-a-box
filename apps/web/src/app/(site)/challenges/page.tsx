@@ -5,9 +5,10 @@ import HintNotice from "@/components/hint-notice";
 import { apps, totalChallenges, totalMaxPoints } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store";
+import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Challenges · OWASP CTF @ DEF CON 34",
+  title: `Challenges · ${event.name}`,
   description: "Six vulnerable OWASP apps to patch: Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI.",
 };
 

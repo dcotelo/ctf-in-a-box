@@ -16,10 +16,11 @@ import { auth } from "@/lib/auth";
 import { getViewerHints } from "@/lib/hint-store";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
 import { getViewerTeam, TEAM_MAX_MEMBERS, TEAM_WRITES_ENABLED } from "@/lib/team-store";
+import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Profile · OWASP CTF @ DEF CON 34",
-  description: "Your personal progress across the DEF CON 34 OWASP CTF challenges.",
+  title: `Profile · ${event.name}`,
+  description: `Your personal progress across ${event.name} challenges.`,
 };
 
 export default async function ProfilePage() {

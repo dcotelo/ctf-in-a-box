@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import GateForm from "@/components/gate-form";
 import { GATE_COOKIE, isGateActive, verifyGateCookie } from "@/lib/gate";
+import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Access · OWASP CTF @ DEF CON 34",
+  title: `Access · ${event.name}`,
   robots: { index: false },
 };
 

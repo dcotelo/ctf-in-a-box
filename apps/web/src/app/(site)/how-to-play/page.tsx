@@ -4,7 +4,7 @@ import PageHeader from "@/components/page-header";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "How to Play · OWASP CTF @ DEF CON 34",
+  title: `How to Play · ${event.name}`,
   description: "Step-by-step guide to the OWASP secure development CTF: fork a target, patch a real vulnerability, open a PR, and get scored automatically.",
 };
 
