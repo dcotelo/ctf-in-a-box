@@ -52,6 +52,11 @@ repo_for() {
 # sibling containers on the ctf network, reachable by target name; the ports
 # are the targets' STOCK ports — verify each one against your rubric's boot
 # strategy (docs/scorer.md, "Booting hard targets") before the event.
+#
+# scripts/acceptance-target.sh carries its own per-target port table (an
+# APP_PORT case) for the same reason — the two are intentionally separate (no
+# derivation, no sourcing this script from the gate) — a new target's port
+# needs an entry in BOTH.
 app_url_for() {
   case "$1" in
     juice-shop) echo "http://juice-shop:3000" ;;

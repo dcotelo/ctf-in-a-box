@@ -39,6 +39,11 @@ docker network create --internal "$NET" >/dev/null 2>&1 || true
 # is hardcoded to `app.run(port=5000)`, so APP_URL must carry :5000 or the app
 # is simply unreachable at the default :80 — the exact "bad port" this gate
 # exists to catch.
+#
+# setup/ctf-setup.sh's app_url_for() carries the same per-target port facts
+# for the rendered organizer workflow. The two tables are intentionally NOT
+# derived from one another (that script has provisioning side effects; this
+# gate should not source it) — a new target's port needs an entry in BOTH.
 case "$TARGET" in
   vampi) APP_PORT=":5000" ;;
   *) APP_PORT="" ;;
