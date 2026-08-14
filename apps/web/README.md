@@ -52,7 +52,7 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth app credentials — create one under the org's GitHub settings with callback `<BETTER_AUTH_URL>/api/auth/callback/github` |
 | `LEADERBOARD_SOURCE` | No | `mock` (default) \| `lambda` \| `upstash` — selects the leaderboard data adapter |
 | `LEADERBOARD_API_URL` | Only if `LEADERBOARD_SOURCE=lambda` | Base URL of the scoring API — serves `/leaderboard` (used by the lambda source) and `/challenges` (live challenge catalogue on the challenges page; without it the page shows static fallback cards) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, or `HINTS_ENABLED=true` | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, `HINTS_ENABLED=true`, or `CHALLENGES_GATE_ENABLED=true` | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
 | `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
 | `HINTS_ENABLED` | No | `true` turns on paid hints on `/challenges` (needs the Upstash vars). Leave unset until the event so contestants can't buy hints early |
 | `CHALLENGES_GATE_ENABLED` | No | `true` locks `/challenges` behind the pre-event password gate — see [Pre-event challenges gate](#pre-event-challenges-gate) |
