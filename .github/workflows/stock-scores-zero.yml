@@ -57,8 +57,9 @@ jobs:
           # contestant's PR takes (pinned upstream tree staged into the workspace ->
           # Maven -> the fork's own Dockerfile). A regression in either is invisible
           # from the other, and only the source row proves a forked WebGoat can be
-          # scored at all. Measured at 99-121s wall clock on a warm daemon (~60s of
-          # that is Maven); a cold runner adds the JDK/docker-CLI/alpine pulls.
+          # scored at all. Measured at 95-121s wall clock over three runs on a warm
+          # daemon (~60s of that is Maven, ~17s scoring all 69 challenges); a cold
+          # runner adds the JDK/docker-CLI/alpine pulls on top.
           - target: webgoat
             image: none
           - target: securityshepherd
