@@ -14,18 +14,21 @@ export const TARGETS = {
     catalogueFile: "catalogue.juice-shop.json",
     byName: false,
     defaultConcurrency: 1,
+    urlEnv: "JUICE_SHOP_URL",
   },
   dvwa: {
     name: "dvwa",
     catalogueFile: "catalogue.dvwa.json",
     byName: true,
     defaultConcurrency: 1,
+    urlEnv: "DVWA_URL",
   },
   webgoat: {
     name: "webgoat",
     catalogueFile: "catalogue.webgoat.json",
     byName: true,
     defaultConcurrency: 1,
+    urlEnv: "WEBGOAT_URL",
   },
   securityshepherd: {
     name: "securityshepherd",
@@ -34,6 +37,7 @@ export const TARGETS = {
     // MUST stay serial: several tests mutate shared server state (the shared
     // attacker account), so parallel runs corrupt each other's scores.
     defaultConcurrency: 1,
+    urlEnv: "SECURITYSHEPHERD_URL",
   },
   vulnerableapp: {
     name: "vulnerableapp",
@@ -43,12 +47,14 @@ export const TARGETS = {
     // challenge is independent (unique upload names, per-level cache keys,
     // read-only SQLi against seeded data), so 8-wide is safe and lands ~2 min.
     defaultConcurrency: 8,
+    urlEnv: "VULNERABLEAPP_URL",
   },
   vampi: {
     name: "vampi",
     catalogueFile: "catalogue.vampi.json",
     byName: true,
     defaultConcurrency: 1,
+    urlEnv: "VAMPI_URL",
   },
 };
 

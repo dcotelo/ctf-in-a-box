@@ -38,7 +38,12 @@ docker network create --internal "$NET" >/dev/null 2>&1 || true
 # convention (dc34 .github/workflows/stock-scores-zero.yml): VAmPI's Flask app
 # is hardcoded to `app.run(port=5000)`, so APP_URL must carry :5000 or the app
 # is simply unreachable at the default :80 — the exact "bad port" this gate
-# exists to catch.
+# exists to catch. VulnerableApp additionally hardcodes a servlet context path
+# (`server.servlet.context-path=/VulnerableApp` baked into the image): the
+# stock container 404s at `/` and only answers under `/VulnerableApp`, so this
+# suffix carries the path as well as the port — verified directly against the
+# stock image (`curl :9090/` -> 404, `curl :9090/VulnerableApp/allEndPointJson`
+# -> 200).
 #
 # setup/ctf-setup.sh's app_url_for() carries the same per-target port facts
 # for the rendered organizer workflow. The two tables are intentionally NOT
@@ -46,6 +51,7 @@ docker network create --internal "$NET" >/dev/null 2>&1 || true
 # gate should not source it) — a new target's port needs an entry in BOTH.
 case "$TARGET" in
   vampi) APP_PORT=":5000" ;;
+  vulnerableapp) APP_PORT=":9090/VulnerableApp" ;;
   *) APP_PORT="" ;;
 esac
 

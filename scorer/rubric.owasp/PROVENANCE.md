@@ -13,5 +13,5 @@ Do not edit these trees by hand — re-run the script against a newer ref.
 - `dvwa` — not yet vendored
 - `webgoat` — not yet vendored
 - `securityshepherd` — not yet vendored
-- `vulnerableapp` — not yet vendored
+- `vulnerableapp` — 110 challenges
 - `vampi` — 9 challenges

@@ -120,9 +120,10 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
     // Exec rubric: children reach the app through the same APP_URL this process
     // just proved reachable, passed down the target's conventional URL env var
     // as well as APP_URL so a test can read either.
+    const urlEnv = getTarget(TARGET)?.urlEnv;
     solved = await runExec(challenges, {
       concurrency: getTarget(TARGET)?.defaultConcurrency ?? 1,
-      env: { ...env, APP_URL },
+      env: { ...env, APP_URL, ...(urlEnv ? { [urlEnv]: APP_URL } : {}) },
     });
   } else {
     solved = [];

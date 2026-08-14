@@ -31,3 +31,9 @@ test("getTarget returns undefined for an unknown target rather than a default", 
   assert.equal(getTarget("nope"), undefined);
   assert.equal(getTarget(undefined), undefined);
 });
+
+test("every target names the URL env var its tests read", () => {
+  for (const [name, spec] of Object.entries(TARGETS)) {
+    assert.match(spec.urlEnv, /^[A-Z][A-Z0-9_]*_URL$/, `${name} needs a urlEnv`);
+  }
+});
