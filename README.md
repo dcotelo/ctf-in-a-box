@@ -101,11 +101,15 @@ to preview without touching anything.
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](apps/web/VENDORED.md)) bakes its event name, dates,
-URL, and enabled-target list from `event.yaml` in at image-build time, via
-the `EVENT_CONFIG_B64` compose build arg. `docker compose --profile app up
--d` alone won't pick up an `event.yaml` edit — Compose only rebuilds an
-image when told to. After changing `event.yaml`, rebuild the `app` image
-explicitly:
+URL, enabled-target list, fork org (`github.org`), and Discord link
+(`event.discord`, optional) from `event.yaml` in at image-build time, via
+the `EVENT_CONFIG_B64` compose build arg. The fork org also drives every
+"fork this repo" link the app renders on the Challenges page and in its
+How to Play / FAQ copy, so self-hosted contestants are pointed at the org
+`ctf-setup org` actually forked into, not the upstream canonical one.
+`docker compose --profile app up -d` alone won't pick up an `event.yaml`
+edit — Compose only rebuilds an image when told to. After changing
+`event.yaml`, rebuild the `app` image explicitly:
 
 ```sh
 EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile app build app
@@ -230,9 +234,11 @@ repo:
 `srh` (`hiett/serverless-redis-http`), the Upstash-compatible REST proxy in
 front of Redis, implements only a subset of Upstash's REST API (see the
 notes in `scripts/smoke.sh` — no path-style `GET /get/<key>` shortcut, for
-example). Whether the app image's Redis client stays within that subset
-(pipelining, `EVAL`, etc.) is verified as part of upstream item 3 above,
-once the app reads from `srh` for real rather than mock data.
+example). The app is already wired to `srh` today for real (not mock) data
+in Compose — team membership and hint purchases read and write through it.
+What's still unverified is whether the app image's Redis client stays
+within that subset end-to-end (pipelining, `EVAL`, etc.); that verification
+is a follow-up, tracked alongside upstream item 3 above.
 
 Until those land, treat `scripts/smoke.sh` as the source of truth that the
 kit itself works; a real event additionally needs the scorer's bearer-auth
