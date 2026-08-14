@@ -2,14 +2,9 @@ import Image from "next/image";
 import Link from "next/link";
 import EventCountdown from "@/components/event-countdown";
 import SiteFooter from "@/components/site-footer";
-import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints } from "@/lib/apps";
+import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { event } from "@/lib/site";
-
-// Joins app names for prose: "DVWA" / "DVWA, and Juice Shop" / "DVWA, Juice Shop, and WebGoat".
-function joinAppNames(names: string[]): string {
-  return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
-}
 
 export default async function Home() {
   const catalog = await getChallengeCatalog();
@@ -29,7 +24,7 @@ export default async function Home() {
     },
     {
       title: "Patch it and open a PR",
-      body: "Fix the vulnerability in your fork, then submit a pull request against the repo's dc34-ctf branch. This is secure development, not flag hunting.",
+      body: "Fix the vulnerability in your fork, then submit a pull request against the repo's main branch. This is secure development, not flag hunting.",
     },
     {
       title: "Get scored automatically",
@@ -153,7 +148,8 @@ export default async function Home() {
           </div>
 
           <p className="max-w-2xl text-balance text-base leading-relaxed text-zinc-400">
-            Break real vulnerabilities in six OWASP training apps, patch them for real, and ship
+            Break real vulnerabilities in {enabledApps.length} OWASP training{" "}
+            {enabledApps.length === 1 ? "app" : "apps"}, patch them for real, and ship
             the fix as a GitHub pull request. CI validates your patch and scores it automatically.
             Practice the full secure development lifecycle, not just flag-hunting.
           </p>
@@ -252,7 +248,7 @@ export default async function Home() {
         <section className="flex flex-col gap-6">
           <div className="flex flex-col gap-3">
             <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
-              Six real targets
+              {enabledApps.length} real {enabledApps.length === 1 ? "target" : "targets"}
             </p>
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
               {catalog

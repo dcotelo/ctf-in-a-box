@@ -6,6 +6,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
+import { enabledApps, joinAppNames } from "@/lib/apps";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -25,11 +26,12 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
   </a>
 );
 
+const appList = joinAppNames(enabledApps.map((a) => a.name));
+
 const sections: { heading: string; items: React.ReactNode[] }[] = [
   {
     heading: "Eligibility",
     items: [
-      "This is an in-person competition at the Las Vegas Convention Center. You need a valid DEF CON 34 badge to take part and to claim a prize.",
       "You need a GitHub account. Your GitHub login is your identity for scoring, so open every pull request from the account you sign in with. Points are credited to the PR author and cannot be moved between accounts afterwards.",
       "Organizers and anyone who worked on the challenge targets, the scorer, or the rubric may compete for fun but are not eligible for prizes.",
     ],
@@ -37,8 +39,8 @@ const sections: { heading: string; items: React.ReactNode[] }[] = [
   {
     heading: "Scope of authorized testing",
     items: [
-      "Your authorization to test covers the six challenge targets only: Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI, in your own fork under the OWASP-CTF organization.",
-      "Explicitly out of scope: the CI scoring pipeline, the leaderboard, this website, the CTF Discord, the venue network, and other contestants' accounts, forks, or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
+      `Your authorization to test covers the ${enabledApps.length} challenge ${enabledApps.length === 1 ? "target" : "targets"} only: ${appList}, in your own fork under the OWASP-CTF organization.`,
+      "Explicitly out of scope: the CI scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts, forks, or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
       "Found a real vulnerability in the scorer or this site? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
       "Automated mass-submission, or spamming pull requests to farm scoring runs, will get your account rate-limited or disqualified.",
     ],
@@ -46,7 +48,7 @@ const sections: { heading: string; items: React.ReactNode[] }[] = [
   {
     heading: "Your submissions",
     items: [
-      "You submit work as a pull request against the target repository's dc34-ctf branch. Those repositories are OWASP projects under their own existing open-source licenses, and your contribution is offered under the license of the repository you are contributing to.",
+      "You submit work as a pull request against the target repository's main branch. Those repositories are OWASP projects under their own existing open-source licenses, and your contribution is offered under the license of the repository you are contributing to.",
       "Submit your own work. Using AI tooling to find and fix vulnerabilities is expected and encouraged here (see the Rules), but passing off another contestant's patch as yours is not.",
       "Don't publish full solutions or patches for others to copy while the event is running. Afterwards, write up whatever you like.",
       "Organizers may reference or showcase submitted patches when talking about the event.",
@@ -83,7 +85,7 @@ export default function TermsPage() {
             href="/code-of-conduct"
             className="ds-link"
           >
-            codes of conduct
+            code of conduct
           </Link>
           , and what this site stores about you is described in the{" "}
           <Link href="/privacy" className="ds-link">

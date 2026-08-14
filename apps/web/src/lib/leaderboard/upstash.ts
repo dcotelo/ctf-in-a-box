@@ -3,7 +3,7 @@ import type { LeaderboardSource } from "./source";
 import type { LeaderboardData, LeaderboardEntry, UserProfile } from "./types";
 
 // Direct read of the CURRENT real Upstash schema written by the scorer's
-// `pushLeaderboard()` (dc34-owasp-secure-development-ctf .github/actions/ctf-score/src/upstash.ts):
+// `pushLeaderboard()` (the scorer repo's .github/actions/ctf-score/src/upstash.ts):
 //   ZADD leaderboard <score> <login>          (one global ZSET — latest write wins)
 //   HSET team:<login> score maxScore patched total sha pr updatedAt
 // No per-app breakdown, no per-challenge data, no real teams exist yet in

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
+import { enabledApps, joinAppNames } from "@/lib/apps";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -20,8 +21,10 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
 );
 
 // Rules are React nodes rather than plain strings so a rule can link to the
-// document it defers to — a rule that says "the DEF CON CoC applies" is not
-// much use without a way to go read it.
+// document it defers to — a rule that just says a code of conduct applies is
+// not much use without a way to go read it.
+const appList = joinAppNames(enabledApps.map((a) => a.name));
+
 const sections: { heading: string; rules: React.ReactNode[] }[] = [
   {
     heading: "Teams",
@@ -34,7 +37,7 @@ const sections: { heading: string; rules: React.ReactNode[] }[] = [
   {
     heading: "Fair play",
     rules: [
-      "Only the six challenge targets (Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI) are in scope. Do not attack the CI scoring pipeline, the leaderboard, or other contestants' forks.",
+      `Only the ${enabledApps.length} challenge ${enabledApps.length === 1 ? "target" : "targets"} (${appList}) ${enabledApps.length === 1 ? "is" : "are"} in scope. Do not attack the CI scoring pipeline, the leaderboard, or other contestants' forks.`,
       "Submit your own work. Don't publish full solutions or patches for others to copy during the event.",
       "Automated mass-submission or spamming pull requests to farm scoring runs will get your account rate-limited or disqualified.",
       <>

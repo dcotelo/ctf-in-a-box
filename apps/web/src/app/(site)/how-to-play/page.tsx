@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
+import { enabledApps, joinAppNames } from "@/lib/apps";
 import { event } from "@/lib/site";
+
+const appList = joinAppNames(enabledApps.map((a) => a.name));
 
 export const metadata: Metadata = {
   title: "How to Play",
@@ -10,16 +13,12 @@ export const metadata: Metadata = {
 
 const steps = [
   {
-    title: "Get your DEF CON badge",
-    body: "This is an in-person competition at the Las Vegas Convention Center. A valid DEF CON 34 badge gets you into the OWASP CTF area.",
-  },
-  {
     title: "Sign in with GitHub",
     body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress. The scorer credits points to the account that authors the pull request, so play from the same account you sign in with.",
   },
   {
     title: "Pick a target and a challenge",
-    body: "Browse the six vulnerable apps on the Challenges page: Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI. Each has dozens of independent challenges at different difficulty levels; pick any one to start.",
+    body: `Browse the ${enabledApps.length} vulnerable ${enabledApps.length === 1 ? "app" : "apps"} on the Challenges page: ${appList}. Each has dozens of independent challenges at different difficulty levels; pick any one to start.`,
   },
   {
     title: "Find the vulnerability",
@@ -27,7 +26,7 @@ const steps = [
   },
   {
     title: "Patch it and open a pull request",
-    body: "Fork the target's repo under the OWASP-CTF org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's dc34-ctf branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.",
+    body: "Fork the target's repo under the OWASP-CTF org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's main branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.",
   },
   {
     title: "Get scored automatically",
@@ -36,13 +35,13 @@ const steps = [
 ];
 
 // Worked example: the Login Admin SQL injection in the Juice Shop fork. The
-// before/after mirrors routes/login.ts on the dc34-ctf branch and the
+// before/after mirrors routes/login.ts on the target's default branch and the
 // canonical parameterized-query fix, so a contestant who follows this
 // verbatim genuinely scores (and closes the two sibling login challenges).
 const walkthrough: { title: string; body: string; code?: string; lang?: "shell" | "ts" }[] = [
   {
     title: "Fork the target and clone your fork",
-    body: "Fork OWASP-CTF/juice-shop on GitHub (or with the gh CLI), then clone it. The default branch, dc34-ctf, is the one the scorer watches.",
+    body: "Fork OWASP-CTF/juice-shop on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.",
     lang: "shell",
     code: `gh repo fork OWASP-CTF/juice-shop --clone
 cd juice-shop`,
@@ -88,10 +87,10 @@ git commit -m "Fix SQL injection in login route with bind parameters"
 git push -u origin fix/login-sql-injection`,
   },
   {
-    title: "Open the PR against dc34-ctf",
-    body: "The base repo is OWASP-CTF/juice-shop and the base branch is dc34-ctf. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.",
+    title: "Open the PR against main",
+    body: "The base repo is OWASP-CTF/juice-shop and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.",
     lang: "shell",
-    code: `gh pr create --repo OWASP-CTF/juice-shop --base dc34-ctf \\
+    code: `gh pr create --repo OWASP-CTF/juice-shop --base main \\
   --title "Fix SQL injection in login route" \\
   --body "Replaced string-interpolated SQL with bind parameters."`,
   },
@@ -115,7 +114,7 @@ export default function HowToPlayPage() {
       <PageHeader
         eyebrow="Getting Started"
         title="How to Play"
-        description="New to the competition? Here's everything you need to go from a DEF CON badge to your first patched challenge."
+        description="New to the competition? Here's everything you need to go from a GitHub sign-in to your first patched challenge."
       />
 
       {/* Workflow callout */}

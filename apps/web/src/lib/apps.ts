@@ -108,3 +108,8 @@ export const enabledApps: AppMeta[] = apps.filter((a) => eventConfig.targets.inc
 export const enabledAppsById = Object.fromEntries(enabledApps.map((a) => [a.id, a])) as Partial<Record<AppId, AppMeta>>;
 export const enabledTotalChallenges = enabledApps.reduce((n, a) => n + a.challengeCount, 0);
 export const enabledTotalMaxPoints = enabledApps.reduce((n, a) => n + a.maxPoints, 0);
+
+/** Joins app names for prose: "DVWA" / "DVWA, and Juice Shop" / "DVWA, Juice Shop, and WebGoat". */
+export function joinAppNames(names: string[]): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
+}

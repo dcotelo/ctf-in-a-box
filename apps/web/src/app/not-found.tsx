@@ -9,10 +9,15 @@
 import Link from "next/link";
 import SiteFooter from "@/components/site-footer";
 import PageHeader from "@/components/page-header";
+import { enabledApps } from "@/lib/apps";
 import { event } from "@/lib/site";
 
 const routes = [
-  { href: "/challenges", label: "Challenges", body: "Every challenge across the six targets." },
+  {
+    href: "/challenges",
+    label: "Challenges",
+    body: `Every challenge across the ${enabledApps.length} ${enabledApps.length === 1 ? "target" : "targets"}.`,
+  },
   { href: "/how-to-play", label: "How to Play", body: "The full loop, with a worked example." },
   { href: "/leaderboard", label: "Leaderboard", body: "Live standings for contestants and teams." },
   { href: "/faq", label: "FAQ", body: "Answers to what contestants ask most." },

@@ -2,15 +2,10 @@ import type { Metadata } from "next";
 import PageHeader from "@/components/page-header";
 import ChallengeGrid from "@/components/challenge-grid";
 import HintNotice from "@/components/hint-notice";
-import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints } from "@/lib/apps";
+import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store";
 import { event } from "@/lib/site";
-
-// Joins app names for prose: "DVWA" / "DVWA, and Juice Shop" / "DVWA, Juice Shop, and WebGoat".
-function joinAppNames(names: string[]): string {
-  return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
-}
 
 const appList = joinAppNames(enabledApps.map((a) => a.name));
 

@@ -28,7 +28,7 @@ export const event = {
   // OWASP publishes no Terms of Service; the General Disclaimer is the analogue.
   owaspDisclaimerUrl: "https://policy.owasp.org/operational/general-disclaimer",
   // The CTF team's own inbox: the one address on this site that reaches the
-  // organizers rather than the Foundation or DEF CON. Use it for anything that
+  // organizers rather than the Foundation. Use it for anything that
   // needs a private, written channel and shouldn't go in a public Discord.
   // "" (unset in event config) means pages hide their contact-email lines.
   contactEmail: eventConfig.contactEmail,

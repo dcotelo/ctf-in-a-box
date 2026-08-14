@@ -1,8 +1,8 @@
-// Code of Conduct. This page deliberately does not restate the OWASP or DEF CON
-// codes — both are authoritative documents owned elsewhere, and paraphrasing
-// them would create a third, subtly different version. What this page owns is
-// the part contestants actually need in the moment: which codes apply, and how
-// to report something.
+// Code of Conduct. This page deliberately does not restate the OWASP code — it
+// is an authoritative document owned elsewhere, and paraphrasing it would
+// create a second, subtly different version. What this page owns is the part
+// contestants actually need in the moment: that the code applies, and how to
+// report something.
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -32,11 +32,11 @@ export default function CodeOfConductPage() {
       <PageHeader
         eyebrow="Conduct"
         title="Code of Conduct"
-        description="Two codes apply to this event, and both are in force the entire time you're here. Harassment of any kind ends your event."
+        description="The OWASP Code of Conduct applies to this event, and is in force the entire time you're here. Harassment of any kind ends your event."
       />
 
       <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
-        <h2 className="mb-4 text-lg font-semibold text-white">Which codes apply</h2>
+        <h2 className="mb-4 text-lg font-semibold text-white">Which code applies</h2>
         <ul className="flex flex-col gap-3">
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
             <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
@@ -53,9 +53,8 @@ export default function CodeOfConductPage() {
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
             <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
             <span>
-              Where the two overlap, follow the stricter one. Neither is waived by anything on
-              this site, and organizers can remove anyone from the competition for a breach of
-              either.
+              It is not waived by anything on this site, and organizers can remove anyone from
+              the competition for a breach of it.
             </span>
           </li>
         </ul>

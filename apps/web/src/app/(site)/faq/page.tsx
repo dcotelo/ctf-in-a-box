@@ -31,10 +31,6 @@ const faqs: QA[] = [
     a: "Yes, and it's the default. Teams are optional: you can join or create one from your profile after signing in, up to four people.",
   },
   {
-    q: "Do I need to be at DEF CON in person?",
-    a: "Yes. This is an in-person competition at the Las Vegas Convention Center and requires a valid DEF CON 34 badge.",
-  },
-  {
     q: "What do I need to bring?",
     a: "Your own laptop with the dev tools you like to work in, a GitHub account, and a charger (outlets go fast). Everything else runs in your fork and in CI.",
   },
@@ -44,7 +40,7 @@ const faqs: QA[] = [
       <>
         There&apos;s no flag to type in. Fork the target&apos;s repo under the OWASP-CTF org, fix
         the vulnerability on a branch in your fork, and open a pull request against the
-        repo&apos;s <code className="font-mono text-zinc-200">dc34-ctf</code>{" "}
+        repo&apos;s <code className="font-mono text-zinc-200">main</code>{" "}
         branch. That&apos;s the only branch the scorer watches, and there is no per-challenge
         branch. A GitHub Action builds your app, runs the rubric, and posts your score on the
         PR, usually in two to five minutes. See{" "}

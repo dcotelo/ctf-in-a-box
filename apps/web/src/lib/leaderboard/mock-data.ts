@@ -1,5 +1,5 @@
 // Fixture data shaped exactly like the proposed Upstash v2 / scorer API
-// contract (see dc34-owasp-secure-development-ctf PR for the write side).
+// contract (see the scorer repo's PR for the write side).
 // This is the schema preview for the backend review — once the scorer ships
 // pushLeaderboardV2 and the read API, `LEADERBOARD_SOURCE=upstash` (v2) can
 // point at the real thing with no UI changes.

@@ -3,12 +3,12 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 
 /**
- * DynamoDB access for the leaderboard migration (the dc34 scorer writes solves to
+ * DynamoDB access for the leaderboard migration (the scorer writes solves to
  * Upstash AND DynamoDB; the web app moves its team/hint writes with it).
  *
  * On Vercel the app authenticates to AWS with NO stored keys: Vercel mints an OIDC
  * token per deployment, and `awsCredentialsProvider` exchanges it for the
- * `ctf-web-dynamodb` role (trust + table access are defined in the dc34 repo's
+ * `ctf-web-dynamodb` role (trust + table access are defined in the scorer repo's
  * terraform/vercel-aws.tf). Locally the role trust doesn't cover the development
  * environment, so the client falls back to the SDK default credential chain —
  * `aws sso login` + AWS_PROFILE works out of the box. Nothing here holds a secret.
@@ -61,7 +61,7 @@ let client: DynamoDBClient | undefined;
  *
  *  IAM note: the role grants PutItem/UpdateItem/DeleteItem/GetItem/Query/
  *  BatchGetItem only. Transactions authorize per entry as those actions, but a
- *  ConditionCheck entry would need dynamodb:ConditionCheckItem added in the dc34
+ *  ConditionCheck entry would need dynamodb:ConditionCheckItem added in the scorer
  *  repo's terraform/vercel-aws.tf — the stores deliberately avoid ConditionCheck.
  */
 export function getDynamoClient(): DynamoDBClient {

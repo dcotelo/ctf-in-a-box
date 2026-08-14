@@ -9,7 +9,7 @@ import type { LeaderboardSource } from "./source";
 import type { AppProgress, LeaderboardData, LeaderboardEntry, UserProfile } from "./types";
 
 // Direct read of the scorer-owned items in the shared `ctf-leaderboard` table
-// (dc34-owasp-secure-development-ctf .github/actions/ctf-score/src/dynamo.ts):
+// (the scorer repo's .github/actions/ctf-score/src/dynamo.ts):
 //
 //   leaderboard  pk=LEADERBOARD      sk=AUTHOR#<login>       + points, author, updatedAt
 //   solve        pk=AUTHOR#<login>   sk=SOLVE#<app>#<flag>   + app, flag, solvedAt, firstPr, sha

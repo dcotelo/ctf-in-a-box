@@ -1,6 +1,6 @@
 "use client";
 
-// Grid of the six vulnerable-app targets. A Client Component for the search
+// Grid of the enabled vulnerable-app targets. A Client Component for the search
 // filter and per-card expand/collapse. When the live catalogue is available
 // each card lists its challenges with OWASP category links; without it the
 // cards fall back to the static counts/points from lib/apps.
