@@ -444,7 +444,15 @@ The kit now runs untrusted-adjacent code in the judge: exec children are
 `node --test` processes spawned inside the scorer container. They were
 already running contestant-patched application code as a sibling
 container, so this widens the existing boundary rather than crossing a
-new one, but it is a real change to what the judge executes.
+new one, but it is a real change to what the judge executes. Name it
+precisely: those children inherit the scorer's mounted
+`/var/run/docker.sock` and actively use it — Security Shepherd's vendored
+helpers `docker exec` the MariaDB and Tomcat containers by name to
+provision the shared attacker account — so a rubric test file reaches the
+host daemon, not just the app under test. What holds that boundary is the
+vendoring discipline rather than a sandbox: upstream is read-only,
+`scripts/vendor-rubric.sh` clones a pinned SHA and has no push path, and
+`PROVENANCE.md` records exactly which commit was copied.
 
 Oracle discipline (decision 7) is unaffected — `ctf-score.md` still
 carries challenge name, points, and ✅/❌ only. Test output, assertion
