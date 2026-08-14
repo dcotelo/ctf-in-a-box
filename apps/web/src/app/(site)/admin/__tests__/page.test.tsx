@@ -62,4 +62,13 @@ describe("admin page gate", () => {
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/sync not running/i);
   });
+
+  it("degrades gracefully instead of 500ing when the settings read fails", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockRejectedValue(new Error("redis down"));
+    getSyncStatus.mockResolvedValue(null);
+    const ui = await AdminPage();
+    const html = renderToStaticMarkup(ui);
+    expect(html).toMatch(/unavailable/i);
+  });
 });

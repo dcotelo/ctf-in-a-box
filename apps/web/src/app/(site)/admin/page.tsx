@@ -33,7 +33,16 @@ export default async function AdminPage() {
     );
   }
 
-  const [settings, sync] = await Promise.all([getAdminSettings(), getSyncStatus()]);
+  // Independent catches: a Redis read failure degrades the affected block to
+  // "unavailable" rather than 500ing the whole page (spec: Error handling).
+  // A `sync` read failure is folded into the existing "no poller yet" render
+  // (both come back as null) — the poller heartbeat is advisory, not a
+  // correctness signal, so collapsing the two cases is an acceptable
+  // simplification rather than adding a second null-ish state to track.
+  const [settings, sync] = await Promise.all([
+    getAdminSettings().catch(() => null),
+    getSyncStatus().catch(() => null),
+  ]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -73,7 +82,14 @@ export default async function AdminPage() {
         )}
       </div>
 
-      <AdminControls initial={settings} />
+      {settings ? (
+        <AdminControls initial={settings} />
+      ) : (
+        <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
+          <p className="text-sm text-zinc-400">Settings unavailable — Redis unreachable.</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -33,6 +33,11 @@ describe("requireAdmin", () => {
     expect(await requireAdmin(new Headers())).toEqual({ ok: false, status: 403 });
   });
 
+  it("403 when the session has no user.login at all", async () => {
+    getSession.mockResolvedValue({ user: {} });
+    expect(await requireAdmin(new Headers())).toEqual({ ok: false, status: 403 });
+  });
+
   it("passes an allowlisted login (case-insensitive)", async () => {
     getSession.mockResolvedValue({ user: { login: "ALICE" } });
     expect(await requireAdmin(new Headers())).toEqual({ ok: true, login: "ALICE" });
