@@ -105,7 +105,7 @@ image when told to. After changing `event.yaml`, rebuild the `app` image
 explicitly:
 
 ```sh
-EVENT_CONFIG_B64=$(base64 -i event.yaml | tr -d '\n') docker compose --profile app build app
+EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile app build app
 ```
 
 then bring the stack back up (`docker compose --profile poll --profile app
