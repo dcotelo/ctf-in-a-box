@@ -157,16 +157,24 @@ catalogue, scoring transport — lives under `modules.<name>`.
 
 ## 5. UI / presentation contract
 
-**Honesty constraint up front:** v1's contestant app does not yet do any of
-this. It is upstream work on `ctf-owasp-org` — `README.md`'s "Status /
-upstream dependencies" item 3 lists dynamic UI-from-modules (nav sections,
-challenge lists, and leaderboard columns appearing per enabled module) as
-not yet landed, alongside event-config branding and the admin panel;
-The app is now vendored at `apps/web/` (see `apps/web/VENDORED.md`) and
-built from local source, with no module-driven rendering yet. This section is the
-contract that upstream work is expected to implement, published now so a
-module author can build against a stable target instead of waiting for it
-to land.
+**Honesty constraint up front:** the vendored contestant app (`apps/web/`,
+see `apps/web/VENDORED.md`) now implements display metadata (item 1) and
+the enablement rule (item 4) for `secure-development`: `src/lib/modules.ts`
+sources the display name/description from a module registry rather than a
+hardcoded string, and `src/lib/apps.ts`'s `enabledApps` filters nav,
+challenge list, and leaderboard columns down to the targets under
+`event.yaml`'s `modules.secure-development.targets` — see
+`src/lib/__tests__/modules.test.ts` and `scripts/acceptance-app.sh` (which
+asserts a disabled target never renders). The existing challenge catalogue
+(item 2) and per-target solved/total leaderboard columns (item 3) predate
+this work and satisfy those items for the one shipped module. What remains
+open is the organizer admin panel (score adjustments, player removal, hint
+toggles) — `README.md`'s "Status / upstream dependencies" item 3 tracks it
+as Spec B, not yet built — and offering this vendored delta back to
+`OWASP-CTF/ctf-owasp-org` once upstream write access opens. This section
+remains the contract a *new* module (forensics, api-security, cloud, …)
+must satisfy to plug into the same UI, since v1 only proves it against the
+one worked example.
 
 1. **Display metadata.** A module MUST provide a human-readable display
    name, a short description, and a nav label, sourced from the module's
