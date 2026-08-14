@@ -55,6 +55,7 @@ case "$TARGET" in
   vampi) APP_URL_SUFFIX=":5000" ;;
   vulnerableapp) APP_URL_SUFFIX=":9090/VulnerableApp" ;;
   juice-shop) APP_URL_SUFFIX=":3000" ;;
+  webgoat) APP_URL_SUFFIX=":8080/WebGoat" ;;
   *) APP_URL_SUFFIX="" ;;
 esac
 
