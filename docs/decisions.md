@@ -1,3 +1,7 @@
+---
+title: Decisions
+---
+
 # Decisions
 
 Numbered architecture decision records for CTF-in-a-box. Each entry is

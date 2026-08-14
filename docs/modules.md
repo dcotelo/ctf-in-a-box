@@ -1,3 +1,7 @@
+---
+title: Module contract
+---
+
 # Module contract
 
 A **module** is a CTF vertical — a family of challenges with its own targets,
