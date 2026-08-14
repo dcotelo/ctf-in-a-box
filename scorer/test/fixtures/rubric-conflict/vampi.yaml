@@ -1,0 +1,7 @@
+target: vampi
+challenges:
+  - id: collides
+    name: "Same target as the exec dir"
+    probes:
+      - request: { method: GET, path: "/" }
+        expect: { status: 200 }

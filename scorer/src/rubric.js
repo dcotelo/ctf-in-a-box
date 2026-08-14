@@ -78,6 +78,9 @@ export function loadRubric(dir = process.env.RUBRIC_DIR ?? "/rubric") {
     if (file.replace(/\.ya?ml$/, "") !== target) {
       fail(`target "${target}" does not match filename (expected ${target}.yaml)`);
     }
+    if (targets.has(target)) {
+      fail(`target "${target}" is defined twice: as an exec directory and as ${target}.yaml`);
+    }
     if (!Array.isArray(challenges) || challenges.length === 0) fail("challenges must be a non-empty list");
 
     const points = new Map();

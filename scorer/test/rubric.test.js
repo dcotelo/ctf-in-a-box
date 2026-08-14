@@ -117,3 +117,10 @@ test("a rubric dir may mix a YAML target and an exec target", () => {
   assert.ok(Array.isArray(js.probes), "yaml target keeps declarative probes");
   assert.ok(vp.exec, "exec target carries an exec descriptor");
 });
+
+test("a target defined as BOTH an exec dir and a yaml file is rejected", () => {
+  assert.throws(
+    () => loadRubric(fixture("rubric-conflict")),
+    /target "vampi" is defined twice: as an exec directory and as vampi\.yaml/,
+  );
+});

@@ -6,6 +6,17 @@
 # score-action does (entrypoint override, docker.sock, workspace + event.json
 # mounts).
 #
+# TARGET is "juice-shop" (rubric.example's example target), and rubric.owasp's
+# real juice-shop entrypoint script (scorer/entrypoints/juice-shop.sh) is
+# always baked into every scorer image regardless of which rubric directory
+# is baked — so entrypoint.sh always sources it for TARGET=juice-shop. That
+# script has no "assume APP_URL already up" fallback: it requires APP_IMAGE
+# or a workspace Dockerfile. The fake app is therefore delivered via a
+# workspace Dockerfile (write_fake_app below) rather than booted directly —
+# which is also, per that script's own comment, the normal case for real
+# Juice Shop scoring (a PR fork's root Dockerfile), so this exercises the
+# real path rather than working around it.
+#
 # The fake app deliberately PASSES two example-rubric challenges and FAILS one,
 # so the asserted "2 / 3" count proves the probes actually discriminate — an
 # all-pass or all-fail app could green-light a judge that ignores its rubric.
@@ -28,6 +39,10 @@ cd "$(dirname "$0")/.."
 IMG=ctf-score:acceptance
 NET=ctf-scorer-acceptance
 SERVE_CTR=ctf-scorer-acceptance-serve
+# Network aliases the fake app answers under, one per judge run below. Each
+# run's own entrypoint invocation builds and boots its own app container
+# (named ctf-app-juice-shop, from the workspace Dockerfile) and registers it
+# under one of these aliases — nothing here names a container directly.
 APP_CTR=ctf-scorer-acceptance-app
 STOCK_CTR=ctf-scorer-acceptance-stock
 SERVE_PORT=4102
@@ -37,8 +52,23 @@ WS_POLL="$TMP/workspace-poll"
 WS_STOCK="$TMP/workspace-stock"
 mkdir -p "$WS_PUSH" "$WS_POLL" "$WS_STOCK"
 
+# Writes a workspace Dockerfile + app.js so juice-shop.sh's PR-patch path
+# (build a Dockerfile found at GITHUB_WORKSPACE) boots this fake app.
+write_fake_app() {
+  dir="$1"
+  js="$2"
+  printf '%s\n' "$js" > "$dir/app.js"
+  cat > "$dir/Dockerfile" <<'DOCKER'
+FROM node:22-alpine
+WORKDIR /app
+COPY app.js .
+CMD ["node", "app.js"]
+DOCKER
+}
+
 cleanup() {
-  docker rm -f "$SERVE_CTR" "$APP_CTR" "$STOCK_CTR" >/dev/null 2>&1 || true
+  docker rm -f "$SERVE_CTR" ctf-app-juice-shop >/dev/null 2>&1 || true
+  docker rmi ctf-app-under-test >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   docker rmi "$IMG" >/dev/null 2>&1 || true
   rm -rf "$TMP"
@@ -66,16 +96,17 @@ require("node:http").createServer((req, res) => {
 JS
 )
 
+write_fake_app "$WS_PUSH" "$APP_JS"
+write_fake_app "$WS_POLL" "$APP_JS"
+
 echo "--- build scorer image (pinned to the example rubric)"
 docker build -t "$IMG" --build-arg RUBRIC_DIR=rubric.example scorer/
 
 docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
 
-echo "--- boot score serve (memory store) + fake target app"
+echo "--- boot score serve (memory store)"
 docker run -d --name "$SERVE_CTR" --network "$NET" \
   -p "127.0.0.1:$SERVE_PORT:4000" -e SCORER_TOKEN=test-token "$IMG" >/dev/null
-docker run -d --name "$APP_CTR" --network "$NET" \
-  node:22-alpine node -e "$APP_JS" >/dev/null
 
 deadline=$((SECONDS + 60))
 until curl -sf "http://127.0.0.1:$SERVE_PORT/healthz" >/dev/null 2>&1; do
@@ -100,6 +131,14 @@ docker run --rm \
   -e SCORE_API="http://$SERVE_CTR:4000" \
   -e SCORE_TOKEN=test-token \
   "$IMG"
+
+# entrypoint.sh ends every path in `exec score judge`, which replaces the
+# shell's process image — its own EXIT trap (meant to remove the app
+# container it booted) never runs, because exec never returns to fire it.
+# acceptance-target.sh works around this the same way: the app container
+# (a fixed name derived from TARGET) must be reaped here, externally,
+# before the next run reuses that same name.
+docker rm -f ctf-app-juice-shop >/dev/null 2>&1 || true
 
 REPORT="$WS_PUSH/ctf-score.md"
 [ -f "$REPORT" ] || { echo "FAIL: judge wrote no ctf-score.md"; exit 1; }
@@ -173,8 +212,7 @@ require("node:http").createServer((req, res) => {
 }).listen(3000, () => console.error("stock fake app on :3000"));
 JS
 )
-docker run -d --name "$STOCK_CTR" --network "$NET" \
-  node:22-alpine node -e "$STOCK_APP_JS" >/dev/null
+write_fake_app "$WS_STOCK" "$STOCK_APP_JS"
 
 docker run --rm \
   --entrypoint /usr/local/bin/entrypoint.sh \
@@ -190,6 +228,8 @@ docker run --rm \
   -e SCORE_API="http://$SERVE_CTR:4000" \
   -e SCORE_TOKEN=test-token \
   "$IMG"
+
+docker rm -f ctf-app-juice-shop >/dev/null 2>&1 || true
 
 STOCK_REPORT="$WS_STOCK/ctf-score.md"
 [ -f "$STOCK_REPORT" ] || { echo "FAIL: stock judge wrote no ctf-score.md"; exit 1; }

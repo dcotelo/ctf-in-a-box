@@ -1,0 +1,10 @@
+{
+  "name": "owasp-ctf-juice-shop-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-challenge regression tests. Each test fails on unpatched code and passes once the contestant's PR fixes the vulnerability.",
+  "scripts": {
+    "test": "node --test --test-reporter=spec challenges/"
+  }
+}

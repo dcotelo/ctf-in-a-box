@@ -9,7 +9,7 @@ Do not edit these trees by hand — re-run the script against a newer ref.
 
 ## Targets
 
-- `juice-shop` — not yet vendored
+- `juice-shop` — 38 challenges
 - `dvwa` — not yet vendored
 - `webgoat` — not yet vendored
 - `securityshepherd` — not yet vendored

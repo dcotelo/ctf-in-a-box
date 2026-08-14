@@ -54,6 +54,7 @@ docker network create --internal "$NET" >/dev/null 2>&1 || true
 case "$TARGET" in
   vampi) APP_URL_SUFFIX=":5000" ;;
   vulnerableapp) APP_URL_SUFFIX=":9090/VulnerableApp" ;;
+  juice-shop) APP_URL_SUFFIX=":3000" ;;
   *) APP_URL_SUFFIX="" ;;
 esac
 
