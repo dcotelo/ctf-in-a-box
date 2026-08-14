@@ -43,3 +43,4 @@ jobs:
         working-directory: apps/web
       - run: BETTER_AUTH_SECRET=ci-dummy BETTER_AUTH_URL=http://localhost:3000 corepack pnpm build
         working-directory: apps/web
+      - run: ./scripts/acceptance-app.sh
