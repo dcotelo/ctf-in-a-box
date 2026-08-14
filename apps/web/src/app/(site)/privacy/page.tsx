@@ -8,11 +8,10 @@
 // change this page in the SAME PR. Sources for the claims below:
 //   src/lib/auth.ts .................. sessions, OAuth scopes, no token storage
 //   src/lib/gate.ts .................. gate cookie
-//   src/lib/dynamo-gate-store.ts ..... gate IP throttle + 30-day TTL
-//   src/lib/dynamo-stats.ts .......... aggregate country counters
+//   src/lib/gate-store.ts ............ gate IP throttle + 30-day retention
+//   src/lib/stats-store.ts ........... aggregate country counters
 //   src/lib/hint-store.ts ............ hint purchases
 //   src/lib/team-store.ts ............ team membership
-//   src/lib/dynamo-shapes.ts ......... every item shape in one place
 //
 // Tone note: this page reads as reassuring because the underlying design
 // genuinely is careful — not the other way round. Don't add warmth here that
@@ -172,8 +171,8 @@ export default function PrivacyPage() {
         />
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
           All of it is keyed to a public GitHub username and nothing more: no email, no real
-          name, no device or location data. It lives in an AWS DynamoDB table and an Upstash
-          Redis instance run for this event. Being straight with you: this competition data has
+          name, no device or location data. It lives in an Upstash Redis instance run for this
+          event. Being straight with you: this competition data has
           no automatic expiry today, so treat it as kept until the organizers clear it down
           after the event. You can ask for yours sooner. See below.
         </p>
@@ -278,9 +277,8 @@ export default function PrivacyPage() {
               own infrastructure, so they process requests and keep standard server logs.
             </>,
             <>
-              <span className="text-white">AWS and Upstash</span>: store the competition data
-              described above. The app itself stores no AWS credentials; it uses whatever the
-              organizer&apos;s AWS setup provides for the box it runs on.
+              <span className="text-white">Upstash</span>: stores the competition data described
+              above, in a Redis instance run for this event.
             </>,
             ...(event.discordUrl
               ? [

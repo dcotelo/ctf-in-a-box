@@ -52,11 +52,9 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth app credentials — create one under the org's GitHub settings with callback `<BETTER_AUTH_URL>/api/auth/callback/github` |
 | `LEADERBOARD_SOURCE` | No | `mock` (default) \| `lambda` \| `upstash` — selects the leaderboard data adapter |
 | `LEADERBOARD_API_URL` | Only if `LEADERBOARD_SOURCE=lambda` | Base URL of the scoring API — serves `/leaderboard` (used by the lambda source) and `/challenges` (live challenge catalogue on the challenges page; without it the page shows static fallback cards) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, or `HINTS_ENABLED=true` (hints skip this requirement when `CTF_DATA_BACKEND=dynamo`) | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes and hint purchases need a **read/write** token) |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, or `HINTS_ENABLED=true` | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
 | `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
 | `HINTS_ENABLED` | No | `true` turns on paid hints on `/challenges` (needs the Upstash vars). Leave unset until the event so contestants can't buy hints early |
-| `CTF_DATA_BACKEND` | No | Which store backs team + hint state: `dual` (default) writes Upstash as the source of truth and mirrors into DynamoDB, `upstash` disables the DynamoDB side, `dynamo` makes DynamoDB the only store — see [DynamoDB migration](#dynamodb-migration) |
-| `CTF_AWS_REGION` / `AWS_ROLE_ARN` / `CTF_DYNAMO_TABLE` | No | DynamoDB overrides — working defaults are hardcoded in `src/lib/dynamo.ts`, normally leave unset. (`CTF_AWS_REGION` on purpose, not `AWS_REGION` — some hosts inject the latter with the function's own execution region, which can silently point requests at the wrong region) |
 | `CHALLENGES_GATE_ENABLED` | No | `true` locks `/challenges` behind the pre-event password gate — see [Pre-event challenges gate](#pre-event-challenges-gate) |
 | `CHALLENGES_GATE_PASSWORD` | Only if `CHALLENGES_GATE_ENABLED=true` | The shared access password. Server-side only; the gate stays open if this is unset |
 
@@ -70,8 +68,7 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `pnpm build` | Production build |
 | `pnpm start` | Serve production build |
 | `pnpm lint` | Run ESLint |
-| `pnpm test` | Run the vitest suite (team + hint store unit tests; the live-Upstash and live-DynamoDB integration suites auto-skip without `UPSTASH_REDIS_REST_*` credentials / `AWS_PROFILE`) |
-| `pnpm backfill:dynamo` | Copy existing Upstash team/hint state into DynamoDB (dry run; add `--apply` to write) — run once before enabling the mirror in prod |
+| `pnpm test` | Run the vitest suite (team + hint store unit tests; the live-Upstash integration suite auto-skips without `UPSTASH_REDIS_REST_*` credentials) |
 
 ## Project Structure
 
@@ -100,12 +97,10 @@ src/
     site.ts                   # Event dates, nav links
     leaderboard/               # Data-source adapters (mock/lambda/upstash) + types
     upstash.ts                 # Shared Upstash Redis REST client (pipeline + EVAL)
-    team-store.ts              # Team reads/writes (backend dispatch, Lua scripts, cookie mock)
-    hint-store.ts              # Paid hint purchases + penalty reads (backend dispatch)
-    dynamo.ts                  # DynamoDB client/config + the CTF_DATA_BACKEND flag
-    dynamo-shapes.ts           # pk/sk builders + item shapes for the shared table
-    dynamo-team-store.ts       # Team rules as conditional DynamoDB transactions
-    dynamo-hint-store.ts       # Hint charge-once + penalty reads on DynamoDB
+    team-store.ts              # Team reads/writes (Lua scripts, cookie mock)
+    hint-store.ts              # Paid hint purchases + penalty reads
+    gate-store.ts              # Challenges-gate brute-force throttle (atomic Lua EVAL)
+    stats-store.ts             # Aggregate per-country reach counter
     __tests__/                 # vitest: team + hint rules (unit + live integration)
 public/
   owasp-logo.png              # OWASP logo (rendered inverted on dark backgrounds)
@@ -174,74 +169,26 @@ Until the conference starts, `/challenges` can be locked behind a shared passwor
 
 How it works: the proxy (`src/proxy.ts`) redirects visitors without a valid signed cookie to `/gate`, which POSTs the password to `/api/gate`. Verification is entirely server-side (constant-time compare; the password never reaches the client bundle), and success sets an HMAC-signed, httpOnly cookie good for 30 days.
 
-Brute-force throttle: five attempts from one IP, then that IP is locked for 24 hours (`pk=GATE` items in the DynamoDB table). Locked attempts are rejected before the password is even compared, so the right password won't unlock a locked IP either. If DynamoDB is unreachable the gate fails closed.
+Brute-force throttle: five attempts from one IP, then that IP is locked for 24 hours (`gate:attempts:<ip>` in Upstash Redis). Locked attempts are rejected before the password is even compared, so the right password won't unlock a locked IP either. If Upstash is unreachable the gate fails closed.
 
-The attempt is **charged before the password is compared**, as one conditional write. That ordering is the point: reading the counter, deciding, comparing, and only then writing left four statements with nothing serialising concurrent same-IP requests, so a burst of parallel POSTs all saw the same pre-burst counter and all reached the compare. The throttle bounded sequential guessing and nothing else. Two consequences of the fix worth knowing:
+The attempt is **charged before the password is compared**, as one atomic Lua `EVAL`. That ordering is the point: reading the counter, deciding, comparing, and only then writing would leave nothing serialising concurrent same-IP requests, so a burst of parallel POSTs would all see the same pre-burst counter and all reach the compare. The throttle bounded sequential guessing and nothing else. Two consequences of the fix worth knowing:
 
 - **A successful attempt spends budget too**, and gets it back only when the post-success delete lands (retried once). If that delete fails, the caller still receives their 30-day unlock cookie and is through — but a *second* unlock from that IP may be refused until the window lapses.
-- **Concurrent successful unlocks from one IP can contend.** Six people behind one NAT unlocking in the same instant can drive the counter to the cap before any of their refunds land, and the last of them sees a spurious 429. Retrying works, because the refunds delete the item.
+- **Concurrent successful unlocks from one IP can contend.** Six people behind one NAT unlocking in the same instant can drive the counter to the cap before any of their refunds land, and the last of them sees a spurious 429. Retrying works, because the refunds delete the key.
 
-Caveat that predates all of this: everyone behind one NAT (an office, a hotel, a conference) shares an IP, so five collective failures lock them all, and there is no self-service recovery. To clear one IP by hand:
-
-```bash
-aws dynamodb delete-item --table-name ctf-leaderboard --region us-west-2 \
-  --key '{"pk":{"S":"GATE"},"sk":{"S":"IP#203.0.113.9"}}'
-```
+Caveat that predates all of this: everyone behind one NAT (an office, a hotel, a conference) shares an IP, so five collective failures lock them all, and there is no self-service recovery. To clear one IP by hand, delete its key from Upstash (e.g. via the console, or `redis-cli DEL gate:attempts:203.0.113.9` against the underlying Redis).
 
 The fastest fix during the event is not that command, though — it is turning the gate off (see Rollout below), which is the plan anyway once doors open.
 
-Retention: those items hold a client IP, so each one carries a `ttl` attribute set 30 days out (epoch **seconds**). The 24h lock window is still enforced on read — DynamoDB only reaps expired items on a best-effort basis, typically within 48h, which is far too loose to enforce a lock. The TTL is purely a retention bound; the throttle is correct whether or not the reaper has run.
-
-> **The `ttl` attribute does nothing unless TTL is enabled on the table.** This is table-level config, not something the app can assert. Enable it once (it is codified in the `dc34` repo's Terraform — prefer changing it there; the CLI form is shown for verification):
->
-> ```bash
-> aws dynamodb describe-time-to-live --table-name ctf-leaderboard --region us-west-2
-> # if Status is DISABLED:
-> aws dynamodb update-time-to-live --table-name ctf-leaderboard --region us-west-2 \
->   --time-to-live-specification 'Enabled=true,AttributeName=ttl'
-> ```
->
-> If it stays disabled the items simply persist, which is the behaviour we had before — no breakage, but the retention promise on `/privacy` would not be met.
+Retention: each key holds a client IP, so it carries a 30-day `EXPIRE`, refreshed on every charged attempt. Unlike the DynamoDB TTL this design replaced, Redis expiry is exact rather than best-effort, so the retention promise on `/privacy` is literal.
 
 ## Reach counters
 
-`pk=STATS` / `sk=COUNTRY#<iso2>` holds one integer per country, incremented once per browser session via `POST /api/stats/visit`. The country comes from a geo header (`cf-ipcountry` or `x-geo-country`) and is validated as ISO-3166 alpha-2 before it is used in a sort key — the request body is ignored entirely. No login, IP, timestamp, or session id is stored alongside it, deliberately: `/privacy` makes a specific promise that this item is a bare tally. Counts are approximate and unauthenticated — a measure of reach, not a headcount.
+`stats:countries` is a Redis hash with one integer field per country (`HINCRBY stats:countries <iso2> 1`), incremented once per browser session via `POST /api/stats/visit`. The country comes from a geo header (`cf-ipcountry` or `x-geo-country`) and is validated as ISO-3166 alpha-2 before it is used as a hash field — the request body is ignored entirely. No login, IP, timestamp, or session id is stored alongside it, deliberately: `/privacy` makes a specific promise that this is a bare tally. Counts are approximate and unauthenticated — a measure of reach, not a headcount.
 
 **Self-hosted note**: that header is only as trustworthy as whatever sits in front of the app. The kit's own Caddy config doesn't set, strip, or validate either header, so on a bare `docker compose` deployment a client can send one directly and the tally can be gamed — an accepted trade-off for an approximate, no-PII counter, not a security boundary. If you want the counter to reflect real geography instead, put a real edge/CDN in front (e.g. Cloudflare, which sets `cf-ipcountry` and strips client-supplied values) so the header can't be spoofed before it reaches the app.
 
 Rollout: set the two gate env vars and rebuild/restart the `app` service (see [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)). At conference start, flip `CHALLENGES_GATE_ENABLED` to `false` (or remove it) and rebuild/restart — outstanding unlock cookies become inert. Rotating the password is the same edit + rebuild; cookies issued earlier stay valid because they are signed by `BETTER_AUTH_SECRET`, not the password.
-
-## DynamoDB migration
-
-Team and hint state is migrating from Upstash to the `ctf-leaderboard` DynamoDB table (the same table the dc34 scorer dual-writes solves into). `CTF_DATA_BACKEND` controls the cutover — the four write routes and all consumers are unchanged; only the store layer dispatches:
-
-| Value | Writes | Reads |
-|---|---|---|
-| `dual` (default, incl. unset) | Upstash Lua is the source of truth; every success also runs the equivalent conditional DynamoDB mutation as an awaited best-effort mirror that never throws | Upstash |
-| `upstash` | Upstash only — zero AWS calls | Upstash |
-| `dynamo` | DynamoDB only, with the same rules enforced as conditional transactions (`TransactWriteItems`) | DynamoDB — including hint text and availability from `pk=HINTS`, so hints need no `UPSTASH_REDIS_REST_*` vars in this mode (keep the backfill fresh: re-run it after any scorer hint re-seeding) |
-
-In `dual` mode every mirror outcome is logged as `[dynamo-mirror] …` — a `verdict mismatch` line means the two stores disagree. Soak in `dual`, grep those logs clean, then flip to `dynamo`.
-
-Item shapes in the shared table (scorer partitions `LEADERBOARD` / `AUTHOR#<login>` are never touched):
-
-```
-pk=TEAMS          sk=TEAM#<slug>        name, captain, createdAt, members (string set, never empty)
-pk=USER#<login>   sk=PROFILE            team (absent = no team)
-pk=USER#<login>   sk=HINT#<app>#<id>    one item per hint purchase (the charge-once guard)
-pk=HINTSPEND      sk=AUTHOR#<login>     spent — one Query serves the whole leaderboard
-pk=HINTS          sk=HINT#<app>#<id>    hint text, copied from the scorer-seeded hints:<app>
-                                        hashes by the backfill (read in dynamo mode)
-```
-
-**Credentials.** There are no stored keys in the app: credentials come entirely from the AWS SDK's default credential chain — environment variables, a shared config/credentials file, `AWS_PROFILE` / `aws sso login`, or (when the container runs on AWS compute) an ambient instance/task role. Configure whichever fits your deployment; locally that usually looks like:
-
-```
-aws sso login --profile AWSAdministratorAccess-942548380662
-AWS_PROFILE=AWSAdministratorAccess-942548380662 pnpm dev
-```
-
-**Backfill.** Before enabling the mirror in an environment with existing Upstash data, copy it over once so mirrored joins find their team items: `pnpm backfill:dynamo` (dry run), then `pnpm backfill:dynamo --apply`. Idempotent and read-only against Upstash. It also copies the scorer-seeded `hints:<app>` text hashes into `pk=HINTS`, which `dynamo` mode serves hint text and availability from; Upstash remains the authority for hint text, so re-run the backfill after any hint re-seeding (in `dynamo` mode a stale `pk=HINTS` means new hints simply don't show).
 
 ## Branding
 

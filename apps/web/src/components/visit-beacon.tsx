@@ -6,7 +6,7 @@
 // What this deliberately does NOT do: it sends no body, sets no cookie, reads
 // no storage beyond a single boolean flag, and carries no identifier of any
 // kind. The server derives a country from its own edge headers and increments
-// a bare tally — see src/lib/dynamo-stats.ts and the /privacy page.
+// a bare tally — see src/lib/stats-store.ts and the /privacy page.
 //
 // sessionStorage (not localStorage) so the flag dies with the tab: it exists
 // only to stop one browsing session counting on every navigation, not to
