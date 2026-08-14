@@ -46,6 +46,16 @@ SERVE_CTR=ctf-scorer-acceptance-serve
 APP_CTR=ctf-scorer-acceptance-app
 STOCK_CTR=ctf-scorer-acceptance-stock
 SERVE_PORT=4102
+# Freeze stage (organizer pause, push mode): a second serve instance backed by
+# real Redis (via SRH), so the assertion below exercises isPaused()'s actual
+# HGET path rather than only the memory-store test seam node --test already
+# covers. Declared up front so cleanup()'s `set -u` reference is always valid,
+# even if the script exits before this stage runs.
+FREEZE_REDIS_CTR=ctf-scorer-acceptance-redis
+FREEZE_SRH_CTR=ctf-scorer-acceptance-srh
+FREEZE_SERVE_CTR=ctf-scorer-acceptance-serve-freeze
+FREEZE_SRH_TOKEN=freeze-srh-token
+FREEZE_PORT=4103
 TMP=$(mktemp -d /tmp/ctf-scorer-acceptance.XXXXXX)
 WS_PUSH="$TMP/workspace-push"
 WS_POLL="$TMP/workspace-poll"
@@ -67,7 +77,8 @@ DOCKER
 }
 
 cleanup() {
-  docker rm -f "$SERVE_CTR" ctf-app-juice-shop >/dev/null 2>&1 || true
+  docker rm -f "$SERVE_CTR" ctf-app-juice-shop \
+    "$FREEZE_SERVE_CTR" "$FREEZE_SRH_CTR" "$FREEZE_REDIS_CTR" >/dev/null 2>&1 || true
   docker rmi ctf-app-under-test >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   docker rmi "$IMG" >/dev/null 2>&1 || true
@@ -274,5 +285,49 @@ grep -qF '<!-- ctf-score: ' "$POLL_REPORT"
 if grep -qF '<!-- ctf-score:not-recorded -->' "$POLL_REPORT"; then
   echo "FAIL: poll mode (no SCORE_API) must not mark not-recorded"; exit 1
 fi
+
+echo "--- freeze: boot a second serve instance backed by real Redis (via SRH)"
+docker run -d --name "$FREEZE_REDIS_CTR" --network "$NET" redis:7-alpine >/dev/null
+docker run -d --name "$FREEZE_SRH_CTR" --network "$NET" \
+  -e SRH_MODE=env -e SRH_TOKEN="$FREEZE_SRH_TOKEN" \
+  -e SRH_CONNECTION_STRING="redis://$FREEZE_REDIS_CTR:6379" \
+  hiett/serverless-redis-http:latest >/dev/null
+
+srh_deadline=$((SECONDS + 30))
+until docker exec "$FREEZE_SRH_CTR" wget -qO- \
+  --header="Authorization: Bearer $FREEZE_SRH_TOKEN" --header='Content-Type: application/json' \
+  --post-data='["PING"]' http://127.0.0.1:80/ 2>/dev/null | grep -q PONG; do
+  [ "$SECONDS" -ge "$srh_deadline" ] && { echo "FAIL: srh never came up for freeze stage"; exit 1; }
+  sleep 1
+done
+
+docker run -d --name "$FREEZE_SERVE_CTR" --network "$NET" \
+  -p "127.0.0.1:$FREEZE_PORT:4000" \
+  -e SCORER_TOKEN=test-token \
+  -e UPSTASH_REDIS_REST_URL="http://$FREEZE_SRH_CTR:80" \
+  -e UPSTASH_REDIS_REST_TOKEN="$FREEZE_SRH_TOKEN" \
+  "$IMG" >/dev/null
+
+deadline=$((SECONDS + 60))
+until curl -sf "http://127.0.0.1:$FREEZE_PORT/healthz" >/dev/null 2>&1; do
+  [ "$SECONDS" -ge "$deadline" ] && { echo "FAIL: freeze-mode score serve never came up"; exit 1; }
+  sleep 1
+done
+
+score_freeze() {
+  curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$FREEZE_PORT/score" \
+    -H "authorization: Bearer test-token" -H 'content-type: application/json' \
+    -d '{"author":"octocat","target":"juice-shop","solved":["reflected-xss-search"]}'
+}
+
+echo "--- freeze: ctf:admin:settings paused=1 rejects POST /score with 503"
+docker exec "$FREEZE_REDIS_CTR" redis-cli HSET ctf:admin:settings paused 1 >/dev/null
+code=$(score_freeze)
+[ "$code" = "503" ] || { echo "FAIL: expected 503 while paused, got $code"; exit 1; }
+
+echo "--- freeze: clearing paused resumes normal scoring"
+docker exec "$FREEZE_REDIS_CTR" redis-cli HSET ctf:admin:settings paused 0 >/dev/null
+code=$(score_freeze)
+[ "$code" = "202" ] || { echo "FAIL: expected 202 after resume, got $code"; exit 1; }
 
 echo "ACCEPTANCE PASS"
