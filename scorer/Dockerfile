@@ -1,0 +1,44 @@
+# ctf scorer engine — one image, two modes (serve + judge).
+#
+# Default build bakes the instructive example rubric at /rubric:
+#   docker build -t ghcr.io/<org>/score:latest scorer/
+#
+# Private-rubric build. COPY can only read paths INSIDE the build context, and
+# the context here is scorer/, so a rubric that lives outside the repo cannot be
+# referenced with `../my-rubric`. The robust, verified pattern is to place the
+# private rubric at scorer/rubric/ (gitignored) and point RUBRIC_DIR at it:
+#   cp -r /path/to/private-rubric scorer/rubric
+#   docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
+# RUBRIC_DIR is resolved relative to the context root (scorer/); keep it inside.
+FROM node:22-alpine
+
+# docker-cli: the judge entrypoint drives sibling containers over the mounted
+# docker.sock (boot the app under test, self-attach to the ctf network).
+RUN apk add --no-cache docker-cli
+
+WORKDIR /app
+
+# yaml is the only runtime dependency; install from the lockfile first so the
+# layer caches across src/rubric changes.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY src ./src
+
+# Bake the rubric. Default = the readable example; override with RUBRIC_DIR
+# (see the private-rubric build note above).
+ARG RUBRIC_DIR=rubric.example
+COPY ${RUBRIC_DIR} /rubric
+
+# `score` on PATH so `command: ["score", "serve"]` (docker-compose) and
+# `score judge` (entrypoint) both work without hardcoding node paths.
+RUN printf '#!/bin/sh\nexec node /app/src/index.js "$@"\n' > /usr/local/bin/score \
+    && chmod +x /usr/local/bin/score
+
+# Judge entrypoint. score-action overrides the entrypoint to this path
+# (--entrypoint /usr/local/bin/entrypoint.sh); serve mode uses the CMD below.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Bare `docker run` of the image = leaderboard API (compose overrides nothing).
+CMD ["score", "serve"]

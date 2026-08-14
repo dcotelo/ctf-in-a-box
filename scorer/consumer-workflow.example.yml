@@ -1,0 +1,158 @@
+# CTF scoring workflow — self-contained, no upstream score-action.
+#
+# INSTALL: the organizer commits this to EACH forked target repo as
+#   .github/workflows/ctf-score.yml
+# (matches the instructions printed by `setup/ctf-setup.sh org`). Then disable
+# inherited/upstream workflows in the fork's Settings > Actions.
+#
+# FILL IN the three placeholders below (marked <...>). They are the only edits.
+#
+# WHY pull_request_target: the contestant's PR comes from a fork, so a plain
+# `pull_request` run would have a read-only token and could not post the score
+# comment. pull_request_target runs in the BASE repo's context with a writable
+# token. The tradeoff — it can see secrets — is safe here because the PR's code
+# is only ever `docker build`+run INSIDE a container on an internal network
+# (see the checkout + run steps); it is never executed on the runner host.
+#
+# WHY the comment author matters: the kit's sync poller (sync/src/parse.js)
+# only trusts score comments authored by github-actions[bot]. Posting via
+# actions/github-script with the default GITHUB_TOKEN makes the comment author
+# github-actions[bot], so the poll picks it up. Do NOT swap in a PAT or a
+# third-party commenter action — that breaks the trust filter.
+
+# ---------------------------------------------------------------------------
+# PLACEHOLDERS — edit these:
+#   <EVENT_ORG>  the GitHub org the scorer image was mirrored into
+#                (ghcr.io/<EVENT_ORG>/score:latest — kept PRIVATE during play)
+#   <TARGET>     this repo's rubric target id (must match a <target>.yaml in the
+#                baked rubric, e.g. juice-shop)
+#   <APP_URL>    where the app under test answers ON the ctf network, e.g.
+#                http://<TARGET>:3000 (no host ports are published)
+# ---------------------------------------------------------------------------
+
+name: CTF Patch Score
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: write
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    env:
+      EVENT_ORG: <EVENT_ORG>
+      TARGET: <TARGET>
+      APP_URL: <APP_URL>
+      NETWORK: ctfnet
+    steps:
+      # (1) Upsert a "scoring in progress" comment so the contestant sees the
+      # run started. Target-scoped marker lets multiple target workflows coexist
+      # on one PR without clobbering each other's comments.
+      - name: Post pending comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = `<!-- ctf-score:${process.env.TARGET} -->`;
+            const body = `${marker}\n## 🏆 CTF Patch Score\n\n⏳ Scoring in progress…`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }
+
+      # (2) Check out the PR HEAD — this is UNTRUSTED contestant code. It is only
+      # ever `docker build`+run inside a container on the internal network by the
+      # scorer (step 5); nothing here runs it on the runner host.
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      # (3) Log in to GHCR to pull the (private) mirrored scorer image.
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # (4) Create the ctf network the scorer attaches itself and the app to.
+      - name: Create ctf network
+        run: docker network create "$NETWORK" 2>/dev/null || true
+
+      # (5) Run the scorer. --entrypoint drives the judge path (boot app + probe).
+      # docker.sock lets it boot the app under test as a sibling container; the
+      # workspace + event.json mounts give it the PR checkout and webhook payload.
+      # Push-mode secrets are OPTIONAL: leave LEADERBOARD_URL/LEADERBOARD_TOKEN
+      # unset for poll mode (the engine skips the leaderboard POST and the sync
+      # poller records the comment instead).
+      - name: Run scorer
+        run: |
+          docker run --rm \
+            --entrypoint /usr/local/bin/entrypoint.sh \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE:/github/workspace" \
+            -v "$GITHUB_EVENT_PATH:/github/event.json:ro" \
+            -e TARGET \
+            -e APP_URL \
+            -e NETWORK \
+            -e GITHUB_WORKSPACE=/github/workspace \
+            -e GITHUB_EVENT_PATH=/github/event.json \
+            -e SCORE_API="${{ secrets.LEADERBOARD_URL }}" \
+            -e SCORE_TOKEN="${{ secrets.LEADERBOARD_TOKEN }}" \
+            "ghcr.io/${EVENT_ORG}/score:latest"
+
+      # (6) Always upsert the final comment, replacing the pending one (same
+      # marker). ctf-score.md already carries the sync JSON marker
+      # (<!-- ctf-score: {...} -->) that the poller parses; we keep the
+      # target-scoped marker AND the file body together. If the score step failed
+      # or produced no file, fall back to a "did not complete" message with a run
+      # link — mirroring the upstream action's failure behaviour.
+      - name: Post final comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = `<!-- ctf-score:${process.env.TARGET} -->`;
+            const path = `${process.env.GITHUB_WORKSPACE}/ctf-score.md`;
+            let report = '';
+            try { report = fs.readFileSync(path, 'utf8'); } catch {}
+            let body;
+            if (report && report.trim()) {
+              body = `${marker}\n${report}`;
+            } else {
+              const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+              body = `${marker}\n## 🏆 CTF Patch Score\n\n❌ Scoring did not complete. See the [run log](${runUrl}).`;
+            }
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }

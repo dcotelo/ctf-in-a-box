@@ -10,6 +10,9 @@ docs/superpowers/
 # Jekyll build destination (Pages workflow)
 docs/_site/
 
+# organizer's private rubric (built into their scorer image, never committed)
+scorer/rubric/
+
 # vendored app build artifacts
 apps/web/node_modules/
 apps/web/.next/

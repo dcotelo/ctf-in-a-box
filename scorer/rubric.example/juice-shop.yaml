@@ -1,0 +1,72 @@
+# rubric/<target>.yaml — one file per target the event scores.
+#
+# THIS FILE IS A TEACHING EXAMPLE. Juice Shop is open source and its
+# vulnerabilities/solutions are public (there is an official solutions guide),
+# so nothing here is secret. Copy this into your own private rubric (see
+# README.md) and adapt the probes to the fixes you want to reward.
+#
+# Golden rule: ASSERT THE FIX, NOT THE EXPLOIT.
+#   - Probe the PATCHED behaviour: the payload is now rejected / no longer
+#     reflected / the sensitive path is now denied.
+#   - A probe must PASS only when the vuln is actually fixed. If your probe
+#     passes against the stock vulnerable app, it is wrong.
+#   - Avoid brittle full-body equality. Match one small, stable, meaningful
+#     substring (bodyIncludes) or the exact payload that must vanish
+#     (bodyMissing). Full-page matches break on unrelated markup changes.
+#
+# Grammar v1 (small on purpose):
+#   request.method   uppercase HTTP verb (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
+#   request.path     must start with "/"; query string allowed
+#   request.headers  optional map of string values
+#   request.body     optional string (send it verbatim)
+#   expect.status    an int, or an [min, max] inclusive range
+#   expect.bodyIncludes  substring the response body MUST contain
+#   expect.bodyMissing   substring the response body MUST NOT contain
+# A challenge is "solved" (patched) only when ALL of its probes pass, in order.
+#
+# id charset: /^[a-z0-9][a-z0-9-]*/ — lowercase, digits, dashes. The id becomes
+# a Redis field segment (<author>:<challengeId>), so keep it stable: renaming an
+# id resets everyone's solve for that challenge.
+
+target: juice-shop
+challenges:
+  # Reflected XSS via the product-search endpoint. The stock app echoes the raw
+  # query back; a patched app must sanitise/encode it so the exact <script> tag
+  # never appears verbatim in the response body.
+  - id: reflected-xss-search
+    name: "Search no longer reflects an XSS payload"
+    points: 10                     # points optional; default is 1
+    probes:
+      - request:
+          method: GET
+          path: "/rest/products/search?q=<script>alert(1)</script>"
+        expect:
+          status: 200              # the endpoint still works for real searches
+          bodyMissing: "<script>alert(1)</script>"   # ...but must not echo it
+
+  # SQL injection in the login form. The classic `' OR 1=1--` bypass logs in as
+  # admin on the stock app (HTTP 200 + token). A patched app must reject it with
+  # an auth failure — 401 — never a 200.
+  - id: sqli-login-bypass
+    name: "Login rejects the SQL-injection auth bypass"
+    points: 10
+    probes:
+      - request:
+          method: POST
+          path: "/rest/user/login"
+          headers: { content-type: "application/json" }
+          body: '{"email":"'' OR 1=1--","password":"x"}'
+        expect:
+          status: 401
+
+  # Sensitive file exposure through the /ftp static route. The stock app serves
+  # internal documents (e.g. acquisitions.md) directly. A patched app must deny
+  # access — any 4xx is acceptable; the point is that it is no longer 200 + the
+  # document contents.
+  - id: confidential-ftp-doc
+    name: "Confidential /ftp document is no longer served"
+    points: 5
+    probes:
+      - request: { method: GET, path: "/ftp/acquisitions.md" }
+        expect:
+          status: [400, 499]       # denied — pick your fix's exact code if known

@@ -1,0 +1,78 @@
+#!/bin/sh
+# ctf scorer — judge entrypoint (score-action contract).
+#
+# Runs inside the scorer image with docker.sock mounted. Boots the app under
+# test as a SIBLING container on the internal ctf network, then runs the
+# declarative rubric probes against it and writes $GITHUB_WORKSPACE/ctf-score.md.
+#
+# Env in (from score-action / the consumer workflow):
+#   TARGET             rubric target id (required) — names the app container
+#   APP_URL            where the app answers, ON the ctf network (required)
+#   APP_IMAGE          optional prebuilt app image to pull + run
+#   NETWORK            ctf docker network (default ctfnet)
+#   GITHUB_WORKSPACE   PR checkout (holds the PR's Dockerfile for the patch path)
+#   GITHUB_EVENT_PATH  webhook payload (author/pr/sha)
+#   SCORE_API/SCORE_TOKEN  optional leaderboard push (engine skips POST if unset)
+set -eu
+
+NETWORK="${NETWORK:-ctfnet}"
+: "${TARGET:?entrypoint: TARGET is required}"
+: "${APP_URL:?entrypoint: APP_URL is required}"
+
+# Container the app under test runs as. Derived from TARGET so cleanup can find
+# it; the network alias (below) is what APP_URL actually resolves to.
+APP_CONTAINER="ctf-app-$(printf '%s' "$TARGET" | tr -c 'a-zA-Z0-9_.-' '-')"
+
+# Host portion of APP_URL (strip scheme, path, port) — the sibling app joins the
+# network under this alias so APP_URL resolves regardless of the container name.
+APP_HOST="$(printf '%s' "$APP_URL" | sed -e 's,^[a-zA-Z][a-zA-Z0-9+.-]*://,,' -e 's,[/:].*$,,')"
+
+BOOTED=""
+cleanup() {
+  # Only tear down a container THIS script booted (strategies a/b). Strategy c
+  # uses an organizer-managed app we must not touch.
+  [ -n "$BOOTED" ] && docker rm -f "$BOOTED" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+# Ensure the ctf network exists. Tolerate the race where a parallel job (or a
+# previous run) already created it.
+docker network inspect "$NETWORK" >/dev/null 2>&1 \
+  || docker network create "$NETWORK" >/dev/null 2>&1 \
+  || true
+
+# score-action starts the scorer with a plain `docker run` (no --network), so
+# the scorer lands on the default bridge and cannot reach the app it boots.
+# Self-attach to the ctf network — the container id is the hostname. Tolerate
+# "already connected" (compose/CI may have wired it, or a retry re-runs this).
+docker network connect "$NETWORK" "$(hostname)" >/dev/null 2>&1 || true
+
+boot_app() {
+  # Publishes NO host ports: APP_URL is reached over the internal network only.
+  docker run -d --rm \
+    --network "$NETWORK" \
+    --network-alias "$APP_HOST" \
+    --name "$APP_CONTAINER" \
+    "$1" >/dev/null
+  BOOTED="$APP_CONTAINER"
+}
+
+if [ -n "${APP_IMAGE:-}" ]; then
+  # (a) Prebuilt image — pull and run as a sibling.
+  echo "entrypoint: booting app from APP_IMAGE=$APP_IMAGE"
+  docker pull "$APP_IMAGE" >/dev/null
+  boot_app "$APP_IMAGE"
+elif [ -f "${GITHUB_WORKSPACE:-/github/workspace}/Dockerfile" ]; then
+  # (b) PR-patch path: build the contestant's checked-out code. The untrusted
+  # code runs ONLY inside this container on the INTERNAL network — never on the
+  # runner host and never with host ports published.
+  echo "entrypoint: building app under test from PR workspace Dockerfile"
+  docker build -t ctf-app-under-test "${GITHUB_WORKSPACE:-/github/workspace}" >/dev/null
+  boot_app ctf-app-under-test
+else
+  # (c) Organizer-managed app already reachable at APP_URL — do not boot.
+  echo "entrypoint: no APP_IMAGE and no workspace Dockerfile — assuming APP_URL is already up"
+fi
+
+# Readiness polling lives in the engine (waitForApp).
+exec score judge
