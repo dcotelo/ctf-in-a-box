@@ -105,8 +105,9 @@ are heavyweight and the kit cannot boot them generically.
 
 `scorer/rubric.example/` is the living documentation: `juice-shop.yaml`
 is commented as a tutorial and its README covers the authoring workflow.
-It is also the rubric baked into a default build, which is what
-`scripts/acceptance-scorer.sh` scores against.
+It is no longer what a default build bakes (that's the vendored
+`scorer/rubric.owasp/`), but it is still what `scripts/acceptance-scorer.sh`
+scores against, via `--build-arg RUBRIC_DIR=rubric.example`.
 
 ## Building and mirroring your private image
 
@@ -120,8 +121,10 @@ cp -r /path/to/my-rubric scorer/rubric
 docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 ```
 
-Omit `--build-arg` to bake the example rubric instead (useful for
-rehearsals, useless for a real event — contestants can read it here).
+Pass `--build-arg RUBRIC_DIR=rubric.example` to bake the example rubric
+instead (useful for rehearsals, useless for a real event — contestants can
+read it here). Omit `--build-arg` entirely to bake the vendored
+`rubric.owasp/` rubric — the stock default.
 
 Then let the kit distribute it: set `SCORE_IMAGE` in `.env` to your image
 and run `./setup/ctf-setup.sh org` — the mirror step pushes whatever
@@ -196,9 +199,10 @@ patch, so it only fits challenges scored against a shared instance).
 
 ## Limits (v1)
 
-- **Probe grammar only** — declarative HTTP request/expect probes. No
-  exec-script probes yet (running a target's own test suite, driving a
-  headless browser); that's a documented follow-up, not a v1 feature.
+- **Two probe shapes** — declarative HTTP request/expect probes
+  (`<target>.yaml`) and exec probes that run a target's own `node:test` suite
+  (`<target>/tests/challenges/`, priced by `catalogue.<target>.json`). Driving a
+  headless browser is still out of scope.
 - **`score serve` requires `SCORER_TOKEN`** (or `CTF_SCORE_BEARER_TOKEN`)
   and refuses to start without one — there is no unauthenticated write
   mode.

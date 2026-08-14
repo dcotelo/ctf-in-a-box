@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Offline e2e for the in-repo scorer engine (scorer/): build the image with the
-# default example rubric, boot `score serve` + a tiny fake target app, then run
-# the judge entrypoint exactly the way the consumer workflow / score-action
-# does (entrypoint override, docker.sock, workspace + event.json mounts).
+# Offline e2e for the in-repo scorer engine (scorer/): build the image pinned
+# to the example rubric (rubric.example — the stock build now bakes the
+# vendored rubric.owasp by default), boot `score serve` + a tiny fake target
+# app, then run the judge entrypoint exactly the way the consumer workflow /
+# score-action does (entrypoint override, docker.sock, workspace + event.json
+# mounts).
 #
 # The fake app deliberately PASSES two example-rubric challenges and FAILS one,
 # so the asserted "2 / 3" count proves the probes actually discriminate — an
@@ -64,8 +66,8 @@ require("node:http").createServer((req, res) => {
 JS
 )
 
-echo "--- build scorer image (default example rubric)"
-docker build -t "$IMG" scorer/
+echo "--- build scorer image (pinned to the example rubric)"
+docker build -t "$IMG" --build-arg RUBRIC_DIR=rubric.example scorer/
 
 docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
 
