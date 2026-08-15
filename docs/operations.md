@@ -26,9 +26,9 @@ live-GitHub scoring. For standing the kit up in the first place, see
 ```
 
 This archives each target repo in the event org. It does **not** revoke
-credentials or delete secrets — do that yourself: revoke the organizer
-`GITHUB_PAT`, and delete the event org's Actions secrets (`LEADERBOARD_TOKEN`
-if you used push mode).
+credentials or delete secrets — do that yourself: uninstall the GitHub App,
+and delete the event org's Actions secrets (`LEADERBOARD_TOKEN` if you used
+push mode).
 
 ## Teams
 

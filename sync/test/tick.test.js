@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tick } from "../src/index.js";
 
 const CFG = {
-  org: "evt", targets: ["dvwa"], pat: "p", apiUrl: "https://api.example",
+  org: "evt", targets: ["dvwa"], getToken: async () => "ghp_test", apiUrl: "https://api.example",
   scorerUrl: "http://scorer:4000", scorerToken: "t", commentAuthor: "github-actions[bot]",
 };
 

@@ -1,6 +1,6 @@
 /**
  * Poll one repo's issue comments (PR result comments are issue comments).
- * One request per repo per tick; `since` + ETag keep it far under PAT rate limits.
+ * One request per repo per tick; `since` + ETag keep it far under GitHub's rate limits.
  */
 export async function fetchNewScoreComments(cfg, repo, cursor, fetchImpl = fetch) {
   const url = new URL(`${cfg.apiUrl}/repos/${cfg.org}/${repo}/issues/comments`);
@@ -9,8 +9,9 @@ export async function fetchNewScoreComments(cfg, repo, cursor, fetchImpl = fetch
   url.searchParams.set("direction", "asc");
   if (cursor.since) url.searchParams.set("since", cursor.since);
 
+  const token = await cfg.getToken(fetchImpl);
   const headers = {
-    authorization: `Bearer ${cfg.pat}`,
+    authorization: `Bearer ${token}`,
     accept: "application/vnd.github+json",
     "x-github-api-version": "2022-11-28",
   };
