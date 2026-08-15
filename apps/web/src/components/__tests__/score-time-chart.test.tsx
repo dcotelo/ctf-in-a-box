@@ -97,4 +97,64 @@ describe("ScoreTimeChart", () => {
     expect(countOccurrences(html, "<path")).toBe(10);
     expect(html).toContain("+2 more");
   });
+
+  it("renders per-team lines when given teamSeries instead of a player series", () => {
+    const teamSeries = [
+      {
+        slug: "red-team",
+        name: "Red Team",
+        points: [
+          { t: "2026-08-01T00:00:00.000Z", score: 10 },
+          { t: "2026-08-01T04:00:00.000Z", score: 80 },
+        ],
+      },
+      {
+        slug: "blue-team",
+        name: "Blue Team",
+        points: [
+          { t: "2026-08-01T01:00:00.000Z", score: 20 },
+          { t: "2026-08-01T05:00:00.000Z", score: 60 },
+        ],
+      },
+    ];
+    const html = renderToStaticMarkup(<ScoreTimeChart teamSeries={teamSeries} />);
+    expect(html).toContain("<svg");
+    expect(countOccurrences(html, "<path")).toBe(2);
+    expect(html).toContain("Red Team");
+    expect(html).toContain("Blue Team");
+  });
+
+  it("ignores a player series when teamSeries is also provided (teamSeries wins)", () => {
+    const html = renderToStaticMarkup(
+      <ScoreTimeChart
+        series={series()}
+        teamSeries={[
+          {
+            slug: "red-team",
+            name: "Red Team",
+            points: [
+              { t: "2026-08-01T00:00:00.000Z", score: 10 },
+              { t: "2026-08-01T04:00:00.000Z", score: 80 },
+            ],
+          },
+          {
+            slug: "blue-team",
+            name: "Blue Team",
+            points: [
+              { t: "2026-08-01T01:00:00.000Z", score: 20 },
+              { t: "2026-08-01T05:00:00.000Z", score: 60 },
+            ],
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("Red Team");
+    expect(html).toContain("Blue Team");
+    expect(html).not.toContain("alice");
+  });
+
+  it("renders nothing for an empty teamSeries array", () => {
+    const html = renderToStaticMarkup(<ScoreTimeChart teamSeries={[]} />);
+    expect(html).toBe("");
+  });
 });

@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
+import ScoreTimeChart from "@/components/score-time-chart";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
@@ -194,7 +195,10 @@ function EntryRow({
   );
 }
 
-function TeamRow({ team, topPoints, isOpen, onToggle }: { team: TeamStanding; topPoints: number; isOpen: boolean; onToggle: () => void }) {
+/** Exported (in addition to the page's default `Leaderboard`) purely so
+ *  tests can render an expanded row directly with `isOpen` — the toggle
+ *  itself only flips client-side state that a static render can't drive. */
+export function TeamRow({ team, topPoints, isOpen, onToggle }: { team: TeamStanding; topPoints: number; isOpen: boolean; onToggle: () => void }) {
   return (
     <li>
       <button
@@ -243,6 +247,11 @@ function TeamRow({ team, topPoints, isOpen, onToggle }: { team: TeamStanding; to
               >
                 <Avatar login={login} size={18} />
                 {login}
+                {login === team.captain && (
+                  <span className="flex-none rounded border border-[#d4a017]/50 bg-[#d4a017]/10 px-1 py-0.5 text-[9px] uppercase tracking-wide text-[#d4a017]">
+                    captain
+                  </span>
+                )}
               </span>
             ))}
           </div>
@@ -315,8 +324,12 @@ export default function Leaderboard({
   data: LeaderboardData;
   viewerLogin: string | null;
 }) {
+  // Teams are the primary competitive unit once they exist — default there
+  // and let individual standings be the secondary, opt-in view.
+  const showTeamsToggle = data.capabilities.teams && data.teams.length > 0;
+
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("individual");
+  const [view, setView] = useState<View>(showTeamsToggle ? "teams" : "individual");
   const [sort, setSort] = useState<SortKey>("rank");
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -347,7 +360,6 @@ export default function Leaderboard({
       .sort((a, b) => a.rank - b.rank);
   }, [data.teams, query]);
 
-  const showTeamsToggle = data.capabilities.teams && data.teams.length > 0;
   /** Nothing to search, sort, or count — suppress the chrome so the empty
    *  state stands alone. Teams can exist before anyone has solved anything, so
    *  this checks both collections rather than just `entries`. */
@@ -355,6 +367,14 @@ export default function Leaderboard({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Chart follows the active view: team lines in "teams", player lines
+          in "individual" — only one of the two props is ever passed, so
+          ScoreTimeChart never has to choose between them. */}
+      <ScoreTimeChart
+        series={view === "individual" ? data.series : undefined}
+        teamSeries={view === "teams" ? data.teamSeries : undefined}
+      />
+
       {/* Controls */}
       {!boardIsEmpty && (
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
