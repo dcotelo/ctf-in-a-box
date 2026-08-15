@@ -29,4 +29,11 @@ describe("upstashSource.getLeaderboard", () => {
     expect(data.entries).toHaveLength(1);
     expect(data.series).toBeUndefined();
   });
+
+  it("reports capabilities.teams: false — no per-flag data here to dedupe a shared flag with", async () => {
+    pipelineMock.mockResolvedValueOnce([{ result: [] }]);
+    const data = await upstashSource.getLeaderboard();
+    expect(data.capabilities.teams).toBe(false);
+    expect(data.teams).toEqual([]);
+  });
 });

@@ -1,6 +1,6 @@
 import "server-only";
 import type { LeaderboardSource } from "./source";
-import type { LeaderboardData, LeaderboardEntry, PlayerSeries, UserProfile } from "./types";
+import type { LeaderboardData, LeaderboardEntry, PlayerSeries, TeamSeries, TeamStanding, UserProfile } from "./types";
 import { buildMockEntries, buildMockTeams, findMockSample } from "./mock-data";
 
 /** Small deterministic string hash — used only to vary each mock player's
@@ -70,6 +70,43 @@ function synthesizeSeries(entries: LeaderboardEntry[], generatedAt: string): Pla
     });
 }
 
+/** Mirrors `synthesizeSeries` but for team totals — same staggered-start,
+ *  eased-curve synthesis, keyed by team slug instead of login. Each team's
+ *  "history" ends around its latest member's last solve, so the team chart
+ *  doesn't run further into the future than the individual one. */
+function synthesizeTeamSeries(
+  teams: TeamStanding[],
+  entries: LeaderboardEntry[],
+  generatedAt: string,
+): TeamSeries[] {
+  const endMs = Date.parse(generatedAt);
+  const entryByLogin = new Map(entries.map((e) => [e.login, e]));
+  return teams
+    .filter((t) => t.points > 0)
+    .map((team): TeamSeries => {
+      const seed = seedFrom(team.slug);
+      const memberEndTimes = team.members
+        .map((login) => entryByLogin.get(login)?.updatedAt)
+        .filter((v): v is string => Boolean(v))
+        .map((v) => Date.parse(v));
+      const teamEndMs = memberEndTimes.length > 0 ? Math.max(...memberEndTimes) : endMs;
+      const steps = 3 + (seed % 4); // 3..6 desired points
+      const increments = buildIncrements(team.points, steps, seed);
+      const spanMs = (4 + (seed % 6)) * 60 * 60 * 1000;
+      const startMs = teamEndMs - spanMs;
+      const eased = seed % 2 === 1;
+      let cumulative = 0;
+      const points = increments.map((inc, i) => {
+        cumulative += inc;
+        const frac = (i + 1) / increments.length;
+        const shaped = eased ? Math.pow(frac, 1.6) : frac;
+        const t = new Date(startMs + shaped * spanMs).toISOString();
+        return { t, score: cumulative };
+      });
+      return { slug: team.slug, name: team.name, points };
+    });
+}
+
 export const mockSource: LeaderboardSource = {
   async getLeaderboard(): Promise<LeaderboardData> {
     const entries = buildMockEntries();
@@ -81,6 +118,7 @@ export const mockSource: LeaderboardSource = {
       generatedAt,
       capabilities: { apps: true, teams: true, challenges: true },
       series: synthesizeSeries(entries, generatedAt),
+      teamSeries: synthesizeTeamSeries(teams, entries, generatedAt),
     };
   },
 
