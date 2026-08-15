@@ -304,16 +304,19 @@ EOF
 
 @test "check_step disable-inherited fails closed when gh api errors" {
   mkdir -p stubs
-  cat > stubs/gh <<'EOF'
+  cat > stubs/gh <<'EOF2'
 #!/usr/bin/env bash
-# canned gh: any 'api' call (e.g. actions/workflows) fails, simulating a
-# network/auth/rate-limit error — check_step must NOT read this as "satisfied".
-if [ "$1" = api ]; then exit 1; fi
+[ "$1" = api ] && exit 1
 exit 0
-EOF
+EOF2
   chmod +x stubs/gh
-  PATH="$(pwd)/stubs:$PATH" run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; check_step disable-inherited dvwa test-event-org'
-  [ "$status" -ne 0 ]
+  # Exercise the real call context (`if check_step …`), where set -e is
+  # suppressed and the `|| return 1` in check_step is what forces
+  # "not satisfied" — a bare top-level call would abort the subprocess on the
+  # stub's failure and pass vacuously regardless of the fix.
+  PATH="$(pwd)/stubs:$PATH" run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if check_step disable-inherited dvwa test-event-org; then echo SATISFIED; else echo NOTSATISFIED; fi'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx NOTSATISFIED
 }
 
 @test "doctor reports missing then done via stubbed gh" {

@@ -127,9 +127,10 @@ JSON
       local base_url lb_url="" tmp
       base_url="$(yaml_url)"; base_url="${base_url%/}"
       case "$base_url" in http://*|https://*) lb_url="$base_url/leaderboard" ;; esac
-      tmp="$(mktemp)"; trap 'rm -f "$tmp"' RETURN
+      tmp="$(mktemp)"
       render_workflow "$org" "$t" "$(app_url_for "$t")" "$lb_url" > "$tmp"
-      put_contents_ctf "$org/$name" ".github/workflows/ctf-score.yml" "$tmp"
+      put_contents_ctf "$org/$name" ".github/workflows/ctf-score.yml" "$tmp" || { rm -f "$tmp"; return 1; }
+      rm -f "$tmp"
       ;;
     disable-inherited)
       local id
