@@ -105,7 +105,7 @@ state; everything else that touches scores goes through it.
    vulnerability, and opens a PR back to the org's copy.
 2. A `pull_request_target` GitHub Action (rendered per target from the
    in-repo template `scorer/consumer-workflow.example.yml` by
-   `setup/ctf-setup.sh org` and installed manually, see
+   `setup/ctf-setup.sh org`, which commits it to each fork automatically, see
    [docs/modules.md §6.1](modules.md#6-security-requirements-non-negotiable))
    runs in the *base* repo's context — where org secrets live — and scores
    the patch using the private `scorer` image, while the contestant's PR
@@ -282,7 +282,7 @@ config change").
   (`setup/ctf-setup.sh org` forks targets into it; `teardown` archives them
   afterward). Contestant PR code runs via `pull_request_target` in the
   base repo's Action context, so the untrusted PR code itself never sees
-  the org's secrets or the organizer's PAT.
+  the org's secrets or the GitHub App key.
 
 ## Testing strategy
 

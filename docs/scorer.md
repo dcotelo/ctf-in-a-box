@@ -150,13 +150,17 @@ don't assume) and leave it private until the event ends.
 ## Installing the consumer workflow
 
 `./setup/ctf-setup.sh org` renders `scorer/consumer-workflow.example.yml`
-locally — one file per target, placeholders pre-filled — into
-`dist/workflows/<target>.ctf-score.yml` (re-render alone with
-`./setup/ctf-setup.sh render`; no upstream access either way). Commit each
-rendered file into the matching forked target repo as
-`.github/workflows/ctf-score.yml` and disable any inherited upstream
-workflows in the fork's Settings → Actions. Filling the template in by
-hand works too; the placeholders are:
+from the in-repo template — one file per target, placeholders pre-filled —
+and **commits it** into each matching forked target repo as
+`.github/workflows/ctf-score.yml` on the `ctf` branch, then disables the
+fork's inherited upstream workflows. No manual install step.
+
+For offline inspection or as a fallback, `./setup/ctf-setup.sh render` writes
+the same rendered files to `dist/workflows/<target>.ctf-score.yml` without
+committing (no upstream access either way); you can then commit each file into
+the matching fork by hand and disable inherited workflows in the fork's
+Settings → Actions. Filling the template in by hand works too; the
+placeholders are:
 
 | Placeholder | Meaning |
 |---|---|

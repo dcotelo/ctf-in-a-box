@@ -84,13 +84,10 @@ be a free point for every contestant, so the build refuses to ship it.
 
 ## Quickstart
 
-```sh
-./setup/ctf-setup.sh check
-./setup/ctf-setup.sh secrets
-cp event.yaml.example event.yaml   # edit: org, targets, admins, url
-./setup/ctf-setup.sh org           # fork targets, render workflows, mirror image
-docker compose --profile poll --profile app up -d
-```
+The full, canonical sequence — tooling check, scorer image, the sync GitHub
+App, the sign-in OAuth app, org provisioning, and bringing up the box with the
+required `EVENT_CONFIG_B64` build arg — lives in
+[Hosting → Quickstart: zero to a scored event](hosting.md#quickstart-zero-to-a-scored-event).
 
 Poll mode is the default and needs no inbound network access — nothing has to
 reach your box from the internet, so a campus network, a locked-down lab or
