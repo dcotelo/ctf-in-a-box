@@ -15,7 +15,10 @@ module (forensics, api-security, cloud, …) must satisfy to plug in, with
 
 The platform sections of `event.yaml` (`event`, `github`, `teams`, `hints`,
 `admins`) are shared. Everything module-specific — target list, challenge
-catalogue, scoring transport — lives under `modules.<name>`.
+catalogue, scoring transport — lives under `modules.<name>`. For the
+higher-level split of what the control plane owns versus what a module
+supplies, see the [platform-and-modules table](architecture.md#platform-and-modules);
+the sections below are the enforceable contract behind it.
 
 ## 1. Module identity & config block
 
