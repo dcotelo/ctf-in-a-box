@@ -5,7 +5,50 @@ on:
     branches: [main]
 
 jobs:
+  # Decide which areas a PR actually touches so only the relevant jobs run.
+  # Native `git diff` — no third-party action — keeps this self-contained. A push
+  # to main (post-merge) sets every area true, so main always gets the full run as
+  # a safety net; only PRs are filtered. Each job below `needs: changes` and gates
+  # on its output, so an unrelated job is *skipped* (which satisfies a required
+  # check) rather than running needlessly.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.f.outputs.app }}
+      scorer: ${{ steps.f.outputs.scorer }}
+      sync: ${{ steps.f.outputs.sync }}
+      shell: ${{ steps.f.outputs.shell }}
+      smoke: ${{ steps.f.outputs.smoke }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          printf 'changed files:\n%s\n' "$changed"
+          # Editing this workflow re-runs every area (a CI change is untargeted).
+          CI='|^\.github/workflows/ci\.yml$'
+          m() { if printf '%s\n' "$changed" | grep -qE "$1"; then echo true; else echo false; fi; }
+          {
+            echo "app=$(m "^apps/web/|^scripts/acceptance-app\.sh$CI")"
+            echo "scorer=$(m "^scorer/|^scripts/acceptance-scorer\.sh$CI")"
+            echo "sync=$(m "^sync/$CI")"
+            echo "shell=$(m "^scripts/|^setup/|^scorer/entrypoint$CI")"
+            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow$CI")"
+          } >> "$GITHUB_OUTPUT"
+
   sync-tests:
+    needs: changes
+    if: needs.changes.outputs.sync == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +60,8 @@ jobs:
         working-directory: sync
 
   scorer:
+    needs: changes
+    if: needs.changes.outputs.scorer == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +74,8 @@ jobs:
       - run: ./scripts/acceptance-scorer.sh
 
   shell:
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,12 +90,16 @@ jobs:
       - run: bats setup/test/
 
   smoke:
+    needs: changes
+    if: needs.changes.outputs.smoke == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/smoke.sh
 
   app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
