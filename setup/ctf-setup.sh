@@ -40,9 +40,8 @@ gh_ok() { gh api "$@" >/dev/null 2>&1; }
 
 # A just-created fork isn't instantly queryable — poll briefly.
 wait_for_repo() {
-  local slug="$1" i
-  # shellcheck disable=SC2034  # retry counter; only used to bound iterations
-  for i in 1 2 3 4 5; do gh_ok "repos/$slug" && return 0; sleep 2; done
+  local slug="$1"
+  for _ in 1 2 3 4 5; do gh_ok "repos/$slug" && return 0; sleep 2; done
   return 1
 }
 
@@ -316,17 +315,24 @@ mirror_image() {
   echo "== mirroring scorer image $src -> ghcr.io/$org/score:latest"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "DRY-RUN: docker pull $src && docker tag $src ghcr.io/$org/score:latest && docker push ghcr.io/$org/score:latest"
-    echo "DRY-RUN: docker manifest inspect ghcr.io/$org/score:latest  # must list linux/amd64"
+    echo "DRY-RUN: docker image inspect --format '{{.Architecture}}' $src  # must be amd64"
     return
   fi
   docker pull "$src"
-  docker tag "$src" "ghcr.io/$org/score:latest"
-  docker push "ghcr.io/$org/score:latest"
-  if ! docker manifest inspect "ghcr.io/$org/score:latest" 2>/dev/null | grep -q '"architecture": "amd64"'; then
-    echo "ERROR: ghcr.io/$org/score:latest is not linux/amd64 — GitHub runners need amd64." >&2
+  # Check the pulled image's own config (always has .Architecture, no
+  # manifest-list wrapping to unpack) rather than the registry manifest: a
+  # plain `docker build` (the documented path in docs/scorer.md) pushes a
+  # single-manifest image with no top-level "architecture" field at all —
+  # that only appears inside a multi-manifest index's platform entries.
+  local arch
+  arch="$(docker image inspect --format '{{.Architecture}}' "$src" 2>/dev/null || true)"
+  if [ "$arch" != "amd64" ]; then
+    echo "ERROR: $src is $arch, not amd64 — GitHub runners need linux/amd64." >&2
     echo "Rebuild + push amd64:  docker buildx build --platform linux/amd64 -t ghcr.io/$org/score:latest --push scorer/" >&2
     return 1
   fi
+  docker tag "$src" "ghcr.io/$org/score:latest"
+  docker push "ghcr.io/$org/score:latest"
 }
 
 cmd_check() {
@@ -375,6 +381,8 @@ cmd_org() {
     echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in .env or the environment" >&2
     exit 1
   }
+
+  yaml_targets | grep -q . || { echo "event.yaml: no targets under modules.secure-development" >&2; exit 1; }
 
   echo "== provisioning $org (idempotent — re-run safe)"
   local t

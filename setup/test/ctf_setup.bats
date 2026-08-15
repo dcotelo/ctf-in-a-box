@@ -97,6 +97,22 @@ EOF
   [[ "$output" == *"unknown target: nope"* ]]
 }
 
+@test "org with empty targets list fails loudly instead of silently no-op'ing" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: []
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"event.yaml: no targets"* ]]
+  # Must fail before doing anything, including the image mirror plan.
+  [[ "$output" != *"gh repo fork"* ]]
+  [[ "$output" != *"mirroring scorer image"* ]]
+}
+
 @test "org strips trailing comments from org field (HIGH fix #1)" {
   cat > event.yaml <<'EOF'
 github:
