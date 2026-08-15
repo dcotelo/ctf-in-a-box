@@ -273,7 +273,23 @@ config change").
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
 
-CI (`.github/workflows/ci.yml`) runs all five non-unit-app-adjacent jobs —
-`sync-tests`, `shell` (shellcheck + bats), `smoke`, `app` (vitest +
-`next build` + `acceptance-app.sh`), and `scorer` (`node --test` +
-`acceptance-scorer.sh`) — on every PR and on push to `main`.
+CI (`.github/workflows/ci.yml`) carries five jobs — `sync-tests`, `shell`
+(shellcheck + bats), `smoke`, `app` (vitest + `next build` +
+`acceptance-app.sh`), and `scorer` (`node --test` + `acceptance-scorer.sh`). A
+`changes` gate (native `git diff`, no third-party action) runs only the jobs
+whose area a PR touches; a push to `main` runs all five. The heavier
+`stock-scores-zero` / `patched-scores-right` workflows are scoped to
+judge-relevant scorer inputs, so a leaderboard-only change doesn't spin up the
+per-target Maven/gradle builds.
+
+## Names
+
+Five spellings of "the project" are in play; they are not interchangeable:
+
+| Name | What it is |
+|---|---|
+| **CTF-in-a-box** | The product / brand (README, `dcotelo.github.io/ctf-in-a-box`). |
+| `owasp-ctf` | The local repo directory and the lowercase image namespace. |
+| `OWASP-CTF` | The GitHub **org** the targets are forked into (`github.org` default). |
+| `ghcr.io/owasp-ctf/score` | The scorer image path. The lowercase `owasp-ctf` here is a registry-namespace convenience, not the `OWASP-CTF` org; override `SCORE_IMAGE` to your own org's GHCR. |
+| `dc34-owasp-secure-development-ctf` | The upstream repo the rubrics are vendored from (see `scorer/rubric.owasp/PROVENANCE.md`). |

@@ -322,3 +322,28 @@ separate concern from target version pinning above. The reference
 implementation of the scorer contract lives in this repo at `scorer/` —
 one image, serve + judge modes — and [docs/scorer.md](scorer.md) documents
 authoring a rubric and building your own image against it.)
+
+## 9. Adding a module: files you will touch
+
+A new vertical is a code change, not config alone (§1.2). Today its definition
+is not yet co-located in one directory (a tracked follow-up — the scorer, sync,
+and app are separately built images, so a single shared manifest needs a
+build-time vendoring step first). Until then, a new module `<name>` with target
+`<t>` touches:
+
+| File | What to add |
+|---|---|
+| `sync/src/config.js` | add `<name>` to `KNOWN_MODULES`; add `<t>` to `TARGETS` + `REPO_NAMES` |
+| `apps/web/scripts/generate-event-config.mjs` | mirror the module-key + target validation |
+| `apps/web/src/lib/modules.ts` | register the module's display name / description |
+| `apps/web/src/lib/apps.ts` | add `<t>` to `AppId` / `REPO_NAMES` / `apps[]` |
+| `scorer/src/targets.js` | add `<t>`'s scoring shape (byName / concurrency / urlEnv) |
+| `scorer/entrypoints/<t>.sh` | the target's bring-up |
+| `scorer/rubric.owasp/<t>/` | the vendored rubric + `catalogue.<t>.json` |
+| `setup/ctf-setup.sh` | the `yaml_targets` parser recognises the module block |
+| `event.yaml.example` + README target table | document the target |
+
+Parity guards catch the most common drift: `scorer/test/targets.test.js`
+(targets.js ↔ entrypoints ↔ rubric dirs) and `apps/web` `apps.test.ts` /
+`apps-catalogue.test.ts` (apps.ts ↔ sync config ↔ catalogue). Run the full test
+suite after adding a module — a mismatch across these lists fails loudly.
