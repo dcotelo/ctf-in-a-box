@@ -1,0 +1,64 @@
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..657adfe
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,16 @@
++# Contestant-fork build: gradle-build the Spring Boot jar, then run it.
++# VulnerableApp forks ship Dockerfile.base + docker-compose (prebuilt images) but
++# no single root Dockerfile, so the patched-scores-right gate (which keys on a root
++# Dockerfile, like every other target's fork) adds this. It mirrors what the app's
++# own image does: bootJar on JDK 17, run on JRE 17, serving :9090/VulnerableApp
++# (server.port / server.servlet.context-path in application.properties).
++FROM eclipse-temurin:17-jdk AS build
++WORKDIR /src
++COPY . .
++RUN ./gradlew --no-daemon -x test -x spotlessCheck -x spotlessJavaCheck clean bootJar
++
++FROM eclipse-temurin:17-jre
++WORKDIR /app
++COPY --from=build /src/build/libs/VulnerableApp-1.0.0.jar /app/app.jar
++EXPOSE 9090
++ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+diff --git a/src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java b/src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java
+index 507adfd..022f355 100644
+--- a/src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java
++++ b/src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java
+@@ -59,12 +59,15 @@ public class ErrorBasedSQLInjectionVulnerability {
+             htmlTemplate = "LEVEL_1/SQLInjection_Level1")
+     public ResponseEntity<String> doesCarInformationExistsLevel1(
+             @RequestParam Map<String, String> queryParams) {
+-        String id = queryParams.get(Constants.ID);
++        final String id = queryParams.get(Constants.ID);
+         BodyBuilder bodyBuilder = ResponseEntity.status(HttpStatus.OK);
+         try {
+             ResponseEntity<String> response =
+                     applicationJdbcTemplate.query(
+-                            "select * from cars where id=" + id,
++                            (conn) -> conn.prepareStatement("select * from cars where id=?"),
++                            (prepareStatement) -> {
++                                prepareStatement.setString(1, id);
++                            },
+                             (rs) -> {
+                                 if (rs.next()) {
+                                     CarInformation carInformation = new CarInformation();
+@@ -79,7 +82,8 @@ public class ErrorBasedSQLInjectionVulnerability {
+                                     } catch (JsonProcessingException e) {
+                                         LOGGER.error("Following error occurred", e);
+                                         return bodyBuilder.body(
+-                                                GENERIC_EXCEPTION_RESPONSE_FUNCTION.apply(e));
++                                                ErrorBasedSQLInjectionVulnerability
++                                                        .CAR_IS_NOT_PRESENT_RESPONSE);
+                                     }
+                                 } else {
+                                     return bodyBuilder.body(
+@@ -90,7 +94,8 @@ public class ErrorBasedSQLInjectionVulnerability {
+             return response;
+         } catch (Exception ex) {
+             LOGGER.error("Following error occurred", ex);
+-            return bodyBuilder.body(GENERIC_EXCEPTION_RESPONSE_FUNCTION.apply(ex));
++            return bodyBuilder.body(
++                    ErrorBasedSQLInjectionVulnerability.CAR_IS_NOT_PRESENT_RESPONSE);
+         }
+     }
+ 

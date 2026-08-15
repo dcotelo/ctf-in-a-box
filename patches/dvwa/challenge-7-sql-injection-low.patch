@@ -1,0 +1,12 @@
+diff --git a/vulnerabilities/sqli/source/low.php b/vulnerabilities/sqli/source/low.php
+index 8821795..de27b67 100644
+--- a/vulnerabilities/sqli/source/low.php
++++ b/vulnerabilities/sqli/source/low.php
+@@ -3,6 +3,7 @@
+ if( isset( $_REQUEST[ 'Submit' ] ) ) {
+ 	// Get input
+ 	$id = $_REQUEST[ 'id' ];
++	$id = (int)$id; // patched: cast user_id to int, defeats SQLi (challenge-7-low)
+ 
+ 	switch ($_DVWA['SQLI_DB']) {
+ 		case MYSQL:
