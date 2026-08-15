@@ -13,6 +13,11 @@
 #   teardown  archive event repos after the event
 #   doctor    read-only status check: verify a previously-provisioned org
 #             matches targets.tsv (no mutation, no --dry-run needed)
+#   app-manifest  open a self-submitting form to create the sync GitHub App
+#                 from sync/app-manifest.json against the event org (removes
+#                 the manual JSON copy-paste; you still click Create/Install)
+#   app-config    ingest a downloaded App private key (.pem) + App ID into
+#                 .env (--app-id N --pem path [--installation-id N])
 #
 # Global flags: --dry-run (print mutating commands), --config <path> (default event.yaml)
 set -euo pipefail
@@ -204,6 +209,9 @@ cmd_doctor() {
 
 DRY_RUN=0
 CONFIG=event.yaml
+APP_ID=""
+PEM=""
+INSTALLATION_ID=""
 # CMD is read from the env first so `CMD=__selftest source ctf-setup.sh` can
 # define the helpers above (and below) without parsing flags or dispatching a
 # subcommand — the env var wins so sourcing works regardless of $1, while
@@ -218,6 +226,9 @@ if [ "$CMD" != "__selftest" ]; then
       --dry-run) DRY_RUN=1 ;;
       --config) CONFIG="$2"; shift ;;
       --out) OUT="$2"; shift ;;
+      --app-id) APP_ID="$2"; shift ;;
+      --pem) PEM="$2"; shift ;;
+      --installation-id) INSTALLATION_ID="$2"; shift ;;
       *) echo "unknown flag: $1" >&2; exit 2 ;;
     esac
     shift
@@ -448,6 +459,95 @@ cmd_teardown() {
   echo "== uninstall the GitHub App and delete org secrets manually"
 }
 
+# Open a URL/file in the default browser, degrading to a printed path.
+open_url() {
+  local target="$1"
+  if command -v open >/dev/null 2>&1; then
+    open "$target"
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$target"
+  else
+    echo "open this manually: $target"
+  fi
+}
+
+# Set (or replace) KEY=value in an env file. base64 values contain / + =, so
+# we drop-and-append rather than sed the value in place.
+set_env_var() {
+  local file="$1" key="$2" val="$3" tmp
+  tmp="$(mktemp)"
+  grep -v "^${key}=" "$file" > "$tmp" || true
+  printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  mv "$tmp" "$file"
+}
+
+# app-manifest: render a self-submitting HTML form carrying app-manifest.json
+# and open it against the event org's App-creation page. Removes the manual
+# JSON copy-paste; the organizer still clicks Create/Install in GitHub's UI.
+cmd_app_manifest() {
+  require_config
+  local org; org="$(yaml_org)"
+  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+  local manifest="$SCRIPT_DIR/../sync/app-manifest.json"
+  [ -f "$manifest" ] || { echo "manifest not found: $manifest" >&2; exit 1; }
+
+  local action="https://github.com/organizations/${org}/settings/apps/new?state=ctf-in-a-box"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: render manifest form -> POST $manifest to $action"
+    return 0
+  fi
+
+  local html; html="$(mktemp -t ctf-app-manifest).html"
+  {
+    echo '<!doctype html><meta charset="utf-8"><title>Create the CTF-in-a-box GitHub App</title>'
+    echo "<form action=\"${action}\" method=\"post\">"
+    printf '<input type="hidden" name="manifest" value='"'"'%s'"'"'>' "$(sed "s/'/\&#39;/g" "$manifest")"
+    echo '</form><p>Submitting to GitHub…</p><script>document.forms[0].submit()</script>'
+  } > "$html"
+
+  echo "== opening GitHub App creation for org '$org' in your browser"
+  open_url "$html"
+  cat <<EOF
+== next, in GitHub's UI:
+   1. Click "Create GitHub App" (rename if the name is taken).
+   2. On the app page: "Generate a private key" (downloads a .pem), and note the App ID.
+   3. "Install App" -> install it on the '$org' org.
+   4. Then wire the credentials into .env:
+        ctf-setup.sh app-config --app-id <id> --pem <path-to-downloaded.pem>
+      (add --installation-id <n> to pin it; otherwise sync auto-discovers it)
+EOF
+}
+
+# app-config: ingest a downloaded App private key + App ID into .env
+# (base64-encodes the PEM). Optional --installation-id pins the install;
+# without it, sync discovers the installation at runtime.
+cmd_app_config() {
+  local out="${OUT:-.env}"
+  [ -n "$APP_ID" ] || { echo "app-config: --app-id is required" >&2; exit 1; }
+  [ -n "$PEM" ] || { echo "app-config: --pem <path> is required" >&2; exit 1; }
+  [ -f "$PEM" ] || { echo "app-config: pem not found: $PEM" >&2; exit 1; }
+  if ! grep -q 'PRIVATE KEY' "$PEM"; then
+    echo "app-config: $PEM is not a PEM private key" >&2; exit 1
+  fi
+  [ -f "$out" ] || { echo "app-config: $out not found — run 'ctf-setup.sh secrets' first" >&2; exit 1; }
+
+  local key_b64; key_b64="$(base64 < "$PEM" | tr -d '\n')"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: set GITHUB_APP_ID=$APP_ID, GITHUB_APP_PRIVATE_KEY=<base64 pem> in $out"
+    if [ -n "$INSTALLATION_ID" ]; then
+      echo "DRY-RUN: set GITHUB_APP_INSTALLATION_ID=$INSTALLATION_ID in $out"
+    fi
+    return 0
+  fi
+
+  set_env_var "$out" GITHUB_APP_ID "$APP_ID"
+  set_env_var "$out" GITHUB_APP_PRIVATE_KEY "$key_b64"
+  if [ -n "$INSTALLATION_ID" ]; then
+    set_env_var "$out" GITHUB_APP_INSTALLATION_ID "$INSTALLATION_ID"
+  fi
+  echo "wrote GitHub App credentials to $out (App ID $APP_ID, private key base64-encoded)"
+}
+
 if [ "$CMD" != "__selftest" ]; then
   case "$CMD" in
     check) cmd_check ;;
@@ -456,6 +556,8 @@ if [ "$CMD" != "__selftest" ]; then
     render) cmd_render ;;
     teardown) cmd_teardown ;;
     doctor) cmd_doctor ;;
-    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown|doctor} [--dry-run] [--config event.yaml] [--out .env]" >&2; exit 2 ;;
+    app-manifest) cmd_app_manifest ;;
+    app-config) cmd_app_config ;;
+    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown|doctor|app-manifest|app-config} [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N]" >&2; exit 2 ;;
   esac
 fi

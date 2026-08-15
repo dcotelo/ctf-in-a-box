@@ -376,3 +376,39 @@ EOF2
   run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; check_step vapp-dockerfile dvwa test-event-org'
   [ "$status" -eq 0 ]
 }
+
+@test "app-manifest --dry-run targets the event org's App-creation URL" {
+  run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"organizations/test-event-org/settings/apps/new"* ]]
+  # dry-run must not open a browser or write an HTML form
+  [ -z "$(echo "$output" | grep -F "STUB-OPEN")" ]
+}
+
+@test "app-config writes the App id + base64 key into .env" {
+  printf 'GITHUB_APP_ID=\nGITHUB_APP_PRIVATE_KEY=\nGITHUB_APP_INSTALLATION_ID=\nEVENT_URL=x\n' > .env
+  openssl genrsa -out app.pem 2048 2>/dev/null
+  run bash "$SCRIPT" app-config --app-id 4242 --pem app.pem --installation-id 7
+  [ "$status" -eq 0 ]
+  grep -q '^GITHUB_APP_ID=4242$' .env
+  grep -q '^GITHUB_APP_INSTALLATION_ID=7$' .env
+  # base64 key landed and is non-empty, single-line
+  key="$(grep '^GITHUB_APP_PRIVATE_KEY=' .env | cut -d= -f2-)"
+  [ -n "$key" ]
+  [ "$(grep -c '^GITHUB_APP_ID=' .env)" -eq 1 ]  # no duplicate key line
+}
+
+@test "app-config rejects a file that is not a PEM private key" {
+  printf 'GITHUB_APP_ID=\nGITHUB_APP_PRIVATE_KEY=\n' > .env
+  echo "not a key" > bad.txt
+  run bash "$SCRIPT" app-config --app-id 1 --pem bad.txt
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a PEM private key"* ]]
+}
+
+@test "app-config requires --app-id and --pem" {
+  printf 'GITHUB_APP_ID=\n' > .env
+  run bash "$SCRIPT" app-config --pem /dev/null
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--app-id is required"* ]]
+}

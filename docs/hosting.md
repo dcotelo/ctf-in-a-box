@@ -140,12 +140,29 @@ contestant-facing app. Push mode does not need `sync` running.
 
 `sync` needs a token to read the event org's target repos, and a GitHub App
 is the only supported poll auth: org-scoped, auto-expiring, revocable, and not
-tied to a person. Create one from
-[`sync/app-manifest.json`](../sync/app-manifest.json), install it on the
-event org, then set `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY`
-(base64-encoded PEM) and, optionally, `GITHUB_APP_INSTALLATION_ID` in `.env`.
-Both `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are required — `sync` refuses
-to start without them.
+tied to a person. Each organizer creates their **own** App from
+[`sync/app-manifest.json`](../sync/app-manifest.json) and installs it on their
+event org — there is no shared, central App, so the private key stays yours.
+
+`ctf-setup.sh` assists the two error-prone parts; you still click Create and
+Install in GitHub's UI (the script cannot mint credentials for you):
+
+```bash
+# 1. Open a pre-filled App-creation form against your event org.
+ctf-setup.sh app-manifest
+#    In the browser: Create the App, "Generate a private key" (downloads a
+#    .pem), note the App ID, then "Install App" on the event org.
+
+# 2. Wire the downloaded key + App ID into .env (base64-encodes the PEM).
+ctf-setup.sh app-config --app-id <id> --pem ~/Downloads/<app>.private-key.pem
+#    Add --installation-id <n> to pin the install; otherwise sync
+#    auto-discovers it at runtime.
+```
+
+This sets `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` (base64-encoded PEM) and,
+optionally, `GITHUB_APP_INSTALLATION_ID` in `.env`. Both `GITHUB_APP_ID` and
+`GITHUB_APP_PRIVATE_KEY` are required — `sync` refuses to start without them.
+You can also set all three by hand instead of using the helpers.
 
 ## GitHub OAuth app
 
