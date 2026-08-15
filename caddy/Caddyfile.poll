@@ -1,3 +1,13 @@
 {$EVENT_HOST}
 
+# Baseline security headers. HSTS only bites on HTTPS (Caddy auto-provisions TLS
+# for a real domain in EVENT_HOST; it's inert on http://localhost).
+header {
+	Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	X-Content-Type-Options "nosniff"
+	X-Frame-Options "DENY"
+	Referrer-Policy "strict-origin-when-cross-origin"
+	-Server
+}
+
 reverse_proxy app:3000

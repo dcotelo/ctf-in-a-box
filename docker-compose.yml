@@ -44,7 +44,9 @@ services:
     depends_on: [srh]
 
   srh:
-    image: hiett/serverless-redis-http:latest
+    # Pinned by digest: this third-party image sits in the score read/write path,
+    # so a mutable :latest tag must not silently swap it out on a repull.
+    image: hiett/serverless-redis-http:latest@sha256:5b0bb9239fce53abf87b2018a7a0deb9ec7bd900c5360738fe5fbeeb426f9150
     restart: unless-stopped
     environment:
       SRH_MODE: env
