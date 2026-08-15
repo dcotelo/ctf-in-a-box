@@ -76,7 +76,11 @@ plan_step() {
     workflow) echo "DRY-RUN: render ctf-score.yml (TARGET=$t) and PUT to $org/$name:.github/workflows/ctf-score.yml on ctf" ;;
     disable-inherited) echo "DRY-RUN: disable every workflow on $org/$name except .github/workflows/ctf-score.yml" ;;
     pr-template) echo "DRY-RUN: PUT setup/PULL_REQUEST_TEMPLATE.md to $org/$name:.github/PULL_REQUEST_TEMPLATE.md on ctf" ;;
-    vapp-dockerfile) [ "$t" = vulnerableapp ] && echo "DRY-RUN: PUT setup/vulnerableapp.Dockerfile to $org/$name:Dockerfile on ctf" || true ;;
+    vapp-dockerfile)
+      if [ "$t" = vulnerableapp ]; then
+        echo "DRY-RUN: PUT setup/vulnerableapp.Dockerfile to $org/$name:Dockerfile on ctf"
+      fi
+      ;;
   esac
 }
 
@@ -128,7 +132,9 @@ apply_step() {
     drop-old)
       local b
       for b in master main; do
-        gh_ok "repos/$org/$name/branches/$b" && gh api -X DELETE "repos/$org/$name/git/refs/heads/$b" >/dev/null 2>&1 || true
+        if gh_ok "repos/$org/$name/branches/$b"; then
+          gh api -X DELETE "repos/$org/$name/git/refs/heads/$b" >/dev/null 2>&1 || true
+        fi
       done
       ;;
     protect)
