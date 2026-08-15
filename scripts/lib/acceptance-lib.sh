@@ -1,5 +1,7 @@
 # scripts/lib/acceptance-lib.sh
-# Shared machinery for the acceptance gates. Sourced, never executed.
+# shellcheck shell=bash
+# Shared machinery for the acceptance gates. Sourced, never executed — no
+# shebang on purpose; the `shell=bash` directive tells shellcheck the target.
 #
 # acceptance-target.sh proves the NEGATIVE direction (stock app scores 0/N);
 # acceptance-patched.sh proves the POSITIVE direction (a correctly patched fork

@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
-      - run: shellcheck scripts/*.sh setup/*.sh scorer/entrypoint.sh
+      - run: shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh
       # The per-target bring-ups are POSIX sh FRAGMENTS sourced by entrypoint.sh, so
       # they get -s sh (they never run under bash) and SC2034 is excluded: BOOTED and
       # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing
