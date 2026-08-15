@@ -414,3 +414,26 @@ EOF2
   [ "$status" -ne 0 ]
   [[ "$output" == *"--app-id is required"* ]]
 }
+
+@test "oauth-app --dry-run prints the org OAuth-app URL + callback" {
+  run bash "$SCRIPT" oauth-app --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"organizations/test-event-org/settings/applications/new"* ]]
+  [[ "$output" == *"/api/auth/callback/github"* ]]
+}
+
+@test "oauth-config writes client id + secret (secret from stdin, not argv)" {
+  printf 'GITHUB_CLIENT_ID=\nGITHUB_CLIENT_SECRET=\nEVENT_URL=http://localhost\n' > .env
+  run bash -c 'echo "sup3rs3cret" | bash "'"$SCRIPT"'" oauth-config --client-id Iv1.test'
+  [ "$status" -eq 0 ]
+  grep -q '^GITHUB_CLIENT_ID=Iv1.test$' .env
+  grep -q '^GITHUB_CLIENT_SECRET=sup3rs3cret$' .env
+  [ "$(grep -c '^GITHUB_CLIENT_SECRET=' .env)" -eq 1 ]
+}
+
+@test "oauth-config requires --client-id" {
+  printf 'GITHUB_CLIENT_ID=\n' > .env
+  run bash "$SCRIPT" oauth-config
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--client-id is required"* ]]
+}

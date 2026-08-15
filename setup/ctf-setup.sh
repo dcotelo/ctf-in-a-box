@@ -18,6 +18,10 @@
 #                 the manual JSON copy-paste; you still click Create/Install)
 #   app-config    ingest a downloaded App private key (.pem) + App ID into
 #                 .env (--app-id N --pem path [--installation-id N])
+#   oauth-app     open GitHub's new-OAuth-App page for the event org and print
+#                 the exact field values (signin auth; UI-only, no auto-fill)
+#   oauth-config  write the OAuth client id + secret into .env (--client-id ID;
+#                 the secret is read from a hidden prompt, never on argv)
 #
 # Global flags: --dry-run (print mutating commands), --config <path> (default event.yaml)
 set -euo pipefail
@@ -212,6 +216,7 @@ CONFIG=event.yaml
 APP_ID=""
 PEM=""
 INSTALLATION_ID=""
+CLIENT_ID=""
 # CMD is read from the env first so `CMD=__selftest source ctf-setup.sh` can
 # define the helpers above (and below) without parsing flags or dispatching a
 # subcommand — the env var wins so sourcing works regardless of $1, while
@@ -229,6 +234,7 @@ if [ "$CMD" != "__selftest" ]; then
       --app-id) APP_ID="$2"; shift ;;
       --pem) PEM="$2"; shift ;;
       --installation-id) INSTALLATION_ID="$2"; shift ;;
+      --client-id) CLIENT_ID="$2"; shift ;;
       *) echo "unknown flag: $1" >&2; exit 2 ;;
     esac
     shift
@@ -559,6 +565,61 @@ cmd_app_config() {
   echo "wrote GitHub App credentials to $out (App ID $APP_ID, private key base64-encoded)"
 }
 
+# The OAuth callback the app registers with GitHub: <EVENT_URL>/api/auth/callback/github.
+# EVENT_URL comes from .env (secrets writes it); default to localhost for a local box.
+event_url() {
+  local u; u="$(sed -n 's/^EVENT_URL=//p' "${OUT:-.env}" 2>/dev/null | tail -1)"
+  [ -n "$u" ] || u="http://localhost"
+  printf '%s' "$u"
+}
+
+# oauth-app: open GitHub's new-OAuth-App page for the event org and print the
+# exact field values. OAuth Apps have no manifest/create API (UI-only), so
+# unlike the GitHub App flow this only opens + guides — it cannot auto-fill.
+cmd_oauth_app() {
+  require_config
+  local org; org="$(yaml_org)"
+  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+  local url callback
+  url="https://github.com/organizations/${org}/settings/applications/new"
+  callback="$(event_url)/api/auth/callback/github"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: open $url (callback $callback)"
+    return 0
+  fi
+  echo "== opening GitHub's new-OAuth-App page for org '$org' in your browser"
+  open_url "$url"
+  cat <<EOF
+== fill these fields (OAuth App creation is UI-only — copy/paste):
+   Application name:            CTF-in-a-box ($org)
+   Homepage URL:                $(event_url)
+   Authorization callback URL:  $callback
+   Then: "Register application" -> copy the Client ID -> "Generate a new
+   client secret" -> copy it. Then wire them into .env:
+        ctf-setup.sh oauth-config --client-id <client id>
+   (You may create the OAuth App on your personal account instead of the org.)
+EOF
+}
+
+# oauth-config: write the OAuth client id + secret into .env. The secret is
+# read from a hidden prompt (never on argv / in shell history).
+cmd_oauth_config() {
+  local out="${OUT:-.env}"
+  [ -n "$CLIENT_ID" ] || { echo "oauth-config: --client-id is required" >&2; exit 1; }
+  [ -f "$out" ] || { echo "oauth-config: $out not found — run 'ctf-setup.sh secrets' first" >&2; exit 1; }
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: set GITHUB_CLIENT_ID=$CLIENT_ID + GITHUB_CLIENT_SECRET=<prompted> in $out"
+    return 0
+  fi
+  local secret
+  printf 'GitHub OAuth client secret (input hidden): ' >&2
+  read -rs secret; echo >&2
+  [ -n "$secret" ] || { echo "oauth-config: empty client secret" >&2; exit 1; }
+  set_env_var "$out" GITHUB_CLIENT_ID "$CLIENT_ID"
+  set_env_var "$out" GITHUB_CLIENT_SECRET "$secret"
+  echo "wrote GitHub OAuth credentials to $out (client id $CLIENT_ID)"
+}
+
 if [ "$CMD" != "__selftest" ]; then
   case "$CMD" in
     check) cmd_check ;;
@@ -569,6 +630,8 @@ if [ "$CMD" != "__selftest" ]; then
     doctor) cmd_doctor ;;
     app-manifest) cmd_app_manifest ;;
     app-config) cmd_app_config ;;
-    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown|doctor|app-manifest|app-config} [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N]" >&2; exit 2 ;;
+    oauth-app) cmd_oauth_app ;;
+    oauth-config) cmd_oauth_config ;;
+    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config} [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2; exit 2 ;;
   esac
 fi
