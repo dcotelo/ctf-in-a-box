@@ -28,5 +28,16 @@ createServer((req, res) => {
     res.end(JSON.stringify(body));
     return;
   }
+  // GitHub App auth (sync mints an App JWT then exchanges it here).
+  if (req.url === "/app/installations") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify([{ id: 1 }]));
+    return;
+  }
+  if (/^\/app\/installations\/\d+\/access_tokens$/.test(req.url)) {
+    res.writeHead(201, { "content-type": "application/json" });
+    res.end(JSON.stringify({ token: "ghs_mock_installation", expires_at: "2099-01-01T00:00:00Z" }));
+    return;
+  }
   res.writeHead(404).end();
 }).listen(8080, () => console.error("mock-github on :8080"));

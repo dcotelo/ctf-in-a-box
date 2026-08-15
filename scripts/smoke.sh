@@ -4,7 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export SRH_TOKEN=smoke-srh SCORER_TOKEN=smoke-scorer GITHUB_PAT=smoke-pat
+SMOKE_APP_KEY_B64="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null | base64 | tr -d '\n')"
+export SRH_TOKEN=smoke-srh SCORER_TOKEN=smoke-scorer
+export GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY="$SMOKE_APP_KEY_B64" GITHUB_APP_INSTALLATION_ID=1
 compose() { docker compose -f docker-compose.yml -f docker-compose.smoke.yml --profile poll "$@"; }
 
 # Fixture comments cover dvwa + juice-shop; write a minimal matching config to
