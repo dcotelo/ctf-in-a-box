@@ -5,8 +5,25 @@ name: stock-scores-zero
 # rubric on the invariant in docs/modules.md §6.4.
 on:
   pull_request:
+    # Judge-relevant inputs only (see patched-scores-right.yml for the rationale):
+    # this gate runs `score judge` against stock images, so its outcome depends on
+    # the JUDGE path, not serve.js / store.js (the leaderboard path). Those are
+    # covered by the fast `scorer` unit job in ci.yml.
     paths:
-      - 'scorer/**'
+      - 'scorer/Dockerfile'
+      - 'scorer/package.json'
+      - 'scorer/package-lock.json'
+      - 'scorer/entrypoint.sh'
+      - 'scorer/entrypoints/**'
+      - 'scorer/rubric.owasp/**'
+      - 'scorer/src/index.js'
+      - 'scorer/src/judge.js'
+      - 'scorer/src/exec.js'
+      - 'scorer/src/probe.js'
+      - 'scorer/src/rubric.js'
+      - 'scorer/src/rubric-id.js'
+      - 'scorer/src/catalogue.js'
+      - 'scorer/src/targets.js'
       - 'scripts/acceptance-target.sh'
       - '.github/workflows/stock-scores-zero.yml'
   workflow_dispatch:

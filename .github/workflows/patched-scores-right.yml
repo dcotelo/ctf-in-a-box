@@ -15,8 +15,28 @@ name: patched-scores-right
 # between them prove the assertion discriminates.
 on:
   pull_request:
+    # Judge-relevant inputs only. This gate builds the scorer image and runs
+    # `score judge`; its outcome depends on the JUDGE path — not on serve.js /
+    # store.js, which are the leaderboard path and are never imported by
+    # judge.js. Scoping to these files keeps the heavy per-target (Maven/gradle)
+    # builds from firing on leaderboard-only changes. A serve/store change that
+    # broke the shared module load is still caught by the fast `scorer` unit job
+    # in ci.yml, so nothing goes unverified.
     paths:
-      - 'scorer/**'
+      - 'scorer/Dockerfile'
+      - 'scorer/package.json'
+      - 'scorer/package-lock.json'
+      - 'scorer/entrypoint.sh'
+      - 'scorer/entrypoints/**'
+      - 'scorer/rubric.owasp/**'
+      - 'scorer/src/index.js'
+      - 'scorer/src/judge.js'
+      - 'scorer/src/exec.js'
+      - 'scorer/src/probe.js'
+      - 'scorer/src/rubric.js'
+      - 'scorer/src/rubric-id.js'
+      - 'scorer/src/catalogue.js'
+      - 'scorer/src/targets.js'
       - 'scripts/acceptance-patched.sh'
       - 'scripts/lib/acceptance-lib.sh'
       - 'patches/**'
