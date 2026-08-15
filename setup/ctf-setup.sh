@@ -45,6 +45,20 @@ wait_for_repo() {
   return 1
 }
 
+# Create/update a file on the fork's ctf branch. $1=org/name $2=repo-path
+# $3=local-content-file. Idempotent: fetches the existing sha to update in place.
+put_contents_ctf() {
+  local slug="$1" path="$2" src="$3" b64 sha msg
+  b64="$(base64 < "$src" | tr -d '\n')"
+  sha="$(gh api "repos/$slug/contents/$path?ref=ctf" --jq '.sha' 2>/dev/null || true)"
+  msg="ctf-setup: add $path"
+  if [ -n "$sha" ]; then
+    gh api -X PUT "repos/$slug/contents/$path" -f "message=$msg" -f "content=$b64" -f "branch=ctf" -f "sha=$sha" >/dev/null
+  else
+    gh api -X PUT "repos/$slug/contents/$path" -f "message=$msg" -f "content=$b64" -f "branch=ctf" >/dev/null
+  fi
+}
+
 STEPS="fork ctf-branch drop-old protect workflow disable-inherited pr-template vapp-dockerfile"
 
 plan_step() {
@@ -54,6 +68,8 @@ plan_step() {
     ctf-branch) echo "DRY-RUN: create refs/heads/ctf on $org/$name from $(prov_field "$t" 2)@$(prov_field "$t" 3); set default_branch=ctf" ;;
     drop-old) echo "DRY-RUN: delete master/main on $org/$name if present and != ctf" ;;
     protect) echo "DRY-RUN: PUT branch protection on $org/$name:ctf (1 approving review, no force-push/deletion)" ;;
+    workflow) echo "DRY-RUN: render ctf-score.yml (TARGET=$t) and PUT to $org/$name:.github/workflows/ctf-score.yml on ctf" ;;
+    disable-inherited) echo "DRY-RUN: disable every workflow on $org/$name except .github/workflows/ctf-score.yml" ;;
   esac
 }
 
@@ -68,6 +84,13 @@ check_step() {
       n="$(gh api "repos/$org/$name/branches/ctf/protection" \
         --jq '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null)" || n=0
       [ "${n:-0}" -ge 1 ]
+      ;;
+    workflow) gh_ok "repos/$org/$name/contents/.github/workflows/ctf-score.yml?ref=ctf" ;;
+    disable-inherited)
+      local others
+      others="$(gh api "repos/$org/$name/actions/workflows" \
+        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)"
+      [ -z "$others" ]
       ;;
     vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
     *) return 1 ;;
@@ -99,6 +122,21 @@ apply_step() {
   "required_pull_request_reviews": { "required_approving_review_count": 1 },
   "restrictions": null, "allow_force_pushes": false, "allow_deletions": false }
 JSON
+      ;;
+    workflow)
+      local base_url lb_url="" tmp
+      base_url="$(yaml_url)"; base_url="${base_url%/}"
+      case "$base_url" in http://*|https://*) lb_url="$base_url/leaderboard" ;; esac
+      tmp="$(mktemp)"; render_workflow "$org" "$t" "$(app_url_for "$t")" "$lb_url" > "$tmp"
+      put_contents_ctf "$org/$name" ".github/workflows/ctf-score.yml" "$tmp"
+      rm -f "$tmp"
+      ;;
+    disable-inherited)
+      local id
+      for id in $(gh api "repos/$org/$name/actions/workflows" \
+        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null); do
+        gh api -X PUT "repos/$org/$name/actions/workflows/$id/disable" >/dev/null 2>&1 || true
+      done
       ;;
   esac
 }

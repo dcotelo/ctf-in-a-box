@@ -296,6 +296,12 @@ EOF
   [[ "$output" == *"branch protection on test-event-org/WebGoat:ctf"* ]]
 }
 
+@test "workflow + disable-inherited plan lines render" {
+  run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step workflow dvwa test-event-org; plan_step disable-inherited dvwa test-event-org'
+  [[ "$output" == *".github/workflows/ctf-score.yml on ctf"* ]]
+  [[ "$output" == *"disable every workflow"* ]]
+}
+
 @test "doctor reports missing then done via stubbed gh" {
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
