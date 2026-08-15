@@ -53,6 +53,7 @@ plan_step() {
     fork) echo "DRY-RUN: gh repo fork $(prov_field "$t" 2) --org $org --fork-name $name --clone=false" ;;
     ctf-branch) echo "DRY-RUN: create refs/heads/ctf on $org/$name from $(prov_field "$t" 2)@$(prov_field "$t" 3); set default_branch=ctf" ;;
     drop-old) echo "DRY-RUN: delete master/main on $org/$name if present and != ctf" ;;
+    protect) echo "DRY-RUN: PUT branch protection on $org/$name:ctf (1 approving review, no force-push/deletion)" ;;
   esac
 }
 
@@ -62,6 +63,7 @@ check_step() {
     fork) gh_ok "repos/$org/$name" ;;
     ctf-branch) [ "$(gh api "repos/$org/$name" --jq '.default_branch' 2>/dev/null)" = "ctf" ] ;;
     drop-old) ! gh_ok "repos/$org/$name/branches/master" && ! gh_ok "repos/$org/$name/branches/main" ;;
+    protect) gh_ok "repos/$org/$name/branches/ctf/protection" ;;
     vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
     *) return 1 ;;
   esac
@@ -85,6 +87,13 @@ apply_step() {
       for b in master main; do
         gh_ok "repos/$org/$name/branches/$b" && gh api -X DELETE "repos/$org/$name/git/refs/heads/$b" >/dev/null 2>&1 || true
       done
+      ;;
+    protect)
+      gh api -X PUT "repos/$org/$name/branches/ctf/protection" --input - >/dev/null <<'JSON'
+{ "required_status_checks": null, "enforce_admins": false,
+  "required_pull_request_reviews": { "required_approving_review_count": 1 },
+  "restrictions": null, "allow_force_pushes": false, "allow_deletions": false }
+JSON
       ;;
   esac
 }

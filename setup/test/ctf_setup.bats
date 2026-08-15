@@ -291,6 +291,11 @@ EOF
   [[ "$output" == *"delete master/main on test-event-org/DVWA"* ]]
 }
 
+@test "protect plan + check use the ctf branch protection endpoint" {
+  run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step protect webgoat test-event-org'
+  [[ "$output" == *"branch protection on test-event-org/WebGoat:ctf"* ]]
+}
+
 @test "doctor reports missing then done via stubbed gh" {
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
