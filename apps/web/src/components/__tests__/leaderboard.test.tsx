@@ -85,6 +85,20 @@ describe("Leaderboard", () => {
     expect(captainIdx).toBeGreaterThan(bobIdx);
   });
 
+  it("shows each member's points in the expanded team row", () => {
+    const html = renderToStaticMarkup(
+      <TeamRow
+        team={team({ members: ["alice", "bob"], captain: "alice" })}
+        topPoints={150}
+        pointsByLogin={new Map([["alice", 14], ["bob", 4]])}
+        isOpen
+        onToggle={() => {}}
+      />,
+    );
+    expect(html).toMatch(/14\s*pts/);
+    expect(html).toMatch(/4\s*pts/);
+  });
+
   it("renders team score lines in the chart when the default view is teams", () => {
     const board = data({
       teams: [team()],
