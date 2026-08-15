@@ -132,9 +132,19 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
     // just proved reachable, passed down the target's conventional URL env var
     // as well as APP_URL so a test can read either.
     const urlEnv = getTarget(TARGET)?.urlEnv;
+    // Static source-analysis challenges (e.g. juice-shop 09/12/16) inspect the
+    // contestant's TypeScript rather than probing HTTP; they read CTF_UPSTREAM_DIR
+    // for the source root. Point it at the PR workspace — the same checkout the
+    // app image was built from — so those challenges see the patched source.
+    // A pre-set CTF_UPSTREAM_DIR (e.g. a local dev run) still wins.
+    const workspace = env.GITHUB_WORKSPACE ?? "/github/workspace";
     const run = await runExec(challenges, {
       concurrency: getTarget(TARGET)?.defaultConcurrency ?? 1,
-      env: { ...env, ...(urlEnv ? { [urlEnv]: APP_URL } : {}) },
+      env: {
+        ...env,
+        CTF_UPSTREAM_DIR: env.CTF_UPSTREAM_DIR ?? workspace,
+        ...(urlEnv ? { [urlEnv]: APP_URL } : {}),
+      },
     });
     // An aborted run measured nothing: the runner short-circuited the remaining
     // challenges because the target stopped answering. Its zero is NOT a score,

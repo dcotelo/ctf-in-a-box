@@ -13,4 +13,10 @@ import assert from "node:assert/strict";
 
 test("Challenge-1-Ok", () => {
   assert.equal(process.env.VAMPI_URL, "http://app.invalid");
+  // Static source-analysis challenges (e.g. juice-shop 09/12/16) read the PR
+  // source through CTF_UPSTREAM_DIR. judge.js defaults it to GITHUB_WORKSPACE —
+  // the checkout the app was built from — so those challenges see the patched
+  // source. If that default regressed, CTF_UPSTREAM_DIR would be undefined and
+  // every such challenge would score ❌ on a correctly patched fork.
+  assert.equal(process.env.CTF_UPSTREAM_DIR, process.env.GITHUB_WORKSPACE);
 });
