@@ -9,7 +9,7 @@ const solveField = (author, id) => `${author}:${id}`;
 // (sync/src/redis.js) reads — "1" means paused, anything else does not.
 const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 
-export function createMemoryStore() {
+export function createMemoryStore({ teams = [] } = {}) {
   const hashes = new Map(); // key -> Map(field -> ISO timestamp)
   let paused = false; // test seam mirroring ctf:admin:settings.paused
   return {
@@ -29,6 +29,12 @@ export function createMemoryStore() {
     },
     __setPaused(v) {
       paused = v;
+    },
+    // Test seam mirroring the redis store's getTeams(): tests inject teams
+    // via the `teams` option (see createMemoryStore({ teams: [...] })) since
+    // this store has no ctf:team:* data of its own to read.
+    async getTeams() {
+      return teams.map((t) => ({ ...t, members: [...t.members].sort() }));
     },
   };
 }
@@ -85,6 +91,42 @@ export function createRedisStore({
         // freeze is a deliberate organizer action, not the safe default.
         return false;
       }
+    },
+    // Reads the app's team data (apps/web writes ctf:team:<slug> hash +
+    // ctf:team:<slug>:members set). SCAN discovers slugs from the :members
+    // keys (a team always has one, even with zero members) since there's no
+    // index of slugs; then one pipeline of HGET/SMEMBERS per slug.
+    async getTeams() {
+      const slugs = [];
+      let cursor = "0";
+      do {
+        const [res] = await pipeline([
+          ["SCAN", cursor, "MATCH", "ctf:team:*:members", "COUNT", 1000],
+        ]);
+        const [nextCursor, keys] = res;
+        cursor = String(nextCursor);
+        for (const key of keys ?? []) {
+          slugs.push(key.replace(/^ctf:team:/, "").replace(/:members$/, ""));
+        }
+      } while (cursor !== "0");
+
+      if (slugs.length === 0) return [];
+
+      const commands = slugs.flatMap((slug) => [
+        ["HGET", `ctf:team:${slug}`, "name"],
+        ["HGET", `ctf:team:${slug}`, "captain"],
+        ["SMEMBERS", `ctf:team:${slug}:members`],
+      ]);
+      const results = await pipeline(commands);
+      return slugs.map((slug, i) => {
+        const [name, captain, members] = results.slice(i * 3, i * 3 + 3);
+        return {
+          slug,
+          name: name || slug,
+          captain,
+          members: [...(members ?? [])].sort(),
+        };
+      });
     },
   };
 }
