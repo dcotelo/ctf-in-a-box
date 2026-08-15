@@ -41,6 +41,7 @@ gh_ok() { gh api "$@" >/dev/null 2>&1; }
 # A just-created fork isn't instantly queryable — poll briefly.
 wait_for_repo() {
   local slug="$1" i
+  # shellcheck disable=SC2034  # retry counter; only used to bound iterations
   for i in 1 2 3 4 5; do gh_ok "repos/$slug" && return 0; sleep 2; done
   return 1
 }
@@ -214,19 +215,6 @@ require_config() {
   [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
 }
 
-# target key -> upstream repo name
-repo_for() {
-  case "$1" in
-    juice-shop) echo juice-shop ;;
-    dvwa) echo DVWA ;;
-    webgoat) echo WebGoat ;;
-    securityshepherd) echo SecurityShepherd ;;
-    vulnerableapp) echo VulnerableApp ;;
-    vampi) echo VAmPI ;;
-    *) echo "unknown target: $1" >&2; return 1 ;;
-  esac
-}
-
 # target key -> default APP_URL for the rendered workflow. Targets self-boot as
 # sibling containers on the ctf network, reachable by target name; the ports
 # are the targets' STOCK ports — verify each one against your rubric's boot
@@ -321,6 +309,26 @@ render_workflows() {
   done
 }
 
+# Mirror SCORE_IMAGE into the event org's GHCR, then REFUSE a non-amd64 image
+# (GitHub runners are amd64; an arm64-only image fails scoring at run time).
+mirror_image() {
+  local org="$1" src="$2"
+  echo "== mirroring scorer image $src -> ghcr.io/$org/score:latest"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY-RUN: docker pull $src && docker tag $src ghcr.io/$org/score:latest && docker push ghcr.io/$org/score:latest"
+    echo "DRY-RUN: docker manifest inspect ghcr.io/$org/score:latest  # must list linux/amd64"
+    return
+  fi
+  docker pull "$src"
+  docker tag "$src" "ghcr.io/$org/score:latest"
+  docker push "ghcr.io/$org/score:latest"
+  if ! docker manifest inspect "ghcr.io/$org/score:latest" 2>/dev/null | grep -q '"architecture": "amd64"'; then
+    echo "ERROR: ghcr.io/$org/score:latest is not linux/amd64 — GitHub runners need amd64." >&2
+    echo "Rebuild + push amd64:  docker buildx build --platform linux/amd64 -t ghcr.io/$org/score:latest --push scorer/" >&2
+    return 1
+  fi
+}
+
 cmd_check() {
   command -v gh >/dev/null || { echo "gh CLI missing: https://cli.github.com"; exit 1; }
   command -v docker >/dev/null || { echo "docker missing"; exit 1; }
@@ -354,13 +362,6 @@ cmd_org() {
   require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  local targets_arr=()
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
-    prov_repo_name "$t" >/dev/null || exit 1
-    targets_arr+=("$t")
-  done < <(yaml_targets)
-  [ ${#targets_arr[@]} -gt 0 ] || { echo "event.yaml: no targets" >&2; exit 1; }
 
   # Scorer source image: SCORE_IMAGE env var, else .env. Deliberately NO
   # upstream default — the kit assumes zero upstream access: build your own
@@ -375,25 +376,23 @@ cmd_org() {
     exit 1
   }
 
-  echo "== forking targets into $org (upstream sources, per setup/targets.tsv)"
-  for t in "${targets_arr[@]}"; do do_step fork "$t" "$org"; done
+  echo "== provisioning $org (idempotent — re-run safe)"
+  local t
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    echo "== $t -> $org/$(prov_repo_name "$t")"
+    local id
+    for id in $STEPS; do do_step "$id" "$t" "$org"; done
+  done < <(yaml_targets)
 
-  echo "== rendering scoring workflows from the in-repo template (scorer/consumer-workflow.example.yml — no upstream access)"
-  render_workflows "$org" "${targets_arr[@]}"
-  for i in "${!targets_arr[@]}"; do
-    echo "   -> commit dist/workflows/${targets_arr[$i]}.ctf-score.yml as .github/workflows/ctf-score.yml in $org/$(prov_repo_name "${targets_arr[$i]}") (disable inherited workflows in repo Settings > Actions)"
-  done
-
-  echo "== mirroring scorer image $src into $org (needs pull access to it)"
-  run docker pull "$src"
-  run docker tag "$src" "ghcr.io/$org/score:latest"
-  run docker push "ghcr.io/$org/score:latest"
+  mirror_image "$org" "$src"
 
   cat <<EOF
-== manual steps (GitHub UI, no API):
-   1. Keep package ghcr.io/$org/score PRIVATE.
-   2. Package settings -> Manage Actions access -> add each target repo with Read.
-   3. If push mode: org Settings -> Actions secrets -> LEADERBOARD_URL + LEADERBOARD_TOKEN.
+== manual steps (GitHub UI, no API) — run 'ctf-setup doctor' to re-check:
+   1. Detach each fork from its fork network (repo Settings -> Leave fork network).
+   2. Keep package ghcr.io/$org/score PRIVATE; grant each fork Read under
+      the package's "Manage Actions access".
+   3. Push mode only: org Actions secrets LEADERBOARD_URL + LEADERBOARD_TOKEN.
 EOF
 }
 
