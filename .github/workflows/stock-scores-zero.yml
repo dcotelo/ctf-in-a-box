@@ -85,6 +85,6 @@ jobs:
             # gate to build the pinned upstream source instead.
             image: none
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Stock target must score zero
         run: ./scripts/acceptance-target.sh "${{ matrix.target }}" "${{ matrix.image }}"
