@@ -10,31 +10,42 @@ high school, an OWASP chapter, a meetup — from one box and one free GitHub org
 The OWASP Secure Development CTF teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
 and opens a pull request. A GitHub Action scores the patch and the score lands
-on a leaderboard.
+on a **team** leaderboard.
 
-It is a genuinely good way to teach secure coding — and until now, running one
-meant standing up Vercel, Upstash, Lambda and DynamoDB, holding the cloud bill,
-and having access to a private scoring image. That is a reasonable ask for a
-conference with a budget. It is an unreasonable ask for a security course, a
-student club, or a chapter night.
-
-This kit removes it. Everything runs from Docker Compose on a machine you
+Until now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB,
+holding the cloud bill, and having access to a private scoring image. This kit
+removes all of that: everything runs from Docker Compose on a machine you
 already have, plus one free GitHub org for the forks. The rubrics for all six
 targets ship inside the box, so there is no private image to request and no
 scoring code to write.
 
+## What you get
+
+| Feature | What it means for you |
+|---|---|
+| **Patch-to-score scoring** | Contestants patch the vuln and open a PR; a GitHub Action scores it. Stock scores 0, a correct patch earns its points. |
+| **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI — rubrics ship in the box. |
+| **Team scoring** | Per-team standings, self-registration, captains and join codes; shared flags dedupe so they count once. |
+| **Score-over-time graph** | A CTFd-style leaderboard graph from real per-solve timestamps. |
+| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, toggle hints, open/close team registration. |
+| **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
+| **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
+
 ## What contestants see
 
-![Leaderboard with score-over-time graph](assets/hero.jpg)
+![Team leaderboard with score-over-time graph](assets/hero.jpg)
 
-| Leaderboard | Challenge browser |
+| Team leaderboard | Challenge browser |
 |---|---|
-| ![Leaderboard standings with score-over-time graph](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![Team standings with a row expanded to members and each member's points](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
-with seeded demo players — a fixed dark theme, a CTFd-style score-over-time graph drawn
-from real per-solve timestamps, and per-contestant patched/non-patched standings. Branding
-is the neutral "OWASP CTF" default; the event name, targets, and links are event-config driven.</sup>
+with seeded demo players — a fixed dark theme and a CTFd-style score-over-time graph
+drawn from real per-solve timestamps. The leaderboard ranks <strong>teams</strong>;
+each row expands to its members and every member's points. The expanded team shows the
+shared-flag dedupe — its total is less than its members' scores added up, because a flag
+solved by more than one teammate counts once. Branding is the neutral "OWASP CTF"
+default; the event name, targets, and links are event-config driven.</sup>
 
 ## Targets
 
@@ -66,46 +77,53 @@ docker compose --profile poll --profile app up -d
 
 Poll mode is the default and needs no inbound network access — nothing has to
 reach your box from the internet, so a campus network, a locked-down lab or
-venue wifi works without a firewall change.
+venue wifi works without a firewall change. Full prerequisites, OAuth setup and
+the poll-vs-push choice are in [Hosting](hosting.md).
 
-Full prerequisites, OAuth setup, and operational details live in the
-[README on GitHub](https://github.com/dcotelo/ctf-in-a-box#quickstart).
+## Teams
+
+Scoring is per team. Contestants self-register in the app — create a team to
+become its captain and get a join code, or join by code; a solo player is just
+a team of one. Captains manage the roster (rename, remove, transfer, disband,
+regenerate the code). The leaderboard ranks teams, each row expanding to its
+members with their individual points — and a flag solved by several teammates
+counts **once**, so a team's total can be less than its members' scores added
+up. Organizers open or close registration from the admin panel. See
+[Operations](operations.md#teams).
 
 ## Organizer admin panel
 
 Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` for a
 live status view (poller heartbeat, last error, leaderboard freshness) and
-two runtime controls: a **freeze** switch that pauses ingestion — not fork
-Actions, so PRs keep getting judged, nothing is lost, only queued until you
-resume — and a hint on/off + cost override on top of the build-time
-default. Every change is recorded in a capped audit log. See the
-[README](https://github.com/dcotelo/ctf-in-a-box#organizer-admin-panel) for
-the full picture, including a known v1 limitation on the hint toggle's
-reach.
+runtime controls: a **freeze** switch that pauses ingestion — not fork Actions,
+so PRs keep getting judged, nothing is lost, only queued until you resume — an
+**open/close team registration** toggle, and a hint on/off + cost override.
+Every change is recorded in a capped audit log. See
+[Operations](operations.md#organizer-admin-panel) for the full picture,
+including a known v1 limitation on the hint toggle's reach.
 
 ## Learn more
 
-- [Module contract](modules.md) — what a CTF vertical (target list,
-  challenge catalogue, scoring transport) must satisfy to plug in.
-- [Architecture](architecture.md) — what runs where, how a score gets
-  from a contestant's PR to the leaderboard.
-- [Scorer](scorer.md) — both rubric grammars, building your own scorer
-  image from the in-repo engine, and wiring the self-contained scoring
-  workflow.
-- [Decisions](decisions.md) — numbered ADRs for why the kit is built the
-  way it is.
+- [Hosting](hosting.md) — prerequisites, poll vs push, the GitHub OAuth
+  app, and event config.
+- [Operations](operations.md) — teams, the admin panel, verifying the kit,
+  the local dev-stack, teardown, and live-scoring status.
+- [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
+- [Architecture](architecture.md) — what runs where, how a score gets from a
+  contestant's PR to the leaderboard.
+- [Scorer](scorer.md) — both rubric grammars, building your own scorer image,
+  and wiring the self-contained scoring workflow.
+- [Decisions](decisions.md) — numbered ADRs for why the kit is built the way
+  it is.
 
 ## Status
 
 The kit is complete and tested offline: the smoke test (`scripts/smoke.sh`)
 exercises the whole poll pipeline end to end, and every target's rubric is
-gated against the unpatched app — the published stock image where the target
-has one, a build of pinned upstream source where it does not, and for WebGoat
-both, so the path a contestant's own fork takes is gated too. Real,
-live-GitHub scoring depends on a small
+gated against the unpatched app. Real, live-GitHub scoring depends on a small
 number of changes still landing in other OWASP-CTF repos. See
-[Status and upstream dependencies](https://github.com/dcotelo/ctf-in-a-box#status-and-upstream-dependencies)
-in the README for the current state.
+[Status and upstream dependencies](operations.md#status-and-upstream-dependencies)
+for the current state.
 
 ---
 
