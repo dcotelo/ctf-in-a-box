@@ -67,6 +67,20 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
 
       <label className="flex items-center justify-between gap-3">
         <span>
+          <span className="text-white">Team registration open</span>
+          <span className="block text-xs text-muted">Allow players to create or join teams.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={settings.teamRegistrationOpen}
+          disabled={pending}
+          onChange={(e) => void apply({ teamRegistrationOpen: e.target.checked })}
+          className="h-5 w-5 flex-none accent-[#2563eb]"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3">
+        <span>
           <span className="text-white">Hints enabled</span>
           <span className="block text-xs text-muted">Overrides the environment default when set.</span>
         </span>

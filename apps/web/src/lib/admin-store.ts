@@ -11,6 +11,7 @@ export type AdminSettings = {
   paused: boolean;
   hintsEnabled: boolean | null;
   hintCost: number | null;
+  teamRegistrationOpen: boolean;
   updatedBy: string | null;
   updatedAt: string | null;
 };
@@ -23,7 +24,12 @@ export type SyncStatus = {
   paused: boolean;
 };
 
-export type SettingsPatch = { paused?: boolean; hintsEnabled?: boolean; hintCost?: number };
+export type SettingsPatch = {
+  paused?: boolean;
+  hintsEnabled?: boolean;
+  hintCost?: number;
+  teamRegistrationOpen?: boolean;
+};
 
 export class AdminValidationError extends Error {
   field: string;
@@ -44,11 +50,14 @@ function flatToObject(flat: unknown): Record<string, string> {
 // `paused` is two-state on the wire — "1" or absent — so false and
 // never-set are the same value. `hintsEnabled` is deliberately three-state
 // ("1"/"0"/absent) since absent means "no override, use the env default".
+// `teamRegistrationOpen` is two-state but inverted: absent means open (the
+// default), and a stored "0" means registration is closed.
 function decodeSettings(h: Record<string, string>): AdminSettings {
   return {
     paused: h.paused === "1",
     hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
     hintCost: h.hintCost === undefined ? null : Number(h.hintCost),
+    teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     updatedBy: h.updatedBy ?? null,
     updatedAt: h.updatedAt ?? null,
   };
@@ -104,6 +113,15 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     } else if (k === "hintsEnabled") {
       if (typeof v !== "boolean") throw new AdminValidationError(k, `${k} must be a boolean`);
       fields.push(k, v ? "1" : "0");
+      changed[k] = v;
+    } else if (k === "teamRegistrationOpen") {
+      if (typeof v !== "boolean") throw new AdminValidationError(k, `${k} must be a boolean`);
+      // Two-state, inverted from `paused`: open is the default (absent), so
+      // opening HDELs the field and closing writes the string "0". The team
+      // store reads this key with a presence-and-value check, so open must
+      // equal absent.
+      if (v) dels.push(k);
+      else fields.push(k, "0");
       changed[k] = v;
     } else if (k === "hintCost") {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > HINT_COST_MAX) {

@@ -46,6 +46,18 @@ const KEYS = [
 describe.skipIf(!configured)("team store against live Upstash (throwaway keys)", () => {
   let store: typeof import("@/lib/team-store");
   let pipeline: (typeof import("@/lib/upstash"))["upstashPipeline"];
+  // Join codes are generated at create time, so we can't know them up front —
+  // collect them as we read them and clean them up alongside the fixed keys.
+  const joinCodeKeys: string[] = [];
+
+  /** Reads a team's captain-shared join code straight off its hash — the
+   *  code-based join flow needs the real code, not the slug. */
+  async function codeFor(slug: string): Promise<string> {
+    const [res] = await pipeline([["HGET", `ctf:team:${slug}`, "joinCode"]]);
+    const code = typeof res.result === "string" ? res.result : "";
+    if (code) joinCodeKeys.push(`ctf:joincode:${code}`);
+    return code;
+  }
 
   beforeAll(async () => {
     vi.stubEnv("TEAM_WRITES_ENABLED", "true");
@@ -55,24 +67,26 @@ describe.skipIf(!configured)("team store against live Upstash (throwaway keys)",
   });
 
   afterAll(async () => {
-    await pipeline([["DEL", ...KEYS]]);
+    await pipeline([["DEL", ...KEYS, ...joinCodeKeys]]);
     vi.unstubAllEnvs();
   });
 
   it("lets four players form a team and rejects the fifth as full", async () => {
     expect(await store.createTeam(PLAYERS[0], NAME_A)).toEqual({ ok: true, team: SLUG_A });
+    const code = await codeFor(SLUG_A);
     for (const p of PLAYERS.slice(1, 4)) {
-      expect(await store.joinTeam(p, SLUG_A)).toEqual({ ok: true, team: SLUG_A });
+      expect(await store.joinTeam(p, code)).toEqual({ ok: true, team: SLUG_A });
     }
-    expect(await store.joinTeam(PLAYERS[4], SLUG_A)).toEqual({
+    expect(await store.joinTeam(PLAYERS[4], code)).toEqual({
       ok: false,
-      error: `Team "${SLUG_A}" is full (4 players max)`,
+      error: "Team is full (4 players max)",
     });
   });
 
   it("does not allow a member of one team to join another", async () => {
     expect(await store.createTeam(PLAYERS[4], NAME_B)).toEqual({ ok: true, team: SLUG_B });
-    expect(await store.joinTeam(PLAYERS[0], SLUG_B)).toEqual({
+    const codeB = await codeFor(SLUG_B);
+    expect(await store.joinTeam(PLAYERS[0], codeB)).toEqual({
       ok: false,
       error: "Leave your current team before joining another",
     });
@@ -89,7 +103,8 @@ describe.skipIf(!configured)("team store against live Upstash (throwaway keys)",
   });
 
   it("keeps membership unique — re-joining your own team is rejected", async () => {
-    expect(await store.joinTeam(PLAYERS[1], SLUG_A)).toEqual({
+    const code = await codeFor(SLUG_A);
+    expect(await store.joinTeam(PLAYERS[1], code)).toEqual({
       ok: false,
       error: "Leave your current team before joining another",
     });

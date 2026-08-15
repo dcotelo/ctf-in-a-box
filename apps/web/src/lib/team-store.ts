@@ -39,6 +39,9 @@ export type TeamInfo = {
   members: string[];
 };
 
+const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
+const REGISTRATION_CLOSED_ERROR = "Team registration is closed";
+
 const userKey = (login: string) => `ctf:user:${login}`;
 const teamKey = (slug: string) => `ctf:team:${slug}`;
 const membersKey = (slug: string) => `ctf:team:${slug}:members`;
@@ -107,7 +110,11 @@ if redis.call('HGET', KEYS[1], 'team') ~= ARGV[2] then return 'stale' end
 if redis.call('HGET', KEYS[2], 'captain') == ARGV[1] and redis.call('SCARD', KEYS[3]) > 1 then return 'captain-must-transfer' end
 redis.call('SREM', KEYS[3], ARGV[1])
 redis.call('HDEL', KEYS[1], 'team')
-if redis.call('SCARD', KEYS[3]) == 0 then redis.call('DEL', KEYS[2], KEYS[3]) end
+if redis.call('SCARD', KEYS[3]) == 0 then
+  local code = redis.call('HGET', KEYS[2], 'joinCode')
+  redis.call('DEL', KEYS[2], KEYS[3])
+  if code then redis.call('DEL', 'ctf:joincode:' .. code) end
+end
 return 'ok'`;
 
 const REMOVE_MEMBER_SCRIPT = `
@@ -152,6 +159,16 @@ async function setMockTeam(slug: string): Promise<TeamActionResult> {
   return { ok: true, team: slug };
 }
 
+/** True when the organizer has closed the team-registration window. The
+ *  admin store stores "0" for closed and leaves the field absent (⇒ open) by
+ *  default, so a single HGET is enough. Roster-shrinking actions (leaveTeam)
+ *  are exempt — players can always leave — so this guard is only applied to
+ *  team-forming and captain roster mutations. */
+async function isRegistrationClosed(): Promise<boolean> {
+  const [res] = await upstashPipeline([["HGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen"]]);
+  return res.result === "0";
+}
+
 async function getUserTeamSlug(login: string): Promise<string | null> {
   const [current] = await upstashPipeline([["HGET", userKey(login), "team"]]);
   return typeof current.result === "string" && current.result ? current.result : null;
@@ -165,6 +182,7 @@ export async function createTeam(login: string, name: string): Promise<TeamActio
     return { ok: false, error: `Team name must be ${NAME_MAX_LENGTH} characters or fewer` };
   }
   if (!TEAM_WRITES_ENABLED) return setMockTeam(slug);
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
   const createdAt = new Date().toISOString();
   const joinCode = await generateUniqueJoinCode();
 
@@ -184,6 +202,7 @@ export async function joinTeam(login: string, code: string): Promise<TeamActionR
   const trimmedCode = code.trim();
   if (!trimmedCode) return { ok: false, error: "Join code is required" };
   if (!TEAM_WRITES_ENABLED) return setMockTeam(slugify(trimmedCode));
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
 
   const normalizedCode = trimmedCode.toLowerCase();
   const [codeRes] = await upstashPipeline([["GET", joinCodeKey(normalizedCode)]]);
@@ -229,6 +248,7 @@ export async function removeMember(
   memberLogin: string,
 ): Promise<TeamActionResult> {
   if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
   const verdict = await upstashEval(
     REMOVE_MEMBER_SCRIPT,
     [teamKey(slug), membersKey(slug), userKey(memberLogin)],
@@ -254,6 +274,7 @@ export async function renameTeam(captainLogin: string, slug: string, newName: st
     return { ok: false, error: `Team name must be ${NAME_MAX_LENGTH} characters or fewer` };
   }
   const newSlug = slugify(trimmed) || slug;
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
 
   const verdict = await upstashEval(RENAME_SCRIPT, [teamKey(slug), teamKey(newSlug)], [captainLogin, trimmed]);
   if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
@@ -269,6 +290,7 @@ export async function transferCaptain(
   toMemberLogin: string,
 ): Promise<TeamActionResult> {
   if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
   const verdict = await upstashEval(
     TRANSFER_CAPTAIN_SCRIPT,
     [teamKey(slug), membersKey(slug)],
@@ -284,6 +306,7 @@ export async function transferCaptain(
  *  deleting the team's keys, including its join-code reverse index. */
 export async function disbandTeam(captainLogin: string, slug: string): Promise<TeamActionResult> {
   if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
   const [codeRes] = await upstashPipeline([["HGET", teamKey(slug), "joinCode"]]);
   const currentCode = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : "";
 
@@ -300,6 +323,7 @@ export async function disbandTeam(captainLogin: string, slug: string): Promise<T
 /** Captain-only: invalidates the current join code and issues a new one. */
 export async function regenerateCode(captainLogin: string, slug: string): Promise<JoinCodeResult> {
   if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
   const [codeRes] = await upstashPipeline([["HGET", teamKey(slug), "joinCode"]]);
   const oldCode = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : "";
   const newCode = await generateUniqueJoinCode();
