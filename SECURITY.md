@@ -55,10 +55,3 @@ We aim to:
 
 This is a community-maintained project run on a best-effort basis; response
 times may vary.
-
-## On transfer to the OWASP GitHub org
-
-This project is headed toward the OWASP GitHub org once its MVP is
-validated. On transfer, this policy re-aligns to OWASP's own vulnerability
-disclosure process and reporting channels; until then, GitHub private
-vulnerability reporting on this repository is the channel to use.

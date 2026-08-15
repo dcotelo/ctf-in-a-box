@@ -63,7 +63,8 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported using **GitHub's private vulnerability reporting** for this
 repository (repository → **Security** → **Report a vulnerability**) or by
 contacting the repository maintainers directly through GitHub. All
-complaints will be reviewed and investigated promptly and fairly.
+complaints will be reviewed and investigated promptly and fairly by the
+repository maintainers.
 
 All community leaders are obligated to respect the privacy and security of
 the reporter of any incident.
@@ -114,12 +115,6 @@ individual, or aggression toward or disparagement of classes of individuals.
 
 **Consequence**: A permanent ban from any sort of public interaction within
 the community.
-
-## On transfer to the OWASP GitHub org
-
-This project is headed toward the OWASP GitHub org once its MVP is
-validated. On transfer, this Code of Conduct moves to OWASP's own Code of
-Conduct and its associated enforcement/reporting channels.
 
 ## Attribution
 

@@ -67,9 +67,3 @@ AI- and agent-assisted pull requests are welcome. A few rules apply:
   the project's real conventions and gotchas (bash compatibility, shellcheck
   rules, bats assertion pitfalls, the stock-scores-zero invariant, and so
   on).
-
-## On transfer to the OWASP GitHub org
-
-This project is headed toward the OWASP GitHub org once its MVP is
-validated. On transfer, this contributing guide and its governance
-re-align to OWASP's own contribution and project conventions.

@@ -122,10 +122,3 @@ suggestions.
   poll vs push, OAuth app, event config.
 - [`docs/decisions.md`](docs/decisions.md) — numbered ADRs recording why the
   kit is built this way instead of the alternatives.
-
-## On transfer to the OWASP GitHub org
-
-This project is headed toward the OWASP GitHub org once its MVP is
-validated. On transfer, this guide and the repo's governance files
-(`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CODEOWNERS`)
-re-align to OWASP's own project and org conventions.
