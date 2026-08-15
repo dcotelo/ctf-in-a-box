@@ -233,6 +233,19 @@ EOF
   [[ "$output" == *"OK: prerequisites present"* ]]
 }
 
+@test "targets.tsv drives prov_field/prov_repo_name" {
+  run bash -c 'source "'"$SCRIPT"'" __selftest 2>/dev/null; prov_field juice-shop 2'
+  [ "$status" -eq 0 ]
+  [ "$output" = "juice-shop/juice-shop" ]
+}
+
+@test "prov_repo_name returns fork name; unknown target fails" {
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; prov_repo_name vulnerableapp'
+  [ "$status" -eq 0 ]; [ "$output" = "VulnerableApp" ]
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; prov_field nope 2'
+  [ "$status" -ne 0 ]; [[ "$output" == *"unknown target: nope"* ]]
+}
+
 @test "secrets succeeds without event.yaml (regression fix)" {
   # secrets does not need event.yaml; should succeed even without it
   run bash "$SCRIPT" secrets --out .env.secrets.test

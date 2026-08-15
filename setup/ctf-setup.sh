@@ -13,22 +13,49 @@
 set -euo pipefail
 
 # Resolve repo-relative paths from the script's own location, not the cwd.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# BASH_SOURCE (not $0) so this also resolves correctly when the script is
+# sourced for its helpers (e.g. `CMD=__selftest source ctf-setup.sh`), where
+# $0 is the sourcing shell's own name rather than this file's path.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 WORKFLOW_TEMPLATE="$SCRIPT_DIR/../scorer/consumer-workflow.example.yml"
+
+PROVENANCE_TSV="$SCRIPT_DIR/targets.tsv"
+
+# target -> provenance column. col: 2=upstream_repo, 3=ref, 4=stock_image.
+prov_field() {
+  local t="$1" col="$2" line
+  line=$(grep -v '^[[:space:]]*#' "$PROVENANCE_TSV" | awk -F'\t' -v t="$t" '$1==t {print; exit}')
+  [ -n "$line" ] || { echo "unknown target: $t" >&2; return 1; }
+  printf '%s\n' "$line" | cut -f"$col"
+}
+
+# The fork's repo name = basename of the upstream repo (owner/Name -> Name).
+prov_repo_name() {
+  local repo; repo="$(prov_field "$1" 2)" || return 1
+  echo "${repo##*/}"
+}
 
 DRY_RUN=0
 CONFIG=event.yaml
-CMD="${1:-}"; shift || true
+# CMD is read from the env first so `CMD=__selftest source ctf-setup.sh` can
+# define the helpers above (and below) without parsing flags or dispatching a
+# subcommand — the env var wins so sourcing works regardless of $1, while
+# `bash ctf-setup.sh <cmd>` (no CMD env var set) still uses positional $1.
+CMD="${CMD:-${1:-}}"
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --dry-run) DRY_RUN=1 ;;
-    --config) CONFIG="$2"; shift ;;
-    --out) OUT="$2"; shift ;;
-    *) echo "unknown flag: $1" >&2; exit 2 ;;
-  esac
-  shift
-done
+if [ "$CMD" != "__selftest" ]; then
+  shift || true
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) DRY_RUN=1 ;;
+      --config) CONFIG="$2"; shift ;;
+      --out) OUT="$2"; shift ;;
+      *) echo "unknown flag: $1" >&2; exit 2 ;;
+    esac
+    shift
+  done
+fi
 
 # Verify config file exists (only for subcommands that need it)
 require_config() {
@@ -241,17 +268,19 @@ cmd_teardown() {
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    local r; r="$(repo_for "$t")" || exit 1
+    local r; r="$(prov_repo_name "$t")" || exit 1
     run gh repo archive "$org/$r" --yes
   done < <(yaml_targets)
   echo "== revoke the organizer PAT and delete org secrets manually"
 }
 
-case "$CMD" in
-  check) cmd_check ;;
-  secrets) cmd_secrets ;;
-  org) cmd_org ;;
-  render) cmd_render ;;
-  teardown) cmd_teardown ;;
-  *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown} [--dry-run] [--config event.yaml] [--out .env]" >&2; exit 2 ;;
-esac
+if [ "$CMD" != "__selftest" ]; then
+  case "$CMD" in
+    check) cmd_check ;;
+    secrets) cmd_secrets ;;
+    org) cmd_org ;;
+    render) cmd_render ;;
+    teardown) cmd_teardown ;;
+    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown} [--dry-run] [--config event.yaml] [--out .env]" >&2; exit 2 ;;
+  esac
+fi
