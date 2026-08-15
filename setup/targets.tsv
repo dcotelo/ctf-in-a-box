@@ -1,0 +1,9 @@
+# target	upstream_repo	ref	stock_image
+# The pinned CTF versions. Fork upstream_repo at ref; stock_image is the scoring
+# baseline (docs/hosting.md, scripts/acceptance-target.sh). "-" = self-build.
+juice-shop	juice-shop/juice-shop	v20.0.0	bkimminich/juice-shop:v20.0.0
+webgoat	WebGoat/WebGoat	v2025.3	webgoat/webgoat:v2025.3
+vulnerableapp	SasanLabs/VulnerableApp	2.1.37	sasanlabs/owasp-vulnerableapp:2.1.37
+securityshepherd	OWASP/SecurityShepherd	662771b	-
+dvwa	digininja/DVWA	d45ba3c	ghcr.io/digininja/dvwa@sha256:091498cedec31b4a3091a1262e6a5a0ce5ec32d4bd26486558818346ccc89d67
+vampi	erev0s/VAmPI	f16052d	erev0s/vampi@sha256:0a5a224b6e14ae7da6a6ea265178ff71286ff903aec74adee98f660bb0e4ca12
