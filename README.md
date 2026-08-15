@@ -342,6 +342,42 @@ unpatched upstream image and asserts every challenge fails against it. Any
 challenge that passes there asserts the exploit rather than the fix, and the
 gate fails the build rather than handing every contestant a free point.
 
+### Local dev-stack
+
+Want to click through the actual contestant experience — leaderboard,
+challenge browsing, a score landing on the board — without a GitHub org,
+an OAuth app, or a real contestant PR? One command:
+
+```sh
+./scripts/dev-stack up
+```
+
+This generates a throwaway `.env.dev-stack` if you have no `.env` (never
+touches or overwrites a real one), builds the scorer image locally from
+`scorer/` and the app image from `apps/web/` (falling back to
+`event.yaml.example` if you have no `event.yaml` yet), brings up
+`redis`, `srh`, `scorer`, `app` and `caddy`, and seeds a few demo players
+onto the leaderboard through the scorer's real bearer-authed `POST /score` —
+the same endpoint a scored PR hits, so it exercises the real validation and
+Redis-write path rather than poking Redis keys directly. It prints the URL to
+open when it's done.
+
+Watch a new score land live, without a real PR:
+
+```sh
+./scripts/dev-stack score <login> juice-shop 3   # marks 3 catalogue challenges solved
+```
+
+Tear down with `./scripts/dev-stack down` (keeps seeded data in the Redis
+volume for next time) or `./scripts/dev-stack down --wipe` (also drops it).
+
+**What this does not do:** sign you in. `/admin` needs a real session whose
+GitHub login is in `event.yaml`'s `admins`, which needs a real GitHub OAuth
+app — there is no local bypass for that boundary, and the script does not add
+one. `dev-stack up` tells you exactly what to add (an OAuth app's client
+id/secret in `.env`, your login in `admins`) to unlock sign-in and `/admin` on
+top of the leaderboard/challenge-browsing experience it gives you immediately.
+
 ## Status and upstream dependencies
 
 The kit is complete and tested offline: `scripts/smoke.sh` exercises the whole
