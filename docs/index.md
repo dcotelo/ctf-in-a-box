@@ -25,11 +25,16 @@ scoring code to write.
 
 ## What contestants see
 
-![Demo: leaderboard and challenge browser](assets/demo.gif)
+![Leaderboard with score-over-time graph](assets/hero.jpg)
 
 | Leaderboard | Challenge browser |
 |---|---|
-| ![Leaderboard](assets/leaderboard.jpg) | ![Challenges](assets/challenges.jpg) |
+| ![Leaderboard standings with score-over-time graph](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
+
+<sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
+with seeded demo players — a fixed dark theme, a CTFd-style score-over-time graph drawn
+from real per-solve timestamps, and per-contestant patched/non-patched standings. Branding
+is the neutral "OWASP CTF" default; the event name, targets, and links are event-config driven.</sup>
 
 ## Targets
 

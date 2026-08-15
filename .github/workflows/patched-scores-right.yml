@@ -7,11 +7,12 @@ name: patched-scores-right
 # Nothing else in the kit proves a real fix still earns its points, so a scorer
 # that silently stopped awarding them would pass every other gate.
 #
-# Each matrix row stages the pinned upstream VAmPI source, applies one reference
-# patch from patches/vampi/, builds the fork from its own Dockerfile, and asserts
-# the positive result. Two rows on purpose: they patch DIFFERENT challenges in
-# DIFFERENT files, so between them they prove the assertion discriminates
-# (patching challenge-3 scores challenge-3 and NOT challenge-1, and vice versa).
+# One matrix row per (target, challenge): each stages that target's pinned source,
+# applies one reference patch from patches/<target>/, builds the fork from its own
+# Dockerfile, judges every challenge, and asserts the positive result plus a
+# per-target positive control (standalone / app+db / exempt — see patches/README.md).
+# vampi carries two rows on purpose (different challenges in different files), which
+# between them prove the assertion discriminates.
 on:
   pull_request:
     paths:
@@ -31,15 +32,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
-      # Keep both rows running even if one fails: a discrimination regression
-      # shows up as one row passing and the other failing, which fail-fast would
-      # hide by cancelling the survivor.
+      # Keep every row running even if one fails: a discrimination or coverage
+      # regression shows up as one row passing and another failing, which fail-fast
+      # would hide by cancelling the survivors. Each row is its own isolated runner,
+      # so the shared ctf-app-under-test image tag never races across targets.
       fail-fast: false
       matrix:
         include:
-          - challenge: challenge-3-sqli
-          - challenge: challenge-1-excessive-data-exposure
+          - target: vampi
+            challenge: challenge-3-sqli
+          - target: vampi
+            challenge: challenge-1-excessive-data-exposure
+          - target: juice-shop
+            challenge: challenge-1-password-hash-leak
+          - target: dvwa
+            challenge: challenge-7-sql-injection-low
+          - target: webgoat
+            challenge: challenge-23-sql-injection-dml-update
+          - target: vulnerableapp
+            challenge: challenge-33-error-sqli-level-1
+          - target: securityshepherd
+            challenge: challenge-23-sqli-1
     steps:
       - uses: actions/checkout@v4
-      - name: Patched fork must score exactly ${{ matrix.challenge }}
-        run: ./scripts/acceptance-patched.sh vampi "${{ matrix.challenge }}"
+      - name: Patched ${{ matrix.target }} fork must score exactly ${{ matrix.challenge }}
+        run: ./scripts/acceptance-patched.sh "${{ matrix.target }}" "${{ matrix.challenge }}"

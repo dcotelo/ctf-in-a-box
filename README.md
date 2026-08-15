@@ -42,17 +42,19 @@ chapter leads, workshop facilitators, security teams running an internal
 training day.
 
 <p align="center">
-  <img alt="Leaderboard and challenge browser" src="docs/assets/demo.gif" width="720">
+  <img alt="Leaderboard with score-over-time graph" src="docs/assets/hero.jpg" width="820">
 </p>
 
 | Leaderboard | Challenge browser |
 |---|---|
-| ![Leaderboard](docs/assets/leaderboard.jpg) | ![Challenges](docs/assets/challenges.jpg) |
+| ![Leaderboard standings with score-over-time graph](docs/assets/leaderboard.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
 
-<sup>Captured from the contestant app in mock-data mode — it ships demo data by
-design, so the kit is inspectable before an event exists. These shots predate
-the event-config work and show DEF CON 34 branding; a fresh build now defaults
-to a neutral "OWASP CTF". Re-capturing them is a known follow-up.</sup>
+<sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
+with seeded demo players. The app ships a fixed dark theme; the leaderboard's
+CTFd-style score-over-time graph is drawn from real per-solve timestamps, and the
+standings show each contestant's patched vs. non-patched split. Branding is the
+neutral "OWASP CTF" default — the event name, targets, and links are all
+event-config driven.</sup>
 
 ```console
 $ ./setup/ctf-setup.sh check
