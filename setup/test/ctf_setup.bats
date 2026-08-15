@@ -381,6 +381,8 @@ EOF2
   run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   [[ "$output" == *"organizations/test-event-org/settings/apps/new"* ]]
+  # redirect_url is REQUIRED by the create-from-manifest flow
+  [[ "$output" == *"redirect_url="* ]]
   # dry-run must not open a browser or write an HTML form
   [ -z "$(echo "$output" | grep -F "STUB-OPEN")" ]
 }

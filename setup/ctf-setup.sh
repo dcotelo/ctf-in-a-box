@@ -492,16 +492,27 @@ cmd_app_manifest() {
   [ -f "$manifest" ] || { echo "manifest not found: $manifest" >&2; exit 1; }
 
   local action="https://github.com/organizations/${org}/settings/apps/new?state=ctf-in-a-box"
+  # The create-from-manifest flow REQUIRES redirect_url. We don't run a callback
+  # server (creds are fetched manually from the app page), so point it at the
+  # org's Apps settings — after Create, GitHub lands there (with a ?code it
+  # ignores) instead of erroring. Injected at render time so the static
+  # manifest stays a clean permissions reference.
+  local redirect="https://github.com/organizations/${org}/settings/apps"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: render manifest form -> POST $manifest to $action"
+    echo "DRY-RUN: render manifest form (redirect_url=$redirect) -> POST $manifest to $action"
     return 0
   fi
+
+  local manifest_json; manifest_json="$(cat "$manifest")"
+  # Insert redirect_url as the first field, right after the opening brace.
+  manifest_json="{
+  \"redirect_url\": \"${redirect}\",${manifest_json#\{}"
 
   local html; html="$(mktemp -t ctf-app-manifest).html"
   {
     echo '<!doctype html><meta charset="utf-8"><title>Create the CTF-in-a-box GitHub App</title>'
     echo "<form action=\"${action}\" method=\"post\">"
-    printf '<input type="hidden" name="manifest" value='"'"'%s'"'"'>' "$(sed "s/'/\&#39;/g" "$manifest")"
+    printf '<input type="hidden" name="manifest" value='"'"'%s'"'"'>' "$(printf '%s' "$manifest_json" | sed "s/'/\&#39;/g")"
     echo '</form><p>Submitting to GitHub…</p><script>document.forms[0].submit()</script>'
   } > "$html"
 
