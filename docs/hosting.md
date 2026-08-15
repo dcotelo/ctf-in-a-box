@@ -36,10 +36,25 @@ building the image is covered in [docs/scorer.md](scorer.md).
 
 ## Fork setup and the contest flow
 
-`ctf-setup.sh org` forks each target from `OWASP-CTF/<repo>` into your event org,
-renders a scoring workflow per target into `dist/workflows/`, and mirrors your
-`SCORE_IMAGE` into the org's GHCR. A few steps then finish each fork — some are
-GitHub-UI only (no API):
+Each target is a specific **upstream** app pinned to a source ref — that pin is
+the source of truth (there is no middle-man fork). The scorer judges a fork of it
+with the vendored rubric, and the *scoring baseline* image is the stock, unpatched
+build that [`stock-scores-zero`](operations.md#verifying-it-works) proves scores
+`0 / N`:
+
+| Target | Upstream repo | Source ref | Scoring baseline (pinned image) |
+|---|---|---|---|
+| `juice-shop` | `juice-shop/juice-shop` | tag `v20.0.0` | `bkimminich/juice-shop:v20.0.0` |
+| `webgoat` | `WebGoat/WebGoat` | tag `v2025.3` | `webgoat/webgoat:v2025.3` |
+| `vulnerableapp` | `SasanLabs/VulnerableApp` | tag `2.1.37` (commit `bad68b1`) | `sasanlabs/owasp-vulnerableapp:2.1.37` |
+| `securityshepherd` | `OWASP/SecurityShepherd` | commit `662771b` | self-build (no stock image) |
+| `dvwa` | `digininja/DVWA` | commit `d45ba3c` | `ghcr.io/digininja/dvwa@sha256:091498ce…` |
+| `vampi` | `erev0s/VAmPI` | commit `f16052d` | `erev0s/vampi@sha256:0a5a224b…` |
+
+`ctf-setup.sh org` forks each target into your event org, renders a scoring
+workflow per target into `dist/workflows/`, and mirrors your `SCORE_IMAGE` into
+the org's GHCR. A few steps then finish each fork — some are GitHub-UI only
+(no API):
 
 1. **Build the scorer image for `linux/amd64`.** GitHub runners are amd64; an
    arm64-only image (e.g. built on Apple Silicon) makes the scoring Action fail
