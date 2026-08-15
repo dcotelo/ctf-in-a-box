@@ -60,8 +60,8 @@ workflow per target into `dist/workflows/`, and mirrors your `SCORE_IMAGE` into
 the org's GHCR. It automates the whole per-fork setup, is idempotent (safe to
 re-run — each step is skipped once already satisfied), and leaves only three
 GitHub-UI-only steps for you to finish by hand. Run `ctf-setup.sh doctor`
-afterward to verify the whole provision, including flagging (⚠️) the manual
-steps that still need doing.
+afterward to verify each fork's provisioning and flag the manual UI-only
+steps.
 
 **Automated by `ctf-setup org`** (one pass per target):
 

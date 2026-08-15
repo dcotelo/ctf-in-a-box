@@ -8,6 +8,6 @@ RUN ./gradlew --no-daemon -x test -x spotlessCheck -x spotlessJavaCheck clean bo
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-COPY --from=build /src/build/libs/VulnerableApp-1.0.0.jar /app/app.jar
+COPY --from=build /src/build/libs/VulnerableApp-*.jar /app/app.jar
 EXPOSE 9090
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

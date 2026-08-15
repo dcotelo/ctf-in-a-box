@@ -85,7 +85,11 @@ check_step() {
   case "$id" in
     fork) gh_ok "repos/$org/$name" ;;
     ctf-branch) [ "$(gh api "repos/$org/$name" --jq '.default_branch' 2>/dev/null)" = "ctf" ] ;;
-    drop-old) ! gh_ok "repos/$org/$name/branches/master" && ! gh_ok "repos/$org/$name/branches/main" ;;
+    drop-old)
+      local branches
+      branches="$(gh api "repos/$org/$name/branches" --jq '.[].name' 2>/dev/null)" || return 1
+      ! printf '%s\n' "$branches" | grep -qxE 'master|main'
+      ;;
     protect)
       local n
       n="$(gh api "repos/$org/$name/branches/ctf/protection" \

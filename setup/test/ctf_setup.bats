@@ -328,6 +328,21 @@ EOF2
   echo "$output" | grep -qx NOTSATISFIED
 }
 
+@test "check_step drop-old fails closed when the branch list call errors" {
+  mkdir -p stubs
+  cat > stubs/gh <<'EOF2'
+#!/usr/bin/env bash
+[ "$1" = api ] && exit 1
+exit 0
+EOF2
+  chmod +x stubs/gh
+  # Same rationale as the disable-inherited test above: exercise via `if
+  # check_step …` so the `|| return 1` (not set -e) decides the outcome.
+  PATH="$(pwd)/stubs:$PATH" run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if check_step drop-old dvwa test-event-org; then echo SATISFIED; else echo NOTSATISFIED; fi'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx NOTSATISFIED
+}
+
 @test "doctor reports missing then done via stubbed gh" {
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
