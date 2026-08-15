@@ -23,6 +23,15 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    # React refuses to run unless react and react-dom are the exact same
+    # version, so they must bump in one PR (with their @types) — never apart.
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
 
   - package-ecosystem: "github-actions"
     directory: "/"
