@@ -4,6 +4,17 @@
 const SYNC_STATUS_KEY = "ctf:sync:status";
 const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 
+// Scheduled scoring window: true when `now` is before start / after end.
+// Absent/unparseable bounds are ignored. Mirrors apps/web admin-store.ts
+// and scorer/src/store.js — change all three together.
+export function outsideWindow(nowMs, startsAt, endsAt) {
+  const s = startsAt ? Date.parse(startsAt) : NaN;
+  const e = endsAt ? Date.parse(endsAt) : NaN;
+  if (Number.isFinite(s) && nowMs < s) return true;
+  if (Number.isFinite(e) && nowMs > e) return true;
+  return false;
+}
+
 export function makeRedis(env = process.env, fetchImpl = fetch, log = console.error) {
   const url = env.UPSTASH_REDIS_REST_URL;
   const token = env.UPSTASH_REDIS_REST_TOKEN;
@@ -23,8 +34,13 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
   return {
     async isPaused() {
       try {
-        const [v] = await pipeline([["HGET", ADMIN_SETTINGS_KEY, "paused"]]);
-        return v === "1";
+        // Effective freeze = manual toggle OR scheduled scoring window.
+        const [row] = await pipeline([
+          ["HMGET", ADMIN_SETTINGS_KEY, "paused", "scoringStartsAt", "scoringEndsAt"],
+        ]);
+        const [paused, startsAt, endsAt] = Array.isArray(row) ? row : [];
+        if (paused === "1") return true;
+        return outsideWindow(Date.now(), startsAt, endsAt);
       } catch (err) {
         log(`redis isPaused: ${err.message}`);
         return false; // fail open: a Redis blip must not freeze ingestion

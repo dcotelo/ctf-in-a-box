@@ -37,13 +37,15 @@ async function loadStore(writesEnabled: boolean): Promise<TeamStore> {
 }
 
 /** Every live write path (create/join + captain roster actions, but NOT
- *  leave) reads the registration window first. These queue that HGET's
- *  result: absent (null) means open — the default — and "0" means closed. */
+ *  leave) reads the registration window first via HMGET
+ *  [teamRegistrationOpen, registrationStartsAt, registrationEndsAt]. These
+ *  queue that reply: [null,null,null] means open (defaults); a "0" toggle or
+ *  an out-of-window date means closed. */
 function mockRegistrationOpen() {
-  mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }]);
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: [null, null, null] }]);
 }
 function mockRegistrationClosed() {
-  mocks.upstashPipeline.mockResolvedValueOnce([{ result: "0" }]);
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["0", null, null] }]);
 }
 
 /** Queues the pipeline response for joinTeam's join-code -> slug lookup. */
@@ -246,6 +248,15 @@ describe("registration window", () => {
     const store = await loadStore(true);
     mockRegistrationClosed();
     const result = await store.joinTeam("octocat", "somecode");
+    expect(result).toEqual({ ok: false, error: "Team registration is closed" });
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("rejects createTeam when the scheduled window has ended (toggle open, date past)", async () => {
+    const store = await loadStore(true);
+    // teamRegistrationOpen absent (=open), but registrationEndsAt is in the past.
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [null, null, "2000-01-01T00:00:00.000Z"] }]);
+    const result = await store.createTeam("octocat", "Red Team");
     expect(result).toEqual({ ok: false, error: "Team registration is closed" });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });

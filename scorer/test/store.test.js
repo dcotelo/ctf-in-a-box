@@ -194,3 +194,54 @@ test("redis store getTeams: falls back to slug when name is empty", async (t) =>
     { slug: "nameless", name: "nameless", captain: "octocat", members: ["octocat"] },
   ]);
 });
+
+// --- isPaused honors the scheduled scoring window (manual toggle OR window) ---
+import { outsideWindow } from "../src/store.js";
+
+// Mock a single HMGET [paused, scoringStartsAt, scoringEndsAt] reply.
+function pausedFetch(row) {
+  return async (_url, _opts) => new Response(JSON.stringify([{ result: row }]), { status: 200 });
+}
+const PAST = "2000-01-01T00:00:00.000Z";
+const FUTURE = "2999-01-01T00:00:00.000Z";
+
+test("outsideWindow: before start / after end / inside / unbounded / bad", () => {
+  const now = Date.parse("2026-06-01T12:00:00Z");
+  assert.equal(outsideWindow(now, FUTURE, null), true);   // before start
+  assert.equal(outsideWindow(now, null, PAST), true);     // after end
+  assert.equal(outsideWindow(now, PAST, FUTURE), false);  // inside
+  assert.equal(outsideWindow(now, null, null), false);    // unbounded
+  assert.equal(outsideWindow(now, "nope", "bad"), false); // unparseable ignored
+});
+
+test("redis store isPaused: manual paused flag wins", async (t) => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = pausedFetch(["1", null, null]);
+  t.after(() => { globalThis.fetch = realFetch; });
+  const store = createRedisStore({ url: "http://srh:80", token: "t" });
+  assert.equal(await store.isPaused(), true);
+});
+
+test("redis store isPaused: scheduled window (after end) pauses even without the manual flag", async (t) => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = pausedFetch([null, null, PAST]);
+  t.after(() => { globalThis.fetch = realFetch; });
+  const store = createRedisStore({ url: "http://srh:80", token: "t" });
+  assert.equal(await store.isPaused(), true);
+});
+
+test("redis store isPaused: inside the window is not paused", async (t) => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = pausedFetch([null, PAST, FUTURE]);
+  t.after(() => { globalThis.fetch = realFetch; });
+  const store = createRedisStore({ url: "http://srh:80", token: "t" });
+  assert.equal(await store.isPaused(), false);
+});
+
+test("redis store isPaused: fails OPEN when redis errors", async (t) => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("redis down"); };
+  t.after(() => { globalThis.fetch = realFetch; });
+  const store = createRedisStore({ url: "http://srh:80", token: "t" });
+  assert.equal(await store.isPaused(), false);
+});

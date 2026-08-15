@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { outsideWindow } from "@/lib/admin-store";
 
 const MOCK_TEAM_COOKIE = "ctf-mock-team";
 
@@ -165,8 +166,14 @@ async function setMockTeam(slug: string): Promise<TeamActionResult> {
  *  are exempt — players can always leave — so this guard is only applied to
  *  team-forming and captain roster mutations. */
 async function isRegistrationClosed(): Promise<boolean> {
-  const [res] = await upstashPipeline([["HGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen"]]);
-  return res.result === "0";
+  const [res] = await upstashPipeline([
+    ["HMGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen", "registrationStartsAt", "registrationEndsAt"],
+  ]);
+  const [open, startsAt, endsAt] = Array.isArray(res.result) ? (res.result as (string | null)[]) : [];
+  // Closed by the manual toggle OR by the scheduled registration window
+  // (before start / after end). Mirrors admin-store's effectiveRegistrationOpen.
+  if (open === "0") return true;
+  return outsideWindow(Date.now(), startsAt ?? null, endsAt ?? null);
 }
 
 async function getUserTeamSlug(login: string): Promise<string | null> {
