@@ -173,17 +173,27 @@ jobs:
       # unset for poll mode (the engine skips the leaderboard POST and the sync
       # poller records the comment instead).
       - name: Run scorer
+        id: score
         if: steps.cooldown.outputs.skip != 'true'
         run: |
+          # SECURITY: the scorer writes ctf-score.md (which carries the sync
+          # ingest marker posted as github-actions[bot]) to a DEDICATED output
+          # dir OUTSIDE the untrusted PR checkout — never into $GITHUB_WORKSPACE.
+          # The final-comment step reads it only from here, only on this step's
+          # success, so a contestant cannot commit their own ctf-score.md and
+          # have a forged score posted as the bot.
+          mkdir -p "$RUNNER_TEMP/ctf-out"
           docker run --rm \
             --entrypoint /usr/local/bin/entrypoint.sh \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$GITHUB_WORKSPACE:/github/workspace" \
+            -v "$RUNNER_TEMP/ctf-out:/ctf-out" \
             -v "$GITHUB_EVENT_PATH:/github/event.json:ro" \
             -e TARGET \
             -e APP_URL \
             -e NETWORK \
             -e GITHUB_WORKSPACE=/github/workspace \
+            -e CTF_OUT_DIR=/ctf-out \
             -e GITHUB_EVENT_PATH=/github/event.json \
             -e SCORE_API="${{ secrets.LEADERBOARD_URL }}" \
             -e SCORE_TOKEN="${{ secrets.LEADERBOARD_TOKEN }}" \
@@ -202,13 +212,21 @@ jobs:
       - name: Post final comment
         if: always() && steps.cooldown.outputs.skip != 'true'
         uses: actions/github-script@v7
+        env:
+          SCORE_OUTCOME: ${{ steps.score.outcome }}
         with:
           script: |
             const fs = require('fs');
             const marker = `<!-- ctf-score:${process.env.TARGET} -->`;
-            const path = `${process.env.GITHUB_WORKSPACE}/ctf-score.md`;
+            // SECURITY: read the report ONLY from the scorer's dedicated output
+            // dir (outside the untrusted PR checkout) AND only when the scorer
+            // step actually succeeded. Reading from the checkout, or on failure,
+            // would let a contestant post a forged sync marker as the bot.
+            const path = `${process.env.RUNNER_TEMP}/ctf-out/ctf-score.md`;
             let report = '';
-            try { report = fs.readFileSync(path, 'utf8'); } catch {}
+            if (process.env.SCORE_OUTCOME === 'success') {
+              try { report = fs.readFileSync(path, 'utf8'); } catch {}
+            }
             // Leaderboard link footer — only when the organizer's URL was rendered
             // in (a real http(s) URL, not the unfilled placeholder).
             const lb = (process.env.LEADERBOARD_LINK || '').trim();

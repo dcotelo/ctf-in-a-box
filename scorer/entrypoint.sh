@@ -3,7 +3,9 @@
 #
 # Runs inside the scorer image with docker.sock mounted. Boots the app under
 # test as a SIBLING container on the internal ctf network, then runs the
-# declarative rubric probes against it and writes $GITHUB_WORKSPACE/ctf-score.md.
+# declarative rubric probes against it and writes ctf-score.md into CTF_OUT_DIR
+# (a dedicated dir OUTSIDE the PR checkout — the consumer workflow reads the
+# report only from there, only on success, so the bot comment can't be forged).
 #
 # Env in (from score-action / the consumer workflow):
 #   TARGET             rubric target id (required) — names the app container
@@ -11,6 +13,7 @@
 #   APP_IMAGE          optional prebuilt app image to pull + run
 #   NETWORK            ctf docker network (default ctfnet)
 #   GITHUB_WORKSPACE   PR checkout (holds the PR's Dockerfile for the patch path)
+#   CTF_OUT_DIR        where ctf-score.md is written (default: GITHUB_WORKSPACE)
 #   GITHUB_EVENT_PATH  webhook payload (author/pr/sha)
 #   SCORE_API/SCORE_TOKEN  optional leaderboard push (engine skips POST if unset)
 set -eu

@@ -198,7 +198,16 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
   // no access to the box's Redis, so this is wired from a repo/org Actions
   // variable in the consumer workflow, not from the admin panel at run time.
   const disclose = !/^(0|false|no)$/i.test(String(env.CTF_DISCLOSE_TABLE ?? "").trim());
-  const reportPath = join(env.GITHUB_WORKSPACE ?? "/github/workspace", "ctf-score.md");
+  // SECURITY: write the report to a DEDICATED output dir, never the PR checkout.
+  // The report carries the sync ingest marker (<!-- ctf-score: {json} -->) and
+  // is posted verbatim as github-actions[bot]; if it lived in GITHUB_WORKSPACE
+  // (the untrusted PR checkout), a contestant could commit their own
+  // ctf-score.md with a forged marker and have it posted as the bot. The
+  // consumer workflow mounts CTF_OUT_DIR outside the checkout and reads the
+  // report only from there, only on scorer success. Defaults to the workspace
+  // for local/acceptance callers that run the judge directly.
+  const outDir = env.CTF_OUT_DIR ?? env.GITHUB_WORKSPACE ?? "/github/workspace";
+  const reportPath = join(outDir, "ctf-score.md");
   writeFileSync(reportPath, renderReport({ challenges, solved, author, target: TARGET, pr, sha, disclose }));
 
   if (env.SCORE_API && !(await postScore(env, { author, target: TARGET, solved, pr, sha }, fetchImpl))) {
