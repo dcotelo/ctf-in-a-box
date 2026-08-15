@@ -1,7 +1,9 @@
 // Unit tests for the team store's membership rules — most importantly that a
-// GitHub user can only ever be on ONE team, and that a team caps at
-// TEAM_MAX_MEMBERS players. Upstash and next/headers are mocked; the
-// end-to-end Lua behavior is covered by team-store.upstash.test.ts.
+// GitHub user can only ever be on ONE team, a team caps at TEAM_MAX_MEMBERS
+// players, joining resolves a captain-shared join code to a team, and every
+// captain-only roster action is guarded atomically inside its Lua script.
+// Upstash and next/headers are mocked; the end-to-end Lua behavior is
+// covered by team-store.upstash.test.ts.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +36,17 @@ async function loadStore(writesEnabled: boolean): Promise<TeamStore> {
   return import("@/lib/team-store");
 }
 
+/** Queues the pipeline response for joinTeam's join-code -> slug lookup. */
+function mockCodeLookup(slug: string | null) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: slug }]);
+}
+
+/** Queues the pipeline response for createTeam/regenerateCode's join-code
+ *  collision check (generateUniqueJoinCode's EXISTS probe). */
+function mockCodeCollisionCheck(exists: boolean) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: exists ? 1 : 0 }]);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
@@ -43,13 +56,15 @@ beforeEach(() => {
 describe("one team per player", () => {
   it("rejects joining a second team and tells the user why", async () => {
     const store = await loadStore(true);
+    mockCodeLookup("red-team");
     mocks.upstashEval.mockResolvedValueOnce("already-on-team");
-    const result = await store.joinTeam("octocat", "red-team");
+    const result = await store.joinTeam("octocat", "somecode");
     expect(result).toEqual({ ok: false, error: "Leave your current team before joining another" });
   });
 
   it("rejects creating a team while already on one", async () => {
     const store = await loadStore(true);
+    mockCodeCollisionCheck(false);
     mocks.upstashEval.mockResolvedValueOnce("already-on-team");
     const result = await store.createTeam("octocat", "Blue Team");
     expect(result).toEqual({ ok: false, error: "Leave your current team before creating one" });
@@ -57,8 +72,9 @@ describe("one team per player", () => {
 
   it("guards membership BEFORE any write inside the join script (atomic)", async () => {
     const store = await loadStore(true);
+    mockCodeLookup("red-team");
     mocks.upstashEval.mockResolvedValueOnce("ok");
-    await store.joinTeam("octocat", "red-team");
+    await store.joinTeam("octocat", "somecode");
     const [script] = mocks.upstashEval.mock.calls[0];
     const guard = script.indexOf("already-on-team");
     expect(guard).toBeGreaterThan(-1);
@@ -68,6 +84,7 @@ describe("one team per player", () => {
 
   it("guards membership BEFORE any write inside the create script (atomic)", async () => {
     const store = await loadStore(true);
+    mockCodeCollisionCheck(false);
     mocks.upstashEval.mockResolvedValueOnce("ok");
     await store.createTeam("octocat", "Red Team");
     const [script] = mocks.upstashEval.mock.calls[0];
@@ -79,8 +96,9 @@ describe("one team per player", () => {
 
   it("keys membership by the server-derived login, not client input", async () => {
     const store = await loadStore(true);
+    mockCodeLookup("red-team");
     mocks.upstashEval.mockResolvedValueOnce("ok");
-    await store.joinTeam("octocat", "red-team");
+    await store.joinTeam("octocat", "somecode");
     const [, keys, args] = mocks.upstashEval.mock.calls[0];
     expect(keys).toEqual(["ctf:user:octocat", "ctf:team:red-team", "ctf:team:red-team:members"]);
     expect(args[0]).toBe("octocat");
@@ -90,15 +108,17 @@ describe("one team per player", () => {
 describe("team size cap", () => {
   it("rejects the fifth player with a clear message", async () => {
     const store = await loadStore(true);
+    mockCodeLookup("red-team");
     mocks.upstashEval.mockResolvedValueOnce("full");
-    const result = await store.joinTeam("octocat", "red-team");
-    expect(result).toEqual({ ok: false, error: 'Team "red-team" is full (4 players max)' });
+    const result = await store.joinTeam("octocat", "somecode");
+    expect(result).toEqual({ ok: false, error: "Team is full (4 players max)" });
   });
 
   it("passes TEAM_MAX_MEMBERS (4) into the atomic script", async () => {
     const store = await loadStore(true);
+    mockCodeLookup("red-team");
     mocks.upstashEval.mockResolvedValueOnce("ok");
-    await store.joinTeam("octocat", "red-team");
+    await store.joinTeam("octocat", "somecode");
     const [script, , args] = mocks.upstashEval.mock.calls[0];
     expect(store.TEAM_MAX_MEMBERS).toBe(4);
     expect(args).toContain(4);
@@ -106,21 +126,50 @@ describe("team size cap", () => {
   });
 });
 
-describe("join/create input handling", () => {
-  it("rejects joining a team that does not exist", async () => {
+describe("join by code", () => {
+  it("resolves the code to a team and joins it", async () => {
     const store = await loadStore(true);
-    mocks.upstashEval.mockResolvedValueOnce("not-found");
-    const result = await store.joinTeam("octocat", "ghost-team");
-    expect(result).toEqual({ ok: false, error: 'No team "ghost-team". Check the slug or create it' });
-  });
-
-  it("normalizes the slug before joining", async () => {
-    const store = await loadStore(true);
+    mockCodeLookup("red-team");
     mocks.upstashEval.mockResolvedValueOnce("ok");
-    const result = await store.joinTeam("octocat", "  Red Team!  ");
+    const result = await store.joinTeam("octocat", "somecode");
     expect(result).toEqual({ ok: true, team: "red-team" });
   });
 
+  it("normalizes the code's case before resolving it", async () => {
+    const store = await loadStore(true);
+    mockCodeLookup("red-team");
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.joinTeam("octocat", "  ABC123  ");
+    expect(result).toEqual({ ok: true, team: "red-team" });
+    expect(mocks.upstashPipeline.mock.calls[0][0]).toEqual([["GET", "ctf:joincode:abc123"]]);
+  });
+
+  it("rejects an unknown join code without touching the join script", async () => {
+    const store = await loadStore(true);
+    mockCodeLookup(null);
+    const result = await store.joinTeam("octocat", "ghostcode");
+    expect(result).toEqual({ ok: false, error: "Invalid or expired join code" });
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("requires a non-empty code", async () => {
+    const store = await loadStore(true);
+    const result = await store.joinTeam("octocat", "   ");
+    expect(result).toEqual({ ok: false, error: "Join code is required" });
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("maps a stale team (resolved but since removed) to a friendly error", async () => {
+    const store = await loadStore(true);
+    mockCodeLookup("ghost-team");
+    mocks.upstashEval.mockResolvedValueOnce("not-found");
+    const result = await store.joinTeam("octocat", "somecode");
+    expect(result).toEqual({ ok: false, error: "That team no longer exists" });
+  });
+});
+
+describe("create input handling", () => {
   it("requires a team name to create", async () => {
     const store = await loadStore(true);
     const result = await store.createTeam("octocat", "   ");
@@ -135,15 +184,27 @@ describe("join/create input handling", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
-  it("stores the display name and a slugified id", async () => {
+  it("stores the display name, a slugified id, and a generated join code", async () => {
     const store = await loadStore(true);
+    mockCodeCollisionCheck(false);
     mocks.upstashEval.mockResolvedValueOnce("ok");
     const result = await store.createTeam("octocat", "The A-Team!!!");
     expect(result).toEqual({ ok: true, team: "the-a-team" });
     const [, keys, args] = mocks.upstashEval.mock.calls[0];
     expect(keys[1]).toBe("ctf:team:the-a-team");
+    expect(keys[3]).toMatch(/^ctf:joincode:[a-z0-9]{6}$/);
     expect(args).toContain("The A-Team!!!");
     expect(args).toContain("the-a-team");
+    expect(args[4]).toMatch(/^[a-z0-9]{6}$/);
+  });
+
+  it("retries join code generation on a collision", async () => {
+    const store = await loadStore(true);
+    mockCodeCollisionCheck(true); // first candidate collides
+    mockCodeCollisionCheck(false); // second candidate is free
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.createTeam("octocat", "Red Team");
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -167,6 +228,26 @@ describe("leaveTeam", () => {
     const result = await store.leaveTeam("octocat");
     expect(result).toEqual({ ok: true, team: null });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("blocks the captain from leaving a populated team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
+    mocks.upstashEval.mockResolvedValueOnce("captain-must-transfer");
+    const result = await store.leaveTeam("captain");
+    expect(result).toEqual({ ok: false, error: "Transfer or disband before leaving" });
+  });
+
+  it("lets the old captain leave after transferring captaincy", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const transferResult = await store.transferCaptain("captain", "red-team", "member2");
+    expect(transferResult).toEqual({ ok: true, team: "red-team" });
+
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const leaveResult = await store.leaveTeam("captain");
+    expect(leaveResult).toEqual({ ok: true, team: null });
   });
 });
 
@@ -221,6 +302,157 @@ describe("listTeams", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["0", []] }]);
     expect(await store.listTeams()).toEqual([]);
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("captain guard", () => {
+  it("rejects removeMember from a non-captain", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("not-captain");
+    const result = await store.removeMember("intruder", "red-team", "victim");
+    expect(result).toEqual({ ok: false, error: "Only the team captain can do that" });
+  });
+
+  it("rejects renameTeam from a non-captain", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("not-captain");
+    const result = await store.renameTeam("intruder", "red-team", "New Name");
+    expect(result).toEqual({ ok: false, error: "Only the team captain can do that" });
+  });
+
+  it("rejects transferCaptain from a non-captain", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("not-captain");
+    const result = await store.transferCaptain("intruder", "red-team", "member2");
+    expect(result).toEqual({ ok: false, error: "Only the team captain can do that" });
+  });
+
+  it("rejects disbandTeam from a non-captain", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "abc123" }]);
+    mocks.upstashEval.mockResolvedValueOnce("not-captain");
+    const result = await store.disbandTeam("intruder", "red-team");
+    expect(result).toEqual({ ok: false, error: "Only the team captain can do that" });
+  });
+
+  it("rejects regenerateCode from a non-captain", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "old123" }]);
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("not-captain");
+    const result = await store.regenerateCode("intruder", "red-team");
+    expect(result).toEqual({ ok: false, error: "Only the team captain can do that" });
+  });
+});
+
+describe("captain roster actions", () => {
+  it("removes a member from the roster", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.removeMember("captain", "red-team", "member2");
+    expect(result).toEqual({ ok: true, team: "red-team" });
+    const [script, keys, args] = mocks.upstashEval.mock.calls[0];
+    expect(keys).toEqual(["ctf:team:red-team", "ctf:team:red-team:members", "ctf:user:member2"]);
+    expect(args).toEqual(["captain", "member2"]);
+    expect(script).toContain("SREM");
+  });
+
+  it("rejects removing the captain", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("cannot-remove-captain");
+    const result = await store.removeMember("captain", "red-team", "captain");
+    expect(result).toEqual({
+      ok: false,
+      error: "The captain can't remove themselves — transfer captaincy or disband instead",
+    });
+  });
+
+  it("rejects removing someone not on the team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("not-member");
+    const result = await store.removeMember("captain", "red-team", "ghost");
+    expect(result).toEqual({ ok: false, error: '"ghost" is not on this team' });
+  });
+
+  it("renames the team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.renameTeam("captain", "red-team", "Crimson Squad");
+    expect(result).toEqual({ ok: true, team: "red-team" });
+    const [, keys, args] = mocks.upstashEval.mock.calls[0];
+    expect(keys).toEqual(["ctf:team:red-team", "ctf:team:crimson-squad"]);
+    expect(args).toEqual(["captain", "Crimson Squad"]);
+  });
+
+  it("rejects a name collision with another team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("name-taken");
+    const result = await store.renameTeam("captain", "red-team", "Blue Team");
+    expect(result).toEqual({ ok: false, error: 'Team "blue-team" already exists. Choose another name' });
+  });
+
+  it("caps the new name length without calling Upstash", async () => {
+    const store = await loadStore(true);
+    const result = await store.renameTeam("captain", "red-team", "x".repeat(33));
+    expect(result.ok).toBe(false);
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("transfers captaincy to a current member", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.transferCaptain("captain", "red-team", "member2");
+    expect(result).toEqual({ ok: true, team: "red-team" });
+    const [, keys, args] = mocks.upstashEval.mock.calls[0];
+    expect(keys).toEqual(["ctf:team:red-team", "ctf:team:red-team:members"]);
+    expect(args).toEqual(["captain", "member2"]);
+  });
+
+  it("rejects transferring to someone not on the team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashEval.mockResolvedValueOnce("not-member");
+    const result = await store.transferCaptain("captain", "red-team", "ghost");
+    expect(result).toEqual({ ok: false, error: '"ghost" is not on this team' });
+  });
+
+  it("disbands the team and clears its join code", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "abc123" }]);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.disbandTeam("captain", "red-team");
+    expect(result).toEqual({ ok: true, team: null });
+    const [script, keys] = mocks.upstashEval.mock.calls[0];
+    expect(keys).toEqual(["ctf:team:red-team", "ctf:team:red-team:members", "ctf:joincode:abc123"]);
+    expect(script).toContain("SMEMBERS");
+  });
+
+  it("issues a new join code and clears the old one", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "old123" }]);
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.regenerateCode("captain", "red-team");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.team).toBe("red-team");
+      expect(result.code).toMatch(/^[a-z0-9]{6}$/);
+    }
+    const [, keys, args] = mocks.upstashEval.mock.calls[0];
+    expect(keys[0]).toBe("ctf:team:red-team");
+    expect(keys[2]).toBe("ctf:joincode:old123");
+    expect(args[0]).toBe("captain");
+  });
+
+  it("rejects every captain action when writes are disabled", async () => {
+    const store = await loadStore(false);
+    const denied = { ok: false, error: "Not available in demo mode" };
+    expect(await store.removeMember("captain", "red-team", "member2")).toEqual(denied);
+    expect(await store.renameTeam("captain", "red-team", "New Name")).toEqual(denied);
+    expect(await store.transferCaptain("captain", "red-team", "member2")).toEqual(denied);
+    expect(await store.disbandTeam("captain", "red-team")).toEqual(denied);
+    expect(await store.regenerateCode("captain", "red-team")).toEqual(denied);
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 });
 
