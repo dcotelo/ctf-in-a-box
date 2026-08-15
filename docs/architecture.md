@@ -74,7 +74,7 @@ state; everything else that touches scores goes through it.
 | `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the private rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:7-alpine`, `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
-| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with the organizer's `GITHUB_PAT`, validates them, and forwards trusted score payloads to `scorer`. |
+| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with the organizer's `GITHUB_PAT`, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag every tick and writes a heartbeat (see "Organizer admin panel" below). |
 
 ## Data flow for a score
 
@@ -121,6 +121,56 @@ state; everything else that touches scores goes through it.
    [docs/decisions.md #5](decisions.md#5-single-score-writer-monotonic-writes-at-least-once-delivery).
 8. `app` reads `GET ${LEADERBOARD_API_URL}/leaderboard` and renders the
    result on the contestant-facing leaderboard page.
+
+## Organizer admin panel (runtime overrides)
+
+`event.yaml`'s `admins` allowlist (checked case-insensitively against the
+signed-in GitHub login, `apps/web/src/lib/admin-auth.ts`'s `requireAdmin`)
+gates a small runtime-override layer that sits alongside the build-time
+config above — this one *is* readable/writable while the stack is running,
+without a rebuild:
+
+- **`ctf:admin:settings`** (Redis hash, `apps/web/src/lib/admin-store.ts`) —
+  `paused` (two-state: `"1"` or absent — absent means false), `hintsEnabled`
+  and `hintCost` (three-state: `"1"`/`"0"`/absent — absent means "no
+  override, use the build-time default"), plus `updatedBy`/`updatedAt`. Every
+  reader applies **override-else-default** precedence (`s.hintsEnabled ??
+  HINTS_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
+- **`ctf:admin:audit`** — a capped list (`AUDIT_CAP` = 500, `LPUSH`+`LTRIM`)
+  of every settings change, written atomically with the change itself (one
+  Lua script, so a change can never land without its audit line).
+- **`ctf:sync:status`** (Redis hash, written by `sync/src/redis.js`'s
+  `writeStatus()` every tick) — `lastPollAt`, `ingested`, `reposPolled`,
+  `paused`, `lastError`. This is `sync`'s heartbeat; the admin dashboard's
+  `GET /api/admin/status` reads it alongside `ctf:admin:settings` and a
+  best-effort leaderboard-freshness read.
+
+**Freeze = hold ingestion, not stop execution.** Setting `paused` does not
+touch fork Actions or GitHub — PRs keep getting judged and commented on;
+poll mode's cursor just holds in place. `sync/src/index.js`'s `tick()`
+checks `redis.isPaused()` first; while paused it skips the whole
+fetch/parse/submit loop (the per-repo cursor and ETag are untouched, so
+nothing is lost, just deferred) and still writes a `paused: true`
+heartbeat. Push mode's `scorer` checks the same key on every `POST /score`
+and returns `503` while paused (`scorer/src/serve.js`), so a contestant's
+Action gets a retryable failure instead of a silently dropped submission.
+Both sides **fail open** on a Redis error — a Redis blip must never freeze
+ingestion by accident (`sync/src/redis.js`'s `isPaused()` catches and
+returns `false`; `scorer/src/store.js` does the same).
+
+**Known limitation: the hint toggle is only live at the reveal boundary.**
+`resolveHintConfig()` (and therefore `revealHint`, which the `/api/hints`
+reveal route calls) resolves the admin override live, so flipping
+`hintsEnabled` mid-event immediately changes whether a hint **can be
+bought**. But `getViewerHints`, `getHintPenalties`, and
+`getHintAvailability` — which drive the challenges-page hint button, the
+hint-notice banner, and the read-time leaderboard penalty — all gate on
+the module-level `HINTS_ENABLED` constant, resolved once from the
+build-time env var, not the live override. An organizer toggling hints
+mid-event changes purchasability instantly; the UI's offer and the
+leaderboard's penalty display still reflect whatever `HINTS_ENABLED` was
+baked in at build time. This is a deliberate v1 cut, not an oversight —
+see [docs/decisions.md #19](decisions.md#19-organizer-admin-panel-runtime-override-layer).
 
 ## Build-time config flow
 
@@ -219,7 +269,7 @@ config change").
 | Unit (scorer) | `scorer/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Rubric loading/validation, probe grammar + evaluation, the judge's report format (the score-action regexes and the sync marker, pinned verbatim), serve auth/validation/monotonic-replay semantics, leaderboard aggregation, and both solve stores (memory, and Redis-via-SRH against a mocked endpoint) — in isolation, no network or Docker. |
 | Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation. |
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
-| Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, and an unauthenticated `POST /score` is rejected. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
+| Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
 

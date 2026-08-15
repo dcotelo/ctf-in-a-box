@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { HINT_COST, revealHint } from "@/lib/hint-store";
+import { resolveHintConfig, revealHint } from "@/lib/hint-store";
 
 /** Buys (or re-views) one hint. Charging is atomic and idempotent in Redis —
  *  repeat calls for an owned hint return it for free. Purchases are final;
@@ -21,10 +21,11 @@ export async function POST(request: Request) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.missing ? 404 : 400 });
   }
+  const { cost } = await resolveHintConfig();
   return NextResponse.json({
     hint: result.hint,
     alreadyOwned: result.alreadyOwned,
     spent: result.spent,
-    cost: HINT_COST,
+    cost,
   });
 }

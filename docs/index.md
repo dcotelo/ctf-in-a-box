@@ -66,6 +66,18 @@ venue wifi works without a firewall change.
 Full prerequisites, OAuth setup, and operational details live in the
 [README on GitHub](https://github.com/dcotelo/ctf-in-a-box#quickstart).
 
+## Organizer admin panel
+
+Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` for a
+live status view (poller heartbeat, last error, leaderboard freshness) and
+two runtime controls: a **freeze** switch that pauses ingestion — not fork
+Actions, so PRs keep getting judged, nothing is lost, only queued until you
+resume — and a hint on/off + cost override on top of the build-time
+default. Every change is recorded in a capped audit log. See the
+[README](https://github.com/dcotelo/ctf-in-a-box#organizer-admin-panel) for
+the full picture, including a known v1 limitation on the hint toggle's
+reach.
+
 ## Learn more
 
 - [Module contract](modules.md) — what a CTF vertical (target list,

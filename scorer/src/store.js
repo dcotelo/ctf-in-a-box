@@ -5,9 +5,13 @@
 
 export const solvesKey = (target) => `ctf:solves:${target}`;
 const solveField = (author, id) => `${author}:${id}`;
+// Same key/field the app (admin-store.ts) writes and the sync poller
+// (sync/src/redis.js) reads — "1" means paused, anything else does not.
+const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 
 export function createMemoryStore() {
   const hashes = new Map(); // key -> Map(field -> ISO timestamp)
+  let paused = false; // test seam mirroring ctf:admin:settings.paused
   return {
     async recordSolves(target, author, ids, at) {
       let hash = hashes.get(solvesKey(target));
@@ -19,6 +23,12 @@ export function createMemoryStore() {
     },
     async getSolves(target) {
       return Object.fromEntries(hashes.get(solvesKey(target)) ?? []);
+    },
+    async isPaused() {
+      return paused;
+    },
+    __setPaused(v) {
+      paused = v;
     },
   };
 }
@@ -63,6 +73,18 @@ export function createRedisStore({
         Object.assign(out, raw);
       }
       return out;
+    },
+    async isPaused() {
+      try {
+        const [v] = await pipeline([["HGET", ADMIN_SETTINGS_KEY, "paused"]]);
+        return v === "1";
+      } catch {
+        // Fail OPEN, not closed: this is a live-scoring endpoint, not an
+        // authz gate. A Redis blip must never silently drop real submissions
+        // just because the pause check itself couldn't be answered — the
+        // freeze is a deliberate organizer action, not the safe default.
+        return false;
+      }
     },
   };
 }

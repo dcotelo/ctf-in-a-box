@@ -154,6 +154,29 @@ test("ties break by earlier lastSolveAt, then author asc", async (t) => {
   );
 });
 
+test("POST /score returns 503 while the store reports paused", async (t) => {
+  const store = createMemoryStore();
+  store.__setPaused(true);
+  const server = await startServer({ rubric: RUBRIC, store, token: TOKEN, now: clock() });
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const res = await fetch(`${base}/score`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(solve("octocat", "dvwa", ["sqli-low"])),
+  });
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: "scoring is paused" });
+  const board = await (await fetch(`${base}/leaderboard`)).json();
+  assert.deepEqual(board, { leaderboard: [] }); // nothing was recorded
+});
+
+test("POST /score records normally when the store is not paused", async (t) => {
+  const { post, board } = await boot(t); // fresh memory store defaults to unpaused
+  assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]))).status, 202);
+  assert.equal((await board()).leaderboard.length, 1);
+});
+
 test("no-rubric degenerate mode: 1 point per solve, totals from distinct ids seen", async (t) => {
   const { post, board } = await boot(t, { rubric: null });
   assert.equal((await post(solve("octocat", "anything-goes", ["a", "b"]))).status, 202);

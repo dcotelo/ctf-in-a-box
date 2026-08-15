@@ -66,4 +66,48 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:4000/scor
   -H 'content-type: application/json' -d '{"author":"evil","target":"dvwa","solved":["x"]}')
 [ "$code" = "401" ]
 
+echo "--- organizer freeze holds ingestion (poll mode)"
+# The app isn't in this smoke profile (only redis/srh/scorer/mock-github/sync
+# are brought up), so there's no /api/admin/settings route to call here.
+# Set the pause flag straight on the same ctf:admin:settings hash the sync
+# poller reads (sync/src/redis.js isPaused()) — the write path differs from
+# the dashboard's, but the read path the poller exercises is identical, so
+# this genuinely proves the poll-mode freeze, not just a Redis fact.
+compose exec -T redis redis-cli HSET ctf:admin:settings paused 1 >/dev/null
+
+echo "--- sync heartbeat reports paused (waiting up to 15s)"
+pause_deadline=$((SECONDS + 15))
+until compose exec -T redis redis-cli HGET ctf:sync:status paused 2>/dev/null | grep -q '^1$'; do
+  [ "$SECONDS" -ge "$pause_deadline" ] && { echo "FAIL: sync never reported paused"; compose logs sync; exit 1; }
+  sleep 1
+done
+
+# Queue a fresh score comment behind the flag: mock-github serves it only
+# once this marker file exists (test/fixtures/mock-github.mjs), simulating a
+# contributor's PR getting scored while the organizer is holding ingestion.
+compose exec -T mock-github touch /tmp/extra-comment >/dev/null
+
+echo "--- paused poller does not ingest the queued score (holding 5s)"
+sleep 5
+board=$(curl -sf http://localhost:4000/leaderboard)
+if echo "$board" | grep -q '"author":"trinity"'; then
+  echo "FAIL: trinity was scored while paused"; exit 1
+fi
+compose exec -T redis redis-cli HGET ctf:sync:status paused 2>/dev/null | grep -q '^1$' \
+  || { echo "FAIL: ctf:sync:status paused was not 1 after the hold"; exit 1; }
+
+echo "--- clearing the freeze resumes ingestion"
+compose exec -T redis redis-cli HDEL ctf:admin:settings paused >/dev/null
+
+echo "--- queued score is ingested once unpaused (waiting up to 15s)"
+resume_deadline=$((SECONDS + 15))
+until curl -sf http://localhost:4000/leaderboard | grep -q '"trinity"'; do
+  [ "$SECONDS" -ge "$resume_deadline" ] && { echo "FAIL: trinity never appeared after unpausing"; compose logs sync; exit 1; }
+  sleep 1
+done
+curl -sf http://localhost:4000/leaderboard | grep -q '"author":"trinity","points":1' \
+  || { echo "FAIL: trinity's score did not match the queued fixture"; exit 1; }
+compose exec -T redis redis-cli HGET ctf:sync:status paused 2>/dev/null | grep -q '^0$' \
+  || { echo "FAIL: ctf:sync:status paused was not 0 after resuming"; exit 1; }
+
 echo "SMOKE PASS"

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getViewerHints, HINT_COST, HINTS_ENABLED } from "@/lib/hint-store";
+import { getViewerHints, resolveHintConfig } from "@/lib/hint-store";
 
 /** The signed-in viewer's full hint state (all apps) — lets the challenges
  *  page pre-reveal everything already bought with a single fetch. */
@@ -12,9 +12,10 @@ export async function GET(request: Request) {
   if (!login) return NextResponse.json({ error: "session has no GitHub login" }, { status: 400 });
 
   const hints = await getViewerHints(login);
+  const { enabled, cost } = await resolveHintConfig();
   return NextResponse.json({
-    enabled: HINTS_ENABLED,
-    cost: HINT_COST,
+    enabled,
+    cost,
     purchased: hints.purchased,
     spent: hints.spent,
     count: hints.count,

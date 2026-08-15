@@ -27,6 +27,10 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
 
   async function score(req, res) {
     if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
+    // Organizer freeze (Task 6 holds the poll-mode cursor; this is push mode's
+    // half): fails open on a store error, so a Redis blip never drops a live
+    // submission — see store.js's isPaused for both implementations.
+    if (await store.isPaused()) return json(res, 503, { error: "scoring is paused" });
     let body = "";
     let bytes = 0;
     for await (const chunk of req) {
