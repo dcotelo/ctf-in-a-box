@@ -255,3 +255,10 @@ EOF
     grep -qE "^${var}=.{20,}" .env.secrets.test
   done
 }
+
+@test "static artifacts exist with the right shape" {
+  [ -f "$BATS_TEST_DIRNAME/../PULL_REQUEST_TEMPLATE.md" ]
+  grep -q "SCORED, not merged" "$BATS_TEST_DIRNAME/../PULL_REQUEST_TEMPLATE.md"
+  [ -f "$BATS_TEST_DIRNAME/../vulnerableapp.Dockerfile" ]
+  grep -q "EXPOSE 9090" "$BATS_TEST_DIRNAME/../vulnerableapp.Dockerfile"
+}
