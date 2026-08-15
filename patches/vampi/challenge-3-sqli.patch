@@ -1,0 +1,21 @@
+diff --git a/models/user_model.py b/models/user_model.py
+index 4414038..2a4c59a 100644
+--- a/models/user_model.py
++++ b/models/user_model.py
+@@ -68,9 +68,13 @@ class User(db.Model):
+
+     @staticmethod
+     def get_user(username):
+-        if vuln:  # SQLi Injection
+-            user_query = f"SELECT * FROM users WHERE username = '{username}'"
+-            query = db.session.execute(text(user_query))
++        if vuln:  # SQLi Injection (patched: query is parameterized)
++            # The username is bound as a parameter rather than interpolated into the
++            # SQL string, so an injected payload such as `x' OR '1'='1` is treated as a
++            # literal username (matching no row) instead of altering the query. Real
++            # usernames still resolve normally, so the endpoint keeps serving.
++            user_query = text("SELECT * FROM users WHERE username = :username")
++            query = db.session.execute(user_query, {"username": username})
+             ret = query.fetchone()
+             if ret:
+                 fin_query = '{"username": "%s", "email": "%s"}' % (ret[1], ret[3])
