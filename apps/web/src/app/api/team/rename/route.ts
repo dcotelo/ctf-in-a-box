@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { joinTeam } from "@/lib/team-store";
+import { renameTeam } from "@/lib/team-store";
+
+function statusForError(error: string): number {
+  if (error.toLowerCase().includes("captain")) return 403;
+  if (error.toLowerCase().includes("demo mode")) return 409;
+  return 400;
+}
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -10,10 +16,10 @@ export async function POST(request: Request) {
   if (!login) return NextResponse.json({ error: "session has no GitHub login" }, { status: 400 });
 
   const body = await request.json().catch(() => ({}));
-  const code = typeof body.code === "string" ? body.code : "";
-  if (!code) return NextResponse.json({ error: "Join code is required" }, { status: 400 });
+  const slug = typeof body.slug === "string" ? body.slug : "";
+  const name = typeof body.name === "string" ? body.name : "";
 
-  const result = await joinTeam(login, code);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  const result = await renameTeam(login, slug, name);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: statusForError(result.error) });
   return NextResponse.json({ team: result.team });
 }
