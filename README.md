@@ -116,8 +116,10 @@ org --dry-run` previews the whole of step 3 without touching anything.
 `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` for you to fill in. It refuses to
 overwrite an existing `.env`. The GitHub App id and base64-encoded private key
 are read at runtime by the `sync` service for poll-mode comment polling, not
-by the setup script; create the App from `sync/app-manifest.json` and install
-it on the event org.
+by the setup script. Create your own App from `sync/app-manifest.json` and
+install it on the event org — `ctf-setup.sh app-manifest` opens a pre-filled
+creation form, and `ctf-setup.sh app-config --app-id <id> --pem <path>` wires
+the downloaded key into `.env`. See [docs/hosting.md](docs/hosting.md#poll-auth-github-app).
 
 `org` authenticates with your existing `gh auth login` session and your local
 `docker login ghcr.io`. It forks each target into the org (the targets are
