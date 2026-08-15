@@ -36,6 +36,7 @@ export function makeAppAuth({ appId, privateKey, installationId, apiUrl = "https
     if (instId == null) {
       const list = await ghJson(`${apiUrl}/app/installations`, { fetchImpl, jwt, method: "GET" }, "listing app installations");
       if (!Array.isArray(list) || list.length === 0) throw new Error("GitHub App has no installations");
+      // First-wins: set GITHUB_APP_INSTALLATION_ID to disambiguate multi-org installs.
       instId = list[0].id;
     }
     const body = await ghJson(`${apiUrl}/app/installations/${instId}/access_tokens`, { fetchImpl, jwt, method: "POST" }, "minting installation token");
