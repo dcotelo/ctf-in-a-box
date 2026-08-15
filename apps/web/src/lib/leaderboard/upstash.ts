@@ -61,6 +61,9 @@ export const upstashSource: LeaderboardSource = {
       teams: [],
       generatedAt: new Date().toISOString(),
       capabilities: { apps: false, teams: false, challenges: false },
+      // No cumulative-score history in this schema — the ZSET only ever
+      // holds each player's current total, not point-in-time readings. The
+      // leaderboard chart component treats `series: undefined` as "hide".
     };
   },
 

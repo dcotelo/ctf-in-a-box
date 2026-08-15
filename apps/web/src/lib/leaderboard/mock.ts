@@ -1,17 +1,86 @@
 import "server-only";
 import type { LeaderboardSource } from "./source";
-import type { LeaderboardData, UserProfile } from "./types";
+import type { LeaderboardData, LeaderboardEntry, PlayerSeries, UserProfile } from "./types";
 import { buildMockEntries, buildMockTeams, findMockSample } from "./mock-data";
+
+/** Small deterministic string hash — used only to vary each mock player's
+ *  "solving history" (step count, stagger, curve shape) without adding a
+ *  random-number dependency or making the fixture flaky between renders. */
+function seedFrom(login: string): number {
+  let h = 0;
+  for (let i = 0; i < login.length; i++) h = (h * 31 + login.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/** Splits `finalScore` into 1..desiredSteps positive integer increments that
+ *  sum to exactly `finalScore`, with varied sizes (so lines have visibly
+ *  different slopes, not a uniform ramp). Never returns more steps than the
+ *  score has points to spread across, and never a non-positive increment. */
+function buildIncrements(finalScore: number, desiredSteps: number, seed: number): number[] {
+  const steps = Math.max(1, Math.min(desiredSteps, finalScore));
+  if (steps === 1) return [finalScore];
+  const weights = Array.from({ length: steps }, (_, i) => 1 + ((seed >> (i * 3)) % 5));
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  const increments = weights.map((w) => Math.max(1, Math.round((w / weightSum) * finalScore)));
+  let diff = finalScore - increments.reduce((a, b) => a + b, 0);
+  let guard = 0;
+  while (diff !== 0 && guard < steps * Math.max(1, Math.abs(diff)) + steps * 4) {
+    const idx = guard % steps;
+    if (diff > 0) {
+      increments[idx] += 1;
+      diff -= 1;
+    } else if (increments[idx] > 1) {
+      increments[idx] -= 1;
+      diff += 1;
+    }
+    guard++;
+  }
+  return increments;
+}
+
+/** Synthesizes a plausible cumulative-score history for the board's top
+ *  scorers — staggered start times and different "slopes" per player, ending
+ *  exactly at that player's current mock score — so the leaderboard line
+ *  chart has something realistic to draw in the fixture/demo/dev-stack. */
+function synthesizeSeries(entries: LeaderboardEntry[], generatedAt: string): PlayerSeries[] {
+  const endMs = Date.parse(generatedAt);
+  return entries
+    .filter((e) => e.points > 0)
+    .slice(0, 10)
+    .map((entry): PlayerSeries => {
+      const seed = seedFrom(entry.login);
+      const entryEndMs = entry.updatedAt ? Date.parse(entry.updatedAt) : endMs;
+      const steps = 3 + (seed % 4); // 3..6 desired points
+      const increments = buildIncrements(entry.points, steps, seed);
+      // Stagger each player's start time (4-9 hours of "history") and shape
+      // the pacing (linear vs. an eased curve) so lines don't all begin at
+      // once or run in lockstep.
+      const spanMs = (4 + (seed % 6)) * 60 * 60 * 1000;
+      const startMs = entryEndMs - spanMs;
+      const eased = seed % 2 === 1;
+      let cumulative = 0;
+      const points = increments.map((inc, i) => {
+        cumulative += inc;
+        const frac = (i + 1) / increments.length;
+        const shaped = eased ? Math.pow(frac, 1.6) : frac;
+        const t = new Date(startMs + shaped * spanMs).toISOString();
+        return { t, score: cumulative };
+      });
+      return { login: entry.login, points };
+    });
+}
 
 export const mockSource: LeaderboardSource = {
   async getLeaderboard(): Promise<LeaderboardData> {
     const entries = buildMockEntries();
     const teams = buildMockTeams(entries);
+    const generatedAt = new Date().toISOString();
     return {
       entries,
       teams,
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       capabilities: { apps: true, teams: true, challenges: true },
+      series: synthesizeSeries(entries, generatedAt),
     };
   },
 

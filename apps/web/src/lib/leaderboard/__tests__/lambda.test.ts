@@ -83,3 +83,60 @@ describe("lambdaSource.getLeaderboard", () => {
     expect(data.entries[0]).toMatchObject({ login: "old", lastSolveAt: null, updatedAt: null, rank: 1 });
   });
 });
+
+describe("lambdaSource.getLeaderboard series", () => {
+  it("maps the Lambda's series field through onto LeaderboardData.series", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({
+      ...RESPONSE,
+      series: [
+        {
+          login: "dcotelo",
+          points: [
+            { t: "2026-07-08T10:00:00.000Z", score: 100 },
+            { t: "2026-07-08T19:25:23.830Z", score: 672 },
+          ],
+        },
+      ],
+    });
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.series).toEqual([
+      {
+        login: "dcotelo",
+        points: [
+          { t: "2026-07-08T10:00:00.000Z", score: 100 },
+          { t: "2026-07-08T19:25:23.830Z", score: 672 },
+        ],
+      },
+    ]);
+  });
+
+  it("tolerates an older scorer that sends no series field at all", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(RESPONSE); // no `series` key
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.series).toBeUndefined();
+  });
+
+  it("tolerates an empty series array (declarative-only deployment)", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({ ...RESPONSE, series: [] });
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.series).toBeUndefined();
+  });
+
+  it("drops malformed players/points instead of throwing", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({
+      ...RESPONSE,
+      series: [
+        { login: "ok", points: [{ t: "2026-07-08T10:00:00.000Z", score: 5 }, { t: 123, score: "nope" }] },
+        { login: 42, points: [{ t: "2026-07-08T10:00:00.000Z", score: 5 }] },
+        { login: "empty-after-filter", points: [{ t: 1, score: 2 }] },
+        "not an object",
+      ],
+    });
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.series).toEqual([{ login: "ok", points: [{ t: "2026-07-08T10:00:00.000Z", score: 5 }] }]);
+  });
+});

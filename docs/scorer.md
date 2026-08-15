@@ -103,6 +103,18 @@ but verifying that **your** rubric scores a true stock target at zero is
 the rubric author's §6.4 obligation before the event — the stock targets
 are heavyweight and the kit cannot boot them generically.
 
+The golden rule has a positive counterpart: a fix must still **earn its
+points**. `scripts/acceptance-target.sh` gates the negative direction (a stock
+app scores `0 / N`); `scripts/acceptance-patched.sh <target> <challenge-id>`
+gates the positive one — it stages the pinned upstream source, applies a
+**reference patch** from `patches/<target>/`, builds the fork, and asserts that
+*exactly* the patched challenge is solved for its catalogue-difficulty points
+while the other `N-1` still fail. Both gates share their staging/build/judge
+machinery via `scripts/lib/acceptance-lib.sh`. VAmPI is the first target with
+reference patches (2 of 9 challenges, proving the mechanism, not full coverage);
+see [patches/vampi/README.md](../patches/vampi/README.md) for the convention and
+the anti-vacuous discipline that keeps a broken-app "pass" from counting.
+
 `scorer/rubric.example/` is the living documentation: `juice-shop.yaml`
 is commented as a tutorial and its README covers the authoring workflow.
 It is no longer what a default build bakes (that's the vendored

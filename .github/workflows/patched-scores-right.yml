@@ -1,0 +1,45 @@
+name: patched-scores-right
+
+# The POSITIVE direction of scoring verification, the mirror of stock-scores-zero.
+# stock-scores-zero proves an unpatched app scores 0/N (no free points). This
+# proves a CORRECTLY patched fork scores EXACTLY the challenge it fixed — its
+# points equal the catalogue difficulty and every other challenge still fails.
+# Nothing else in the kit proves a real fix still earns its points, so a scorer
+# that silently stopped awarding them would pass every other gate.
+#
+# Each matrix row stages the pinned upstream VAmPI source, applies one reference
+# patch from patches/vampi/, builds the fork from its own Dockerfile, and asserts
+# the positive result. Two rows on purpose: they patch DIFFERENT challenges in
+# DIFFERENT files, so between them they prove the assertion discriminates
+# (patching challenge-3 scores challenge-3 and NOT challenge-1, and vice versa).
+on:
+  pull_request:
+    paths:
+      - 'scorer/**'
+      - 'scripts/acceptance-patched.sh'
+      - 'scripts/lib/acceptance-lib.sh'
+      - 'patches/**'
+      - '.github/workflows/patched-scores-right.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patched:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Keep both rows running even if one fails: a discrimination regression
+      # shows up as one row passing and the other failing, which fail-fast would
+      # hide by cancelling the survivor.
+      fail-fast: false
+      matrix:
+        include:
+          - challenge: challenge-3-sqli
+          - challenge: challenge-1-excessive-data-exposure
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patched fork must score exactly ${{ matrix.challenge }}
+        run: ./scripts/acceptance-patched.sh vampi "${{ matrix.challenge }}"
