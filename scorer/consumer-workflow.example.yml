@@ -5,7 +5,8 @@
 # (matches the instructions printed by `setup/ctf-setup.sh org`). Then disable
 # inherited/upstream workflows in the fork's Settings > Actions.
 #
-# FILL IN the three placeholders below (marked <...>). They are the only edits.
+# FILL IN the placeholders below (marked <...>). `ctf-setup.sh render` fills them
+# all in for you; this is only the reference for a hand edit.
 #
 # WHY pull_request_target: the contestant's PR comes from a fork, so a plain
 # `pull_request` run would have a read-only token and could not post the score
@@ -28,6 +29,8 @@
 #                baked rubric, e.g. juice-shop)
 #   <APP_URL>    where the app under test answers ON the ctf network, e.g.
 #                http://<TARGET>:3000 (no host ports are published)
+#   <LEADERBOARD_LINK>  event.url + /leaderboard — the score comment links here.
+#                Leave empty/unfilled to omit the leaderboard link.
 #
 # KNOB (not a placeholder): COOLDOWN_MINUTES in the job env below — minimum
 # minutes between scored runs on one PR (default 5, see the cooldown step).
@@ -58,6 +61,9 @@ jobs:
       EVENT_ORG: <EVENT_ORG>
       TARGET: <TARGET>
       APP_URL: <APP_URL>
+      # Rendered from event.url by ctf-setup.sh; the score comment links here.
+      # Empty (or left as the placeholder) simply omits the leaderboard link.
+      LEADERBOARD_LINK: <LEADERBOARD_LINK>
       NETWORK: ctfnet
       COOLDOWN_MINUTES: "5"
     steps:
@@ -197,6 +203,10 @@ jobs:
             const path = `${process.env.GITHUB_WORKSPACE}/ctf-score.md`;
             let report = '';
             try { report = fs.readFileSync(path, 'utf8'); } catch {}
+            // Leaderboard link footer — only when the organizer's URL was rendered
+            // in (a real http(s) URL, not the unfilled placeholder).
+            const lb = (process.env.LEADERBOARD_LINK || '').trim();
+            const footer = /^https?:\/\//.test(lb) ? `\n\n📊 [View the leaderboard](${lb})` : '';
             let body;
             if (report && report.trim()) {
               body = `${marker}\n${report}`;
@@ -204,6 +214,7 @@ jobs:
               const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
               body = `${marker}\n## 🏆 CTF Patch Score\n\n❌ Scoring did not complete. See the [run log](${runUrl}).`;
             }
+            body += footer;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

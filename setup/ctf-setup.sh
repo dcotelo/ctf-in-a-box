@@ -89,6 +89,11 @@ yaml_org() {
   echo "$org"
 }
 
+yaml_url() {
+  # event.url — the box URL contestants reach. The only `url:` key in event.yaml.
+  sed -n 's/^[[:space:]]*url:[[:space:]]*\([^#]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//'
+}
+
 yaml_targets() {
   # Extract targets from modules.secure-development block only (awk range from
   # secure-development: to next line at equal-or-lower indent), then parse flow-style list.
@@ -103,10 +108,11 @@ run() {
 # Substitute the three placeholders documented at the top of the workflow
 # template. Rendered locally from this repo's own template — no upstream fetch.
 render_workflow() {
-  local org="$1" target="$2" app_url="$3"
+  local org="$1" target="$2" app_url="$3" leaderboard_url="$4"
   sed -e "s|<EVENT_ORG>|${org}|g" \
       -e "s|<TARGET>|${target}|g" \
       -e "s|<APP_URL>|${app_url}|g" \
+      -e "s|<LEADERBOARD_LINK>|${leaderboard_url}|g" \
     "$WORKFLOW_TEMPLATE"
 }
 
@@ -115,15 +121,22 @@ render_workflow() {
 render_workflows() {
   local org="$1"; shift
   [ -f "$WORKFLOW_TEMPLATE" ] || { echo "workflow template missing: $WORKFLOW_TEMPLATE" >&2; exit 1; }
+  # Leaderboard URL for the score-comment footer, derived once from event.url
+  # (trailing slash stripped). Empty when event.url is unset — the workflow
+  # only renders the footer link when the value is a real http(s) URL.
+  local base_url lb_url=""
+  base_url="$(yaml_url)"
+  base_url="${base_url%/}"
+  case "$base_url" in http://*|https://*) lb_url="$base_url/leaderboard" ;; esac
   local wfdir="dist/workflows" t app_url dest
   for t in "$@"; do
     app_url="$(app_url_for "$t")" || exit 1
     dest="$wfdir/$t.ctf-score.yml"
     if [ "$DRY_RUN" -eq 1 ]; then
-      echo "DRY-RUN: render template (EVENT_ORG=$org TARGET=$t APP_URL=$app_url) -> $dest"
+      echo "DRY-RUN: render template (EVENT_ORG=$org TARGET=$t APP_URL=$app_url LEADERBOARD_LINK=${lb_url:-<none>}) -> $dest"
     else
       mkdir -p "$wfdir"
-      render_workflow "$org" "$t" "$app_url" > "$dest"
+      render_workflow "$org" "$t" "$app_url" "$lb_url" > "$dest"
       echo "   wrote $dest"
     fi
   done
