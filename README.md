@@ -90,43 +90,62 @@ event name, targets, and links are all event-config driven.</sup>
 
 ## Quickstart
 
-Four steps. `check` and `secrets` run before `event.yaml` exists — they only
-touch your local tools and `.env`.
+Zero to a running, scored event. The full walkthrough — with every UI-only
+step and troubleshooting — lives in
+[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event); this is
+the short path.
 
 ```sh
-# 1. verify tooling, then generate .env with fresh secrets
+# 1. verify tooling (gh auth, docker, compose, openssl), then generate .env
 ./setup/ctf-setup.sh check
 ./setup/ctf-setup.sh secrets
 
-# 2. describe the event: org, targets, admins, url
-cp event.yaml.example event.yaml
+# 2. build + push your scorer image, then set SCORE_IMAGE in .env
+#    (on Apple Silicon add --platform linux/amd64 — CI runners are amd64)
+docker build -t ghcr.io/<your-org>/score:latest scorer/     # then edit SCORE_IMAGE= in .env
 
-# 3. fork the targets, render the scoring workflows, mirror the scorer image
+# 3. describe the event: github.org, targets, admins, event.url
+cp event.yaml.example event.yaml                            # then edit it
+
+# 4. create the disposable GitHub org (UI-only), then the two apps:
+#    - sync GitHub App (poll auth): opens a pre-filled creation form
+./setup/ctf-setup.sh app-manifest
+./setup/ctf-setup.sh app-config --app-id <id> --pem <path-to-downloaded.pem>
+#    - sign-in OAuth app (contestants + admins): opens the page, prints fields
+./setup/ctf-setup.sh oauth-app
+./setup/ctf-setup.sh oauth-config --client-id <client id>   # secret via hidden prompt
+
+# 5. provision the org: forks targets, creates + protects the `ctf` branch,
+#    commits ctf-score.yml to each fork, disables inherited workflows, mirrors
+#    the scorer image. Preview with --dry-run first; verify after with `doctor`.
 ./setup/ctf-setup.sh org
+./setup/ctf-setup.sh doctor
 
-# 4. bring up the stack
-docker compose --profile poll --profile app up -d
+# 6. bring up the box — the app image BAKES event.yaml at build time, so pass
+#    EVENT_CONFIG_B64 or you get neutral defaults (empty admins → /admin 403).
+EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
+  docker compose --profile poll --profile app up -d --build app
 ```
 
 Every subcommand takes flags *after* the subcommand name — `./setup/ctf-setup.sh
-org --dry-run` previews the whole of step 3 without touching anything.
+org --dry-run` previews the whole of step 5 without touching anything.
 
 `secrets` writes `.env` with a generated `BETTER_AUTH_SECRET`, `SRH_TOKEN` and
-`SCORER_TOKEN`, plus empty `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` /
-`GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` for you to fill in. It refuses to
-overwrite an existing `.env`. The GitHub App id and base64-encoded private key
-are read at runtime by the `sync` service for poll-mode comment polling, not
-by the setup script. Create your own App from `sync/app-manifest.json` and
-install it on the event org — `ctf-setup.sh app-manifest` opens a pre-filled
-creation form, and `ctf-setup.sh app-config --app-id <id> --pem <path>` wires
-the downloaded key into `.env`. See [docs/hosting.md](docs/hosting.md#poll-auth-github-app).
+`SCORER_TOKEN`, plus empty `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` (sign-in
+OAuth app) and `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` (sync GitHub App) for
+you to fill in via the helpers above. It refuses to overwrite an existing
+`.env`. The two apps are distinct: the **GitHub App** gives `sync` an
+org-scoped installation token to poll score comments; the **OAuth app** is what
+contestants and admins sign in with. See
+[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event) for both.
 
 `org` authenticates with your existing `gh auth login` session and your local
 `docker login ghcr.io`. It forks each target into the org (the targets are
-public OSS — the only upstream repos touched), renders the scoring workflow per
-target from `scorer/consumer-workflow.example.yml` into `dist/workflows/` and
-tells you where to install each file, and mirrors the scorer image into your
-org's GHCR.
+public OSS — the only upstream repos touched), **commits** the rendered
+scoring workflow (`.github/workflows/ctf-score.yml`) to each fork's `ctf`
+branch, disables the forks' inherited workflows, and mirrors the scorer image
+into your org's GHCR. (The separate `render` subcommand writes the workflows to
+`dist/workflows/` for offline inspection instead of committing them.)
 
 ## The Secure Development module: targets and rubrics
 

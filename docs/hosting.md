@@ -10,10 +10,86 @@ reaches the app. For the happy-path command sequence see the
 [README Quickstart](https://github.com/dcotelo/ctf-in-a-box#quickstart); for
 running the event once it is up see [docs/operations.md](operations.md).
 
+## Quickstart: zero to a scored event
+
+The canonical happy-path sequence. Each step is either a `ctf-setup.sh`
+command or a **UI-only** step GitHub forces you through by hand (marked
+below); `ctf-setup.sh` never mints credentials or creates orgs for you.
+
+```sh
+# 0. Verify tooling: gh auth, docker, docker compose v2, openssl.
+./setup/ctf-setup.sh check
+
+# 1. Clone the repo and work from its root.
+git clone https://github.com/dcotelo/ctf-in-a-box && cd ctf-in-a-box
+
+# 2. Generate .env — BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN, EVENT_URL,
+#    SCORE_INGEST=poll, and empty App/OAuth/SCORE_IMAGE fields to fill later.
+./setup/ctf-setup.sh secrets
+
+# 3. Build + push the scorer image, then set SCORE_IMAGE in .env by hand.
+#    On Apple Silicon add `--platform linux/amd64` (runners are amd64).
+docker build -t ghcr.io/<your-org>/score:latest scorer/
+#    MANUAL: edit SCORE_IMAGE=ghcr.io/<your-org>/score:latest in .env, then
+#    docker push ghcr.io/<your-org>/score:latest
+
+# 4. Create your event config from the example, then edit it.
+cp event.yaml.example event.yaml
+#    MANUAL edit: github.org, modules.secure-development.targets,
+#    admins=[your login], event.url.
+
+# 5. Create the disposable GitHub org — UI-ONLY, ctf-setup never creates it:
+#    https://github.com/account/organizations/new
+```
+
+```sh
+# 6. Sync GitHub App (poll auth). Opens a pre-filled creation form:
+./setup/ctf-setup.sh app-manifest
+#    UI-ONLY: Create App → Generate a private key (.pem) → note the App ID →
+#    Install App on the event org. Then wire the key + App ID into .env:
+./setup/ctf-setup.sh app-config --app-id <id> --pem ~/Downloads/<app>.private-key.pem
+#    Add --installation-id <n> to pin the install; otherwise sync
+#    auto-discovers it at runtime.
+
+# 7. Sign-in OAuth app (separate from the App above). Opens the page and
+#    prints the exact field values:
+./setup/ctf-setup.sh oauth-app
+#    UI-ONLY: fill the fields with callback <EVENT_URL>/api/auth/callback/github
+#    → Register → Generate a client secret → copy Client ID + secret. Then:
+./setup/ctf-setup.sh oauth-config --client-id <client id>
+#    The secret is read from a hidden prompt — never on the command line.
+
+# 8. Provision the event org. Dry-run first, then for real:
+./setup/ctf-setup.sh org --dry-run
+./setup/ctf-setup.sh org
+#    org forks the targets, creates + protects the `ctf` branch, COMMITS
+#    ctf-score.yml to each fork, disables inherited workflows, and mirrors
+#    SCORE_IMAGE into the org's GHCR. Finish the UI-ONLY steps it prints:
+#      (a) detach each fork from its fork network (Settings → Leave fork
+#          network);
+#      (b) keep ghcr.io/<org>/score PRIVATE and grant each fork Read under the
+#          package's Manage Actions access;
+#      (c) push mode only: org Actions secrets LEADERBOARD_URL / LEADERBOARD_TOKEN.
+#    Then verify provisioning:
+./setup/ctf-setup.sh doctor
+```
+
+```sh
+# 9. Bring up the box. EVENT_CONFIG_B64 is REQUIRED — building the app without
+#    it yields neutral defaults (empty admins → /admin 403, generic branding).
+EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
+  docker compose --profile poll --profile app up -d --build app
+
+# 10. Verify: watch the poller heartbeat, open the app, sign in, hit /admin.
+docker compose logs -f sync
+#     Open $EVENT_URL, sign in with GitHub, confirm /admin loads for an admin login.
+```
+
 ## Prerequisites
 
 - Docker with Compose v2 (`docker compose version` must work).
 - [`gh` CLI](https://cli.github.com), authenticated (`gh auth login`).
+- `openssl` — `ctf-setup.sh check` requires it (used for secret generation).
 - A GitHub org for the event — one free org per event.
 - `docker login ghcr.io` with a `write:packages` token. The `org` subcommand
   ends with `docker push ghcr.io/<org>/score:latest`, so it needs write access
@@ -55,9 +131,11 @@ build that [`stock-scores-zero`](operations.md#verifying-it-works) proves scores
 | `dvwa` | `digininja/DVWA` | commit `d45ba3c` | `ghcr.io/digininja/dvwa@sha256:091498ce…` |
 | `vampi` | `erev0s/VAmPI` | commit `f16052d` | `erev0s/vampi@sha256:0a5a224b…` |
 
-`ctf-setup.sh org` forks each target into your event org, renders a scoring
-workflow per target into `dist/workflows/`, and mirrors your `SCORE_IMAGE` into
-the org's GHCR. It automates the whole per-fork setup, is idempotent (safe to
+`ctf-setup.sh org` forks each target into your event org, commits the scoring
+workflow (`.github/workflows/ctf-score.yml`) to each fork's `ctf` branch, and
+mirrors your `SCORE_IMAGE` into the org's GHCR. (The separate `render`
+subcommand writes the workflows to `dist/workflows/` for offline inspection
+without committing.) It automates the whole per-fork setup, is idempotent (safe to
 re-run — each step is skipped once already satisfied), and leaves only three
 GitHub-UI-only steps for you to finish by hand. Run `ctf-setup.sh doctor`
 afterward to verify each fork's provisioning and flag the manual UI-only
@@ -187,6 +265,13 @@ reads them at runtime. `EVENT_URL` is the value in `.env` — that is what Caddy
 and the app's auth flow use (`event.yaml`'s `event.url` is a separate, unsynced
 field). You can also set both by hand instead of using the helpers, and you may
 register the OAuth app on your personal account rather than the org.
+
+> **Use HTTPS for any real event.** Set `EVENT_URL` to `https://<your-domain>`
+> (not `http://`) for anything beyond local testing. Caddy auto-provisions TLS
+> for a real domain, and the sign-in session cookie is only marked `Secure`
+> when the URL is HTTPS — over plain `http://` the session cookie can be sniffed
+> on the wire, which for an organizer login means admin takeover. `http://localhost`
+> is fine for a local trial only.
 
 ## Configuration
 

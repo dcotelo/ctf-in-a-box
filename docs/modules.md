@@ -225,10 +225,10 @@ one worked example.
    sandboxed container on an internal Docker network with no access to
    that token — the isolation pattern the kit's own consumer workflow
    template (`scorer/consumer-workflow.example.yml`) implements, the same
-   workflow `setup/ctf-setup.sh`'s `cmd_org` renders per target into
-   `dist/workflows/` and prints manual install steps for into each forked
-   target repo (§7.2 — installation itself is a manual
-   step, not automated by `cmd_org`). A module MUST
+   workflow `setup/ctf-setup.sh`'s `cmd_org` renders per target and commits
+   into each forked target repo automatically (§7.2; the `render`
+   subcommand's `dist/workflows/` output is the offline/manual alternative).
+   A module MUST
    reproduce this isolation for its own scoring workflow, not just inherit
    it by accident.
 
@@ -268,15 +268,14 @@ one worked example.
 
 1. **Fork** each configured target from `OWASP-CTF/<repo>` into the event
    org (`gh repo fork "OWASP-CTF/$r" --org "$org"`).
-2. **Render + print install steps** for the scoring workflow: `cmd_org`
-   renders the in-repo template (`scorer/consumer-workflow.example.yml`)
-   per target — substituting the event org, the target id, and a default
-   `APP_URL` — into `dist/workflows/<target>.ctf-score.yml` (no upstream
-   access; also available standalone as the `render` subcommand) and
-   prints where the organizer must commit each file — as
-   `.github/workflows/ctf-score.yml` in the matching forked repo, with
-   inherited workflows disabled in repo Settings — but does not commit
-   it itself; that step is manual.
+2. **Render + commit** the scoring workflow: `cmd_org` renders the in-repo
+   template (`scorer/consumer-workflow.example.yml`) per target —
+   substituting the event org, the target id, and a default `APP_URL` — and
+   commits it as `.github/workflows/ctf-score.yml` on each forked repo's
+   `ctf` branch, then disables the fork's inherited workflows. No manual
+   install step. The standalone `render` subcommand writes the same files to
+   `dist/workflows/<target>.ctf-score.yml` for offline inspection or a
+   manual-commit fallback, without committing (no upstream access either way).
 3. **Mirror** the scorer image into the event org's own private GHCR
    (`docker pull` whatever `SCORE_IMAGE` names — the organizer's own
    image; there is no upstream default — then `docker tag`/`docker push`

@@ -52,7 +52,8 @@ conference CTF.
 back to the organizer's box, which may or may not have a public URL.
 
 **Decision.** Default to `poll` (`sync` service reads score comments from
-GitHub with the organizer's PAT); support `push` (the Action POSTs
+GitHub with a GitHub App installation token — org-scoped and auto-expiring);
+support `push` (the Action POSTs
 directly to `${scorerUrl}/score` with a bearer token) as an opt-in via
 `SCORE_INGEST=push` in `.env`.
 
@@ -196,11 +197,11 @@ that context.
 secrets, regardless of what a malicious PR contains. Everything
 provisioned for an event (forked repos, mirrored image, installed
 workflow) lives entirely inside the disposable org, so teardown (archive
-repos, revoke the PAT, delete org secrets) fully retires the event with no
-lingering access (`docs/modules.md §7`: "everything a module provisions
-for an event MUST be archivable or revocable after the event"). Installing
-the scoring workflow itself is still a manual step — `cmd_org` fetches and
-prints where to put it, but does not commit it.
+repos, uninstall the GitHub App, delete org secrets) fully retires the event
+with no lingering access (`docs/modules.md §7`: "everything a module provisions
+for an event MUST be archivable or revocable after the event"). `cmd_org` now
+commits the scoring workflow (`ctf-score.yml`) to each fork's `ctf` branch and
+disables the forks' inherited workflows automatically.
 
 ## 10. `event.yaml`'s module namespace; deliberate, not dynamic, registration
 
