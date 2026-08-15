@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fetchNewScoreComments } from "../src/github.js";
 
-const CFG = { apiUrl: "https://api.example", org: "evt", pat: "ghp_x", commentAuthor: "github-actions[bot]" };
+const CFG = {
+  apiUrl: "https://api.example",
+  org: "evt",
+  getToken: async () => "ghp_x",
+  commentAuthor: "github-actions[bot]",
+};
 
 const comment = (id, login, updated_at) => ({ id, body: "b", user: { login }, updated_at });
 
@@ -31,6 +36,17 @@ test("filters to trusted comment author and advances cursor", async () => {
   assert.match(url, /^https:\/\/api\.example\/repos\/evt\/DVWA\/issues\/comments\?/);
   assert.match(url, /per_page=100/);
   assert.equal(f.calls[0].opts.headers.authorization, "Bearer ghp_x");
+});
+
+test("uses the bearer from cfg.getToken", async () => {
+  const cfg = { apiUrl: "https://api.github.test", org: "o", commentAuthor: "github-actions[bot]", getToken: async () => "ghs_fresh" };
+  let seen;
+  const fetchImpl = async (url, { headers }) => {
+    seen = headers.authorization;
+    return { status: 200, ok: true, json: async () => [], headers: new Map() };
+  };
+  await fetchNewScoreComments(cfg, "DVWA", {}, fetchImpl);
+  assert.equal(seen, "Bearer ghs_fresh");
 });
 
 test("sends since + if-none-match; 304 returns empty and keeps cursor", async () => {

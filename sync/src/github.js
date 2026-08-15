@@ -9,8 +9,9 @@ export async function fetchNewScoreComments(cfg, repo, cursor, fetchImpl = fetch
   url.searchParams.set("direction", "asc");
   if (cursor.since) url.searchParams.set("since", cursor.since);
 
+  const token = await cfg.getToken(fetchImpl);
   const headers = {
-    authorization: `Bearer ${cfg.pat}`,
+    authorization: `Bearer ${token}`,
     accept: "application/vnd.github+json",
     "x-github-api-version": "2022-11-28",
   };
