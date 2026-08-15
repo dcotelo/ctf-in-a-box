@@ -60,7 +60,18 @@ being exploitable:
   `N` challenges ran and reported — "1/N with the other 8 unreached" cannot occur.
 - The harness then asserts exactly one `✅ Patched` and `N-1` `❌ Not yet`. A `❌`
   means that challenge's exploit *ran and succeeded* — the app is up and still
-  genuinely vulnerable there. The two together rule out a vacuous pass.
+  genuinely vulnerable there.
+- **Positive control.** The `N-1` failing challenges prove the app is live for
+  every challenge *except* the patched one — so on their own they cannot tell
+  "vuln closed" from "endpoint broke" for the `✅` row itself (an exploit test
+  that only asserts the exploit is absent scores `✅` just as well if the patched
+  route now 500s or was deleted). So after the `✅`, the harness boots the freshly
+  built patched image standalone and probes the endpoint the patch touched: it
+  must still return `200` with valid data. A broken endpoint FAILS the gate. The
+  control is a `case` arm in `scripts/acceptance-patched.sh` keyed by challenge id
+  (add one when you add a patch); together these three signals make the
+  anti-vacuous guarantee symmetric — the patched row is proven live too, not just
+  the others.
 
 ## Coverage — honest status
 

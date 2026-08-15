@@ -86,3 +86,32 @@ acc_run_judge() {
 acc_score_counts() {
   sed -n 's/.*\*\*\([0-9][0-9]*\) \/ \([0-9][0-9]*\)\*\* challenges patched.*/\1 \2/p' "$1"
 }
+
+# acc_boot_standalone <image> <container-name> <container-port> — boot the app
+# under test standalone, publishing its port on a random loopback host port, and
+# echo the base URL (http://127.0.0.1:<hostport>). Used by the positive control:
+# the judge tears down its OWN app instance, so the control needs a fresh boot of
+# the same image. The `-e vulnerable=1` mirrors the bring-up's toggle so the
+# control probes the same runtime mode the judge scored — a patch must serve
+# under vulnerable=1, not by relying on the hardened flag.
+acc_boot_standalone() {
+  img="$1"; name="$2"; cport="${3:-5000}"
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  docker run -d --rm --name "$name" -p "127.0.0.1::$cport" -e vulnerable=1 "$img" >/dev/null
+  hp="$(docker port "$name" "$cport/tcp" | head -1 | sed 's/.*://')"
+  [ -n "$hp" ] || return 1
+  echo "http://127.0.0.1:$hp"
+}
+
+# acc_wait_http <base-url> [tries] — poll GET <base>/ until it returns 200, or
+# fail after `tries` seconds (default 60). curl is present on both macOS and the
+# Ubuntu CI runner.
+acc_wait_http() {
+  base="$1"; tries="${2:-60}"; i=0
+  while [ "$i" -lt "$tries" ]; do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$base/" 2>/dev/null || true)"
+    [ "$code" = "200" ] && return 0
+    i=$((i + 1)); sleep 1
+  done
+  return 1
+}

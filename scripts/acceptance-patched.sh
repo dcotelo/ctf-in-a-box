@@ -29,6 +29,13 @@
 #     unreached challenges abort the run and produce no report.
 #   * We assert the ✅ is the challenge we patched and its points equal the
 #     catalogue difficulty (parsed independently from the catalogue JSON).
+#   * POSITIVE CONTROL. The other-8-fail check proves the app is live for every
+#     challenge EXCEPT the patched one — so on its own it cannot tell "vuln
+#     closed" from "endpoint broke" for the ✅ row itself (a challenge whose
+#     exploit test only asserts the exploit is absent scores ✅ just as well if
+#     the route 500s or is deleted). So after the ✅ we boot the freshly built
+#     patched image standalone and probe the endpoint the patch touched: it must
+#     still return 200 with valid data. A broken endpoint FAILS the gate here.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/lib/acceptance-lib.sh
@@ -67,8 +74,11 @@ TMP="$(mktemp -d)"
 WS="$TMP/workspace"
 mkdir -p "$WS"
 
+CTRL_IMG="ctf-fork-$TARGET-control"
+CTRL_NAME="ctf-ctrl-$TARGET"
 cleanup() {
-  docker rm -f "ctf-app-$TARGET" >/dev/null 2>&1 || true
+  docker rm -f "ctf-app-$TARGET" "$CTRL_NAME" >/dev/null 2>&1 || true
+  docker rmi -f "$CTRL_IMG" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -163,6 +173,46 @@ fail() { echo; echo "FAIL: $1"; exit 1; }
 # Points equal the catalogue difficulty.
 [ "$PATCHED_PTS" = "$EXPECTED_PTS" ] || fail "patched challenge scored $PATCHED_PTS points, expected catalogue difficulty $EXPECTED_PTS."
 
+# --- Positive control ----------------------------------------------------------
+# The checks above prove the app is live for every challenge EXCEPT the patched
+# one. They CANNOT tell "vuln closed" from "endpoint broke" for the ✅ row: an
+# exploit test that only asserts the exploit is absent scores ✅ just as well if
+# the patched route now 500s or was deleted. So boot the freshly built patched
+# image standalone and prove the endpoint the patch touched still SERVES valid
+# data. A broken endpoint FAILS here — the exact vacuous win the gate exists for.
+echo
+echo "Positive control: booting the patched fork standalone to prove $CHALLENGE's endpoint still serves…"
+docker build -q -t "$CTRL_IMG" "$WS" >/dev/null   # cache-hot: the judge already built these layers
+CTRL_BASE="$(acc_boot_standalone "$CTRL_IMG" "$CTRL_NAME" 5000)" || fail "could not boot the patched fork for the positive control."
+acc_wait_http "$CTRL_BASE" || fail "the patched fork never became reachable for the positive control ($CTRL_BASE) — the patch may break the app's boot."
+# VAmPI boots with an empty DB; /createdb drop+create+reseeds it. Seed, then give
+# the reseed a moment before probing.
+curl -s -o /dev/null "$CTRL_BASE/createdb" || true
+sleep 2
+
+CTRL_BODY="$TMP/control-body.json"
+case "$CHALLENGE" in
+  challenge-1-excessive-data-exposure)
+    code="$(curl -s -o "$CTRL_BODY" -w '%{http_code}' "$CTRL_BASE/users/v1/_debug")"
+    [ "$code" = "200" ] || fail "positive control: GET /users/v1/_debug returned $code, not 200 — the patch broke/removed the endpoint instead of closing the leak."
+    grep -q '"users"' "$CTRL_BODY" || fail "positive control: /_debug returned no users array — the patch gutted the endpoint rather than filtering it."
+    grep -q 'name1' "$CTRL_BODY" || fail "positive control: /_debug served no seeded user — the endpoint returns no real data."
+    if grep -q 'password' "$CTRL_BODY"; then fail "positive control: /_debug STILL contains a password field — the fix did not actually close the leak."; fi
+    echo "  control OK: GET /users/v1/_debug → 200, serves users (username/email present), no password field."
+    ;;
+  challenge-3-sqli)
+    code="$(curl -s -o "$CTRL_BODY" -w '%{http_code}' "$CTRL_BASE/users/v1/name1")"
+    [ "$code" = "200" ] || fail "positive control: GET /users/v1/name1 (a benign real lookup) returned $code, not 200 — the patch broke the endpoint."
+    grep -q 'name1' "$CTRL_BODY" || fail "positive control: benign lookup for name1 served no user — the endpoint returns no real data."
+    echo "  control OK: GET /users/v1/name1 → 200, a benign real lookup still resolves (the SQLi test also controls the injected-payload → 404 path)."
+    ;;
+  *)
+    fail "no positive control defined for $CHALLENGE — add a case arm here before shipping its patch."
+    ;;
+esac
+docker rm -f "$CTRL_NAME" >/dev/null 2>&1 || true
+
 echo
 echo "PASS: patched $TARGET fork solves exactly $CHALLENGE for $EXPECTED_PTS point(s);"
-echo "      the other 8 challenges ran and still fail (app up and still vulnerable there)."
+echo "      the other 8 challenges ran and still fail (app up and still vulnerable there);"
+echo "      and the patched endpoint still serves valid data (positive control passed)."
