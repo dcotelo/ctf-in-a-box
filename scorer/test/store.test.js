@@ -94,3 +94,103 @@ test("redis store refuses to build without URL/token", () => {
 test("solvesKey matches the ctf:solves:<target> data model", () => {
   assert.equal(solvesKey("juice-shop"), "ctf:solves:juice-shop");
 });
+
+test("memory store getTeams: [] by default, returns seeded teams with sorted members", async () => {
+  const empty = createMemoryStore();
+  assert.deepEqual(await empty.getTeams(), []);
+
+  const store = createMemoryStore({
+    teams: [
+      { slug: "red-team", name: "Red Team", captain: "octocat", members: ["hubot", "octocat"] },
+      { slug: "blue-team", name: "Blue Team", captain: "hal9000", members: ["zeus", "ada"] },
+    ],
+  });
+  assert.deepEqual(await store.getTeams(), [
+    { slug: "red-team", name: "Red Team", captain: "octocat", members: ["hubot", "octocat"] },
+    { slug: "blue-team", name: "Blue Team", captain: "hal9000", members: ["ada", "zeus"] },
+  ]);
+});
+
+test("redis store getTeams: SCANs ctf:team:*:members, HGET/SMEMBERS per slug", async (t) => {
+  const bodies = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => {
+    const commands = JSON.parse(opts.body);
+    bodies.push(commands);
+    if (commands[0][0] === "SCAN") {
+      return new Response(
+        JSON.stringify([{ result: ["0", ["ctf:team:red-team:members", "ctf:team:blue-team:members"]] }]),
+        { status: 200 },
+      );
+    }
+    // HGET name, HGET captain, SMEMBERS for red-team, then blue-team
+    return new Response(
+      JSON.stringify(
+        [
+          { result: "Red Team" },
+          { result: "octocat" },
+          { result: ["octocat", "hubot"] },
+          { result: "Blue Team" },
+          { result: "hal9000" },
+          { result: ["zeus", "ada"] },
+        ],
+      ),
+      { status: 200 },
+    );
+  };
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const store = createRedisStore({ url: "http://srh:80", token: "redis-token" });
+  assert.deepEqual(await store.getTeams(), [
+    { slug: "red-team", name: "Red Team", captain: "octocat", members: ["hubot", "octocat"] },
+    { slug: "blue-team", name: "Blue Team", captain: "hal9000", members: ["ada", "zeus"] },
+  ]);
+  assert.deepEqual(bodies[0], [["SCAN", "0", "MATCH", "ctf:team:*:members", "COUNT", 1000]]);
+  assert.deepEqual(bodies[1], [
+    ["HGET", "ctf:team:red-team", "name"],
+    ["HGET", "ctf:team:red-team", "captain"],
+    ["SMEMBERS", "ctf:team:red-team:members"],
+    ["HGET", "ctf:team:blue-team", "name"],
+    ["HGET", "ctf:team:blue-team", "captain"],
+    ["SMEMBERS", "ctf:team:blue-team:members"],
+  ]);
+});
+
+test("redis store getTeams: no teams -> []", async (t) => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify([{ result: ["0", []] }]), { status: 200 });
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const store = createRedisStore({ url: "http://srh:80", token: "redis-token" });
+  assert.deepEqual(await store.getTeams(), []);
+});
+
+test("redis store getTeams: falls back to slug when name is empty", async (t) => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => {
+    const commands = JSON.parse(opts.body);
+    if (commands[0][0] === "SCAN") {
+      return new Response(
+        JSON.stringify([{ result: ["0", ["ctf:team:nameless:members"]] }]),
+        { status: 200 },
+      );
+    }
+    return new Response(
+      JSON.stringify([{ result: null }, { result: "octocat" }, { result: ["octocat"] }]),
+      { status: 200 },
+    );
+  };
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const store = createRedisStore({ url: "http://srh:80", token: "redis-token" });
+  assert.deepEqual(await store.getTeams(), [
+    { slug: "nameless", name: "nameless", captain: "octocat", members: ["octocat"] },
+  ]);
+});

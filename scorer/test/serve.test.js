@@ -48,7 +48,7 @@ test("healthz and leaderboard are unauthenticated; everything else 404", async (
   const health = await fetch(`${base}/healthz`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { ok: true });
-  assert.deepEqual(await board(), { leaderboard: [], series: [] });
+  assert.deepEqual(await board(), { leaderboard: [], series: [], teams: [], teamSeries: [] });
   assert.equal((await fetch(`${base}/nope`)).status, 404);
   assert.equal((await fetch(`${base}/score`)).status, 404); // GET /score is not a route
 });
@@ -79,7 +79,7 @@ test("POST /score rejects bodies over 64 KiB with 413 (authed callers, defense-i
   const res = await post(big);
   assert.equal(res.status, 413);
   // Nothing was recorded and a normal-size request still works afterwards.
-  assert.deepEqual(await board(), { leaderboard: [], series: [] });
+  assert.deepEqual(await board(), { leaderboard: [], series: [], teams: [], teamSeries: [] });
   assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]))).status, 202);
 });
 
@@ -144,6 +144,8 @@ test("leaderboard pins the full lambda.ts contract shape", async (t) => {
       },
       { login: "bob", points: [{ t: T[2], score: 5 }] },
     ],
+    teams: [], // no team data on this store -> empty rollup
+    teamSeries: [],
   });
 });
 
@@ -181,7 +183,7 @@ test("POST /score returns 503 while the store reports paused", async (t) => {
   assert.equal(res.status, 503);
   assert.deepEqual(await res.json(), { error: "scoring is paused" });
   const board = await (await fetch(`${base}/leaderboard`)).json();
-  assert.deepEqual(board, { leaderboard: [], series: [] }); // nothing was recorded
+  assert.deepEqual(board, { leaderboard: [], series: [], teams: [], teamSeries: [] }); // nothing was recorded
 });
 
 test("POST /score records normally when the store is not paused", async (t) => {
@@ -213,6 +215,8 @@ test("no-rubric degenerate mode: 1 point per solve, totals from distinct ids see
       },
     ],
     series: [], // no rubric -> no per-challenge points to accumulate
+    teams: [],
+    teamSeries: [],
   });
 });
 
@@ -283,4 +287,117 @@ test("series: capped at the top 10 players by final score", async (t) => {
     series.map((s) => s.login),
     Array.from({ length: 10 }, (_, i) => `p${i}`),
   );
+});
+
+// --- Team-aware rollup (A2). buildLeaderboard reads store.getTeams() and adds
+// `teams` + `teamSeries` alongside the individual `entries`/`series`, unioning
+// each team's members' solves so a flag solved by two members counts once. ---
+
+const teamStore = (teams) => createMemoryStore({ teams });
+const TARGETS = ["dvwa", "juice-shop"];
+
+test("team rollup: same flag solved by two members counts once, not doubled", async () => {
+  const store = teamStore([{ slug: "red", name: "Red", captain: "alice", members: ["alice", "bob"] }]);
+  await store.recordSolves("dvwa", "alice", ["sqli-low"], T[1]);
+  await store.recordSolves("dvwa", "bob", ["sqli-low"], T[0]); // same flag, earlier
+  const { teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
+  assert.equal(teams.length, 1);
+  assert.equal(teams[0].points, 1); // ONCE, not 2
+  assert.equal(teams[0].lastSolveAt, T[0]); // union keeps the MIN at per flag
+  assert.deepEqual(teams[0].apps.dvwa, { solved: 1, total: 1 });
+});
+
+test("team rollup: disjoint flags sum across members", async () => {
+  const store = teamStore([{ slug: "red", name: "Red", captain: "alice", members: ["alice", "bob"] }]);
+  await store.recordSolves("juice-shop", "alice", ["reflected-xss-search"], T[0]); // 10
+  await store.recordSolves("juice-shop", "bob", ["sql-injection-login"], T[1]); // 5
+  const { teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
+  assert.equal(teams[0].points, 15);
+  assert.deepEqual(teams[0].apps["juice-shop"], { solved: 2, total: 2 });
+  assert.equal(teams[0].lastSolveAt, T[1]);
+});
+
+test("team rollup: a solve recorded for a login before it appears in getTeams still rolls in", async () => {
+  // Rollup is by membership at read time, so a historical solve counts
+  // retroactively once the login is a member — seed both, then assert.
+  const store = teamStore([{ slug: "blue", name: "Blue", captain: "carol", members: ["carol"] }]);
+  await store.recordSolves("dvwa", "carol", ["sqli-low"], T[0]);
+  const { teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
+  assert.equal(teams[0].points, 1);
+  assert.equal(teams[0].lastSolveAt, T[0]);
+});
+
+test("team rollup: a solo team's points equal that member's individual points", async () => {
+  const store = teamStore([{ slug: "solo", name: "Solo", captain: "dave", members: ["dave"] }]);
+  await store.recordSolves("juice-shop", "dave", ["reflected-xss-search", "sql-injection-login"], T[0]);
+  await store.recordSolves("dvwa", "dave", ["sqli-low"], T[1]);
+  const { entries, teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
+  const dave = entries.find((e) => e.author === "dave");
+  assert.equal(teams[0].points, dave.points);
+  assert.equal(teams[0].points, 16);
+  assert.equal(teams[0].lastSolveAt, dave.lastSolveAt);
+  assert.deepEqual(teams[0].members, ["dave"]);
+  assert.equal(teams[0].captain, "dave");
+});
+
+test("teamSeries: cumulative and deduped — a shared flag adds once at the earlier timestamp", async () => {
+  const store = teamStore([{ slug: "red", name: "Red", captain: "alice", members: ["alice", "bob"] }]);
+  await store.recordSolves("juice-shop", "alice", ["reflected-xss-search"], T[0]); // 10 @ T0
+  await store.recordSolves("dvwa", "bob", ["sqli-low"], T[1]); // 1 @ T1
+  await store.recordSolves("dvwa", "alice", ["sqli-low"], T[2]); // dup of bob's flag, later
+  const { teamSeries, teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
+  assert.deepEqual(teamSeries, [
+    {
+      slug: "red",
+      name: "Red",
+      // sqli-low deduped to its earlier at (T1, bob); union = {xss @T0, sqli @T1}.
+      points: [
+        { t: T[0], score: 10 },
+        { t: T[1], score: 11 },
+      ],
+    },
+  ]);
+  assert.equal(teams[0].points, 11); // 10 + 1, shared flag once
+});
+
+test("team ranking: equal points break by earlier lastSolveAt", async () => {
+  const store = teamStore([
+    { slug: "late", name: "Late", captain: "x", members: ["x"] },
+    { slug: "early", name: "Early", captain: "y", members: ["y"] },
+  ]);
+  await store.recordSolves("dvwa", "y", ["sqli-low"], T[0]); // early: 1 @ T0
+  await store.recordSolves("dvwa", "x", ["sqli-low"], T[1]); // late: 1 @ T1
+  const { teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
+  assert.deepEqual(
+    teams.map((tm) => [tm.rank, tm.slug]),
+    [
+      [1, "early"], // equal points -> earlier lastSolveAt ranks first
+      [2, "late"],
+    ],
+  );
+});
+
+test("team rollup is additive: individual entries/series are unchanged by the team columns", async () => {
+  const seed = async (store) => {
+    await store.recordSolves("juice-shop", "alice", ["reflected-xss-search"], T[0]);
+    await store.recordSolves("dvwa", "bob", ["sqli-low"], T[1]);
+  };
+  const withTeams = teamStore([{ slug: "red", name: "Red", captain: "alice", members: ["alice", "bob"] }]);
+  const without = createMemoryStore();
+  await seed(withTeams);
+  await seed(without);
+  const a = await buildLeaderboard({ store: withTeams, rubric: RUBRIC, targets: TARGETS });
+  const b = await buildLeaderboard({ store: without, rubric: RUBRIC, targets: TARGETS });
+  assert.deepEqual(a.entries, b.entries);
+  assert.deepEqual(a.series, b.series);
+  assert.deepEqual(b.teams, []); // no team data -> empty rollup
+  assert.deepEqual(b.teamSeries, []);
+});
+
+test("teamSeries: empty without a rubric (no per-challenge points to accumulate)", async () => {
+  const store = teamStore([{ slug: "red", name: "Red", captain: "alice", members: ["alice"] }]);
+  await store.recordSolves("app", "alice", ["a"], T[0]);
+  const { teams, teamSeries } = await buildLeaderboard({ store, rubric: null, targets: ["app"] });
+  assert.equal(teams[0].points, 1); // degenerate mode: 1 point per solve
+  assert.deepEqual(teamSeries, []);
 });

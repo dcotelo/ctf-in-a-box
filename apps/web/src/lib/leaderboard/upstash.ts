@@ -60,6 +60,11 @@ export const upstashSource: LeaderboardSource = {
       entries,
       teams: [],
       generatedAt: new Date().toISOString(),
+      // teams stays false: this schema has no per-flag data client-side, so
+      // there's no way to dedupe a flag two teammates both solved. Real team
+      // points are only ever computed on the scorer/lambda path, which has
+      // that per-flag detail; `withTeamStandings` overlays membership onto
+      // this source without fabricating a summed score (see team-standings.ts).
       capabilities: { apps: false, teams: false, challenges: false },
       // No cumulative-score history in this schema — the ZSET only ever
       // holds each player's current total, not point-in-time readings. The

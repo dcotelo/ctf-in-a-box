@@ -140,3 +140,88 @@ describe("lambdaSource.getLeaderboard series", () => {
     expect(data.series).toEqual([{ login: "ok", points: [{ t: "2026-07-08T10:00:00.000Z", score: 5 }] }]);
   });
 });
+
+describe("lambdaSource.getLeaderboard teams", () => {
+  it("maps the Lambda's teams + teamSeries fields and flips on the teams capability", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({
+      ...RESPONSE,
+      teams: [
+        {
+          rank: 1,
+          slug: "red-team",
+          name: "Red Team",
+          captain: "dcotelo",
+          members: ["dcotelo", "later-solver"],
+          points: 817,
+          lastSolveAt: "2026-07-14T20:16:12.661Z",
+          apps: { "juice-shop": { solved: 38, total: 38 } },
+        },
+      ],
+      teamSeries: [
+        {
+          slug: "red-team",
+          name: "Red Team",
+          points: [
+            { t: "2026-07-08T10:00:00.000Z", score: 100 },
+            { t: "2026-07-14T20:16:12.661Z", score: 817 },
+          ],
+        },
+      ],
+    });
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.teams).toEqual([
+      { rank: 1, slug: "red-team", name: "Red Team", captain: "dcotelo", members: ["dcotelo", "later-solver"], points: 817 },
+    ]);
+    expect(data.teamSeries).toEqual([
+      {
+        slug: "red-team",
+        name: "Red Team",
+        points: [
+          { t: "2026-07-08T10:00:00.000Z", score: 100 },
+          { t: "2026-07-14T20:16:12.661Z", score: 817 },
+        ],
+      },
+    ]);
+    expect(data.capabilities.teams).toBe(true);
+  });
+
+  it("tolerates a scorer with no teams field at all", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(RESPONSE); // no `teams`/`teamSeries` keys
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.teams).toEqual([]);
+    expect(data.teamSeries).toBeUndefined();
+    expect(data.capabilities.teams).toBe(false);
+  });
+
+  it("tolerates an empty teams array", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({ ...RESPONSE, teams: [] });
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.teams).toEqual([]);
+    expect(data.capabilities.teams).toBe(false);
+  });
+
+  it("drops malformed team entries instead of throwing", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({
+      ...RESPONSE,
+      teams: [
+        { rank: 1, slug: "ok-team", name: "Ok Team", captain: "dcotelo", members: ["dcotelo", 42], points: 100 },
+        { rank: 2, slug: "missing-captain", name: "No Captain", members: ["x"], points: 50 },
+        { rank: "3", slug: "bad-rank", name: "Bad Rank", captain: "x", members: [], points: 10 },
+        { slug: "no-members", name: "No Members", captain: "x", points: 5, members: "nope" },
+        "not an object",
+        null,
+      ],
+    });
+    const data = await lambdaSource.getLeaderboard();
+    // Malformed entries dropped; the string member "42" is filtered out but
+    // the valid entry still gets in with a non-empty members array.
+    expect(data.teams).toEqual([
+      { rank: 1, slug: "ok-team", name: "Ok Team", captain: "dcotelo", members: ["dcotelo"], points: 100 },
+    ]);
+    expect(data.capabilities.teams).toBe(true);
+  });
+});

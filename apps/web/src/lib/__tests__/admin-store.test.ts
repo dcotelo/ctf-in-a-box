@@ -23,7 +23,7 @@ describe("getAdminSettings", () => {
   it("fills defaults for an empty hash", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
     expect(await getAdminSettings()).toEqual({
-      paused: false, hintsEnabled: null, hintCost: null, updatedBy: null, updatedAt: null,
+      paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true, updatedBy: null, updatedAt: null,
     });
   });
 
@@ -32,8 +32,13 @@ describe("getAdminSettings", () => {
       result: ["paused", "1", "hintsEnabled", "0", "hintCost", "25", "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"],
     }]);
     expect(await getAdminSettings()).toEqual({
-      paused: true, hintsEnabled: false, hintCost: 25, updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
+      paused: true, hintsEnabled: false, hintCost: 25, teamRegistrationOpen: true, updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
     });
+  });
+
+  it("decodes a stored \"0\" for teamRegistrationOpen as closed", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["teamRegistrationOpen", "0"] }]);
+    expect((await getAdminSettings()).teamRegistrationOpen).toBe(false);
   });
 });
 
@@ -95,6 +100,43 @@ describe("updateAdminSettings write", () => {
     expect(String(script)).toContain("HDEL");
 
     expect(out.paused).toBe(false);
+  });
+
+  it("closing teamRegistrationOpen writes \"0\" (HSET), never HDEL", async () => {
+    mocks.upstashEval.mockResolvedValue([
+      "teamRegistrationOpen", "0", "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z",
+    ]);
+    const out = await updateAdminSettings({ teamRegistrationOpen: false }, "alice");
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const strArgs = args.map(String);
+    const idx = strArgs.indexOf("teamRegistrationOpen");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe("0"); // written as an HSET pair, value "0"
+    // numDels (args[4]) is 0 — nothing is HDEL'd when closing.
+    expect(strArgs[4]).toBe("0");
+    expect(out.teamRegistrationOpen).toBe(false);
+  });
+
+  it("opening teamRegistrationOpen HDELs the field instead of writing \"1\"", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+    const out = await updateAdminSettings({ teamRegistrationOpen: true }, "alice");
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const strArgs = args.map(String);
+    // numDels is 1 and the sole del target is teamRegistrationOpen.
+    expect(strArgs[4]).toBe("1");
+    expect(strArgs[5]).toBe("teamRegistrationOpen");
+    // It never appears as an HSET pair with "1"/"0".
+    const idx = strArgs.indexOf("teamRegistrationOpen");
+    expect(strArgs[idx + 1]).not.toBe("1");
+    expect(strArgs[idx + 1]).not.toBe("0");
+    expect(out.teamRegistrationOpen).toBe(true);
+  });
+
+  it("rejects a non-boolean teamRegistrationOpen", async () => {
+    await expect(
+      updateAdminSettings({ teamRegistrationOpen: "nope" as never }, "alice"),
+    ).rejects.toBeInstanceOf(AdminValidationError);
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 });
 

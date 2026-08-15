@@ -154,6 +154,36 @@ const TEAM_NAMES: Record<string, string> = {
   "0xcafebabe": "0xCafeBabe",
 };
 
+// Mock team-store data doesn't model captaincy, so the fixture pins one
+// explicitly per team (falls back to the first member otherwise).
+const TEAM_CAPTAINS: Record<string, string> = {
+  "seg-fault": "octocat",
+  "null-terminators": "hubot",
+  "0xcafebabe": "torvalds",
+};
+
+/** Sums a team's points as the UNION of patched (app, challenge key) pairs
+ *  across its members — a flag two teammates both solved counts once, not
+ *  once per solver. This is what the real scorer/lambda path does with
+ *  per-flag data; the mock mirrors it here since it has that same per-flag
+ *  detail available on each entry's `apps[].challenges`. */
+function teamPoints(members: LeaderboardEntry[]): number {
+  const seen = new Set<string>();
+  let points = 0;
+  for (const entry of members) {
+    for (const [app, progress] of Object.entries(entry.apps) as [AppId, LeaderboardEntry["apps"][AppId]][]) {
+      for (const c of progress?.challenges ?? []) {
+        if (c.status !== "patched") continue;
+        const dedupeKey = `${app}:${c.key}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        points += c.points;
+      }
+    }
+  }
+  return points;
+}
+
 function summarize(sample: Sample) {
   let points = 0;
   let patched = 0;
@@ -203,17 +233,23 @@ export function buildMockEntries(): LeaderboardEntry[] {
 }
 
 export function buildMockTeams(entries: LeaderboardEntry[]): TeamStanding[] {
-  const bySlug = new Map<string, { points: number; members: string[] }>();
+  const bySlug = new Map<string, LeaderboardEntry[]>();
   for (const entry of entries) {
     if (!entry.team) continue;
-    const existing = bySlug.get(entry.team) ?? { points: 0, members: [] };
-    existing.points += entry.points;
-    existing.members.push(entry.login);
+    const existing = bySlug.get(entry.team) ?? [];
+    existing.push(entry);
     bySlug.set(entry.team, existing);
   }
   return [...bySlug.entries()]
-    .map(([slug, v]) => ({ slug, name: TEAM_NAMES[slug] ?? slug, points: v.points, members: v.members, rank: 0 }))
-    .sort((a, b) => b.points - a.points)
+    .map(([slug, members]) => ({
+      slug,
+      name: TEAM_NAMES[slug] ?? slug,
+      captain: TEAM_CAPTAINS[slug] ?? members[0].login,
+      members: members.map((m) => m.login),
+      points: teamPoints(members),
+      rank: 0,
+    }))
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name))
     .map((team, i) => ({ ...team, rank: i + 1 }));
 }
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 
@@ -8,11 +9,15 @@ const MOCK_TEAM_COOKIE = "ctf-mock-team";
  * Gate for real Upstash team writes. When TEAM_WRITES_ENABLED=true, team
  * actions write to Upstash (UPSTASH_REDIS_REST_TOKEN must be a read/write
  * token) under the v2 schema:
- *   HSET ctf:team:<slug> name <name> captain <login> createdAt <iso>
+ *   HSET ctf:team:<slug> name <name> captain <login> createdAt <iso> joinCode <code>
  *   SADD ctf:team:<slug>:members <login>     (capped at TEAM_MAX_MEMBERS)
  *   HSET ctf:user:<login> team <slug>
+ *   SET ctf:joincode:<code> <slug>            (reverse index for join-by-code)
  * When unset, actions persist to a per-browser httpOnly cookie instead, so
  * join/leave stays demoable against the mock leaderboard with zero backend.
+ * Captain-only roster actions (remove/rename/transfer/disband/regenerate)
+ * are not supported in mock mode — there's no captain or roster concept for
+ * a single-cookie, single-player mock.
  *
  * Callers (the /api/team route handlers) are responsible for authenticating
  * the session and deriving `login` server-side — nothing here trusts
@@ -22,8 +27,11 @@ export const TEAM_WRITES_ENABLED = process.env.TEAM_WRITES_ENABLED === "true";
 
 export const TEAM_MAX_MEMBERS = 4;
 const NAME_MAX_LENGTH = 32;
+const NOT_AVAILABLE_IN_DEMO_MODE = "Not available in demo mode";
 
 export type TeamActionResult = { ok: true; team: string | null } | { ok: false; error: string };
+
+export type JoinCodeResult = { ok: true; team: string; code: string } | { ok: false; error: string };
 
 export type TeamInfo = {
   slug: string;
@@ -31,9 +39,13 @@ export type TeamInfo = {
   members: string[];
 };
 
+const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
+const REGISTRATION_CLOSED_ERROR = "Team registration is closed";
+
 const userKey = (login: string) => `ctf:user:${login}`;
 const teamKey = (slug: string) => `ctf:team:${slug}`;
 const membersKey = (slug: string) => `ctf:team:${slug}:members`;
+const joinCodeKey = (code: string) => `ctf:joincode:${code}`;
 
 function slugify(value: string): string {
   return value
@@ -44,14 +56,45 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+// Base32-ish alphabet with ambiguous characters (0/O, 1/l/I) removed so codes
+// are easy to read aloud/type. Not cryptographically secret — just short and
+// hard to guess/enumerate.
+const JOIN_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+const JOIN_CODE_LENGTH = 6;
+const JOIN_CODE_MAX_ATTEMPTS = 5;
+
+function generateJoinCodeCandidate(): string {
+  const bytes = randomBytes(JOIN_CODE_LENGTH);
+  let code = "";
+  for (let i = 0; i < JOIN_CODE_LENGTH; i++) {
+    code += JOIN_CODE_ALPHABET[bytes[i] % JOIN_CODE_ALPHABET.length];
+  }
+  return code;
+}
+
+/** Generates a join code, retrying a few times on the (very unlikely)
+ *  chance of a collision with an existing reverse-index key. */
+async function generateUniqueJoinCode(): Promise<string> {
+  let candidate = generateJoinCodeCandidate();
+  for (let attempt = 0; attempt < JOIN_CODE_MAX_ATTEMPTS; attempt++) {
+    const [exists] = await upstashPipeline([["EXISTS", joinCodeKey(candidate)]]);
+    if (exists.result === 0) return candidate;
+    candidate = generateJoinCodeCandidate();
+  }
+  return candidate;
+}
+
 // Each mutation is a single Lua EVAL so every check-and-write is atomic —
-// two players racing for a team's last slot can't both get in.
+// two players racing for a team's last slot can't both get in. Captain-only
+// actions guard the caller INSIDE the script (HGET captain == caller) so the
+// check and the write happen in the same atomic step.
 const CREATE_SCRIPT = `
 if redis.call('HEXISTS', KEYS[1], 'team') == 1 then return 'already-on-team' end
 if redis.call('EXISTS', KEYS[2]) == 1 then return 'name-taken' end
-redis.call('HSET', KEYS[2], 'name', ARGV[2], 'captain', ARGV[1], 'createdAt', ARGV[4])
+redis.call('HSET', KEYS[2], 'name', ARGV[2], 'captain', ARGV[1], 'createdAt', ARGV[4], 'joinCode', ARGV[5])
 redis.call('SADD', KEYS[3], ARGV[1])
 redis.call('HSET', KEYS[1], 'team', ARGV[3])
+redis.call('SET', KEYS[4], ARGV[3])
 return 'ok'`;
 
 const JOIN_SCRIPT = `
@@ -64,15 +107,66 @@ return 'ok'`;
 
 const LEAVE_SCRIPT = `
 if redis.call('HGET', KEYS[1], 'team') ~= ARGV[2] then return 'stale' end
+if redis.call('HGET', KEYS[2], 'captain') == ARGV[1] and redis.call('SCARD', KEYS[3]) > 1 then return 'captain-must-transfer' end
 redis.call('SREM', KEYS[3], ARGV[1])
 redis.call('HDEL', KEYS[1], 'team')
-if redis.call('SCARD', KEYS[3]) == 0 then redis.call('DEL', KEYS[2], KEYS[3]) end
+if redis.call('SCARD', KEYS[3]) == 0 then
+  local code = redis.call('HGET', KEYS[2], 'joinCode')
+  redis.call('DEL', KEYS[2], KEYS[3])
+  if code then redis.call('DEL', 'ctf:joincode:' .. code) end
+end
+return 'ok'`;
+
+const REMOVE_MEMBER_SCRIPT = `
+if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' end
+if redis.call('SISMEMBER', KEYS[2], ARGV[2]) == 0 then return 'not-member' end
+if ARGV[2] == ARGV[1] then return 'cannot-remove-captain' end
+redis.call('SREM', KEYS[2], ARGV[2])
+redis.call('HDEL', KEYS[3], 'team')
+return 'ok'`;
+
+const RENAME_SCRIPT = `
+if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' end
+if KEYS[2] ~= KEYS[1] and redis.call('EXISTS', KEYS[2]) == 1 then return 'name-taken' end
+redis.call('HSET', KEYS[1], 'name', ARGV[2])
+return 'ok'`;
+
+const TRANSFER_CAPTAIN_SCRIPT = `
+if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' end
+if redis.call('SISMEMBER', KEYS[2], ARGV[2]) == 0 then return 'not-member' end
+redis.call('HSET', KEYS[1], 'captain', ARGV[2])
+return 'ok'`;
+
+const DISBAND_SCRIPT = `
+if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' end
+local members = redis.call('SMEMBERS', KEYS[2])
+for _, login in ipairs(members) do
+  redis.call('HDEL', 'ctf:user:' .. login, 'team')
+end
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+return 'ok'`;
+
+const REGENERATE_CODE_SCRIPT = `
+if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' end
+redis.call('DEL', KEYS[3])
+redis.call('HSET', KEYS[1], 'joinCode', ARGV[2])
+redis.call('SET', KEYS[2], ARGV[3])
 return 'ok'`;
 
 async function setMockTeam(slug: string): Promise<TeamActionResult> {
   const store = await cookies();
   store.set(MOCK_TEAM_COOKIE, slug, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 30 });
   return { ok: true, team: slug };
+}
+
+/** True when the organizer has closed the team-registration window. The
+ *  admin store stores "0" for closed and leaves the field absent (⇒ open) by
+ *  default, so a single HGET is enough. Roster-shrinking actions (leaveTeam)
+ *  are exempt — players can always leave — so this guard is only applied to
+ *  team-forming and captain roster mutations. */
+async function isRegistrationClosed(): Promise<boolean> {
+  const [res] = await upstashPipeline([["HGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen"]]);
+  return res.result === "0";
 }
 
 async function getUserTeamSlug(login: string): Promise<string | null> {
@@ -88,22 +182,32 @@ export async function createTeam(login: string, name: string): Promise<TeamActio
     return { ok: false, error: `Team name must be ${NAME_MAX_LENGTH} characters or fewer` };
   }
   if (!TEAM_WRITES_ENABLED) return setMockTeam(slug);
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
   const createdAt = new Date().toISOString();
+  const joinCode = await generateUniqueJoinCode();
 
   const verdict = await upstashEval(
     CREATE_SCRIPT,
-    [userKey(login), teamKey(slug), membersKey(slug)],
-    [login, trimmed, slug, createdAt],
+    [userKey(login), teamKey(slug), membersKey(slug), joinCodeKey(joinCode)],
+    [login, trimmed, slug, createdAt, joinCode],
   );
   if (verdict === "already-on-team") return { ok: false, error: "Leave your current team before creating one" };
   if (verdict === "name-taken") return { ok: false, error: `Team "${slug}" already exists. Join it instead` };
   return { ok: true, team: slug };
 }
 
-export async function joinTeam(login: string, slugInput: string): Promise<TeamActionResult> {
-  const slug = slugify(slugInput);
-  if (!slug) return { ok: false, error: "Team is required" };
-  if (!TEAM_WRITES_ENABLED) return setMockTeam(slug);
+/** Joins a team by its captain-shared join code (not the slug). In mock mode
+ *  there's no reverse index, so the code is treated as the slug directly. */
+export async function joinTeam(login: string, code: string): Promise<TeamActionResult> {
+  const trimmedCode = code.trim();
+  if (!trimmedCode) return { ok: false, error: "Join code is required" };
+  if (!TEAM_WRITES_ENABLED) return setMockTeam(slugify(trimmedCode));
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+
+  const normalizedCode = trimmedCode.toLowerCase();
+  const [codeRes] = await upstashPipeline([["GET", joinCodeKey(normalizedCode)]]);
+  const slug = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : null;
+  if (!slug) return { ok: false, error: "Invalid or expired join code" }; // verdict: bad-code
 
   const verdict = await upstashEval(
     JOIN_SCRIPT,
@@ -111,8 +215,8 @@ export async function joinTeam(login: string, slugInput: string): Promise<TeamAc
     [login, TEAM_MAX_MEMBERS, slug],
   );
   if (verdict === "already-on-team") return { ok: false, error: "Leave your current team before joining another" };
-  if (verdict === "not-found") return { ok: false, error: `No team "${slug}". Check the slug or create it` };
-  if (verdict === "full") return { ok: false, error: `Team "${slug}" is full (${TEAM_MAX_MEMBERS} players max)` };
+  if (verdict === "not-found") return { ok: false, error: "That team no longer exists" };
+  if (verdict === "full") return { ok: false, error: `Team is full (${TEAM_MAX_MEMBERS} players max)` };
   if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
   return { ok: true, team: slug };
 }
@@ -129,8 +233,113 @@ export async function leaveTeam(login: string): Promise<TeamActionResult> {
 
   // A 'stale' verdict means the membership changed between the read and the
   // script — leaving is idempotent, so treat it as already left.
-  await upstashEval(LEAVE_SCRIPT, [userKey(login), teamKey(slug), membersKey(slug)], [login, slug]);
+  const verdict = await upstashEval(LEAVE_SCRIPT, [userKey(login), teamKey(slug), membersKey(slug)], [login, slug]);
+  if (verdict === "captain-must-transfer") {
+    return { ok: false, error: "Transfer or disband before leaving" };
+  }
   return { ok: true, team: null };
+}
+
+/** Captain-only: removes a member from the roster. The captain can't remove
+ *  themselves — they must transferCaptain or disbandTeam instead. */
+export async function removeMember(
+  captainLogin: string,
+  slug: string,
+  memberLogin: string,
+): Promise<TeamActionResult> {
+  if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+  const verdict = await upstashEval(
+    REMOVE_MEMBER_SCRIPT,
+    [teamKey(slug), membersKey(slug), userKey(memberLogin)],
+    [captainLogin, memberLogin],
+  );
+  if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
+  if (verdict === "cannot-remove-captain") {
+    return { ok: false, error: "The captain can't remove themselves — transfer captaincy or disband instead" };
+  }
+  if (verdict === "not-member") return { ok: false, error: `"${memberLogin}" is not on this team` };
+  if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  return { ok: true, team: slug };
+}
+
+/** Captain-only: renames the team's display name. The slug/key is unchanged
+ *  (join codes and membership keep working), but the new name still can't
+ *  collide with another team's slug. */
+export async function renameTeam(captainLogin: string, slug: string, newName: string): Promise<TeamActionResult> {
+  if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  const trimmed = newName.trim();
+  if (!trimmed) return { ok: false, error: "Team name is required" };
+  if (trimmed.length > NAME_MAX_LENGTH) {
+    return { ok: false, error: `Team name must be ${NAME_MAX_LENGTH} characters or fewer` };
+  }
+  const newSlug = slugify(trimmed) || slug;
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+
+  const verdict = await upstashEval(RENAME_SCRIPT, [teamKey(slug), teamKey(newSlug)], [captainLogin, trimmed]);
+  if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
+  if (verdict === "name-taken") return { ok: false, error: `Team "${newSlug}" already exists. Choose another name` };
+  if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  return { ok: true, team: slug };
+}
+
+/** Captain-only: hands captaincy to another current member. */
+export async function transferCaptain(
+  captainLogin: string,
+  slug: string,
+  toMemberLogin: string,
+): Promise<TeamActionResult> {
+  if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  // NOT gated by the registration window: transfer is an EXIT for a captain who
+  // wants to leave. leaveTeam tells a populated-team captain to transfer or
+  // disband first; if the organizer has since closed registration, gating those
+  // two would trap the captain with no way out for the rest of the event.
+  const verdict = await upstashEval(
+    TRANSFER_CAPTAIN_SCRIPT,
+    [teamKey(slug), membersKey(slug)],
+    [captainLogin, toMemberLogin],
+  );
+  if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
+  if (verdict === "not-member") return { ok: false, error: `"${toMemberLogin}" is not on this team` };
+  if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  return { ok: true, team: slug };
+}
+
+/** Captain-only: disbands the team, clearing every member's team field and
+ *  deleting the team's keys, including its join-code reverse index. */
+export async function disbandTeam(captainLogin: string, slug: string): Promise<TeamActionResult> {
+  if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  // NOT gated by the registration window — disband is an exit for a captain (see
+  // transferCaptain). Gating it would trap a captain when registration closes.
+  const [codeRes] = await upstashPipeline([["HGET", teamKey(slug), "joinCode"]]);
+  const currentCode = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : "";
+
+  const verdict = await upstashEval(
+    DISBAND_SCRIPT,
+    [teamKey(slug), membersKey(slug), joinCodeKey(currentCode)],
+    [captainLogin],
+  );
+  if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
+  if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  return { ok: true, team: null };
+}
+
+/** Captain-only: invalidates the current join code and issues a new one. */
+export async function regenerateCode(captainLogin: string, slug: string): Promise<JoinCodeResult> {
+  if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+  const [codeRes] = await upstashPipeline([["HGET", teamKey(slug), "joinCode"]]);
+  const oldCode = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : "";
+  const newCode = await generateUniqueJoinCode();
+
+  const verdict = await upstashEval(
+    REGENERATE_CODE_SCRIPT,
+    [teamKey(slug), joinCodeKey(newCode), joinCodeKey(oldCode)],
+    [captainLogin, newCode, slug],
+  );
+  if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
+  if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  return { ok: true, team: slug, code: newCode };
 }
 
 /** Every team with its members, for the public standings. Live mode only —

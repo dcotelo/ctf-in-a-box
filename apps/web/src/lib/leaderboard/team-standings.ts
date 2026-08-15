@@ -3,15 +3,20 @@ import { listTeams } from "@/lib/team-store";
 import type { LeaderboardData, TeamStanding } from "./types";
 
 /**
- * Overlays live team standings (from the team store's ctf:team:* records)
+ * Overlays live team MEMBERSHIP (from the team store's ctf:team:* records)
  * onto leaderboard data from a source that has no team concept
- * (lambda/upstash). A team's points are the sum of its members' individual
- * points; members with no scored PRs contribute 0. Individual entries get
- * their team slug attached so the row chip renders.
+ * (upstash). This source only has each player's per-login TOTAL, not which
+ * flag earned which point — so it has no way to tell whether two teammates'
+ * totals overlap on a flag they both solved. Summing member totals into a
+ * team score would double-count any such shared flag, so this deliberately
+ * does NOT fabricate a points figure: team rows get `points: 0` and exist
+ * only so the row chip renders. Real (deduped) team points require the
+ * scorer/lambda path, which computes them from per-flag data upstream and
+ * sets `capabilities.teams = true` before this function ever runs.
  *
- * No-ops when the source already provides teams (mock), when team writes are
- * disabled, or when no teams exist yet. Upstash trouble degrades to the
- * team-less view rather than failing the whole leaderboard.
+ * No-ops when the source already provides deduped teams (mock/lambda), when
+ * team writes are disabled, or when no teams exist yet. Upstash trouble
+ * degrades to the team-less view rather than failing the whole leaderboard.
  */
 export async function withTeamStandings(data: LeaderboardData): Promise<LeaderboardData> {
   if (data.capabilities.teams) return data;
@@ -30,15 +35,20 @@ export async function withTeamStandings(data: LeaderboardData): Promise<Leaderbo
     for (const member of team.members) teamByLogin.set(member, team.slug);
   }
 
-  const pointsByLogin = new Map(data.entries.map((e) => [e.login, e.points]));
   const standings: TeamStanding[] = teams
     .map((team) => ({
       slug: team.slug,
       name: team.name,
+      // team-store's TeamInfo doesn't expose captain yet (listTeams only
+      // reads name + members) — default to the first member rather than
+      // changing team-store.ts for this.
+      captain: team.members[0] ?? "",
       members: team.members,
-      points: team.members.reduce((sum, member) => sum + (pointsByLogin.get(member) ?? 0), 0),
+      // No per-flag data here to dedupe shared flags with — see doc above.
+      points: 0,
     }))
-    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name))
+    // No real point figure to rank by; alphabetical keeps the order stable.
+    .sort((a, b) => a.name.localeCompare(b.name))
     .map((team, i) => ({ ...team, rank: i + 1 }));
 
   return {

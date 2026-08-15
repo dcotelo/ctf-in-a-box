@@ -16,7 +16,29 @@ import { auth } from "@/lib/auth";
 import { getViewerHints } from "@/lib/hint-store";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
 import { getViewerTeam, TEAM_MAX_MEMBERS, TEAM_WRITES_ENABLED } from "@/lib/team-store";
+import { upstashPipeline } from "@/lib/upstash";
 import { event } from "@/lib/site";
+
+// TeamCard needs the captain login (to gate captain-only controls) and the
+// current join code (to display it), neither of which `TeamInfo` carries.
+// team-store.ts is owned by another task, so this reads the same
+// `ctf:team:<slug>` hash fields directly instead of extending its exports.
+// Live mode only — the mock cookie has no captain/join-code concept.
+async function getTeamMeta(slug: string): Promise<{ captain: string | null; joinCode: string | null }> {
+  if (!TEAM_WRITES_ENABLED) return { captain: null, joinCode: null };
+  try {
+    const [captainRes, codeRes] = await upstashPipeline([
+      ["HGET", `ctf:team:${slug}`, "captain"],
+      ["HGET", `ctf:team:${slug}`, "joinCode"],
+    ]);
+    return {
+      captain: typeof captainRes.result === "string" && captainRes.result ? captainRes.result : null,
+      joinCode: typeof codeRes.result === "string" && codeRes.result ? codeRes.result : null,
+    };
+  } catch {
+    return { captain: null, joinCode: null };
+  }
+}
 
 export const metadata: Metadata = {
   title: "Profile",
@@ -42,6 +64,8 @@ export default async function ProfilePage() {
     storeTeam ??
     (profile?.team ? { slug: profile.team, name: profile.teamName ?? profile.team, members: [] } : null);
   const effectiveTeam = team?.slug ?? null;
+  const teamMeta = team ? await getTeamMeta(team.slug) : { captain: null, joinCode: null };
+  const isCaptain = teamMeta.captain !== null && teamMeta.captain === login;
   // "Non-patched" = everything not yet fixed (failed runs + untouched
   // challenges) — deliberately not called "failed" so contestants who
   // haven't gotten to a challenge yet don't read it as losing.
@@ -116,7 +140,14 @@ export default async function ProfilePage() {
         </div>
       </div>
 
-      <TeamCard team={team} writesEnabled={TEAM_WRITES_ENABLED} maxMembers={TEAM_MAX_MEMBERS} />
+      <TeamCard
+        team={team}
+        writesEnabled={TEAM_WRITES_ENABLED}
+        maxMembers={TEAM_MAX_MEMBERS}
+        isCaptain={isCaptain}
+        captain={teamMeta.captain}
+        joinCode={teamMeta.joinCode}
+      />
 
       {!profile || profile.apps.filter((app) => enabledAppsById[app.app]).length === 0 ? (
         <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">

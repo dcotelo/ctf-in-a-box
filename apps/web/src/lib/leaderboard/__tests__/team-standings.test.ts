@@ -1,6 +1,10 @@
-// Unit tests for the team-standings overlay: team points are the sum of
-// member points, entries get their team chip, and every no-op/degrade path
-// leaves the source data untouched.
+// Unit tests for the team-standings overlay. This is a FALLBACK for sources
+// with no per-flag data (upstash) — it cannot dedupe a flag two teammates
+// both solved, so it must never sum member totals into a fabricated team
+// score (that's the double-count bug this file guards against). It only
+// attaches membership so the row chip renders; real team points come from
+// the scorer/lambda path, which sets capabilities.teams = true up front and
+// is passed through untouched (no-op).
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderboardData, LeaderboardEntry } from "../types";
@@ -33,17 +37,13 @@ beforeEach(() => {
 });
 
 describe("withTeamStandings", () => {
-  it("sums member points into ranked team standings", async () => {
+  it("does NOT sum member points into a fabricated team score (no per-flag data to dedupe with)", async () => {
     mocks.listTeams.mockResolvedValueOnce([
-      { slug: "red", name: "Red Team", members: ["bob", "cyd"] }, // 65
-      { slug: "blue", name: "Blue Team", members: ["ada"] }, // 100
+      { slug: "red", name: "Red Team", members: ["bob", "cyd"] }, // would be 65 if (wrongly) summed
+      { slug: "blue", name: "Blue Team", members: ["ada"] }, // would be 100 if (wrongly) summed
     ]);
     const result = await withTeamStandings(data());
-    expect(result.teams).toEqual([
-      { rank: 1, slug: "blue", name: "Blue Team", points: 100, members: ["ada"] },
-      { rank: 2, slug: "red", name: "Red Team", points: 65, members: ["bob", "cyd"] },
-    ]);
-    expect(result.capabilities.teams).toBe(true);
+    expect(result.teams.map((t) => t.points)).toEqual([0, 0]);
   });
 
   it("attaches the team slug to member entries and leaves solo players alone", async () => {
@@ -56,25 +56,24 @@ describe("withTeamStandings", () => {
     ]);
   });
 
-  it("counts members without leaderboard entries as 0 points", async () => {
+  it("defaults captain to the first member (team-store has no captain field yet)", async () => {
+    mocks.listTeams.mockResolvedValueOnce([{ slug: "red", name: "Red Team", members: ["bob", "cyd"] }]);
+    const result = await withTeamStandings(data());
+    expect(result.teams[0].captain).toBe("bob");
+    expect(result.teams[0].members).toEqual(["bob", "cyd"]);
+  });
+
+  it("ranks teams alphabetically since no real point figure is available", async () => {
     mocks.listTeams.mockResolvedValueOnce([
-      { slug: "red", name: "Red Team", members: ["bob", "no-prs-yet"] },
+      { slug: "z", name: "Zulu", members: ["bob"] },
+      { slug: "a", name: "Alfa", members: ["cyd"] },
     ]);
     const result = await withTeamStandings(data());
-    expect(result.teams[0].points).toBe(40);
-  });
-
-  it("breaks point ties by name", async () => {
-    mocks.listTeams.mockResolvedValueOnce([
-      { slug: "z", name: "Zulu", members: ["bob"] }, // 40
-      { slug: "a", name: "Alfa", members: ["cyd", "no-prs"] }, // 25... make equal
-    ]);
-    const base = data({ entries: [entry("bob", 40), entry("cyd", 40)] });
-    const result = await withTeamStandings(base);
     expect(result.teams.map((t) => t.name)).toEqual(["Alfa", "Zulu"]);
+    expect(result.teams.map((t) => t.rank)).toEqual([1, 2]);
   });
 
-  it("no-ops when the source already provides teams (mock)", async () => {
+  it("no-ops when the source already provides deduped teams (mock/lambda/scorer path)", async () => {
     const base = data({ capabilities: { apps: true, teams: true, challenges: true } });
     const result = await withTeamStandings(base);
     expect(result).toBe(base);

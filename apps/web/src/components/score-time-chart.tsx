@@ -1,12 +1,14 @@
-// Leaderboard line chart — top-10 players' cumulative score over time,
-// rendered above the leaderboard table (see the leaderboard page).
+// Leaderboard line chart — top contestants' (or top teams') cumulative score
+// over time, rendered inside the leaderboard, above the table/rows.
 //
-// Deliberately NOT a client component: it's a static SVG with no
-// interactivity (no hover tooltip/crosshair — see the dataviz skill's
-// interaction guidance, which this intentionally trades away for v1 so the
-// leaderboard page doesn't need a client boundary just for this chart).
-// Server-rendered once per request; never hydrated, so nothing here needs to
-// produce byte-identical client/server markup.
+// This component itself holds no state and has no interactivity of its own
+// (no hover tooltip/crosshair — see the dataviz skill's interaction
+// guidance, which this intentionally trades away for v1): it's a pure
+// function of its `series`/`teamSeries` props, a static SVG either way.
+// It's nested inside <Leaderboard> (a client component) so it can switch
+// between the player and team series as the view toggle flips; nothing here
+// depends on browser-only APIs, so it renders identically server- or
+// client-side and needs no client/server markup reconciliation of its own.
 //
 // Colors: the dataviz skill's validated default categorical palette (dark
 // steps), re-validated with the skill's validator against this app's actual
@@ -14,7 +16,7 @@
 // eight slots clear the lightness/chroma/CVD/contrast gates in fixed order.
 // A 9th+ line is never a generated hue (the skill's #1 anti-pattern): ranks
 // 9-10 fold into a single shared muted "Other" entry instead.
-import type { PlayerSeries } from "@/lib/leaderboard/types";
+import type { PlayerSeries, SeriesPoint, TeamSeries } from "@/lib/leaderboard/types";
 
 const SERIES_COLORS = [
   "#3987e5", // 1 blue
@@ -58,19 +60,25 @@ function formatTimeTick(ms: number): string {
   });
 }
 
+/** Series-agnostic input to the shared chart core: a player's login or a
+ *  team's name/slug, either way just a labeled, keyed point history. */
+type ChartSeries = { key: string; label: string; points: SeriesPoint[] };
+
 type PlottedLine = {
-  login: string;
+  key: string;
+  label: string;
   color: string;
   path: string | null; // null when there's only one point — a path would be degenerate
   points: { x: number; y: number }[];
 };
 
-export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) {
-  // No rubric (declarative-only deployment) or an older scorer that doesn't
-  // send series at all — hide entirely rather than show a broken/empty chart.
-  if (!series || series.length === 0) return null;
-
-  const withPoints = series.filter((s) => s.points.length > 0);
+/** The shared SVG line chart: series-agnostic core reused by both the player
+ *  and team entry points below, so hue assignment, the "Other" fold, and
+ *  axis logic stay in one place regardless of what's being plotted.
+ *  `noun` is the singular unit name used in the heading/legend copy
+ *  ("contestant" or "team"). */
+function renderChart(entries: ChartSeries[], noun: string) {
+  const withPoints = entries.filter((s) => s.points.length > 0);
   if (withPoints.length === 0) return null;
 
   const allTimes = withPoints.flatMap((s) => s.points.map((p) => Date.parse(p.t))).filter(Number.isFinite);
@@ -114,7 +122,7 @@ export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) 
       .map((p) => ({ x: x(Date.parse(p.t)), y: y(p.score) }));
     const path =
       points.length >= 2 ? points.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ") : null;
-    return { login: s.login, color, path, points };
+    return { key: s.key, label: s.label, color, path, points };
   });
 
   const foldedCount = Math.max(0, lines.length - SERIES_COLORS.length);
@@ -126,7 +134,8 @@ export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) 
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Score over time</h2>
         <span className="text-xs text-muted">
-          Top {lines.length} contestant{lines.length === 1 ? "" : "s"}
+          Top {lines.length} {noun}
+          {lines.length === 1 ? "" : "s"}
         </span>
       </div>
 
@@ -134,7 +143,7 @@ export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) 
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
-          aria-label={`Cumulative score over time for the top ${lines.length} contestant${lines.length === 1 ? "" : "s"}`}
+          aria-label={`Cumulative score over time for the top ${lines.length} ${noun}${lines.length === 1 ? "" : "s"}`}
           className="h-auto w-full min-w-[480px]"
         >
           <title>Score over time</title>
@@ -204,7 +213,7 @@ export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) 
               zero/one-vertex path, which would be a degenerate no-op line
               anyway. */}
           {lines.map((line) => (
-            <g key={line.login}>
+            <g key={line.key}>
               {line.path && (
                 <path d={line.path} fill="none" stroke={line.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
               )}
@@ -222,9 +231,9 @@ export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) 
       {lines.length > 1 && (
         <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
           {lines.slice(0, SERIES_COLORS.length).map((line) => (
-            <li key={line.login} className="flex items-center gap-1.5">
+            <li key={line.key} className="flex items-center gap-1.5">
               <span aria-hidden="true" className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: line.color }} />
-              <span className="font-mono text-zinc-300">{line.login}</span>
+              <span className="font-mono text-zinc-300">{line.label}</span>
             </li>
           ))}
           {foldedCount > 0 && (
@@ -236,5 +245,32 @@ export default function ScoreTimeChart({ series }: { series?: PlayerSeries[] }) 
         </ul>
       )}
     </div>
+  );
+}
+
+/** Server-rendered leaderboard chart: plots either the top-10 players'
+ *  cumulative score (`series`) or per-team totals (`teamSeries`) — never
+ *  both at once. The leaderboard passes whichever matches its active view
+ *  ("individual" vs "teams"), leaving the other prop undefined. `teamSeries`
+ *  wins if both happen to be supplied. */
+export default function ScoreTimeChart({
+  series,
+  teamSeries,
+}: {
+  series?: PlayerSeries[];
+  teamSeries?: TeamSeries[];
+}) {
+  if (teamSeries) {
+    return renderChart(
+      teamSeries.map((t) => ({ key: t.slug, label: t.name, points: t.points })),
+      "team",
+    );
+  }
+  // No rubric (declarative-only deployment) or an older scorer that doesn't
+  // send series at all — hide entirely rather than show a broken/empty chart.
+  if (!series || series.length === 0) return null;
+  return renderChart(
+    series.map((s) => ({ key: s.login, label: s.login, points: s.points })),
+    "contestant",
   );
 }
