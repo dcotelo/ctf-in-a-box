@@ -290,7 +290,10 @@ export async function transferCaptain(
   toMemberLogin: string,
 ): Promise<TeamActionResult> {
   if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
-  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+  // NOT gated by the registration window: transfer is an EXIT for a captain who
+  // wants to leave. leaveTeam tells a populated-team captain to transfer or
+  // disband first; if the organizer has since closed registration, gating those
+  // two would trap the captain with no way out for the rest of the event.
   const verdict = await upstashEval(
     TRANSFER_CAPTAIN_SCRIPT,
     [teamKey(slug), membersKey(slug)],
@@ -306,7 +309,8 @@ export async function transferCaptain(
  *  deleting the team's keys, including its join-code reverse index. */
 export async function disbandTeam(captainLogin: string, slug: string): Promise<TeamActionResult> {
   if (!TEAM_WRITES_ENABLED) return { ok: false, error: NOT_AVAILABLE_IN_DEMO_MODE };
-  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+  // NOT gated by the registration window — disband is an exit for a captain (see
+  // transferCaptain). Gating it would trap a captain when registration closes.
   const [codeRes] = await upstashPipeline([["HGET", teamKey(slug), "joinCode"]]);
   const currentCode = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : "";
 

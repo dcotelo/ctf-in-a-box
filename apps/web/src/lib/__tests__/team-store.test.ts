@@ -250,20 +250,28 @@ describe("registration window", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
-  it("rejects every captain action when registration is closed", async () => {
+  it("rejects roster-growth captain actions when registration is closed", async () => {
     const store = await loadStore(true);
     const closed = { ok: false, error: "Team registration is closed" };
     for (const call of [
       () => store.removeMember("captain", "red-team", "member2"),
       () => store.renameTeam("captain", "red-team", "New Name"),
-      () => store.transferCaptain("captain", "red-team", "member2"),
-      () => store.disbandTeam("captain", "red-team"),
       () => store.regenerateCode("captain", "red-team"),
     ]) {
       mockRegistrationClosed();
       expect(await call()).toEqual(closed);
     }
     expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("still allows transfer and disband when registration is closed (a captain must never be trapped)", async () => {
+    const store = await loadStore(true);
+    // Neither reads the registration window, so no mockRegistration* is queued.
+    mocks.upstashEval.mockResolvedValueOnce("ok"); // transfer
+    expect(await store.transferCaptain("captain", "red-team", "member2")).toEqual({ ok: true, team: "red-team" });
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "abc123" }]); // disband's joinCode HGET
+    mocks.upstashEval.mockResolvedValueOnce("ok"); // disband
+    expect(await store.disbandTeam("captain", "red-team")).toEqual({ ok: true, team: null });
   });
 
   it("allows createTeam when registration is open (field absent)", async () => {
@@ -334,7 +342,6 @@ describe("leaveTeam", () => {
 
   it("lets the old captain leave after transferring captaincy", async () => {
     const store = await loadStore(true);
-    mockRegistrationOpen();
     mocks.upstashEval.mockResolvedValueOnce("ok");
     const transferResult = await store.transferCaptain("captain", "red-team", "member2");
     expect(transferResult).toEqual({ ok: true, team: "red-team" });
@@ -419,7 +426,6 @@ describe("captain guard", () => {
 
   it("rejects transferCaptain from a non-captain", async () => {
     const store = await loadStore(true);
-    mockRegistrationOpen();
     mocks.upstashEval.mockResolvedValueOnce("not-captain");
     const result = await store.transferCaptain("intruder", "red-team", "member2");
     expect(result).toEqual({ ok: false, error: "Only the team captain can do that" });
@@ -427,7 +433,6 @@ describe("captain guard", () => {
 
   it("rejects disbandTeam from a non-captain", async () => {
     const store = await loadStore(true);
-    mockRegistrationOpen();
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: "abc123" }]);
     mocks.upstashEval.mockResolvedValueOnce("not-captain");
     const result = await store.disbandTeam("intruder", "red-team");
@@ -506,7 +511,6 @@ describe("captain roster actions", () => {
 
   it("transfers captaincy to a current member", async () => {
     const store = await loadStore(true);
-    mockRegistrationOpen();
     mocks.upstashEval.mockResolvedValueOnce("ok");
     const result = await store.transferCaptain("captain", "red-team", "member2");
     expect(result).toEqual({ ok: true, team: "red-team" });
@@ -517,7 +521,6 @@ describe("captain roster actions", () => {
 
   it("rejects transferring to someone not on the team", async () => {
     const store = await loadStore(true);
-    mockRegistrationOpen();
     mocks.upstashEval.mockResolvedValueOnce("not-member");
     const result = await store.transferCaptain("captain", "red-team", "ghost");
     expect(result).toEqual({ ok: false, error: '"ghost" is not on this team' });
@@ -525,7 +528,6 @@ describe("captain roster actions", () => {
 
   it("disbands the team and clears its join code", async () => {
     const store = await loadStore(true);
-    mockRegistrationOpen();
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: "abc123" }]);
     mocks.upstashEval.mockResolvedValueOnce("ok");
     const result = await store.disbandTeam("captain", "red-team");
