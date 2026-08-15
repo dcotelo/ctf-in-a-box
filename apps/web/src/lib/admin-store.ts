@@ -12,9 +12,40 @@ export type AdminSettings = {
   hintsEnabled: boolean | null;
   hintCost: number | null;
   teamRegistrationOpen: boolean;
+  // Scheduled "auto dates" — nullable ISO instants. Absent = no bound.
+  // scoring* gates the freeze (before start / after end = paused); registration*
+  // gates team create/join. Enforced at READ time (no scheduler on the box):
+  // see effectivePaused / effectiveRegistrationOpen, mirrored in the scorer
+  // (store.js), sync poller (redis.js), and team-store.
+  scoringStartsAt: string | null;
+  scoringEndsAt: string | null;
+  registrationStartsAt: string | null;
+  registrationEndsAt: string | null;
   updatedBy: string | null;
   updatedAt: string | null;
 };
+
+/** True when a scheduled window puts `now` outside [startsAt, endsAt].
+ *  Unparseable/absent bounds are ignored (treated as no bound) so a bad
+ *  value can never wedge scoring off. Kept identical in scorer/store.js and
+ *  sync/redis.js — change all three together. */
+export function outsideWindow(nowMs: number, startsAt: string | null, endsAt: string | null): boolean {
+  const s = startsAt ? Date.parse(startsAt) : NaN;
+  const e = endsAt ? Date.parse(endsAt) : NaN;
+  if (Number.isFinite(s) && nowMs < s) return true;
+  if (Number.isFinite(e) && nowMs > e) return true;
+  return false;
+}
+
+/** Effective scoring freeze: the manual toggle OR the scheduled window. */
+export function effectivePaused(s: AdminSettings, nowMs: number = Date.now()): boolean {
+  return s.paused || outsideWindow(nowMs, s.scoringStartsAt, s.scoringEndsAt);
+}
+
+/** Effective registration state: the manual toggle AND inside the window. */
+export function effectiveRegistrationOpen(s: AdminSettings, nowMs: number = Date.now()): boolean {
+  return s.teamRegistrationOpen && !outsideWindow(nowMs, s.registrationStartsAt, s.registrationEndsAt);
+}
 
 export type SyncStatus = {
   lastPollAt: string | null;
@@ -29,7 +60,14 @@ export type SettingsPatch = {
   hintsEnabled?: boolean;
   hintCost?: number;
   teamRegistrationOpen?: boolean;
+  // ISO instant to set the bound, or null/"" to clear it.
+  scoringStartsAt?: string | null;
+  scoringEndsAt?: string | null;
+  registrationStartsAt?: string | null;
+  registrationEndsAt?: string | null;
 };
+
+const SCHEDULE_FIELDS = ["scoringStartsAt", "scoringEndsAt", "registrationStartsAt", "registrationEndsAt"] as const;
 
 export class AdminValidationError extends Error {
   field: string;
@@ -58,6 +96,10 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
     hintCost: h.hintCost === undefined ? null : Number(h.hintCost),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
+    scoringStartsAt: h.scoringStartsAt ?? null,
+    scoringEndsAt: h.scoringEndsAt ?? null,
+    registrationStartsAt: h.registrationStartsAt ?? null,
+    registrationEndsAt: h.registrationEndsAt ?? null,
     updatedBy: h.updatedBy ?? null,
     updatedAt: h.updatedAt ?? null,
   };
@@ -129,6 +171,20 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       }
       fields.push(k, String(v));
       changed[k] = v;
+    } else if ((SCHEDULE_FIELDS as readonly string[]).includes(k)) {
+      // Nullable ISO bound: null/"" clears it (HDEL); a value must parse as a
+      // date and is stored normalised to its ISO-8601 UTC form.
+      if (v === null || v === "") {
+        dels.push(k);
+        changed[k] = null as unknown as boolean;
+      } else {
+        if (typeof v !== "string") throw new AdminValidationError(k, `${k} must be an ISO date string or null`);
+        const ms = Date.parse(v);
+        if (!Number.isFinite(ms)) throw new AdminValidationError(k, `${k} must be a valid ISO date string`);
+        const iso = new Date(ms).toISOString();
+        fields.push(k, iso);
+        changed[k] = iso as unknown as boolean;
+      }
     } else {
       throw new AdminValidationError(k, `unknown setting: ${k}`);
     }

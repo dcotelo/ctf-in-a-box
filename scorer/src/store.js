@@ -9,6 +9,18 @@ const solveField = (author, id) => `${author}:${id}`;
 // (sync/src/redis.js) reads — "1" means paused, anything else does not.
 const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 
+// Scheduled scoring window: true when `now` is before start / after end.
+// Absent or unparseable bounds are ignored (no bound). Mirrors apps/web
+// admin-store.ts outsideWindow and sync/src/redis.js — change all three
+// together.
+export function outsideWindow(nowMs, startsAt, endsAt) {
+  const s = startsAt ? Date.parse(startsAt) : NaN;
+  const e = endsAt ? Date.parse(endsAt) : NaN;
+  if (Number.isFinite(s) && nowMs < s) return true;
+  if (Number.isFinite(e) && nowMs > e) return true;
+  return false;
+}
+
 export function createMemoryStore({ teams = [] } = {}) {
   const hashes = new Map(); // key -> Map(field -> ISO timestamp)
   let paused = false; // test seam mirroring ctf:admin:settings.paused
@@ -82,8 +94,15 @@ export function createRedisStore({
     },
     async isPaused() {
       try {
-        const [v] = await pipeline([["HGET", ADMIN_SETTINGS_KEY, "paused"]]);
-        return v === "1";
+        // Effective freeze = the manual toggle OR the scheduled scoring window
+        // (before start / after end). Mirrors apps/web admin-store's
+        // effectivePaused + sync/src/redis.js — keep the three in lockstep.
+        const [row] = await pipeline([
+          ["HMGET", ADMIN_SETTINGS_KEY, "paused", "scoringStartsAt", "scoringEndsAt"],
+        ]);
+        const [paused, startsAt, endsAt] = Array.isArray(row) ? row : [];
+        if (paused === "1") return true;
+        return outsideWindow(Date.now(), startsAt, endsAt);
       } catch {
         // Fail OPEN, not closed: this is a live-scoring endpoint, not an
         // authz gate. A Redis blip must never silently drop real submissions

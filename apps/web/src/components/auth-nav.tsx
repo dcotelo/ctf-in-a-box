@@ -10,6 +10,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { eventConfig } from "@/lib/event-config";
+
+// Client-side admin check for menu VISIBILITY only. The allowlist is baked
+// into the config (public GitHub logins, not a secret); the real gate is
+// server-side in requireAdmin(), so showing the item to a non-admin — or
+// hiding it from an admin — never grants or denies access, it only affects
+// the menu. Mirrors admin-auth.ts's case-insensitive compare.
+const adminSet = new Set(eventConfig.admins.map((a) => a.toLowerCase()));
+const isAdminLogin = (login: string | undefined) =>
+  typeof login === "string" && adminSet.has(login.toLowerCase());
 
 export default function AuthNav() {
   const { data: session, isPending } = authClient.useSession();
@@ -33,6 +43,7 @@ export default function AuthNav() {
   }
 
   const login = (session.user as { login?: string }).login ?? session.user.name;
+  const showAdmin = isAdminLogin((session.user as { login?: string }).login);
 
   return (
     <div className="relative flex-none">
@@ -67,6 +78,15 @@ export default function AuthNav() {
           >
             Profile
           </Link>
+          {showAdmin && (
+            <Link
+              href="/admin"
+              role="menuitem"
+              className="block px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+            >
+              Admin
+            </Link>
+          )}
           <button
             type="button"
             role="menuitem"

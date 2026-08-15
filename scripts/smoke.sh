@@ -112,4 +112,24 @@ curl -sf http://localhost:4000/leaderboard | grep -q '"author":"trinity","points
 compose exec -T redis redis-cli HGET ctf:sync:status paused 2>/dev/null | grep -q '^0$' \
   || { echo "FAIL: ctf:sync:status paused was not 0 after resuming"; exit 1; }
 
+# The scheduled scoring window (admin "auto dates") must freeze ingestion the
+# same way the manual toggle does — the poller's isPaused() honors both. Set a
+# scoringEndsAt in the past directly on the hash the poller reads
+# (sync/src/redis.js), same read path as the dashboard's write.
+echo "--- scheduled scoring window (past end) holds ingestion"
+compose exec -T redis redis-cli HSET ctf:admin:settings scoringEndsAt "2000-01-01T00:00:00.000Z" >/dev/null
+win_deadline=$((SECONDS + 15))
+until compose exec -T redis redis-cli HGET ctf:sync:status paused 2>/dev/null | grep -q '^1$'; do
+  [ "$SECONDS" -ge "$win_deadline" ] && { echo "FAIL: scheduled window did not pause the poller"; compose logs sync; exit 1; }
+  sleep 1
+done
+
+echo "--- clearing the window resumes ingestion"
+compose exec -T redis redis-cli HDEL ctf:admin:settings scoringEndsAt >/dev/null
+resume2_deadline=$((SECONDS + 15))
+until compose exec -T redis redis-cli HGET ctf:sync:status paused 2>/dev/null | grep -q '^0$'; do
+  [ "$SECONDS" -ge "$resume2_deadline" ] && { echo "FAIL: poller did not resume after clearing the window"; compose logs sync; exit 1; }
+  sleep 1
+done
+
 echo "SMOKE PASS"

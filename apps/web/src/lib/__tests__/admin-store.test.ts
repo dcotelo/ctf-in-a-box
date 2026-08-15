@@ -9,9 +9,13 @@ vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipelin
 
 import {
   AdminValidationError,
+  effectivePaused,
+  effectiveRegistrationOpen,
   getAdminSettings,
   getSyncStatus,
+  outsideWindow,
   updateAdminSettings,
+  type AdminSettings,
 } from "@/lib/admin-store";
 
 beforeEach(() => {
@@ -23,7 +27,9 @@ describe("getAdminSettings", () => {
   it("fills defaults for an empty hash", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
     expect(await getAdminSettings()).toEqual({
-      paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true, updatedBy: null, updatedAt: null,
+      paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
+      scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
+      updatedBy: null, updatedAt: null,
     });
   });
 
@@ -32,7 +38,9 @@ describe("getAdminSettings", () => {
       result: ["paused", "1", "hintsEnabled", "0", "hintCost", "25", "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"],
     }]);
     expect(await getAdminSettings()).toEqual({
-      paused: true, hintsEnabled: false, hintCost: 25, teamRegistrationOpen: true, updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
+      paused: true, hintsEnabled: false, hintCost: 25, teamRegistrationOpen: true,
+      scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
+      updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
     });
   });
 
@@ -153,5 +161,60 @@ describe("getSyncStatus", () => {
     expect(await getSyncStatus()).toEqual({
       lastPollAt: "2026-08-14T00:00:00Z", lastError: null, ingested: 12, reposPolled: 3, paused: false,
     });
+  });
+});
+
+describe("scheduled windows", () => {
+  const base: AdminSettings = {
+    paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
+    scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
+    updatedBy: null, updatedAt: null,
+  };
+  const T = (iso: string) => Date.parse(iso);
+
+  it("outsideWindow: before start, after end, inside, unbounded", () => {
+    const s = "2026-01-01T00:00:00Z", e = "2026-01-02T00:00:00Z";
+    expect(outsideWindow(T("2025-12-31T23:59:00Z"), s, e)).toBe(true);  // before start
+    expect(outsideWindow(T("2026-01-02T00:01:00Z"), s, e)).toBe(true);  // after end
+    expect(outsideWindow(T("2026-01-01T12:00:00Z"), s, e)).toBe(false); // inside
+    expect(outsideWindow(T("2026-01-01T12:00:00Z"), null, null)).toBe(false); // no bounds
+    expect(outsideWindow(T("2026-01-01T12:00:00Z"), "not-a-date", "also-bad")).toBe(false); // ignored
+  });
+
+  it("effectivePaused: manual OR outside the scoring window", () => {
+    const now = T("2026-01-01T12:00:00Z");
+    expect(effectivePaused({ ...base, paused: true }, now)).toBe(true); // manual wins
+    expect(effectivePaused({ ...base, scoringStartsAt: "2026-01-02T00:00:00Z" }, now)).toBe(true); // before start
+    expect(effectivePaused({ ...base, scoringEndsAt: "2026-01-01T00:00:00Z" }, now)).toBe(true);   // after end
+    expect(effectivePaused({ ...base, scoringStartsAt: "2026-01-01T00:00:00Z", scoringEndsAt: "2026-01-02T00:00:00Z" }, now)).toBe(false); // inside
+  });
+
+  it("effectiveRegistrationOpen: manual AND inside the registration window", () => {
+    const now = T("2026-01-01T12:00:00Z");
+    expect(effectiveRegistrationOpen({ ...base, teamRegistrationOpen: false }, now)).toBe(false); // manual close wins
+    expect(effectiveRegistrationOpen({ ...base, registrationEndsAt: "2026-01-01T00:00:00Z" }, now)).toBe(false); // after end
+    expect(effectiveRegistrationOpen({ ...base, registrationStartsAt: "2026-01-01T00:00:00Z", registrationEndsAt: "2026-01-02T00:00:00Z" }, now)).toBe(true); // inside
+  });
+
+  it("updateAdminSettings: valid ISO is stored normalised (HSET); null clears (HDEL)", async () => {
+    mocks.upstashEval.mockResolvedValue(["scoringStartsAt", "2026-01-01T00:00:00.000Z", "updatedBy", "a", "updatedAt", "x"]);
+    await updateAdminSettings({ scoringStartsAt: "2026-01-01T00:00:00Z" }, "a");
+    let [, , args] = mocks.upstashEval.mock.calls[0];
+    let strArgs = args.map(String);
+    const idx = strArgs.indexOf("scoringStartsAt");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe("2026-01-01T00:00:00.000Z"); // normalised ISO
+
+    mocks.upstashEval.mockClear();
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "a", "updatedAt", "x"]);
+    await updateAdminSettings({ scoringEndsAt: null }, "a");
+    [, , args] = mocks.upstashEval.mock.calls[0];
+    strArgs = args.map(String);
+    expect(strArgs[4]).toBe("1"); // numDels = 1
+    expect(strArgs.slice(5, 6)).toContain("scoringEndsAt"); // the del target
+  });
+
+  it("updateAdminSettings: rejects an unparseable date", async () => {
+    await expect(updateAdminSettings({ scoringStartsAt: "not-a-date" }, "a")).rejects.toThrow(AdminValidationError);
   });
 });
