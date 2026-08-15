@@ -97,6 +97,28 @@ suggestions.
   score 0 on every challenge. Watch for vacuous passes: a test that "blocks"
   an exploit only because the app wasn't actually up/reachable yet looks
   like a pass but proves nothing.
+- **The app bakes `event.yaml` at BUILD time via the `EVENT_CONFIG_B64`
+  build-arg.** Building the app without it (`docker compose build app` with the
+  arg unset) silently yields neutral defaults — an empty `admins` list (so
+  `/admin` 403s for everyone) and generic branding. Always bring the box up as
+  `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose
+  --profile poll --profile app up -d --build app`. `scripts/dev-stack` already
+  does this.
+- **The score-comment marker is trust-authoritative — it must only ever come
+  from the judge's own output, never from the PR checkout.** The sync poller
+  ingests any `<!-- ctf-score: {json} -->` marker in a `github-actions[bot]`
+  comment as real points. The judge writes its report to `CTF_OUT_DIR` (a dir
+  OUTSIDE the PR checkout), and the workflow's final-comment step reads it only
+  from there and only when the scorer step succeeded. Never post
+  checkout-derived content as the bot, and never gate that post on
+  `if: always()` without an outcome check — either reopens the score-forge.
+- **The pause/schedule contract lives in THREE readers — change them in
+  lockstep.** `effectivePaused`/`outsideWindow` (freeze + scheduled scoring
+  window) is implemented independently in `apps/web/src/lib/admin-store.ts`,
+  `scorer/src/store.js`, and `sync/src/redis.js`; registration windows in
+  `team-store.ts`. They read the same `ctf:admin:settings` fields and must
+  agree. Manual-freeze reads fail **open** (a Redis blip must not drop live
+  submissions); keep that.
 - **Do not commit `docs/superpowers/`.** It's gitignored planning/spec/plan
   scratch space, not shipped documentation.
 
