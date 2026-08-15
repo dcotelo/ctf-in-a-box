@@ -8,6 +8,7 @@
 <p align="center">
   <a href="https://github.com/dcotelo/ctf-in-a-box/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/dcotelo/ctf-in-a-box/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://dcotelo.github.io/ctf-in-a-box/"><img alt="docs" src="https://img.shields.io/badge/docs-github%20pages-blue"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="6 targets" src="https://img.shields.io/badge/targets-6-brightgreen">
   <img alt="321 challenges" src="https://img.shields.io/badge/challenges-321-brightgreen">
   <img alt="requires docker compose v2" src="https://img.shields.io/badge/requires-docker%20compose%20v2-lightgrey">
@@ -232,3 +233,8 @@ in [docs/decisions.md](docs/decisions.md).
 | [docs/decisions.md](docs/decisions.md) | Why it is built this way instead of the alternatives |
 
 Rendered at **[dcotelo.github.io/ctf-in-a-box](https://dcotelo.github.io/ctf-in-a-box/)**.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The vendored target apps under the rubric keep
+their own upstream licenses.

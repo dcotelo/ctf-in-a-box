@@ -1,0 +1,3 @@
+# Ownership re-points to OWASP maintainers when this repo transfers to the
+# OWASP GitHub org. Until then, all paths default to the current maintainer.
+* @dcotelo
