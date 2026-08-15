@@ -71,7 +71,8 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
     try {
       if (req.method === "POST" && req.url === "/score") return await score(req, res);
       if (req.method === "GET" && req.url.split("?")[0] === "/leaderboard") {
-        return json(res, 200, { leaderboard: await buildLeaderboard({ store, rubric, targets: targetsInPlay() }) });
+        const board = await buildLeaderboard({ store, rubric, targets: targetsInPlay() });
+        return json(res, 200, { leaderboard: board.entries, series: board.series });
       }
       if (req.method === "GET" && req.url === "/healthz") return json(res, 200, { ok: true });
       res.writeHead(404).end();
@@ -89,6 +90,20 @@ function compareLastSolve(a, b) {
   return a < b ? -1 : 1;
 }
 
+// Same-timestamp solves need a deterministic secondary order so the series is
+// reproducible: challenge id first, then target (a solve's id is only unique
+// within its target).
+function compareSolve(a, b) {
+  if (a.at !== b.at) return a.at < b.at ? -1 : 1;
+  if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+  if (a.target !== b.target) return a.target < b.target ? -1 : 1;
+  return 0;
+}
+
+// Top-N players charted in the score-over-time series (CTFd-style "top
+// players" line chart) — same cap the app's chart renders.
+const SERIES_TOP_N = 10;
+
 // Aggregates the solves hashes into the exact GET /leaderboard shape the app's
 // lambda source parses (apps/web/src/lib/leaderboard/lambda.ts):
 // { leaderboard: [{ rank, author, points, lastSolveAt, apps: { <target>:
@@ -96,8 +111,13 @@ function compareLastSolve(a, b) {
 // foreign ids (not in the rubric) are skipped so solved never exceeds total;
 // without one, every solve is 1 point and a target's total is the count of
 // distinct solved ids seen for it across all authors.
+//
+// Also returns `series`: the cumulative-score-over-time history for the top
+// SERIES_TOP_N players by final score (same ranking as `entries`), for the
+// app's leaderboard line chart. Points require a rubric — without one there is
+// no per-challenge score to accumulate, so `series` is empty.
 export async function buildLeaderboard({ store, rubric, targets }) {
-  const authors = new Map(); // author -> { points, lastSolveAt, perTarget: Map }
+  const authors = new Map(); // author -> { points, lastSolveAt, perTarget: Map, solves: [] }
   const totals = new Map(); // target -> total challenge count
   for (const target of targets) {
     const solves = await store.getSolves(target);
@@ -112,10 +132,11 @@ export async function buildLeaderboard({ store, rubric, targets }) {
       if (points === undefined) continue;
       distinct.add(id);
       let a = authors.get(author);
-      if (!a) authors.set(author, (a = { points: 0, lastSolveAt: null, perTarget: new Map() }));
+      if (!a) authors.set(author, (a = { points: 0, lastSolveAt: null, perTarget: new Map(), solves: [] }));
       a.points += points;
       if (a.lastSolveAt === null || at > a.lastSolveAt) a.lastSolveAt = at;
       a.perTarget.set(target, (a.perTarget.get(target) ?? 0) + 1);
+      a.solves.push({ at, id, target, points });
     }
     totals.set(target, known ? known.challenges.length : distinct.size);
   }
@@ -134,7 +155,20 @@ export async function buildLeaderboard({ store, rubric, targets }) {
       compareLastSolve(x.lastSolveAt, y.lastSolveAt) ||
       (x.author < y.author ? -1 : x.author > y.author ? 1 : 0),
   );
-  return entries.map((e, i) => ({ rank: i + 1, ...e }));
+  const ranked = entries.map((e, i) => ({ rank: i + 1, ...e }));
+
+  const series = rubric
+    ? ranked.slice(0, SERIES_TOP_N).map(({ author }) => {
+        const sorted = [...authors.get(author).solves].sort(compareSolve);
+        let cumulative = 0;
+        return {
+          login: author,
+          points: sorted.map((s) => ({ t: s.at, score: (cumulative += s.points) })),
+        };
+      })
+    : [];
+
+  return { entries: ranked, series };
 }
 
 export function startServer({ port = 0, ...opts }) {
