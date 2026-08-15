@@ -4,12 +4,20 @@ title: CTF-in-a-box
 
 # CTF-in-a-box
 
-**Run the OWASP Secure Development CTF at your own event** — a university, a
-high school, an OWASP chapter, a meetup — from one box and one free GitHub org.
+**A self-hosted control plane for security-learning events** — run at a
+university, a high school, an OWASP chapter, a meetup, from one box and one
+free GitHub org.
+
+CTF-in-a-box is a control plane, not a single game. It gives an event its
+shared spine — a GitHub org, team registration, a live leaderboard, an
+organizer admin panel, and the scoring pipeline that feeds it — and **modules**
+plug challenge content into that spine. The first module is the **OWASP Secure
+Development CTF**; the box is built to host further modules on the same spine.
+The [module contract](modules.md) is the boundary between platform and module.
 
 The OWASP Secure Development CTF teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
-and opens a pull request. A GitHub Action scores the patch and the score lands
+and opens a pull request. The pipeline scores the patch and the score lands
 on a **team** leaderboard.
 
 Until now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB,
@@ -21,15 +29,23 @@ scoring code to write.
 
 ## What you get
 
+**The platform** (control plane, module-independent):
+
 | Feature | What it means for you |
 |---|---|
-| **Patch-to-score scoring** | Contestants patch the vuln and open a PR; a GitHub Action scores it. Stock scores 0, a correct patch earns its points. |
-| **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI — rubrics ship in the box. |
 | **Team scoring** | Per-team standings, self-registration, captains and join codes; shared flags dedupe so they count once. |
-| **Score-over-time graph** | A CTFd-style leaderboard graph from real per-solve timestamps. |
+| **Live leaderboard + graph** | A ranked team leaderboard with a CTFd-style score-over-time graph from real per-solve timestamps. |
 | **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, toggle hints, open/close team registration. |
+| **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport a module submits scores through. |
 | **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
+
+**The Secure Development module** (first challenge pack):
+
+| Feature | What it means for you |
+|---|---|
+| **Patch-to-score scoring** | Contestants patch the vuln and open a PR; the pipeline scores it. Stock scores 0, a correct patch earns its points. |
+| **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI — rubrics ship in the box. |
 
 ## What contestants see
 
@@ -47,10 +63,11 @@ shared-flag dedupe — its total is less than its members' scores added up, beca
 solved by more than one teammate counts once. Branding is the neutral "OWASP CTF"
 default; the event name, targets, and links are event-config driven.</sup>
 
-## Targets
+## Targets (Secure Development module)
 
-Enable any subset in `event.yaml` — nine challenges for a two-hour club
-session, all 321 for a semester.
+The module's content is a set of vulnerable targets. Enable any subset in
+`event.yaml` — nine challenges for a two-hour club session, all 321 for a
+semester.
 
 | Target | Challenges | Points |
 |---|---:|---:|

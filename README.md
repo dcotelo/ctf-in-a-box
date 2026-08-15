@@ -1,8 +1,8 @@
 <h1 align="center">🛡 CTF-in-a-box</h1>
 
 <p align="center">
-  <em>Run the OWASP Secure Development CTF at your own event.<br>
-  A university, a high school, an OWASP chapter, a meetup — one box, one free GitHub org.</em>
+  <em>A self-hosted control plane for security-learning events — one box, one free GitHub org.<br>
+  Its first module runs the OWASP Secure Development CTF: for a university, a high school, an OWASP chapter, a meetup.</em>
 </p>
 
 <p align="center">
@@ -17,6 +17,15 @@
 <p align="center">
   <strong>This CTF was built for a conference. This kit is for everyone else.</strong>
 </p>
+
+**CTF-in-a-box is a control plane, not a single game.** It gives an event its
+shared spine — a GitHub org, team registration, a live leaderboard, an
+organizer admin panel, and the scoring pipeline that feeds it — and **modules**
+plug challenge content into that spine. The first module is the **OWASP Secure
+Development CTF**; the box is built to host further modules (forensics,
+API-security, cloud, …) on the same spine as they land. The
+[module contract](docs/modules.md) is the boundary between the two. What
+follows describes the platform and that first module.
 
 The OWASP Secure Development CTF teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
@@ -43,15 +52,23 @@ training day.
 
 ## What you get
 
+**The platform** — the control plane every event runs on, module-independent:
+
 | Feature | What it means for you |
 |---|---|
-| **Patch-to-score scoring** | Contestants patch the vulnerability and open a PR; a GitHub Action scores the patch. Stock scores 0, a correct patch earns its points — gated both ways. |
-| **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp and VAmPI. Rubrics ship in the box — no private image to request, no scoring code to write. |
 | **Team scoring** | Per-team standings with self-registration, captains and join codes. A flag solved by several teammates counts once (dedupe). Solo players are teams of one. |
-| **Score-over-time graph** | A CTFd-style leaderboard graph drawn from real per-solve timestamps. |
+| **Live leaderboard + score-over-time graph** | A ranked team leaderboard with a CTFd-style graph drawn from real per-solve timestamps. |
 | **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, toggle hints and their cost, open/close team registration. |
+| **Scoring pipeline** | A GitHub-Actions-fed pipeline (poll or push) with a single audited score writer — the transport a module submits scores through. |
 | **Poll or push** | Poll mode (default) has zero inbound network surface — works behind NAT, on a laptop, on venue wifi. Push mode is near-instant if you have a public URL. |
 | **One box, no cloud** | Runs from Docker Compose on a machine you already have, plus one free GitHub org. Nothing is billed, nothing phones home. |
+
+**The Secure Development module** — the first challenge pack on that platform:
+
+| Feature | What it means for you |
+|---|---|
+| **Patch-to-score scoring** | Contestants patch the vulnerability and open a PR; the pipeline scores the patch. Stock scores 0, a correct patch earns its points — gated both ways. |
+| **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp and VAmPI. Rubrics ship in the box — no private image to request, no scoring code to write. |
 
 <p align="center">
   <img alt="Team leaderboard with score-over-time graph" src="docs/assets/hero.jpg" width="820">
@@ -107,10 +124,12 @@ target from `scorer/consumer-workflow.example.yml` into `dist/workflows/` and
 tells you where to install each file, and mirrors the scorer image into your
 org's GHCR.
 
-## Targets and rubrics
+## The Secure Development module: targets and rubrics
 
-Contestants pick a target, fork the org's copy, patch it, and open a PR. Each
-target's challenges are executable `node:test` suites, priced by difficulty.
+The first module's content is a set of vulnerable **targets** and their
+scoring **rubrics**. Contestants pick a target, fork the org's copy, patch it,
+and open a PR. Each target's challenges are executable `node:test` suites,
+priced by difficulty.
 
 | Target | Challenges | Points | Notes |
 |---|---:|---:|---|
@@ -209,7 +228,7 @@ in [docs/decisions.md](docs/decisions.md).
 | [docs/operations.md](docs/operations.md) | Running an event — teams, the admin panel, verifying the kit, the local dev-stack, teardown, and status |
 | [docs/architecture.md](docs/architecture.md) | How the stack fits together — diagram, score data flow, security model, testing strategy |
 | [docs/scorer.md](docs/scorer.md) | The scorer engine: serve + judge modes, both rubric grammars, authoring and building |
-| [docs/modules.md](docs/modules.md) | The module contract — what a new CTF vertical must provide to plug in |
+| [docs/modules.md](docs/modules.md) | The module contract — the platform/module boundary, and what a new module must provide to plug into the control plane |
 | [docs/decisions.md](docs/decisions.md) | Why it is built this way instead of the alternatives |
 
 Rendered at **[dcotelo.github.io/ctf-in-a-box](https://dcotelo.github.io/ctf-in-a-box/)**.

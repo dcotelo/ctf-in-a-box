@@ -12,6 +12,29 @@ new CTF vertical must satisfy, see [docs/modules.md](modules.md). For
 day-to-day operation, see
 [README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md).
 
+## Platform and modules
+
+CTF-in-a-box is a **control plane** with **modules** plugged into it. The split
+is deliberate: the platform never knows what a challenge *is*, only how a score
+arrives and how a leaderboard renders; a module never re-implements org
+provisioning, teams, ingestion, or ranking. v1 ships one module,
+`secure-development`; the boundary is the [module contract](modules.md).
+
+| The platform (control plane) owns | A module provides |
+|---|---|
+| The disposable per-event GitHub **org** and its lifecycle (`setup/ctf-setup.sh`). | The **targets** it forks/provisions per event, and its teardown equivalents (contract §7). |
+| **Auth** (GitHub OAuth sign-in) and the **admins** allowlist. | — (uses the platform's identity). |
+| **Team** registration, roster, join codes, dedupe rollup (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
+| The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
+| **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
+| The **admin panel** runtime overrides (freeze, hints, registration) (`ctf:admin:settings`). | — (inherits the controls). |
+| **Event config** schema, top-level (`event`, `github`, `teams`, `hints`, `admins`) baked into the app (build-time flow below). | Its `modules.<name>` config block and the loader/validator entry that recognizes it (contract §1). |
+
+Everything below — the services, the score data flow, the security model — is
+the platform. Where `secure-development` fills a module slot (its targets, its
+`pull_request_target` scoring workflow, its catalogue), it is called out as the
+worked example, exactly as the module contract does.
+
 ## System overview
 
 Everything runs as one `docker-compose.yml` stack (see
