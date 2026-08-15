@@ -74,11 +74,22 @@ export type SourceCapabilities = {
   challenges: boolean;
 };
 
+/** One cumulative-score reading for a player at a point in time. */
+export type SeriesPoint = { t: string; score: number };
+
+/** A single player's cumulative-score history, ascending by time — the last
+ *  point's score equals that player's current leaderboard score. */
+export type PlayerSeries = { login: string; points: SeriesPoint[] };
+
 export type LeaderboardData = {
   entries: LeaderboardEntry[];
   teams: TeamStanding[];
   generatedAt: string;
   capabilities: SourceCapabilities;
+  /** Top-10 players' cumulative score over time, for the leaderboard line
+   *  chart. Undefined/empty when the source can't build it (upstash) or the
+   *  scorer has no rubric to derive history from — the chart hides itself. */
+  series?: PlayerSeries[];
 };
 
 export type UserProfile = {

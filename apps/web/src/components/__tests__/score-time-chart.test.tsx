@@ -1,0 +1,100 @@
+// ScoreTimeChart is a plain (server-renderable) function component with no
+// "use client" — renderToStaticMarkup (ships with react-dom) is enough to
+// check its output, same pattern as the admin page test.
+// @testing-library/react is not a dependency of this repo and must not be
+// added just for this test.
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import ScoreTimeChart from "@/components/score-time-chart";
+import type { PlayerSeries } from "@/lib/leaderboard/types";
+
+function series(overrides: Partial<Record<string, PlayerSeries["points"]>> = {}): PlayerSeries[] {
+  const base: Record<string, PlayerSeries["points"]> = {
+    alice: [
+      { t: "2026-08-01T00:00:00.000Z", score: 10 },
+      { t: "2026-08-01T04:00:00.000Z", score: 40 },
+      { t: "2026-08-01T08:00:00.000Z", score: 90 },
+    ],
+    bob: [
+      { t: "2026-08-01T01:00:00.000Z", score: 20 },
+      { t: "2026-08-01T06:00:00.000Z", score: 60 },
+    ],
+    carol: [
+      { t: "2026-08-01T02:00:00.000Z", score: 5 },
+      { t: "2026-08-01T07:00:00.000Z", score: 30 },
+      { t: "2026-08-01T08:00:00.000Z", score: 50 },
+    ],
+    ...overrides,
+  };
+  return Object.entries(base).map(([login, points]) => ({ login, points }));
+}
+
+function countOccurrences(html: string, substring: string): number {
+  return html.split(substring).length - 1;
+}
+
+describe("ScoreTimeChart", () => {
+  it("renders an svg with one line path and one legend entry per player", () => {
+    const html = renderToStaticMarkup(<ScoreTimeChart series={series()} />);
+    expect(html).toContain("<svg");
+    // One <path> per player with >=2 points (all three here).
+    expect(countOccurrences(html, "<path")).toBe(3);
+    // Legend: one entry per login.
+    expect(html).toContain("alice");
+    expect(html).toContain("bob");
+    expect(html).toContain("carol");
+  });
+
+  it("renders nothing for undefined series", () => {
+    const html = renderToStaticMarkup(<ScoreTimeChart series={undefined} />);
+    expect(html).toBe("");
+  });
+
+  it("renders nothing for an empty series array", () => {
+    const html = renderToStaticMarkup(<ScoreTimeChart series={[]} />);
+    expect(html).toBe("");
+  });
+
+  it("renders nothing when every player has zero points", () => {
+    const html = renderToStaticMarkup(<ScoreTimeChart series={[{ login: "alice", points: [] }]} />);
+    expect(html).toBe("");
+  });
+
+  it("does not crash on a single-point series and skips its path", () => {
+    const withSinglePoint = series({
+      dave: [{ t: "2026-08-01T05:00:00.000Z", score: 15 }],
+    });
+    const html = renderToStaticMarkup(<ScoreTimeChart series={withSinglePoint} />);
+    expect(html).toContain("<svg");
+    // Three multi-point players still get a path; dave (1 point) does not.
+    expect(countOccurrences(html, "<path")).toBe(3);
+    // dave still shows up as a marker + legend entry, not a broken line.
+    expect(html).toContain("dave");
+  });
+
+  it("shows a note instead of a broken axis when every point shares one instant", () => {
+    const html = renderToStaticMarkup(
+      <ScoreTimeChart
+        series={[
+          { login: "alice", points: [{ t: "2026-08-01T00:00:00.000Z", score: 10 }] },
+          { login: "bob", points: [{ t: "2026-08-01T00:00:00.000Z", score: 20 }] },
+        ]}
+      />,
+    );
+    expect(html).not.toContain("<svg");
+    expect(html.toLowerCase()).toMatch(/not enough|no history/);
+  });
+
+  it("folds players past the 8-color ceiling into a shared 'Other' legend entry, never a generated hue", () => {
+    const many: PlayerSeries[] = Array.from({ length: 10 }, (_, i) => ({
+      login: `player${i}`,
+      points: [
+        { t: "2026-08-01T00:00:00.000Z", score: 10 + i },
+        { t: "2026-08-01T04:00:00.000Z", score: 100 - i },
+      ],
+    }));
+    const html = renderToStaticMarkup(<ScoreTimeChart series={many} />);
+    expect(countOccurrences(html, "<path")).toBe(10);
+    expect(html).toContain("+2 more");
+  });
+});

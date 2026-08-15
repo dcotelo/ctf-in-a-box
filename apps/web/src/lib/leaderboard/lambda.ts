@@ -2,12 +2,16 @@ import "server-only";
 import type { AppId } from "@/lib/apps";
 import { rankByStanding } from "./rank";
 import type { LeaderboardSource } from "./source";
-import type { LeaderboardData, LeaderboardEntry, UserProfile } from "./types";
+import type { LeaderboardData, LeaderboardEntry, PlayerSeries, UserProfile } from "./types";
 
 // Shape returned by the deployed Lambda's real scoring endpoint:
 // { leaderboard: [{ rank, author, points, lastSolveAt,
-//                   apps: { "juice-shop": { solved, total }, ... } }] }
+//                   apps: { "juice-shop": { solved, total }, ... } }],
+//   series: [{ login, points: [{ t, score }, ...] }, ...] }
 // There is no per-app point/max breakdown and no team concept in this source.
+// `series` is the top-10 players' cumulative-score history for the
+// leaderboard chart — read defensively since an older scorer deployment may
+// not send it at all.
 type LambdaAppProgress = { solved: number; total: number };
 type LambdaEntry = {
   rank: number;
@@ -17,7 +21,31 @@ type LambdaEntry = {
   lastSolveAt?: string | null;
   apps: Partial<Record<AppId, LambdaAppProgress>>;
 };
-type LambdaResponse = { leaderboard: LambdaEntry[] };
+// Loosely typed on purpose — this is unvalidated network input, tolerated
+// (not assumed) to match the documented `series` shape.
+type RawSeriesPoint = { t?: unknown; score?: unknown };
+type RawPlayerSeries = { login?: unknown; points?: unknown };
+type LambdaResponse = { leaderboard: LambdaEntry[]; series?: unknown };
+
+/** Defensively maps the Lambda's `series` field, tolerating it being absent,
+ *  empty, or shaped unexpectedly (an older scorer deployment). Malformed
+ *  points/players are dropped rather than throwing — a bad `series` should
+ *  never take down the leaderboard, it should just fail to chart. */
+function toSeries(raw: unknown): PlayerSeries[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const series: PlayerSeries[] = [];
+  for (const item of raw as RawPlayerSeries[]) {
+    if (!item || typeof item !== "object") continue;
+    const { login, points } = item;
+    if (typeof login !== "string" || !Array.isArray(points)) continue;
+    const validPoints = (points as RawSeriesPoint[]).filter(
+      (p): p is { t: string; score: number } =>
+        !!p && typeof p === "object" && typeof p.t === "string" && typeof p.score === "number" && Number.isFinite(p.score),
+    );
+    if (validPoints.length > 0) series.push({ login, points: validPoints });
+  }
+  return series.length > 0 ? series : undefined;
+}
 
 function toEntry(raw: LambdaEntry): LeaderboardEntry {
   const apps: LeaderboardEntry["apps"] = {};
@@ -64,6 +92,7 @@ export const lambdaSource: LeaderboardSource = {
       teams: [],
       generatedAt: new Date().toISOString(),
       capabilities: { apps: true, teams: false, challenges: false },
+      series: toSeries(data.series),
     };
   },
 
