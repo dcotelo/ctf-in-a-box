@@ -70,6 +70,8 @@ plan_step() {
     protect) echo "DRY-RUN: PUT branch protection on $org/$name:ctf (1 approving review, no force-push/deletion)" ;;
     workflow) echo "DRY-RUN: render ctf-score.yml (TARGET=$t) and PUT to $org/$name:.github/workflows/ctf-score.yml on ctf" ;;
     disable-inherited) echo "DRY-RUN: disable every workflow on $org/$name except .github/workflows/ctf-score.yml" ;;
+    pr-template) echo "DRY-RUN: PUT setup/PULL_REQUEST_TEMPLATE.md to $org/$name:.github/PULL_REQUEST_TEMPLATE.md on ctf" ;;
+    vapp-dockerfile) [ "$t" = vulnerableapp ] && echo "DRY-RUN: PUT setup/vulnerableapp.Dockerfile to $org/$name:Dockerfile on ctf" || true ;;
   esac
 }
 
@@ -92,7 +94,11 @@ check_step() {
         --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)" || return 1
       [ -z "$others" ]
       ;;
-    vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
+    pr-template) gh_ok "repos/$org/$name/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=ctf" ;;
+    vapp-dockerfile)
+      [ "$t" = vulnerableapp ] || return 0
+      gh_ok "repos/$org/$name/contents/Dockerfile?ref=ctf"
+      ;;
     *) return 1 ;;
   esac
 }
@@ -138,6 +144,13 @@ JSON
         --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null); do
         gh api -X PUT "repos/$org/$name/actions/workflows/$id/disable" >/dev/null 2>&1 || true
       done
+      ;;
+    pr-template)
+      put_contents_ctf "$org/$name" ".github/PULL_REQUEST_TEMPLATE.md" "$SCRIPT_DIR/PULL_REQUEST_TEMPLATE.md"
+      ;;
+    vapp-dockerfile)
+      [ "$t" = vulnerableapp ] || return 0
+      put_contents_ctf "$org/$name" "Dockerfile" "$SCRIPT_DIR/vulnerableapp.Dockerfile"
       ;;
   esac
 }

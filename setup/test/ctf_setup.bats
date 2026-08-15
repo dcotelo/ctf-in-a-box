@@ -332,3 +332,23 @@ EOF2
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
   [[ "$output" == *"✅ fork"* ]]
 }
+
+@test "pr-template plan + check use the ctf branch contents endpoint" {
+  run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step pr-template dvwa test-event-org'
+  echo "$output" | grep -q "PUT setup/PULL_REQUEST_TEMPLATE.md to test-event-org/DVWA:.github/PULL_REQUEST_TEMPLATE.md on ctf"
+}
+
+@test "vapp-dockerfile only plans for vulnerableapp" {
+  run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step vapp-dockerfile dvwa test-event-org; echo "---"; plan_step vapp-dockerfile vulnerableapp test-event-org'
+  [[ "$output" == *"---"* ]]
+  before="${output%%---*}"
+  # vulnerableapp must actually get the PUT line (rules out a stub that never emits).
+  echo "$output" | grep -q "PUT setup/vulnerableapp.Dockerfile to test-event-org/VulnerableApp:Dockerfile"
+  # dvwa: nothing before the separator — this is the decisive, gating check.
+  [ -z "$(echo "$before" | grep -o Dockerfile)" ]
+}
+
+@test "check_step vapp-dockerfile is satisfied (n/a) for non-vulnerableapp targets" {
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; check_step vapp-dockerfile dvwa test-event-org'
+  [ "$status" -eq 0 ]
+}
