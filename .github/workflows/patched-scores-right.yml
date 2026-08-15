@@ -74,6 +74,6 @@ jobs:
           - target: securityshepherd
             challenge: challenge-23-sqli-1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Patched ${{ matrix.target }} fork must score exactly ${{ matrix.challenge }}
         run: ./scripts/acceptance-patched.sh "${{ matrix.target }}" "${{ matrix.challenge }}"
