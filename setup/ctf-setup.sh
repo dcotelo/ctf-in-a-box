@@ -89,7 +89,7 @@ check_step() {
     disable-inherited)
       local others
       others="$(gh api "repos/$org/$name/actions/workflows" \
-        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)"
+        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)" || return 1
       [ -z "$others" ]
       ;;
     vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
@@ -127,9 +127,9 @@ JSON
       local base_url lb_url="" tmp
       base_url="$(yaml_url)"; base_url="${base_url%/}"
       case "$base_url" in http://*|https://*) lb_url="$base_url/leaderboard" ;; esac
-      tmp="$(mktemp)"; render_workflow "$org" "$t" "$(app_url_for "$t")" "$lb_url" > "$tmp"
+      tmp="$(mktemp)"; trap 'rm -f "$tmp"' RETURN
+      render_workflow "$org" "$t" "$(app_url_for "$t")" "$lb_url" > "$tmp"
       put_contents_ctf "$org/$name" ".github/workflows/ctf-score.yml" "$tmp"
-      rm -f "$tmp"
       ;;
     disable-inherited)
       local id

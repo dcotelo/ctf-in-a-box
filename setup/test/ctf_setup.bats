@@ -302,6 +302,20 @@ EOF
   [[ "$output" == *"disable every workflow"* ]]
 }
 
+@test "check_step disable-inherited fails closed when gh api errors" {
+  mkdir -p stubs
+  cat > stubs/gh <<'EOF'
+#!/usr/bin/env bash
+# canned gh: any 'api' call (e.g. actions/workflows) fails, simulating a
+# network/auth/rate-limit error — check_step must NOT read this as "satisfied".
+if [ "$1" = api ]; then exit 1; fi
+exit 0
+EOF
+  chmod +x stubs/gh
+  PATH="$(pwd)/stubs:$PATH" run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; check_step disable-inherited dvwa test-event-org'
+  [ "$status" -ne 0 ]
+}
+
 @test "doctor reports missing then done via stubbed gh" {
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
