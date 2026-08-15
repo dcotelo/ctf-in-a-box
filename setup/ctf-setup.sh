@@ -63,7 +63,12 @@ check_step() {
     fork) gh_ok "repos/$org/$name" ;;
     ctf-branch) [ "$(gh api "repos/$org/$name" --jq '.default_branch' 2>/dev/null)" = "ctf" ] ;;
     drop-old) ! gh_ok "repos/$org/$name/branches/master" && ! gh_ok "repos/$org/$name/branches/main" ;;
-    protect) gh_ok "repos/$org/$name/branches/ctf/protection" ;;
+    protect)
+      local n
+      n="$(gh api "repos/$org/$name/branches/ctf/protection" \
+        --jq '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null)" || n=0
+      [ "${n:-0}" -ge 1 ]
+      ;;
     vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
     *) return 1 ;;
   esac
