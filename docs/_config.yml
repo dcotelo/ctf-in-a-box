@@ -4,6 +4,18 @@ description: >-
   GitHub Actions scores it — one box, one free GitHub org, no cloud.
 theme: jekyll-theme-cayman
 
+# Every content page needs `layout: default` for the theme (header, nav,
+# and this stylesheet) to apply at all -- Jekyll does not wrap content in
+# a theme's layout automatically just because `theme:` is set above, and
+# none of the pages in this repo set `layout:` in their own front matter.
+# Without this, the site would render as bare unstyled HTML.
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: default
+
 # docs/superpowers is a gitignored local planning scratch dir that should
 # never end up in the repo, but exclude it here too as a second layer of
 # safety in case it's ever present when Jekyll builds.
