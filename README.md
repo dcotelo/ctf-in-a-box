@@ -121,6 +121,10 @@ target's challenges are executable `node:test` suites, priced by difficulty.
 | `juice-shop` | 38 | 141 | The only target whose difficulty runs to 6 stars |
 | `vampi` | 9 | 16 | Self-contained; the quickest end-to-end proof |
 
+<sup>Challenge/points counts are maintained by hand — re-check them after a
+`vendor-rubric.sh` bump. Reference **patches** that prove a correct fix scores
+(the positive-direction gate) live separately under [`patches/`](patches/README.md).</sup>
+
 Enable any subset in `modules.secure-development.targets`. The rubrics live in
 `scorer/rubric.owasp/`, vendored from
 [OWASP-CTF/dc34-owasp-secure-development-ctf](https://github.com/OWASP-CTF/dc34-owasp-secure-development-ctf)
