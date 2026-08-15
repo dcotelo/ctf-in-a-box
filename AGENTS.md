@@ -1,0 +1,124 @@
+# AGENTS.md
+
+Guidance for AI coding agents (and humans who want the short version) working
+in this repo. This follows the tool-agnostic [AGENTS.md](https://agents.md)
+convention: any agent operating here should read this file first.
+
+## Build/test/lint
+
+These are the authoritative commands — they match what CI runs in
+`.github/workflows/ci.yml` exactly. Node 22 is used across the board.
+
+**sync** (poll/push transport service):
+
+```sh
+cd sync && npm ci && npm test
+```
+
+**scorer** (judge + leaderboard engine):
+
+```sh
+cd scorer && npm ci && npm test
+./scripts/acceptance-scorer.sh
+```
+
+**app** (contestant web app):
+
+```sh
+cd apps/web
+corepack enable
+corepack pnpm install --frozen-lockfile
+corepack pnpm test
+```
+
+CI also runs a production build (`corepack pnpm build`, with dummy
+`BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`) and `./scripts/acceptance-app.sh`
+after the test step — run those too if you touched build-affecting config.
+
+**shell / setup** (provisioning and automation scripts):
+
+```sh
+shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh
+bats setup/test/
+```
+
+(CI additionally lints `scorer/entrypoints/*.sh` as POSIX `sh` fragments with
+`shellcheck -s sh --exclude=SC2034` — those are sourced by `entrypoint.sh`,
+never run standalone.)
+
+**smoke** (full stack):
+
+```sh
+./scripts/smoke.sh
+```
+
+## CI
+
+`.github/workflows/ci.yml` has a `changes` job that path-filters which areas
+a PR touches, and every other job `needs: changes` and is gated on that
+job's output — a job for an untouched area is *skipped* (which still
+satisfies a required check), not run needlessly. A push to `main` (i.e.
+post-merge) always sets every area `true`, so `main` gets the full run as a
+safety net regardless of what the merged PR touched.
+
+Two heavier workflows, `stock-scores-zero.yml` and `patched-scores-right.yml`,
+are scoped with their own `paths:` filters to judge-relevant scorer inputs
+(rubrics, judge/exec/probe/catalogue source, the scorer Dockerfile/entrypoint)
+rather than the full `scorer/` tree — they run real target containers, so
+they're reserved for changes that could actually move the score.
+
+## Conventions & gotchas
+
+These are real failure modes this project has hit — treat them as rules, not
+suggestions.
+
+- **Commits.** Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`,
+  `chore:`, `ci:`, ...). No AI attribution — no "Generated with", no
+  `Co-authored-by:` trailers for an AI tool or agent.
+- **Bash (`setup/`, `scripts/`) must be bash-3.2/macOS compatible.** No
+  `jq` or `python` on the provisioning path (`gh api --jq ...` is fine —
+  that's `gh`'s own built-in JSON filtering, not a `jq` dependency). Quote
+  your expansions. **Avoid `A && B || C`** — CI's shellcheck flags this as
+  SC2015 (the `C` branch also runs if `B` fails); use `if ...; then ...; fi`
+  instead.
+- **bats assertions must be the test's last statement to gate pass/fail.** A
+  `[[ ... ]]` conditional, or a `! ... | grep ...` pipeline, that is *not*
+  the final statement in a `@test` block does **not** fail the test on a bad
+  result — bash's `!` prefix combined with a non-last compound command is
+  errexit-exempt, so the shell just keeps going. Make the decisive check the
+  last thing in the test, and prefer a form that actually exits nonzero on
+  failure: single-bracket `[ ... ]`, `[ -z "$(... | grep -F ...)" ]`, or a
+  trailing `grep -qx ...`.
+- **`ctf-setup.sh --dry-run` must make zero `gh`/`docker` calls.** Every
+  provisioning step must be idempotent (check-then-skip if already done).
+  Every `check_step` must **fail closed** — a `gh` API error or nonzero exit
+  must never be interpreted as "the step is already satisfied."
+- **Scorer stock-scores-zero invariant.** A stock, unpatched target must
+  score 0 on every challenge. Watch for vacuous passes: a test that "blocks"
+  an exploit only because the app wasn't actually up/reachable yet looks
+  like a pass but proves nothing.
+- **Do not commit `docs/superpowers/`.** It's gitignored planning/spec/plan
+  scratch space, not shipped documentation.
+
+## Repo layout
+
+- `apps/web/` — vendored Next.js contestant app (auth, teams, leaderboard,
+  admin panel). `pnpm`.
+- `scorer/` — judge + leaderboard scoring engine. Plain Node.js, `node:test`.
+- `sync/` — poll service feeding the leaderboard from score comments. Plain
+  Node.js, `node:test`.
+- `setup/` — `ctf-setup.sh` and event provisioning. Bash, `bats`.
+- `docs/` — documentation site, published via GitHub Pages.
+
+## Where to look
+
+- [`docs/architecture.md`](docs/architecture.md) — how the stack fits
+  together: diagram, score data flow, security model, testing strategy.
+- [`docs/modules.md`](docs/modules.md) — the module contract: the boundary
+  between the platform and a challenge module.
+- [`docs/scorer.md`](docs/scorer.md) — the scorer engine: serve + judge
+  modes, both rubric grammars, authoring and building rubrics.
+- [`docs/hosting.md`](docs/hosting.md) — standing the kit up: prerequisites,
+  poll vs push, OAuth app, event config.
+- [`docs/decisions.md`](docs/decisions.md) — numbered ADRs recording why the
+  kit is built this way instead of the alternatives.
