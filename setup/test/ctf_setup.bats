@@ -21,7 +21,8 @@ EOF
   echo "$output" | grep -qF ".github/workflows/ctf-score.yml on ctf"
   echo "$output" | grep -qF "disable every workflow on test-event-org/DVWA"
   echo "$output" | grep -qF "docker push ghcr.io/test-event-org/score:latest"
-  ! echo "$output" | grep -qF "OWASP-CTF/"
+  echo "$output" | grep -qF "docker image inspect --format '{{.Architecture}}' ghcr.io/myorg/custom-score:v2"
+  [ -z "$(echo "$output" | grep -F "OWASP-CTF/")" ]
   [ ! -e dist ]  # dry-run writes nothing
 }
 
@@ -45,8 +46,8 @@ EOF
   grep -q "APP_URL: http://dvwa:80" dist/workflows/dvwa.ctf-score.yml
   grep -q "APP_URL: http://vampi:5000" dist/workflows/vampi.ctf-score.yml
   # No placeholder survives rendering
-  ! grep -qE "<EVENT_ORG>|<TARGET>|<APP_URL>" dist/workflows/dvwa.ctf-score.yml
-  ! grep -qE "<EVENT_ORG>|<TARGET>|<APP_URL>" dist/workflows/vampi.ctf-score.yml
+  [ -z "$(grep -E "<EVENT_ORG>|<TARGET>|<APP_URL>" dist/workflows/dvwa.ctf-score.yml)" ]
+  [ -z "$(grep -E "<EVENT_ORG>|<TARGET>|<APP_URL>" dist/workflows/vampi.ctf-score.yml)" ]
   # The rendered workflow keeps the re-run cap (modules.md section 6.3)
   grep -q "concurrency:" dist/workflows/dvwa.ctf-score.yml
   grep -q "group: ctf-score-dvwa-" dist/workflows/dvwa.ctf-score.yml
@@ -109,8 +110,8 @@ EOF
   [ "$status" -ne 0 ]
   echo "$output" | grep -qF "event.yaml: no targets"
   # Must fail before doing anything, including the image mirror plan.
-  ! echo "$output" | grep -qF "gh repo fork"
-  ! echo "$output" | grep -qF "mirroring scorer image"
+  [ -z "$(echo "$output" | grep -F "gh repo fork")" ]
+  [ -z "$(echo "$output" | grep -F "mirroring scorer image")" ]
 }
 
 @test "org strips trailing comments from org field (HIGH fix #1)" {
