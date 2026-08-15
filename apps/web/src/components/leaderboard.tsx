@@ -198,7 +198,7 @@ function EntryRow({
 /** Exported (in addition to the page's default `Leaderboard`) purely so
  *  tests can render an expanded row directly with `isOpen` — the toggle
  *  itself only flips client-side state that a static render can't drive. */
-export function TeamRow({ team, topPoints, isOpen, onToggle }: { team: TeamStanding; topPoints: number; isOpen: boolean; onToggle: () => void }) {
+export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void }) {
   return (
     <li>
       <button
@@ -243,7 +243,7 @@ export function TeamRow({ team, topPoints, isOpen, onToggle }: { team: TeamStand
             {team.members.map((login) => (
               <span
                 key={login}
-                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#12121e] py-1 pl-1 pr-2.5 text-xs text-zinc-300"
+                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#12121e] py-1 pl-1 pr-2 text-xs text-zinc-300"
               >
                 <Avatar login={login} size={18} />
                 {login}
@@ -252,6 +252,9 @@ export function TeamRow({ team, topPoints, isOpen, onToggle }: { team: TeamStand
                     captain
                   </span>
                 )}
+                <span className="flex-none rounded-full bg-white/[0.06] px-1.5 py-0.5 font-mono tabular-nums text-[11px] text-zinc-200">
+                  {(pointsByLogin?.get(login) ?? 0).toLocaleString()} pts
+                </span>
               </span>
             ))}
           </div>
@@ -340,6 +343,13 @@ export default function Leaderboard({
   const topTeamPoints = useMemo(
     () => data.teams.reduce((max, t) => Math.max(max, t.points), 0),
     [data.teams],
+  );
+  // Each member's individual score, for the expanded team row. A member's own
+  // total can exceed their marginal contribution (the team dedupes flags two
+  // members both solved), so this is "their points", not "what they added".
+  const pointsByLogin = useMemo(
+    () => new Map(data.entries.map((e) => [e.login, e.points])),
+    [data.entries],
   );
 
   const visibleEntries = useMemo(() => {
@@ -467,6 +477,7 @@ export default function Leaderboard({
               key={team.slug}
               team={team}
               topPoints={topTeamPoints}
+              pointsByLogin={pointsByLogin}
               isOpen={expanded === team.slug}
               onToggle={() => setExpanded(expanded === team.slug ? null : team.slug)}
             />
