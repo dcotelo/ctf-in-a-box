@@ -19,24 +19,19 @@ export const REPO_NAMES = {
   vampi: "VAmPI",
 };
 
-// Poll auth: prefer a GitHub App (org-scoped, auto-expiring installation
-// tokens); fall back to a personal GITHUB_PAT. Returns a uniform async
-// getToken(fetchImpl) seam so github.js never cares which is in use.
+// Poll auth: a GitHub App (org-scoped, auto-expiring, revocable installation
+// tokens). Returns a uniform async getToken(fetchImpl) seam.
 function resolveAuth(env, apiUrl) {
-  if (env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY) {
-    const privateKey = Buffer.from(env.GITHUB_APP_PRIVATE_KEY, "base64").toString("utf8");
-    if (!privateKey.includes("PRIVATE KEY")) {
-      throw new Error("GITHUB_APP_PRIVATE_KEY must be base64-encoded PEM (a PEM private key)");
-    }
-    const installationId = env.GITHUB_APP_INSTALLATION_ID ? Number(env.GITHUB_APP_INSTALLATION_ID) : undefined;
-    const auth = makeAppAuth({ appId: env.GITHUB_APP_ID, privateKey, installationId, apiUrl });
-    return { authMode: "app", getToken: (fetchImpl) => auth.getToken(fetchImpl) };
+  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
+    throw new Error("auth: GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required (GitHub App)");
   }
-  if (env.GITHUB_PAT) {
-    const pat = env.GITHUB_PAT;
-    return { authMode: "pat", getToken: async () => pat };
+  const privateKey = Buffer.from(env.GITHUB_APP_PRIVATE_KEY, "base64").toString("utf8");
+  if (!privateKey.includes("PRIVATE KEY")) {
+    throw new Error("GITHUB_APP_PRIVATE_KEY must be base64-encoded PEM (a PEM private key)");
   }
-  throw new Error("auth: set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY (preferred) or GITHUB_PAT");
+  const installationId = env.GITHUB_APP_INSTALLATION_ID ? Number(env.GITHUB_APP_INSTALLATION_ID) : undefined;
+  const auth = makeAppAuth({ appId: env.GITHUB_APP_ID, privateKey, installationId, apiUrl });
+  return { authMode: "app", getToken: (fetchImpl) => auth.getToken(fetchImpl) };
 }
 
 export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yaml", env = process.env) {

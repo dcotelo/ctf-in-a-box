@@ -113,10 +113,11 @@ org --dry-run` previews the whole of step 3 without touching anything.
 
 `secrets` writes `.env` with a generated `BETTER_AUTH_SECRET`, `SRH_TOKEN` and
 `SCORER_TOKEN`, plus empty `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` /
-`GITHUB_PAT` for you to fill in. It refuses to overwrite an existing `.env`.
-`GITHUB_PAT` is read at runtime by the `sync` service for poll-mode comment
-polling, not by the setup script; a classic-scope PAT with repo read on the
-event org is enough.
+`GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` for you to fill in. It refuses to
+overwrite an existing `.env`. The GitHub App id and base64-encoded private key
+are read at runtime by the `sync` service for poll-mode comment polling, not
+by the setup script; create the App from `sync/app-manifest.json` and install
+it on the event org.
 
 `org` authenticates with your existing `gh auth login` session and your local
 `docker login ghcr.io`. It forks each target into the org (the targets are
@@ -199,7 +200,7 @@ Once the stack is up at your `EVENT_URL`:
 - Manage the event from `/admin` (allowlisted): freeze the leaderboard, toggle
   hints, open/close team registration.
 - When it's over, `./setup/ctf-setup.sh teardown` archives the target repos —
-  then revoke the organizer PAT and delete the org's Actions secrets yourself.
+  then uninstall the GitHub App and delete the org's Actions secrets yourself.
 
 Prerequisites, poll-vs-push, OAuth setup and config all live in
 [docs/hosting.md](docs/hosting.md); the admin panel, verifying the kit, the

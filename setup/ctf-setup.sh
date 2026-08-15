@@ -368,7 +368,6 @@ cmd_secrets() {
     echo "SCORER_TOKEN=$(openssl rand -hex 24)"
     echo "GITHUB_CLIENT_ID="
     echo "GITHUB_CLIENT_SECRET="
-    echo "GITHUB_PAT="
     echo "GITHUB_APP_ID="
     echo "GITHUB_APP_PRIVATE_KEY="
     echo "GITHUB_APP_INSTALLATION_ID="
@@ -379,7 +378,7 @@ cmd_secrets() {
     echo "# image is private and the kit does not assume access to it."
     echo "SCORE_IMAGE="
   } > "$out"
-  echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_PAT (or a GitHub App), SCORE_IMAGE"
+  echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY, SCORE_IMAGE"
 }
 
 cmd_org() {
@@ -446,7 +445,7 @@ cmd_teardown() {
     local r; r="$(prov_repo_name "$t")" || exit 1
     run gh repo archive "$org/$r" --yes
   done < <(yaml_targets)
-  echo "== revoke the organizer PAT and delete org secrets manually"
+  echo "== uninstall the GitHub App and delete org secrets manually"
 }
 
 if [ "$CMD" != "__selftest" ]; then

@@ -283,7 +283,7 @@ one worked example.
    to `ghcr.io/$org/score:latest`) so forked repos' Actions can pull it
    with their own `GITHUB_TOKEN` rather than organizer credentials.
 4. **Teardown**: `gh repo archive "$org/$r" --yes` for every target repo,
-   plus a manual reminder to revoke the organizer PAT and delete org
+   plus a manual reminder to uninstall the GitHub App and delete org
    Actions secrets — `ctf-setup.sh` does not do this automatically.
 
 A new module MUST document its own equivalent of steps 1–4: what it forks

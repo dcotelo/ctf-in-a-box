@@ -6,7 +6,10 @@ import { join } from "node:path";
 import crypto from "node:crypto";
 import { loadConfig, REPO_NAMES } from "../src/config.js";
 
-const ENV = { GITHUB_PAT: "ghp_x", SCORER_TOKEN: "s3cret" };
+const APP_KEY_B64 = Buffer.from(
+  crypto.generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey
+).toString("base64");
+const ENV = { GITHUB_APP_ID: "42", GITHUB_APP_PRIVATE_KEY: APP_KEY_B64, SCORER_TOKEN: "s3cret" };
 
 function writeYaml(text) {
   const dir = mkdtempSync(join(tmpdir(), "cfg-"));
@@ -34,7 +37,7 @@ test("rejects unknown target", () => {
 test("rejects missing org, empty targets, missing secrets", () => {
   assert.throws(() => loadConfig(writeYaml(`modules:\n  secure-development:\n    targets: [dvwa]\n`), ENV), /github.org/);
   assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: []\n`), ENV), /targets/);
-  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`), { SCORER_TOKEN: "t" }), /GITHUB_PAT/);
+  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`), { SCORER_TOKEN: "t" }), /GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required/);
 });
 
 test("REPO_NAMES maps every valid target", () => {
@@ -55,19 +58,9 @@ test("rejects missing modules section or missing secure-development", () => {
 });
 
 const YAML = `github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`;
-const b64Pem = () => Buffer.from(
-  crypto.generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey
-).toString("base64");
 
-test("pat mode: GITHUB_PAT yields authMode pat and a getToken returning the PAT", async () => {
-  const cfg = loadConfig(writeYaml(YAML), { GITHUB_PAT: "ghp_x", SCORER_TOKEN: "s" });
-  assert.equal(cfg.authMode, "pat");
-  assert.equal(await cfg.getToken(), "ghp_x");
-  assert.equal(cfg.pat, undefined); // pat is no longer surfaced
-});
-
-test("app mode: App creds win over an also-present PAT", () => {
-  const cfg = loadConfig(writeYaml(YAML), { GITHUB_APP_ID: "42", GITHUB_APP_PRIVATE_KEY: b64Pem(), GITHUB_PAT: "ghp_x", SCORER_TOKEN: "s" });
+test("app mode: App creds yield authMode app and a functional getToken", () => {
+  const cfg = loadConfig(writeYaml(YAML), { GITHUB_APP_ID: "42", GITHUB_APP_PRIVATE_KEY: APP_KEY_B64, SCORER_TOKEN: "s" });
   assert.equal(cfg.authMode, "app");
   assert.equal(typeof cfg.getToken, "function");
 });
@@ -77,6 +70,6 @@ test("rejects a non-PEM base64 private key", () => {
   assert.throws(() => loadConfig(writeYaml(YAML), { GITHUB_APP_ID: "42", GITHUB_APP_PRIVATE_KEY: notPem, SCORER_TOKEN: "s" }), /PEM private key/);
 });
 
-test("throws when neither App creds nor PAT are set", () => {
-  assert.throws(() => loadConfig(writeYaml(YAML), { SCORER_TOKEN: "s" }), /GITHUB_APP_ID .* or GITHUB_PAT/);
+test("throws when App creds are not set", () => {
+  assert.throws(() => loadConfig(writeYaml(YAML), { SCORER_TOKEN: "s" }), /GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required/);
 });

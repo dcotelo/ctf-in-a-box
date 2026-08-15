@@ -75,8 +75,8 @@ scores flowing in from GitHub.
                                   scoring Action        sync polls the event
                                   POSTs to scorer        org's forked repos'
                                   via caddy /score        issue comments via
-                                  (public URL needed)     GITHUB_PAT, then
-                                                           POSTs to scorer
+                                  (public URL needed)     a GitHub App token,
+                                                           then POSTs to scorer
                                                            directly (no public
                                                            URL needed)
 ```
@@ -97,7 +97,7 @@ state; everything else that touches scores goes through it.
 | `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the private rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:7-alpine`, `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
-| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with the organizer's `GITHUB_PAT`, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag every tick and writes a heartbeat (see "Organizer admin panel" below). |
+| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag every tick and writes a heartbeat (see "Organizer admin panel" below). |
 
 ## Data flow for a score
 
