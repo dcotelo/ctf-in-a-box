@@ -34,6 +34,63 @@ it instead. Either way `ctf-setup org` mirrors whatever `SCORE_IMAGE` names
 into your event org so the forks' Actions can pull it. Authoring a rubric and
 building the image is covered in [docs/scorer.md](scorer.md).
 
+## Fork setup and the contest flow
+
+Each target is a specific **upstream** app pinned to a source ref — that pin is
+the source of truth (there is no middle-man fork). The scorer judges a fork of it
+with the vendored rubric, and the *scoring baseline* image is the stock, unpatched
+build that [`stock-scores-zero`](operations.md#verifying-it-works) proves scores
+`0 / N`:
+
+| Target | Upstream repo | Source ref | Scoring baseline (pinned image) |
+|---|---|---|---|
+| `juice-shop` | `juice-shop/juice-shop` | tag `v20.0.0` | `bkimminich/juice-shop:v20.0.0` |
+| `webgoat` | `WebGoat/WebGoat` | tag `v2025.3` | `webgoat/webgoat:v2025.3` |
+| `vulnerableapp` | `SasanLabs/VulnerableApp` | tag `2.1.37` (commit `bad68b1`) | `sasanlabs/owasp-vulnerableapp:2.1.37` |
+| `securityshepherd` | `OWASP/SecurityShepherd` | commit `662771b` | self-build (no stock image) |
+| `dvwa` | `digininja/DVWA` | commit `d45ba3c` | `ghcr.io/digininja/dvwa@sha256:091498ce…` |
+| `vampi` | `erev0s/VAmPI` | commit `f16052d` | `erev0s/vampi@sha256:0a5a224b…` |
+
+`ctf-setup.sh org` forks each target into your event org, renders a scoring
+workflow per target into `dist/workflows/`, and mirrors your `SCORE_IMAGE` into
+the org's GHCR. A few steps then finish each fork — some are GitHub-UI only
+(no API):
+
+1. **Build the scorer image for `linux/amd64`.** GitHub runners are amd64; an
+   arm64-only image (e.g. built on Apple Silicon) makes the scoring Action fail
+   with `no matching manifest for linux/amd64`. Use
+   `docker buildx build --platform linux/amd64 -t ghcr.io/<org>/score:latest --push scorer/`.
+2. **Detach each fork from the fork network** (repo Settings → *Leave fork
+   network*, UI-only). This makes the event-org repo a standalone root, so
+   contestant PRs default to *your* repo (not upstream) and contestants can fork
+   it themselves.
+3. **Use `ctf` as the base branch** on each fork (rename via
+   `gh api -X POST repos/<org>/<repo>/branches/<old>/rename -f new_name=ctf`).
+4. **Install the scoring workflow**: commit `dist/workflows/<target>.ctf-score.yml`
+   to each fork as `.github/workflows/ctf-score.yml` on the `ctf` branch, and
+   disable the fork's inherited/upstream workflows (Settings → Actions).
+5. **Let the forks' Actions pull the scorer image**: either make the package
+   public, or grant each fork Read under the package's *Manage Actions access*
+   (container visibility is UI-only). The rendered workflow already logs in to
+   GHCR with the runner `GITHUB_TOKEN`, which a Read grant makes sufficient.
+6. **Protect the `ctf` branch** so a contestant can never merge their patch — the
+   PR is *scored, not merged*. A minimal rule requires one approving review:
+
+   ```sh
+   gh api -X PUT repos/<org>/<repo>/branches/ctf/protection --input - <<'JSON'
+   { "required_status_checks": null, "enforce_admins": false,
+     "required_pull_request_reviews": { "required_approving_review_count": 1 },
+     "restrictions": null, "allow_force_pushes": false, "allow_deletions": false }
+   JSON
+   ```
+
+**The contest flow:** a contestant **forks your event-org repo** into their own
+account, patches the vulnerability, and opens a **pull request against
+`<event-org>/<repo>:ctf`**. The scoring Action (`pull_request_target`, so a
+cross-fork PR gets a writable token to comment) runs the scorer and posts the
+score comment; the PR is never merged. Detaching the fork network in step 2 is
+what makes this fork-then-PR-back flow work.
+
 ## Poll vs push
 
 Scores travel from the scoring Action back to your box one of two ways.
