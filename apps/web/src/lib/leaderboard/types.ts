@@ -61,9 +61,15 @@ export type TeamStanding = {
   rank: number;
   slug: string;
   name: string;
+  /** GitHub login of the team's captain. */
+  captain: string;
   points: number;
   members: string[];
 };
+
+/** A single team's cumulative-score history, ascending by time — mirrors
+ *  `PlayerSeries` but keyed by team instead of player. */
+export type TeamSeries = { slug: string; name: string; points: SeriesPoint[] };
 
 export type SourceCapabilities = {
   /** Per-app breakdown available on list entries. */
@@ -90,6 +96,10 @@ export type LeaderboardData = {
    *  chart. Undefined/empty when the source can't build it (upstash) or the
    *  scorer has no rubric to derive history from — the chart hides itself. */
   series?: PlayerSeries[];
+  /** Per-team cumulative score over time, mirroring `series`. Undefined when
+   *  the source can't build it (no team concept, or the scorer predates
+   *  team series support) — the team chart hides itself. */
+  teamSeries?: TeamSeries[];
 };
 
 export type UserProfile = {
