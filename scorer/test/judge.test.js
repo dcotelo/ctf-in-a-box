@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { judge, readEvent, renderReport } from "../src/judge.js";
+import { judge, readEvent, renderReport, progressBar } from "../src/judge.js";
 
 const RUBRIC_DIR = fileURLToPath(new URL("./fixtures/rubric-judge/", import.meta.url));
 const SCORER_DIR = fileURLToPath(new URL("../", import.meta.url));
@@ -258,6 +258,50 @@ test("renderReport pins column layout and JSON key order", () => {
   assert.match(md, /\| Challenge \| Points \| Result \|/);
   assert.match(md, /\*\*0 \/ 1\*\* challenges patched/);
   assert.ok(md.includes('<!-- ctf-score: {"author":"octocat","target":"juice-shop","solved":[],"pr":7,"sha":"abc123"} -->'));
+});
+
+test("renderReport shows a points-based progress bar", () => {
+  // 3 of 4 points earned -> 75%; bar is 20 cells, round(0.75*20)=15 filled.
+  const md = renderReport({
+    challenges: [
+      { id: "a", name: "A", points: 3 },
+      { id: "b", name: "B", points: 1 },
+    ],
+    solved: ["a"],
+    author: "octocat",
+    target: "juice-shop",
+    pr: 7,
+    sha: "abc123",
+  });
+  assert.match(md, /`█{15}░{5}` \*\*75%\*\* — 3 \/ 4 pts/);
+  assert.match(md, /\*\*1 \/ 2\*\* challenges patched/);
+});
+
+test("progressBar rounds and clamps to 20 cells", () => {
+  assert.equal(progressBar(0), "░".repeat(20));
+  assert.equal(progressBar(100), "█".repeat(20));
+  assert.equal(progressBar(96), "█".repeat(19) + "░"); // round(19.2) = 19
+  assert.equal(progressBar(50), "█".repeat(10) + "░".repeat(10));
+  assert.equal(progressBar(150), "█".repeat(20)); // clamped
+});
+
+test("renderReport withholds the table when disclose is false but keeps counts and marker", () => {
+  const md = renderReport({
+    challenges: [{ id: "a", name: "A", points: 2 }],
+    solved: ["a"],
+    author: "octocat",
+    target: "juice-shop",
+    pr: 7,
+    sha: "abc123",
+    disclose: false,
+  });
+  // No per-challenge table…
+  assert.doesNotMatch(md, /\| Challenge \| Points \| Result \|/);
+  assert.match(md, /details are withheld/i);
+  // …but the bar, the patched count, and the full solved marker still ship.
+  assert.match(md, /\*\*100%\*\* — 2 \/ 2 pts/);
+  assert.match(md, /\*\*1 \/ 1\*\* challenges patched/);
+  assert.ok(md.includes('"solved":["a"]'));
 });
 
 test("judges an exec target and reports solved challenges by lowercased id", async () => {

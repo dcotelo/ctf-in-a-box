@@ -41,6 +41,16 @@ export function readEvent(path) {
   return { author, pr: pull.number, sha };
 }
 
+// A 20-cell █/░ progress bar for a 0–100 percentage. Rounded so 100% fills
+// every cell and 0% fills none; anything in between shows at least the true
+// proportion. Pure/dependency-free so it renders identically on any runner.
+const BAR_CELLS = 20;
+export function progressBar(pct) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const filled = Math.round((clamped / 100) * BAR_CELLS);
+  return "█".repeat(filled) + "░".repeat(BAR_CELLS - filled);
+}
+
 // The redacted PR comment. Three pieces are parsed upstream by regex, so
 // their exact shape is pinned by test/judge.test.js:
 //   score-action title:  /^## 🏆 CTF Patch Score$/m
@@ -48,17 +58,35 @@ export function readEvent(path) {
 //   sync marker:         sync/src/parse.js MARKER + field validation
 // Oracle discipline: challenge name + points + ✅/❌ only — never probe
 // paths or expected values, so the comment can't be used to game the checks.
-export function renderReport({ challenges, solved, author, target, pr, sha }) {
+//
+// The score summary (bar + points % + patched count) is ALWAYS shown. `disclose`
+// controls only the per-challenge table: when false (organizer hid it to protect
+// the rubric) the table is replaced by a short note, but the counts and the
+// hidden ctf-score marker — which carries the full `solved` list the leaderboard
+// reads — are unchanged, so the team view keeps complete detail either way.
+export function renderReport({ challenges, solved, author, target, pr, sha, disclose = true }) {
   const done = new Set(solved);
   const marker = `<!-- ctf-score: ${JSON.stringify({ author, target, solved, pr, sha })} -->`;
+  const totalPoints = challenges.reduce((sum, c) => sum + c.points, 0);
+  const earnedPoints = challenges.reduce((sum, c) => sum + (done.has(c.id) ? c.points : 0), 0);
+  const pct = totalPoints ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+
+  const detail = disclose
+    ? [
+        "| Challenge | Points | Result |",
+        "| --- | --- | --- |",
+        ...challenges.map((c) => `| ${c.name} | ${c.points} | ${done.has(c.id) ? "✅ Patched" : "❌ Not yet"} |`),
+      ]
+    : ["_Per-challenge details are withheld by the organizer to protect the scoring rubric._"];
+
   return [
     "## 🏆 CTF Patch Score",
     "",
-    "| Challenge | Points | Result |",
-    "| --- | --- | --- |",
-    ...challenges.map((c) => `| ${c.name} | ${c.points} | ${done.has(c.id) ? "✅ Patched" : "❌ Not yet"} |`),
+    `\`${progressBar(pct)}\` **${pct}%** — ${earnedPoints} / ${totalPoints} pts`,
     "",
     `**${solved.length} / ${challenges.length}** challenges patched`,
+    "",
+    ...detail,
     "",
     marker,
     "",
@@ -163,8 +191,15 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
     }
   }
 
+  // CTF_DISCLOSE_TABLE gates the per-challenge table in the PR comment (the
+  // progress bar + counts always show). Default is to disclose; only an explicit
+  // "0"/"false"/"no" (case-insensitive) hides it, so an unset or empty value —
+  // the common case — keeps today's behaviour. The scorer runs in Actions with
+  // no access to the box's Redis, so this is wired from a repo/org Actions
+  // variable in the consumer workflow, not from the admin panel at run time.
+  const disclose = !/^(0|false|no)$/i.test(String(env.CTF_DISCLOSE_TABLE ?? "").trim());
   const reportPath = join(env.GITHUB_WORKSPACE ?? "/github/workspace", "ctf-score.md");
-  writeFileSync(reportPath, renderReport({ challenges, solved, author, target: TARGET, pr, sha }));
+  writeFileSync(reportPath, renderReport({ challenges, solved, author, target: TARGET, pr, sha, disclose }));
 
   if (env.SCORE_API && !(await postScore(env, { author, target: TARGET, solved, pr, sha }, fetchImpl))) {
     appendFileSync(reportPath, "<!-- ctf-score:not-recorded -->\n");
