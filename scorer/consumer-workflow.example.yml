@@ -34,6 +34,11 @@
 #
 # KNOB (not a placeholder): COOLDOWN_MINUTES in the job env below — minimum
 # minutes between scored runs on one PR (default 5, see the cooldown step).
+#
+# KNOB (not a placeholder): CTF_DISCLOSE_TABLE — set the repo/org Actions
+# variable `CTF_DISCLOSE_TABLE` to `0`/`false` to hide the per-challenge table
+# in the score comment (the progress bar + patched count still show, and the
+# leaderboard keeps full detail). Unset/anything else discloses the table.
 # ---------------------------------------------------------------------------
 
 name: CTF Patch Score
@@ -182,6 +187,7 @@ jobs:
             -e GITHUB_EVENT_PATH=/github/event.json \
             -e SCORE_API="${{ secrets.LEADERBOARD_URL }}" \
             -e SCORE_TOKEN="${{ secrets.LEADERBOARD_TOKEN }}" \
+            -e CTF_DISCLOSE_TABLE="${{ vars.CTF_DISCLOSE_TABLE }}" \
             "ghcr.io/${EVENT_ORG}/score:latest"
 
       # (7) Always upsert the final comment, replacing the pending one (same
