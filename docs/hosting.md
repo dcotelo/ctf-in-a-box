@@ -123,7 +123,7 @@ choice for readers; nothing syncs the two, so keep them matching.
 
 | Mode | How it works | Requirements | Latency |
 |---|---|---|---|
-| `poll` (default) | The `sync` service polls the org's target repos for score comments using your organizer PAT | Nothing extra — works behind NAT, on a laptop, anywhere | ~30 s |
+| `poll` (default) | The `sync` service polls the org's target repos for score comments | a `GITHUB_PAT` **or** a GitHub App (see below) — otherwise nothing extra; works behind NAT, on a laptop, anywhere | ~30 s |
 | `push` | The scoring Action POSTs the score directly to your box | A public URL; `SCORE_INGEST=push` and org Actions secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` | Near-instant |
 
 Poll mode is what `scripts/smoke.sh` proves working today. Push mode
@@ -135,6 +135,17 @@ running with the `push` Caddyfile.
 Start the poll pipeline with `docker compose --profile poll --profile app up
 -d` — the `poll` profile brings up `sync`, and `app` brings up the
 contestant-facing app. Push mode does not need `sync` running.
+
+### Poll auth: PAT or GitHub App
+
+`sync` needs a token to read the event org's target repos. A `GITHUB_PAT` is
+simplest: create one, drop it in `.env`, done. A GitHub App is org-scoped,
+auto-expiring, revocable, and not tied to a person — create one from
+[`sync/app-manifest.json`](../sync/app-manifest.json), install it on the event
+org, then set `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` (base64-encoded PEM)
+and, optionally, `GITHUB_APP_INSTALLATION_ID` in `.env`. `sync` picks the App
+when both `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are set, otherwise it
+falls back to `GITHUB_PAT`.
 
 ## GitHub OAuth app
 

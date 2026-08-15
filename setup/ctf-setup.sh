@@ -369,6 +369,9 @@ cmd_secrets() {
     echo "GITHUB_CLIENT_ID="
     echo "GITHUB_CLIENT_SECRET="
     echo "GITHUB_PAT="
+    echo "GITHUB_APP_ID="
+    echo "GITHUB_APP_PRIVATE_KEY="
+    echo "GITHUB_APP_INSTALLATION_ID="
     echo "EVENT_URL=http://localhost"
     echo "SCORE_INGEST=poll"
     echo "# SCORE_IMAGE: your own scorer image, built from scorer/ (docs/scorer.md),"
@@ -376,7 +379,7 @@ cmd_secrets() {
     echo "# image is private and the kit does not assume access to it."
     echo "SCORE_IMAGE="
   } > "$out"
-  echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_PAT, SCORE_IMAGE"
+  echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_PAT (or a GitHub App), SCORE_IMAGE"
 }
 
 cmd_org() {

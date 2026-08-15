@@ -64,6 +64,9 @@ services:
     restart: unless-stopped
     environment:
       GITHUB_PAT: ${GITHUB_PAT}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_APP_INSTALLATION_ID: ${GITHUB_APP_INSTALLATION_ID:-}
       SCORER_TOKEN: ${SCORER_TOKEN}
       SCORER_URL: http://scorer:4000
       # Same srh proxy as app/scorer above — lets sync read the organizer's

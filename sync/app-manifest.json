@@ -1,0 +1,11 @@
+{
+  "name": "CTF-in-a-box sync",
+  "description": "Read-only poller that ingests CTF score comments from the event org's target repos.",
+  "public": false,
+  "default_permissions": {
+    "issues": "read",
+    "pull_requests": "read",
+    "metadata": "read"
+  },
+  "default_events": []
+}
