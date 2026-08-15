@@ -166,14 +166,27 @@ You can also set all three by hand instead of using the helpers.
 
 ## GitHub OAuth app
 
-Contestants sign in with GitHub, so you need an OAuth app:
+Contestants (and admins) sign in with GitHub, so you need an OAuth app —
+separate from the sync GitHub App above. OAuth apps have no manifest/create
+API, so this is a guided flow rather than an auto-filled one:
 
-1. In the event org (or your personal account), create a new OAuth app.
-2. Set the callback URL to `<EVENT_URL>/api/auth/callback/github`, where
-   `EVENT_URL` is the value in `.env` — that is what Caddy and the app's auth
-   flow use. (`event.yaml`'s `event.url` is a separate, unsynced field.)
-3. Put the client ID in `GITHUB_CLIENT_ID` and the secret in
-   `GITHUB_CLIENT_SECRET` in `.env`.
+```bash
+# 1. Open GitHub's new-OAuth-App page for the event org and print the exact
+#    field values to paste (callback = <EVENT_URL>/api/auth/callback/github).
+ctf-setup.sh oauth-app
+#    In the browser: fill the printed fields, Register, then "Generate a new
+#    client secret" and copy the Client ID + secret.
+
+# 2. Wire them into .env. The secret is read from a hidden prompt — never on
+#    the command line or in shell history.
+ctf-setup.sh oauth-config --client-id <client id>
+```
+
+This sets `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`; the app
+reads them at runtime. `EVENT_URL` is the value in `.env` — that is what Caddy
+and the app's auth flow use (`event.yaml`'s `event.url` is a separate, unsynced
+field). You can also set both by hand instead of using the helpers, and you may
+register the OAuth app on your personal account rather than the org.
 
 ## Configuration
 
