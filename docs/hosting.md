@@ -42,6 +42,10 @@ with the vendored rubric, and the *scoring baseline* image is the stock, unpatch
 build that [`stock-scores-zero`](operations.md#verifying-it-works) proves scores
 `0 / N`:
 
+> The per-target upstream repo and pinned ref below are sourced from
+> [`setup/targets.tsv`](https://github.com/dcotelo/ctf-in-a-box/blob/main/setup/targets.tsv),
+> which `ctf-setup org` reads to fork each target. Keep this table in sync with that file.
+
 | Target | Upstream repo | Source ref | Scoring baseline (pinned image) |
 |---|---|---|---|
 | `juice-shop` | `juice-shop/juice-shop` | tag `v20.0.0` | `bkimminich/juice-shop:v20.0.0` |
@@ -53,28 +57,20 @@ build that [`stock-scores-zero`](operations.md#verifying-it-works) proves scores
 
 `ctf-setup.sh org` forks each target into your event org, renders a scoring
 workflow per target into `dist/workflows/`, and mirrors your `SCORE_IMAGE` into
-the org's GHCR. A few steps then finish each fork — some are GitHub-UI only
-(no API):
+the org's GHCR. It automates the whole per-fork setup, is idempotent (safe to
+re-run — each step is skipped once already satisfied), and leaves only three
+GitHub-UI-only steps for you to finish by hand. Run `ctf-setup.sh doctor`
+afterward to verify the whole provision, including flagging (⚠️) the manual
+steps that still need doing.
 
-1. **Build the scorer image for `linux/amd64`.** GitHub runners are amd64; an
-   arm64-only image (e.g. built on Apple Silicon) makes the scoring Action fail
-   with `no matching manifest for linux/amd64`. Use
-   `docker buildx build --platform linux/amd64 -t ghcr.io/<org>/score:latest --push scorer/`.
-2. **Detach each fork from the fork network** (repo Settings → *Leave fork
-   network*, UI-only). This makes the event-org repo a standalone root, so
-   contestant PRs default to *your* repo (not upstream) and contestants can fork
-   it themselves.
-3. **Use `ctf` as the base branch** on each fork (rename via
-   `gh api -X POST repos/<org>/<repo>/branches/<old>/rename -f new_name=ctf`).
-4. **Install the scoring workflow**: commit `dist/workflows/<target>.ctf-score.yml`
-   to each fork as `.github/workflows/ctf-score.yml` on the `ctf` branch, and
-   disable the fork's inherited/upstream workflows (Settings → Actions).
-5. **Let the forks' Actions pull the scorer image**: either make the package
-   public, or grant each fork Read under the package's *Manage Actions access*
-   (container visibility is UI-only). The rendered workflow already logs in to
-   GHCR with the runner `GITHUB_TOKEN`, which a Read grant makes sufficient.
-6. **Protect the `ctf` branch** so a contestant can never merge their patch — the
-   PR is *scored, not merged*. A minimal rule requires one approving review:
+**Automated by `ctf-setup org`** (one pass per target):
+
+1. **Fork** the target from its pinned upstream repo/ref into your event org.
+2. **Create and default the `ctf` branch** at that pinned ref (and drop the
+   fork's old `master`/`main` default branch).
+3. **Protect the `ctf` branch** so a contestant can never merge their patch —
+   the PR is *scored, not merged*. It installs a minimal rule requiring one
+   approving review:
 
    ```sh
    gh api -X PUT repos/<org>/<repo>/branches/ctf/protection --input - <<'JSON'
@@ -84,12 +80,38 @@ the org's GHCR. A few steps then finish each fork — some are GitHub-UI only
    JSON
    ```
 
+4. **Install the scoring workflow**: renders and commits
+   `.github/workflows/ctf-score.yml` on the `ctf` branch from the in-repo
+   template.
+5. **Disable the fork's inherited/upstream workflows** (everything except
+   `ctf-score.yml`), so only the scoring Action runs.
+6. **Install the PR template** (`.github/PULL_REQUEST_TEMPLATE.md`) on the
+   `ctf` branch.
+7. **`vulnerableapp` only** — install the Dockerfile it needs to build.
+8. **Mirror `SCORE_IMAGE`** into the org's GHCR (once, after all targets),
+   refusing a non-amd64 image so scoring can't fail at runtime — GitHub
+   runners are amd64; an arm64-only image (e.g. built on Apple Silicon) makes
+   the scoring Action fail with `no matching manifest for linux/amd64`.
+
+**Manual — GitHub UI only, no API** (`doctor` flags these with ⚠️):
+
+1. **Create the event org** itself.
+2. **Detach each fork from the fork network** (repo Settings → *Leave fork
+   network*, UI-only). This makes the event-org repo a standalone root, so
+   contestant PRs default to *your* repo (not upstream) and contestants can
+   fork it themselves.
+3. **Package visibility / Read grant**: either make the `ghcr.io/<org>/score`
+   package public, or grant each fork Read under the package's *Manage Actions
+   access* (container visibility is UI-only). The rendered workflow already
+   logs in to GHCR with the runner `GITHUB_TOKEN`, which a Read grant makes
+   sufficient.
+
 **The contest flow:** a contestant **forks your event-org repo** into their own
 account, patches the vulnerability, and opens a **pull request against
 `<event-org>/<repo>:ctf`**. The scoring Action (`pull_request_target`, so a
 cross-fork PR gets a writable token to comment) runs the scorer and posts the
-score comment; the PR is never merged. Detaching the fork network in step 2 is
-what makes this fork-then-PR-back flow work.
+score comment; the PR is never merged. Detaching the fork network (manual step
+2 above) is what makes this fork-then-PR-back flow work.
 
 ## Poll vs push
 

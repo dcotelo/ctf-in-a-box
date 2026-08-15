@@ -15,13 +15,13 @@ EOF
 @test "org --dry-run plans the full idempotent sequence per target" {
   run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"* ]]
-  [[ "$output" == *"create refs/heads/ctf on test-event-org/DVWA from digininja/DVWA@d45ba3c"* ]]
-  [[ "$output" == *"branch protection on test-event-org/DVWA:ctf"* ]]
-  [[ "$output" == *".github/workflows/ctf-score.yml on ctf"* ]]
-  [[ "$output" == *"disable every workflow on test-event-org/DVWA"* ]]
-  [[ "$output" == *"docker manifest inspect ghcr.io/test-event-org/score:latest"* ]]
-  [[ "$output" != *"OWASP-CTF/"* ]]
+  echo "$output" | grep -qF "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
+  echo "$output" | grep -qF "create refs/heads/ctf on test-event-org/DVWA from digininja/DVWA@d45ba3c"
+  echo "$output" | grep -qF "branch protection on test-event-org/DVWA:ctf"
+  echo "$output" | grep -qF ".github/workflows/ctf-score.yml on ctf"
+  echo "$output" | grep -qF "disable every workflow on test-event-org/DVWA"
+  echo "$output" | grep -qF "docker push ghcr.io/test-event-org/score:latest"
+  ! echo "$output" | grep -qF "OWASP-CTF/"
   [ ! -e dist ]  # dry-run writes nothing
 }
 
@@ -107,10 +107,10 @@ modules:
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -ne 0 ]
-  [[ "$output" == *"event.yaml: no targets"* ]]
+  echo "$output" | grep -qF "event.yaml: no targets"
   # Must fail before doing anything, including the image mirror plan.
-  [[ "$output" != *"gh repo fork"* ]]
-  [[ "$output" != *"mirroring scorer image"* ]]
+  ! echo "$output" | grep -qF "gh repo fork"
+  ! echo "$output" | grep -qF "mirroring scorer image"
 }
 
 @test "org strips trailing comments from org field (HIGH fix #1)" {
@@ -287,16 +287,16 @@ EOF
 @test "org --dry-run forks from upstream (not OWASP-CTF)" {
   run env SCORE_IMAGE=ghcr.io/myorg/s:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"* ]]
-  [[ "$output" == *"gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"* ]]
-  [[ "$output" != *"OWASP-CTF/"* ]]
+  echo "$output" | grep -qF "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
+  echo "$output" | grep -qF "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
+  ! echo "$output" | grep -qF "OWASP-CTF/"
 }
 
 @test "ctf-branch + drop-old plan lines render" {
   # Exercise plan_step directly via a sourced self-test.
   run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step ctf-branch dvwa test-event-org; plan_step drop-old dvwa test-event-org'
-  [[ "$output" == *"create refs/heads/ctf on test-event-org/DVWA from digininja/DVWA@d45ba3c"* ]]
-  [[ "$output" == *"delete master/main on test-event-org/DVWA"* ]]
+  echo "$output" | grep -qF "create refs/heads/ctf on test-event-org/DVWA from digininja/DVWA@d45ba3c"
+  echo "$output" | grep -qF "delete master/main on test-event-org/DVWA"
 }
 
 @test "protect plan + check use the ctf branch protection endpoint" {
@@ -306,8 +306,8 @@ EOF
 
 @test "workflow + disable-inherited plan lines render" {
   run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step workflow dvwa test-event-org; plan_step disable-inherited dvwa test-event-org'
-  [[ "$output" == *".github/workflows/ctf-score.yml on ctf"* ]]
-  [[ "$output" == *"disable every workflow"* ]]
+  echo "$output" | grep -qF ".github/workflows/ctf-score.yml on ctf"
+  echo "$output" | grep -qF "disable every workflow"
 }
 
 @test "check_step disable-inherited fails closed when gh api errors" {
@@ -331,14 +331,14 @@ EOF2
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
   [ "$status" -ne 0 ]
-  [[ "$output" == *"❌ fork"* ]]
+  echo "$output" | grep -qF "❌ fork"
   make_gh_stub found
   # Overall status stays non-zero here: only fork (+ the vapp-dockerfile n/a
   # guard) is implemented this task, so the other STEPS ids still report
   # ❌ regardless of gh — later tasks flip them to ✅ as each check_step arm
   # lands. What this asserts is that fork itself now resolves ✅.
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
-  [[ "$output" == *"✅ fork"* ]]
+  echo "$output" | grep -qF "✅ fork"
 }
 
 @test "pr-template plan + check use the ctf branch contents endpoint" {
@@ -348,7 +348,7 @@ EOF2
 
 @test "vapp-dockerfile only plans for vulnerableapp" {
   run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step vapp-dockerfile dvwa test-event-org; echo "---"; plan_step vapp-dockerfile vulnerableapp test-event-org'
-  [[ "$output" == *"---"* ]]
+  echo "$output" | grep -qF -- "---"
   before="${output%%---*}"
   # vulnerableapp must actually get the PUT line (rules out a stub that never emits).
   echo "$output" | grep -q "PUT setup/vulnerableapp.Dockerfile to test-event-org/VulnerableApp:Dockerfile"

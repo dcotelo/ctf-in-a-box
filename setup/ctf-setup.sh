@@ -6,8 +6,13 @@
 #   secrets   generate .env secret values
 #   org       fork targets, render scoring workflows from the in-repo template
 #             + print install steps, mirror scorer image
+#             (idempotent/re-runnable: every step is skipped once its
+#             target state is already satisfied, so re-running `org` after
+#             a partial run or failure just resumes where it left off)
 #   render    (re)render just the per-target scoring workflows into dist/workflows/
 #   teardown  archive event repos after the event
+#   doctor    read-only status check: verify a previously-provisioned org
+#             matches targets.tsv (no mutation, no --dry-run needed)
 #
 # Global flags: --dry-run (print mutating commands), --config <path> (default event.yaml)
 set -euo pipefail
