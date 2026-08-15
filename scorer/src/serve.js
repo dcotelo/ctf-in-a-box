@@ -72,7 +72,12 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
       if (req.method === "POST" && req.url === "/score") return await score(req, res);
       if (req.method === "GET" && req.url.split("?")[0] === "/leaderboard") {
         const board = await buildLeaderboard({ store, rubric, targets: targetsInPlay() });
-        return json(res, 200, { leaderboard: board.entries, series: board.series });
+        return json(res, 200, {
+          leaderboard: board.entries,
+          series: board.series,
+          teams: board.teams,
+          teamSeries: board.teamSeries,
+        });
       }
       if (req.method === "GET" && req.url === "/healthz") return json(res, 200, { ok: true });
       res.writeHead(404).end();
@@ -168,7 +173,69 @@ export async function buildLeaderboard({ store, rubric, targets }) {
       })
     : [];
 
-  return { entries: ranked, series };
+  // Team rollup (additive — the individual `entries`/`series` above are
+  // untouched). A team scores the UNION of its members' solves: a flag solved
+  // by two members counts once, at the earliest `at` seen for it. Membership is
+  // read fresh from the store, so a solve recorded before a login joined a team
+  // still rolls in retroactively. Foreign ids were already dropped upstream (an
+  // author only carries solves the rubric — or degenerate charset — accepted).
+  const teamsData = await store.getTeams();
+  const teamEntries = teamsData.map((team) => {
+    const union = new Map(); // `${target}:${id}` -> { at (min), id, target, points }
+    for (const login of team.members) {
+      const a = authors.get(login);
+      if (!a) continue;
+      for (const s of a.solves) {
+        const key = `${s.target}:${s.id}`;
+        const seen = union.get(key);
+        if (!seen) union.set(key, { ...s });
+        else if (s.at < seen.at) seen.at = s.at;
+      }
+    }
+    let points = 0;
+    let lastSolveAt = null;
+    const perTarget = new Map();
+    for (const it of union.values()) {
+      points += it.points;
+      if (lastSolveAt === null || it.at > lastSolveAt) lastSolveAt = it.at;
+      perTarget.set(it.target, (perTarget.get(it.target) ?? 0) + 1);
+    }
+    return {
+      slug: team.slug,
+      name: team.name,
+      captain: team.captain,
+      members: team.members,
+      points,
+      lastSolveAt,
+      apps: Object.fromEntries(
+        targets.map((t) => [t, { solved: perTarget.get(t) ?? 0, total: totals.get(t) }]),
+      ),
+      _union: [...union.values()],
+    };
+  });
+  teamEntries.sort(
+    (x, y) =>
+      y.points - x.points ||
+      compareLastSolve(x.lastSolveAt, y.lastSolveAt) ||
+      (x.name < y.name ? -1 : x.name > y.name ? 1 : 0),
+  );
+  const rankedTeams = teamEntries.map((e, i) => ({ rank: i + 1, ...e }));
+
+  const teamSeries = rubric
+    ? rankedTeams.slice(0, SERIES_TOP_N).map((tm) => {
+        const sorted = [...tm._union].sort(compareSolve);
+        let cumulative = 0;
+        return {
+          slug: tm.slug,
+          name: tm.name,
+          points: sorted.map((s) => ({ t: s.at, score: (cumulative += s.points) })),
+        };
+      })
+    : [];
+
+  const teams = rankedTeams.map(({ _union, ...rest }) => rest);
+
+  return { entries: ranked, series, teams, teamSeries };
 }
 
 export function startServer({ port = 0, ...opts }) {
