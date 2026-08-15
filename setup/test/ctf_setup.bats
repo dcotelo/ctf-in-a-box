@@ -284,6 +284,13 @@ EOF
   [[ "$output" != *"OWASP-CTF/"* ]]
 }
 
+@test "ctf-branch + drop-old plan lines render" {
+  # Exercise plan_step directly via a sourced self-test.
+  run bash -c 'DRY_RUN=1; CMD=__selftest source "'"$SCRIPT"'"; plan_step ctf-branch dvwa test-event-org; plan_step drop-old dvwa test-event-org'
+  [[ "$output" == *"create refs/heads/ctf on test-event-org/DVWA from digininja/DVWA@d45ba3c"* ]]
+  [[ "$output" == *"delete master/main on test-event-org/DVWA"* ]]
+}
+
 @test "doctor reports missing then done via stubbed gh" {
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml

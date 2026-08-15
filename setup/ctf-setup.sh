@@ -51,6 +51,8 @@ plan_step() {
   local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
   case "$id" in
     fork) echo "DRY-RUN: gh repo fork $(prov_field "$t" 2) --org $org --fork-name $name --clone=false" ;;
+    ctf-branch) echo "DRY-RUN: create refs/heads/ctf on $org/$name from $(prov_field "$t" 2)@$(prov_field "$t" 3); set default_branch=ctf" ;;
+    drop-old) echo "DRY-RUN: delete master/main on $org/$name if present and != ctf" ;;
   esac
 }
 
@@ -58,6 +60,8 @@ check_step() {
   local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
   case "$id" in
     fork) gh_ok "repos/$org/$name" ;;
+    ctf-branch) [ "$(gh api "repos/$org/$name" --jq '.default_branch' 2>/dev/null)" = "ctf" ] ;;
+    drop-old) ! gh_ok "repos/$org/$name/branches/master" && ! gh_ok "repos/$org/$name/branches/main" ;;
     vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
     *) return 1 ;;
   esac
@@ -69,6 +73,18 @@ apply_step() {
     fork)
       gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name" --clone=false
       wait_for_repo "$org/$name" || { echo "fork not queryable yet: $org/$name" >&2; return 1; }
+      ;;
+    ctf-branch)
+      local sha; sha="$(gh api "repos/$(prov_field "$t" 2)/commits/$(prov_field "$t" 3)" --jq '.sha')" \
+        || { echo "cannot resolve $(prov_field "$t" 2)@$(prov_field "$t" 3)" >&2; return 1; }
+      gh api -X POST "repos/$org/$name/git/refs" -f "ref=refs/heads/ctf" -f "sha=$sha" >/dev/null 2>&1 || true
+      gh api -X PATCH "repos/$org/$name" -f "default_branch=ctf" >/dev/null
+      ;;
+    drop-old)
+      local b
+      for b in master main; do
+        gh_ok "repos/$org/$name/branches/$b" && gh api -X DELETE "repos/$org/$name/git/refs/heads/$b" >/dev/null 2>&1 || true
+      done
       ;;
   esac
 }
