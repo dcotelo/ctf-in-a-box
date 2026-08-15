@@ -15,8 +15,9 @@ EOF
 @test "org --dry-run plans fork, workflow render, image mirror and grant per target" {
   run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org test-event-org"* ]]
-  [[ "$output" == *"gh repo fork OWASP-CTF/VAmPI --org test-event-org"* ]]
+  [[ "$output" == *"gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"* ]]
+  [[ "$output" == *"gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"* ]]
+  [[ "$output" != *"OWASP-CTF"* ]]
   # Workflow comes from the in-repo template, rendered per target — never
   # fetched from the private upstream repo.
   [[ "$output" == *"in-repo template"* ]]
@@ -113,7 +114,7 @@ EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must use exact org name without comment suffix
-  [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org my-event-org"* ]]
+  [[ "$output" == *"gh repo fork digininja/DVWA --org my-event-org --fork-name DVWA"* ]]
   [[ "$output" == *"docker tag ghcr.io/myorg/score:v1 ghcr.io/my-event-org/score:latest"* ]]
   # Ensure comment is not included
   [[ "$output" != *"disposable per-event org"* ]]
@@ -154,8 +155,8 @@ modules:
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org flow-event-org"* ]]
-  [[ "$output" == *"gh repo fork OWASP-CTF/VAmPI --org flow-event-org"* ]]
+  [[ "$output" == *"gh repo fork digininja/DVWA --org flow-event-org --fork-name DVWA"* ]]
+  [[ "$output" == *"gh repo fork erev0s/VAmPI --org flow-event-org --fork-name VAmPI"* ]]
 }
 
 @test "org pairs dvwa/vampi correctly with blank in targets list (MEDIUM fix #4)" {
@@ -188,10 +189,10 @@ EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must use the correct targets (dvwa, vampi), not the decoy (webgoat)
-  [[ "$output" == *"gh repo fork OWASP-CTF/DVWA --org test-event-org"* ]]
-  [[ "$output" == *"gh repo fork OWASP-CTF/VAmPI --org test-event-org"* ]]
+  [[ "$output" == *"gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"* ]]
+  [[ "$output" == *"gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"* ]]
   # Must not fork webgoat
-  [[ "$output" != *"gh repo fork OWASP-CTF/WebGoat"* ]]
+  [[ "$output" != *"gh repo fork "*"WebGoat"* ]]
 }
 
 @test "missing config file gives clean error" {
@@ -261,4 +262,38 @@ EOF
   grep -q "SCORED, not merged" "$BATS_TEST_DIRNAME/../PULL_REQUEST_TEMPLATE.md"
   [ -f "$BATS_TEST_DIRNAME/../vulnerableapp.Dockerfile" ]
   grep -q "EXPOSE 9090" "$BATS_TEST_DIRNAME/../vulnerableapp.Dockerfile"
+}
+
+make_gh_stub() {  # $1 = "found" | "missing"
+  mkdir -p stubs
+  cat > stubs/gh <<EOF
+#!/usr/bin/env bash
+# canned gh for tests. "$1"=found makes api reads succeed.
+if [ "\$1" = api ]; then [ "$1" = found ] && exit 0 || exit 1; fi
+# 'gh repo fork ...' and others: succeed.
+exit 0
+EOF
+  chmod +x stubs/gh
+}
+
+@test "org --dry-run forks from upstream (not OWASP-CTF)" {
+  run env SCORE_IMAGE=ghcr.io/myorg/s:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"* ]]
+  [[ "$output" == *"gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"* ]]
+  [[ "$output" != *"OWASP-CTF/"* ]]
+}
+
+@test "doctor reports missing then done via stubbed gh" {
+  make_gh_stub missing
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"❌ fork"* ]]
+  make_gh_stub found
+  # Overall status stays non-zero here: only fork (+ the vapp-dockerfile n/a
+  # guard) is implemented this task, so the other STEPS ids still report
+  # ❌ regardless of gh — later tasks flip them to ✅ as each check_step arm
+  # lands. What this asserts is that fork itself now resolves ✅.
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
+  [[ "$output" == *"✅ fork"* ]]
 }

@@ -35,6 +35,76 @@ prov_repo_name() {
   echo "${repo##*/}"
 }
 
+# gh api read as a boolean (no output, no failure propagation).
+gh_ok() { gh api "$@" >/dev/null 2>&1; }
+
+# A just-created fork isn't instantly queryable — poll briefly.
+wait_for_repo() {
+  local slug="$1" i
+  for i in 1 2 3 4 5; do gh_ok "repos/$slug" && return 0; sleep 2; done
+  return 1
+}
+
+STEPS="fork ctf-branch drop-old protect workflow disable-inherited pr-template vapp-dockerfile"
+
+plan_step() {
+  local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
+  case "$id" in
+    fork) echo "DRY-RUN: gh repo fork $(prov_field "$t" 2) --org $org --fork-name $name --clone=false" ;;
+  esac
+}
+
+check_step() {
+  local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
+  case "$id" in
+    fork) gh_ok "repos/$org/$name" ;;
+    vapp-dockerfile) [ "$t" = vulnerableapp ] || return 0; return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+apply_step() {
+  local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
+  case "$id" in
+    fork)
+      gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name" --clone=false
+      wait_for_repo "$org/$name" || { echo "fork not queryable yet: $org/$name" >&2; return 1; }
+      ;;
+  esac
+}
+
+do_step() {
+  local id="$1" t="$2" org="$3"
+  if [ "$DRY_RUN" -eq 1 ]; then plan_step "$id" "$t" "$org"; return; fi
+  if check_step "$id" "$t" "$org"; then echo "  ✓ $id ($t): already done"; return; fi
+  echo "  → $id ($t)"; apply_step "$id" "$t" "$org"
+}
+
+# Read-only per-step status. Non-manual missing steps make it exit non-zero so
+# CI / the future admin wizard can gate on a clean provision.
+cmd_doctor() {
+  require_config
+  local org; org="$(yaml_org)"
+  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+  local rc=0 t id
+  # Guide-only org-level check.
+  if gh_ok "orgs/$org"; then echo "✅ org $org exists"; else echo "⚠️  org $org — create it: https://github.com/account/organizations/new"; fi
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    echo "== $t ($org/$(prov_repo_name "$t"))"
+    for id in $STEPS; do
+      if check_step "$id" "$t" "$org"; then
+        echo "  ✅ $id"
+      else
+        echo "  ❌ $id"; rc=1
+      fi
+    done
+    echo "  ⚠️  fork-network detach — verify: https://github.com/$org/$(prov_repo_name "$t")/settings"
+  done < <(yaml_targets)
+  echo "  ⚠️  package visibility / Read grant — verify: https://github.com/orgs/$org/packages"
+  return $rc
+}
+
 DRY_RUN=0
 CONFIG=event.yaml
 # CMD is read from the env first so `CMD=__selftest source ctf-setup.sh` can
@@ -202,13 +272,13 @@ cmd_org() {
   require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  local targets_arr=() repos=()
+  local targets_arr=()
   while IFS= read -r t; do
     [ -n "$t" ] || continue
+    prov_repo_name "$t" >/dev/null || exit 1
     targets_arr+=("$t")
-    repos+=("$(repo_for "$t")")
   done < <(yaml_targets)
-  [ ${#repos[@]} -gt 0 ] || { echo "event.yaml: no targets" >&2; exit 1; }
+  [ ${#targets_arr[@]} -gt 0 ] || { echo "event.yaml: no targets" >&2; exit 1; }
 
   # Scorer source image: SCORE_IMAGE env var, else .env. Deliberately NO
   # upstream default — the kit assumes zero upstream access: build your own
@@ -223,15 +293,13 @@ cmd_org() {
     exit 1
   }
 
-  echo "== forking targets into $org"
-  for r in "${repos[@]}"; do
-    run gh repo fork "OWASP-CTF/$r" --org "$org" --clone=false
-  done
+  echo "== forking targets into $org (upstream sources, per setup/targets.tsv)"
+  for t in "${targets_arr[@]}"; do do_step fork "$t" "$org"; done
 
   echo "== rendering scoring workflows from the in-repo template (scorer/consumer-workflow.example.yml — no upstream access)"
   render_workflows "$org" "${targets_arr[@]}"
-  for i in "${!repos[@]}"; do
-    echo "   -> commit dist/workflows/${targets_arr[$i]}.ctf-score.yml as .github/workflows/ctf-score.yml in $org/${repos[$i]} (disable inherited workflows in repo Settings > Actions)"
+  for i in "${!targets_arr[@]}"; do
+    echo "   -> commit dist/workflows/${targets_arr[$i]}.ctf-score.yml as .github/workflows/ctf-score.yml in $org/$(prov_repo_name "${targets_arr[$i]}") (disable inherited workflows in repo Settings > Actions)"
   done
 
   echo "== mirroring scorer image $src into $org (needs pull access to it)"
@@ -281,6 +349,7 @@ if [ "$CMD" != "__selftest" ]; then
     org) cmd_org ;;
     render) cmd_render ;;
     teardown) cmd_teardown ;;
-    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown} [--dry-run] [--config event.yaml] [--out .env]" >&2; exit 2 ;;
+    doctor) cmd_doctor ;;
+    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown|doctor} [--dry-run] [--config event.yaml] [--out .env]" >&2; exit 2 ;;
   esac
 fi
