@@ -531,13 +531,23 @@ cmd_app_manifest() {
   echo "== opening GitHub App creation for org '$org' in your browser"
   open_url "$html"
   cat <<EOF
-== next, in GitHub's UI:
-   1. Click "Create GitHub App" (rename if the name is taken).
+== the form is PRE-FILLED from the manifest. If it opened BLANK (auto-submit
+   blocked), enter these values by hand — they are the whole manifest:
+     GitHub App name:   CTF-in-a-box sync   (rename if the name is taken)
+     Homepage URL:      https://github.com/dcotelo/ctf-in-a-box
+     Webhook:           UNCHECK "Active"  (no webhook — else GitHub demands a URL)
+     Repository permissions:  Issues → Read-only
+                              Pull requests → Read-only
+                              (Metadata → Read-only is added automatically)
+     Subscribe to events:     none
+     Where can this be installed:  Only on this account (@$org)
+== then, in GitHub's UI:
+   1. Click "Create GitHub App".
    2. On the app page: "Generate a private key" (downloads a .pem), and note the App ID.
    3. "Install App" -> install it on the '$org' org.
-   4. Then wire the credentials into .env:
+   4. The wizard will prompt for the App ID + .pem path next (or, standalone:
         ctf-setup.sh app-config --app-id <id> --pem <path-to-downloaded.pem>
-      (add --installation-id <n> to pin it; otherwise sync auto-discovers it)
+      add --installation-id <n> to pin it; otherwise sync auto-discovers it).
 EOF
 }
 
