@@ -491,3 +491,39 @@ YAML
   echo "$output" | grep -q "Build the scorer image"
   [ -z "$(echo "$output" | grep -F 'Successfully built')" ]
 }
+
+@test "wizard builds the scorer image for linux/amd64 (runners are amd64)" {
+  # The build MUST pin --platform linux/amd64 or an arm64 image (Apple Silicon
+  # default) fails the fork's scoring Action with 'no matching manifest'.
+  run grep -F 'docker build --platform linux/amd64 -t "$img"' "$SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "expand_tilde resolves a leading ~ but leaves absolute paths alone" {
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; expand_tilde "~/Downloads/k.pem"'
+  [ "$output" = "$HOME/Downloads/k.pem" ]
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; expand_tilde "~"'
+  [ "$output" = "$HOME" ]
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; expand_tilde "/abs/k.pem"'
+  [ "$output" = "/abs/k.pem" ]
+}
+
+@test "ask_yn honours the default on an empty reply (Y=yes, N=no)" {
+  # Output carries the prompt prefix, so match the decision token as a word.
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; DRY_RUN=0; printf "\n" | { if ask_yn q Y; then echo DECIDE-YES; else echo DECIDE-NO; fi; }'
+  echo "$output" | grep -qw DECIDE-YES
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; DRY_RUN=0; printf "\n" | { if ask_yn q; then echo DECIDE-YES; else echo DECIDE-NO; fi; }'
+  echo "$output" | grep -qw DECIDE-NO
+}
+
+@test "wait_workflows_settled aborts fast (no sleep-loop) when the workflows API errors" {
+  # Must NOT sleep-loop on a failing API (that is what keeps the fail-closed
+  # disable-inherited check fast); it returns 0 and lets the caller decide.
+  # A single sleep cycle is 5s, so anything under that proves it did not loop.
+  mkdir -p "$BATS_TEST_TMPDIR/stubs"
+  printf '#!/usr/bin/env bash\n[ "$1" = api ] && exit 1\nexit 0\n' > "$BATS_TEST_TMPDIR/stubs/gh"
+  chmod +x "$BATS_TEST_TMPDIR/stubs/gh"
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; SECONDS=0; wait_workflows_settled o/r; echo "ELAPSED:$SECONDS"'
+  local secs; secs="$(echo "$output" | sed -n 's/^ELAPSED://p')"
+  [ "${secs:-99}" -lt 5 ]
+}

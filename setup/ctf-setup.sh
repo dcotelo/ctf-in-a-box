@@ -39,6 +39,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 WORKFLOW_TEMPLATE="$SCRIPT_DIR/../scorer/consumer-workflow.example.yml"
 
+# ANSI colors — only when stdout is a TTY and NO_COLOR is unset (respect the
+# NO_COLOR convention + non-interactive/piped output stays plain for logs/CI).
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'
+  C_CYAN=$'\033[36m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+else
+  C_RESET=; C_BOLD=; C_CYAN=; C_GREEN=; C_YELLOW=
+fi
+
 PROVENANCE_TSV="$SCRIPT_DIR/targets.tsv"
 
 # target -> provenance column. col: 2=upstream_repo, 3=ref, 4=stock_image.
@@ -63,6 +72,23 @@ wait_for_repo() {
   local slug="$1"
   for _ in 1 2 3 4 5; do gh_ok "repos/$slug" && return 0; sleep 2; done
   return 1
+}
+
+# GitHub indexes a fresh fork's Actions workflows ASYNCHRONOUSLY, so a read
+# right after forking can return a partial (or empty) list — which made
+# disable-inherited vacuously report "already done" while inherited workflows
+# (ci/lock/stale/pr-compliance — the ones that auto-close contestant PRs) were
+# still landing, active. Wait until the workflow count is stable across two
+# reads. Best-effort + bounded; aborts immediately if the API errors (the
+# caller's own `|| return 1` then decides), so it never sleeps in that case.
+wait_workflows_settled() {
+  local slug="$1" prev="" cur _
+  for _ in 1 2 3 4 5 6; do
+    cur="$(gh api "repos/$slug/actions/workflows" --jq '.total_count' 2>/dev/null)" || return 0
+    if [ "$cur" = "$prev" ]; then return 0; fi
+    prev="$cur"; sleep 5
+  done
+  return 0
 }
 
 # Create/update a file on the fork's ctf branch. $1=org/name $2=repo-path
@@ -118,6 +144,9 @@ check_step() {
     workflow) gh_ok "repos/$org/$name/contents/.github/workflows/ctf-score.yml?ref=ctf" ;;
     disable-inherited)
       local others
+      # Let GitHub finish indexing the fork's workflows before judging, or a
+      # fresh fork reads empty and false-passes (the vacuous-zero trap).
+      wait_workflows_settled "$org/$name"
       others="$(gh api "repos/$org/$name/actions/workflows" \
         --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)" || return 1
       [ -z "$others" ]
@@ -349,14 +378,21 @@ render_workflows() {
 # Mirror SCORE_IMAGE into the event org's GHCR, then REFUSE a non-amd64 image
 # (GitHub runners are amd64; an arm64-only image fails scoring at run time).
 mirror_image() {
-  local org="$1" src="$2"
-  echo "== mirroring scorer image $src -> ghcr.io/$org/score:latest"
+  local org="$1" src="$2" dest="ghcr.io/$1/score:latest"
+  echo "== mirroring scorer image $src -> $dest"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: docker pull $src && docker tag $src ghcr.io/$org/score:latest && docker push ghcr.io/$org/score:latest"
+    echo "DRY-RUN: docker pull $src && docker tag $src $dest && docker push $dest"
     echo "DRY-RUN: docker image inspect --format '{{.Architecture}}' $src  # must be amd64"
     return
   fi
-  docker pull "$src"
+  # If the source is already the dest tag and present locally (the wizard just
+  # built it), don't pull — the tag isn't in the registry yet, which is the
+  # whole reason we're about to push it. Otherwise pull the named source.
+  if [ "$src" = "$dest" ] && docker image inspect "$src" >/dev/null 2>&1; then
+    echo "== using locally-built $src (skipping pull)"
+  else
+    docker pull "$src"
+  fi
   # Check the pulled image's own config (always has .Architecture, no
   # manifest-list wrapping to unpack) rather than the registry manifest: a
   # plain `docker build` (the documented path in docs/scorer.md) pushes a
@@ -366,11 +402,15 @@ mirror_image() {
   arch="$(docker image inspect --format '{{.Architecture}}' "$src" 2>/dev/null || true)"
   if [ "$arch" != "amd64" ]; then
     echo "ERROR: $src is $arch, not amd64 — GitHub runners need linux/amd64." >&2
-    echo "Rebuild + push amd64:  docker buildx build --platform linux/amd64 -t ghcr.io/$org/score:latest --push scorer/" >&2
+    echo "Rebuild + push amd64:  docker buildx build --platform linux/amd64 -t $dest --push scorer/" >&2
     return 1
   fi
-  docker tag "$src" "ghcr.io/$org/score:latest"
-  docker push "ghcr.io/$org/score:latest"
+  docker tag "$src" "$dest"
+  if ! docker push "$dest"; then
+    echo "ERROR: push to $dest failed — is docker logged in to ghcr.io with write:packages?" >&2
+    echo "  docker login ghcr.io   (token needs write:packages; e.g. gh auth token after 'gh auth refresh -s write:packages,read:packages')" >&2
+    return 1
+  fi
 }
 
 cmd_check() {
@@ -644,16 +684,46 @@ env_val() {
   sed -n "s/^$1=//p" "$out" | tail -1
 }
 
-wiz_step() { echo; echo "── $1"; }
+wiz_step() { echo; printf '%s── %s%s\n' "$C_BOLD$C_CYAN" "$1" "$C_RESET"; }
 
-# Yes/No prompt. Returns 0 for yes. Under --dry-run it never blocks or mutates:
-# it prints the question and answers "no" so the wizard just narrates.
+# ASCII banner shown at the top of the wizard.
+wiz_banner() {
+  printf '%s' "$C_CYAN"
+  cat <<'BANNER'
+  ____ _____ _____   _         _
+ / ___|_   _|  ___| (_)_ __   | |__   _____  __
+| |     | | | |_    | | '_ \  | '_ \ / _ \ \/ /
+| |___  | | |  _|   | | | | | | |_) | (_) >  <
+ \____| |_| |_|     |_|_| |_| |_.__/ \___/_/\_\
+BANNER
+  printf '%s' "$C_RESET"
+}
+
+# Yes/No prompt. Returns 0 for yes. $2 is the default when the user just hits
+# Enter — "Y" for the happy-path "do it now?" actions, "N" (default) for
+# exceptional ones like retries. Under --dry-run it never blocks or mutates: it
+# prints the question and answers "no" so the wizard just narrates.
 ask_yn() {
-  local reply
+  local reply def="${2:-N}" hint
+  case "$def" in Y | y) hint="${C_GREEN}[Y/n]${C_RESET}" ;; *) hint="[y/N]" ;; esac
   if [ "$DRY_RUN" -eq 1 ]; then echo "$1 [dry-run: skipped]"; return 1; fi
-  printf '%s [y/N] ' "$1"
+  printf '%s %s ' "$1" "$hint"
   read -r reply || reply=""
+  [ -n "$reply" ] || reply="$def"
   case "$reply" in y | Y | yes | YES) return 0 ;; *) return 1 ;; esac
+}
+
+# Expand a leading ~ / ~/ in a path to $HOME (read -r does not do it — tilde
+# expansion is a shell parse-time step, not applied to variable values).
+expand_tilde() {
+  # The "~" patterns are literal string matches (quoted), not tilde expansions
+  # we expect the shell to perform — that is the whole point of this helper.
+  # shellcheck disable=SC2088
+  case "$1" in
+    "~") printf '%s' "$HOME" ;;
+    "~/"*) printf '%s/%s' "$HOME" "${1:2}" ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 # Wait for the operator to finish a GitHub-UI step. No-op under --dry-run.
@@ -702,8 +772,8 @@ csv_of() {
 # (edit a file, click Create in GitHub's UI); complete it and re-run.
 cmd_wizard() {
   local out="${OUT:-.env}"
-  echo "== CTF-in-a-box setup wizard =="
-  echo "Walks you to a running, scored event. Safe to re-run — it resumes."
+  wiz_banner
+  printf '%sCTF-in-a-box setup wizard%s — walks you to a running, scored event. Safe to re-run — it resumes.\n' "$C_BOLD" "$C_RESET"
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
 
   # 1. Prerequisites (subshelled so cmd_check's exit doesn't kill the wizard).
@@ -789,15 +859,20 @@ EOF
     echo "  ✅ SCORE_IMAGE=$(env_val SCORE_IMAGE)"
   else
     local img="ghcr.io/$org/score:latest"
-    if ask_yn "  Build the scorer image ($img) now?"; then
-      docker build -t "$img" "$SCRIPT_DIR/../scorer"
+    if ask_yn "  Build the scorer image ($img) now?" Y; then
+      # linux/amd64 REQUIRED: GitHub runners are amd64; an arm64 image (the
+      # default on Apple Silicon) fails the fork's scoring Action with "no
+      # matching manifest for linux/amd64".
+      docker build --platform linux/amd64 -t "$img" "$SCRIPT_DIR/../scorer"
       set_env_var "$out" SCORE_IMAGE "$img"
-      echo "  ✅ built + set SCORE_IMAGE=$img"
-      echo "  Push it before scoring runs (log in first: docker login ghcr.io):"
+      echo "  ✅ built (linux/amd64) + set SCORE_IMAGE=$img"
+      printf '  %sPush it before provisioning%s — the org step mirrors it and forks pull it:\n' "$C_YELLOW" "$C_RESET"
+      echo "     docker login ghcr.io   # once, with a token that has write:packages"
       echo "     docker push $img"
     else
-      echo "  Skipped. Build later, set SCORE_IMAGE in $out, and push:"
-      echo "     docker build -t $img $SCRIPT_DIR/../scorer && docker push $img"
+      echo "  Skipped. Build later (amd64), set SCORE_IMAGE in $out, and push:"
+      echo "     docker build --platform linux/amd64 -t $img $SCRIPT_DIR/../scorer"
+      echo "     docker login ghcr.io && docker push $img"
     fi
   fi
 
@@ -808,11 +883,12 @@ EOF
   elif [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would open the App-creation form, then prompt App ID + .pem path"
   else
-    if ask_yn "  Open the App-creation form now?"; then cmd_app_manifest; fi
+    if ask_yn "  Open the App-creation form now?" Y; then cmd_app_manifest; fi
     pause_confirm "  Press Enter once you've clicked Create, generated the key (.pem), and installed the App…"
     while :; do
       wiz_ask APP_ID          "  App ID" ""
       wiz_ask PEM             "  Path to the downloaded .pem" ""
+      PEM="$(expand_tilde "$PEM")"
       wiz_ask INSTALLATION_ID "  Installation ID (optional — Enter to auto-discover)" ""
       if ( cmd_app_config ); then break; fi
       ask_yn "  Re-enter the App ID / .pem path?" || break
@@ -826,7 +902,7 @@ EOF
   elif [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would open the OAuth-app page, then prompt Client ID + hidden secret"
   else
-    if ask_yn "  Open the OAuth-app page now?"; then cmd_oauth_app; fi
+    if ask_yn "  Open the OAuth-app page now?" Y; then cmd_oauth_app; fi
     pause_confirm "  Press Enter once you've registered the app and generated a client secret…"
     while :; do
       wiz_ask CLIENT_ID "  OAuth Client ID" ""
@@ -849,7 +925,7 @@ EOF
   fi
   if [ -z "$(env_val SCORE_IMAGE)" ]; then
     echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
-  elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?"; then
+  elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
     cmd_org
   else
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
@@ -865,7 +941,7 @@ EOF
   EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
     docker compose --profile poll --profile app up -d --build app
 EOF
-  if ask_yn "  Bring the box up now?"; then
+  if ask_yn "  Bring the box up now?" Y; then
     EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose --profile poll --profile app up -d --build app
   fi
 
