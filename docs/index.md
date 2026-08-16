@@ -63,6 +63,19 @@ shared-flag dedupe — its total is less than its members' scores added up, beca
 solved by more than one teammate counts once. Branding is the neutral "OWASP CTF"
 default; the event name, targets, and links are event-config driven.</sup>
 
+## What organizers run
+
+One guided command takes you from an empty checkout to a running, scored event —
+it asks for each value inline and does every automatable step.
+
+![The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts](assets/wizard.jpg)
+
+`ctf-setup.sh doctor` then verifies the whole org at a glance — one row per fork,
+one column per provisioning step, confirming even the UI-only steps it can read
+back by API.
+
+![ctf-setup.sh doctor status matrix: one row per fork, one column per step](assets/doctor.jpg)
+
 ## Targets (Secure Development module)
 
 The module's content is a set of vulnerable targets. Enable any subset in
