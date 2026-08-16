@@ -13,11 +13,15 @@ running the event once it is up see [docs/operations.md](operations.md).
 ## Quickstart: zero to a scored event
 
 **The fastest path is the wizard** — run `ctf-setup.sh` with no subcommand and
-it walks the whole sequence below, doing every automatable step, guiding +
-verifying each UI-only one, and resuming if you stop:
+it walks the whole sequence below. It **asks for each value inline** — your box
+URL, the `event.yaml` fields (org, admins, targets, dates), and the App/OAuth
+credentials — showing the instructions and GitHub URL for each, and writing
+`.env` and `event.yaml` for you as you answer. No editing config by hand between
+steps. It does every automatable step, guides + verifies each UI-only one, and
+resumes if you stop:
 
 ```sh
-./setup/ctf-setup.sh            # guided, step-by-step, resumable
+./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
 The rest of this section is the same sequence as explicit commands, for when
@@ -37,10 +41,12 @@ git clone https://github.com/dcotelo/ctf-in-a-box && cd ctf-in-a-box
 ./setup/ctf-setup.sh secrets
 
 # 3. Build + push the scorer image, then set SCORE_IMAGE in .env by hand.
-#    On Apple Silicon add `--platform linux/amd64` (runners are amd64).
-docker build -t ghcr.io/<your-org>/score:latest scorer/
-#    MANUAL: edit SCORE_IMAGE=ghcr.io/<your-org>/score:latest in .env, then
-#    docker push ghcr.io/<your-org>/score:latest
+#    Pin linux/amd64 — GitHub runners are amd64; an arm64 image (the default on
+#    Apple Silicon) fails scoring with "no matching manifest for linux/amd64".
+docker login ghcr.io   # token with write:packages
+docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --push scorer/
+#    MANUAL: edit SCORE_IMAGE=ghcr.io/<your-org>/score:latest in .env
+#    (the wizard builds + pins amd64 for you at step 4)
 
 # 4. Create your event config from the example, then edit it.
 cp event.yaml.example event.yaml
@@ -84,7 +90,7 @@ cp event.yaml.example event.yaml
 ```
 
 ```sh
-# 9. Bring up the box. EVENT_CONFIG_B64 is REQUIRED — building the app without
+# 9. Bring the containers up. EVENT_CONFIG_B64 is REQUIRED — building the app without
 #    it yields neutral defaults (empty admins → /admin 403, generic branding).
 EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
   docker compose --profile poll --profile app up -d --build app
@@ -110,8 +116,11 @@ Build your own scorer from the engine in `scorer/` — that is the
 self-contained path and it needs no upstream access:
 
 ```sh
-docker build -t ghcr.io/<your-org>/score:latest scorer/
+docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --push scorer/
 ```
+
+(`--platform linux/amd64` is required — GitHub runners are amd64, and
+`ctf-setup org`'s mirror step refuses a non-amd64 image.)
 
 The upstream image `ghcr.io/owasp-ctf/score` is private with no formal access
 process; if the OWASP-CTF maintainers grant you access, point `SCORE_IMAGE` at
@@ -147,8 +156,9 @@ subcommand writes the workflows to `dist/workflows/` for offline inspection
 without committing.) It automates the whole per-fork setup, is idempotent (safe to
 re-run — each step is skipped once already satisfied), and leaves only three
 GitHub-UI-only steps for you to finish by hand. Run `ctf-setup.sh doctor`
-afterward to verify each fork's provisioning and flag the manual UI-only
-steps.
+afterward: it prints a **status matrix** (one row per target, one column per
+step) so the whole org's provisioning is scannable at a glance, and flags the
+UI-only steps it can't perform — confirming the two it *can* verify by API.
 
 **Automated by `ctf-setup org`** (one pass per target):
 
@@ -180,18 +190,22 @@ steps.
    runners are amd64; an arm64-only image (e.g. built on Apple Silicon) makes
    the scoring Action fail with `no matching manifest for linux/amd64`.
 
-**Manual — GitHub UI only, no API** (`doctor` flags these with ⚠️):
+**Manual — GitHub UI only, no API to perform them.** GitHub has no endpoint to
+*do* these, but `doctor` confirms the first two by API (their result is
+queryable) and shows ✅ once done — only the third is a blind reminder:
 
 1. **Create the event org** itself.
 2. **Detach each fork from the fork network** (repo Settings → *Leave fork
    network*, UI-only). This makes the event-org repo a standalone root, so
    contestant PRs default to *your* repo (not upstream) and contestants can
-   fork it themselves.
-3. **Package visibility / Read grant**: either make the `ghcr.io/<org>/score`
-   package public, or grant each fork Read under the package's *Manage Actions
-   access* (container visibility is UI-only). The rendered workflow already
-   logs in to GHCR with the runner `GITHUB_TOKEN`, which a Read grant makes
-   sufficient.
+   fork it themselves. `doctor` verifies via the repo's `.fork` flag (✅
+   detached / ⚠️ still a fork).
+3. **Keep the `ghcr.io/<org>/score` package private** and **grant each fork
+   Read** under the package's *Manage Actions access* (container visibility is
+   UI-only). The rendered workflow logs in to GHCR with the runner
+   `GITHUB_TOKEN`, which the Read grant makes sufficient. `doctor` verifies the
+   package is private via its `.visibility`; the per-fork grant has no read
+   endpoint, so that part stays a ⚠️ reminder to confirm by hand.
 
 **The contest flow:** a contestant **forks your event-org repo** into their own
 account, patches the vulnerability, and opens a **pull request against

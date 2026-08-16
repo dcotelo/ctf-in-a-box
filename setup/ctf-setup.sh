@@ -3,8 +3,11 @@
 #
 # Subcommands (run with NO subcommand, or `wizard`, for the guided setup):
 #   wizard    DEFAULT — step-by-step zero-to-scored: inspects state and only
-#             prompts for what's missing, guiding + verifying each UI-only step.
-#             Resumable (safe to re-run). Orchestrates the subcommands below.
+#             prompts for what's missing. Asks for each value inline (EVENT_URL,
+#             event.yaml fields, App/OAuth credentials) with instructions + URLs,
+#             writing them as you go — no editing files by hand between steps.
+#             Guides + verifies each UI-only step. Resumable (safe to re-run).
+#             Orchestrates the subcommands below.
 #   check     verify local prerequisites (gh auth, docker, compose)
 #   secrets   generate .env secret values
 #   org       fork targets, render scoring workflows from the in-repo template
@@ -36,6 +39,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 WORKFLOW_TEMPLATE="$SCRIPT_DIR/../scorer/consumer-workflow.example.yml"
 
+# ANSI colors — only when stdout is a TTY and NO_COLOR is unset (respect the
+# NO_COLOR convention + non-interactive/piped output stays plain for logs/CI).
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'
+  C_CYAN=$'\033[36m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+else
+  C_RESET=; C_BOLD=; C_CYAN=; C_GREEN=; C_YELLOW=
+fi
+
 PROVENANCE_TSV="$SCRIPT_DIR/targets.tsv"
 
 # target -> provenance column. col: 2=upstream_repo, 3=ref, 4=stock_image.
@@ -62,6 +74,23 @@ wait_for_repo() {
   return 1
 }
 
+# GitHub indexes a fresh fork's Actions workflows ASYNCHRONOUSLY, so a read
+# right after forking can return a partial (or empty) list — which made
+# disable-inherited vacuously report "already done" while inherited workflows
+# (ci/lock/stale/pr-compliance — the ones that auto-close contestant PRs) were
+# still landing, active. Wait until the workflow count is stable across two
+# reads. Best-effort + bounded; aborts immediately if the API errors (the
+# caller's own `|| return 1` then decides), so it never sleeps in that case.
+wait_workflows_settled() {
+  local slug="$1" prev="" cur _
+  for _ in 1 2 3 4 5 6; do
+    cur="$(gh api "repos/$slug/actions/workflows" --jq '.total_count' 2>/dev/null)" || return 0
+    if [ "$cur" = "$prev" ]; then return 0; fi
+    prev="$cur"; sleep 5
+  done
+  return 0
+}
+
 # Create/update a file on the fork's ctf branch. $1=org/name $2=repo-path
 # $3=local-content-file. Idempotent: fetches the existing sha to update in place.
 put_contents_ctf() {
@@ -77,6 +106,22 @@ put_contents_ctf() {
 }
 
 STEPS="fork ctf-branch drop-old protect workflow disable-inherited pr-template vapp-dockerfile"
+
+# Read-only verifiers for the two UI-only steps. GitHub exposes no API to
+# PERFORM them (leaving a fork network / setting package visibility are
+# UI-only), but their RESULT is queryable — so doctor confirms instead of
+# blindly reminding. (The third UI-only step, the per-fork package Read grant,
+# genuinely has no read endpoint — that one stays a reminder.)
+fork_detached() { [ "$(gh api "repos/$1" --jq '.fork' 2>/dev/null)" = "false" ]; }
+package_private() { [ "$(gh api "orgs/$1/packages/container/score" --jq '.visibility' 2>/dev/null)" = "private" ]; }
+
+# jq selecting the IDs of a fork's inherited (to-be-disabled) workflows: real
+# .github/workflows/ files only, minus our own ctf-score.yml, that are active.
+# The startswith() guard skips GitHub-managed DYNAMIC workflows (e.g.
+# dynamic/dependabot/update-graph, dynamic/pages/...) which cannot be disabled
+# via the API and never run on / close contestant PRs — counting them would
+# make disable-inherited never settle (doctor stuck red, provisioning looping).
+INHERITED_JQ='.workflows[] | select(.path | startswith(".github/workflows/")) | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id'
 
 plan_step() {
   local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
@@ -115,8 +160,11 @@ check_step() {
     workflow) gh_ok "repos/$org/$name/contents/.github/workflows/ctf-score.yml?ref=ctf" ;;
     disable-inherited)
       local others
+      # Let GitHub finish indexing the fork's workflows before judging, or a
+      # fresh fork reads empty and false-passes (the vacuous-zero trap).
+      wait_workflows_settled "$org/$name"
       others="$(gh api "repos/$org/$name/actions/workflows" \
-        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)" || return 1
+        --jq "$INHERITED_JQ" 2>/dev/null)" || return 1
       [ -z "$others" ]
       ;;
     pr-template) gh_ok "repos/$org/$name/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=ctf" ;;
@@ -168,7 +216,7 @@ JSON
     disable-inherited)
       local id
       for id in $(gh api "repos/$org/$name/actions/workflows" \
-        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null); do
+        --jq "$INHERITED_JQ" 2>/dev/null); do
         gh api -X PUT "repos/$org/$name/actions/workflows/$id/disable" >/dev/null 2>&1 || true
       done
       ;;
@@ -195,22 +243,52 @@ cmd_doctor() {
   require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  local rc=0 t id
-  # Guide-only org-level check.
-  if gh_ok "orgs/$org"; then echo "✅ org $org exists"; else echo "⚠️  org $org — create it: https://github.com/account/organizations/new"; fi
+  local rc=0 t id cell name
+
+  if gh_ok "orgs/$org"; then
+    printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
+  else
+    printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
+  fi
+
+  # One row per target, one column per provisioning step (+ fork-detach). Each
+  # cell: ✅ done · ❌ missing (automatable — fails the exit code) · ⚠️ manual
+  # step not yet done (advisory) · – not applicable to this target.
+  printf '%s%-18s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s%s\n' "$C_BOLD" \
+    "target" fork ctf old prot wkfl disI pr vapp detch "$C_RESET"
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    echo "== $t ($org/$(prov_repo_name "$t"))"
+    name="$(prov_repo_name "$t")"
+    printf '%-18s ' "$t"
     for id in $STEPS; do
-      if check_step "$id" "$t" "$org"; then
-        echo "  ✅ $id"
+      if [ "$id" = vapp-dockerfile ] && [ "$t" != vulnerableapp ]; then
+        cell="–"
+      elif check_step "$id" "$t" "$org"; then
+        cell="✅"
       else
-        echo "  ❌ $id"; rc=1
+        cell="❌"; rc=1
       fi
+      # ✅/❌ render ~2 cols, the n/a dash ~1 — pad it one extra to keep columns.
+      if [ "$cell" = "–" ]; then printf '%s     ' "$cell"; else printf '%s    ' "$cell"; fi
     done
-    echo "  ⚠️  fork-network detach — verify: https://github.com/$org/$(prov_repo_name "$t")/settings"
+    if fork_detached "$org/$name"; then cell="✅"; else cell="⚠️"; fi
+    printf '%s\n' "$cell"
   done < <(yaml_targets)
-  echo "  ⚠️  package visibility / Read grant — verify: https://github.com/orgs/$org/packages"
+
+  echo
+  echo "legend: fork=forked ctf=ctf-branch old=drop-old prot=protected wkfl=workflow"
+  echo "        disI=disable-inherited pr=pr-template vapp=vapp-dockerfile detch=fork-detached (–=n/a)"
+  echo "❌ = automatable step missing (fails exit); ⚠️ = UI-only step to finish by hand"
+
+  # Org-level (not per-target): scorer package.
+  echo
+  if package_private "$org"; then
+    printf '%s✅ scorer package private%s\n' "$C_GREEN" "$C_RESET"
+  else
+    printf '%s⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
+  fi
+  # No API exposes the per-fork "Manage Actions access" grants — reminder only.
+  printf '%s⚠️  per-fork package Read grant — no API to verify; confirm each fork under "Manage Actions access": https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
   return $rc
 }
 
@@ -346,14 +424,21 @@ render_workflows() {
 # Mirror SCORE_IMAGE into the event org's GHCR, then REFUSE a non-amd64 image
 # (GitHub runners are amd64; an arm64-only image fails scoring at run time).
 mirror_image() {
-  local org="$1" src="$2"
-  echo "== mirroring scorer image $src -> ghcr.io/$org/score:latest"
+  local org="$1" src="$2" dest="ghcr.io/$1/score:latest"
+  echo "== mirroring scorer image $src -> $dest"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "DRY-RUN: docker pull $src && docker tag $src ghcr.io/$org/score:latest && docker push ghcr.io/$org/score:latest"
+    echo "DRY-RUN: docker pull $src && docker tag $src $dest && docker push $dest"
     echo "DRY-RUN: docker image inspect --format '{{.Architecture}}' $src  # must be amd64"
     return
   fi
-  docker pull "$src"
+  # If the source is already the dest tag and present locally (the wizard just
+  # built it), don't pull — the tag isn't in the registry yet, which is the
+  # whole reason we're about to push it. Otherwise pull the named source.
+  if [ "$src" = "$dest" ] && docker image inspect "$src" >/dev/null 2>&1; then
+    echo "== using locally-built $src (skipping pull)"
+  else
+    docker pull "$src"
+  fi
   # Check the pulled image's own config (always has .Architecture, no
   # manifest-list wrapping to unpack) rather than the registry manifest: a
   # plain `docker build` (the documented path in docs/scorer.md) pushes a
@@ -363,11 +448,15 @@ mirror_image() {
   arch="$(docker image inspect --format '{{.Architecture}}' "$src" 2>/dev/null || true)"
   if [ "$arch" != "amd64" ]; then
     echo "ERROR: $src is $arch, not amd64 — GitHub runners need linux/amd64." >&2
-    echo "Rebuild + push amd64:  docker buildx build --platform linux/amd64 -t ghcr.io/$org/score:latest --push scorer/" >&2
+    echo "Rebuild + push amd64:  docker buildx build --platform linux/amd64 -t $dest --push scorer/" >&2
     return 1
   fi
-  docker tag "$src" "ghcr.io/$org/score:latest"
-  docker push "ghcr.io/$org/score:latest"
+  docker tag "$src" "$dest"
+  if ! docker push "$dest"; then
+    echo "ERROR: push to $dest failed — is docker logged in to ghcr.io with write:packages?" >&2
+    echo "  docker login ghcr.io   (token needs write:packages; e.g. gh auth token after 'gh auth refresh -s write:packages,read:packages')" >&2
+    return 1
+  fi
 }
 
 cmd_check() {
@@ -528,13 +617,23 @@ cmd_app_manifest() {
   echo "== opening GitHub App creation for org '$org' in your browser"
   open_url "$html"
   cat <<EOF
-== next, in GitHub's UI:
-   1. Click "Create GitHub App" (rename if the name is taken).
+== the form is PRE-FILLED from the manifest. If it opened BLANK (auto-submit
+   blocked), enter these values by hand — they are the whole manifest:
+     GitHub App name:   CTF-in-a-box sync   (rename if the name is taken)
+     Homepage URL:      https://github.com/dcotelo/ctf-in-a-box
+     Webhook:           UNCHECK "Active"  (no webhook — else GitHub demands a URL)
+     Repository permissions:  Issues → Read-only
+                              Pull requests → Read-only
+                              (Metadata → Read-only is added automatically)
+     Subscribe to events:     none
+     Where can this be installed:  Only on this account (@$org)
+== then, in GitHub's UI:
+   1. Click "Create GitHub App".
    2. On the app page: "Generate a private key" (downloads a .pem), and note the App ID.
    3. "Install App" -> install it on the '$org' org.
-   4. Then wire the credentials into .env:
+   4. The wizard will prompt for the App ID + .pem path next (or, standalone:
         ctf-setup.sh app-config --app-id <id> --pem <path-to-downloaded.pem>
-      (add --installation-id <n> to pin it; otherwise sync auto-discovers it)
+      add --installation-id <n> to pin it; otherwise sync auto-discovers it).
 EOF
 }
 
@@ -631,16 +730,46 @@ env_val() {
   sed -n "s/^$1=//p" "$out" | tail -1
 }
 
-wiz_step() { echo; echo "── $1"; }
+wiz_step() { echo; printf '%s── %s%s\n' "$C_BOLD$C_CYAN" "$1" "$C_RESET"; }
 
-# Yes/No prompt. Returns 0 for yes. Under --dry-run it never blocks or mutates:
-# it prints the question and answers "no" so the wizard just narrates.
+# ASCII banner shown at the top of the wizard.
+wiz_banner() {
+  printf '%s' "$C_CYAN"
+  cat <<'BANNER'
+  ____ _____ _____   _                 _
+ / ___|_   _|  ___| (_)_ __     __ _  | |__   _____  __
+| |     | | | |_    | | '_ \   / _` | | '_ \ / _ \ \/ /
+| |___  | | |  _|   | | | | | | (_| | | |_) | (_) >  <
+ \____| |_| |_|     |_|_| |_|  \__,_| |_.__/ \___/_/\_\
+BANNER
+  printf '%s' "$C_RESET"
+}
+
+# Yes/No prompt. Returns 0 for yes. $2 is the default when the user just hits
+# Enter — "Y" for the happy-path "do it now?" actions, "N" (default) for
+# exceptional ones like retries. Under --dry-run it never blocks or mutates: it
+# prints the question and answers "no" so the wizard just narrates.
 ask_yn() {
-  local reply
+  local reply def="${2:-N}" hint
+  case "$def" in Y | y) hint="${C_GREEN}[Y/n]${C_RESET}" ;; *) hint="[y/N]" ;; esac
   if [ "$DRY_RUN" -eq 1 ]; then echo "$1 [dry-run: skipped]"; return 1; fi
-  printf '%s [y/N] ' "$1"
+  printf '%s %s ' "$1" "$hint"
   read -r reply || reply=""
+  [ -n "$reply" ] || reply="$def"
   case "$reply" in y | Y | yes | YES) return 0 ;; *) return 1 ;; esac
+}
+
+# Expand a leading ~ / ~/ in a path to $HOME (read -r does not do it — tilde
+# expansion is a shell parse-time step, not applied to variable values).
+expand_tilde() {
+  # The "~" patterns are literal string matches (quoted), not tilde expansions
+  # we expect the shell to perform — that is the whole point of this helper.
+  # shellcheck disable=SC2088
+  case "$1" in
+    "~") printf '%s' "$HOME" ;;
+    "~/"*) printf '%s/%s' "$HOME" "${1:2}" ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 # Wait for the operator to finish a GitHub-UI step. No-op under --dry-run.
@@ -648,6 +777,36 @@ pause_confirm() {
   [ "$DRY_RUN" -eq 1 ] && { echo "$1 [dry-run: skipped]"; return 0; }
   printf '%s ' "$1"
   read -r _ || true
+}
+
+# Prompt for a value into the named variable, falling back to a default on an
+# empty reply. Under --dry-run it never blocks or reads: it narrates the prompt
+# and assigns the default, so the wizard stays non-interactive and side-effect
+# free. Uses `printf -v` (bash 3.2 safe) for the indirect assignment.
+wiz_ask() {
+  local __var="$1" __prompt="$2" __def="${3:-}" __reply
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '  %s [%s] (dry-run: default)\n' "$__prompt" "$__def"
+    printf -v "$__var" '%s' "$__def"
+    return 0
+  fi
+  if [ -n "$__def" ]; then
+    printf '  %s [%s]: ' "$__prompt" "$__def"
+  else
+    printf '  %s: ' "$__prompt"
+  fi
+  read -r __reply || __reply=""
+  [ -n "$__reply" ] || __reply="$__def"
+  printf -v "$__var" '%s' "$__reply"
+}
+
+# Join a whitespace-separated list into a "a, b, c" string for a YAML flow list.
+csv_of() {
+  local out="" x
+  for x in $1; do
+    if [ -n "$out" ]; then out="$out, $x"; else out="$x"; fi
+  done
+  printf '%s' "$out"
 }
 
 # The default front door: walk a brand-new organizer from zero to a running,
@@ -659,8 +818,8 @@ pause_confirm() {
 # (edit a file, click Create in GitHub's UI); complete it and re-run.
 cmd_wizard() {
   local out="${OUT:-.env}"
-  echo "== CTF-in-a-box setup wizard =="
-  echo "Walks you to a running, scored event. Safe to re-run — it resumes."
+  wiz_banner
+  printf '%sCTF-in-a-box setup wizard%s — walks you to a running, scored event. Safe to re-run — it resumes.\n' "$C_BOLD" "$C_RESET"
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
 
   # 1. Prerequisites (subshelled so cmd_check's exit doesn't kill the wizard).
@@ -678,10 +837,13 @@ cmd_wizard() {
   if [ -f "$out" ]; then
     echo "  ✅ $out present"
   elif [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY-RUN: would generate $out via 'secrets'"
+    echo "  DRY-RUN: would generate $out via 'secrets' and prompt EVENT_URL"
   else
     cmd_secrets
-    echo "  For a real event, set EVENT_URL in $out to your https:// domain."
+    local ev_url
+    wiz_ask ev_url "Box URL contestants reach (https:// for a real event)" "$(env_val EVENT_URL)"
+    set_env_var "$out" EVENT_URL "$ev_url"
+    echo "  ✅ EVENT_URL=$ev_url"
   fi
 
   # 3. Event config.
@@ -689,49 +851,110 @@ cmd_wizard() {
   if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && yaml_targets | grep -q .; then
     echo "  ✅ $CONFIG (org: $(yaml_org))"
   else
-    if [ ! -f "$CONFIG" ] && [ -f event.yaml.example ] && [ "$DRY_RUN" -ne 1 ]; then
-      cp event.yaml.example "$CONFIG"
-      echo "  copied event.yaml.example -> $CONFIG"
+    echo "  Answer a few questions to write $CONFIG (Enter accepts the [default])."
+    local ev_name ev_org ev_admins ev_targets ev_url ev_ingest ev_start ev_end adm_default
+    adm_default=""
+    [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
+    wiz_ask ev_name    "Event name" "OWASP Chapter CTF"
+    wiz_ask ev_org     "GitHub org (disposable per-event org)" ""
+    while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_org" ]; do
+      echo "  org is required."
+      wiz_ask ev_org   "GitHub org (disposable per-event org)" ""
+    done
+    wiz_ask ev_admins  "Admin GitHub login(s), space-separated" "$adm_default"
+    wiz_ask ev_targets "Targets — subset of: juice-shop dvwa webgoat securityshepherd vulnerableapp vampi" "juice-shop dvwa webgoat securityshepherd vulnerableapp vampi"
+    wiz_ask ev_url     "Event URL contestants reach" "$(env_val EVENT_URL)"
+    wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
+    wiz_ask ev_start   "Event start (ISO 8601 e.g. 2026-10-01T09:00:00-03:00, blank to skip)" ""
+    ev_end=""
+    [ -z "$ev_start" ] || wiz_ask ev_end "Event end (ISO 8601, blank to skip)" ""
+    # Optional start/end drive the app's countdown + display dates; emitted only
+    # when a start was given (end is nested under it).
+    local ev_dates=""
+    if [ -n "$ev_start" ]; then
+      ev_dates="  start: $ev_start
+"
+      [ -z "$ev_end" ] || ev_dates="$ev_dates  end: $ev_end
+"
     fi
-    echo "  Edit $CONFIG: set github.org, modules.secure-development.targets,"
-    echo "  admins (your GitHub login), and event.url. Then re-run the wizard."
-    exit 0
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  DRY-RUN: would write $CONFIG (org: $ev_org)"
+    else
+      cat > "$CONFIG" <<EOF
+event:
+  name: "$ev_name"
+  url: $ev_url
+${ev_dates}github:
+  org: $ev_org
+modules:
+  secure-development:
+    targets: [$(csv_of "$ev_targets")]
+    score_ingest: $ev_ingest
+teams: { enabled: true, max_size: 4 }
+hints: { enabled: false }
+admins: [$(csv_of "$ev_admins")]
+EOF
+      echo "  ✅ wrote $CONFIG (org: $ev_org)"
+    fi
   fi
-  local org; org="$(yaml_org)"
+  local org=""; [ -f "$CONFIG" ] && org="$(yaml_org)"
 
   # 4. Scorer image.
   wiz_step "4/8  Scorer image (SCORE_IMAGE)"
   if [ -n "$(env_val SCORE_IMAGE)" ]; then
     echo "  ✅ SCORE_IMAGE=$(env_val SCORE_IMAGE)"
   else
-    echo "  Build it, then set SCORE_IMAGE in $out and push it:"
-    echo "     docker build -t ghcr.io/$org/score:latest scorer/"
-    echo "     (edit SCORE_IMAGE=ghcr.io/$org/score:latest in $out, then docker push it)"
-    echo "  Re-run the wizard when done."
-    exit 0
+    local img="ghcr.io/$org/score:latest"
+    if ask_yn "  Build the scorer image ($img) now?" Y; then
+      # linux/amd64 REQUIRED: GitHub runners are amd64; an arm64 image (the
+      # default on Apple Silicon) fails the fork's scoring Action with "no
+      # matching manifest for linux/amd64".
+      docker build --platform linux/amd64 -t "$img" "$SCRIPT_DIR/../scorer"
+      set_env_var "$out" SCORE_IMAGE "$img"
+      echo "  ✅ built (linux/amd64) + set SCORE_IMAGE=$img"
+      printf '  %sPush it before provisioning%s — the org step mirrors it and forks pull it:\n' "$C_YELLOW" "$C_RESET"
+      echo "     docker login ghcr.io   # once, with a token that has write:packages"
+      echo "     docker push $img"
+    else
+      echo "  Skipped. Build later (amd64), set SCORE_IMAGE in $out, and push:"
+      echo "     docker build --platform linux/amd64 -t $img $SCRIPT_DIR/../scorer"
+      echo "     docker login ghcr.io && docker push $img"
+    fi
   fi
 
   # 5. Sync GitHub App (poll auth).
   wiz_step "5/8  Sync GitHub App (poll auth)"
   if [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
     echo "  ✅ GitHub App configured"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would open the App-creation form, then prompt App ID + .pem path"
   else
-    if ask_yn "  Open the App-creation form now?"; then cmd_app_manifest; fi
-    echo "  After Create → Generate key → Install, wire it in:"
-    echo "     ctf-setup.sh app-config --app-id <id> --pem <path-to.pem>"
-    echo "  Then re-run the wizard."
-    exit 0
+    if ask_yn "  Open the App-creation form now?" Y; then cmd_app_manifest; fi
+    pause_confirm "  Press Enter once you've clicked Create, generated the key (.pem), and installed the App…"
+    while :; do
+      wiz_ask APP_ID          "  App ID" ""
+      wiz_ask PEM             "  Path to the downloaded .pem" ""
+      PEM="$(expand_tilde "$PEM")"
+      wiz_ask INSTALLATION_ID "  Installation ID (optional — Enter to auto-discover)" ""
+      if ( cmd_app_config ); then break; fi
+      ask_yn "  Re-enter the App ID / .pem path?" || break
+    done
   fi
 
   # 6. Sign-in OAuth app.
   wiz_step "6/8  Sign-in OAuth app"
   if [ -n "$(env_val GITHUB_CLIENT_ID)" ] && [ -n "$(env_val GITHUB_CLIENT_SECRET)" ]; then
     echo "  ✅ OAuth app configured"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would open the OAuth-app page, then prompt Client ID + hidden secret"
   else
-    if ask_yn "  Open the OAuth-app page now?"; then cmd_oauth_app; fi
-    echo "  Then wire it in: ctf-setup.sh oauth-config --client-id <client id>"
-    echo "  Then re-run the wizard."
-    exit 0
+    if ask_yn "  Open the OAuth-app page now?" Y; then cmd_oauth_app; fi
+    pause_confirm "  Press Enter once you've registered the app and generated a client secret…"
+    while :; do
+      wiz_ask CLIENT_ID "  OAuth Client ID" ""
+      if ( cmd_oauth_config ); then break; fi
+      ask_yn "  Re-enter the Client ID / secret?" || break
+    done
   fi
 
   # 7. Create + provision the org.
@@ -746,7 +969,9 @@ cmd_wizard() {
       exit 0
     fi
   fi
-  if ask_yn "  Provision the org now (fork targets, branches, workflow, image)?"; then
+  if [ -z "$(env_val SCORE_IMAGE)" ]; then
+    echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
+  elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
     cmd_org
   else
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
@@ -756,13 +981,13 @@ cmd_wizard() {
   ( cmd_doctor ) || true
   echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
 
-  # 8. Bring up the box.
-  wiz_step "8/8  Bring up the box"
+  # 8. Bring the containers up.
+  wiz_step "8/8  Bring the containers up"
   cat <<EOF
   EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
     docker compose --profile poll --profile app up -d --build app
 EOF
-  if ask_yn "  Bring the box up now?"; then
+  if ask_yn "  Bring the containers up now?" Y; then
     EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose --profile poll --profile app up -d --build app
   fi
 

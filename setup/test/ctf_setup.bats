@@ -343,18 +343,17 @@ EOF2
   echo "$output" | grep -qx NOTSATISFIED
 }
 
-@test "doctor reports missing then done via stubbed gh" {
+@test "doctor table: fork column flips missing->done via stubbed gh" {
+  # doctor renders a matrix (row per target, column per step). The fork cell is
+  # the first status column, so awk column 2 of the target's row is its fork
+  # state. missing gh => ❌ + nonzero exit; found gh => ✅.
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
   [ "$status" -ne 0 ]
-  echo "$output" | grep -qF "❌ fork"
+  [ "$(echo "$output" | awk '/^dvwa/{print $2}')" = "❌" ]
   make_gh_stub found
-  # Overall status stays non-zero here: only fork (+ the vapp-dockerfile n/a
-  # guard) is implemented this task, so the other STEPS ids still report
-  # ❌ regardless of gh — later tasks flip them to ✅ as each check_step arm
-  # lands. What this asserts is that fork itself now resolves ✅.
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
-  echo "$output" | grep -qF "✅ fork"
+  [ "$(echo "$output" | awk '/^dvwa/{print $2}')" = "✅" ]
 }
 
 @test "pr-template plan + check use the ctf branch contents endpoint" {
@@ -455,7 +454,7 @@ _stub_prereqs() {
   done
 }
 
-@test "wizard stops at the event-config step when github.org is unset" {
+@test "wizard prompts for event config inline when github.org is unset, without dead-ending" {
   _stub_prereqs
   rm -f .env
   cat > event.yaml <<'YAML'
@@ -463,8 +462,87 @@ modules:
   secure-development:
     targets: [vampi]
 YAML
-  # No org -> the wizard must halt at step 3 with edit instructions, exit 0.
+  # No org -> the wizard must PROMPT inline (not halt): narrate the questions
+  # under --dry-run and continue past step 3 to step 4 (proves no early exit).
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  echo "$output" | grep -q "Event config"
-  echo "$output" | grep -q "set github.org"
+  echo "$output" | grep -q "Answer a few questions to write"
+  echo "$output" | grep -q "GitHub org (disposable per-event org)"
+  echo "$output" | grep -q "4/8  Scorer image"
+}
+
+@test "wizard --dry-run walks every step to bring-up without blocking" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  # No .env, no event.yaml: every step must narrate and flow through to step 8
+  # instead of exiting early to make the operator edit a file and re-run.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "2/8  Secrets"
+  echo "$output" | grep -q "3/8  Event config"
+  echo "$output" | grep -q "8/8  Bring the containers up"
+}
+
+@test "wizard --dry-run does not build or push the scorer image" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  # Step 4 offers to build but must skip it under --dry-run (ask_yn answers no).
+  echo "$output" | grep -q "Build the scorer image"
+  [ -z "$(echo "$output" | grep -F 'Successfully built')" ]
+}
+
+@test "wizard builds the scorer image for linux/amd64 (runners are amd64)" {
+  # The build MUST pin --platform linux/amd64 or an arm64 image (Apple Silicon
+  # default) fails the fork's scoring Action with 'no matching manifest'.
+  run grep -F 'docker build --platform linux/amd64 -t "$img"' "$SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "expand_tilde resolves a leading ~ but leaves absolute paths alone" {
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; expand_tilde "~/Downloads/k.pem"'
+  [ "$output" = "$HOME/Downloads/k.pem" ]
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; expand_tilde "~"'
+  [ "$output" = "$HOME" ]
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; expand_tilde "/abs/k.pem"'
+  [ "$output" = "/abs/k.pem" ]
+}
+
+@test "ask_yn honours the default on an empty reply (Y=yes, N=no)" {
+  # Output carries the prompt prefix, so match the decision token as a word.
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; DRY_RUN=0; printf "\n" | { if ask_yn q Y; then echo DECIDE-YES; else echo DECIDE-NO; fi; }'
+  echo "$output" | grep -qw DECIDE-YES
+  run bash -c 'CMD=__selftest source "'"$SCRIPT"'"; DRY_RUN=0; printf "\n" | { if ask_yn q; then echo DECIDE-YES; else echo DECIDE-NO; fi; }'
+  echo "$output" | grep -qw DECIDE-NO
+}
+
+@test "fork_detached / package_private confirm the UI-only steps by API" {
+  mkdir -p "$BATS_TEST_TMPDIR/stubs"
+  # Stub gh so `.fork` and `.visibility` are read from the flag we pass in.
+  cat > "$BATS_TEST_TMPDIR/stubs/gh" <<'EOF2'
+#!/usr/bin/env bash
+# emit $FORK for a repos/... query, $VIS for a packages/... query
+for a in "$@"; do case "$a" in repos/*) echo "${FORK:-}"; exit 0;; orgs/*packages*) echo "${VIS:-}"; exit 0;; esac; done
+exit 0
+EOF2
+  chmod +x "$BATS_TEST_TMPDIR/stubs/gh"
+  run env FORK=false PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if fork_detached o/r; then echo DETACHED; else echo STILLFORK; fi'
+  echo "$output" | grep -qw DETACHED
+  run env FORK=true PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if fork_detached o/r; then echo DETACHED; else echo STILLFORK; fi'
+  echo "$output" | grep -qw STILLFORK
+  run env VIS=private PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if package_private o; then echo PRIV; else echo NOTPRIV; fi'
+  echo "$output" | grep -qw PRIV
+  run env VIS=public PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if package_private o; then echo PRIV; else echo NOTPRIV; fi'
+  echo "$output" | grep -qw NOTPRIV
+}
+
+@test "wait_workflows_settled aborts fast (no sleep-loop) when the workflows API errors" {
+  # Must NOT sleep-loop on a failing API (that is what keeps the fail-closed
+  # disable-inherited check fast); it returns 0 and lets the caller decide.
+  # A single sleep cycle is 5s, so anything under that proves it did not loop.
+  mkdir -p "$BATS_TEST_TMPDIR/stubs"
+  printf '#!/usr/bin/env bash\n[ "$1" = api ] && exit 1\nexit 0\n' > "$BATS_TEST_TMPDIR/stubs/gh"
+  chmod +x "$BATS_TEST_TMPDIR/stubs/gh"
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; SECONDS=0; wait_workflows_settled o/r; echo "ELAPSED:$SECONDS"'
+  local secs; secs="$(echo "$output" | sed -n 's/^ELAPSED://p')"
+  [ "${secs:-99}" -lt 5 ]
 }

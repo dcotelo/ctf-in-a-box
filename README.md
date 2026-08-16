@@ -90,73 +90,26 @@ event name, targets, and links are all event-config driven.</sup>
 
 ## Quickstart
 
-**New here? Just run the wizard** — it walks every step below, does the
-automatable parts, guides you through the GitHub-UI ones, and resumes if you
-stop and come back:
+**Just run the wizard.** It asks for each value as it goes — your box URL, the
+event details, the GitHub App + OAuth credentials — shows the instructions and
+GitHub link for each, writes `.env` and `event.yaml` for you, does every
+automatable step, guides you through the GitHub-UI ones, and resumes if you stop
+and come back:
 
 ```sh
-./setup/ctf-setup.sh            # guided, step-by-step, resumable
+./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
-Prefer to drive it yourself, or scripting a run? The same steps as discrete
-subcommands (the full walkthrough with every UI-only step is in
-[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event)):
+That takes you from an empty checkout to a running, scored event. Preview any
+mutating step first by adding `--dry-run`.
 
-```sh
-# 1. verify tooling (gh auth, docker, compose, openssl), then generate .env
-./setup/ctf-setup.sh check
-./setup/ctf-setup.sh secrets
+**Want the details?** The full walkthrough — every discrete subcommand, each
+UI-only step, and how the two GitHub apps differ — lives in
+[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event).
 
-# 2. build + push your scorer image, then set SCORE_IMAGE in .env
-#    (on Apple Silicon add --platform linux/amd64 — CI runners are amd64)
-docker build -t ghcr.io/<your-org>/score:latest scorer/     # then edit SCORE_IMAGE= in .env
-
-# 3. describe the event: github.org, targets, admins, event.url
-cp event.yaml.example event.yaml                            # then edit it
-
-# 4. create the disposable GitHub org (UI-only), then the two apps:
-#    - sync GitHub App (poll auth): opens a pre-filled creation form
-./setup/ctf-setup.sh app-manifest
-./setup/ctf-setup.sh app-config --app-id <id> --pem <path-to-downloaded.pem>
-#    - sign-in OAuth app (contestants + admins): opens the page, prints fields
-./setup/ctf-setup.sh oauth-app
-./setup/ctf-setup.sh oauth-config --client-id <client id>   # secret via hidden prompt
-
-# 5. provision the org: forks targets, creates + protects the `ctf` branch,
-#    commits ctf-score.yml to each fork, disables inherited workflows, mirrors
-#    the scorer image. Preview with --dry-run first; verify after with `doctor`.
-./setup/ctf-setup.sh org
-./setup/ctf-setup.sh doctor
-
-# 6. bring up the box — the app image BAKES event.yaml at build time, so pass
-#    EVENT_CONFIG_B64 or you get neutral defaults (empty admins → /admin 403).
-EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
-  docker compose --profile poll --profile app up -d --build app
-```
-
-Every subcommand takes flags *after* the subcommand name — `./setup/ctf-setup.sh
-org --dry-run` previews the whole of step 5 without touching anything.
-
-`secrets` writes `.env` with a generated `BETTER_AUTH_SECRET`, `SRH_TOKEN` and
-`SCORER_TOKEN`, plus empty `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` (sign-in
-OAuth app) and `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` (sync GitHub App) for
-you to fill in via the helpers above. It refuses to overwrite an existing
-`.env`. The two apps are distinct: the **GitHub App** gives `sync` an
-org-scoped installation token to poll score comments; the **OAuth app** is what
-contestants and admins sign in with. See
-[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event) for both.
-
-`org` authenticates with your existing `gh auth login` session and your local
-`docker login ghcr.io`. It forks each target into the org (the targets are
-public OSS — the only upstream repos touched), **commits** the rendered
-scoring workflow (`.github/workflows/ctf-score.yml`) to each fork's `ctf`
-branch, disables the forks' inherited workflows, and mirrors the scorer image
-into your org's GHCR. (The separate `render` subcommand writes the workflows to
-`dist/workflows/` for offline inspection instead of committing them.)
-
-Running it on a cloud VM instead of your own machine? [docs/aws.md](docs/aws.md)
-ships a Terraform module for a single-shot AWS deploy — one ephemeral EC2 box,
-`terraform apply` up and `terraform destroy` down.
+Running on a cloud VM instead of your own machine? [docs/aws.md](docs/aws.md)
+ships a Terraform module for a single-shot AWS deploy — `terraform apply` up,
+`terraform destroy` down.
 
 ## The Secure Development module: targets and rubrics
 
