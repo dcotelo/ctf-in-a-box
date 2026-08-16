@@ -160,6 +160,8 @@ afterward: it prints a **status matrix** (one row per target, one column per
 step) so the whole org's provisioning is scannable at a glance, and flags the
 UI-only steps it can't perform — confirming the two it *can* verify by API.
 
+![ctf-setup.sh doctor status matrix: one row per fork, one column per step](assets/doctor.jpg)
+
 **Automated by `ctf-setup org`** (one pass per target):
 
 1. **Fork** the target from its pinned upstream repo/ref into your event org.

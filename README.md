@@ -100,8 +100,14 @@ and come back:
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
+<p align="center">
+  <img alt="The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts" src="docs/assets/wizard.jpg" width="820">
+</p>
+
 That takes you from an empty checkout to a running, scored event. Preview any
-mutating step first by adding `--dry-run`.
+mutating step first by adding `--dry-run`. When it's provisioned,
+`ctf-setup.sh doctor` shows a per-fork status matrix so you can see the whole
+org at a glance.
 
 **Want the details?** The full walkthrough — every discrete subcommand, each
 UI-only step, and how the two GitHub apps differ — lives in
