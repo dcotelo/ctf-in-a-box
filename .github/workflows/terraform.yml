@@ -1,0 +1,32 @@
+# Validates the AWS Terraform module on any change to it. Never applies infra —
+# fmt + init(-backend=false) + validate only. Real applies are run by an
+# operator locally (see docs/aws.md); this just keeps the module well-formed.
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+    paths: ["deploy/aws-terraform/**", ".github/workflows/terraform.yml"]
+  pull_request:
+    paths: ["deploy/aws-terraform/**", ".github/workflows/terraform.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/aws-terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+      - name: fmt
+        run: terraform fmt -check -recursive
+      - name: init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: validate
+        run: terraform validate -no-color

@@ -120,6 +120,8 @@ including a known v1 limitation on the hint toggle's reach.
 
 - [Hosting](hosting.md) — prerequisites, poll vs push, the GitHub OAuth
   app, and event config.
+- [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
+  box (`apply` up, `destroy` down).
 - [Operations](operations.md) — teams, the admin panel, verifying the kit,
   the local dev-stack, teardown, and live-scoring status.
 - [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.

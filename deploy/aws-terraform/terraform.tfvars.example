@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+region        = "us-east-1"
+instance_type = "t3.medium" # must be x86_64
+name          = "ctf-in-a-box"
+
+# Pin a release tag for a real event.
+git_ref = "v0.1.0"
+
+# HTTPS requires a domain (Caddy auto-provisions TLS). Leave domain empty only
+# for local/testing (HTTP on the EIP — session cookie is NOT Secure then).
+domain          = "ctf.example.org"
+route53_zone_id = "" # set to let Terraform create the A record, else DNS is yours
+
+# Public leaderboard by default; narrow for an organizer-only board.
+web_ingress_cidrs = ["0.0.0.0/0"]
+ssh_ingress_cidrs = [] # prefer SSM Session Manager; set ["1.2.3.4/32"] for SSH
+
+# base64 of your event.yaml (NOT a secret):
+#   event_yaml_b64 = filebase64("../../event.yaml")   # or paste a string
+event_yaml_b64 = ""
+
+# SSM path holding the SecureString SECRETS (create them out of band — see README).
+ssm_prefix = "/ctf-in-a-box"

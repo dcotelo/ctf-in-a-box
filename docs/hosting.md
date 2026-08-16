@@ -214,6 +214,10 @@ Start the poll pipeline with `docker compose --profile poll --profile app up
 -d` — the `poll` profile brings up `sync`, and `app` brings up the
 contestant-facing app. Push mode does not need `sync` running.
 
+Prefer a cloud VM over your own machine? [Deploy on AWS](aws.md) ships a
+Terraform module for a single-shot EC2 deploy — `terraform apply` up,
+`terraform destroy` down.
+
 ### Poll auth: GitHub App
 
 `sync` needs a token to read the event org's target repos, and a GitHub App

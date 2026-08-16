@@ -1,0 +1,56 @@
+#!/bin/bash
+# CTF-in-a-box single-shot bring-up (Amazon Linux 2023).
+# NOTE: no `set -x` on purpose — command tracing would write the fetched
+# secrets into /var/log/ctf-bringup.log. Secrets only ever flow into .env via
+# redirection, never to stdout.
+set -euo pipefail
+exec >/var/log/ctf-bringup.log 2>&1
+echo "== ctf-in-a-box bring-up $(date -u +%FT%TZ)"
+
+dnf install -y docker git
+
+systemctl enable --now docker
+
+# docker compose v2 plugin
+install -d -m 0755 /usr/local/lib/docker/cli-plugins
+curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+git clone ${repo_url} /opt/ctf
+cd /opt/ctf
+git checkout ${git_ref}
+
+# event.yaml — base64 in, NOT a secret (org name, targets, admins, public
+# OAuth client id).
+echo '${event_yaml_b64}' | base64 -d > event.yaml
+
+# Secrets from SSM Parameter Store (SecureString). The instance role grants
+# read on ${ssm_prefix}/* only. $$1 is the bash arg; $${...} escapes Terraform.
+ssm() { aws ssm get-parameter --with-decryption --region ${region} --name "${ssm_prefix}/$$1" --query Parameter.Value --output text; }
+
+umask 077
+{
+  echo "BETTER_AUTH_SECRET=$$(ssm BETTER_AUTH_SECRET)"
+  echo "SRH_TOKEN=$$(ssm SRH_TOKEN)"
+  echo "SCORER_TOKEN=$$(ssm SCORER_TOKEN)"
+  echo "GITHUB_CLIENT_ID=$$(ssm GITHUB_CLIENT_ID)"
+  echo "GITHUB_CLIENT_SECRET=$$(ssm GITHUB_CLIENT_SECRET)"
+  echo "GITHUB_APP_ID=$$(ssm GITHUB_APP_ID)"
+  echo "GITHUB_APP_PRIVATE_KEY=$$(ssm GITHUB_APP_PRIVATE_KEY)"
+  echo "GITHUB_APP_INSTALLATION_ID=$$(ssm GITHUB_APP_INSTALLATION_ID 2>/dev/null || true)"
+  echo "EVENT_URL=${event_url}"
+  echo "SCORE_INGEST=poll"
+  echo "SCORE_IMAGE=score:local"
+} > .env
+chmod 600 .env
+
+# Build the scorer on the box so it needs no GHCR credentials.
+docker build -t score:local scorer/
+
+# Bring up poll + app. EVENT_CONFIG_B64 bakes event.yaml into the app image at
+# build time — without it the app falls back to neutral defaults (empty admins).
+EVENT_CONFIG_B64="$$(base64 -w0 event.yaml)" \
+  docker compose --profile poll --profile app up -d --build
+
+echo "== bring-up complete $(date -u +%FT%TZ)"

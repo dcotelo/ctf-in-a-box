@@ -147,6 +147,10 @@ branch, disables the forks' inherited workflows, and mirrors the scorer image
 into your org's GHCR. (The separate `render` subcommand writes the workflows to
 `dist/workflows/` for offline inspection instead of committing them.)
 
+Running it on a cloud VM instead of your own machine? [docs/aws.md](docs/aws.md)
+ships a Terraform module for a single-shot AWS deploy — one ephemeral EC2 box,
+`terraform apply` up and `terraform destroy` down.
+
 ## The Secure Development module: targets and rubrics
 
 The first module's content is a set of vulnerable **targets** and their
@@ -248,6 +252,7 @@ in [docs/decisions.md](docs/decisions.md).
 | Document | What it covers |
 |---|---|
 | [docs/hosting.md](docs/hosting.md) | Standing the kit up — prerequisites, poll vs push, the GitHub OAuth app, and event config |
+| [docs/aws.md](docs/aws.md) | Single-shot deploy on AWS — a Terraform module (`deploy/aws-terraform/`) for one ephemeral EC2 box: `apply` up, `destroy` down |
 | [docs/operations.md](docs/operations.md) | Running an event — teams, the admin panel, verifying the kit, the local dev-stack, teardown, and status |
 | [docs/architecture.md](docs/architecture.md) | How the stack fits together — diagram, score data flow, security model, testing strategy |
 | [docs/scorer.md](docs/scorer.md) | The scorer engine: serve + judge modes, both rubric grammars, authoring and building |
