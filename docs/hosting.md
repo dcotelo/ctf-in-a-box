@@ -41,10 +41,12 @@ git clone https://github.com/dcotelo/ctf-in-a-box && cd ctf-in-a-box
 ./setup/ctf-setup.sh secrets
 
 # 3. Build + push the scorer image, then set SCORE_IMAGE in .env by hand.
-#    On Apple Silicon add `--platform linux/amd64` (runners are amd64).
-docker build -t ghcr.io/<your-org>/score:latest scorer/
-#    MANUAL: edit SCORE_IMAGE=ghcr.io/<your-org>/score:latest in .env, then
-#    docker push ghcr.io/<your-org>/score:latest
+#    Pin linux/amd64 — GitHub runners are amd64; an arm64 image (the default on
+#    Apple Silicon) fails scoring with "no matching manifest for linux/amd64".
+docker login ghcr.io   # token with write:packages
+docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --push scorer/
+#    MANUAL: edit SCORE_IMAGE=ghcr.io/<your-org>/score:latest in .env
+#    (the wizard builds + pins amd64 for you at step 4)
 
 # 4. Create your event config from the example, then edit it.
 cp event.yaml.example event.yaml
@@ -114,8 +116,11 @@ Build your own scorer from the engine in `scorer/` — that is the
 self-contained path and it needs no upstream access:
 
 ```sh
-docker build -t ghcr.io/<your-org>/score:latest scorer/
+docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --push scorer/
 ```
+
+(`--platform linux/amd64` is required — GitHub runners are amd64, and
+`ctf-setup org`'s mirror step refuses a non-amd64 image.)
 
 The upstream image `ghcr.io/owasp-ctf/score` is private with no formal access
 process; if the OWASP-CTF maintainers grant you access, point `SCORE_IMAGE` at
@@ -151,8 +156,9 @@ subcommand writes the workflows to `dist/workflows/` for offline inspection
 without committing.) It automates the whole per-fork setup, is idempotent (safe to
 re-run — each step is skipped once already satisfied), and leaves only three
 GitHub-UI-only steps for you to finish by hand. Run `ctf-setup.sh doctor`
-afterward to verify each fork's provisioning and flag the manual UI-only
-steps.
+afterward: it prints a **status matrix** (one row per target, one column per
+step) so the whole org's provisioning is scannable at a glance, and flags the
+UI-only steps it can't perform — confirming the two it *can* verify by API.
 
 **Automated by `ctf-setup org`** (one pass per target):
 
