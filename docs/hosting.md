@@ -90,7 +90,7 @@ cp event.yaml.example event.yaml
 ```
 
 ```sh
-# 9. Bring up the box. EVENT_CONFIG_B64 is REQUIRED — building the app without
+# 9. Bring the containers up. EVENT_CONFIG_B64 is REQUIRED — building the app without
 #    it yields neutral defaults (empty admins → /admin 403, generic branding).
 EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
   docker compose --profile poll --profile app up -d --build app

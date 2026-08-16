@@ -479,7 +479,7 @@ YAML
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "2/8  Secrets"
   echo "$output" | grep -q "3/8  Event config"
-  echo "$output" | grep -q "8/8  Bring up the box"
+  echo "$output" | grep -q "8/8  Bring the containers up"
 }
 
 @test "wizard --dry-run does not build or push the scorer image" {

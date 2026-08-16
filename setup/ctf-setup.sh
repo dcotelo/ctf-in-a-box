@@ -736,11 +736,11 @@ wiz_step() { echo; printf '%s── %s%s\n' "$C_BOLD$C_CYAN" "$1" "$C_RESET"; }
 wiz_banner() {
   printf '%s' "$C_CYAN"
   cat <<'BANNER'
-  ____ _____ _____   _         _
- / ___|_   _|  ___| (_)_ __   | |__   _____  __
-| |     | | | |_    | | '_ \  | '_ \ / _ \ \/ /
-| |___  | | |  _|   | | | | | | |_) | (_) >  <
- \____| |_| |_|     |_|_| |_| |_.__/ \___/_/\_\
+  ____ _____ _____   _                 _
+ / ___|_   _|  ___| (_)_ __     __ _  | |__   _____  __
+| |     | | | |_    | | '_ \   / _` | | '_ \ / _ \ \/ /
+| |___  | | |  _|   | | | | | | (_| | | |_) | (_) >  <
+ \____| |_| |_|     |_|_| |_|  \__,_| |_.__/ \___/_/\_\
 BANNER
   printf '%s' "$C_RESET"
 }
@@ -981,13 +981,13 @@ EOF
   ( cmd_doctor ) || true
   echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
 
-  # 8. Bring up the box.
-  wiz_step "8/8  Bring up the box"
+  # 8. Bring the containers up.
+  wiz_step "8/8  Bring the containers up"
   cat <<EOF
   EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
     docker compose --profile poll --profile app up -d --build app
 EOF
-  if ask_yn "  Bring the box up now?" Y; then
+  if ask_yn "  Bring the containers up now?" Y; then
     EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose --profile poll --profile app up -d --build app
   fi
 
