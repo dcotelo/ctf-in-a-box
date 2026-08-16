@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { loadRubric } from "./rubric.js";
 import { createMemoryStore, createRedisStore } from "./store.js";
 
@@ -26,7 +27,11 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
   const targetsInPlay = () => (rubric ? [...rubric.targets.keys()] : [...seenTargets].sort());
 
   async function score(req, res) {
-    if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith("Bearer ")) return json(res, 401, { error: "unauthorized" });
+    const provided = auth.slice(7); // strip "Bearer "
+    if (provided.length !== token.length) return json(res, 401, { error: "unauthorized" });
+    if (!timingSafeEqual(Buffer.from(provided), Buffer.from(token))) return json(res, 401, { error: "unauthorized" });
     // Organizer freeze (Task 6 holds the poll-mode cursor; this is push mode's
     // half): fails open on a store error, so a Redis blip never drops a live
     // submission — see store.js's isPaused for both implementations.
