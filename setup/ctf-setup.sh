@@ -107,6 +107,14 @@ put_contents_ctf() {
 
 STEPS="fork ctf-branch drop-old protect workflow disable-inherited pr-template vapp-dockerfile"
 
+# jq selecting the IDs of a fork's inherited (to-be-disabled) workflows: real
+# .github/workflows/ files only, minus our own ctf-score.yml, that are active.
+# The startswith() guard skips GitHub-managed DYNAMIC workflows (e.g.
+# dynamic/dependabot/update-graph, dynamic/pages/...) which cannot be disabled
+# via the API and never run on / close contestant PRs — counting them would
+# make disable-inherited never settle (doctor stuck red, provisioning looping).
+INHERITED_JQ='.workflows[] | select(.path | startswith(".github/workflows/")) | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id'
+
 plan_step() {
   local id="$1" t="$2" org="$3" name; name="$(prov_repo_name "$t")"
   case "$id" in
@@ -148,7 +156,7 @@ check_step() {
       # fresh fork reads empty and false-passes (the vacuous-zero trap).
       wait_workflows_settled "$org/$name"
       others="$(gh api "repos/$org/$name/actions/workflows" \
-        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null)" || return 1
+        --jq "$INHERITED_JQ" 2>/dev/null)" || return 1
       [ -z "$others" ]
       ;;
     pr-template) gh_ok "repos/$org/$name/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=ctf" ;;
@@ -200,7 +208,7 @@ JSON
     disable-inherited)
       local id
       for id in $(gh api "repos/$org/$name/actions/workflows" \
-        --jq '.workflows[] | select(.path != ".github/workflows/ctf-score.yml") | select(.state=="active") | .id' 2>/dev/null); do
+        --jq "$INHERITED_JQ" 2>/dev/null); do
         gh api -X PUT "repos/$org/$name/actions/workflows/$id/disable" >/dev/null 2>&1 || true
       done
       ;;
