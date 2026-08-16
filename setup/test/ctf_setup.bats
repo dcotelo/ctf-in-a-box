@@ -437,3 +437,34 @@ EOF2
   [ "$status" -ne 0 ]
   [[ "$output" == *"--client-id is required"* ]]
 }
+
+@test "bare invocation runs the wizard (the default), not a usage error" {
+  run bash "$SCRIPT"
+  echo "$output" | grep -q "CTF-in-a-box setup wizard"
+  [ -z "$(echo "$output" | grep -F 'usage: ctf-setup.sh')" ]
+}
+
+# Stub gh/docker/openssl on PATH so the wizard's prerequisite step (cmd_check)
+# passes deterministically — CI runners have no `gh auth`, which would otherwise
+# make the wizard bail at step 1 before reaching the step under test.
+_stub_prereqs() {
+  mkdir -p "$BATS_TEST_TMPDIR/stubbin"
+  for c in gh docker openssl; do
+    printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/stubbin/$c"
+    chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
+  done
+}
+
+@test "wizard stops at the event-config step when github.org is unset" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+modules:
+  secure-development:
+    targets: [vampi]
+YAML
+  # No org -> the wizard must halt at step 3 with edit instructions, exit 0.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  echo "$output" | grep -q "Event config"
+  echo "$output" | grep -q "set github.org"
+}

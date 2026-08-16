@@ -12,9 +12,18 @@ running the event once it is up see [docs/operations.md](operations.md).
 
 ## Quickstart: zero to a scored event
 
-The canonical happy-path sequence. Each step is either a `ctf-setup.sh`
-command or a **UI-only** step GitHub forces you through by hand (marked
-below); `ctf-setup.sh` never mints credentials or creates orgs for you.
+**The fastest path is the wizard** — run `ctf-setup.sh` with no subcommand and
+it walks the whole sequence below, doing every automatable step, guiding +
+verifying each UI-only one, and resuming if you stop:
+
+```sh
+./setup/ctf-setup.sh            # guided, step-by-step, resumable
+```
+
+The rest of this section is the same sequence as explicit commands, for when
+you'd rather drive it yourself or script it. Each step is either a
+`ctf-setup.sh` command or a **UI-only** step GitHub forces you through by hand
+(marked below); `ctf-setup.sh` never mints credentials or creates orgs for you.
 
 ```sh
 # 0. Verify tooling: gh auth, docker, docker compose v2, openssl.

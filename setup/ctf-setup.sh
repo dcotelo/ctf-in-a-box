@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # ctf-setup — provision a disposable GitHub org for a self-hosted OWASP CTF event.
 #
-# Subcommands:
+# Subcommands (run with NO subcommand, or `wizard`, for the guided setup):
+#   wizard    DEFAULT — step-by-step zero-to-scored: inspects state and only
+#             prompts for what's missing, guiding + verifying each UI-only step.
+#             Resumable (safe to re-run). Orchestrates the subcommands below.
 #   check     verify local prerequisites (gh auth, docker, compose)
 #   secrets   generate .env secret values
 #   org       fork targets, render scoring workflows from the in-repo template
@@ -620,8 +623,157 @@ cmd_oauth_config() {
   echo "wrote GitHub OAuth credentials to $out (client id $CLIENT_ID)"
 }
 
+# --- wizard -----------------------------------------------------------------
+# Read a single value out of the .env (empty if the file or key is absent).
+env_val() {
+  local out="${OUT:-.env}"
+  [ -f "$out" ] || return 0
+  sed -n "s/^$1=//p" "$out" | tail -1
+}
+
+wiz_step() { echo; echo "── $1"; }
+
+# Yes/No prompt. Returns 0 for yes. Under --dry-run it never blocks or mutates:
+# it prints the question and answers "no" so the wizard just narrates.
+ask_yn() {
+  local reply
+  if [ "$DRY_RUN" -eq 1 ]; then echo "$1 [dry-run: skipped]"; return 1; fi
+  printf '%s [y/N] ' "$1"
+  read -r reply || reply=""
+  case "$reply" in y | Y | yes | YES) return 0 ;; *) return 1 ;; esac
+}
+
+# Wait for the operator to finish a GitHub-UI step. No-op under --dry-run.
+pause_confirm() {
+  [ "$DRY_RUN" -eq 1 ] && { echo "$1 [dry-run: skipped]"; return 0; }
+  printf '%s ' "$1"
+  read -r _ || true
+}
+
+# The default front door: walk a brand-new organizer from zero to a running,
+# scored event, doing every automatable step and guiding + verifying each
+# UI-only one. Resumable — it inspects state (check/doctor/.env/event.yaml) and
+# only prompts for what's missing, so re-running picks up where you left off.
+# The discrete subcommands remain for scripting/CI; the wizard just orchestrates
+# them. Stops with instructions whenever it needs you to do something off-box
+# (edit a file, click Create in GitHub's UI); complete it and re-run.
+cmd_wizard() {
+  local out="${OUT:-.env}"
+  echo "== CTF-in-a-box setup wizard =="
+  echo "Walks you to a running, scored event. Safe to re-run — it resumes."
+  [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
+
+  # 1. Prerequisites (subshelled so cmd_check's exit doesn't kill the wizard).
+  wiz_step "1/8  Prerequisites"
+  if ( cmd_check ) >/dev/null 2>&1; then
+    echo "  ✅ gh, docker, compose, openssl, gh auth"
+  else
+    cmd_check || true
+    echo "  Fix the above, then re-run the wizard."
+    exit 1
+  fi
+
+  # 2. Secrets (.env).
+  wiz_step "2/8  Secrets ($out)"
+  if [ -f "$out" ]; then
+    echo "  ✅ $out present"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would generate $out via 'secrets'"
+  else
+    cmd_secrets
+    echo "  For a real event, set EVENT_URL in $out to your https:// domain."
+  fi
+
+  # 3. Event config.
+  wiz_step "3/8  Event config ($CONFIG)"
+  if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && yaml_targets | grep -q .; then
+    echo "  ✅ $CONFIG (org: $(yaml_org))"
+  else
+    if [ ! -f "$CONFIG" ] && [ -f event.yaml.example ] && [ "$DRY_RUN" -ne 1 ]; then
+      cp event.yaml.example "$CONFIG"
+      echo "  copied event.yaml.example -> $CONFIG"
+    fi
+    echo "  Edit $CONFIG: set github.org, modules.secure-development.targets,"
+    echo "  admins (your GitHub login), and event.url. Then re-run the wizard."
+    exit 0
+  fi
+  local org; org="$(yaml_org)"
+
+  # 4. Scorer image.
+  wiz_step "4/8  Scorer image (SCORE_IMAGE)"
+  if [ -n "$(env_val SCORE_IMAGE)" ]; then
+    echo "  ✅ SCORE_IMAGE=$(env_val SCORE_IMAGE)"
+  else
+    echo "  Build it, then set SCORE_IMAGE in $out and push it:"
+    echo "     docker build -t ghcr.io/$org/score:latest scorer/"
+    echo "     (edit SCORE_IMAGE=ghcr.io/$org/score:latest in $out, then docker push it)"
+    echo "  Re-run the wizard when done."
+    exit 0
+  fi
+
+  # 5. Sync GitHub App (poll auth).
+  wiz_step "5/8  Sync GitHub App (poll auth)"
+  if [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
+    echo "  ✅ GitHub App configured"
+  else
+    if ask_yn "  Open the App-creation form now?"; then cmd_app_manifest; fi
+    echo "  After Create → Generate key → Install, wire it in:"
+    echo "     ctf-setup.sh app-config --app-id <id> --pem <path-to.pem>"
+    echo "  Then re-run the wizard."
+    exit 0
+  fi
+
+  # 6. Sign-in OAuth app.
+  wiz_step "6/8  Sign-in OAuth app"
+  if [ -n "$(env_val GITHUB_CLIENT_ID)" ] && [ -n "$(env_val GITHUB_CLIENT_SECRET)" ]; then
+    echo "  ✅ OAuth app configured"
+  else
+    if ask_yn "  Open the OAuth-app page now?"; then cmd_oauth_app; fi
+    echo "  Then wire it in: ctf-setup.sh oauth-config --client-id <client id>"
+    echo "  Then re-run the wizard."
+    exit 0
+  fi
+
+  # 7. Create + provision the org.
+  wiz_step "7/8  Event org ($org)"
+  if gh_ok "orgs/$org"; then
+    echo "  ✅ org $org exists"
+  else
+    echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
+    pause_confirm "  Press Enter once the org exists…"
+    if ! gh_ok "orgs/$org"; then
+      echo "  Still can't see org $org — create it, then re-run."
+      exit 0
+    fi
+  fi
+  if ask_yn "  Provision the org now (fork targets, branches, workflow, image)?"; then
+    cmd_org
+  else
+    echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
+  fi
+  echo
+  echo "  Verifying with doctor:"
+  ( cmd_doctor ) || true
+  echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
+
+  # 8. Bring up the box.
+  wiz_step "8/8  Bring up the box"
+  cat <<EOF
+  EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
+    docker compose --profile poll --profile app up -d --build app
+EOF
+  if ask_yn "  Bring the box up now?"; then
+    EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose --profile poll --profile app up -d --build app
+  fi
+
+  echo
+  echo "== Done. Open $(env_val EVENT_URL), sign in, and check /admin."
+  echo "   Re-run 'ctf-setup.sh doctor' anytime to re-verify provisioning."
+}
+
 if [ "$CMD" != "__selftest" ]; then
   case "$CMD" in
+    ""|wizard) cmd_wizard ;;
     check) cmd_check ;;
     secrets) cmd_secrets ;;
     org) cmd_org ;;
@@ -632,6 +784,7 @@ if [ "$CMD" != "__selftest" ]; then
     app-config) cmd_app_config ;;
     oauth-app) cmd_oauth_app ;;
     oauth-config) cmd_oauth_config ;;
-    *) echo "usage: ctf-setup.sh {check|secrets|org|render|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config} [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2; exit 2 ;;
+    *) echo "usage: ctf-setup.sh [wizard|check|secrets|org|render|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config] [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2
+       echo "  run with no subcommand (or 'wizard') for the guided step-by-step setup" >&2; exit 2 ;;
   esac
 fi

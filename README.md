@@ -90,10 +90,17 @@ event name, targets, and links are all event-config driven.</sup>
 
 ## Quickstart
 
-Zero to a running, scored event. The full walkthrough — with every UI-only
-step and troubleshooting — lives in
-[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event); this is
-the short path.
+**New here? Just run the wizard** — it walks every step below, does the
+automatable parts, guides you through the GitHub-UI ones, and resumes if you
+stop and come back:
+
+```sh
+./setup/ctf-setup.sh            # guided, step-by-step, resumable
+```
+
+Prefer to drive it yourself, or scripting a run? The same steps as discrete
+subcommands (the full walkthrough with every UI-only step is in
+[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event)):
 
 ```sh
 # 1. verify tooling (gh auth, docker, compose, openssl), then generate .env
