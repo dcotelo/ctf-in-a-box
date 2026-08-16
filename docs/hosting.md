@@ -13,11 +13,15 @@ running the event once it is up see [docs/operations.md](operations.md).
 ## Quickstart: zero to a scored event
 
 **The fastest path is the wizard** — run `ctf-setup.sh` with no subcommand and
-it walks the whole sequence below, doing every automatable step, guiding +
-verifying each UI-only one, and resuming if you stop:
+it walks the whole sequence below. It **asks for each value inline** — your box
+URL, the `event.yaml` fields (org, admins, targets, dates), and the App/OAuth
+credentials — showing the instructions and GitHub URL for each, and writing
+`.env` and `event.yaml` for you as you answer. No editing config by hand between
+steps. It does every automatable step, guides + verifies each UI-only one, and
+resumes if you stop:
 
 ```sh
-./setup/ctf-setup.sh            # guided, step-by-step, resumable
+./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
 The rest of this section is the same sequence as explicit commands, for when

@@ -455,7 +455,7 @@ _stub_prereqs() {
   done
 }
 
-@test "wizard stops at the event-config step when github.org is unset" {
+@test "wizard prompts for event config inline when github.org is unset, without dead-ending" {
   _stub_prereqs
   rm -f .env
   cat > event.yaml <<'YAML'
@@ -463,8 +463,31 @@ modules:
   secure-development:
     targets: [vampi]
 YAML
-  # No org -> the wizard must halt at step 3 with edit instructions, exit 0.
+  # No org -> the wizard must PROMPT inline (not halt): narrate the questions
+  # under --dry-run and continue past step 3 to step 4 (proves no early exit).
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  echo "$output" | grep -q "Event config"
-  echo "$output" | grep -q "set github.org"
+  echo "$output" | grep -q "Answer a few questions to write"
+  echo "$output" | grep -q "GitHub org (disposable per-event org)"
+  echo "$output" | grep -q "4/8  Scorer image"
+}
+
+@test "wizard --dry-run walks every step to bring-up without blocking" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  # No .env, no event.yaml: every step must narrate and flow through to step 8
+  # instead of exiting early to make the operator edit a file and re-run.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "2/8  Secrets"
+  echo "$output" | grep -q "3/8  Event config"
+  echo "$output" | grep -q "8/8  Bring up the box"
+}
+
+@test "wizard --dry-run does not build or push the scorer image" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  # Step 4 offers to build but must skip it under --dry-run (ask_yn answers no).
+  echo "$output" | grep -q "Build the scorer image"
+  [ -z "$(echo "$output" | grep -F 'Successfully built')" ]
 }

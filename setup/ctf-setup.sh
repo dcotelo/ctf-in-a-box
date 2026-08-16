@@ -3,8 +3,11 @@
 #
 # Subcommands (run with NO subcommand, or `wizard`, for the guided setup):
 #   wizard    DEFAULT — step-by-step zero-to-scored: inspects state and only
-#             prompts for what's missing, guiding + verifying each UI-only step.
-#             Resumable (safe to re-run). Orchestrates the subcommands below.
+#             prompts for what's missing. Asks for each value inline (EVENT_URL,
+#             event.yaml fields, App/OAuth credentials) with instructions + URLs,
+#             writing them as you go — no editing files by hand between steps.
+#             Guides + verifies each UI-only step. Resumable (safe to re-run).
+#             Orchestrates the subcommands below.
 #   check     verify local prerequisites (gh auth, docker, compose)
 #   secrets   generate .env secret values
 #   org       fork targets, render scoring workflows from the in-repo template
@@ -650,6 +653,36 @@ pause_confirm() {
   read -r _ || true
 }
 
+# Prompt for a value into the named variable, falling back to a default on an
+# empty reply. Under --dry-run it never blocks or reads: it narrates the prompt
+# and assigns the default, so the wizard stays non-interactive and side-effect
+# free. Uses `printf -v` (bash 3.2 safe) for the indirect assignment.
+wiz_ask() {
+  local __var="$1" __prompt="$2" __def="${3:-}" __reply
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '  %s [%s] (dry-run: default)\n' "$__prompt" "$__def"
+    printf -v "$__var" '%s' "$__def"
+    return 0
+  fi
+  if [ -n "$__def" ]; then
+    printf '  %s [%s]: ' "$__prompt" "$__def"
+  else
+    printf '  %s: ' "$__prompt"
+  fi
+  read -r __reply || __reply=""
+  [ -n "$__reply" ] || __reply="$__def"
+  printf -v "$__var" '%s' "$__reply"
+}
+
+# Join a whitespace-separated list into a "a, b, c" string for a YAML flow list.
+csv_of() {
+  local out="" x
+  for x in $1; do
+    if [ -n "$out" ]; then out="$out, $x"; else out="$x"; fi
+  done
+  printf '%s' "$out"
+}
+
 # The default front door: walk a brand-new organizer from zero to a running,
 # scored event, doing every automatable step and guiding + verifying each
 # UI-only one. Resumable — it inspects state (check/doctor/.env/event.yaml) and
@@ -678,10 +711,13 @@ cmd_wizard() {
   if [ -f "$out" ]; then
     echo "  ✅ $out present"
   elif [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY-RUN: would generate $out via 'secrets'"
+    echo "  DRY-RUN: would generate $out via 'secrets' and prompt EVENT_URL"
   else
     cmd_secrets
-    echo "  For a real event, set EVENT_URL in $out to your https:// domain."
+    local ev_url
+    wiz_ask ev_url "Box URL contestants reach (https:// for a real event)" "$(env_val EVENT_URL)"
+    set_env_var "$out" EVENT_URL "$ev_url"
+    echo "  ✅ EVENT_URL=$ev_url"
   fi
 
   # 3. Event config.
@@ -689,49 +725,104 @@ cmd_wizard() {
   if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && yaml_targets | grep -q .; then
     echo "  ✅ $CONFIG (org: $(yaml_org))"
   else
-    if [ ! -f "$CONFIG" ] && [ -f event.yaml.example ] && [ "$DRY_RUN" -ne 1 ]; then
-      cp event.yaml.example "$CONFIG"
-      echo "  copied event.yaml.example -> $CONFIG"
+    echo "  Answer a few questions to write $CONFIG (Enter accepts the [default])."
+    local ev_name ev_org ev_admins ev_targets ev_url ev_ingest ev_start ev_end adm_default
+    adm_default=""
+    [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
+    wiz_ask ev_name    "Event name" "OWASP Chapter CTF"
+    wiz_ask ev_org     "GitHub org (disposable per-event org)" ""
+    while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_org" ]; do
+      echo "  org is required."
+      wiz_ask ev_org   "GitHub org (disposable per-event org)" ""
+    done
+    wiz_ask ev_admins  "Admin GitHub login(s), space-separated" "$adm_default"
+    wiz_ask ev_targets "Targets — subset of: juice-shop dvwa webgoat securityshepherd vulnerableapp vampi" "juice-shop dvwa webgoat securityshepherd vulnerableapp vampi"
+    wiz_ask ev_url     "Event URL contestants reach" "$(env_val EVENT_URL)"
+    wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
+    wiz_ask ev_start   "Event start (ISO 8601 e.g. 2026-10-01T09:00:00-03:00, blank to skip)" ""
+    ev_end=""
+    [ -z "$ev_start" ] || wiz_ask ev_end "Event end (ISO 8601, blank to skip)" ""
+    # Optional start/end drive the app's countdown + display dates; emitted only
+    # when a start was given (end is nested under it).
+    local ev_dates=""
+    if [ -n "$ev_start" ]; then
+      ev_dates="  start: $ev_start
+"
+      [ -z "$ev_end" ] || ev_dates="$ev_dates  end: $ev_end
+"
     fi
-    echo "  Edit $CONFIG: set github.org, modules.secure-development.targets,"
-    echo "  admins (your GitHub login), and event.url. Then re-run the wizard."
-    exit 0
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  DRY-RUN: would write $CONFIG (org: $ev_org)"
+    else
+      cat > "$CONFIG" <<EOF
+event:
+  name: "$ev_name"
+  url: $ev_url
+${ev_dates}github:
+  org: $ev_org
+modules:
+  secure-development:
+    targets: [$(csv_of "$ev_targets")]
+    score_ingest: $ev_ingest
+teams: { enabled: true, max_size: 4 }
+hints: { enabled: false }
+admins: [$(csv_of "$ev_admins")]
+EOF
+      echo "  ✅ wrote $CONFIG (org: $ev_org)"
+    fi
   fi
-  local org; org="$(yaml_org)"
+  local org=""; [ -f "$CONFIG" ] && org="$(yaml_org)"
 
   # 4. Scorer image.
   wiz_step "4/8  Scorer image (SCORE_IMAGE)"
   if [ -n "$(env_val SCORE_IMAGE)" ]; then
     echo "  ✅ SCORE_IMAGE=$(env_val SCORE_IMAGE)"
   else
-    echo "  Build it, then set SCORE_IMAGE in $out and push it:"
-    echo "     docker build -t ghcr.io/$org/score:latest scorer/"
-    echo "     (edit SCORE_IMAGE=ghcr.io/$org/score:latest in $out, then docker push it)"
-    echo "  Re-run the wizard when done."
-    exit 0
+    local img="ghcr.io/$org/score:latest"
+    if ask_yn "  Build the scorer image ($img) now?"; then
+      docker build -t "$img" "$SCRIPT_DIR/../scorer"
+      set_env_var "$out" SCORE_IMAGE "$img"
+      echo "  ✅ built + set SCORE_IMAGE=$img"
+      echo "  Push it before scoring runs (log in first: docker login ghcr.io):"
+      echo "     docker push $img"
+    else
+      echo "  Skipped. Build later, set SCORE_IMAGE in $out, and push:"
+      echo "     docker build -t $img $SCRIPT_DIR/../scorer && docker push $img"
+    fi
   fi
 
   # 5. Sync GitHub App (poll auth).
   wiz_step "5/8  Sync GitHub App (poll auth)"
   if [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
     echo "  ✅ GitHub App configured"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would open the App-creation form, then prompt App ID + .pem path"
   else
     if ask_yn "  Open the App-creation form now?"; then cmd_app_manifest; fi
-    echo "  After Create → Generate key → Install, wire it in:"
-    echo "     ctf-setup.sh app-config --app-id <id> --pem <path-to.pem>"
-    echo "  Then re-run the wizard."
-    exit 0
+    pause_confirm "  Press Enter once you've clicked Create, generated the key (.pem), and installed the App…"
+    while :; do
+      wiz_ask APP_ID          "  App ID" ""
+      wiz_ask PEM             "  Path to the downloaded .pem" ""
+      wiz_ask INSTALLATION_ID "  Installation ID (optional — Enter to auto-discover)" ""
+      if ( cmd_app_config ); then break; fi
+      ask_yn "  Re-enter the App ID / .pem path?" || break
+    done
   fi
 
   # 6. Sign-in OAuth app.
   wiz_step "6/8  Sign-in OAuth app"
   if [ -n "$(env_val GITHUB_CLIENT_ID)" ] && [ -n "$(env_val GITHUB_CLIENT_SECRET)" ]; then
     echo "  ✅ OAuth app configured"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would open the OAuth-app page, then prompt Client ID + hidden secret"
   else
     if ask_yn "  Open the OAuth-app page now?"; then cmd_oauth_app; fi
-    echo "  Then wire it in: ctf-setup.sh oauth-config --client-id <client id>"
-    echo "  Then re-run the wizard."
-    exit 0
+    pause_confirm "  Press Enter once you've registered the app and generated a client secret…"
+    while :; do
+      wiz_ask CLIENT_ID "  OAuth Client ID" ""
+      if ( cmd_oauth_config ); then break; fi
+      ask_yn "  Re-enter the Client ID / secret?" || break
+    done
   fi
 
   # 7. Create + provision the org.
@@ -746,7 +837,9 @@ cmd_wizard() {
       exit 0
     fi
   fi
-  if ask_yn "  Provision the org now (fork targets, branches, workflow, image)?"; then
+  if [ -z "$(env_val SCORE_IMAGE)" ]; then
+    echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
+  elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?"; then
     cmd_org
   else
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
