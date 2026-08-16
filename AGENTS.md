@@ -130,6 +130,9 @@ suggestions.
 - `sync/` — poll service feeding the leaderboard from score comments. Plain
   Node.js, `node:test`.
 - `setup/` — `ctf-setup.sh` and event provisioning. Bash, `bats`.
+- `deploy/` — optional cloud deploy modules (e.g. `aws-terraform/`, a
+  single-shot EC2 box). CI-validated by `.github/workflows/terraform.yml`
+  (fmt + validate, never apply).
 - `docs/` — documentation site, published via GitHub Pages.
 
 ## Where to look
