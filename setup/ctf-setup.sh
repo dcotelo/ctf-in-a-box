@@ -243,33 +243,52 @@ cmd_doctor() {
   require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  local rc=0 t id
-  # Guide-only org-level check.
-  if gh_ok "orgs/$org"; then echo "✅ org $org exists"; else echo "⚠️  org $org — create it: https://github.com/account/organizations/new"; fi
+  local rc=0 t id cell name
+
+  if gh_ok "orgs/$org"; then
+    printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
+  else
+    printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
+  fi
+
+  # One row per target, one column per provisioning step (+ fork-detach). Each
+  # cell: ✅ done · ❌ missing (automatable — fails the exit code) · ⚠️ manual
+  # step not yet done (advisory) · – not applicable to this target.
+  printf '%s%-18s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s%s\n' "$C_BOLD" \
+    "target" fork ctf old prot wkfl disI pr vapp detch "$C_RESET"
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    echo "== $t ($org/$(prov_repo_name "$t"))"
+    name="$(prov_repo_name "$t")"
+    printf '%-18s ' "$t"
     for id in $STEPS; do
-      if check_step "$id" "$t" "$org"; then
-        echo "  ✅ $id"
+      if [ "$id" = vapp-dockerfile ] && [ "$t" != vulnerableapp ]; then
+        cell="–"
+      elif check_step "$id" "$t" "$org"; then
+        cell="✅"
       else
-        echo "  ❌ $id"; rc=1
+        cell="❌"; rc=1
       fi
+      # ✅/❌ render ~2 cols, the n/a dash ~1 — pad it one extra to keep columns.
+      if [ "$cell" = "–" ]; then printf '%s     ' "$cell"; else printf '%s    ' "$cell"; fi
     done
-    if fork_detached "$org/$(prov_repo_name "$t")"; then
-      echo "  ✅ fork-network detach"
-    else
-      echo "  ⚠️  fork-network detach — leave it (UI-only): https://github.com/$org/$(prov_repo_name "$t")/settings"
-    fi
+    if fork_detached "$org/$name"; then cell="✅"; else cell="⚠️"; fi
+    printf '%s\n' "$cell"
   done < <(yaml_targets)
+
+  echo
+  echo "legend: fork=forked ctf=ctf-branch old=drop-old prot=protected wkfl=workflow"
+  echo "        disI=disable-inherited pr=pr-template vapp=vapp-dockerfile detch=fork-detached (–=n/a)"
+  echo "❌ = automatable step missing (fails exit); ⚠️ = UI-only step to finish by hand"
+
+  # Org-level (not per-target): scorer package.
+  echo
   if package_private "$org"; then
-    echo "  ✅ scorer package private"
+    printf '%s✅ scorer package private%s\n' "$C_GREEN" "$C_RESET"
   else
-    echo "  ⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/$org/packages"
+    printf '%s⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
-  # No API exposes the per-fork "Manage Actions access" grants, so this one can
-  # only be reminded, not verified.
-  echo "  ⚠️  per-fork package Read grant — no API to verify; confirm each fork under 'Manage Actions access': https://github.com/orgs/$org/packages"
+  # No API exposes the per-fork "Manage Actions access" grants — reminder only.
+  printf '%s⚠️  per-fork package Read grant — no API to verify; confirm each fork under "Manage Actions access": https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
   return $rc
 }
 

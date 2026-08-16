@@ -343,18 +343,17 @@ EOF2
   echo "$output" | grep -qx NOTSATISFIED
 }
 
-@test "doctor reports missing then done via stubbed gh" {
+@test "doctor table: fork column flips missing->done via stubbed gh" {
+  # doctor renders a matrix (row per target, column per step). The fork cell is
+  # the first status column, so awk column 2 of the target's row is its fork
+  # state. missing gh => ❌ + nonzero exit; found gh => ✅.
   make_gh_stub missing
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
   [ "$status" -ne 0 ]
-  echo "$output" | grep -qF "❌ fork"
+  [ "$(echo "$output" | awk '/^dvwa/{print $2}')" = "❌" ]
   make_gh_stub found
-  # Overall status stays non-zero here: only fork (+ the vapp-dockerfile n/a
-  # guard) is implemented this task, so the other STEPS ids still report
-  # ❌ regardless of gh — later tasks flip them to ✅ as each check_step arm
-  # lands. What this asserts is that fork itself now resolves ✅.
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
-  echo "$output" | grep -qF "✅ fork"
+  [ "$(echo "$output" | awk '/^dvwa/{print $2}')" = "✅" ]
 }
 
 @test "pr-template plan + check use the ctf branch contents endpoint" {
