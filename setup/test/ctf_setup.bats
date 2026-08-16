@@ -437,3 +437,22 @@ EOF2
   [ "$status" -ne 0 ]
   [[ "$output" == *"--client-id is required"* ]]
 }
+
+@test "bare invocation runs the wizard (the default), not a usage error" {
+  run bash "$SCRIPT"
+  echo "$output" | grep -q "CTF-in-a-box setup wizard"
+  [ -z "$(echo "$output" | grep -F 'usage: ctf-setup.sh')" ]
+}
+
+@test "wizard stops at the event-config step when github.org is unset" {
+  rm -f .env
+  cat > event.yaml <<'YAML'
+modules:
+  secure-development:
+    targets: [vampi]
+YAML
+  # No org -> the wizard must halt at step 3 with edit instructions, exit 0.
+  run bash "$SCRIPT" wizard --dry-run
+  echo "$output" | grep -q "Event config"
+  echo "$output" | grep -q "set github.org"
+}
