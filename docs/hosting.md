@@ -184,18 +184,22 @@ steps.
    runners are amd64; an arm64-only image (e.g. built on Apple Silicon) makes
    the scoring Action fail with `no matching manifest for linux/amd64`.
 
-**Manual — GitHub UI only, no API** (`doctor` flags these with ⚠️):
+**Manual — GitHub UI only, no API to perform them.** GitHub has no endpoint to
+*do* these, but `doctor` confirms the first two by API (their result is
+queryable) and shows ✅ once done — only the third is a blind reminder:
 
 1. **Create the event org** itself.
 2. **Detach each fork from the fork network** (repo Settings → *Leave fork
    network*, UI-only). This makes the event-org repo a standalone root, so
    contestant PRs default to *your* repo (not upstream) and contestants can
-   fork it themselves.
-3. **Package visibility / Read grant**: either make the `ghcr.io/<org>/score`
-   package public, or grant each fork Read under the package's *Manage Actions
-   access* (container visibility is UI-only). The rendered workflow already
-   logs in to GHCR with the runner `GITHUB_TOKEN`, which a Read grant makes
-   sufficient.
+   fork it themselves. `doctor` verifies via the repo's `.fork` flag (✅
+   detached / ⚠️ still a fork).
+3. **Keep the `ghcr.io/<org>/score` package private** and **grant each fork
+   Read** under the package's *Manage Actions access* (container visibility is
+   UI-only). The rendered workflow logs in to GHCR with the runner
+   `GITHUB_TOKEN`, which the Read grant makes sufficient. `doctor` verifies the
+   package is private via its `.visibility`; the per-fork grant has no read
+   endpoint, so that part stays a ⚠️ reminder to confirm by hand.
 
 **The contest flow:** a contestant **forks your event-org repo** into their own
 account, patches the vulnerability, and opens a **pull request against
