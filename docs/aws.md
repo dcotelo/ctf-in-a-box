@@ -79,6 +79,12 @@ terraform destroy
 - **Secrets stay out of Terraform state** — they live in SSM and are read by the
   instance role at boot. Keep them out of `.tfvars`, and use an encrypted remote
   backend for a real event.
+- **Everything is tagged** (`Project` / `ManagedBy` / `Event`, extend with
+  `var.tags`) so the event's resources are easy to filter and tear down.
+- **DNS in another account** (e.g. the box in a throwaway account, the zone in
+  your main one): leave `route53_zone_id` empty and create the A record yourself
+  in that account, pointing at the module's `public_ip` output. Terraform only
+  manages the record when the zone is in the same account.
 - **Changes to the module are CI-validated** —
   `.github/workflows/terraform.yml` runs `terraform fmt -check` + `validate` on
   any change under `deploy/aws-terraform/`. It never applies infrastructure;

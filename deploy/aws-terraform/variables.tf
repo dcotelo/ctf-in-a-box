@@ -46,6 +46,12 @@ variable "route53_zone_id" {
   default     = ""
 }
 
+variable "tags" {
+  type        = map(string)
+  description = "Extra tags applied (via the provider's default_tags) to every resource, on top of the built-in Project/ManagedBy/Event tags. Use to pin the event to a cost center, owner, or expiry."
+  default     = {}
+}
+
 variable "web_ingress_cidrs" {
   type        = list(string)
   description = "CIDRs allowed to reach the leaderboard/app on 80/443. Default is the whole internet (public leaderboard); narrow it for an organizer-only board."

@@ -176,6 +176,10 @@ resource "aws_eip_association" "box" {
   allocation_id = aws_eip.box.id
 }
 
+# Optional convenience record for when the zone is in THIS account. For DNS in
+# another account (e.g. a throwaway hosting account for the box, zone in your
+# main account), leave route53_zone_id empty and point your own A record at the
+# `public_ip` output.
 resource "aws_route53_record" "box" {
   count   = var.domain != "" && var.route53_zone_id != "" ? 1 : 0
   zone_id = var.route53_zone_id

@@ -10,7 +10,16 @@ git_ref = "v0.1.0"
 # HTTPS requires a domain (Caddy auto-provisions TLS). Leave domain empty only
 # for local/testing (HTTP on the EIP — session cookie is NOT Secure then).
 domain          = "ctf.example.org"
-route53_zone_id = "" # set to let Terraform create the A record, else DNS is yours
+# Set route53_zone_id only if the zone is in THIS account and you want Terraform
+# to create the A record. Otherwise leave it empty and point your own A record
+# (in any account) at the `public_ip` output.
+route53_zone_id = ""
+
+# Extra tags on every resource (on top of Project/ManagedBy/Event).
+tags = {
+  # Owner   = "you@example.org"
+  # Expiry  = "2026-09-01"
+}
 
 # Public leaderboard by default; narrow for an organizer-only board.
 web_ingress_cidrs = ["0.0.0.0/0"]

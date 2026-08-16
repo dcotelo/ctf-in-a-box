@@ -63,6 +63,14 @@ terraform destroy
 - **HTTPS is required for a real event.** Set `domain`; Caddy provisions TLS and
   the session cookie is only `Secure` over HTTPS. An empty `domain` runs HTTP on
   the EIP — local testing only.
+- **Everything is tagged** via the provider's `default_tags`
+  (`Project=ctf-in-a-box`, `ManagedBy=terraform`, `Event=<name>`) so the whole
+  event is easy to filter and clean up. Add your own (owner, cost center,
+  expiry) with `var.tags`.
+- **DNS in another account?** Leave `route53_zone_id` empty and create the A
+  record yourself, in whatever account holds the zone, pointing at the
+  `public_ip` output. Terraform only manages the record when the zone is in the
+  same account (`route53_zone_id` set) — it does not reach across accounts.
 - **Shell without SSH:** `aws ssm start-session --target <instance_id>` (the
   instance has the SSM core policy). Set `ssh_ingress_cidrs` only if you must.
 - **State is reconstructible:** poll mode re-reads scores from the GitHub PR
