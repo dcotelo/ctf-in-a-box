@@ -516,6 +516,26 @@ YAML
   echo "$output" | grep -qw DECIDE-NO
 }
 
+@test "fork_detached / package_private confirm the UI-only steps by API" {
+  mkdir -p "$BATS_TEST_TMPDIR/stubs"
+  # Stub gh so `.fork` and `.visibility` are read from the flag we pass in.
+  cat > "$BATS_TEST_TMPDIR/stubs/gh" <<'EOF2'
+#!/usr/bin/env bash
+# emit $FORK for a repos/... query, $VIS for a packages/... query
+for a in "$@"; do case "$a" in repos/*) echo "${FORK:-}"; exit 0;; orgs/*packages*) echo "${VIS:-}"; exit 0;; esac; done
+exit 0
+EOF2
+  chmod +x "$BATS_TEST_TMPDIR/stubs/gh"
+  run env FORK=false PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if fork_detached o/r; then echo DETACHED; else echo STILLFORK; fi'
+  echo "$output" | grep -qw DETACHED
+  run env FORK=true PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if fork_detached o/r; then echo DETACHED; else echo STILLFORK; fi'
+  echo "$output" | grep -qw STILLFORK
+  run env VIS=private PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if package_private o; then echo PRIV; else echo NOTPRIV; fi'
+  echo "$output" | grep -qw PRIV
+  run env VIS=public PATH="$BATS_TEST_TMPDIR/stubs:$PATH" bash -c 'CMD=__selftest source "'"$SCRIPT"'"; if package_private o; then echo PRIV; else echo NOTPRIV; fi'
+  echo "$output" | grep -qw NOTPRIV
+}
+
 @test "wait_workflows_settled aborts fast (no sleep-loop) when the workflows API errors" {
   # Must NOT sleep-loop on a failing API (that is what keeps the fail-closed
   # disable-inherited check fast); it returns 0 and lets the caller decide.

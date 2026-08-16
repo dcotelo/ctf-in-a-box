@@ -107,6 +107,14 @@ put_contents_ctf() {
 
 STEPS="fork ctf-branch drop-old protect workflow disable-inherited pr-template vapp-dockerfile"
 
+# Read-only verifiers for the two UI-only steps. GitHub exposes no API to
+# PERFORM them (leaving a fork network / setting package visibility are
+# UI-only), but their RESULT is queryable — so doctor confirms instead of
+# blindly reminding. (The third UI-only step, the per-fork package Read grant,
+# genuinely has no read endpoint — that one stays a reminder.)
+fork_detached() { [ "$(gh api "repos/$1" --jq '.fork' 2>/dev/null)" = "false" ]; }
+package_private() { [ "$(gh api "orgs/$1/packages/container/score" --jq '.visibility' 2>/dev/null)" = "private" ]; }
+
 # jq selecting the IDs of a fork's inherited (to-be-disabled) workflows: real
 # .github/workflows/ files only, minus our own ctf-score.yml, that are active.
 # The startswith() guard skips GitHub-managed DYNAMIC workflows (e.g.
@@ -248,9 +256,20 @@ cmd_doctor() {
         echo "  ❌ $id"; rc=1
       fi
     done
-    echo "  ⚠️  fork-network detach — verify: https://github.com/$org/$(prov_repo_name "$t")/settings"
+    if fork_detached "$org/$(prov_repo_name "$t")"; then
+      echo "  ✅ fork-network detach"
+    else
+      echo "  ⚠️  fork-network detach — leave it (UI-only): https://github.com/$org/$(prov_repo_name "$t")/settings"
+    fi
   done < <(yaml_targets)
-  echo "  ⚠️  package visibility / Read grant — verify: https://github.com/orgs/$org/packages"
+  if package_private "$org"; then
+    echo "  ✅ scorer package private"
+  else
+    echo "  ⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/$org/packages"
+  fi
+  # No API exposes the per-fork "Manage Actions access" grants, so this one can
+  # only be reminded, not verified.
+  echo "  ⚠️  per-fork package Read grant — no API to verify; confirm each fork under 'Manage Actions access': https://github.com/orgs/$org/packages"
   return $rc
 }
 
