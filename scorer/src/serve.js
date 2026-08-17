@@ -77,6 +77,7 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
           series: board.series,
           teams: board.teams,
           teamSeries: board.teamSeries,
+          catalog: board.catalog,
         });
       }
       if (req.method === "GET" && req.url === "/healthz") return json(res, 200, { ok: true });
@@ -112,7 +113,12 @@ const SERIES_TOP_N = 10;
 // Aggregates the solves hashes into the exact GET /leaderboard shape the app's
 // lambda source parses (apps/web/src/lib/leaderboard/lambda.ts):
 // { leaderboard: [{ rank, author, points, lastSolveAt, apps: { <target>:
-//   { solved, total } } }] }. With a rubric, points and totals come from it and
+//   { solved, total, solvedIds } } }], catalog: { <target>: [{ id, name,
+//   points, owasp }] } }. `solvedIds` (per entry and per team) and the
+//   top-level `catalog` let the app show WHICH flags are solved, not just
+//   counts — ids join to catalog entries. `catalog` is `{}` without a rubric
+//   (degenerate mode has no per-challenge metadata).
+//   With a rubric, points and totals come from it and
 // foreign ids (not in the rubric) are skipped so solved never exceeds total;
 // without one, every solve is 1 point and a target's total is the count of
 // distinct solved ids seen for it across all authors.
@@ -151,7 +157,14 @@ export async function buildLeaderboard({ store, rubric, targets }) {
     points: a.points,
     lastSolveAt: a.lastSolveAt,
     apps: Object.fromEntries(
-      targets.map((t) => [t, { solved: a.perTarget.get(t) ?? 0, total: totals.get(t) }]),
+      targets.map((t) => [
+        t,
+        {
+          solved: a.perTarget.get(t) ?? 0,
+          total: totals.get(t),
+          solvedIds: a.solves.filter((s) => s.target === t).map((s) => s.id),
+        },
+      ]),
     ),
   }));
   entries.sort(
@@ -208,7 +221,14 @@ export async function buildLeaderboard({ store, rubric, targets }) {
       points,
       lastSolveAt,
       apps: Object.fromEntries(
-        targets.map((t) => [t, { solved: perTarget.get(t) ?? 0, total: totals.get(t) }]),
+        targets.map((t) => [
+          t,
+          {
+            solved: perTarget.get(t) ?? 0,
+            total: totals.get(t),
+            solvedIds: [...union.values()].filter((u) => u.target === t).map((u) => u.id),
+          },
+        ]),
       ),
       _union: [...union.values()],
     };
@@ -235,7 +255,27 @@ export async function buildLeaderboard({ store, rubric, targets }) {
 
   const teams = rankedTeams.map(({ _union, ...rest }) => rest);
 
-  return { entries: ranked, series, teams, teamSeries };
+  // Per-target challenge catalogue (name/points/OWASP per id) — lets the app
+  // render which flags are solved, not just counts. Present only with a rubric
+  // (degenerate mode has no per-challenge metadata); ids join to the
+  // `solvedIds` carried on each entry/team's `apps.<target>`.
+  const catalog = rubric
+    ? Object.fromEntries(
+        targets
+          .filter((t) => rubric.targets.get(t))
+          .map((t) => [
+            t,
+            rubric.targets.get(t).challenges.map((c) => ({
+              id: c.id,
+              name: c.name,
+              points: c.points,
+              owasp: c.owasp ?? null,
+            })),
+          ]),
+      )
+    : {};
+
+  return { entries: ranked, series, teams, teamSeries, catalog };
 }
 
 export function startServer({ port = 0, ...opts }) {

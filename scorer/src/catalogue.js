@@ -49,6 +49,7 @@ export function loadCatalogue(dir, targetName) {
     const points = entry.difficulty ?? 1;
     if (!Number.isInteger(points) || points < 1) fail(`${entry.key}: difficulty must be an integer >= 1`);
 
-    return { id, key: entry.key, file: entry.file, name: entry.name ?? entry.key, points };
+    const owasp = typeof entry.owasp === "string" && entry.owasp.length > 0 ? entry.owasp : null;
+    return { id, key: entry.key, file: entry.file, name: entry.name ?? entry.key, points, owasp };
   });
 }
