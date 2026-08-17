@@ -1,5 +1,6 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { DEMO_CONTESTANTS, DEMO_TEAMS } from "@/lib/demo-fixture";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -197,4 +198,124 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     [actor, at, audit, String(AUDIT_CAP - 1), String(dels.length), ...dels, ...fields],
   );
   return decodeSettings(flatToObject(result));
+}
+
+// --- master reset ------------------------------------------------------------
+
+// Event-data key prefixes the master reset wipes. Each label is what the audit
+// record + API response reports as a cleared count. Deliberately excludes
+// ctf:admin:settings (kept), ctf:admin:audit (appended, not cleared), and
+// ctf:sync:status (sync owns it). ctf:user:* covers both the team-membership
+// hash and ctf:user:<login>:hints; ctf:team:* covers <slug> and <slug>:members.
+const RESET_PREFIXES: readonly [string, string][] = [
+  ["solves", "ctf:solves:*"],
+  ["teams", "ctf:team:*"],
+  ["users", "ctf:user:*"],
+  ["joinCodes", "ctf:joincode:*"],
+  ["hints", "ctf:hints:*"],
+];
+
+// SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the
+// cursor wraps. Returns how many keys were removed.
+async function scanDelByPrefix(pattern: string): Promise<number> {
+  let cursor = "0";
+  let total = 0;
+  do {
+    const [scan] = await upstashPipeline([["SCAN", cursor, "MATCH", pattern, "COUNT", 1000]]);
+    const [next, keys] = Array.isArray(scan.result) ? (scan.result as [string, string[]]) : ["0", []];
+    cursor = String(next);
+    if (keys.length > 0) {
+      await upstashPipeline([["DEL", ...keys]]);
+      total += keys.length;
+    }
+  } while (cursor !== "0");
+  return total;
+}
+
+// Freeze scoring, bump the reset epoch (sync reads `resetAt` and clears its
+// cursor when it advances — the poll-mode re-ingest fix), and append the audit
+// record. One atomic script so a reset can never land without its audit line.
+// ARGV: [1]=actor [2]=at [3]=resetAt [4]=auditLine [5]=cap-1
+const RESET_SCRIPT = `
+redis.call('HSET', KEYS[1], 'paused', '1', 'resetAt', ARGV[3], 'updatedBy', ARGV[1], 'updatedAt', ARGV[2])
+redis.call('LPUSH', KEYS[2], ARGV[4])
+redis.call('LTRIM', KEYS[2], 0, tonumber(ARGV[5]))`;
+
+/**
+ * Master reset: wipe all event data (solves, teams, users, join codes, hints),
+ * freeze scoring, bump the sync reset epoch, and audit it. Keeps admin
+ * settings. Server-only — callers gate on requireAdmin.
+ *
+ * Poll-mode note: freezing + the `resetAt` epoch (honoured by sync, which drops
+ * its cursor) is what makes the wipe stick; a later unfreeze re-ingests from
+ * live PR comments, so a post-event wipe also needs those comments gone.
+ */
+export async function resetEvent(actor: string): Promise<{ cleared: Record<string, number>; resetAt: string }> {
+  const cleared: Record<string, number> = {};
+  for (const [label, pattern] of RESET_PREFIXES) {
+    cleared[label] = await scanDelByPrefix(pattern);
+  }
+  const at = new Date().toISOString();
+  const resetAt = String(Date.now());
+  const audit = JSON.stringify({ at, by: actor, action: "reset", cleared });
+  await upstashEval(
+    RESET_SCRIPT,
+    [ADMIN_SETTINGS_KEY, ADMIN_AUDIT_KEY],
+    [actor, at, resetAt, audit, String(AUDIT_CAP - 1)],
+  );
+  return { cleared, resetAt };
+}
+
+// --- demo seed (DEMO_MODE only) ----------------------------------------------
+
+/**
+ * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
+ * (so the scorer awards points), spread over the last ~6h for a rising
+ * score-over-time graph, plus a few teams. Additive — does not clear first.
+ * Gated by the route on DEMO_MODE + requireAdmin; never a production path.
+ */
+export async function seedDemoData(actor: string): Promise<{ contestants: number; teams: number; solves: number }> {
+  const now = Date.now();
+  const windowMs = 6 * 60 * 60 * 1000;
+  let total = 0;
+  for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
+
+  const cmds: (string | number)[][] = [];
+  const base = now - windowMs;
+  const n = DEMO_CONTESTANTS.length;
+  // Spread EACH contestant's solves across the whole window (not a per-contestant
+  // block), so every line rises throughout and they interleave. A per-contestant
+  // sub-slot phase ((ci+0.5)/n) staggers otherwise-identical tick times so lines
+  // don't land exactly on top of each other.
+  DEMO_CONTESTANTS.forEach((c, ci) => {
+    const kc = Object.values(c.solves).reduce((m, ids) => m + ids.length, 0);
+    let j = 0;
+    for (const [target, ids] of Object.entries(c.solves)) {
+      for (const id of ids) {
+        const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
+        const ts = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+        cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
+        j++;
+      }
+    }
+  });
+  const createdAt = new Date(now - windowMs).toISOString();
+  for (const t of DEMO_TEAMS) {
+    cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);
+    if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
+    for (const m of t.members) cmds.push(["HSET", `ctf:user:${m}`, "team", t.slug]);
+  }
+  const audit = JSON.stringify({
+    at: new Date(now).toISOString(),
+    by: actor,
+    action: "seed",
+    contestants: DEMO_CONTESTANTS.length,
+    teams: DEMO_TEAMS.length,
+    solves: total,
+  });
+  cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
+  cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);
+
+  await upstashPipeline(cmds);
+  return { contestants: DEMO_CONTESTANTS.length, teams: DEMO_TEAMS.length, solves: total };
 }

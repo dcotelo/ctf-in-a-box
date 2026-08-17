@@ -27,6 +27,9 @@ services:
       UPSTASH_REDIS_REST_URL: http://srh:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
       TEAM_WRITES_ENABLED: "true"
+      # Runtime flag: exposes the /admin "Seed demo data" button + its route.
+      # Set to "1" only for demos (dev-stack does). Never in a real event.
+      DEMO_MODE: ${DEMO_MODE:-}
     depends_on: [srh, scorer]
 
   scorer:

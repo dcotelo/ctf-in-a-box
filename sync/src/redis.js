@@ -46,6 +46,19 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
         return false; // fail open: a Redis blip must not freeze ingestion
       }
     },
+    // The master-reset epoch. The admin panel bumps `resetAt` in the settings
+    // hash on a wipe; the poller compares it against its own last-seen value
+    // and drops its cursor when it advances, so a poll-mode reset actually
+    // sticks instead of being re-ingested from the same PR comments.
+    async getResetAt() {
+      try {
+        const [v] = await pipeline([["HGET", ADMIN_SETTINGS_KEY, "resetAt"]]);
+        return v ?? null;
+      } catch (err) {
+        log(`redis getResetAt: ${err.message}`);
+        return null; // treat as "no reset" on error — retries next tick
+      }
+    },
     async writeStatus(s) {
       try {
         const fields = [

@@ -21,6 +21,18 @@ export async function tick(cfg, state, deps = {}) {
   const nowIso = deps.nowIso ?? (() => new Date().toISOString());
   state.ingested ??= 0;
 
+  // Master-reset epoch, BEFORE the pause check: a reset also freezes scoring,
+  // so we must drop the cursor even while paused, or an unfreeze would re-ingest
+  // from the cursor's old position. Clearing repos makes the next poll re-read
+  // from scratch; the caller persists `state` after this tick.
+  if (redis?.getResetAt) {
+    const resetAt = await redis.getResetAt();
+    if (resetAt && resetAt !== state.resetAt) {
+      state.repos = {};
+      state.resetAt = resetAt;
+    }
+  }
+
   if (redis && (await redis.isPaused())) {
     await writeStatusSafely(redis, log, {
       lastPollAt: nowIso(),

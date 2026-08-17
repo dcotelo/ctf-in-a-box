@@ -222,6 +222,8 @@ cmd_up() {
   EVENT_CONFIG_B64="$(base64 < "$cfg_src" | tr -d '\n')"
 
   echo "== bringing up redis, srh, scorer, app, caddy"
+  # dev-only: expose the /admin "Seed demo data" button (runtime flag).
+  export DEMO_MODE=1
   compose up -d --build redis srh scorer app caddy
 
   wait_for_redis

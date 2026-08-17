@@ -83,7 +83,7 @@ export default async function AdminPage() {
       </div>
 
       {settings ? (
-        <AdminControls initial={settings} />
+        <AdminControls initial={settings} demoMode={process.env.DEMO_MODE === "1"} />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
