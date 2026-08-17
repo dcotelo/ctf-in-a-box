@@ -1,7 +1,7 @@
 # Builds the vendored contestant app from local source (context = repo root).
 # EVENT_CONFIG_B64: optional base64-encoded event.yaml baked into the build;
 # empty means the generator falls back to EVENT_* env vars / neutral defaults.
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:76789712cd1ae89a1225eac9077010d68987a423588042dac30446f502f1858c AS build
 RUN corepack enable
 WORKDIR /app
 COPY apps/web/ ./

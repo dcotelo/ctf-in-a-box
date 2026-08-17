@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     volumes:
@@ -55,7 +55,7 @@ services:
     depends_on: [redis]
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:9702d01c1f10c3ea9f48211b4362e44f154ff02d063e6f7268eba804059f53bf
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes: [redis-data:/data]
