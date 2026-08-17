@@ -49,11 +49,11 @@ scoring code to write.
 
 ## What contestants see
 
-![Team leaderboard with score-over-time graph](assets/hero.jpg)
+![Contestant leaderboard with a row expanded to its per-app challenge breakdown, each flag marked patched or open](assets/hero.jpg)
 
 | Team leaderboard | Challenge browser |
 |---|---|
-| ![Team standings with a row expanded to members and each member's points](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![Team standings with a row expanded to members and the team's solved flags grouped by target](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players — a fixed dark theme and a CTFd-style score-over-time graph

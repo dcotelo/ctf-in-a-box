@@ -72,12 +72,12 @@ training day.
 | **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp and VAmPI. Rubrics ship in the box — no private image to request, no scoring code to write. |
 
 <p align="center">
-  <img alt="Team leaderboard with score-over-time graph" src="docs/assets/hero.jpg" width="820">
+  <img alt="Contestant leaderboard with a row expanded to its per-app challenge breakdown, each flag marked patched or open" src="docs/assets/hero.jpg" width="820">
 </p>
 
 | Team leaderboard | Challenge browser |
 |---|---|
-| ![Team standings with a row expanded to members and each member's points](docs/assets/leaderboard.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
+| ![Team standings with a row expanded to members and the team's solved flags grouped by target](docs/assets/leaderboard.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The app ships a fixed dark theme. The leaderboard ranks
