@@ -58,6 +58,9 @@ test("POST /score requires the exact bearer token", async (t) => {
   assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]), null)).status, 401);
   assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]), "Bearer wrong")).status, 401);
   assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]))).status, 202);
+  // multibyte char: same char-length as TOKEN ("s3cret"=6 chars) but different byte-length
+  // "s3cr\u00e9t" is 6 UTF-16 code units but 7 UTF-8 bytes → 401, not 500
+  assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]), "Bearer s3cr\u00e9t")).status, 401);
 });
 
 test("POST validation: 400 on bad author, bad target, bad solved, broken JSON", async (t) => {
