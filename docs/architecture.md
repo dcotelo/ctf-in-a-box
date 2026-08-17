@@ -97,7 +97,7 @@ state; everything else that touches scores goes through it.
 | `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the private rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:7-alpine`, `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
-| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag every tick and writes a heartbeat (see "Organizer admin panel" below). |
+| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). |
 
 ## Data flow for a score
 
@@ -156,7 +156,8 @@ without a rebuild:
 - **`ctf:admin:settings`** (Redis hash, `apps/web/src/lib/admin-store.ts`) —
   `paused` (two-state: `"1"` or absent — absent means false), `hintsEnabled`
   and `hintCost` (three-state: `"1"`/`"0"`/absent — absent means "no
-  override, use the build-time default"), plus `updatedBy`/`updatedAt`. Every
+  override, use the build-time default"), plus `updatedBy`/`updatedAt` and
+  `resetAt` (the master-reset epoch `sync` honours — see below). Every
   reader applies **override-else-default** precedence (`s.hintsEnabled ??
   HINTS_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
 - **`ctf:admin:audit`** — a capped list (`AUDIT_CAP` = 500, `LPUSH`+`LTRIM`)
@@ -180,6 +181,29 @@ Action gets a retryable failure instead of a silently dropped submission.
 Both sides **fail open** on a Redis error — a Redis blip must never freeze
 ingestion by accident (`sync/src/redis.js`'s `isPaused()` catches and
 returns `false`; `scorer/src/store.js` does the same).
+
+**Master reset + the reset epoch.** `resetEvent()` (`admin-store.ts`, behind
+`POST /api/admin/reset`, `requireAdmin` + server-side type-to-confirm) wipes
+all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,
+`ctf:joincode:*`, `ctf:hints:*` — keeps `ctf:admin:settings`, and appends a
+reset audit line. On its own that isn't enough in **poll mode**: `sync` would
+re-ingest the same PR comments within a cycle and undo the wipe. So the reset
+also freezes scoring **and bumps a `resetAt` epoch field in the settings hash**.
+`sync/src/index.js`'s `tick()` reads it (`redis.getResetAt()`) *before* the
+pause check and, when it advances, drops its per-repo cursor/seen state — so the
+wipe sticks even while frozen, and an unfreeze re-polls from scratch. This
+`resetAt` signal is the app→sync coordination that lets a wipe cross the
+container boundary without the app touching sync's state-file volume. A
+post-event wipe also needs the source PR comments gone (there is no way to
+un-post them from here). Every disruptive control prompts for confirmation
+(type-to-confirm for the reset; one-click for the freeze/registration toggles).
+
+**Demo seed (dev only).** `seedDemoData()` + `POST /api/admin/seed` populate a
+demo leaderboard (bundled fixture of real challenge-ids so the scorer scores
+them, timestamps spread for a rising graph, plus teams). The route and its
+`/admin` button exist only when the app runs with `DEMO_MODE=1`
+(`scripts/dev-stack` sets it) — a real event build has neither, so a live
+leaderboard can't be polluted by accident.
 
 **Known limitation: the hint toggle is only live at the reveal boundary.**
 `resolveHintConfig()` (and therefore `revealHint`, which the `/api/hints`
