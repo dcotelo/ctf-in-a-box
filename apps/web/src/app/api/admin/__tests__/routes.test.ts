@@ -7,15 +7,15 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdmin, getAdminSettings, updateAdminSettings, getSyncStatus, getLeaderboardSource } = vi.hoisted(
-  () => ({
+const { requireAdmin, getAdminSettings, updateAdminSettings, getSyncStatus, getLeaderboardSource, resetEvent } =
+  vi.hoisted(() => ({
     requireAdmin: vi.fn(),
     getAdminSettings: vi.fn(),
     updateAdminSettings: vi.fn(),
     getSyncStatus: vi.fn(),
     getLeaderboardSource: vi.fn(),
-  }),
-);
+    resetEvent: vi.fn(),
+  }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
@@ -24,11 +24,14 @@ vi.mock("@/lib/admin-store", async (orig) => ({
   getAdminSettings,
   updateAdminSettings,
   getSyncStatus,
+  resetEvent,
 }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
+vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event" } }));
 
 import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";
+import { POST as resetPOST } from "@/app/api/admin/reset/route";
 
 const req = (body?: unknown) =>
   new Request("http://x/api/admin/settings", { method: "POST", body: JSON.stringify(body ?? {}) });
@@ -41,6 +44,7 @@ beforeEach(() => {
   updateAdminSettings.mockReset();
   getSyncStatus.mockReset();
   getLeaderboardSource.mockReset();
+  resetEvent.mockReset();
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
   getAdminSettings.mockResolvedValue(SETTINGS);
   getSyncStatus.mockResolvedValue(null);
@@ -136,5 +140,47 @@ describe("POST /api/admin/settings", () => {
   it("503 on a Redis failure", async () => {
     updateAdminSettings.mockRejectedValue(new Error("upstash down"));
     expect((await POST(req({ paused: true }))).status).toBe(503);
+  });
+});
+
+describe("POST /api/admin/reset", () => {
+  const rreq = (body?: unknown) =>
+    new Request("http://x/api/admin/reset", { method: "POST", body: JSON.stringify(body ?? {}) });
+
+  it("401 for no session, without wiping anything", async () => {
+    requireAdmin.mockResolvedValue({ ok: false, status: 401 });
+    expect((await resetPOST(rreq({ confirm: "Test Event" }))).status).toBe(401);
+    expect(resetEvent).not.toHaveBeenCalled();
+  });
+
+  it("403 for a non-admin, without wiping anything", async () => {
+    requireAdmin.mockResolvedValue({ ok: false, status: 403 });
+    expect((await resetPOST(rreq({ confirm: "Test Event" }))).status).toBe(403);
+    expect(resetEvent).not.toHaveBeenCalled();
+  });
+
+  it("400 when the confirm phrase does not match, without wiping", async () => {
+    const res = await resetPOST(rreq({ confirm: "nope" }));
+    expect(res.status).toBe(400);
+    expect(resetEvent).not.toHaveBeenCalled();
+  });
+
+  it("wipes and returns counts when the event name matches", async () => {
+    resetEvent.mockResolvedValue({ cleared: { solves: 3, teams: 1 }, resetAt: "123" });
+    const res = await resetPOST(rreq({ confirm: "Test Event" }));
+    expect(res.status).toBe(200);
+    expect(resetEvent).toHaveBeenCalledWith("alice");
+    expect(await res.json()).toMatchObject({ cleared: { solves: 3 }, resetAt: "123" });
+  });
+
+  it("also accepts the literal RESET phrase", async () => {
+    resetEvent.mockResolvedValue({ cleared: {}, resetAt: "1" });
+    expect((await resetPOST(rreq({ confirm: "RESET" }))).status).toBe(200);
+    expect(resetEvent).toHaveBeenCalledOnce();
+  });
+
+  it("503 on a reset failure", async () => {
+    resetEvent.mockRejectedValue(new Error("upstash down"));
+    expect((await resetPOST(rreq({ confirm: "RESET" }))).status).toBe(503);
   });
 });

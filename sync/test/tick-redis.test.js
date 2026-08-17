@@ -32,3 +32,26 @@ test("a redis status-write failure does not throw out of the tick", async () => 
   const fetchImpl = async () => ({ status: 200, headers: { get: () => null }, json: async () => [] });
   await assert.doesNotReject(tick(cfg, baseState(), { redis, fetchImpl, log: () => {} }));
 });
+
+test("a bumped reset epoch drops the cursor even while paused (poll-mode wipe)", async () => {
+  const redis = {
+    getResetAt: async () => "1001",
+    isPaused: async () => true, // a reset also freezes scoring
+    writeStatus: async () => {},
+  };
+  const state = baseState();
+  state.repos["VAmPI"] = { since: "T0", etag: "E0", seen: ["x"] };
+  const fetchImpl = () => { throw new Error("must not poll while paused"); };
+  await tick(cfg, state, { redis, fetchImpl, log: () => {} });
+  assert.deepEqual(state.repos, {}); // cursor + seen dropped so an unfreeze re-polls fresh
+  assert.equal(state.resetAt, "1001");
+});
+
+test("an unchanged reset epoch leaves the cursor intact", async () => {
+  const redis = { getResetAt: async () => "1001", isPaused: async () => true, writeStatus: async () => {} };
+  const state = baseState();
+  state.resetAt = "1001";
+  state.repos["VAmPI"] = { since: "T0", etag: "E0", seen: ["x"] };
+  await tick(cfg, state, { redis, fetchImpl: () => { throw new Error("no poll"); }, log: () => {} });
+  assert.deepEqual(state.repos["VAmPI"], { since: "T0", etag: "E0", seen: ["x"] });
+});

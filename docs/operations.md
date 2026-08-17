@@ -73,8 +73,25 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
   [docs/architecture.md](architecture.md#organizer-admin-panel-runtime-overrides)
   for the full breakdown of this limitation.
 
+- **Master reset** (danger zone) — wipes **all** event data so a test run or a
+  botched setup can be cleared before the real event. It deletes every solve,
+  team, per-player record, join code, and hint purchase; it **keeps** your admin
+  settings and appends the reset to the audit log. It is server-side and
+  admin-gated, and requires **typing the event name** to proceed (a single click
+  can't fire it).
+
+  The reset also **freezes scoring** and bumps a reset epoch that the sync poller
+  honours by dropping its cursor. This is what makes a reset stick in **poll
+  mode**: without it, the poller would re-ingest the same PR comments within a
+  cycle and undo the wipe. So the intended flow is *reset → box is frozen →
+  unfreeze when ready*. If you reset **after** real PRs exist and then unfreeze,
+  the poller re-reads those still-present comments — for a post-event wipe that
+  stays gone, also delete (or the org, archive) the source PR comments.
+
 Every settings change is recorded in a capped audit log (who, when, what
-changed) alongside the setting itself.
+changed) alongside the setting itself. **Disruptive controls prompt for
+confirmation**: the freeze and team-registration toggles ask a one-click "are
+you sure?"; the master reset requires type-to-confirm.
 
 ## Verifying it works
 

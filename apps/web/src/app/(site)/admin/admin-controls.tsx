@@ -6,7 +6,19 @@
 // display + dispatch only, mirroring the shape of TeamCard.
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
+import { eventConfig } from "@/lib/event-config";
+import ConfirmModal from "@/components/confirm-modal";
+
+type ConfirmState = {
+  title: string;
+  body: ReactNode;
+  confirmLabel?: string;
+  requireType?: string;
+  danger?: boolean;
+  onConfirm: () => void | Promise<void>;
+};
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
 // local wall-clock string; JS parses it as local time, and we store the
@@ -71,6 +83,43 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [resetInfo, setResetInfo] = useState<string | null>(null);
+
+  const runConfirm = async () => {
+    if (!confirm) return;
+    setPending(true);
+    try {
+      await confirm.onConfirm();
+    } finally {
+      setPending(false);
+      setConfirm(null);
+    }
+  };
+
+  // Master reset: wipes all event data. Type-to-confirm gated in the modal;
+  // the server re-checks the phrase and requires admin. On success the box is
+  // frozen (the reset freezes scoring), so reflect that + show the counts.
+  const doReset = async (confirmValue: string) => {
+    setError(null);
+    setResetInfo(null);
+    const res = await fetch("/api/admin/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: confirmValue }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      cleared?: Record<string, number>;
+      error?: string;
+    };
+    if (!res.ok) {
+      setError(data.error ?? "Reset failed");
+      return;
+    }
+    setSettings((s) => ({ ...s, paused: true }));
+    const total = Object.values(data.cleared ?? {}).reduce((a, b) => a + b, 0);
+    setResetInfo(`Wiped ${total} keys — scoring is now frozen. Unfreeze when you're ready.`);
+  };
 
   const apply = async (patch: Record<string, unknown>) => {
     setPending(true);
@@ -107,7 +156,17 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
           type="checkbox"
           checked={settings.paused}
           disabled={pending}
-          onChange={(e) => void apply({ paused: e.target.checked })}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setConfirm({
+              title: next ? "Freeze scoring?" : "Unfreeze scoring?",
+              body: next
+                ? "New submissions will stop being scored for everyone."
+                : "Scoring resumes for everyone.",
+              confirmLabel: next ? "Freeze" : "Unfreeze",
+              onConfirm: () => apply({ paused: next }),
+            });
+          }}
           className="h-5 w-5 flex-none accent-[#2563eb]"
         />
       </label>
@@ -121,7 +180,17 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
           type="checkbox"
           checked={settings.teamRegistrationOpen}
           disabled={pending}
-          onChange={(e) => void apply({ teamRegistrationOpen: e.target.checked })}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setConfirm({
+              title: next ? "Open team registration?" : "Close team registration?",
+              body: next
+                ? "Players will be able to create and join teams."
+                : "Players will no longer be able to create or join teams.",
+              confirmLabel: next ? "Open" : "Close",
+              onConfirm: () => apply({ teamRegistrationOpen: next }),
+            });
+          }}
           className="h-5 w-5 flex-none accent-[#2563eb]"
         />
       </label>
@@ -192,12 +261,60 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
         />
       </div>
 
+      <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
+        <div>
+          <span className="text-[#e53e3e]">Danger zone</span>
+          <span className="block text-xs text-muted">
+            Master reset wipes <strong>all</strong> event data — teams, points,
+            per-player data, and hint spend. It freezes scoring and can&apos;t be
+            undone. In poll mode, also clear the source PR comments for a wipe that
+            stays gone after you unfreeze.
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            setConfirm({
+              title: "Reset all event data?",
+              danger: true,
+              confirmLabel: "Wipe everything",
+              requireType: eventConfig.name,
+              body: (
+                <>
+                  This permanently deletes every team, score, player record, and
+                  hint purchase, and freezes scoring. This cannot be undone.
+                </>
+              ),
+              onConfirm: () => doReset(eventConfig.name),
+            })
+          }
+          className="self-start rounded-md border border-[#e53e3e]/40 px-3 py-1.5 text-sm font-medium text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-50"
+        >
+          Reset event data…
+        </button>
+        {resetInfo && <p className="text-xs text-[#7dd3a0]">{resetInfo}</p>}
+      </div>
+
       {settings.updatedBy && settings.updatedAt && (
         <p className="text-xs text-muted">
           last changed by {settings.updatedBy} at {settings.updatedAt}
         </p>
       )}
       {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          body={confirm.body}
+          confirmLabel={confirm.confirmLabel}
+          requireType={confirm.requireType}
+          danger={confirm.danger}
+          pending={pending}
+          onConfirm={() => void runConfirm()}
+          onCancel={() => !pending && setConfirm(null)}
+        />
+      )}
     </div>
   );
 }
