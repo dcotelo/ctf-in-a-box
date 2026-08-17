@@ -1,5 +1,6 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { DEMO_CONTESTANTS, DEMO_TEAMS } from "@/lib/demo-fixture";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -263,4 +264,50 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
     [actor, at, resetAt, audit, String(AUDIT_CAP - 1)],
   );
   return { cleared, resetAt };
+}
+
+// --- demo seed (DEMO_MODE only) ----------------------------------------------
+
+/**
+ * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
+ * (so the scorer awards points), spread over the last ~6h for a rising
+ * score-over-time graph, plus a few teams. Additive — does not clear first.
+ * Gated by the route on DEMO_MODE + requireAdmin; never a production path.
+ */
+export async function seedDemoData(actor: string): Promise<{ contestants: number; teams: number; solves: number }> {
+  const now = Date.now();
+  const windowMs = 6 * 60 * 60 * 1000;
+  let total = 0;
+  for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
+
+  const cmds: (string | number)[][] = [];
+  let i = 0;
+  for (const c of DEMO_CONTESTANTS) {
+    for (const [target, ids] of Object.entries(c.solves)) {
+      for (const id of ids) {
+        const ts = new Date(now - windowMs + Math.floor((i / Math.max(total, 1)) * windowMs)).toISOString();
+        cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
+        i++;
+      }
+    }
+  }
+  const createdAt = new Date(now - windowMs).toISOString();
+  for (const t of DEMO_TEAMS) {
+    cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);
+    if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
+    for (const m of t.members) cmds.push(["HSET", `ctf:user:${m}`, "team", t.slug]);
+  }
+  const audit = JSON.stringify({
+    at: new Date(now).toISOString(),
+    by: actor,
+    action: "seed",
+    contestants: DEMO_CONTESTANTS.length,
+    teams: DEMO_TEAMS.length,
+    solves: total,
+  });
+  cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
+  cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);
+
+  await upstashPipeline(cmds);
+  return { contestants: DEMO_CONTESTANTS.length, teams: DEMO_TEAMS.length, solves: total };
 }

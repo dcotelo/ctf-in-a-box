@@ -78,7 +78,7 @@ async function postSettings(patch: Record<string, unknown>): Promise<{ settings?
   return { settings: data.settings };
 }
 
-export default function AdminControls({ initial }: { initial: AdminSettings }) {
+export default function AdminControls({ initial, demoMode = false }: { initial: AdminSettings; demoMode?: boolean }) {
   const [settings, setSettings] = useState(initial);
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
   const [pending, setPending] = useState(false);
@@ -119,6 +119,26 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
     setSettings((s) => ({ ...s, paused: true }));
     const total = Object.values(data.cleared ?? {}).reduce((a, b) => a + b, 0);
     setResetInfo(`Wiped ${total} keys — scoring is now frozen. Unfreeze when you're ready.`);
+  };
+
+  // DEMO_MODE only: populate a demo leaderboard (fake contestants + teams).
+  const doSeed = async () => {
+    setError(null);
+    setResetInfo(null);
+    const res = await fetch("/api/admin/seed", { method: "POST" });
+    const data = (await res.json().catch(() => ({}))) as {
+      contestants?: number;
+      teams?: number;
+      solves?: number;
+      error?: string;
+    };
+    if (!res.ok) {
+      setError(data.error ?? "Seed failed");
+      return;
+    }
+    setResetInfo(
+      `Seeded ${data.contestants} contestants, ${data.teams} teams, ${data.solves} solves. The board revalidates within ~30s.`,
+    );
   };
 
   const apply = async (patch: Record<string, unknown>) => {
@@ -260,6 +280,34 @@ export default function AdminControls({ initial }: { initial: AdminSettings }) {
           onCommit={(iso) => void apply({ registrationEndsAt: iso })}
         />
       </div>
+
+      {demoMode && (
+        <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+          <div>
+            <span className="text-[#7aa2ff]">Demo mode</span>
+            <span className="block text-xs text-muted">
+              Populate the leaderboard with fake contestants, teams, and solves to
+              preview the app. Injects real-challenge-id scores so points render.
+              Only shown because <code>DEMO_MODE</code> is set — never in a real event.
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              setConfirm({
+                title: "Seed demo data?",
+                confirmLabel: "Seed",
+                body: "Adds fake contestants, teams, and solves to the leaderboard. Run a master reset to clear them.",
+                onConfirm: doSeed,
+              })
+            }
+            className="self-start rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+          >
+            Seed demo data
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
         <div>

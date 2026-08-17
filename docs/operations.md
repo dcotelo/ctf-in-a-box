@@ -88,6 +88,13 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
   the poller re-reads those still-present comments — for a post-event wipe that
   stays gone, also delete (or the org, archive) the source PR comments.
 
+- **Seed demo data** (demo mode only) — populates the leaderboard with fake
+  contestants, teams, and real-challenge-id solves so you can preview the app
+  without running real PRs. The button and its route only exist when the app is
+  started with `DEMO_MODE=1` (the local `scripts/dev-stack up` sets it); they are
+  absent in a normal event build, so a real leaderboard can't be polluted by
+  accident. Clear the seeded data with the master reset.
+
 Every settings change is recorded in a capped audit log (who, when, what
 changed) alongside the setting itself. **Disruptive controls prompt for
 confirmation**: the freeze and team-registration toggles ask a one-click "are

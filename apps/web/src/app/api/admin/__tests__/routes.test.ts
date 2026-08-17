@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdmin, getAdminSettings, updateAdminSettings, getSyncStatus, getLeaderboardSource, resetEvent } =
+const { requireAdmin, getAdminSettings, updateAdminSettings, getSyncStatus, getLeaderboardSource, resetEvent, seedDemoData } =
   vi.hoisted(() => ({
     requireAdmin: vi.fn(),
     getAdminSettings: vi.fn(),
@@ -15,6 +15,7 @@ const { requireAdmin, getAdminSettings, updateAdminSettings, getSyncStatus, getL
     getSyncStatus: vi.fn(),
     getLeaderboardSource: vi.fn(),
     resetEvent: vi.fn(),
+    seedDemoData: vi.fn(),
   }));
 
 vi.mock("server-only", () => ({}));
@@ -25,6 +26,7 @@ vi.mock("@/lib/admin-store", async (orig) => ({
   updateAdminSettings,
   getSyncStatus,
   resetEvent,
+  seedDemoData,
 }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
 vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event" } }));
@@ -32,6 +34,7 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event" } }));
 import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";
 import { POST as resetPOST } from "@/app/api/admin/reset/route";
+import { POST as seedPOST } from "@/app/api/admin/seed/route";
 
 const req = (body?: unknown) =>
   new Request("http://x/api/admin/settings", { method: "POST", body: JSON.stringify(body ?? {}) });
@@ -45,6 +48,8 @@ beforeEach(() => {
   getSyncStatus.mockReset();
   getLeaderboardSource.mockReset();
   resetEvent.mockReset();
+  seedDemoData.mockReset();
+  delete process.env.DEMO_MODE;
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
   getAdminSettings.mockResolvedValue(SETTINGS);
   getSyncStatus.mockResolvedValue(null);
@@ -182,5 +187,37 @@ describe("POST /api/admin/reset", () => {
   it("503 on a reset failure", async () => {
     resetEvent.mockRejectedValue(new Error("upstash down"));
     expect((await resetPOST(rreq({ confirm: "RESET" }))).status).toBe(503);
+  });
+});
+
+describe("POST /api/admin/seed", () => {
+  const sreq = () => new Request("http://x/api/admin/seed", { method: "POST" });
+
+  it("404 when DEMO_MODE is off, without seeding — invisible in a real event", async () => {
+    const res = await seedPOST(sreq());
+    expect(res.status).toBe(404);
+    expect(seedDemoData).not.toHaveBeenCalled();
+  });
+
+  it("403 for a non-admin even in demo mode", async () => {
+    process.env.DEMO_MODE = "1";
+    requireAdmin.mockResolvedValue({ ok: false, status: 403 });
+    expect((await seedPOST(sreq())).status).toBe(403);
+    expect(seedDemoData).not.toHaveBeenCalled();
+  });
+
+  it("seeds and returns counts for a demo-mode admin", async () => {
+    process.env.DEMO_MODE = "1";
+    seedDemoData.mockResolvedValue({ contestants: 6, teams: 3, solves: 128 });
+    const res = await seedPOST(sreq());
+    expect(res.status).toBe(200);
+    expect(seedDemoData).toHaveBeenCalledWith("alice");
+    expect(await res.json()).toMatchObject({ contestants: 6, solves: 128 });
+  });
+
+  it("503 on a seed failure", async () => {
+    process.env.DEMO_MODE = "1";
+    seedDemoData.mockRejectedValue(new Error("upstash down"));
+    expect((await seedPOST(sreq())).status).toBe(503);
   });
 });
