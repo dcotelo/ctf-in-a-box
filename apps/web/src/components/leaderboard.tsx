@@ -12,6 +12,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
 import ScoreTimeChart from "@/components/score-time-chart";
+import AppChallengeList from "@/components/app-challenge-list";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
@@ -60,26 +61,84 @@ function AppBreakdown({ entry }: { entry: LeaderboardEntry }) {
   if (attempted.length === 0) {
     return <p className="text-sm text-muted">No app breakdown reported yet.</p>;
   }
+  // Targets whose source carries the per-challenge catalogue — those get a
+  // collapsible "which flags" list under the count grid.
+  const withChallenges = attempted.filter((app) => (entry.apps[app.id]!.challenges?.length ?? 0) > 0);
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {attempted.map((app) => {
-        const progress = entry.apps[app.id]!;
-        const pct = progress.total > 0 ? (progress.patched / progress.total) * 100 : 0;
-        return (
-          <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
-            <p className="text-xs" style={{ color: app.accent }}>
-              {app.name}
-            </p>
-            <p className="font-mono text-sm tabular-nums text-white">
-              {progress.patched}
-              <span className="ml-1 text-xs text-muted">/ {progress.total} patched</span>
-            </p>
-            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: app.accent }} />
+    <div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {attempted.map((app) => {
+          const progress = entry.apps[app.id]!;
+          const pct = progress.total > 0 ? (progress.patched / progress.total) * 100 : 0;
+          return (
+            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
+              <p className="text-xs" style={{ color: app.accent }}>
+                {app.name}
+              </p>
+              <p className="font-mono text-sm tabular-nums text-white">
+                {progress.patched}
+                <span className="ml-1 text-xs text-muted">/ {progress.total} patched</span>
+              </p>
+              <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: app.accent }} />
+              </div>
             </div>
+          );
+        })}
+      </div>
+      {withChallenges.length > 0 && (
+        <div className="mt-3 flex flex-col gap-3">
+          {withChallenges.map((app) => (
+            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
+              <p className="text-xs" style={{ color: app.accent }}>
+                {app.name}
+              </p>
+              <AppChallengeList challenges={entry.apps[app.id]!.challenges!} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The team's collectively-solved flags (the union across members), grouped by
+ *  target. Non-interactive (a flat list, not the collapsible AppChallengeList)
+ *  because it renders inside a card and only lists what's solved, not the full
+ *  catalogue. Rendered only when the source carries per-challenge data. */
+function TeamSolvedFlags({ team }: { team: TeamStanding }) {
+  if (!team.apps) return null;
+  const groups = appList
+    .map((app) => ({ app, solved: (team.apps![app.id]?.challenges ?? []).filter((c) => c.status === "patched") }))
+    .filter((g) => g.solved.length > 0);
+  if (groups.length === 0) return null;
+  return (
+    <div className="mt-4 border-t border-white/[0.06] pt-4">
+      <p className="mb-3 text-xs uppercase tracking-wider text-muted">Solved flags</p>
+      <div className="flex flex-col gap-3">
+        {groups.map(({ app, solved }) => (
+          <div key={app.id}>
+            <p className="mb-1 text-xs" style={{ color: app.accent }}>
+              {app.name}
+              <span className="ml-1.5 text-muted">
+                {solved.length} flag{solved.length === 1 ? "" : "s"}
+              </span>
+            </p>
+            <ul className="flex flex-col gap-1 border-l border-white/[0.06] pl-3">
+              {solved.map((c) => (
+                <li key={c.key} className="flex items-center gap-2 py-0.5 text-xs">
+                  <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: "#22c55e" }} aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-zinc-300">{c.name}</span>
+                  {c.owasp && (
+                    <span className="flex-none rounded border border-white/10 px-1 text-[10px] text-muted">{c.owasp}</span>
+                  )}
+                  <span className="flex-none font-mono text-[10px] text-muted">{c.points}pt</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
@@ -96,7 +155,10 @@ function LegacyBreakdown({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-function EntryRow({
+/** Exported (alongside the default `Leaderboard`) so tests can render an
+ *  expanded row directly with `isOpen` — the toggle only flips client state a
+ *  static render can't drive. */
+export function EntryRow({
   entry,
   topPoints,
   isOwn,
@@ -112,14 +174,16 @@ function EntryRow({
   capabilities: LeaderboardData["capabilities"];
 }) {
   return (
-    <li>
+    <li
+      className={`ds-card group rounded-lg border bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] ${
+        isOwn ? "border-[#2563eb]/60" : "border-white/[0.06]"
+      }`}
+    >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className={`ds-card group w-full rounded-lg border bg-[#16162a] p-4 text-left transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
-          isOwn ? "border-[#2563eb]/60" : "border-white/[0.06]"
-        }`}
+        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
       >
         <div className="flex items-center gap-4">
           <RankChip rank={entry.rank} />
@@ -178,19 +242,19 @@ function EntryRow({
             </svg>
           </div>
         </div>
-
-        {isOpen && (
-          <div className="mt-4 border-t border-white/[0.06] pt-4">
-            <div className="mb-3 flex items-center justify-between text-xs text-muted">
-              <span className="uppercase tracking-wider">
-                {capabilities.apps ? "App breakdown" : "Summary"}
-              </span>
-              {entry.updatedAgo && <span>Last update {entry.updatedAgo}</span>}
-            </div>
-            {capabilities.apps ? <AppBreakdown entry={entry} /> : <LegacyBreakdown entry={entry} />}
-          </div>
-        )}
       </button>
+
+      {isOpen && (
+        <div className="border-t border-white/[0.06] px-4 pb-4 pt-4">
+          <div className="mb-3 flex items-center justify-between text-xs text-muted">
+            <span className="uppercase tracking-wider">
+              {capabilities.apps ? "App breakdown" : "Summary"}
+            </span>
+            {entry.updatedAgo && <span>Last update {entry.updatedAgo}</span>}
+          </div>
+          {capabilities.apps ? <AppBreakdown entry={entry} /> : <LegacyBreakdown entry={entry} />}
+        </div>
+      )}
     </li>
   );
 }
@@ -200,12 +264,12 @@ function EntryRow({
  *  itself only flips client-side state that a static render can't drive. */
 export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void }) {
   return (
-    <li>
+    <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="ds-card group w-full rounded-lg border border-white/[0.06] bg-[#16162a] p-4 text-left transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
       >
         <div className="flex items-center gap-4">
           <RankChip rank={team.rank} />
@@ -238,8 +302,10 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { 
             </svg>
           </div>
         </div>
-        {isOpen && (
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-white/[0.06] pt-4">
+      </button>
+      {isOpen && (
+        <div className="px-4 pb-4">
+          <div className="flex flex-wrap gap-2 border-t border-white/[0.06] pt-4">
             {team.members.map((login) => (
               <span
                 key={login}
@@ -258,8 +324,9 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { 
               </span>
             ))}
           </div>
-        )}
-      </button>
+          <TeamSolvedFlags team={team} />
+        </div>
+      )}
     </li>
   );
 }
