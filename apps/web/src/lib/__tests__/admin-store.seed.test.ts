@@ -44,14 +44,28 @@ describe("seedDemoData", () => {
     expect(JSON.parse(String(lpush![2]))).toMatchObject({ by: "alice", action: "seed" });
   });
 
-  it("spreads solve timestamps across a window (rising score-over-time graph)", async () => {
+  it("spreads EACH contestant's solves across the window so lines interleave", async () => {
     await seedDemoData("bob");
     const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    // pick the contestant with the most solves and check their own timestamps
+    // span most of the ~6h window (not a narrow per-contestant block).
+    const top = [...DEMO_CONTESTANTS].sort(
+      (a, b) =>
+        Object.values(b.solves).reduce((m, i) => m + i.length, 0) -
+        Object.values(a.solves).reduce((m, i) => m + i.length, 0),
+    )[0];
     const times = cmds
-      .filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:"))
-      .map((c) => Date.parse(String(c[3])));
-    // strictly non-decreasing and spanning more than a minute
-    expect(times[0]).toBeLessThan(times[times.length - 1]);
-    expect(times[times.length - 1] - times[0]).toBeGreaterThan(60_000);
+      .filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:") && String(c[2]).startsWith(`${top.login}:`))
+      .map((c) => Date.parse(String(c[3])))
+      .sort((a, b) => a - b);
+    const windowMs = 6 * 60 * 60 * 1000;
+    expect(times[times.length - 1] - times[0]).toBeGreaterThan(windowMs * 0.5);
+  });
+
+  it("puts every demo contestant on a team (no soloists left off the team board)", () => {
+    const teamed = new Set(DEMO_TEAMS.flatMap((t) => t.members));
+    for (const c of DEMO_CONTESTANTS) expect(teamed.has(c.login)).toBe(true);
+    // and every team's captain is one of its members
+    for (const t of DEMO_TEAMS) expect(t.members).toContain(t.captain);
   });
 });

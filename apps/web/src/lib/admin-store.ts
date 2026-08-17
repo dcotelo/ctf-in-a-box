@@ -281,16 +281,24 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
 
   const cmds: (string | number)[][] = [];
-  let i = 0;
-  for (const c of DEMO_CONTESTANTS) {
+  const base = now - windowMs;
+  const n = DEMO_CONTESTANTS.length;
+  // Spread EACH contestant's solves across the whole window (not a per-contestant
+  // block), so every line rises throughout and they interleave. A per-contestant
+  // sub-slot phase ((ci+0.5)/n) staggers otherwise-identical tick times so lines
+  // don't land exactly on top of each other.
+  DEMO_CONTESTANTS.forEach((c, ci) => {
+    const kc = Object.values(c.solves).reduce((m, ids) => m + ids.length, 0);
+    let j = 0;
     for (const [target, ids] of Object.entries(c.solves)) {
       for (const id of ids) {
-        const ts = new Date(now - windowMs + Math.floor((i / Math.max(total, 1)) * windowMs)).toISOString();
+        const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
+        const ts = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
         cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
-        i++;
+        j++;
       }
     }
-  }
+  });
   const createdAt = new Date(now - windowMs).toISOString();
   for (const t of DEMO_TEAMS) {
     cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);

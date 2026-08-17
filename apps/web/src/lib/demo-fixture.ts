@@ -208,8 +208,7 @@ export const DEMO_TEAMS: DemoTeam[] = [
     "captain": "neo-anderson",
     "members": [
       "neo-anderson",
-      "trinity-h",
-      "morpheus-z"
+      "trinity-h"
     ]
   },
   {
@@ -217,7 +216,8 @@ export const DEMO_TEAMS: DemoTeam[] = [
     "name": "The Plague",
     "captain": "kevin-mitnick",
     "members": [
-      "kevin-mitnick"
+      "kevin-mitnick",
+      "morpheus-z"
     ]
   },
   {
