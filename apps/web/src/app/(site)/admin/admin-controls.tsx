@@ -1,77 +1,44 @@
 "use client";
 
-// The organizer admin page's control surface, sectioned by module: the
-// platform-wide controls (freeze, scoring/registration windows, reset) sit
-// above one section per entry in `enabledModules`, so a module's knobs — the
-// hint toggle, cost and gating live under Secure Development — appear iff
-// that module is enabled. All writes go through POST /api/admin/settings
-// (auth + validation enforced server-side — see
-// src/app/api/admin/settings/route.ts); this component is display + dispatch
-// only.
+// The organizer admin page's control surface: a tab shell. One "Event" tab
+// for the control-plane settings that belong to the platform itself (freeze,
+// scoring/registration windows, demo seed, master reset), then one tab per
+// entry in the resolved `modules` prop, labelled with the organizer's own
+// title for that module. A module's knobs — the hint toggle, cost and gating
+// live under Secure Development — therefore exist iff that module is enabled.
+//
+// This component owns ALL the settings state (`settings`, the draft input
+// strings, `pending`, `error`, `confirm`) plus the `apply`/`commitNumber`
+// helpers, and hands them to the tab bodies as props; the tabs are
+// presentational. All writes go through POST /api/admin/settings (auth +
+// validation enforced server-side — see src/app/api/admin/settings/route.ts);
+// this component is display + dispatch only.
+//
+// Every panel is rendered into the DOM and hidden with the `hidden`
+// attribute rather than conditionally unmounted. That is deliberate: it keeps
+// each tab's own state (a half-typed hint cost, an open question form) alive
+// across tab switches, and it is what lets the static-markup tests assert on
+// a panel they are not "looking at" — a `{active === id && <Tab/>}` shell
+// would render nothing for the other tabs and make those assertions vacuous.
+//
+// Accessibility: this is a surface an organizer drives during a live event,
+// so the tablist implements the full WAI-ARIA tabs pattern — roving
+// `tabIndex`, `aria-selected`/`aria-controls`/`aria-labelledby` wiring, and
+// ArrowLeft/ArrowRight/Home/End movement with wraparound.
 
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
-import { eventConfig } from "@/lib/event-config";
-import { enabledModules } from "@/lib/modules";
+import type { ResolvedModule } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
+import AdminEventTab from "./admin-event-tab";
+import AdminSecureDevTab from "./admin-secure-dev-tab";
+import type { ConfirmState } from "./types";
 
-type ConfirmState = {
-  title: string;
-  body: ReactNode;
-  confirmLabel?: string;
-  requireType?: string;
-  danger?: boolean;
-  onConfirm: () => void | Promise<void>;
-};
-
-// datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
-// local wall-clock string; JS parses it as local time, and we store the
-// absolute instant as ISO. Empty input clears the bound (null).
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function fromLocalInput(s: string): string | null {
-  if (!s) return null;
-  const ms = Date.parse(s);
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-}
-
-function ScheduleField({
-  label,
-  value,
-  disabled,
-  onCommit,
-}: {
-  label: string;
-  value: string | null;
-  disabled: boolean;
-  onCommit: (iso: string | null) => void;
-}) {
-  const [input, setInput] = useState(toLocalInput(value));
-  // Re-sync when the applied value changes (another field's POST returns fresh settings).
-  const canonical = toLocalInput(value);
-  return (
-    <label className="flex items-center justify-between gap-3">
-      <span className="text-xs text-muted">{label}</span>
-      <input
-        type="datetime-local"
-        value={input}
-        disabled={disabled}
-        onChange={(e) => setInput(e.target.value)}
-        onBlur={() => {
-          if (input !== canonical) onCommit(fromLocalInput(input));
-        }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
-      />
-    </label>
-  );
-}
+/** The always-present control-plane tab. Module tabs follow it, in the order
+ *  the event config lists them. */
+const EVENT_TAB = "event";
 
 async function postSettings(patch: Record<string, unknown>): Promise<{ settings?: AdminSettings; error?: string }> {
   const res = await fetch("/api/admin/settings", {
@@ -84,7 +51,18 @@ async function postSettings(patch: Record<string, unknown>): Promise<{ settings?
   return { settings: data.settings };
 }
 
-export default function AdminControls({ initial, demoMode = false }: { initial: AdminSettings; demoMode?: boolean }) {
+export default function AdminControls({
+  initial,
+  demoMode = false,
+  modules,
+}: {
+  initial: AdminSettings;
+  demoMode?: boolean;
+  /** Modules with the organizer's naming already applied (see
+   *  lib/resolved-modules.ts). Render `title` — a `ResolvedModule` has no
+   *  `displayName`, by design. */
+  modules: readonly ResolvedModule[];
+}) {
   const [settings, setSettings] = useState(initial);
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
   const [minSolvesInput, setMinSolvesInput] = useState(
@@ -103,6 +81,30 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [resetInfo, setResetInfo] = useState<string | null>(null);
+
+  const tabs = [
+    { id: EVENT_TAB, label: "Event" },
+    ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
+  ];
+  const [active, setActive] = useState<string>(EVENT_TAB);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  /** WAI-ARIA tabs keyboard model, automatic activation: moving focus moves
+   *  the selection, so an organizer arrowing across the strip sees each panel
+   *  without a second keystroke. Left/Right wrap; Home/End jump to the ends. */
+  const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = tabs.length - 1;
+    let next: number;
+    if (e.key === "ArrowRight") next = index === last ? 0 : index + 1;
+    else if (e.key === "ArrowLeft") next = index === 0 ? last : index - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    const id = tabs[next].id;
+    setActive(id);
+    tabRefs.current[id]?.focus();
+  };
 
   const runConfirm = async () => {
     if (!confirm) return;
@@ -198,244 +200,83 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
     <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
 
-      <section className="flex flex-col gap-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Event</h3>
-
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Freeze scoring</span>
-            <span className="block text-xs text-muted">Pause new submissions from being scored.</span>
-          </span>
-          <input
-            type="checkbox"
-            checked={settings.paused}
-            disabled={pending}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setConfirm({
-                title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-                body: next
-                  ? "New submissions will stop being scored for everyone."
-                  : "Scoring resumes for everyone.",
-                confirmLabel: next ? "Freeze" : "Unfreeze",
-                onConfirm: () => apply({ paused: next }),
-              });
-            }}
-            className="h-5 w-5 flex-none accent-[#2563eb]"
-          />
-        </label>
-
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Team registration open</span>
-            <span className="block text-xs text-muted">Allow players to create or join teams.</span>
-          </span>
-          <input
-            type="checkbox"
-            checked={settings.teamRegistrationOpen}
-            disabled={pending}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setConfirm({
-                title: next ? "Open team registration?" : "Close team registration?",
-                body: next
-                  ? "Players will be able to create and join teams."
-                  : "Players will no longer be able to create or join teams.",
-                confirmLabel: next ? "Open" : "Close",
-                onConfirm: () => apply({ teamRegistrationOpen: next }),
-              });
-            }}
-            className="h-5 w-5 flex-none accent-[#2563eb]"
-          />
-        </label>
-
-        <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
-          <div>
-            <span className="text-white">Schedule (auto dates)</span>
-            <span className="block text-xs text-muted">
-              Optional. Times are your local time; leave blank for no bound. Scoring
-              auto-freezes outside its window; registration auto-closes outside its
-              window — on top of the manual toggles above.
-            </span>
-          </div>
-          <ScheduleField
-            key={`ss-${settings.scoringStartsAt ?? ""}`}
-            label="Scoring opens"
-            value={settings.scoringStartsAt}
-            disabled={pending}
-            onCommit={(iso) => void apply({ scoringStartsAt: iso })}
-          />
-          <ScheduleField
-            key={`se-${settings.scoringEndsAt ?? ""}`}
-            label="Scoring closes"
-            value={settings.scoringEndsAt}
-            disabled={pending}
-            onCommit={(iso) => void apply({ scoringEndsAt: iso })}
-          />
-          <ScheduleField
-            key={`rs-${settings.registrationStartsAt ?? ""}`}
-            label="Registration opens"
-            value={settings.registrationStartsAt}
-            disabled={pending}
-            onCommit={(iso) => void apply({ registrationStartsAt: iso })}
-          />
-          <ScheduleField
-            key={`re-${settings.registrationEndsAt ?? ""}`}
-            label="Registration closes"
-            value={settings.registrationEndsAt}
-            disabled={pending}
-            onCommit={(iso) => void apply({ registrationEndsAt: iso })}
-          />
-        </div>
-
-        {demoMode && (
-          <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
-            <div>
-              <span className="text-[#7aa2ff]">Demo mode</span>
-              <span className="block text-xs text-muted">
-                Populate the leaderboard with fake contestants, teams, and solves to
-                preview the app. Injects real-challenge-id scores so points render.
-                Only shown because <code>DEMO_MODE</code> is set — never in a real event.
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                setConfirm({
-                  title: "Seed demo data?",
-                  confirmLabel: "Seed",
-                  body: "Adds fake contestants, teams, and solves to the leaderboard. Run a master reset to clear them.",
-                  onConfirm: doSeed,
-                })
-              }
-              className="self-start rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
-            >
-              Seed demo data
-            </button>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
-          <div>
-            <span className="text-[#e53e3e]">Danger zone</span>
-            <span className="block text-xs text-muted">
-              Master reset wipes <strong>all</strong> event data — teams, points,
-              per-player data, and hint spend. It freezes scoring and can&apos;t be
-              undone. In poll mode, also clear the source PR comments for a wipe that
-              stays gone after you unfreeze.
-            </span>
-          </div>
+      <div role="tablist" aria-label="Admin controls" className="flex flex-wrap gap-1 border-b border-white/[0.06]">
+        {tabs.map((tab, index) => (
           <button
+            key={tab.id}
             type="button"
-            disabled={pending}
-            onClick={() =>
-              setConfirm({
-                title: "Reset all event data?",
-                danger: true,
-                confirmLabel: "Wipe everything",
-                requireType: eventConfig.name,
-                body: (
-                  <>
-                    This permanently deletes every team, score, player record, and
-                    hint purchase, and freezes scoring. This cannot be undone.
-                  </>
-                ),
-                onConfirm: () => doReset(eventConfig.name),
-              })
+            role="tab"
+            id={`tab-${tab.id}`}
+            aria-selected={active === tab.id}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={active === tab.id ? 0 : -1}
+            ref={(el) => {
+              tabRefs.current[tab.id] = el;
+            }}
+            onClick={() => setActive(tab.id)}
+            onKeyDown={(e) => onTabKeyDown(e, index)}
+            className={
+              active === tab.id
+                ? "-mb-px rounded-t-md border-b-2 border-[#2563eb] px-3 py-2 text-sm font-medium text-white"
+                : "-mb-px rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200"
             }
-            className="self-start rounded-md border border-[#e53e3e]/40 px-3 py-1.5 text-sm font-medium text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-50"
           >
-            Reset event data…
+            {tab.label}
           </button>
-          {resetInfo && <p className="text-xs text-[#7dd3a0]">{resetInfo}</p>}
-        </div>
-      </section>
+        ))}
+      </div>
 
-      {enabledModules.map((mod) => (
-        <section key={mod.id} className="flex flex-col gap-4 border-t border-white/[0.06] pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">{mod.displayName}</h3>
-
-          {mod.id === "secure-development" ? (
-            <>
-              <label className="flex items-center justify-between gap-3">
-                <span>
-                  <span className="text-white">Hints enabled</span>
-                  <span className="block text-xs text-muted">Overrides the environment default when set.</span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={settings.hintsEnabled ?? false}
-                  disabled={pending}
-                  onChange={(e) => void apply({ hintsEnabled: e.target.checked })}
-                  className="h-5 w-5 flex-none accent-[#2563eb]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-white">Hint cost</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={hintCostInput}
-                  disabled={pending}
-                  onChange={(e) => setHintCostInput(e.target.value)}
-                  onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput)}
-                  className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-3">
-                <span>
-                  <span className="text-white">Hints: solves required</span>
-                  <span className="block text-xs text-muted">
-                    Solves needed on a target before its hints can be bought. Blocks throwaway
-                    accounts from farming hint text for a team. 0 disables the gate.
-                  </span>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  value={minSolvesInput}
-                  disabled={pending}
-                  onChange={(e) => setMinSolvesInput(e.target.value)}
-                  onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput)}
-                  className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-3">
-                <span>
-                  <span className="text-white">Hints: unlock after (min)</span>
-                  <span className="block text-xs text-muted">
-                    Minutes after the scoring start before any hint can be bought. 0 = available
-                    immediately; needs a scoring start below to have any effect.
-                  </span>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  value={unlockAfterInput}
-                  disabled={pending}
-                  onChange={(e) => setUnlockAfterInput(e.target.value)}
-                  onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}
-                  className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
-                />
-              </label>
-            </>
-          ) : mod.id === "quiz" ? (
-            <AdminQuizControls
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          role="tabpanel"
+          id={`panel-${tab.id}`}
+          aria-labelledby={`tab-${tab.id}`}
+          hidden={active !== tab.id}
+        >
+          {tab.id === EVENT_TAB ? (
+            <AdminEventTab
+              settings={settings}
               pending={pending}
-              quizMaxAttemptsInput={quizMaxAttemptsInput}
-              setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
-              quizRetryAfterInput={quizRetryAfterInput}
-              setQuizRetryAfterInput={setQuizRetryAfterInput}
-              commitNumber={commitNumber}
+              demoMode={demoMode}
+              resetInfo={resetInfo}
+              apply={apply}
+              setConfirm={setConfirm}
+              doReset={doReset}
+              doSeed={doSeed}
             />
           ) : (
-            <p className="text-xs text-muted">No settings for this module yet.</p>
+            <section className="flex flex-col gap-4">
+              {/* Task 6 hangs the per-module title/blurb fields here, as the
+                  first child of the module's panel. */}
+              {tab.id === "secure-development" ? (
+                <AdminSecureDevTab
+                  settings={settings}
+                  pending={pending}
+                  apply={apply}
+                  hintCostInput={hintCostInput}
+                  setHintCostInput={setHintCostInput}
+                  minSolvesInput={minSolvesInput}
+                  setMinSolvesInput={setMinSolvesInput}
+                  unlockAfterInput={unlockAfterInput}
+                  setUnlockAfterInput={setUnlockAfterInput}
+                  commitNumber={commitNumber}
+                />
+              ) : tab.id === "quiz" ? (
+                <AdminQuizControls
+                  pending={pending}
+                  quizMaxAttemptsInput={quizMaxAttemptsInput}
+                  setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
+                  quizRetryAfterInput={quizRetryAfterInput}
+                  setQuizRetryAfterInput={setQuizRetryAfterInput}
+                  commitNumber={commitNumber}
+                />
+              ) : (
+                <p className="text-xs text-muted">No settings for this module yet.</p>
+              )}
+            </section>
           )}
-        </section>
+        </div>
       ))}
 
       {settings.updatedBy && settings.updatedAt && (
