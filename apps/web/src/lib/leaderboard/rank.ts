@@ -17,18 +17,27 @@ export function compareStanding(a: LeaderboardEntry, b: LeaderboardEntry): numbe
 }
 
 /** Completion across modules, falling back to `patched` for sources that carry
- *  no module data (upstash).
+ *  no secure-development module data (upstash: `capabilities.apps: false`, so
+ *  `withModuleContributions` never stamps a `secure-development` block).
  *
  *  That fallback DOES re-order the upstash board relative to the raw `ZRANGE`
  *  points-descending order it arrives in: a row with more patches but fewer
  *  points now ranks higher. This is deliberate — it makes upstash rank by the
  *  same breadth-first rule as the lambda and mock sources rather than being
  *  the one board scored differently. See `__tests__/rank.test.ts`'s
- *  upstash-shaped case, which pins the resulting order. */
+ *  upstash-shaped case, which pins the resulting order.
+ *
+ *  The fallback is keyed on the `secure-development` block specifically, NOT
+ *  on `modules` being empty — an upstash row with quiz activity gets a `quiz`
+ *  block stamped (making `modules` non-empty) while `patched` still holds
+ *  real, un-represented completions. Falling back only when `modules` is
+ *  empty would drop `patched` entirely the moment ANY module (e.g. quiz)
+ *  populated the map — demoting a contestant for answering a quiz question,
+ *  which is the opposite of what adding quiz points is supposed to do. */
 function completedCount(entry: LeaderboardEntry): number {
   const mods = Object.values(entry.modules ?? {});
-  if (mods.length === 0) return entry.patched;
-  return mods.reduce((n, m) => n + (m?.completed ?? 0), 0);
+  const base = entry.modules?.["secure-development"] ? 0 : entry.patched;
+  return base + mods.reduce((n, m) => n + (m?.completed ?? 0), 0);
 }
 
 /** An entry's most recent scoring activity: the newest per-module timestamp

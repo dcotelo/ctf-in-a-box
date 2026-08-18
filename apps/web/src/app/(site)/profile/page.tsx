@@ -15,6 +15,8 @@ import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
 import { getViewerHints } from "@/lib/hint-store";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
+import { isModuleEnabled } from "@/lib/modules";
+import { getQuizTotals } from "@/lib/quiz-store";
 import { getViewerTeam, TEAM_MAX_MEMBERS, TEAM_WRITES_ENABLED } from "@/lib/team-store";
 import { upstashPipeline } from "@/lib/upstash";
 import { event } from "@/lib/site";
@@ -52,10 +54,14 @@ export default async function ProfilePage() {
   const login = (session.user as { login?: string }).login;
   if (!login) redirect("/");
 
-  const [profile, storeTeam, viewerHints] = await Promise.all([
+  // Quiz totals are per-login and cheap to fetch here regardless of board
+  // size (two HGETALLs — see getQuizTotals), but only when the module is
+  // enabled: this must never read `ctf:quiz:*` when quiz is off.
+  const [profile, storeTeam, viewerHints, quizTotals] = await Promise.all([
     getLeaderboardSource().getUser(login),
     getViewerTeam(login),
     getViewerHints(login),
+    isModuleEnabled("quiz") ? getQuizTotals() : Promise.resolve(new Map<string, { points: number }>()),
   ]);
 
   // Live/mock team membership from the store wins; fall back to whatever the
@@ -70,9 +76,13 @@ export default async function ProfilePage() {
   // challenges) — deliberately not called "failed" so contestants who
   // haven't gotten to a challenge yet don't read it as losing.
   const nonPatched = profile ? Math.max(0, profile.total - profile.patched) : 0;
-  // Hint spend is deducted as an overlay (same math as the leaderboard's
-  // withHintPenalties) so the profile matches the contestant's public row.
-  const netPoints = Math.max(0, (profile?.points ?? 0) - viewerHints.spent);
+  // Hint spend is deducted and quiz points are added, in that order, as
+  // overlays — the exact same math (and order) as the leaderboard's
+  // withHintPenalties (subtract, floor at 0) followed by
+  // withModuleContributions (add quiz points on top) — so the profile
+  // matches the contestant's public row.
+  const quizPoints = quizTotals.get(login)?.points ?? 0;
+  const netPoints = Math.max(0, (profile?.points ?? 0) - viewerHints.spent) + quizPoints;
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
   const progressPct = !profile

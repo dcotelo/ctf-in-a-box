@@ -19,9 +19,11 @@ is deliberate: the platform never knows what a challenge *is*, only how a score
 arrives and how a leaderboard renders; a module never re-implements org
 provisioning, teams, ingestion, or ranking. `event.yaml`'s `modules:` map
 accepts more than one registered module id — `secure-development` (targets,
-scoring, the worked example throughout this doc) and `quiz` (a registrable id
-with no UI, route, or scoring yet — a phase-2 placeholder, see
-[docs/modules.md §5](modules.md#5-ui--presentation-contract)). An id outside
+GitHub-mediated scoring, the worked example throughout this doc) and `quiz`
+(a self-paced single/multi-select question bank, scored entirely inside the
+app — see [Quiz data flow](#quiz-data-flow) below and
+[docs/modules.md §5](modules.md#5-ui--presentation-contract) for what its UI
+contract still leaves open). An id outside
 the registry still fails the build loudly; the boundary is the
 [module contract](modules.md).
 
@@ -165,8 +167,10 @@ state; everything else that touches scores goes through it.
    `withModuleContributions` attributes each row's points into a
    per-module `ModuleProgress` for every *enabled* module — `secure-development`
    is **attributed**, not added, since its points already came from the
-   scorer above; a module that scores app-side (none does yet) would add its
-   own points on top. It runs *after* hints so it attributes the **net**
+   scorer above; `quiz` scores entirely app-side, so its points are never
+   inside `entry.points` to begin with and are **added** on top instead
+   (`entry.points += quizTotal.points`) — see
+   [Quiz data flow](#quiz-data-flow) below. It runs *after* hints so it attributes the **net**
    (post-penalty, floored) figure — attributing first would show an expanded
    row a larger module total than the header above it — and it re-ranks
    unconditionally, so being last is what makes the final order deterministic
@@ -190,6 +194,96 @@ state; everything else that touches scores goes through it.
    block (`components/module-detail.tsx` switches on `moduleId` — a
    `secure-development` row shows the existing per-target breakdown, and a
    module with a different progress shape defines its own).
+
+## Quiz data flow
+
+The `quiz` module never touches `scorer`, `sync`, or GitHub — it's the app's
+own, entirely separate scoring path, running inside `apps/web` against Redis
+keys it owns outright. `apps/web/src/lib/quiz-store.ts` is the only writer
+during normal contestant and authoring activity — answering, grading,
+question authoring/deletion all go through it — but two `admin-store.ts`
+bulk-maintenance paths touch `ctf:quiz:*` directly rather than calling into
+`quiz-store.ts`: `seedDemoData()` (`HSET`s the questions key, the answer key,
+a per-login answers hash, and both aggregate hashes when seeding demo data)
+and the master reset's `scanDelByPrefix()` (`SCAN`+`DEL`s
+`ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
+`ctf:quiz:answered` — see "Master reset" below). Both reuse `quiz-keys.ts`'s
+shared key constants and `canonicalizeChoices` recipe rather than
+re-deriving them, so the two writers can't silently disagree on key names or
+answer-set format even though they're separate code paths:
+
+- `ctf:quiz:questions` — the public-safe question hash both contestants and
+  the admin panel read: prompt, type, choices, points, `order`. Never
+  carries a correct answer.
+- `ctf:quiz:key` — the correct-choice-id set per question, always stored as
+  a sorted JSON array (a `"single"` question is simply the one-element
+  case, not a separate format). Read only inside `quiz-store.ts`'s grading
+  path; no route that echoes its input back to the caller ever touches it,
+  so the answer key never reaches a client — contestant or admin.
+- `ctf:quiz:answers:<login>` / `ctf:quiz:attempts:<login>` — one
+  contestant's correctly-answered questions (points and timestamp captured
+  at answer time) and every attempt, right or wrong.
+- `ctf:quiz:points` / `ctf:quiz:answered` — running per-login aggregate
+  counters the leaderboard overlay reads with two `HGETALL`s regardless of
+  board size, the same trick `ctf:hints:spent` uses.
+
+**Grading is one atomic Lua script**, not a sequence of round trips: reading
+the current attempt count and cooldown, re-checking the cap and cooldown
+against the *current* admin settings, bumping the attempt counter, comparing
+the submission against the stored key, and — on a match — writing the answer
+row and incrementing both aggregate counters, all happen inside a single
+script execution. The JS-side `quizGate` pre-check that runs before the
+script is only a cheap early-out over its own separate, non-atomic read; the
+script is what actually closes the race, because Redis runs it to completion
+before starting the next one, so a burst of near-simultaneous submissions on
+the same question can't collectively spend more attempts than the cap
+allows.
+
+**Fail-closed — deliberately the opposite of the scoring freeze.** If the
+gate's attempt/answer lookup itself errors, it refuses the answer (a
+distinct `"unavailable"` reason) rather than guessing. This is the inverse
+of `effectivePaused`'s fail-**open** behavior below (a Redis blip must never
+silently drop a live, already-judged PR submission): for the quiz, the safe
+failure on an unverifiable lookup is "don't grade it," not "grade a
+possibly-replayed submission."
+
+**Quiz points are ADDED to the board, not attributed from it.**
+`withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
+treats the two enabled modules differently because their points arrive
+differently: `secure-development`'s points are already inside `entry.points`
+(the scorer computed them), so the overlay only *attributes* that existing
+figure into a `ModuleProgress` block. The quiz never submits anything
+through `scorer`'s `POST /score` — the web app holds no score-writing token
+for that endpoint at all, so there is nothing for it to authenticate as a
+writer with — its points are computed and stored entirely by the app, so
+they must be **added** onto the scorer-sourced total (`entry.points +=
+quizTotal.points`) before the combined board re-ranks.
+
+A team's quiz total is the **union** of its members' correctly-answered
+questions (`getTeamQuizTotalsBatch`), never the sum of their individual
+aggregates — summing would double-count a question two teammates both
+answered, exactly like a shared flag would double-count under naive
+summation. Individual rows read the cheap per-login aggregate counters
+instead (`getQuizTotals`); only a team standing pays the per-member
+`HGETALL` cost, and only once team standings are already available on that
+leaderboard source. Those per-member reads for **every** team on the board
+go out in a single pipeline (one `HGETALL` per distinct member, not one
+round trip per team), because `/leaderboard` is dynamic and fetched
+`no-store` — a per-team round trip would bill an event one REST call per
+team on every page view.
+
+The overlay's two quiz reads are settled **independently**: `getQuizTotals`
+supplies the points, `listQuestions` only the "answered / total"
+denominator. A failed question-list read degrades to a missing denominator
+(clamped to at least the answered count, so the ratio can never read
+"1 / 0"), never to lost points — points and the ranking they drive must not
+hinge on a cosmetic read.
+
+The master reset (below) wipes `ctf:quiz:answers:*`, `ctf:quiz:attempts:*`,
+`ctf:quiz:points`, and `ctf:quiz:answered` — contestant progress — but
+deliberately leaves `ctf:quiz:questions` and `ctf:quiz:key` untouched, the
+same way it leaves `ctf:admin:settings` untouched: both are organizer-
+authored content, not event-run state a reset should ever destroy.
 
 ## Organizer admin panel (runtime overrides)
 
@@ -232,7 +326,10 @@ returns `false`; `scorer/src/store.js` does the same).
 **Master reset + the reset epoch.** `resetEvent()` (`admin-store.ts`, behind
 `POST /api/admin/reset`, `requireAdmin` + server-side type-to-confirm) wipes
 all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,
-`ctf:joincode:*`, `ctf:hints:*` — keeps `ctf:admin:settings`, and appends a
+`ctf:joincode:*`, `ctf:hints:*`, and, when the `quiz` module is enabled,
+`ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
+`ctf:quiz:answered` — keeps `ctf:admin:settings` and (deliberately)
+`ctf:quiz:questions`/`ctf:quiz:key`, and appends a
 reset audit line. On its own that isn't enough in **poll mode**: `sync` would
 re-ingest the same PR comments within a cycle and undo the wipe. So the reset
 also freezes scoring **and bumps a `resetAt` epoch field in the settings hash**.
@@ -247,7 +344,13 @@ un-post them from here). Every disruptive control prompts for confirmation
 
 **Demo seed (dev only).** `seedDemoData()` + `POST /api/admin/seed` populate a
 demo leaderboard (bundled fixture of real challenge-ids so the scorer scores
-them, timestamps spread for a rising graph, plus teams). The route and its
+them, timestamps spread for a rising graph, plus teams). When the `quiz`
+module is enabled, the same seed also writes a small demo question bank
+(`DEMO_QUESTIONS`) with some already answered (`DEMO_QUIZ_ANSWERS`), so the
+demo board shows a genuinely combined score — patch points and quiz points
+both contributing — instead of leaving the second module invisible. A
+disabled quiz module leaves the seed byte-for-byte identical to pre-quiz
+behavior. The route and its
 `/admin` button exist only when the app runs with `DEMO_MODE=1`
 (`scripts/dev-stack` sets it) — a real event build has neither, so a live
 leaderboard can't be polluted by accident.
@@ -371,7 +474,7 @@ config change").
 |---|---|---|
 | Unit (sync) | `sync/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Config loading/validation, comment parsing and the author grammar, cursor/ETag handling, submit retry semantics, state persistence — in isolation, no network or Docker. |
 | Unit (scorer) | `scorer/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Rubric loading/validation, probe grammar + evaluation, the judge's report format (the score-action regexes and the sync marker, pinned verbatim), serve auth/validation/monotonic-replay semantics, leaderboard aggregation, and both solve stores (memory, and Redis-via-SRH against a mocked endpoint) — in isolation, no network or Docker. |
-| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; teams pass through untouched) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. |
+| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; with the quiz module disabled a source's teams pass through untouched and no quiz block is read at all; with it enabled, quiz points are added to an entry's and a deduped team's totals, a quiz-less entry gets no quiz block, and quiz activity can't demote a patched-heavy row on an upstash-shaped board) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. The quiz store itself (`src/lib/__tests__/quiz-store*.test.ts`) covers all-or-nothing set comparison, the attempt cap and cooldown (including the atomic grading script's authority over the JS-side pre-check, and its fail-closed behavior on a lookup error), and question authoring validation; `components/__tests__/{admin-quiz-controls,quiz-board}.test.tsx` cover the authoring form and the contestant answer UI. |
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |

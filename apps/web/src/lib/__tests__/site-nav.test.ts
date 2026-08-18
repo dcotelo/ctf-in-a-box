@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-// Both modules enabled: secure-development (has a nav entry) and quiz
-// (deliberately has none in phase 1 — no /quiz route yet).
+// Both modules enabled: secure-development and quiz now both have a nav
+// entry, spliced in registry order between the platform-level links.
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
     targets: ["dvwa"],
@@ -17,16 +17,14 @@ import { navLinks } from "@/lib/site";
 describe("navLinks", () => {
   it("renders a nav entry for each enabled module that has one", () => {
     expect(navLinks).toContainEqual({ href: "/challenges", label: "Challenges" });
+    expect(navLinks).toContainEqual({ href: "/quiz", label: "Quiz" });
   });
 
-  it("renders no nav entry for an enabled module without a route (quiz)", () => {
-    expect(navLinks.some((link) => link.href === "/quiz")).toBe(false);
-  });
-
-  it("keeps the non-module links and today's order when only secure-development has a nav entry", () => {
+  it("keeps the non-module links and today's order with both modules' nav entries spliced in", () => {
     expect(navLinks).toEqual([
       { href: "/how-to-play", label: "How to Play" },
       { href: "/challenges", label: "Challenges" },
+      { href: "/quiz", label: "Quiz" },
       { href: "/rules", label: "Rules" },
       { href: "/leaderboard", label: "Leaderboard" },
       { href: "/faq", label: "FAQ" },

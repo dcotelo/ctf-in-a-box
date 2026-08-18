@@ -30,7 +30,7 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     id: "quiz",
     displayName: "Quiz",
     description: "Answer security questions for points.",
-    // No nav in phase 1 — the /quiz route does not exist yet.
+    nav: { href: "/quiz", label: "Quiz" },
   },
 };
 

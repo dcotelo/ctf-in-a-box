@@ -29,6 +29,7 @@ describe("getAdminSettings", () => {
     expect(await getAdminSettings()).toEqual({
       paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
       hintsMinSolves: null, hintsUnlockAfterMin: null,
+      quizMaxAttempts: null, quizRetryAfterMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null,
     });
@@ -41,6 +42,7 @@ describe("getAdminSettings", () => {
     expect(await getAdminSettings()).toEqual({
       paused: true, hintsEnabled: false, hintCost: 25, teamRegistrationOpen: true,
       hintsMinSolves: null, hintsUnlockAfterMin: null,
+      quizMaxAttempts: null, quizRetryAfterMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
     });
@@ -170,6 +172,7 @@ describe("scheduled windows", () => {
   const base: AdminSettings = {
     paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
     hintsMinSolves: null, hintsUnlockAfterMin: null,
+    quizMaxAttempts: null, quizRetryAfterMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
     updatedBy: null, updatedAt: null,
   };

@@ -11,12 +11,26 @@ modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
-  # quiz: {}                       # registrable today, but NOT YET IMPLEMENTED:
-                                    # no UI, route, scoring, or admin controls
-                                    # (phase 2) — see docs/modules.md §5
+  quiz: {}                         # single/multi-select question bank, scored
+                                    # app-side (no targets/score_ingest of its
+                                    # own — nothing to configure but presence).
+                                    # Turns on: a "Quiz" nav link and /quiz page
+                                    # for contestants; a Quiz section in /admin
+                                    # to author questions (prompt, choices,
+                                    # correct answer(s), points, order) and
+                                    # tune the two retry-gate knobs (max
+                                    # attempts, default 3; retry cooldown,
+                                    # default 5 min); and quiz points added on
+                                    # top of the combined leaderboard, deduped
+                                    # per team by question. `sync` still
+                                    # requires `secure-development` to be
+                                    # configured too — a quiz-only event isn't
+                                    # supported end to end yet. See
+                                    # docs/operations.md's "Quiz" section and
+                                    # docs/modules.md §5.
 # A module is enabled by APPEARING under modules:. There is no `enabled:` key —
-# omitting a module's block entirely is what disables it (and is why `quiz` is
-# commented out above). A module's block holds only its own settings.
+# omitting a module's block entirely is what disables it. A module's block
+# holds only its own settings (`quiz`'s has none yet, hence `{}`).
 # v1 placeholders — not read at build time: team play is always on with a
 # fixed 4-member cap, and hints (ON by default, 10 points each) are tuned at
 # runtime in /admin — enabled, cost, and the two gating knobs. Remove hints

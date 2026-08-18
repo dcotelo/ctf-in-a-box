@@ -1,6 +1,17 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
-import { DEMO_CONTESTANTS, DEMO_TEAMS } from "@/lib/demo-fixture";
+import { isModuleEnabled } from "@/lib/modules";
+import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
+import {
+  QUIZ_QUESTIONS_KEY,
+  QUIZ_KEY_KEY,
+  QUIZ_POINTS_KEY,
+  QUIZ_ANSWERED_KEY,
+  QUIZ_ANSWERS_PREFIX,
+  QUIZ_ATTEMPTS_PREFIX,
+  quizAnswersKey,
+  canonicalizeChoices,
+} from "@/lib/quiz-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -10,6 +21,9 @@ export const HINT_COST_MAX = 100000;
 /** Caps for the two hint-gating knobs (see hint-store's `hintGate`). */
 export const HINT_MIN_SOLVES_MAX = 1000;
 export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
+/** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
+export const QUIZ_MAX_ATTEMPTS_MAX = 100;
+export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
 
 export type AdminSettings = {
   paused: boolean;
@@ -21,6 +35,13 @@ export type AdminSettings = {
   /** Minutes after `scoringStartsAt` before any hint may be bought. Null =
    *  no override; 0 = no time phase. */
   hintsUnlockAfterMin: number | null;
+  /** Attempts a login gets per quiz question before the retry gate refuses
+   *  further submissions (see quiz-store's `quizGate`). Null = no override,
+   *  use the default. 0 = unlimited attempts. */
+  quizMaxAttempts: number | null;
+  /** Minutes a login must wait after its last attempt before it may retry the
+   *  same quiz question. Null = no override; 0 = no cooldown. */
+  quizRetryAfterMin: number | null;
   teamRegistrationOpen: boolean;
   // Scheduled "auto dates" — nullable ISO instants. Absent = no bound.
   // scoring* gates the freeze (before start / after end = paused); registration*
@@ -71,6 +92,8 @@ export type SettingsPatch = {
   hintCost?: number;
   hintsMinSolves?: number;
   hintsUnlockAfterMin?: number;
+  quizMaxAttempts?: number;
+  quizRetryAfterMin?: number;
   teamRegistrationOpen?: boolean;
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
@@ -109,6 +132,8 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     hintCost: h.hintCost === undefined ? null : Number(h.hintCost),
     hintsMinSolves: h.hintsMinSolves === undefined ? null : Number(h.hintsMinSolves),
     hintsUnlockAfterMin: h.hintsUnlockAfterMin === undefined ? null : Number(h.hintsUnlockAfterMin),
+    quizMaxAttempts: h.quizMaxAttempts === undefined ? null : Number(h.quizMaxAttempts),
+    quizRetryAfterMin: h.quizRetryAfterMin === undefined ? null : Number(h.quizRetryAfterMin),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     scoringStartsAt: h.scoringStartsAt ?? null,
     scoringEndsAt: h.scoringEndsAt ?? null,
@@ -197,6 +222,18 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       }
       fields.push(k, String(v));
       changed[k] = v;
+    } else if (k === "quizMaxAttempts") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > QUIZ_MAX_ATTEMPTS_MAX) {
+        throw new AdminValidationError(k, `quizMaxAttempts must be an integer in [0, ${QUIZ_MAX_ATTEMPTS_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "quizRetryAfterMin") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > QUIZ_RETRY_AFTER_MAX) {
+        throw new AdminValidationError(k, `quizRetryAfterMin must be an integer in [0, ${QUIZ_RETRY_AFTER_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
     } else if ((SCHEDULE_FIELDS as readonly string[]).includes(k)) {
       // Nullable ISO bound: null/"" clears it (HDEL); a value must parse as a
       // date and is stored normalised to its ISO-8601 UTC form.
@@ -232,12 +269,26 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
 // ctf:admin:settings (kept), ctf:admin:audit (appended, not cleared), and
 // ctf:sync:status (sync owns it). ctf:user:* covers both the team-membership
 // hash and ctf:user:<login>:hints; ctf:team:* covers <slug> and <slug>:members.
+//
+// Quiz scope (spec Q1): wipes contestant PROGRESS (per-login answers/attempts,
+// plus the two running-total aggregate hashes) and deliberately KEEPS
+// `ctf:quiz:questions` / `ctf:quiz:key` — those are organizer CONTENT, like
+// `ctf:admin:settings`, not something a reset should ever destroy. The
+// aggregates (`ctf:quiz:points`/`ctf:quiz:answered`) MUST still be cleared:
+// leaving them would show contestants stale quiz points on a freshly reset
+// board with no answers behind them. `ctf:quiz:points`/`ctf:quiz:answered`
+// are exact key names, not globs, but `scanDelByPrefix`'s SCAN MATCH works
+// the same either way.
 const RESET_PREFIXES: readonly [string, string][] = [
   ["solves", "ctf:solves:*"],
   ["teams", "ctf:team:*"],
   ["users", "ctf:user:*"],
   ["joinCodes", "ctf:joincode:*"],
   ["hints", "ctf:hints:*"],
+  ["quizAnswers", `${QUIZ_ANSWERS_PREFIX}*`],
+  ["quizAttempts", `${QUIZ_ATTEMPTS_PREFIX}*`],
+  ["quizPoints", QUIZ_POINTS_KEY],
+  ["quizAnswered", QUIZ_ANSWERED_KEY],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the
@@ -296,8 +347,12 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
 /**
  * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
  * (so the scorer awards points), spread over the last ~6h for a rising
- * score-over-time graph, plus a few teams. Additive — does not clear first.
- * Gated by the route on DEMO_MODE + requireAdmin; never a production path.
+ * score-over-time graph, plus a few teams. When the quiz module is enabled,
+ * also seeds a small demo question bank and a spread of correct answers
+ * across the same contestants (timestamped inside the same ~6h window) so
+ * DEMO_MODE shows a genuinely combined two-module leaderboard. Additive —
+ * does not clear first. Gated by the route on DEMO_MODE + requireAdmin;
+ * never a production path.
  */
 export async function seedDemoData(actor: string): Promise<{ contestants: number; teams: number; solves: number }> {
   const now = Date.now();
@@ -330,6 +385,53 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
     for (const m of t.members) cmds.push(["HSET", `ctf:user:${m}`, "team", t.slug]);
   }
+
+  // Quiz demo data — only when the module is enabled, so a disabled quiz
+  // module leaves the seed byte-for-byte identical to pre-quiz behavior.
+  const quizEnabled = isModuleEnabled("quiz");
+  let quizAnswersSeeded = 0;
+  if (quizEnabled) {
+    // Write the public question + its correct-answer key with the SAME
+    // shared `canonicalizeChoices` recipe quiz-store's upsertQuestion uses
+    // (dedupe then sort into a JSON array) — GRADE_SCRIPT string-compares a
+    // submission's canonicalized array against this key byte-for-byte, so
+    // any other shape here would silently make every demo question
+    // ungradeable.
+    for (const { correct, ...question } of DEMO_QUESTIONS) {
+      cmds.push(["HSET", QUIZ_QUESTIONS_KEY, question.id, JSON.stringify(question)]);
+      cmds.push(["HSET", QUIZ_KEY_KEY, question.id, JSON.stringify(canonicalizeChoices(correct))]);
+    }
+
+    const questionsById = new Map(DEMO_QUESTIONS.map((q) => [q.id, q]));
+    const aggregates = new Map<string, { points: number; answered: number }>();
+    const nAnswers = DEMO_QUIZ_ANSWERS.length;
+    DEMO_QUIZ_ANSWERS.forEach(({ login, questionId }, i) => {
+      const q = questionsById.get(questionId);
+      if (!q) return; // fixture-consistency guard; should never trigger
+      const frac = nAnswers > 0 ? (i + 0.5) / nAnswers : 0.5;
+      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      // Same shared recipe as the key above: a demo answer's banked
+      // `choices` is always the question's full correct set (it's recorded
+      // as correct), stored the same way GRADE_SCRIPT stores a live one.
+      const choices = canonicalizeChoices(q.correct);
+      cmds.push(["HSET", quizAnswersKey(login), questionId, JSON.stringify({ choices, points: q.points, at })]);
+
+      const agg = aggregates.get(login) ?? { points: 0, answered: 0 };
+      agg.points += q.points;
+      agg.answered += 1;
+      aggregates.set(login, agg);
+      quizAnswersSeeded++;
+    });
+    // Aggregates are written as the final absolute total (not HINCRBY'd),
+    // unlike GRADE_SCRIPT's live increments — the fixture already knows each
+    // login's final total, and an absolute HSET keeps re-running the seed
+    // idempotent instead of doubling the totals on a second seed.
+    for (const [login, agg] of aggregates) {
+      cmds.push(["HSET", QUIZ_POINTS_KEY, login, agg.points]);
+      cmds.push(["HSET", QUIZ_ANSWERED_KEY, login, agg.answered]);
+    }
+  }
+
   const audit = JSON.stringify({
     at: new Date(now).toISOString(),
     by: actor,
@@ -337,6 +439,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     contestants: DEMO_CONTESTANTS.length,
     teams: DEMO_TEAMS.length,
     solves: total,
+    ...(quizEnabled ? { quizQuestions: DEMO_QUESTIONS.length, quizAnswers: quizAnswersSeeded } : {}),
   });
   cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
   cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);

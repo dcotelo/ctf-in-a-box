@@ -41,18 +41,38 @@ describe("resetEvent", () => {
 
     const out = await resetEvent("alice");
 
-    expect(out.cleared).toEqual({ solves: 2, teams: 2, users: 2, joinCodes: 2, hints: 2 });
+    expect(out.cleared).toEqual({
+      solves: 2,
+      teams: 2,
+      users: 2,
+      joinCodes: 2,
+      hints: 2,
+      quizAnswers: 2,
+      quizAttempts: 2,
+      quizPoints: 2,
+      quizAnswered: 2,
+    });
     expect(out.resetAt).toMatch(/^\d+$/);
 
-    // one SCAN + one DEL per prefix (5 prefixes) = 10 pipeline calls
+    // one SCAN + one DEL per prefix (9 prefixes) = 18 pipeline calls
     const verbs = mocks.upstashPipeline.mock.calls.map((c) => c[0][0][0]);
-    expect(verbs.filter((v) => v === "SCAN").length).toBe(5);
-    expect(verbs.filter((v) => v === "DEL").length).toBe(5);
+    expect(verbs.filter((v) => v === "SCAN").length).toBe(9);
+    expect(verbs.filter((v) => v === "DEL").length).toBe(9);
     // every wiped prefix, and NOT settings/audit/sync
     const patterns = mocks.upstashPipeline.mock.calls
       .filter((c) => c[0][0][0] === "SCAN")
       .map((c) => c[0][0][3]);
-    expect(patterns).toEqual(["ctf:solves:*", "ctf:team:*", "ctf:user:*", "ctf:joincode:*", "ctf:hints:*"]);
+    expect(patterns).toEqual([
+      "ctf:solves:*",
+      "ctf:team:*",
+      "ctf:user:*",
+      "ctf:joincode:*",
+      "ctf:hints:*",
+      "ctf:quiz:answers:*",
+      "ctf:quiz:attempts:*",
+      "ctf:quiz:points",
+      "ctf:quiz:answered",
+    ]);
 
     // the freeze + audit eval: settings + audit keys, and a reset audit line
     expect(mocks.upstashEval).toHaveBeenCalledTimes(1);
@@ -62,6 +82,38 @@ describe("resetEvent", () => {
     expect(args[0]).toBe("alice"); // actor
     const auditLine = JSON.parse(String(args[3]));
     expect(auditLine).toMatchObject({ by: "alice", action: "reset", cleared: { solves: 2, teams: 2 } });
+  });
+
+  it("wipes quiz answers and attempts", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:quiz:answers:*");
+    expect(patterns).toContain("ctf:quiz:attempts:*");
+  });
+
+  it("KEEPS the question bank and the answer key across a reset", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).not.toContain("ctf:quiz:questions");
+    expect(patterns).not.toContain("ctf:quiz:key");
+  });
+
+  it("also clears the quiz aggregate totals", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    const out = await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:quiz:points");
+    expect(patterns).toContain("ctf:quiz:answered");
+    expect(out.cleared.quizPoints).toBe(1);
+    expect(out.cleared.quizAnswered).toBe(1);
   });
 
   it("skips DEL for an empty prefix and paginates a multi-page prefix", async () => {

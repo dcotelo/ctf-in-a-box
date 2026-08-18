@@ -1,0 +1,109 @@
+// Server Component: reads the session and the quiz's public-safe data
+// (`listQuestions()` never returns an answer key — see quiz-store.ts), then
+// derives each question's PER-VIEWER status server-side and hands a plain
+// view model down to <QuizBoard>. Data (and auth) in, interactivity down —
+// same split as leaderboard/page.tsx.
+//
+// Gated on the module registry rather than on auth: this route only exists
+// at all when the quiz module is enabled (module contract §5.4), so an
+// event without the quiz module 404s here exactly like any other unknown
+// route. Session is optional — a signed-out visitor can still see the
+// questions, same as the public leaderboard; only submitting requires auth,
+// enforced by /api/quiz/answer itself.
+
+import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
+import PageHeader from "@/components/page-header";
+import QuizBoard, { type QuizQuestionView, type QuizStatus } from "@/components/quiz-board";
+import { auth } from "@/lib/auth";
+import { getAdminSettings } from "@/lib/admin-store";
+import { isModuleEnabled } from "@/lib/modules";
+import { getViewerQuiz, listQuestions, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN, type ViewerQuiz } from "@/lib/quiz-store";
+
+export const metadata: Metadata = {
+  title: "Quiz",
+  description: "Answer security questions for points.",
+};
+
+/** Derives this viewer's status for one question from the SAME cap/cooldown
+ *  rule quiz-store's `evaluateGate` enforces authoritatively at submit time
+ *  — reimplemented here purely for display, using data this page already
+ *  has (one `getViewerQuiz` pipeline + the current admin settings) instead
+ *  of an extra `quizGate` round trip per question. A stale or drifted read
+ *  here is a display nit at worst: `answerQuestion`'s Lua script re-checks
+ *  both, atomically, against fresh state, and is the only thing that
+ *  actually enforces the cap or the cooldown.
+ *
+ *  `now` defaults to `Date.now()` (read here, in a plain helper, rather than
+ *  in the page component's own body) — same reason `formatRelativeTime`
+ *  takes `now` as a parameter: a Server Component's render function must
+ *  stay a pure function of its props for React's rules (no impure
+ *  `Date.now()`/`Math.random()` calls in the component body itself). */
+function deriveStatus(
+  answered: ViewerQuiz["answered"][string] | undefined,
+  attempt: ViewerQuiz["attempts"][string] | undefined,
+  maxAttempts: number,
+  cooldownMs: number,
+  now: number = Date.now(),
+): QuizStatus {
+  if (answered) return { status: "answered", earnedPoints: answered.points };
+
+  const attemptsSoFar = attempt?.attempts ?? 0;
+  if (maxAttempts > 0 && attemptsSoFar >= maxAttempts) return { status: "exhausted" };
+
+  if (cooldownMs > 0 && attempt) {
+    const lastMs = Date.parse(attempt.lastAt);
+    if (Number.isFinite(lastMs)) {
+      const retryAtMs = lastMs + cooldownMs;
+      if (now < retryAtMs) return { status: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
+    }
+  }
+
+  return { status: "unanswered" };
+}
+
+export default async function QuizPage() {
+  if (!isModuleEnabled("quiz")) notFound();
+
+  const session = await auth.api.getSession({ headers: await headers() });
+  const login = (session?.user as { login?: string } | undefined)?.login;
+
+  const [questions, viewerQuiz, settings] = await Promise.all([
+    listQuestions(),
+    login ? getViewerQuiz(login) : Promise.resolve<ViewerQuiz>({ answered: {}, attempts: {} }),
+    getAdminSettings(),
+  ]);
+
+  const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
+  const cooldownMs = (settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
+
+  // Built field by field from the public `Question` shape — never a spread
+  // of a raw store record, which is how an answer key would leak.
+  const viewQuestions: QuizQuestionView[] = questions.map((q) => ({
+    id: q.id,
+    prompt: q.prompt,
+    type: q.type,
+    choices: q.choices,
+    points: q.points,
+    ...deriveStatus(viewerQuiz.answered[q.id], viewerQuiz.attempts[q.id], maxAttempts, cooldownMs),
+  }));
+
+  const answeredCount = viewQuestions.filter((q) => q.status === "answered").length;
+  const description = login
+    ? `You've answered ${answeredCount} of ${questions.length} question${questions.length === 1 ? "" : "s"}.`
+    : "Sign in with GitHub to answer questions.";
+
+  return (
+    <div className="flex flex-col gap-8">
+      <PageHeader eyebrow="Quiz" title="Quiz" description={description} />
+      {questions.length === 0 ? (
+        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
+          <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
+        </div>
+      ) : (
+        <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} />
+      )}
+    </div>
+  );
+}

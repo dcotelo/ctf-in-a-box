@@ -239,8 +239,8 @@ describe("per-module breakdown", () => {
     const e = entry({
       points: 132,
       modules: {
-        "secure-development": { points: 75, completed: 8, lastActivityAt: null, detail: { apps: {} } },
-        quiz: { points: 57, completed: 12, lastActivityAt: null, detail: { answered: 12, total: 15 } },
+        "secure-development": { points: 75, completed: 8, lastActivityAt: null, detail: { kind: "secure-development", apps: {} } },
+        quiz: { points: 57, completed: 12, lastActivityAt: null, detail: { kind: "quiz", answered: 12, total: 15, points: 57 } },
       },
     });
     const html = renderToStaticMarkup(

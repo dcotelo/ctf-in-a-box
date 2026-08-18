@@ -129,10 +129,10 @@ describe("compareStanding across modules", () => {
   it("counts completion across every module, not just patching", () => {
     // ada: 0 patches but 12 quiz answers; bob: 1 patch, no quiz.
     const ada = withModules("ada", 0, 120, {
-      quiz: { points: 120, completed: 12, lastActivityAt: null, detail: { answered: 12, total: 15 } },
+      quiz: { points: 120, completed: 12, lastActivityAt: null, detail: { kind: "quiz", answered: 12, total: 15, points: 120 } },
     });
     const bob = withModules("bob", 1, 10, {
-      "secure-development": { points: 10, completed: 1, lastActivityAt: null, detail: { apps: {} } },
+      "secure-development": { points: 10, completed: 1, lastActivityAt: null, detail: { kind: "secure-development", apps: {} } },
     });
     expect(rankByStanding([bob, ada]).map((e) => e.login)).toEqual(["ada", "bob"]);
   });
@@ -145,10 +145,10 @@ describe("compareStanding across modules", () => {
 
   it("breaks ties on the earliest activity across modules", () => {
     const early = withModules("early", 1, 10, {
-      quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T10:00:00.000Z", detail: { answered: 1, total: 5 } },
+      quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T10:00:00.000Z", detail: { kind: "quiz", answered: 1, total: 5, points: 10 } },
     });
     const late = withModules("late", 1, 10, {
-      quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T12:00:00.000Z", detail: { answered: 1, total: 5 } },
+      quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T12:00:00.000Z", detail: { kind: "quiz", answered: 1, total: 5, points: 10 } },
     });
     expect(rankByStanding([late, early]).map((e) => e.login)).toEqual(["early", "late"]);
   });

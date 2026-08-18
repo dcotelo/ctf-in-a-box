@@ -1,0 +1,731 @@
+import "server-only";
+import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import {
+  QUIZ_QUESTIONS_KEY as QUESTIONS_KEY,
+  QUIZ_KEY_KEY as KEY_KEY,
+  QUIZ_POINTS_KEY as POINTS_KEY,
+  QUIZ_ANSWERED_KEY as ANSWERED_KEY,
+  quizAnswersKey as answersKey,
+  quizAttemptsKey as attemptsKey,
+  canonicalizeChoices,
+} from "@/lib/quiz-keys";
+
+/**
+ * The quiz module. This file is the only place that touches `ctf:quiz:*`
+ * Redis keys during normal contestant and authoring activity — answering,
+ * grading, and question authoring/deletion all go through it, and nothing
+ * else should read or write these keys for those flows. Two admin-store.ts
+ * bulk-maintenance paths are the deliberate exception, reusing this file's
+ * key constants/`canonicalizeChoices` (via quiz-keys.ts) rather than going
+ * through these functions: `seedDemoData()` HSETs the questions/key/answers/
+ * aggregate hashes directly when seeding demo data, and the master reset's
+ * `scanDelByPrefix()` SCAN+DELs the per-login answers/attempts hashes and
+ * the two aggregate hashes (never the questions/key hashes — those are
+ * organizer content the reset keeps). See docs/architecture.md's "Quiz data
+ * flow" for the full picture.
+ *
+ * Key layout:
+ *   ctf:quiz:questions          hash, id -> JSON Question (public-safe; this
+ *                                is what contestants see)
+ *   ctf:quiz:key                hash, id -> JSON sorted array of correct
+ *                                choice ids (SECRET — never returned by any
+ *                                function a contestant-facing route can call)
+ *   ctf:quiz:answers:<login>    hash, id -> JSON {choices, points, at} —
+ *                                records ONLY correct answers. Points are
+ *                                captured at answer time, so a later
+ *                                re-pricing of a question never rewrites
+ *                                history.
+ *   ctf:quiz:attempts:<login>   hash, id -> JSON {attempts, lastAt, lastAtMs}
+ *                                — every attempt, right or wrong; Task 3's
+ *                                retry gate reads this. `lastAtMs` (a plain
+ *                                epoch-ms mirror of `lastAt`) exists only so
+ *                                GRADE_SCRIPT can do cooldown arithmetic in
+ *                                Lua without parsing an ISO-8601 string;
+ *                                readers outside this file should use `lastAt`.
+ *
+ * Secrecy boundary: `ctf:quiz:key` mirrors how hint text lives in a
+ * scorer-owned hash the app only ever reads, and how the scoring rubric
+ * stays private. `listQuestions` never issues a command against
+ * `ctf:quiz:key`, and the `Question` type has no field that could carry a
+ * correct-answer id. Grading (which DOES need to read the key) is Task 3's
+ * responsibility, added to this same file — kept server-only and never
+ * exposed by a route that echoes its input back to the caller.
+ *
+ * The key ALWAYS stores a sorted JSON array of correct choice ids, even for
+ * `"single"` questions (the one-element case) — so grading has one code
+ * path for both question types, not two.
+ *
+ * Callers (the /api/quiz route handlers) are responsible for authenticating
+ * the session and deriving `login` server-side — nothing here trusts
+ * client-supplied identity.
+ */
+
+// Key names/builders live in ./quiz-keys (a dependency-free module) rather
+// than as local consts here — see quiz-keys.ts's header comment for why.
+// POINTS_KEY/ANSWERED_KEY are running totals, updated atomically by the
+// grading script alongside the per-login answer row — the same
+// `ctf:hints:spent` trick, so a leaderboard overlay costs one HGETALL each
+// regardless of board size.
+
+/** Default cap on graded attempts per question before the retry gate
+ *  refuses further submissions. 0 would mean unlimited (not the default). */
+export const QUIZ_MAX_ATTEMPTS = 3;
+
+/** Default cooldown, in minutes, after a login's last attempt on a question
+ *  before it may try again. 0 would mean no cooldown (not the default). */
+export const QUIZ_RETRY_AFTER_MIN = 5;
+
+/** Question/choice ids look like "q1" or "sqli-basics" — reject anything
+ *  weirder before it reaches Redis, mirroring hint-store's CHALLENGE_ID_RE.
+ *  Exported so callers (e.g. the answer route) validate against this exact
+ *  pattern instead of keeping their own copy that could silently desync. */
+export const QUIZ_ID_RE = /^[\w-]{1,64}$/;
+
+/** Upper bound on a question's point value, mirroring `HINT_COST_MAX` in
+ *  admin-store.ts. This is not cosmetic: `upsertQuestion` writes `points`
+ *  verbatim into the question hash via `JSON.stringify`, and at >=1e21
+ *  JavaScript serialises a number in exponential form (`1e+21`), which
+ *  GRADE_SCRIPT's anchored `'"points":(%-?%d+)[,}]'` match cannot read — the
+ *  script would fall back to 0 and silently award nothing for a correct
+ *  answer. A sane cap keeps every storable value inside the plain-integer
+ *  form the script can actually parse. */
+export const QUIZ_POINTS_MAX = 100000;
+
+/** Thrown by `upsertQuestion`/`deleteQuestion` for genuine input-validation
+ *  failures (bad id/choice format, non-integer points, a `correct` id not
+ *  among the question's choices, wrong arity for a `"single"` question) —
+ *  mirroring `AdminValidationError` in admin-store.ts. Callers (the admin
+ *  route) can distinguish this from a plain `Error`, which these functions
+ *  still throw for a genuine Upstash/infra failure, so a caller-facing
+ *  status code can tell "your payload was bad" apart from "the store
+ *  failed" instead of misreporting one as the other. */
+export class QuizValidationError extends Error {
+  field: string;
+  constructor(field: string, message: string) {
+    super(message);
+    this.name = "QuizValidationError";
+    this.field = field;
+  }
+}
+
+export type QuestionType = "single" | "multi";
+
+export type Choice = {
+  id: string;
+  label: string;
+};
+
+/** Public-safe question shape. Never carries the correct answer. */
+export type Question = {
+  id: string;
+  prompt: string;
+  type: QuestionType;
+  choices: Choice[];
+  points: number;
+  order: number;
+};
+
+function isChoice(value: unknown): value is Choice {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Choice).id === "string" &&
+    typeof (value as Choice).label === "string"
+  );
+}
+
+function parseQuestion(raw: string): Question | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const q = parsed as Record<string, unknown>;
+    if (typeof q.id !== "string") return null;
+    if (typeof q.prompt !== "string") return null;
+    if (q.type !== "single" && q.type !== "multi") return null;
+    if (!Array.isArray(q.choices) || !q.choices.every(isChoice)) return null;
+    if (typeof q.points !== "number") return null;
+    if (typeof q.order !== "number") return null;
+    return {
+      id: q.id,
+      prompt: q.prompt,
+      type: q.type,
+      choices: q.choices as Choice[],
+      points: q.points,
+      order: q.order,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** All quiz questions, ascending by `order` then `id`. Answer key excluded —
+ *  this issues a single HGETALL against the public-safe hash only. */
+export async function listQuestions(): Promise<Question[]> {
+  const [res] = await upstashPipeline([["HGETALL", QUESTIONS_KEY]]);
+  const flat = Array.isArray(res.result) ? (res.result as string[]) : [];
+  const questions: Question[] = [];
+  for (let i = 0; i < flat.length; i += 2) {
+    const parsed = parseQuestion(flat[i + 1]);
+    if (parsed) questions.push(parsed);
+  }
+  questions.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  return questions;
+}
+
+/** Creates or replaces a question and its correct-answer set. Writes the
+ *  question (no answer) and the sorted key array (answer only, no prompt) in
+ *  ONE pipeline call so the two hashes never observably disagree. */
+export async function upsertQuestion(q: Question, correct: string[]): Promise<void> {
+  if (!QUIZ_ID_RE.test(q.id)) throw new QuizValidationError("id", `Invalid question id: ${q.id}`);
+  for (const choice of q.choices) {
+    if (!QUIZ_ID_RE.test(choice.id)) {
+      throw new QuizValidationError("choices", `Invalid choice id: ${choice.id}`);
+    }
+  }
+  // Points get written verbatim into the question hash and read back INSIDE
+  // GRADE_SCRIPT by pattern-matching a plain integer (see GRADE_SCRIPT's
+  // comment) — a non-integer here would either fail to match (silently
+  // scoring 0) or, worse, corrupt HINCRBY mid-script after the attempt bump
+  // and answer row had already been written with no way to roll back.
+  if (!Number.isInteger(q.points) || q.points < 0) {
+    throw new QuizValidationError("points", `Question points must be a non-negative integer, got ${q.points}`);
+  }
+  // Upper bound too — see QUIZ_POINTS_MAX: past ~1e21 `JSON.stringify` emits
+  // exponential notation the script's integer match can't read, so an
+  // uncapped value would store fine and then score 0 forever.
+  if (q.points > QUIZ_POINTS_MAX) {
+    throw new QuizValidationError("points", `Question points must be an integer in [0, ${QUIZ_POINTS_MAX}]`);
+  }
+  const choiceIds = new Set(q.choices.map((c) => c.id));
+  for (const id of correct) {
+    if (!choiceIds.has(id)) throw new QuizValidationError("correct", `Correct choice id not among choices: ${id}`);
+  }
+  // Dedupe-then-sort via the shared `canonicalizeChoices` recipe BEFORE the
+  // length check: `answerQuestion` canonicalizes a submission the same way,
+  // and the whole "string-compare stands in for set-compare" design in
+  // GRADE_SCRIPT depends on both sides canonicalizing identically. Without
+  // this, a duplicate id here (e.g. ["a","a"]) would store a correct set no
+  // submission could ever equal — a permanently unanswerable question that
+  // silently burns every attempt against it.
+  const sortedCorrect = canonicalizeChoices(correct);
+  // A "single" question must have exactly one correct choice — with more
+  // than one, the all-or-nothing grading rule could never be satisfied.
+  if (q.type === "single" && sortedCorrect.length !== 1) {
+    throw new QuizValidationError(
+      "correct",
+      `A "single" question must have exactly one correct choice, got ${sortedCorrect.length}`,
+    );
+  }
+
+  const results = await upstashPipeline([
+    ["HSET", QUESTIONS_KEY, q.id, JSON.stringify(q)],
+    ["HSET", KEY_KEY, q.id, JSON.stringify(sortedCorrect)],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
+}
+
+/** Removes a question and its answer key together — nothing else.
+ *
+ *  Scope, stated plainly because it is easy to assume otherwise: this
+ *  retires the question from the quiz (contestants stop seeing it, and it
+ *  can no longer be answered — GRADE_SCRIPT's step 1 returns `missing`
+ *  without the key), but it deliberately does NOT touch contestant history.
+ *  `ctf:quiz:answers:<login>` / `ctf:quiz:attempts:<login>` rows for the
+ *  deleted id stay put, and the two aggregate counters
+ *  (`ctf:quiz:points`/`ctf:quiz:answered`) are not decremented — so points
+ *  already banked for this question REMAIN on the leaderboard. Clearing
+ *  banked points is the master reset's job (admin-store's `resetEvent`),
+ *  which wipes exactly those hashes across every login at once.
+ *
+ *  That's a deliberate contract, not an oversight: cascading a delete across
+ *  every per-login hash plus aggregate decrements is a fan-out destructive
+ *  write with no atomic story and no undo, and retiring a question is a far
+ *  more common need than un-awarding points for it. Because the aggregates
+ *  outlive the question, a login can hold more answers than the question
+ *  list has entries — `leaderboard/module-contributions.ts` clamps the
+ *  "answered / total" denominator for exactly that reason. */
+export async function deleteQuestion(id: string): Promise<void> {
+  if (!QUIZ_ID_RE.test(id)) throw new QuizValidationError("id", `Invalid question id: ${id}`);
+  const results = await upstashPipeline([
+    ["HDEL", QUESTIONS_KEY, id],
+    ["HDEL", KEY_KEY, id],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);
+}
+
+export type ViewerQuiz = {
+  /** Correct answers only, keyed by question id. */
+  answered: Record<string, { points: number; at: string }>;
+  /** Every attempt (right or wrong), keyed by question id. */
+  attempts: Record<string, { attempts: number; lastAt: string }>;
+};
+
+function parseHashEntries<T>(flat: unknown, extract: (parsed: Record<string, unknown>) => T | null): Record<string, T> {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out: Record<string, T> = {};
+  for (let i = 0; i < arr.length; i += 2) {
+    try {
+      const parsed = JSON.parse(arr[i + 1]) as unknown;
+      if (typeof parsed !== "object" || parsed === null) continue;
+      const value = extract(parsed as Record<string, unknown>);
+      if (value !== null) out[arr[i]] = value;
+    } catch {
+      // Skip unparseable rows.
+    }
+  }
+  return out;
+}
+
+function extractAnswered(v: Record<string, unknown>): { points: number; at: string } | null {
+  if (typeof v.points !== "number" || typeof v.at !== "string") return null;
+  return { points: v.points, at: v.at };
+}
+
+function extractAttempt(v: Record<string, unknown>): { attempts: number; lastAt: string } | null {
+  if (typeof v.attempts !== "number" || typeof v.lastAt !== "string") return null;
+  return { attempts: v.attempts, lastAt: v.lastAt };
+}
+
+/** A single caller's quiz progress: correct answers earned (points/at only —
+ *  the stored record's `choices` is answer-shaped and stays out of the
+ *  viewer-facing shape) and every attempt made. Never touches the answer key
+ *  hash. */
+export async function getViewerQuiz(login: string): Promise<ViewerQuiz> {
+  const [answeredRes, attemptsRes] = await upstashPipeline([
+    ["HGETALL", answersKey(login)],
+    ["HGETALL", attemptsKey(login)],
+  ]);
+  return {
+    answered: parseHashEntries(answeredRes.result, extractAnswered),
+    attempts: parseHashEntries(attemptsRes.result, extractAttempt),
+  };
+}
+
+/** Parses a single HGET reply (not a flat hash array) the same way
+ *  `parseHashEntries` parses each row of one. */
+function parseJsonValue<T>(raw: unknown, extract: (parsed: Record<string, unknown>) => T | null): T | null {
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return extract(parsed as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
+/** One login's (or one team's) quiz aggregate, as consumed by the leaderboard
+ *  overlay (`leaderboard/module-contributions.ts`). */
+export type QuizTotal = { points: number; answered: number; lastAt: string | null };
+
+function parseCounterHash(flat: unknown): Map<string, number> {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out = new Map<string, number>();
+  for (let i = 0; i < arr.length; i += 2) {
+    const n = Number(arr[i + 1]);
+    if (Number.isFinite(n)) out.set(arr[i], n);
+  }
+  return out;
+}
+
+/** Per-login quiz totals for every login that has answered at least one
+ *  question correctly — two `HGETALL`s (`ctf:quiz:points`,
+ *  `ctf:quiz:answered`), maintained atomically by GRADE_SCRIPT alongside the
+ *  per-login answer row (see the header comment and GRADE_SCRIPT's own
+ *  comment, step 6). Cost is exactly two round trips regardless of how many
+ *  logins are on the board, mirroring `getHintPenalties` in hint-store.ts.
+ *
+ *  `lastAt` is always `null`: neither aggregate hash carries a timestamp
+ *  (only a running total), and reading the per-login answer hash to derive
+ *  one would reintroduce the per-login cost this function exists to avoid.
+ *  Callers fall back to whatever other activity timestamp they already have. */
+export async function getQuizTotals(): Promise<Map<string, QuizTotal>> {
+  const [pointsRes, answeredRes] = await upstashPipeline([
+    ["HGETALL", POINTS_KEY],
+    ["HGETALL", ANSWERED_KEY],
+  ]);
+  const points = parseCounterHash(pointsRes.result);
+  const answered = parseCounterHash(answeredRes.result);
+
+  const totals = new Map<string, QuizTotal>();
+  for (const login of new Set([...points.keys(), ...answered.keys()])) {
+    totals.set(login, { points: points.get(login) ?? 0, answered: answered.get(login) ?? 0, lastAt: null });
+  }
+  return totals;
+}
+
+/** A TEAM's quiz total is the UNION of questions its members answered
+ *  correctly (spec D6), never the sum of member aggregates — summing would
+ *  double count any question two teammates both answered, which is exactly
+ *  the double-count bug the per-login aggregate counters exist to avoid at
+ *  the individual level. The aggregates can't serve a team: they're running
+ *  totals with no memory of WHICH questions contributed to them, so there is
+ *  no way to dedupe from them. Instead this reads each member's
+ *  `ctf:quiz:answers:<login>` hash directly and dedupes by question id,
+ *  keeping the EARLIEST correct answer's stored points for any question two
+ *  or more members both hold (a later re-answer by a teammate — or a
+ *  since-changed question price recorded on someone else's row — never
+ *  changes what the team already earned). Teams are capped at a handful of
+ *  members, so one HGETALL per member is cheap: this scales with team size,
+ *  never with board size.
+ *
+ *  This single-team form is one round trip per call. A caller with EVERY
+ *  team in hand (the leaderboard overlay) must use `getTeamQuizTotalsBatch`
+ *  below instead, which folds the whole board into one pipeline. */
+export async function getTeamQuizTotals(members: string[]): Promise<QuizTotal> {
+  const [total] = await getTeamQuizTotalsBatch([members]);
+  return total;
+}
+
+/** The batched form of `getTeamQuizTotals`: one team's members per entry in
+ *  `teams`, one `QuizTotal` per entry out, in the same order — and exactly
+ *  ONE `upstashPipeline` round trip for the whole board instead of one per
+ *  team. `/leaderboard` is dynamic and fetched `no-store`, so the per-team
+ *  form cost a 25-team event 25 REST calls on every single page view; this
+ *  makes it 1.
+ *
+ *  The dedupe semantics are identical (they are literally the same fold —
+ *  see `foldTeamAnswers`): a question two teammates both answered still
+ *  counts ONCE, at the EARLIEST answer's stored points. Only the transport
+ *  changes. A login on two teams is fetched once and its replies reused for
+ *  both, so the pipeline carries one `HGETALL` per DISTINCT member. */
+export async function getTeamQuizTotalsBatch(teams: readonly (readonly string[])[]): Promise<QuizTotal[]> {
+  const indexByLogin = new Map<string, number>();
+  for (const members of teams) {
+    for (const login of members) {
+      if (!indexByLogin.has(login)) indexByLogin.set(login, indexByLogin.size);
+    }
+  }
+  const logins = [...indexByLogin.keys()];
+  if (logins.length === 0) return teams.map(() => ({ points: 0, answered: 0, lastAt: null }));
+
+  const results = await upstashPipeline(logins.map((login) => ["HGETALL", answersKey(login)]));
+  return teams.map((members) => foldTeamAnswers(members.map((login) => results[indexByLogin.get(login) ?? -1])));
+}
+
+/** The union-by-question fold both team forms share. Keeps the EARLIEST
+ *  correct answer for any question more than one member holds — a later
+ *  re-answer by a teammate, or a since-changed price recorded on someone
+ *  else's row, never changes what the team already earned. */
+function foldTeamAnswers(memberReplies: ({ result?: unknown; error?: string } | undefined)[]): QuizTotal {
+  const byQuestion = new Map<string, { points: number; at: string }>();
+  for (const res of memberReplies) {
+    const flat = Array.isArray(res?.result) ? (res.result as string[]) : [];
+    for (let i = 0; i < flat.length; i += 2) {
+      const parsed = parseJsonValue(flat[i + 1], extractAnswered);
+      if (!parsed) continue;
+      const questionId = flat[i];
+      const existing = byQuestion.get(questionId);
+      if (!existing || Date.parse(parsed.at) < Date.parse(existing.at)) {
+        byQuestion.set(questionId, parsed);
+      }
+    }
+  }
+
+  let points = 0;
+  let lastAtMs = -Infinity;
+  for (const { points: questionPoints, at } of byQuestion.values()) {
+    points += questionPoints;
+    const ms = Date.parse(at);
+    if (Number.isFinite(ms) && ms > lastAtMs) lastAtMs = ms;
+  }
+  return {
+    points,
+    answered: byQuestion.size,
+    lastAt: Number.isFinite(lastAtMs) ? new Date(lastAtMs).toISOString() : null,
+  };
+}
+
+export type QuizGate =
+  | { allowed: true }
+  | {
+      allowed: false;
+      reason: "paused" | "answered" | "exhausted" | "cooldown" | "unavailable";
+      retryAt?: string;
+      attemptsLeft?: number;
+    };
+
+type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;
+
+/** The gate logic, factored out so `answerQuestion` can reuse a settings
+ *  object it already fetched instead of hitting `ctf:admin:settings` a
+ *  second time. `quizGate` (below) is the public, settings-fetching form —
+ *  used standalone (e.g. a status check before the caller has even chosen an
+ *  answer) and internally as the CHEAP pre-check `answerQuestion` runs
+ *  before ever calling the grading script.
+ *
+ *  IMPORTANT: this pre-check is NOT the authority on the attempt cap or the
+ *  cooldown — it reads attempts/answers with its own separate, non-atomic
+ *  round trip, so two requests racing each other can both read "0 attempts
+ *  spent" before either has written anything. It exists only to keep an
+ *  obviously-refused answer off the write path cheaply; GRADE_SCRIPT
+ *  re-checks both, against state read fresh at script-execution time, and
+ *  is what actually enforces them (see GRADE_SCRIPT's comment). */
+async function evaluateGate(settings: ResolvedAdminSettings, login: string, questionId: string): Promise<QuizGate> {
+  if (effectivePaused(settings)) return { allowed: false, reason: "paused" };
+
+  const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
+  const retryAfterMin = settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN;
+
+  let answered: { points: number; at: string } | null;
+  let attempt: { attempts: number; lastAt: string } | null;
+  try {
+    const [answeredRes, attemptRes] = await upstashPipeline([
+      ["HGET", answersKey(login), questionId],
+      ["HGET", attemptsKey(login), questionId],
+    ]);
+    if (answeredRes.error) throw new Error(answeredRes.error);
+    if (attemptRes.error) throw new Error(attemptRes.error);
+    answered = parseJsonValue(answeredRes.result, extractAnswered);
+    attempt = parseJsonValue(attemptRes.result, extractAttempt);
+  } catch (err) {
+    console.error("quiz gate: attempt/answer lookup failed:", err);
+    return { allowed: false, reason: "unavailable" };
+  }
+
+  if (answered) return { allowed: false, reason: "answered" };
+
+  const attemptsSoFar = attempt?.attempts ?? 0;
+  if (maxAttempts > 0 && attemptsSoFar >= maxAttempts) {
+    return { allowed: false, reason: "exhausted", attemptsLeft: 0 };
+  }
+
+  if (retryAfterMin > 0 && attempt) {
+    const lastMs = Date.parse(attempt.lastAt);
+    if (Number.isFinite(lastMs)) {
+      const retryAtMs = lastMs + retryAfterMin * 60_000;
+      if (Date.now() < retryAtMs) {
+        return { allowed: false, reason: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
+/** Decides whether `login` may submit a graded answer for `questionId` right
+ *  now. Checked in this order (each one short-circuits the rest):
+ *    1. scoring paused, or outside the scheduled scoring window
+ *    2. `login` already holds a correct answer for this question
+ *    3. `login` has spent every attempt `quizMaxAttempts` allows
+ *    4. `login` is still inside the `quizRetryAfterMin` cooldown since its
+ *       last attempt
+ *
+ *  `retryAt` (cooldown reason) is DERIVED from `lastAt + quizRetryAfterMin`
+ *  on every call, never stored — so lowering the cooldown mid-event lifts a
+ *  lock immediately instead of leaving it stale until some persisted
+ *  unlock time catches up.
+ *
+ *  Fails CLOSED: if the attempt/answer lookup itself errors, this refuses
+ *  the answer with its own distinct reason, "unavailable" — deliberately
+ *  NOT "exhausted", because misreporting an unverifiable lookup as a real
+ *  attempt-count fact (telling a contestant who has used zero attempts that
+ *  they have none left) turns a transient Redis blip into a support
+ *  conversation about a wrong count. This is the OPPOSITE of the scoring
+ *  freeze (`effectivePaused`), which fails OPEN so a Redis blip never drops
+ *  a live submission — here, the safe failure is "no attempt", not "grade a
+ *  possibly-replayed answer", but the caller must still be told the truth:
+ *  the check couldn't be completed, not that they're out of attempts.
+ *
+ *  This function is a cheap, non-atomic pre-check — see the note on
+ *  `evaluateGate` above about why it is NOT what actually enforces the cap
+ *  or cooldown against a race. */
+export async function quizGate(login: string, questionId: string): Promise<QuizGate> {
+  const settings = await getAdminSettings();
+  return evaluateGate(settings, login, questionId);
+}
+
+// Grades one submission and, on success, records everything it changes in a
+// single atomic operation — mirroring hint-store.ts's REVEAL_SCRIPT, whose
+// SADD-return-value idempotency guard is the pattern copied here as an
+// HEXISTS guard. Unlike the JS-side `quizGate`/`evaluateGate` pre-check
+// (which reads attempts/answers over its own separate, non-atomic round
+// trip and so CANNOT by itself stop two — or fifteen — concurrent requests
+// from all observing "0 attempts spent" before any of them writes), this
+// script is the sole AUTHORITY on the attempt cap and cooldown: it re-reads
+// attempts fresh at execution time, and Redis runs one script to completion
+// before starting the next, so each concurrent submission sees every effect
+// of every submission that finished before it. That's what actually closes
+// the race — no amount of care in the pre-check could, since the pre-check
+// and the script are necessarily two separate round trips.
+//
+//   1. HGET the secret answer key for this question. Missing -> {'missing'}:
+//      there is nothing to grade (the caller passed a bad/deleted id).
+//   2. HEXISTS on the per-login answers hash for this question, BEFORE any
+//      write. A hit means `login` already banked a correct answer here (a
+//      race that slipped past the gate's own read) -> {'already'}, with
+//      nothing else touched.
+//   3. Read the current {attempts,lastAt,lastAtMs} blob (plain string
+//      matching, not a JSON library — the field format is one this module
+//      fully controls) and, WITHOUT WRITING ANYTHING YET, re-check the cap
+//      and cooldown against ARGV-supplied `maxAttempts`/`cooldownMs` (the
+//      admin setting, resolved by the caller from the CURRENT config on
+//      every call — never stored) and the freshly-read `attempts`/`lastAtMs`
+//      (never a value the caller read earlier and handed in, which is what
+//      would let a race bypass them):
+//        - `attempts >= maxAttempts` (when capped) -> {'exhausted'}
+//        - still within `lastAtMs + cooldownMs` (when cooled down) ->
+//          {'cooldown', retryAtMs}
+//   4. Only past both checks does a submission spend an attempt: bump the
+//      count and HSET the new blob with `now`. This happens whether the
+//      submission turns out right or wrong.
+//   5. Compare the submitted sorted-JSON-array string against the stored
+//      key, byte for byte (both sides are produced by the same
+//      `[...ids].sort()` + `JSON.stringify` recipe — see `upsertQuestion`'s
+//      dedupe-then-sort and `answerQuestion`'s dedupe-then-sort below, which
+//      must keep agreeing for this comparison to mean anything — so equal
+//      sets serialize identically regardless of submission order). Not
+//      equal -> {'incorrect'}.
+//   6. Equal: HGET the question's current `points` (read at grading time,
+//      per spec, rather than trusting a value the caller might have fetched
+//      earlier; `upsertQuestion` requires `points` to be a non-negative
+//      integer so this match — and the HINCRBY below — can't be handed a
+//      decimal mid-script with no way to roll back), HSET the answer row,
+//      and HINCRBY the two aggregate counters (`ctf:quiz:points`,
+//      `ctf:quiz:answered`) that the leaderboard overlay reads later ->
+//      {'correct', points}.
+//
+// Both pattern matches are anchored with a trailing `[,}]` so a value can
+// only match a complete `"field":<value>` pair immediately followed by the
+// next field or the closing brace — not an arbitrary digit run that happens
+// to appear earlier in the blob (e.g. inside a differently-ordered field).
+const GRADE_SCRIPT = `
+local key = redis.call('HGET', KEYS[3], ARGV[1])
+if not key then return {'missing'} end
+if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end
+
+local maxAttempts = tonumber(ARGV[5])
+local cooldownMs = tonumber(ARGV[6])
+local nowMs = tonumber(ARGV[7])
+
+local attemptsRaw = redis.call('HGET', KEYS[1], ARGV[1])
+local attempts = 0
+local lastAtMs = nil
+if attemptsRaw then
+  local foundAttempts = string.match(attemptsRaw, '"attempts":(%d+)[,}]')
+  if foundAttempts then attempts = tonumber(foundAttempts) end
+  local foundLastAtMs = string.match(attemptsRaw, '"lastAtMs":(%d+)[,}]')
+  if foundLastAtMs then lastAtMs = tonumber(foundLastAtMs) end
+end
+
+if maxAttempts > 0 and attempts >= maxAttempts then
+  return {'exhausted'}
+end
+if cooldownMs > 0 and lastAtMs and nowMs < (lastAtMs + cooldownMs) then
+  return {'cooldown', tostring(lastAtMs + cooldownMs)}
+end
+
+attempts = attempts + 1
+redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[7] .. '}')
+
+if key ~= ARGV[2] then
+  return {'incorrect', tostring(attempts)}
+end
+
+local qRaw = redis.call('HGET', KEYS[4], ARGV[1])
+local points = 0
+if qRaw then
+  local found = string.match(qRaw, '"points":(%-?%d+)[,}]')
+  if found then points = tonumber(found) end
+end
+redis.call('HSET', KEYS[2], ARGV[1], '{"choices":' .. ARGV[2] .. ',"points":' .. points .. ',"at":"' .. ARGV[3] .. '"}')
+redis.call('HINCRBY', KEYS[5], ARGV[4], points)
+redis.call('HINCRBY', KEYS[6], ARGV[4], 1)
+return {'correct', tostring(points)}`;
+
+export type AnswerResult =
+  // `already` marks the idempotent re-submission of a question this login
+  // had ALREADY banked (GRADE_SCRIPT's step-2 guard). It is still a correct
+  // answer, but `points` is 0 because this call awarded nothing further —
+  // NOT because the question is worth nothing. Callers must render the two
+  // apart; "Correct — +0 points." is exactly the wrong thing to say here.
+  | { ok: true; correct: true; points: number; already?: boolean }
+  | { ok: true; correct: false }
+  | { ok: false; reason: "paused" | "answered" | "exhausted" | "cooldown"; retryAt?: string }
+  // The gate's lookup itself failed (fail-closed) — kept distinct from
+  // "exhausted" so a caller-facing message can say the check couldn't be
+  // completed (try again) instead of falsely claiming attempts are spent.
+  | { ok: false; reason: "unavailable" }
+  | { ok: false; reason: "invalid" }
+  | { ok: false; reason: "error" };
+
+/** Grades `choices` against `questionId` for `login`. All-or-nothing: the
+ *  submitted set must equal the correct set exactly, order-insensitive — a
+ *  partial set or a superset scores 0 (and still spends an attempt), the
+ *  same as any other wrong answer. Single-choice is simply the one-element
+ *  case of this same rule, not a separate path.
+ *
+ *  The retry gate (`quizGate`/`evaluateGate`) is checked BEFORE the grading
+ *  script runs — a refused answer must never reach Redis's scoring path —
+ *  but it is only a cheap pre-check; GRADE_SCRIPT re-checks the same cap and
+ *  cooldown authoritatively (see its comment) using the current admin
+ *  settings resolved by THIS call, so a race that slips past the pre-check
+ *  is still caught, atomically, by the script. This function never returns
+ *  the answer key itself, only whether the submission was right. */
+export async function answerQuestion(login: string, questionId: string, choices: string[]): Promise<AnswerResult> {
+  if (!QUIZ_ID_RE.test(questionId)) return { ok: false, reason: "invalid" };
+  if (
+    !Array.isArray(choices) ||
+    choices.length === 0 ||
+    !choices.every((c) => typeof c === "string" && QUIZ_ID_RE.test(c))
+  ) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  const settings = await getAdminSettings();
+  const gate = await evaluateGate(settings, login, questionId);
+  if (!gate.allowed) {
+    // Kept as its own branch (not folded into the passthrough below) so its
+    // caller-facing shape can never accidentally pick up a retryAt/attempts
+    // fact the lookup never actually established.
+    if (gate.reason === "unavailable") return { ok: false, reason: "unavailable" };
+    return gate.retryAt
+      ? { ok: false, reason: gate.reason, retryAt: gate.retryAt }
+      : { ok: false, reason: gate.reason };
+  }
+
+  // Order-insensitive: the same shared `canonicalizeChoices` recipe
+  // `upsertQuestion` stores the correct set with, so an exact JSON-string
+  // match inside the script is a valid stand-in for a set comparison.
+  const submitted = JSON.stringify(canonicalizeChoices(choices));
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  // Recomputed from the SAME settings the pre-check just used (never a
+  // stored cutoff) and handed to the script as plain numbers — the script
+  // combines them with the attempts row IT reads at execution time, so the
+  // authoritative check is never working from data this call read earlier.
+  const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
+  const cooldownMs = (settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
+
+  let verdict: unknown;
+  try {
+    verdict = await upstashEval(
+      GRADE_SCRIPT,
+      [attemptsKey(login), answersKey(login), KEY_KEY, QUESTIONS_KEY, POINTS_KEY, ANSWERED_KEY],
+      [questionId, submitted, nowIso, login, maxAttempts, cooldownMs, now.getTime()],
+    );
+  } catch (err) {
+    console.error("Quiz grading failed:", err);
+    return { ok: false, reason: "error" };
+  }
+
+  const [status, value] = Array.isArray(verdict) ? (verdict as unknown[]) : [];
+  if (status === "missing") return { ok: false, reason: "invalid" };
+  if (status === "exhausted") return { ok: false, reason: "exhausted" };
+  if (status === "cooldown") {
+    const retryAtMs = Number(value);
+    return { ok: false, reason: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
+  }
+  if (status === "incorrect") return { ok: true, correct: false };
+  // Raced a prior correct submission past the gate's own read — already
+  // banked, so this call awards nothing further, but it IS a correct answer.
+  // `already` is what lets the caller say "you already had this one" rather
+  // than announcing a literal award of zero points.
+  if (status === "already") return { ok: true, correct: true, points: 0, already: true };
+  if (status === "correct") return { ok: true, correct: true, points: Number(value) || 0 };
+  return { ok: false, reason: "error" };
+}

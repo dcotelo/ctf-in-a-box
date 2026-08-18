@@ -24,8 +24,8 @@ describe("module registry", () => {
     expect(mod.nav).toEqual({ href: "/challenges", label: "Challenges" });
   });
 
-  it("gives quiz no nav entry in phase 1 — it has no route yet", () => {
-    expect(enabledModules.find((m) => m.id === "quiz")!.nav).toBeUndefined();
+  it("gives quiz its own nav entry now that /quiz exists", () => {
+    expect(enabledModules.find((m) => m.id === "quiz")!.nav).toEqual({ href: "/quiz", label: "Quiz" });
   });
 });
 

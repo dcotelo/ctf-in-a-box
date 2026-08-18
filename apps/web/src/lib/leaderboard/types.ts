@@ -32,9 +32,12 @@ export type AppProgress = {
 };
 
 /** secure-development's detail block: today's per-target progress map. */
-export type SecureDevelopmentDetail = { apps: Partial<Record<AppId, AppProgress>> };
+export type SecureDevelopmentDetail = { kind: "secure-development"; apps: Partial<Record<AppId, AppProgress>> };
 /** quiz's detail block (populated in phase 2). */
-export type QuizDetail = { answered: number; total: number };
+export type QuizDetail = { kind: "quiz"; answered: number; total: number; points: number };
+/** Discriminated on `kind` — narrow on it rather than casting; each module
+ *  contributes its own detail shape and a new module means a new branch, not
+ *  a wider inferred type. */
 export type ModuleDetail = SecureDevelopmentDetail | QuizDetail;
 
 export type ModuleProgress = {
@@ -96,9 +99,13 @@ export type TeamStanding = {
    *  (the `challenges` capability); otherwise undefined and the teams view
    *  shows members only. */
   apps?: Partial<Record<AppId, AppProgress>>;
-  // No per-module breakdown here yet: nothing renders one for a team, and
-  // withTeamStandings replaces `data.teams` wholesale on the upstash path.
-  // Phase 2 adds the field back together with the renderer that reads it.
+  /** Per-module breakdown, mirroring `LeaderboardEntry.modules`. Populated
+   *  only on sources that already provide deduped teams (mock/lambda —
+   *  `capabilities.teams` is true when `withModuleContributions` runs); on
+   *  the upstash path `withTeamStandings` replaces `data.teams` wholesale
+   *  with membership-only rows (`points: 0`, no per-flag data to dedupe
+   *  with), so there is nothing yet for a module overlay to attach to. */
+  modules?: Partial<Record<ModuleId, ModuleProgress>>;
 };
 
 /** A single team's cumulative-score history, ascending by time — mirrors
