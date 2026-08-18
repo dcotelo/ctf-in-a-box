@@ -72,6 +72,10 @@ training day.
 | **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp and VAmPI. Rubrics ship in the box — no private image to request, no scoring code to write. |
 
 <p align="center">
+  <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
+</p>
+
+<p align="center">
   <img alt="Contestant leaderboard with a row expanded to its per-app challenge breakdown, each flag marked patched or open" src="docs/assets/hero.jpg" width="820">
 </p>
 

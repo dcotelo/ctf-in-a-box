@@ -8,6 +8,12 @@ title: CTF-in-a-box
 university, a high school, an OWASP chapter, a meetup, from one box and one
 free GitHub org.
 
+![Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category](assets/demo.gif)
+
+<sup>The real contestant app, recorded from <code>scripts/dev-stack up</code> with
+seeded demo players. Hover the graph to read every team's score at that moment;
+expand a team for its roster and its flags, patched and still open.</sup>
+
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
@@ -47,7 +53,7 @@ scoring code to write.
 | **Patch-to-score scoring** | Contestants patch the vuln and open a PR; the pipeline scores it. Stock scores 0, a correct patch earns its points. |
 | **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI — rubrics ship in the box. |
 
-## What contestants see
+## A closer look
 
 ![Contestant leaderboard with a row expanded to its per-app challenge breakdown, each flag marked patched or open](assets/hero.jpg)
 
