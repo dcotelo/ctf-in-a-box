@@ -82,10 +82,13 @@ export default function AdminEventTab({
   doReset,
   doSeed,
 }: AdminEventTabProps) {
+  // No "Event" heading inside the panel: the old flat layout needed an <h3> to
+  // separate this group from the module sections below it, but the tab strip is
+  // that heading now (the panel is labelled by its own tab via
+  // aria-labelledby, and module panels carry no equivalent heading either), so
+  // repeating it would just duplicate the tab's own label.
   return (
     <section className="flex flex-col gap-4">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Event</h3>
-
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className="text-white">Freeze scoring</span>
