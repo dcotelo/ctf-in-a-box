@@ -77,7 +77,7 @@ training day.
 
 | Team leaderboard | Challenge browser |
 |---|---|
-| ![Team standings with a row expanded to members and the team's solved flags grouped by target](docs/assets/leaderboard.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
+| ![Team standings with a row expanded to members and the team's flags grouped by target, each marked patched or open](docs/assets/leaderboard.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The app ships a fixed dark theme. The leaderboard ranks
@@ -172,8 +172,8 @@ Scoring is per team. Contestants self-register in the app — create a team to
 become its captain and get a join code, or join an existing team by code.
 Everyone ends up on a team; a solo player is simply a team of one. Captains
 manage the roster from the app (rename, remove a member, transfer the
-captaincy, regenerate the join code, or disband), and team size is capped by
-`teams.max_size` in `event.yaml`. The leaderboard ranks **teams**, each row
+captaincy, regenerate the join code, or disband), and team size is capped at
+four members. The leaderboard ranks **teams**, each row
 expanding to its members and their individual points — and a flag solved by
 several teammates counts **once**, so a team's total can be lower than its
 members' scores added up. Organizers open or close registration from the admin

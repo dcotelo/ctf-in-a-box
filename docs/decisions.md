@@ -68,7 +68,7 @@ organizer's intent — the operative switch is the `SCORE_INGEST` env var in
 authenticates against a live scorer yet: both need the scorer's
 bearer-token auth mode, and push additionally needs `score-action`'s
 `leaderboard-url`/`leaderboard-token` inputs — both unlanded upstream
-changes tracked in README's "Status / upstream dependencies".
+changes tracked in `docs/operations.md`'s "Status and upstream dependencies".
 
 ## 4. SRH as the Upstash-REST proxy in front of local Redis
 
@@ -88,7 +88,7 @@ POST-command-array subset of Upstash's REST API — no path-style `GET
 /get/<key>` shortcut, for example (`scripts/smoke.sh` asserts the working
 subset directly against `srh`). Any future Redis usage in the app must
 stay within what `srh` actually supports; this is called out as an open
-verification item in README's "Status / upstream dependencies".
+verification item in `docs/operations.md`'s "Status and upstream dependencies".
 
 ## 5. Single score writer: monotonic writes, at-least-once delivery
 
@@ -136,8 +136,8 @@ transport a module adds must reproduce both checks, not just one
 comment author, not anything in the payload"). The filter itself is
 proven today (`scripts/smoke.sh`'s forged-comment case); what it feeds —
 a bearer-authed `POST /score` against the real scorer — is not, pending
-the same upstream scorer auth mode noted in README's "Status / upstream
-dependencies".
+the same upstream scorer auth mode noted in `docs/operations.md`'s "Status
+and upstream dependencies".
 
 ## 7. Oracle discipline: pass/fail and points only, never diagnostics
 
@@ -480,7 +480,7 @@ gate is unaffected and no contestant gains a free point; the cost is that
 one Shepherd challenge can under-credit a correct patch. The rubrics are
 vendored read-only, so the fix belongs upstream — tighten the helper to
 require a result-key-shaped match rather than any bare hex run. This is
-already recorded in README's "Status / upstream dependencies" list; keep
+already recorded in `docs/operations.md`'s "Status and upstream dependencies" list; keep
 the two consistent.
 
 ## 19. Organizer admin panel: runtime override layer

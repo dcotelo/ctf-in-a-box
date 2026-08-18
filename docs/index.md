@@ -53,7 +53,7 @@ scoring code to write.
 
 | Team leaderboard | Challenge browser |
 |---|---|
-| ![Team standings with a row expanded to members and the team's solved flags grouped by target](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![Team standings with a row expanded to members and the team's flags grouped by target, each marked patched or open](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players — a fixed dark theme and a CTFd-style score-over-time graph

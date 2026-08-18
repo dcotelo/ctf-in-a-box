@@ -36,8 +36,8 @@ Scoring is per team. Contestants self-register in the app: create a team to
 become its captain and get a join code, or join an existing team by code.
 Everyone ends up on a team — a solo player is simply a team of one. Captains
 manage the roster from the app: rename the team, remove a member, transfer the
-captaincy, regenerate the join code, or disband. Team size is capped by
-`teams.max_size` in `event.yaml`.
+captaincy, regenerate the join code, or disband. Team size is capped at four
+members.
 
 The leaderboard ranks **teams**, and each row expands to show its members with
 each member's individual points. A flag solved by several teammates counts
