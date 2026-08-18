@@ -133,6 +133,39 @@ describe("generate-event-config", () => {
     expect(result).toContain(`"dates": "October 1–2, 2026"`);
   });
 
+  it("accepts two modules and derives targets from secure-development", () => {
+    const out = generate({}, [
+      'event: { name: "Two Module Event" }',
+      "github: { org: acme }",
+      "modules:",
+      "  secure-development: { targets: [dvwa], score_ingest: poll }",
+      "  quiz: { enabled: true }",
+      "admins: [alice]",
+    ].join("\n"));
+    expect(out).toMatch(
+      /"modules":\s*\[\s*\{\s*"id":\s*"secure-development",\s*"targets":\s*\[\s*"dvwa"\s*\],\s*"scoreIngest":\s*"poll"\s*\},\s*\{\s*"id":\s*"quiz"\s*\}\s*\]/
+    );
+    expect(out).toMatch(/"targets":\s*\[\s*"dvwa"\s*\]/);
+  });
+
+  it("still rejects an unregistered module id", () => {
+    expect(() =>
+      generate({}, [
+        'event: { name: "X" }',
+        "modules: { forensics: { enabled: true } }",
+      ].join("\n"))
+    ).toThrow();
+  });
+
+  it("allows a quiz-only event, leaving targets empty", () => {
+    const out = generate({}, [
+      'event: { name: "Quiz Only" }',
+      "modules: { quiz: { enabled: true } }",
+    ].join("\n"));
+    expect(out).toMatch(/"modules":\s*\[\s*\{\s*"id":\s*"quiz"\s*\}\s*\]/);
+    expect(out).toMatch(/"targets":\s*\[\]/);
+  });
+
   it("display dates handle cross-month ranges correctly", () => {
     const out = generate(
       {},

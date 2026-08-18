@@ -20,6 +20,7 @@ const DEFAULTS = {
   // event.yaml's github.org (the same key the kit's sync loader requires).
   githubOrg: "OWASP-CTF",
   discordUrl: "",
+  modules: [{ id: "secure-development", targets: TARGETS, scoreIngest: "poll" }],
   targets: TARGETS,
   admins: [],
 };
@@ -70,14 +71,40 @@ function validateTargets(targets) {
   return targets;
 }
 
+// Registered modules. A module is code + config: adding a key here is half of
+// registering it, the app's src/lib/modules.ts is the other half. An unknown
+// id fails loudly rather than being silently ignored.
+const MODULE_VALIDATORS = {
+  "secure-development": (mod) => ({
+    id: "secure-development",
+    targets: validateTargets(mod?.targets),
+    scoreIngest: mod?.score_ingest === "push" ? "push" : "poll",
+  }),
+  quiz: () => ({ id: "quiz" }),
+};
+
+function validateModules(modules) {
+  if (!modules || typeof modules !== "object") fail("event.yaml: modules is required");
+  const ids = Object.keys(modules);
+  if (ids.length === 0) fail("event.yaml: at least one module is required");
+  const unknown = ids.filter((k) => !(k in MODULE_VALIDATORS));
+  if (unknown.length) fail(`event.yaml: unknown module: ${unknown.join(", ")}`);
+  // Stable order: registry order, not object-key order, so the generated file
+  // is deterministic regardless of how the YAML was written.
+  return Object.keys(MODULE_VALIDATORS)
+    .filter((id) => ids.includes(id))
+    .map((id) => MODULE_VALIDATORS[id](modules[id]));
+}
+
+/** Back-compat: the flat target list every existing `enabledApps` consumer
+ *  still reads. Empty when secure-development is not enabled. */
+function derivedTargets(mods) {
+  return mods.find((m) => m.id === "secure-development")?.targets ?? [];
+}
+
 function fromYaml(path) {
   const doc = parseYaml(readFileSync(path, "utf8"));
-  const modules = doc?.modules;
-  if (!modules || typeof modules !== "object") fail("event.yaml: modules.secure-development is required");
-  const unknown = Object.keys(modules).filter((k) => k !== "secure-development");
-  if (unknown.length) fail(`event.yaml: unknown module: ${unknown.join(", ")} (v1 supports only secure-development)`);
-  const mod = modules["secure-development"];
-  if (!mod) fail("event.yaml: modules.secure-development is required");
+  const mods = validateModules(doc?.modules);
   const ev = doc?.event ?? {};
   const startIso = ev.start ? String(ev.start) : null;
   if (startIso !== null && Number.isNaN(new Date(startIso).getTime())) fail(`invalid event.start: ${startIso}`);
@@ -91,12 +118,16 @@ function fromYaml(path) {
     contactEmail: ev.contact ? String(ev.contact) : "",
     githubOrg: doc?.github?.org ? String(doc.github.org) : DEFAULTS.githubOrg,
     discordUrl: ev.discord ? String(ev.discord) : "",
-    targets: validateTargets(mod.targets),
+    modules: mods,
+    targets: derivedTargets(mods),
     admins: Array.isArray(doc?.admins) ? doc.admins.map(String) : [],
   };
 }
 
 function fromEnv(env) {
+  const envTargets = env.EVENT_TARGETS
+    ? validateTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim()))
+    : TARGETS;
   return {
     name: env.EVENT_NAME,
     theme: env.EVENT_THEME ?? "",
@@ -107,7 +138,8 @@ function fromEnv(env) {
     contactEmail: env.EVENT_CONTACT ?? "",
     githubOrg: env.EVENT_GITHUB_ORG ?? DEFAULTS.githubOrg,
     discordUrl: env.EVENT_DISCORD ?? "",
-    targets: env.EVENT_TARGETS ? validateTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim())) : TARGETS,
+    modules: [{ id: "secure-development", targets: envTargets, scoreIngest: "poll" }],
+    targets: envTargets,
     admins: env.EVENT_ADMINS ? env.EVENT_ADMINS.split(",").map((s) => s.trim()) : [],
   };
 }
