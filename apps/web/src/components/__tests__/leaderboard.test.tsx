@@ -207,12 +207,12 @@ describe("per-challenge catalog", () => {
     });
     const html = renderToStaticMarkup(<TeamRow team={withFlags} topPoints={150} isOpen onToggle={() => {}} />);
     expect(html).toMatch(/Solved flags/i);
-    expect(html).toContain("Reflected XSS");
-    expect(html).toContain("SQL injection");
+    // Reuses the same collapsible AppChallengeList as the individual view, so
+    // the per-target expand trigger renders under the target name (collapsed).
+    expect(html).toContain("Juice Shop");
+    expect(html).toMatch(/Show 2 challenges/);
     // Members still render alongside the flags.
     expect(html).toContain("alice");
-    // OWASP badge links out to the Top-10 category page.
-    expect(html).toContain('href="https://owasp.org/Top10/A03_2021-Injection/"');
   });
 
   it("omits the solved-flags section for a team without per-challenge data", () => {

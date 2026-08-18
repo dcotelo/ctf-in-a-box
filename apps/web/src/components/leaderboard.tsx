@@ -13,7 +13,6 @@ import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
 import ScoreTimeChart from "@/components/score-time-chart";
 import AppChallengeList from "@/components/app-challenge-list";
-import OwaspBadge from "@/components/owasp-badge";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
@@ -104,10 +103,9 @@ function AppBreakdown({ entry }: { entry: LeaderboardEntry }) {
 }
 
 /** The team's collectively-solved flags (the union across members), grouped by
- *  target and rendered as a compact wrapping chip grid — a team can hold 40+
- *  flags, so a chip-per-flag reads far better than a row-per-flag list. Each
- *  chip carries the flag name, its OWASP badge (linked to the category page),
- *  and points. Non-interactive; rendered only when the source carries
+ *  target. Reuses the same collapsible AppChallengeList as a contestant's
+ *  breakdown so both views read identically — here every listed flag is solved
+ *  (the union is patched-only). Rendered only when the source carries
  *  per-challenge data. */
 function TeamSolvedFlags({ team }: { team: TeamStanding }) {
   if (!team.apps) return null;
@@ -118,33 +116,15 @@ function TeamSolvedFlags({ team }: { team: TeamStanding }) {
   return (
     <div className="mt-4 border-t border-white/[0.06] pt-4">
       <p className="mb-3 text-xs uppercase tracking-wider text-muted">Solved flags</p>
-      <div className="flex flex-col gap-4">
-        {groups.map(({ app, solved }) => {
-          const pts = solved.reduce((sum, c) => sum + c.points, 0);
-          return (
-            <div key={app.id}>
-              <p className="mb-2 text-xs">
-                <span style={{ color: app.accent }}>{app.name}</span>
-                <span className="ml-1.5 text-muted">
-                  {solved.length} flag{solved.length === 1 ? "" : "s"} · {pts} pt{pts === 1 ? "" : "s"}
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {solved.map((c) => (
-                  <span
-                    key={c.key}
-                    className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#12121e] py-1 pl-2 pr-1.5 text-xs text-zinc-300"
-                  >
-                    <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: "#22c55e" }} aria-hidden="true" />
-                    <span className="truncate">{c.name}</span>
-                    {c.owasp && <OwaspBadge code={c.owasp} className="rounded-full" />}
-                    <span className="flex-none font-mono text-[10px] text-muted">{c.points}pt</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+      <div className="flex flex-col gap-3">
+        {groups.map(({ app, solved }) => (
+          <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
+            <p className="text-xs" style={{ color: app.accent }}>
+              {app.name}
+            </p>
+            <AppChallengeList challenges={solved} />
+          </div>
+        ))}
       </div>
     </div>
   );
