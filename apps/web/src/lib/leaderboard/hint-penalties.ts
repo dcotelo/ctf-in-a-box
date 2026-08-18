@@ -4,13 +4,24 @@ import { compareStanding } from "./rank";
 import type { LeaderboardData } from "./types";
 
 /**
- * Subtracts each contestant's hint spend (ctf:hints:spent) from their points
- * as a display overlay — the scorer's data is never mutated, so penalties
- * survive re-scores. Scores are floored at 0 and entries are re-ranked.
+ * Subtracts hint spend (ctf:hints:spent) from displayed points as an overlay —
+ * the scorer's data is never mutated, so penalties survive re-scores. Scores
+ * are floored at 0 and both boards are re-ranked.
  *
- * Ordering contract: apply this BEFORE withTeamStandings — team totals are
- * the sum of member points, so summing the already-floored values keeps team
- * standings equal to the sum of the member scores actually displayed.
+ * Applies to teams as well as individuals, because the teams view is the
+ * DEFAULT board whenever teams exist: leaving team totals unpenalised would
+ * make hints effectively free on the primary leaderboard, which is the whole
+ * thing the price exists to prevent.
+ *
+ * A team's penalty is the SUM of its members' spend. Note the deliberate
+ * asymmetry with flag scoring: a flag solved by two teammates counts once
+ * (the scorer dedupes the union), but a hint bought by two teammates is
+ * charged twice — hints are individually purchased, so redundant buying is
+ * the team's own coordination cost. Summing also preserves historical
+ * pricing, since ctf:hints:spent stores points rather than a count.
+ *
+ * Note this overlays STANDINGS only, not `series`/`teamSeries`: the chart is
+ * a timeline of solve events, not current standing.
  *
  * Upstash trouble degrades to the penalty-free view rather than failing the
  * whole leaderboard.
@@ -43,5 +54,21 @@ export async function withHintPenalties(data: LeaderboardData): Promise<Leaderbo
     .sort((a, b) => compareStanding(a.entry, b.entry) || a.i - b.i)
     .map(({ entry }, i) => ({ ...entry, rank: i + 1 }));
 
-  return { ...data, entries };
+  const teams = data.teams
+    .map((team, i) => {
+      const penalty = team.members.reduce((sum, m) => sum + (penalties.get(m) ?? 0), 0);
+      return {
+        i,
+        team:
+          penalty > 0
+            ? { ...team, points: Math.max(0, team.points - penalty), hintPenalty: penalty }
+            : team,
+      };
+    })
+    // TeamStanding carries no lastSolveAt, so points decide and the original
+    // position (the source's own tie-break) holds any tie.
+    .sort((a, b) => b.team.points - a.team.points || a.i - b.i)
+    .map(({ team }, i) => ({ ...team, rank: i + 1 }));
+
+  return { ...data, entries, teams };
 }
