@@ -112,4 +112,17 @@ jobs:
         working-directory: apps/web
       - run: BETTER_AUTH_SECRET=ci-dummy BETTER_AUTH_URL=http://localhost:3000 corepack pnpm build
         working-directory: apps/web
+      # Regression gate: the root layout resolves module nav labels via a
+      # Redis read (getResolvedModules), which is unreachable at build time
+      # by design (see Dockerfile). If `/` is ever statically prerendered
+      # again, that read's build-time fallback gets baked into the HTML and
+      # never updates again without a rebuild — a unit test can't catch this,
+      # it only shows up in the build output.
+      - run: |
+          if [ -f .next/server/app/index.html ]; then
+            echo "FAIL: / was statically prerendered — module nav would freeze at build time (see src/lib/resolved-modules.ts)"
+            exit 1
+          fi
+          echo "OK: / is not statically prerendered"
+        working-directory: apps/web
       - run: ./scripts/acceptance-app.sh
