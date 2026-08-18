@@ -193,11 +193,14 @@ describe("quizGate", () => {
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 
-  it("fails CLOSED when the attempt lookup errors", async () => {
+  it("fails CLOSED when the attempt lookup errors, with its OWN reason distinct from exhausted", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.upstashPipeline.mockRejectedValueOnce(new Error("upstash down"));
     const gate = await quizGate("octocat", "q1");
-    expect(gate.allowed).toBe(false);
+    // Must be refused, but NOT misreported as "exhausted" — a contestant
+    // with zero attempts spent must never be told they have none left just
+    // because the lookup that would prove otherwise blew up.
+    expect(gate).toEqual({ allowed: false, reason: "unavailable" });
     consoleError.mockRestore();
   });
 
@@ -250,11 +253,11 @@ describe("answerQuestion refusals", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
-  it("fails CLOSED (refuses) when the gate's lookup errors, and never reaches the grading script", async () => {
+  it("fails CLOSED (refuses) when the gate's lookup errors, reports 'unavailable' (not 'exhausted'), and never reaches the grading script", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.upstashPipeline.mockRejectedValueOnce(new Error("upstash down"));
     const result = await answerQuestion("octocat", "q1", ["a"]);
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: false, reason: "unavailable" });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });

@@ -227,7 +227,7 @@ export type QuizGate =
   | { allowed: true }
   | {
       allowed: false;
-      reason: "paused" | "answered" | "exhausted" | "cooldown";
+      reason: "paused" | "answered" | "exhausted" | "cooldown" | "unavailable";
       retryAt?: string;
       attemptsLeft?: number;
     };
@@ -246,12 +246,15 @@ export type QuizGate =
  *  unlock time catches up.
  *
  *  Fails CLOSED: if the attempt/answer lookup itself errors, this refuses
- *  the answer (reported as "exhausted", the closest of the four reasons,
- *  since the true attempt count couldn't be verified) rather than grading
- *  against a lookup we couldn't trust. This is the OPPOSITE of the scoring
- *  freeze (`effectivePaused`), which fails open so a Redis blip never drops
+ *  the answer with its own distinct reason, "unavailable" — deliberately
+ *  NOT "exhausted", because misreporting an unverifiable lookup as a real
+ *  attempt-count fact (telling a contestant who has used zero attempts that
+ *  they have none left) turns a transient Redis blip into a support
+ *  conversation about a wrong count. This is the OPPOSITE of the scoring
+ *  freeze (`effectivePaused`), which fails OPEN so a Redis blip never drops
  *  a live submission — here, the safe failure is "no attempt", not "grade a
- *  possibly-replayed answer". */
+ *  possibly-replayed answer", but the caller must still be told the truth:
+ *  the check couldn't be completed, not that they're out of attempts. */
 export async function quizGate(login: string, questionId: string): Promise<QuizGate> {
   const settings = await getAdminSettings();
   if (effectivePaused(settings)) return { allowed: false, reason: "paused" };
@@ -272,7 +275,7 @@ export async function quizGate(login: string, questionId: string): Promise<QuizG
     attempt = parseJsonValue(attemptRes.result, extractAttempt);
   } catch (err) {
     console.error("quiz gate: attempt/answer lookup failed:", err);
-    return { allowed: false, reason: "exhausted", attemptsLeft: 0 };
+    return { allowed: false, reason: "unavailable" };
   }
 
   if (answered) return { allowed: false, reason: "answered" };
@@ -354,6 +357,10 @@ export type AnswerResult =
   | { ok: true; correct: true; points: number }
   | { ok: true; correct: false }
   | { ok: false; reason: "paused" | "answered" | "exhausted" | "cooldown"; retryAt?: string }
+  // The gate's lookup itself failed (fail-closed) — kept distinct from
+  // "exhausted" so a caller-facing message can say the check couldn't be
+  // completed (try again) instead of falsely claiming attempts are spent.
+  | { ok: false; reason: "unavailable" }
   | { ok: false; reason: "invalid" }
   | { ok: false; reason: "error" };
 
@@ -379,6 +386,10 @@ export async function answerQuestion(login: string, questionId: string, choices:
 
   const gate = await quizGate(login, questionId);
   if (!gate.allowed) {
+    // Kept as its own branch (not folded into the passthrough below) so its
+    // caller-facing shape can never accidentally pick up a retryAt/attempts
+    // fact the lookup never actually established.
+    if (gate.reason === "unavailable") return { ok: false, reason: "unavailable" };
     return gate.retryAt
       ? { ok: false, reason: gate.reason, retryAt: gate.retryAt }
       : { ok: false, reason: gate.reason };
