@@ -267,6 +267,92 @@ function parseJsonValue<T>(raw: unknown, extract: (parsed: Record<string, unknow
   }
 }
 
+/** One login's (or one team's) quiz aggregate, as consumed by the leaderboard
+ *  overlay (`leaderboard/module-contributions.ts`). */
+export type QuizTotal = { points: number; answered: number; lastAt: string | null };
+
+function parseCounterHash(flat: unknown): Map<string, number> {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out = new Map<string, number>();
+  for (let i = 0; i < arr.length; i += 2) {
+    const n = Number(arr[i + 1]);
+    if (Number.isFinite(n)) out.set(arr[i], n);
+  }
+  return out;
+}
+
+/** Per-login quiz totals for every login that has answered at least one
+ *  question correctly — two `HGETALL`s (`ctf:quiz:points`,
+ *  `ctf:quiz:answered`), maintained atomically by GRADE_SCRIPT alongside the
+ *  per-login answer row (see the header comment and GRADE_SCRIPT's own
+ *  comment, step 6). Cost is exactly two round trips regardless of how many
+ *  logins are on the board, mirroring `getHintPenalties` in hint-store.ts.
+ *
+ *  `lastAt` is always `null`: neither aggregate hash carries a timestamp
+ *  (only a running total), and reading the per-login answer hash to derive
+ *  one would reintroduce the per-login cost this function exists to avoid.
+ *  Callers fall back to whatever other activity timestamp they already have. */
+export async function getQuizTotals(): Promise<Map<string, QuizTotal>> {
+  const [pointsRes, answeredRes] = await upstashPipeline([
+    ["HGETALL", POINTS_KEY],
+    ["HGETALL", ANSWERED_KEY],
+  ]);
+  const points = parseCounterHash(pointsRes.result);
+  const answered = parseCounterHash(answeredRes.result);
+
+  const totals = new Map<string, QuizTotal>();
+  for (const login of new Set([...points.keys(), ...answered.keys()])) {
+    totals.set(login, { points: points.get(login) ?? 0, answered: answered.get(login) ?? 0, lastAt: null });
+  }
+  return totals;
+}
+
+/** A TEAM's quiz total is the UNION of questions its members answered
+ *  correctly (spec D6), never the sum of member aggregates — summing would
+ *  double count any question two teammates both answered, which is exactly
+ *  the double-count bug the per-login aggregate counters exist to avoid at
+ *  the individual level. The aggregates can't serve a team: they're running
+ *  totals with no memory of WHICH questions contributed to them, so there is
+ *  no way to dedupe from them. Instead this reads each member's
+ *  `ctf:quiz:answers:<login>` hash directly and dedupes by question id,
+ *  keeping the EARLIEST correct answer's stored points for any question two
+ *  or more members both hold (a later re-answer by a teammate — or a
+ *  since-changed question price recorded on someone else's row — never
+ *  changes what the team already earned). Teams are capped at a handful of
+ *  members, so one HGETALL per member is cheap: this scales with team size,
+ *  never with board size. */
+export async function getTeamQuizTotals(members: string[]): Promise<QuizTotal> {
+  if (members.length === 0) return { points: 0, answered: 0, lastAt: null };
+
+  const results = await upstashPipeline(members.map((login) => ["HGETALL", answersKey(login)]));
+  const byQuestion = new Map<string, { points: number; at: string }>();
+  for (const res of results) {
+    const flat = Array.isArray(res.result) ? (res.result as string[]) : [];
+    for (let i = 0; i < flat.length; i += 2) {
+      const parsed = parseJsonValue(flat[i + 1], extractAnswered);
+      if (!parsed) continue;
+      const questionId = flat[i];
+      const existing = byQuestion.get(questionId);
+      if (!existing || Date.parse(parsed.at) < Date.parse(existing.at)) {
+        byQuestion.set(questionId, parsed);
+      }
+    }
+  }
+
+  let points = 0;
+  let lastAtMs = -Infinity;
+  for (const { points: questionPoints, at } of byQuestion.values()) {
+    points += questionPoints;
+    const ms = Date.parse(at);
+    if (Number.isFinite(ms) && ms > lastAtMs) lastAtMs = ms;
+  }
+  return {
+    points,
+    answered: byQuestion.size,
+    lastAt: Number.isFinite(lastAtMs) ? new Date(lastAtMs).toISOString() : null,
+  };
+}
+
 export type QuizGate =
   | { allowed: true }
   | {

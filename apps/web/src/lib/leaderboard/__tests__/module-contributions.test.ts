@@ -1,11 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
-import type { LeaderboardData, LeaderboardEntry } from "../types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 import { rankByStanding } from "../rank";
 
 vi.mock("server-only", () => ({}));
+
+const mocks = vi.hoisted(() => ({
+  isModuleEnabled: vi.fn((id: string) => id === "secure-development"),
+  getQuizTotals: vi.fn(),
+  getTeamQuizTotals: vi.fn(),
+  listQuestions: vi.fn(),
+}));
+
 vi.mock("@/lib/modules", () => ({
   enabledModules: [{ id: "secure-development", displayName: "Secure Development", description: "", targets: ["dvwa"] }],
-  isModuleEnabled: (id: string) => id === "secure-development",
+  isModuleEnabled: mocks.isModuleEnabled,
+}));
+
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals: mocks.getQuizTotals,
+  getTeamQuizTotals: mocks.getTeamQuizTotals,
+  listQuestions: mocks.listQuestions,
 }));
 
 import { withModuleContributions } from "../module-contributions";
@@ -16,11 +30,21 @@ const entry = (login: string, points: number, patched: number, lastSolveAt = "20
   updatedAt: null, lastSolveAt,
 });
 
-const data = (entries: LeaderboardEntry[]): LeaderboardData => ({
+const data = (entries: LeaderboardEntry[], teams: TeamStanding[] = []): LeaderboardData => ({
   entries: entries.map((e, i) => ({ ...e, rank: i + 1 })),
-  teams: [],
+  teams,
   generatedAt: "2026-08-01T00:00:00.000Z",
-  capabilities: { apps: true, teams: false, challenges: false },
+  capabilities: { apps: true, teams: teams.length > 0, challenges: false },
+});
+
+/** Quiz disabled by default (only secure-development enabled), matching the
+ *  checked-in event.yaml today. Tests that need the quiz module override this. */
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development");
+  mocks.getQuizTotals.mockResolvedValue(new Map());
+  mocks.getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
+  mocks.listQuestions.mockResolvedValue([]);
 });
 
 describe("withModuleContributions", () => {
@@ -44,11 +68,12 @@ describe("withModuleContributions", () => {
   });
 
   it("passes teams through untouched", async () => {
-    // Team rows have no per-module renderer yet (phase 2), and on the upstash
-    // path withTeamStandings replaces data.teams wholesale anyway.
+    // Team rows get no quiz overlay here when the quiz module is disabled
+    // (the default) or when the source has no deduped team data yet.
     const teams = [{ rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada"] }];
     const out = await withModuleContributions({ ...data([entry("ada", 30, 3)]), teams });
     expect(out.teams).toEqual(teams);
+    expect(mocks.getTeamQuizTotals).not.toHaveBeenCalled();
   });
 
   // upstash carries no per-app data and no modules map, so completedCount
@@ -91,5 +116,97 @@ describe("withModuleContributions", () => {
       expect(mod.completed).toBe(e.patched);
       expect(mod.lastActivityAt).toBe(e.lastSolveAt);
     }
+  });
+
+  // Regression gate specific to phase 2: with the quiz module DISABLED, the
+  // leaderboard must behave EXACTLY as it did before this task — no quiz
+  // reads, no quiz block, no ranking change driven by quiz data.
+  describe("with the quiz module disabled", () => {
+    it("never reads quiz data and adds no quiz block", async () => {
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+      expect(out.entries[0].modules!["quiz"]).toBeUndefined();
+      expect(out.entries[0].points).toBe(30);
+      expect(mocks.getQuizTotals).not.toHaveBeenCalled();
+      expect(mocks.listQuestions).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("with the quiz module enabled", () => {
+    beforeEach(() => {
+      mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development" || id === "quiz");
+      mocks.listQuestions.mockResolvedValue([{ id: "q1" }, { id: "q2" }, { id: "q3" }]);
+    });
+
+    it("adds quiz points to the entry's total and renders a quiz module with completed = answered count", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      // ADDED, not attributed: 30 (secure-dev, unchanged) + 15 (quiz) = 45.
+      expect(out.entries[0].points).toBe(45);
+      const quiz = out.entries[0].modules!["quiz"]!;
+      expect(quiz).toMatchObject({ points: 15, completed: 2 });
+      expect(quiz.detail).toEqual({ kind: "quiz", answered: 2, total: 3, points: 15 });
+      // secure-development's own attribution is untouched by the addition.
+      expect(out.entries[0].modules!["secure-development"]).toMatchObject({ points: 30, completed: 3 });
+    });
+
+    it("gives an entry with no quiz activity no quiz module block", async () => {
+      // ada has no entry in the aggregate map at all — never answered anything.
+      mocks.getQuizTotals.mockResolvedValue(new Map());
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      expect(out.entries[0].modules!["quiz"]).toBeUndefined();
+      expect(out.entries[0].points).toBe(30);
+    });
+
+    it("reflects the added quiz points in ranking", async () => {
+      // Same breadth (secure-dev completed=3 vs quiz completed=1 -> combined
+      // completed 3 for both), so the tie falls to points: ada's raw 30 loses
+      // to bob's 20 + 15 quiz = 35, once the quiz points are added.
+      mocks.getQuizTotals.mockResolvedValue(
+        new Map([["bob", { points: 15, answered: 1, lastAt: null }]]),
+      );
+
+      const out = await withModuleContributions(
+        data([entry("ada", 30, 3), { ...entry("bob", 20, 2), apps: { dvwa: { app: "dvwa", points: 20, maxPoints: 30, patched: 2, total: 3 } } }]),
+      );
+
+      expect(out.entries.map((e) => [e.login, e.points])).toEqual([["bob", 35], ["ada", 30]]);
+      expect(out.entries.map((e) => e.rank)).toEqual([1, 2]);
+    });
+
+    it("dedupes a team's quiz points: a question answered by two members counts ONCE", async () => {
+      // getTeamQuizTotals is the union-by-question function under test here —
+      // simulate what it would return for two teammates who both answered the
+      // SAME 20-point question correctly: the union has exactly one entry.
+      mocks.getTeamQuizTotals.mockResolvedValue({ points: 20, answered: 1, lastAt: "2026-08-01T11:00:00.000Z" });
+
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada", "cyd"] },
+      ];
+      const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
+
+      expect(mocks.getTeamQuizTotals).toHaveBeenCalledWith(["ada", "cyd"]);
+      // 30 (existing, already-deduped secure-dev team points) + 20 (the ONE
+      // question's points) — never 40 (which would be double counting the
+      // question across both members).
+      expect(out.teams[0].points).toBe(50);
+      expect(out.teams[0].modules!["quiz"]).toMatchObject({ points: 20, completed: 1 });
+    });
+
+    it("does not touch team points when the source has no deduped team data yet (upstash shape)", async () => {
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 0, members: ["ada", "cyd"] },
+      ];
+      const out = await withModuleContributions({
+        ...data([entry("ada", 30, 3)], teams),
+        capabilities: { apps: true, teams: false, challenges: false },
+      });
+
+      expect(mocks.getTeamQuizTotals).not.toHaveBeenCalled();
+      expect(out.teams).toEqual(teams);
+    });
   });
 });

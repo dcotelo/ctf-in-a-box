@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({ upstashEval: vi.fn(), upstashPipeline: vi.fn()
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
 
-import { deleteQuestion, getViewerQuiz, listQuestions, upsertQuestion } from "@/lib/quiz-store";
+import { deleteQuestion, getQuizTotals, getTeamQuizTotals, getViewerQuiz, listQuestions, upsertQuestion } from "@/lib/quiz-store";
 
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
@@ -290,5 +290,101 @@ describe("getViewerQuiz", () => {
     ]);
     const progress = await getViewerQuiz("octocat");
     expect(progress).toEqual({ answered: { q2: { points: 5, at: "x" } }, attempts: {} });
+  });
+});
+
+describe("getQuizTotals", () => {
+  it("reads the two aggregate counters in one pipeline call, keyed by login", async () => {
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["ada", "30", "bob", "15"] },
+      { result: ["ada", "3", "bob", "1"] },
+    ]);
+    const totals = await getQuizTotals();
+    expect(totals).toEqual(
+      new Map([
+        ["ada", { points: 30, answered: 3, lastAt: null }],
+        ["bob", { points: 15, answered: 1, lastAt: null }],
+      ]),
+    );
+    const cmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
+    expect(cmds).toEqual([
+      ["HGETALL", "ctf:quiz:points"],
+      ["HGETALL", "ctf:quiz:answered"],
+    ]);
+  });
+
+  it("unions logins present in only one of the two hashes", async () => {
+    // Shouldn't happen in practice (both HINCRBYs run in the same script),
+    // but a login present in only one hash still gets a total, not dropped.
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["ada", "10"] }, { result: ["bob", "2"] }]);
+    const totals = await getQuizTotals();
+    expect(totals).toEqual(
+      new Map([
+        ["ada", { points: 10, answered: 0, lastAt: null }],
+        ["bob", { points: 0, answered: 2, lastAt: null }],
+      ]),
+    );
+  });
+
+  it("returns an empty map when nobody has answered anything", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: [] }]);
+    expect(await getQuizTotals()).toEqual(new Map());
+  });
+});
+
+describe("getTeamQuizTotals", () => {
+  it("dedupes a question answered by two members, keeping the earliest answer's points", async () => {
+    // Both teammates hold a correct answer to q1 (20 points each, since both
+    // answered while it was priced at 20) — the union must count it ONCE.
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", JSON.stringify({ choices: ["a"], points: 20, at: "2026-01-01T00:00:00.000Z" })] },
+      { result: ["q1", JSON.stringify({ choices: ["a"], points: 20, at: "2026-01-01T01:00:00.000Z" })] },
+    ]);
+    const total = await getTeamQuizTotals(["ada", "cyd"]);
+    // lastAt reflects the KEPT (earliest, points-contributing) record — the
+    // team's total didn't change at cyd's later, redundant correct answer.
+    expect(total).toEqual({ points: 20, answered: 1, lastAt: "2026-01-01T00:00:00.000Z" });
+    const cmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
+    expect(cmds).toEqual([
+      ["HGETALL", "ctf:quiz:answers:ada"],
+      ["HGETALL", "ctf:quiz:answers:cyd"],
+    ]);
+  });
+
+  it("keeps the EARLIER record's points when a re-priced question was answered at different prices", async () => {
+    // ada answered first at 10 points; cyd answered later at 25 (price went
+    // up in between). The team's total must use ada's earlier 10, not cyd's.
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", JSON.stringify({ choices: ["a"], points: 10, at: "2026-01-01T00:00:00.000Z" })] },
+      { result: ["q1", JSON.stringify({ choices: ["a"], points: 25, at: "2026-01-02T00:00:00.000Z" })] },
+    ]);
+    const total = await getTeamQuizTotals(["ada", "cyd"]);
+    expect(total.points).toBe(10);
+    expect(total.answered).toBe(1);
+  });
+
+  it("sums distinct questions across members without dropping any", async () => {
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", JSON.stringify({ choices: ["a"], points: 10, at: "2026-01-01T00:00:00.000Z" })] },
+      { result: ["q2", JSON.stringify({ choices: ["b"], points: 15, at: "2026-01-01T00:05:00.000Z" })] },
+    ]);
+    const total = await getTeamQuizTotals(["ada", "cyd"]);
+    expect(total).toEqual({ points: 25, answered: 2, lastAt: "2026-01-01T00:05:00.000Z" });
+  });
+
+  it("returns zeros without touching Upstash for a team with no members", async () => {
+    const total = await getTeamQuizTotals([]);
+    expect(total).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("returns zeros when no member has answered anything", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: [] }]);
+    expect(await getTeamQuizTotals(["ada", "cyd"])).toEqual({ points: 0, answered: 0, lastAt: null });
+  });
+
+  it("drops unparseable rows instead of throwing", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", "not json"] }]);
+    expect(await getTeamQuizTotals(["ada"])).toEqual({ points: 0, answered: 0, lastAt: null });
   });
 });
