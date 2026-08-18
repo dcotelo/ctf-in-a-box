@@ -15,6 +15,7 @@ import type { AdminSettings } from "@/lib/admin-store";
 import { eventConfig } from "@/lib/event-config";
 import { enabledModules } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
+import AdminQuizControls from "@/components/admin-quiz-controls";
 
 type ConfirmState = {
   title: string;
@@ -92,6 +93,12 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
   const [unlockAfterInput, setUnlockAfterInput] = useState(
     initial.hintsUnlockAfterMin === null ? "" : String(initial.hintsUnlockAfterMin),
   );
+  const [quizMaxAttemptsInput, setQuizMaxAttemptsInput] = useState(
+    initial.quizMaxAttempts === null ? "" : String(initial.quizMaxAttempts),
+  );
+  const [quizRetryAfterInput, setQuizRetryAfterInput] = useState(
+    initial.quizRetryAfterMin === null ? "" : String(initial.quizRetryAfterMin),
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -163,15 +170,17 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
       setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
       setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
       setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
+      setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
+      setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
     }
     setPending(false);
   };
 
-  /** Shared commit for the numeric hint knobs: junk snaps back to the stored
-   *  value, an unchanged value is a no-op, otherwise it's patched server-side
-   *  (which re-validates the range — see admin-store). */
+  /** Shared commit for the numeric knobs (hint + quiz): junk snaps back to the
+   *  stored value, an unchanged value is a no-op, otherwise it's patched
+   *  server-side (which re-validates the range — see admin-store). */
   const commitNumber = (
-    key: "hintCost" | "hintsMinSolves" | "hintsUnlockAfterMin",
+    key: "hintCost" | "hintsMinSolves" | "hintsUnlockAfterMin" | "quizMaxAttempts" | "quizRetryAfterMin",
     raw: string,
     reset: (v: string) => void,
   ) => {
@@ -414,6 +423,15 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
                 />
               </label>
             </>
+          ) : mod.id === "quiz" ? (
+            <AdminQuizControls
+              pending={pending}
+              quizMaxAttemptsInput={quizMaxAttemptsInput}
+              setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
+              quizRetryAfterInput={quizRetryAfterInput}
+              setQuizRetryAfterInput={setQuizRetryAfterInput}
+              commitNumber={commitNumber}
+            />
           ) : (
             <p className="text-xs text-muted">No settings for this module yet.</p>
           )}

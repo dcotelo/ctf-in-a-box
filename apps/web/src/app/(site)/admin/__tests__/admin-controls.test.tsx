@@ -67,11 +67,14 @@ describe("AdminControls", () => {
     expect(html.indexOf("Danger zone")).toBeLessThan(modIdx);
   });
 
-  it("shows a muted placeholder for a module with no controls of its own", () => {
+  it("renders the quiz module's settings and question authoring, not the old placeholder", () => {
     const html = renderToStaticMarkup(<AdminControls initial={settings} />);
     expect(html).toContain("Quiz");
     const quizIdx = html.indexOf("Quiz");
-    expect(html.indexOf("No settings for this module yet.")).toBeGreaterThan(quizIdx);
+    expect(html.indexOf("Max attempts")).toBeGreaterThan(quizIdx);
+    expect(html.indexOf("Retry after (min)")).toBeGreaterThan(quizIdx);
+    expect(html.indexOf("Add question")).toBeGreaterThan(quizIdx);
+    expect(html).not.toContain("No settings for this module yet.");
   });
 
   it("shows the demo seed section only when demoMode is set", () => {
