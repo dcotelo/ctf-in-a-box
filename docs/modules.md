@@ -7,13 +7,17 @@ title: Module contract
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
-ships exactly one *scored* module, `secure-development` (the OWASP Secure
+ships two registered modules: `secure-development` (the OWASP Secure
 Development CTF patch-the-vulnerability format: fork target app, find + patch
-the vuln, PR back, GitHub Actions scores the patch), alongside one registered
-placeholder id, `quiz`, that proves the registry mechanism and renders nothing
-yet (§5). This document is the contract a new
+the vuln, PR back, GitHub Actions scores the patch) and `quiz` (a self-paced
+single/multi-select question bank, authored in `/admin` and scored entirely
+inside the app — no GitHub, `sync`, or `scorer` involvement at all; §5 covers
+what its UI contract satisfies and what it still doesn't). This document is
+the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
-`secure-development` as the worked example throughout.
+`secure-development` as the worked example throughout, since it is the one
+module that actually exercises the GitHub-mediated scoring contract (§2–3,
+§6–8) that `quiz` deliberately bypasses.
 
 The platform sections of `event.yaml` (`event`, `github`, `teams`, `hints`,
 `admins`) are shared. Everything module-specific — target list, challenge
@@ -190,60 +194,90 @@ through the generator, `apps/web/scripts/generate-event-config.mjs`, which
 emits a structured `modules` array plus a derived back-compat `targets` array)
 to a `ModuleDef` — display name, description, and nav entry are code-side
 registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
-entirely config-driven. Two ids are registered today: `secure-development`
-(targets, catalogue, scoring — the worked example throughout this document)
-and `quiz` (a registrable placeholder id — see below). An id outside the
+entirely config-driven. Two ids are registered today, and — as of this work —
+**both are real, working modules**, not one module plus a registry-proving
+placeholder: `secure-development` (targets, catalogue, GitHub-mediated
+scoring — the worked example throughout this document) and `quiz` (a
+self-paced single/multi-select question bank, scored entirely inside the app
+— see [docs/architecture.md#quiz-data-flow](architecture.md#quiz-data-flow)
+for its data flow and `docs/operations.md`'s "Quiz" section for the
+organizer-facing authoring/retry-knob guide). An id outside the
 registry still fails the build loudly (`generate-event-config.mjs`'s
 `validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
 `src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
-header iff that module is enabled *and* defines a `nav` (`quiz` defines
-none, so it contributes nothing); the leaderboard pipeline's
+header iff that module is enabled *and* defines a `nav` — both modules do
+now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`, rendering
+`components/quiz-board.tsx`); the leaderboard pipeline's
 `withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
 attributes `secure-development`'s scorer-sourced points (net of hint
 penalties — it runs after `withHintPenalties`) into a per-module
-`ModuleProgress`, and an expanded leaderboard row renders each enabled
+`ModuleProgress`, and now *also* computes `quiz`'s points app-side and adds
+them into the combined total (never attributes them — the scorer never sees
+a quiz question, so there is nothing of the quiz's to attribute from) — see
+the architecture doc for why the two modules use different verbs there. An
+expanded leaderboard row renders each enabled
 module's own detail block (`components/module-detail.tsx`) instead of one
-hardcoded shape — with the per-module heading suppressed while only one
-module is enabled, so a single-module event's row reads exactly as it did
-before; the admin panel (`admin-controls.tsx`) is sectioned by
-enabled module, with the four hint controls now living under Secure
-Development's section rather than a flat list. The existing challenge
+hardcoded shape — `secure-development`'s branch shows the existing
+patched/target breakdown, `quiz`'s shows an answered/total count — with the
+per-module heading suppressed while only one module is enabled, so a
+single-module event's row reads exactly as it did before; the admin panel
+(`admin-controls.tsx`) is sectioned by
+enabled module, with the four hint controls living under Secure
+Development's section and the quiz's two retry-gate knobs plus its full
+question-authoring UI (`components/admin-quiz-controls.tsx`) under Quiz's —
+so the generic "No settings for this module yet." fallback that a module
+section renders when it defines no controls is, today, dead code for both
+shipped modules; it stays wired for whatever module ships next with no
+settings of its own. The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
-predate this work and satisfy those items for the one shipped, scored module.
-The organizer admin panel that was tracked as Spec B is still built out —
-freeze, scheduled scoring windows, team-registration windows, hint
+predate this work and satisfy those items for `secure-development`; `quiz`
+satisfies the same items with its own semantics (item 3 below covers the
+difference). The organizer admin panel that was tracked as Spec B is still
+built out — freeze, scheduled scoring windows, team-registration windows, hint
 toggles/cost, demo seed, and the master reset (see `docs/operations.md`'s
 "Organizer admin panel" and "Status and upstream dependencies"). What remains
 open there is score adjustments and player removal — and offering this
 vendored delta back to `OWASP-CTF/ctf-owasp-org` once upstream write access
 opens.
 
-What remains open from *this* work, so the registry's existence isn't
-mistaken for a second working module:
+What remains open from *this* work, so a real second module isn't mistaken
+for a fully general n-module platform:
 
-- **`quiz` has no UI, no route, no scoring, and no admin controls.** It is
-  purely a registrable config id (`ModuleId` in `modules.ts`, a validator in
-  `generate-event-config.mjs`) that renders nothing — a phase-2 placeholder,
-  not a working vertical. Its presence proves the registry mechanism, not
-  that the contract below is satisfied twice.
 - **No per-module leaderboards or module switcher exist.** The leaderboard is
   one board; a module's contribution shows only as a row's expandable
-  per-module breakdown, never a separate view.
-- **No scorer changes shipped, and `sync` only learned to tolerate the id.**
-  `sync/src/config.js`'s `KNOWN_MODULES` accepts `quiz` purely so an
+  per-module breakdown, never a separate view. This is unchanged by `quiz`
+  going live — it added a second breakdown block, not a second board.
+- **`sync` still doesn't score anything for `quiz`, by design, not as a gap.**
+  `sync/src/config.js`'s `KNOWN_MODULES` tolerates the `quiz` key purely so an
   `event.yaml` the app builds from can't crash-loop the poller (the two
   services mount the same file); `sync` still scores `secure-development`
-  alone. Per-module `score_ingest`/rubric plumbing for a module that actually
-  needs scorer-mediated scoring was deliberately deferred until one exists
-  that needs it.
+  alone, because `quiz` never produces a score for GitHub to relay in the
+  first place — it grades server-side inside the app's own Redis keys (see
+  the architecture doc). Per-module `score_ingest`/rubric plumbing was for a
+  module that needs scorer-mediated scoring; `quiz` is proof one doesn't
+  always need it, not evidence that plumbing is still missing.
+- **`sync` still requires `modules.secure-development` unconditionally**
+  (`sync/src/config.js`: `if (!mod) throw ...`), so a quiz-only event — no
+  `secure-development` block in `event.yaml` at all — is still not supported
+  end to end, even though the app itself would happily run quiz-only. This
+  was already true before this work and remains true after it.
+- **Quiz question authoring has no bulk import/export** — one question at a
+  time through the admin form, no CSV/JSON upload path.
+- **No free-text questions, no partial credit, and no per-question
+  attempt/cooldown overrides** — single- and multi-select only, all-or-nothing
+  grading, and the two retry-gate settings (`quizMaxAttempts`,
+  `quizRetryAfterMin`) are global, not settable per question.
 
 This section remains the contract a *new* module (forensics, api-security,
-cloud, …) must satisfy to plug into the same UI: it is proven against one
-real, scored module (`secure-development`) and one placeholder id that
-proves only the registry mechanism, not the rest of the contract.
+cloud, …) must satisfy to plug into the same UI: it is now proven against two
+real modules with genuinely different shapes — `secure-development`
+(GitHub-mediated scoring, per-target progress) and `quiz` (app-side scoring,
+a flat answered/total count) — which is what makes item 3 below a contract
+about *defining your own progress semantics*, not an accidental description
+of one module's shape.
 
 1. **Display metadata.** A module MUST provide a human-readable display
    name, a short description, and a nav label, sourced from the module's
@@ -264,9 +298,13 @@ proves only the registry mechanism, not the rest of the contract.
    for it. Worked example: `secure-development` shows a patched/total count
    per target (e.g. `dvwa: <solved>/<total>`) across its up-to-six
    configured targets, `<total>` coming from that target's per-challenge
-   count in the catalogue (item 4.2) — a module with a different structure
-   (e.g. no per-app grouping) MUST specify its own equivalent rather than
-   forcing the patched/total shape.
+   count in the catalogue (item 4.2). Second worked example, proving the
+   "MUST specify its own equivalent" clause for real rather than only in the
+   abstract: `quiz` has no per-app grouping at all, so it shows a flat
+   `<answered>/<total>` count instead (`ModuleDetail`'s `quiz` variant,
+   rendered by `components/module-detail.tsx`) — a module with a different
+   structure MUST specify its own equivalent rather than forcing the
+   patched/total shape.
 
 4. **Enablement rule.** A module's UI surfaces (nav entry, challenge list,
    leaderboard columns) MUST appear if and only if the module's key is

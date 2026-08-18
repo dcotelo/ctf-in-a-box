@@ -116,9 +116,16 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
   the poller re-reads those still-present comments — for a post-event wipe that
   stays gone, also delete (or the org, archive) the source PR comments.
 
+- **Quiz controls** (only when the `quiz` module is enabled) — the two
+  retry-gate knobs (max attempts, retry cooldown) plus full question
+  authoring: add, edit, and delete. See [Quiz](#quiz) below for what these
+  do and their defaults.
 - **Seed demo data** (demo mode only) — populates the leaderboard with fake
   contestants, teams, and real-challenge-id solves so you can preview the app
-  without running real PRs. The button and its route only exist when the app is
+  without running real PRs. When the `quiz` module is enabled, this also seeds
+  a small demo question bank with some already answered, so the board shows a
+  genuinely combined score (patch points plus quiz points) rather than just
+  one module. The button and its route only exist when the app is
   started with `DEMO_MODE=1` (the local `scripts/dev-stack up` sets it); they are
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
@@ -127,6 +134,81 @@ Every settings change is recorded in a capped audit log (who, when, what
 changed) alongside the setting itself. **Disruptive controls prompt for
 confirmation**: the freeze and team-registration toggles ask a one-click "are
 you sure?"; the master reset requires type-to-confirm.
+
+When the `quiz` module is enabled, the master reset also clears every
+contestant's quiz answers and attempts (and the two aggregate point/answered
+counters the leaderboard reads) — but it deliberately **keeps your authored
+questions and their answer keys**, the same way it keeps `event.yaml`-derived
+admin settings. A reset event doesn't mean re-building the quiz from scratch.
+See [Quiz](#quiz) below.
+
+## Quiz
+
+When `event.yaml`'s `modules:` map includes `quiz: {}` (see
+`event.yaml.example`), contestants get a second, self-paced way to earn
+points: single- and multiple-choice questions, answered directly in the app
+alongside Secure Development's patch challenges. It doesn't touch GitHub,
+the scorer, or `sync` at all — see
+[docs/architecture.md](architecture.md#quiz-data-flow) for how it scores
+entirely inside the app.
+
+**Authoring** happens in `/admin`, under the Quiz module's section (see
+"Quiz controls" above): add a question with a prompt, pick **single choice**
+or **multiple choice**, give it two or more labeled choices, mark which
+one(s) are correct, and set its point value and its `order` (position in the
+list). Editing an existing question never shows you its current correct
+answer(s) first — the answer key never reaches any client, admin session
+included — so every save requires re-selecting the correct choice(s), even
+when you're only fixing a typo in the prompt.
+
+Deleting a question is destructive: it permanently wipes every contestant's
+answer and attempt history for that question, with no undo. The delete
+button is gated behind typing the question's own id to confirm, the same
+pattern the master reset uses.
+
+**Grading is all-or-nothing and order-insensitive**: a submission scores
+points only if its set of selected choices exactly matches the correct set —
+not a subset, not a superset. Picking three choices when two are correct
+scores 0, the same as picking only one of two correct choices; that's still
+one spent attempt, exactly like any other wrong answer. Single-choice
+questions follow the identical rule — they simply have exactly one correct
+choice, so "exact match" reduces to "picked the right one." There is no
+partial credit for either question type.
+
+**Retry gate** — two admin-panel knobs, next to the question list:
+
+- **Max attempts** (`quizMaxAttempts`, default **3**) — graded attempts a
+  contestant gets on one question before the retry gate refuses further
+  submissions. `0` means unlimited. Both settings are global — there is no
+  per-question override.
+- **Retry after** (`quizRetryAfterMin`, default **5**) — minutes a
+  contestant must wait after an attempt before trying that question again.
+  `0` means no cooldown.
+
+Both are enforced by a server-side Redis script, not just a JS-side
+pre-check, so a burst of near-simultaneous submissions can't outrun the
+attempt cap. The cooldown is computed from the last attempt's timestamp on
+every check, never a stored unlock time — so lowering it mid-event lifts an
+active cooldown immediately, and raising it applies to the very next check.
+A wrong attempt spends one of the allotted attempts; once a question is
+answered correctly it's done — no more attempts to spend, right or wrong.
+
+**Points and scoring.** A question's points are captured on the answer
+record at the moment it's answered correctly, so re-pricing a question
+later never changes what a contestant already earned — only a future
+correct answer sees the new price. A team's quiz total dedupes by
+question: if two teammates both answer the same question correctly, the
+team's board still counts it once, the same rule already used for shared
+flags. Quiz points show up as an addition on top of a contestant's or
+team's other points, never folded silently into a single number with no
+breakdown — see the architecture doc for how that addition happens.
+
+**What the quiz doesn't do (yet):** free-text answers, partial credit, and
+per-question attempt/cooldown overrides are all out of scope — the two
+retry knobs are global settings, not per-question ones. A quiz-only event
+(no `secure-development` module at all) is also still not supported
+end-to-end: `sync` still requires the `secure-development` module to be
+configured.
 
 ## Verifying it works
 
