@@ -242,6 +242,20 @@ describe("module identity overrides", () => {
     expect(s.moduleOverrides).toEqual({ "secure-development": { title: "Round 1", blurb: "Ten questions." } });
   });
 
+  it("drops an override for a module id that is not enabled, keeping a valid one alongside it", async () => {
+    // Read-side half of the fail-closed contract: a stale/forged field for a
+    // module that isn't enabled must never resurface, even sitting right next
+    // to a legitimate override for an enabled module.
+    mocks.upstashPipeline.mockResolvedValue([{
+      result: [
+        "moduleTitle:forensics", "Nope",
+        "moduleTitle:secure-development", "Round 1",
+      ],
+    }]);
+    const s = await getAdminSettings();
+    expect(s.moduleOverrides).toEqual({ "secure-development": { title: "Round 1" } });
+  });
+
   it("defaults moduleOverrides to an empty object", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
     expect((await getAdminSettings()).moduleOverrides).toEqual({});
@@ -249,9 +263,12 @@ describe("module identity overrides", () => {
 
   it("accepts a title for an enabled module", async () => {
     mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
-    await expect(
-      updateAdminSettings({ "moduleTitle:secure-development": "Round 1" }, "alice"),
-    ).resolves.toBeDefined();
+    await updateAdminSettings({ "moduleTitle:secure-development": "Round 1" }, "alice");
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const strArgs = args.map(String);
+    const idx = strArgs.indexOf("moduleTitle:secure-development");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe("Round 1"); // written as an HSET pair, not dropped silently
   });
 
   it("rejects a title for a module that is not enabled", async () => {
@@ -279,18 +296,31 @@ describe("module identity overrides", () => {
     ).rejects.toThrow(AdminValidationError);
   });
 
+  it("rejects a Unicode bidi override character", async () => {
+    // U+202E (RIGHT-TO-LEFT OVERRIDE) reorders rendered glyphs rather than
+    // injecting anything — it could still visually scramble a heading every
+    // contestant loads, so it's rejected alongside C0 control characters.
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "bad\u202Etitle" }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
   it("rejects a non-string value", async () => {
     await expect(
       updateAdminSettings({ "moduleTitle:secure-development": 7 as never }, "alice"),
     ).rejects.toThrow(AdminValidationError);
   });
 
-  it("clears the field on an empty string rather than storing it", async () => {
+  it("clears the field on an empty string (HDEL), not by storing it (HSET)", async () => {
     mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
     await updateAdminSettings({ "moduleTitle:secure-development": "" }, "alice");
-    // dels carry the field name in the EVAL argv, matching how the
-    // schedule-field clearing test above asserts its del target.
+    // Assert the positional ARGV layout, same as the schedule-field clearing
+    // case above: numDels at index 4, then the del target(s) in the slots
+    // immediately after. A plain `toContain` on the field name would pass
+    // whether it landed in dels or in fields — this pins it to HDEL.
     const [, , args] = mocks.upstashEval.mock.calls[0];
-    expect(args).toContain("moduleTitle:secure-development");
+    const strArgs = args.map(String);
+    expect(strArgs[4]).toBe("1"); // numDels = 1
+    expect(strArgs.slice(5, 6)).toContain("moduleTitle:secure-development"); // the del target
   });
 });

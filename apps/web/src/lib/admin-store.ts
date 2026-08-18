@@ -29,10 +29,13 @@ export const MODULE_TITLE_MAX = 60;
 export const MODULE_BLURB_MAX = 200;
 const MODULE_FIELD_RE = /^module(Title|Blurb):(.+)$/;
 // Organizer-authored text rendered on pages every contestant loads. Plain text
-// only — reject control characters so nothing can smuggle a terminal escape or
-// a line break into a heading. There is no HTML to sanitise because none is
-// ever interpreted.
-const CONTROL_CHARS_RE = /[\x00-\x1f\x7f]/;
+// only — reject C0 control characters (so nothing can smuggle a terminal
+// escape or a line break into a heading) and Unicode bidi override/isolate
+// characters (U+202A-U+202E, U+2066-U+2069), which reorder rendered glyphs
+// and could visually scramble a heading. This is rendered-text integrity, not
+// injection protection — there is no HTML to sanitise because none is ever
+// interpreted.
+const CONTROL_CHARS_RE = /[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/;
 
 export type AdminSettings = {
   paused: boolean;
