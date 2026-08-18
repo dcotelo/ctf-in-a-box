@@ -3,6 +3,7 @@
 // slices a source can actually provide so it can degrade gracefully.
 
 import type { AppId } from "@/lib/apps";
+import type { ModuleId } from "@/lib/modules";
 
 /** Scorer semantics: patched = regression test passed (challenge fixed),
  *  open = test ran and the vulnerability is still present (failed),
@@ -30,6 +31,23 @@ export type AppProgress = {
   challenges?: ChallengeResult[];
 };
 
+/** secure-development's detail block: today's per-target progress map. */
+export type SecureDevelopmentDetail = { apps: Partial<Record<AppId, AppProgress>> };
+/** quiz's detail block (populated in phase 2). */
+export type QuizDetail = { answered: number; total: number };
+export type ModuleDetail = SecureDevelopmentDetail | QuizDetail;
+
+export type ModuleProgress = {
+  /** This module's contribution to the row's total points. */
+  points: number;
+  /** Items completed in this module — solved flags, answered questions, … .
+   *  Summed across modules to rank on breadth. */
+  completed: number;
+  /** ISO time of the most recent scoring activity in this module. */
+  lastActivityAt: string | null;
+  detail: ModuleDetail;
+};
+
 export type LeaderboardEntry = {
   rank: number;
   /** GitHub login — the row key (the scorer records the PR author's login). */
@@ -55,6 +73,9 @@ export type LeaderboardEntry = {
   /** Legacy-schema extras shown when per-app data is unavailable. */
   lastSha?: string | null;
   lastPr?: number | null;
+  /** Per-module breakdown. Empty for sources with no module data (upstash);
+   *  ranking falls back to `patched`/`lastSolveAt` in that case. */
+  modules?: Partial<Record<ModuleId, ModuleProgress>>;
 };
 
 export type TeamStanding = {
@@ -75,6 +96,9 @@ export type TeamStanding = {
    *  (the `challenges` capability); otherwise undefined and the teams view
    *  shows members only. */
   apps?: Partial<Record<AppId, AppProgress>>;
+  /** Per-module breakdown. Empty for sources with no module data (upstash);
+   *  ranking falls back to `patched`/`lastSolveAt` in that case. */
+  modules?: Partial<Record<ModuleId, ModuleProgress>>;
 };
 
 /** A single team's cumulative-score history, ascending by time — mirrors
