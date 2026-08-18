@@ -1,8 +1,12 @@
-// resolveModules regression gate. The shared fixture in modules.test.ts (via
-// event-config.generated.ts) enables only secure-development, so assertions
-// on the quiz module need their own two-module fixture. `vi.mock` is hoisted
-// per file, so this lives alongside modules.test.ts rather than inside it —
-// see leaderboard-single-module.test.tsx for the same pattern.
+// resolveModules regression gate, on a two-module fixture.
+//
+// The registry is derived from the BAKED event config, and the shipped
+// event-config.generated.ts enables only secure-development — so anything
+// asserting on a second module has to mock `@/lib/event-config`. It mocks
+// event-config rather than `@/lib/modules` because resolveModules lives in
+// `@/lib/modules`: stubbing that module would replace the function under test.
+// `vi.mock` is hoisted per file, so the fixture lives in its own file — see
+// leaderboard-single-module.test.tsx for the same split.
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/event-config", () => ({
@@ -51,5 +55,24 @@ describe("resolveModules", () => {
     const resolved = resolveModules({ quiz: { title: "Trivia" } });
     expect(resolved.map((m) => m.id)).toEqual(enabledModules.map((m) => m.id));
     expect(resolved.find((m) => m.id === "quiz")?.nav?.href).toBe("/quiz");
+  });
+
+  it("treats a whitespace-only override as absent", () => {
+    const resolved = resolveModules({ quiz: { title: "   ", blurb: "\t" } });
+    const quiz = resolved.find((m) => m.id === "quiz");
+    expect(quiz?.title).toBe("Quiz");
+    expect(quiz?.blurb).toBe("Answer security questions for points.");
+  });
+
+  // The registry defaults must not survive onto a resolved module: consumers
+  // render `title`, and leaving `displayName` reachable made "read the wrong
+  // property and silently ignore the organizer's override" a mistake no type
+  // check could catch.
+  it("drops the registry default fields from the resolved object", () => {
+    const resolved = resolveModules({ quiz: { title: "Trivia" } });
+    for (const m of resolved) {
+      expect(m).not.toHaveProperty("displayName");
+      expect(m).not.toHaveProperty("description");
+    }
   });
 });

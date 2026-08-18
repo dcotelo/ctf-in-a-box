@@ -77,7 +77,18 @@ export function isModuleEnabled(id: ModuleId): boolean {
  *  optional and an empty string means "no override" — see resolveModules. */
 export type ModuleOverrides = Partial<Record<ModuleId, { title?: string; blurb?: string }>>;
 
-export type ResolvedModule = ModuleDef & { title: string; blurb: string };
+/** A module with its organizer-authored naming applied.
+ *
+ *  `displayName`/`description` are deliberately OMITTED rather than carried
+ *  through: they are the registry DEFAULTS, and `title`/`blurb` are what a
+ *  consumer must render. Keeping both on the same object made reading
+ *  `.displayName` off a resolved module — silently ignoring the organizer's
+ *  override — a plain property access with no type error. Dropping them turns
+ *  that mistake into a compile failure. */
+export type ResolvedModule = Omit<ModuleDef, "displayName" | "description"> & {
+  title: string;
+  blurb: string;
+};
 
 /** Merge registry defaults with organizer overrides. Pure — no I/O — so it is
  *  testable on its own and usable either side of the server boundary. An
@@ -85,12 +96,15 @@ export type ResolvedModule = ModuleDef & { title: string; blurb: string };
  *  simply absent from the result; an empty string is treated as unset so
  *  clearing a field in the admin UI restores the registry default. */
 export function resolveModules(overrides: ModuleOverrides): readonly ResolvedModule[] {
-  return enabledModules.map((m) => {
-    const o = overrides[m.id];
+  // Destructure the defaults OUT rather than spreading them through, so a
+  // resolved module genuinely has no `displayName` to read by mistake — the
+  // type and the runtime object agree.
+  return enabledModules.map(({ displayName, description, ...rest }) => {
+    const o = overrides[rest.id];
     return {
-      ...m,
-      title: o?.title?.trim() || m.displayName,
-      blurb: o?.blurb?.trim() || m.description,
+      ...rest,
+      title: o?.title?.trim() || displayName,
+      blurb: o?.blurb?.trim() || description,
     };
   });
 }
