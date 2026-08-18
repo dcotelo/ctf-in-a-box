@@ -211,6 +211,8 @@ describe("per-challenge catalog", () => {
     expect(html).toContain("SQL injection");
     // Members still render alongside the flags.
     expect(html).toContain("alice");
+    // OWASP badge links out to the Top-10 category page.
+    expect(html).toContain('href="https://owasp.org/Top10/A03_2021-Injection/"');
   });
 
   it("omits the solved-flags section for a team without per-challenge data", () => {
