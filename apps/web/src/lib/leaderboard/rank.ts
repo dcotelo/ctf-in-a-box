@@ -16,8 +16,15 @@ export function compareStanding(a: LeaderboardEntry, b: LeaderboardEntry): numbe
   return completedCount(b) - completedCount(a) || b.points - a.points || activityMs(a) - activityMs(b);
 }
 
-/** Completion across modules, falling back to `patched` for sources that
- *  carry no module data (upstash) so their ordering is unchanged. */
+/** Completion across modules, falling back to `patched` for sources that carry
+ *  no module data (upstash).
+ *
+ *  That fallback DOES re-order the upstash board relative to the raw `ZRANGE`
+ *  points-descending order it arrives in: a row with more patches but fewer
+ *  points now ranks higher. This is deliberate — it makes upstash rank by the
+ *  same breadth-first rule as the lambda and mock sources rather than being
+ *  the one board scored differently. See `__tests__/rank.test.ts`'s
+ *  upstash-shaped case, which pins the resulting order. */
 function completedCount(entry: LeaderboardEntry): number {
   const mods = Object.values(entry.modules ?? {});
   if (mods.length === 0) return entry.patched;

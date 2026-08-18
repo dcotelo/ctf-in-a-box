@@ -96,9 +96,9 @@ export type TeamStanding = {
    *  (the `challenges` capability); otherwise undefined and the teams view
    *  shows members only. */
   apps?: Partial<Record<AppId, AppProgress>>;
-  /** Per-module breakdown. Empty for sources with no module data (upstash);
-   *  ranking falls back to `patched`/`lastSolveAt` in that case. */
-  modules?: Partial<Record<ModuleId, ModuleProgress>>;
+  // No per-module breakdown here yet: nothing renders one for a team, and
+  // withTeamStandings replaces `data.teams` wholesale on the upstash path.
+  // Phase 2 adds the field back together with the renderer that reads it.
 };
 
 /** A single team's cumulative-score history, ascending by time — mirrors

@@ -43,6 +43,32 @@ describe("withModuleContributions", () => {
     expect(out.entries[0].modules).toEqual({});
   });
 
+  it("passes teams through untouched", async () => {
+    // Team rows have no per-module renderer yet (phase 2), and on the upstash
+    // path withTeamStandings replaces data.teams wholesale anyway.
+    const teams = [{ rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada"] }];
+    const out = await withModuleContributions({ ...data([entry("ada", 30, 3)]), teams });
+    expect(out.teams).toEqual(teams);
+  });
+
+  // upstash carries no per-app data and no modules map, so completedCount
+  // falls back to `patched` — which DOES re-order the raw ZRANGE
+  // points-descending order this source arrives in. Accepted deliberately (it
+  // makes upstash rank by the same breadth-first rule as lambda/mock); pinned
+  // here so the change can't happen again unnoticed.
+  it("re-orders an upstash-shaped board onto the breadth-first rule", async () => {
+    const bare = (login: string, points: number, patched: number) => ({
+      ...entry(login, points, patched), apps: {},
+    });
+    const out = await withModuleContributions({
+      // ZRANGE order: points descending.
+      ...data([bare("hoarder", 90, 1), bare("grinder", 20, 4)]),
+      capabilities: { apps: false, teams: false, challenges: false },
+    });
+    expect(out.entries.map((e) => [e.login, e.rank])).toEqual([["grinder", 1], ["hoarder", 2]]);
+    expect(out.entries.every((e) => Object.keys(e.modules ?? {}).length === 0)).toBe(true);
+  });
+
   // Regression gate for the whole project: with only secure-development
   // configured, a populated module (completed === patched, lastActivityAt
   // === lastSolveAt) must rank identically to how rankByStanding already

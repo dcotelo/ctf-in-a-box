@@ -1,3 +1,7 @@
+// The leaderboard page's fixed composition order:
+//   withHintPenalties → withModuleContributions → withTeamStandings
+// These tests pin the two properties that order exists to guarantee.
+
 import { describe, expect, it, vi } from "vitest";
 import type { LeaderboardData } from "../types";
 
@@ -6,7 +10,16 @@ vi.mock("@/lib/modules", () => ({
   enabledModules: [{ id: "secure-development", displayName: "Secure Development", description: "", targets: ["dvwa"] }],
   isModuleEnabled: (id: string) => id === "secure-development",
 }));
-vi.mock("@/lib/hint-store", () => ({ getHintPenalties: async () => new Map(), HINTS_ENABLED: false }));
+
+// Mutable so a single module graph can cover both the hints-off and hints-on
+// pipelines (vi.mock is hoisted and applies for the whole file).
+const hints = { enabled: false, penalties: new Map<string, number>() };
+vi.mock("@/lib/hint-store", () => ({
+  getHintPenalties: async () => hints.penalties,
+  get HINTS_ENABLED() {
+    return hints.enabled;
+  },
+}));
 
 import { withModuleContributions } from "../module-contributions";
 import { withHintPenalties } from "../hint-penalties";
@@ -21,11 +34,36 @@ const base: LeaderboardData = {
   capabilities: { apps: true, teams: false, challenges: false },
 };
 
+const pipeline = (data: LeaderboardData) => withHintPenalties(data).then(withModuleContributions);
+
 describe("leaderboard pipeline", () => {
   it("orders by combined standing even with hints disabled", async () => {
     // withHintPenalties returns early when HINTS_ENABLED is false, so the
-    // ordering must already be correct when it runs.
-    const out = await withHintPenalties(await withModuleContributions(base));
+    // final order has to be withModuleContributions' doing — which is exactly
+    // why it runs LAST and re-ranks unconditionally.
+    hints.enabled = false;
+    const out = await pipeline(base);
     expect(out.entries.map((e) => [e.login, e.rank])).toEqual([["ada", 1], ["bob", 2]]);
+  });
+
+  it("attributes NET points to the module, so the module block matches the header", async () => {
+    // Regression: with the overlay running first, an expanded row showed
+    // header 20 pts / −10 hints above "SECURE DEVELOPMENT 30 pts".
+    hints.enabled = true;
+    hints.penalties = new Map([["ada", 10]]);
+    try {
+      const out = await pipeline(base);
+      const ada = out.entries.find((e) => e.login === "ada")!;
+      expect(ada.points).toBe(20);
+      expect(ada.hintPenalty).toBe(10);
+      expect(ada.modules!["secure-development"]!.points).toBe(ada.points);
+      // …and every row, penalised or not, agrees with its own header.
+      for (const e of out.entries) {
+        expect(e.modules!["secure-development"]!.points).toBe(e.points);
+      }
+    } finally {
+      hints.enabled = false;
+      hints.penalties = new Map();
+    }
   });
 });

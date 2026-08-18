@@ -22,15 +22,19 @@ export const metadata: Metadata = {
 
 export default async function LeaderboardPage() {
   const source = getLeaderboardSource();
-  // Module contributions before penalties before team standings: the
-  // module overlay re-ranks unconditionally on combined standing (breadth
-  // across modules, then points, then activity) and must run before
-  // withHintPenalties, which returns early when hints are disabled and so
-  // can't be relied on to produce the final order by itself. Penalties
-  // before team standings: team totals sum member points, so they must sum
-  // the already-deducted (and floored) values.
+  // Penalties BEFORE module contributions: withModuleContributions
+  // attributes each row's `points` into its per-module breakdown, so it has
+  // to see the already-deducted (and floored) net figure — running it first
+  // stamps gross module points onto a row whose header shows net, and the
+  // expanded row then contradicts itself. Ordering is safe either way and
+  // strictly safer this way: the module overlay re-ranks UNCONDITIONALLY on
+  // combined standing (breadth across modules, then points, then activity),
+  // so running it last means the final order is always its doing, never
+  // withHintPenalties' — which returns early when hints are disabled.
+  // Team standings last: they only overlay membership onto sources with no
+  // team concept, and read the entries as already scored and ranked.
   const [data, session] = await Promise.all([
-    source.getLeaderboard().then(withModuleContributions).then(withHintPenalties).then(withTeamStandings),
+    source.getLeaderboard().then(withHintPenalties).then(withModuleContributions).then(withTeamStandings),
     auth.api.getSession({ headers: await headers() }),
   ]);
 
