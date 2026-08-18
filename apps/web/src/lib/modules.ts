@@ -4,20 +4,41 @@
 import type { AppId } from "@/lib/apps";
 import { eventConfig } from "@/lib/event-config";
 
-export type ModuleId = "secure-development";
+export type ModuleId = "secure-development" | "quiz";
 
 export type ModuleDef = {
   id: ModuleId;
   displayName: string;
   description: string;
+  /** Nav entry, rendered iff the module is enabled (module contract §5.4).
+   *  Omitted by a module that has no contestant route yet. */
+  nav?: { href: string; label: string };
+  /** Targets this module owns; empty for modules that have none (e.g. quiz). */
   targets: readonly AppId[];
 };
 
-export const enabledModules: readonly ModuleDef[] = [
-  {
+// Display metadata per registered module. Registration is deliberate: an entry
+// here plus a key under `modules:` in event.yaml — never config alone.
+const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
+  "secure-development": {
     id: "secure-development",
     displayName: "Secure Development",
     description: "Find the vulnerability, patch it for real, ship the fix as a PR.",
-    targets: eventConfig.targets,
+    nav: { href: "/challenges", label: "Challenges" },
   },
-];
+  quiz: {
+    id: "quiz",
+    displayName: "Quiz",
+    description: "Answer security questions for points.",
+    // No nav in phase 1 — the /quiz route does not exist yet.
+  },
+};
+
+export const enabledModules: readonly ModuleDef[] = eventConfig.modules.map((cfg) => ({
+  ...REGISTRY[cfg.id],
+  targets: cfg.id === "secure-development" ? cfg.targets : [],
+}));
+
+export function isModuleEnabled(id: ModuleId): boolean {
+  return enabledModules.some((m) => m.id === id);
+}

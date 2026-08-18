@@ -1,6 +1,14 @@
 import type { AppId } from "@/lib/apps";
 import { eventConfig as generated } from "@/lib/event-config.generated";
 
+export type SecureDevelopmentConfig = {
+  id: "secure-development";
+  targets: readonly AppId[];
+  scoreIngest: "poll" | "push";
+};
+export type QuizConfig = { id: "quiz" };
+export type ModuleConfig = SecureDevelopmentConfig | QuizConfig;
+
 export type EventConfig = {
   name: string;
   theme: string;
@@ -12,6 +20,7 @@ export type EventConfig = {
   githubOrg: string;
   discordUrl: string;
   targets: readonly AppId[];
+  modules: readonly ModuleConfig[];
   admins: readonly string[];
 };
 

@@ -1,16 +1,30 @@
-import { describe, expect, it } from "vitest";
-import { enabledModules } from "@/lib/modules";
-import { enabledApps, apps } from "@/lib/apps";
-import { eventConfig } from "@/lib/event-config";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/event-config", () => ({
+  eventConfig: {
+    targets: ["dvwa"],
+    modules: [
+      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
+      { id: "quiz" },
+    ],
+  },
+}));
+
+import { enabledModules, isModuleEnabled } from "@/lib/modules";
 
 describe("module registry", () => {
-  it("exposes secure-development with the config's targets", () => {
-    expect(enabledModules).toHaveLength(1);
-    expect(enabledModules[0].id).toBe("secure-development");
-    expect(enabledModules[0].targets).toEqual(eventConfig.targets);
+  it("derives the enabled modules from config, in registry order", () => {
+    expect(enabledModules.map((m) => m.id)).toEqual(["secure-development", "quiz"]);
+    expect(isModuleEnabled("quiz")).toBe(true);
   });
-  it("enabledApps is the config-filtered subset in canonical order", () => {
-    expect(enabledApps.map((a) => a.id)).toEqual(apps.filter((a) => eventConfig.targets.includes(a.id)).map((a) => a.id));
-    for (const a of enabledApps) expect(eventConfig.targets).toContain(a.id);
+
+  it("gives secure-development its display metadata and nav entry", () => {
+    const mod = enabledModules.find((m) => m.id === "secure-development")!;
+    expect(mod.displayName).toBe("Secure Development");
+    expect(mod.nav).toEqual({ href: "/challenges", label: "Challenges" });
+  });
+
+  it("gives quiz no nav entry in phase 1 — it has no route yet", () => {
+    expect(enabledModules.find((m) => m.id === "quiz")!.nav).toBeUndefined();
   });
 });
