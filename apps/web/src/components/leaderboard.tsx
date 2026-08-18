@@ -21,6 +21,10 @@ import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/lead
 type View = "individual" | "teams";
 type SortKey = "rank" | "points" | "patched";
 
+// Build-time constant (`enabledModules` is derived from the baked event
+// config): whether an expanded row needs per-module headings at all.
+const MULTI_MODULE = enabledModules.length > 1;
+
 // Podium accents for the top three, drawn from the design tokens.
 const PODIUM: Record<number, string> = {
   1: "#d4a017", // gold
@@ -206,10 +210,16 @@ export function EntryRow({
               .filter((m) => entry.modules?.[m.id])
               .map((m) => (
                 <div key={m.id} className="mb-4 last:mb-0">
-                  <p className="mb-2 text-xs uppercase tracking-wider text-muted">
-                    {m.displayName}
-                    <span className="ml-2 font-mono text-zinc-300">{entry.modules![m.id]!.points} pts</span>
-                  </p>
+                  {/* A single-module event has nothing to disambiguate: the
+                      row's own points ARE that module's, so the heading would
+                      just restate the header above it. Show it only once a
+                      second module can contribute. */}
+                  {MULTI_MODULE && (
+                    <p className="mb-2 text-xs uppercase tracking-wider text-muted">
+                      {m.displayName}
+                      <span className="ml-2 font-mono text-zinc-300">{entry.modules![m.id]!.points} pts</span>
+                    </p>
+                  )}
                   <ModuleDetail moduleId={m.id} progress={entry.modules![m.id]!} entry={entry} />
                 </div>
               ))

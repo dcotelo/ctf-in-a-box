@@ -1,9 +1,13 @@
 "use client";
 
-// Freeze / hints / hint-cost controls for the organizer admin page. All
-// writes go through POST /api/admin/settings (auth + validation enforced
-// server-side — see src/app/api/admin/settings/route.ts); this component is
-// display + dispatch only, mirroring the shape of TeamCard.
+// The organizer admin page's control surface, sectioned by module: the
+// platform-wide controls (freeze, scoring/registration windows, reset) sit
+// above one section per entry in `enabledModules`, so a module's knobs — the
+// hint toggle, cost and gating live under Secure Development — appear iff
+// that module is enabled. All writes go through POST /api/admin/settings
+// (auth + validation enforced server-side — see
+// src/app/api/admin/settings/route.ts); this component is display + dispatch
+// only.
 
 import { useState } from "react";
 import type { ReactNode } from "react";
