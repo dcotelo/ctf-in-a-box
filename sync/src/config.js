@@ -2,11 +2,18 @@ import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { makeAppAuth } from "./appAuth.js";
 
-// The modules this build knows how to score, defined once. A new vertical is a
-// code change (add its key here + register its content), never config alone —
-// the deliberate-registration model in docs/modules.md §1.2. v1 ships one module.
-export const KNOWN_MODULES = ["secure-development"];
-const MODULE = KNOWN_MODULES[0];
+// The module keys this build TOLERATES in event.yaml, defined once. A new
+// vertical is a code change (add its key here + register its content), never
+// config alone — the deliberate-registration model in docs/modules.md §1.2.
+// This list must stay in step with the app's own registry
+// (apps/web/scripts/generate-event-config.mjs's MODULE_VALIDATORS): both read
+// the SAME event.yaml, so a key the app accepts but sync rejects crash-loops
+// the poller and silently freezes the leaderboard.
+export const KNOWN_MODULES = ["secure-development", "quiz"];
+// The one module sync actually scores. Deliberately a literal, not
+// KNOWN_MODULES[0] — tolerating a key is not the same as serving it, and the
+// two must not drift if the list is reordered or extended.
+const MODULE = "secure-development";
 
 export const TARGETS = ["juice-shop", "dvwa", "webgoat", "securityshepherd", "vulnerableapp", "vampi"];
 
@@ -41,7 +48,7 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
   const modules = doc?.modules;
   if (!modules || typeof modules !== "object") throw new Error(`event.yaml: modules.${MODULE} is required`);
   const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
-  if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (v1 supports only ${KNOWN_MODULES.join(", ")})`);
+  if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
   const mod = modules[MODULE];
   if (!mod) throw new Error(`event.yaml: modules.${MODULE} is required`);
   const targets = mod.targets;

@@ -7,9 +7,11 @@ title: Module contract
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
-ships exactly one module, `secure-development` (the OWASP Secure Development
-CTF patch-the-vulnerability format: fork target app, find + patch the vuln, PR
-back, GitHub Actions scores the patch). This document is the contract a new
+ships exactly one *scored* module, `secure-development` (the OWASP Secure
+Development CTF patch-the-vulnerability format: fork target app, find + patch
+the vuln, PR back, GitHub Actions scores the patch), alongside one registered
+placeholder id, `quiz`, that proves the registry mechanism and renders nothing
+yet (§5). This document is the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
 `secure-development` as the worked example throughout.
 
@@ -33,28 +35,43 @@ the sections below are the enforceable contract behind it.
        score_ingest: poll             # poll | push
    ```
 
-2. MUST NOT expect dynamic/plugin-style registration in v1. The config
-   loader (`sync/src/config.js`) enumerates known module keys explicitly and
-   throws on anything else:
+2. MUST NOT expect dynamic/plugin-style registration in v1. **Two**
+   independent readers parse the same `event.yaml`, and each enumerates the
+   module keys it knows explicitly, failing on anything else: the poll
+   service's config loader (`sync/src/config.js`) and the app's build-time
+   generator (`apps/web/scripts/generate-event-config.mjs`). In `sync`:
 
    ```js
-   const unknown = Object.keys(modules).filter((k) => k !== "secure-development");
-   if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (v1 supports only secure-development)`);
+   export const KNOWN_MODULES = ["secure-development", "quiz"];
+   const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
+   if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
    ```
 
    An organizer who writes `modules.forensics: {...}` today gets a loud
    startup failure (`sync/test/config.test.js`, "rejects unknown module
-   key"), not a silently ignored block. Adding a module means extending this
-   loader (and the equivalent parsing in `setup/ctf-setup.sh`'s
-   `yaml_targets`) to recognize the new key and validate its shape — the
-   same way `secure-development`'s block requires a non-empty `targets`
-   array drawn from a known target enum (`TARGETS` in `config.js`).
-   Registration is deliberate, not dynamic; this is a v1 constraint, not a
-   permanent architectural stance.
+   key"), not a silently ignored block. Note what `KNOWN_MODULES` means:
+   the ids `sync` *tolerates* in the file, not the ids it scores — it scores
+   exactly one, the separate `MODULE` literal, and still fails if
+   `modules.secure-development` is absent. The two lists MUST stay in step,
+   because both services mount the same file: an id the app accepts and
+   `sync` rejects crash-loops the poller and silently freezes the
+   leaderboard.
+
+   Adding a module means extending both readers to recognize the new key and
+   validate its shape — the same way `secure-development`'s block requires a
+   non-empty `targets` array drawn from a known target enum (`TARGETS` in
+   `config.js`). `setup/ctf-setup.sh`'s `yaml_targets` needs no change: it is
+   scoped to the `secure-development:` block by construction and provisions
+   that module's forks only, so a module with its own provisioning adds its
+   own step instead. Registration is deliberate, not dynamic; this is a v1
+   constraint, not a permanent architectural stance.
+
+   A module is enabled by **being present** under `modules:` and disabled by
+   being omitted. There is no `enabled:` key — a module MUST NOT invent one.
 
 3. A module's config block is free to define its own shape beyond
    `targets`. Note that in v1 `score_ingest` is documentation-of-intent
-   inside `event.yaml` — the config loader does not read it. The actual
+   inside `event.yaml` — neither reader acts on it. The actual
    poll/push switch is the separate `SCORE_INGEST` env var consumed by
    `docker-compose.yml` and the Caddy profile. A module MUST keep any such
    config-file fields and the runtime env vars that actually implement them
@@ -166,25 +183,67 @@ the sections below are the enforceable contract behind it.
 ## 5. UI / presentation contract
 
 **Honesty constraint up front:** the vendored contestant app (`apps/web/`,
-see `apps/web/VENDORED.md`) now implements display metadata (item 1) and
-the enablement rule (item 4) for `secure-development`: `src/lib/modules.ts`
-sources the display name/description from a module registry rather than a
-hardcoded string, and `src/lib/apps.ts`'s `enabledApps` filters nav,
-challenge list, and leaderboard columns down to the targets under
-`event.yaml`'s `modules.secure-development.targets` — see
-`src/lib/__tests__/modules.test.ts` and `scripts/acceptance-app.sh` (which
-asserts a disabled target never renders). The existing challenge catalogue
-(item 2) and per-target solved/total leaderboard columns (item 3) predate
-this work and satisfy those items for the one shipped module. The organizer
-admin panel that was tracked as Spec B is now built — freeze, scheduled
-scoring windows, team-registration windows, hint toggles/cost, demo seed, and
-the master reset (see `docs/operations.md`'s "Organizer admin panel" and
-"Status and upstream dependencies"). What remains open there is score
-adjustments and player removal — and offering this vendored delta back to
-`OWASP-CTF/ctf-owasp-org` once upstream write access opens. This section
-remains the contract a *new* module (forensics, api-security, cloud, …)
-must satisfy to plug into the same UI, since v1 only proves it against the
-one worked example.
+see `apps/web/VENDORED.md`) now derives its module registry from `event.yaml`
+rather than hardcoding a single module. `src/lib/modules.ts`'s
+`enabledModules` maps every id under `event.yaml`'s `modules:` block (surfaced
+through the generator, `apps/web/scripts/generate-event-config.mjs`, which
+emits a structured `modules` array plus a derived back-compat `targets` array)
+to a `ModuleDef` — display name, description, and nav entry are code-side
+registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
+entirely config-driven. Two ids are registered today: `secure-development`
+(targets, catalogue, scoring — the worked example throughout this document)
+and `quiz` (a registrable placeholder id — see below). An id outside the
+registry still fails the build loudly (`generate-event-config.mjs`'s
+`validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
+
+Display metadata (item 1) and the enablement rule (item 4) now hold for real
+across the app, not just as a filter over one hardcoded target list:
+`src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
+header iff that module is enabled *and* defines a `nav` (`quiz` defines
+none, so it contributes nothing); the leaderboard pipeline's
+`withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
+attributes `secure-development`'s scorer-sourced points (net of hint
+penalties — it runs after `withHintPenalties`) into a per-module
+`ModuleProgress`, and an expanded leaderboard row renders each enabled
+module's own detail block (`components/module-detail.tsx`) instead of one
+hardcoded shape — with the per-module heading suppressed while only one
+module is enabled, so a single-module event's row reads exactly as it did
+before; the admin panel (`admin-controls.tsx`) is sectioned by
+enabled module, with the four hint controls now living under Secure
+Development's section rather than a flat list. The existing challenge
+catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
+predate this work and satisfy those items for the one shipped, scored module.
+The organizer admin panel that was tracked as Spec B is still built out —
+freeze, scheduled scoring windows, team-registration windows, hint
+toggles/cost, demo seed, and the master reset (see `docs/operations.md`'s
+"Organizer admin panel" and "Status and upstream dependencies"). What remains
+open there is score adjustments and player removal — and offering this
+vendored delta back to `OWASP-CTF/ctf-owasp-org` once upstream write access
+opens.
+
+What remains open from *this* work, so the registry's existence isn't
+mistaken for a second working module:
+
+- **`quiz` has no UI, no route, no scoring, and no admin controls.** It is
+  purely a registrable config id (`ModuleId` in `modules.ts`, a validator in
+  `generate-event-config.mjs`) that renders nothing — a phase-2 placeholder,
+  not a working vertical. Its presence proves the registry mechanism, not
+  that the contract below is satisfied twice.
+- **No per-module leaderboards or module switcher exist.** The leaderboard is
+  one board; a module's contribution shows only as a row's expandable
+  per-module breakdown, never a separate view.
+- **No scorer changes shipped, and `sync` only learned to tolerate the id.**
+  `sync/src/config.js`'s `KNOWN_MODULES` accepts `quiz` purely so an
+  `event.yaml` the app builds from can't crash-loop the poller (the two
+  services mount the same file); `sync` still scores `secure-development`
+  alone. Per-module `score_ingest`/rubric plumbing for a module that actually
+  needs scorer-mediated scoring was deliberately deferred until one exists
+  that needs it.
+
+This section remains the contract a *new* module (forensics, api-security,
+cloud, …) must satisfy to plug into the same UI: it is proven against one
+real, scored module (`secure-development`) and one placeholder id that
+proves only the registry mechanism, not the rest of the contract.
 
 1. **Display metadata.** A module MUST provide a human-readable display
    name, a short description, and a nav label, sourced from the module's

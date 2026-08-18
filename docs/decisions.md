@@ -207,23 +207,42 @@ disables the forks' inherited workflows automatically.
 
 **Context.** The kit is meant to eventually support more than one CTF
 vertical (forensics, API security, cloud, …) alongside
-`secure-development`, but only one exists today.
+`secure-development`, which is still the only *scored* one.
 
 **Decision.** Platform-level config (`event`, `github`, `teams`, `hints`,
 `admins`) sits at the top level of `event.yaml`; everything vertical-specific
 lives under a kebab-case key in `modules:` (`modules.secure-development`).
-The config loader (`sync/src/config.js`) and the app's generator
+Enablement is presence — a module is on because its key is there, off because
+it isn't; there is no `enabled:` flag. The config loader
+(`sync/src/config.js`) and the app's generator
 (`apps/web/scripts/generate-event-config.mjs`) both enumerate known module
 keys explicitly and throw/fail the build on anything else — no
 dynamic/plugin-style loading in v1.
 
 **Consequences.** An organizer who writes `modules.forensics: {...}` today
-gets a loud startup failure (`event.yaml: unknown module: forensics (v1
-supports only secure-development)`), not a silently ignored block. Adding
-a real second module means extending both loaders (and
-`setup/ctf-setup.sh`'s `yaml_targets`) to recognize the new key — a code
-change, not a config-only addition. `docs/modules.md` is explicit that
-this is a v1 constraint, not a permanent architectural stance.
+gets a loud startup failure (`event.yaml: unknown module: forensics (known
+modules: secure-development, quiz)`), not a silently ignored block. Adding a
+real second module is a code change, not a config-only addition, but the two
+enumerations play different roles and both must be extended:
+
+- `apps/web/scripts/generate-event-config.mjs`'s `MODULE_VALIDATORS` — the
+  ids the app will *render*, each with its own config validator. Paired with
+  `apps/web/src/lib/modules.ts`'s `REGISTRY`, which supplies display name,
+  description, and optional nav entry.
+- `sync/src/config.js`'s `KNOWN_MODULES` — the ids the poll service will
+  *tolerate* in the same file. Both services mount the same `event.yaml`, so
+  an id the app accepts and `sync` rejects crash-loops the poller and silently
+  freezes the leaderboard; the lists must stay in step. Tolerating an id is
+  not serving it: `sync` scores exactly one module, named by the separate
+  `MODULE` literal, and still requires `modules.secure-development` to exist.
+
+`setup/ctf-setup.sh`'s `yaml_targets` needs **no** change for a new module: it
+is scoped to the `secure-development:` block by construction (it awk-ranges
+from that key to the next line at equal-or-lower indent) and provisions that
+module's forks only. A module that needs its own provisioning adds its own
+step rather than widening this one. `docs/modules.md` is explicit that the
+single-scored-module state is a v1 constraint, not a permanent architectural
+stance.
 
 ## 11. Vendor the contestant app into `apps/web/`; upstream stays read-only
 

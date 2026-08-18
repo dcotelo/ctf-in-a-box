@@ -14,6 +14,16 @@ vi.mock("next/image", () => ({
   },
 }));
 
+// event.yaml (and thus the real eventConfig) only enables secure-development
+// in this repo today — quiz is mocked in so the per-module test below can
+// exercise both branches of ModuleDetail without depending on event config.
+vi.mock("@/lib/modules", () => ({
+  enabledModules: [
+    { id: "secure-development", displayName: "Secure Development", description: "", targets: [] },
+    { id: "quiz", displayName: "Quiz", description: "", targets: [] },
+  ],
+}));
+
 import Leaderboard, { EntryRow, TeamRow } from "@/components/leaderboard";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
@@ -221,5 +231,23 @@ describe("per-challenge catalog", () => {
   it("omits the flags section for a team without per-challenge data", () => {
     const html = renderToStaticMarkup(<TeamRow team={team()} topPoints={150} isOpen onToggle={() => {}} />);
     expect(html).not.toContain(">Flags<");
+  });
+});
+
+describe("per-module breakdown", () => {
+  it("labels each module's contribution in the expanded row", () => {
+    const e = entry({
+      points: 132,
+      modules: {
+        "secure-development": { points: 75, completed: 8, lastActivityAt: null, detail: { apps: {} } },
+        quiz: { points: 57, completed: 12, lastActivityAt: null, detail: { answered: 12, total: 15 } },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} />,
+    );
+    expect(html).toContain("Secure Development");
+    expect(html).toContain("Quiz");
+    expect(html).toMatch(/12\s*\/\s*15/); // quiz progress
   });
 });

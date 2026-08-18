@@ -2,6 +2,7 @@
 // Keep route copy in one place so the header, footer, and metadata stay in sync.
 
 import { eventConfig } from "@/lib/event-config";
+import { enabledModules } from "@/lib/modules";
 
 export const event = {
   name: eventConfig.name,
@@ -39,14 +40,26 @@ export const event = {
 
 export type NavLink = { href: string; label: string };
 
-// Order here drives the header nav left-to-right.
-export const navLinks: NavLink[] = [
-  { href: "/how-to-play", label: "How to Play" },
-  { href: "/challenges", label: "Challenges" },
+// Platform-level pages that exist regardless of which modules are enabled.
+// Module-owned entries (e.g. Challenges) are NOT listed here — they're
+// spliced in from the module registry below, so a module's nav entry
+// appears if and only if that module is enabled (module contract §5.4).
+const leadingNavLinks: NavLink[] = [{ href: "/how-to-play", label: "How to Play" }];
+const trailingNavLinks: NavLink[] = [
   { href: "/rules", label: "Rules" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/faq", label: "FAQ" },
 ];
+
+// Module-owned nav entries, in registry order, filtered to modules that
+// actually have a contestant route (a module like quiz in phase 1 has none
+// and contributes no entry).
+const moduleNavLinks: NavLink[] = enabledModules
+  .filter((m) => m.nav)
+  .map((m) => m.nav as NavLink);
+
+// Order here drives the header nav left-to-right.
+export const navLinks: NavLink[] = [...leadingNavLinks, ...moduleNavLinks, ...trailingNavLinks];
 
 // Policy routes. Deliberately kept out of `navLinks` — these belong in the
 // footer's secondary row, not the header nav.

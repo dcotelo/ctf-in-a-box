@@ -11,12 +11,19 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
+import { enabledModules } from "@/lib/modules";
 import ScoreTimeChart from "@/components/score-time-chart";
 import AppChallengeList from "@/components/app-challenge-list";
+import AppBreakdown from "@/components/app-breakdown";
+import ModuleDetail from "@/components/module-detail";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
 type SortKey = "rank" | "points" | "patched";
+
+// Build-time constant (`enabledModules` is derived from the baked event
+// config): whether an expanded row needs per-module headings at all.
+const MULTI_MODULE = enabledModules.length > 1;
 
 // Podium accents for the top three, drawn from the design tokens.
 const PODIUM: Record<number, string> = {
@@ -53,58 +60,6 @@ function RankChip({ rank }: { rank: number }) {
     >
       {rank}
     </span>
-  );
-}
-
-function AppBreakdown({ entry }: { entry: LeaderboardEntry }) {
-  const attempted = appList.filter((app) => entry.apps[app.id]);
-  if (attempted.length === 0) {
-    return <p className="text-sm text-muted">No app breakdown reported yet.</p>;
-  }
-  // Targets whose source carries the per-challenge catalogue — those get a
-  // collapsible "which flags" list under the count grid.
-  const withChallenges = attempted.filter((app) => (entry.apps[app.id]!.challenges?.length ?? 0) > 0);
-  return (
-    <div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {attempted.map((app) => {
-          const progress = entry.apps[app.id]!;
-          const pct = progress.total > 0 ? (progress.patched / progress.total) * 100 : 0;
-          return (
-            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
-              <p className="text-xs" style={{ color: app.accent }}>
-                {app.name}
-              </p>
-              <p className="font-mono text-sm tabular-nums text-white">
-                {progress.patched}
-                <span className="ml-1 text-xs text-muted">/ {progress.total} patched</span>
-              </p>
-              <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
-                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: app.accent }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {withChallenges.length > 0 && (
-        <div className="mt-3 flex flex-col gap-3">
-          {withChallenges.map((app) => {
-            const progress = entry.apps[app.id]!;
-            return (
-              <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
-                <p className="text-sm">
-                  <span style={{ color: app.accent }}>{app.name}</span>
-                  <span className="ml-1.5 font-mono text-xs text-muted">
-                    {progress.patched} / {progress.total} patched
-                  </span>
-                </p>
-                <AppChallengeList challenges={progress.challenges!} />
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -250,7 +205,29 @@ export function EntryRow({
             </span>
             {entry.updatedAgo && <span>Last update {entry.updatedAgo}</span>}
           </div>
-          {capabilities.apps ? <AppBreakdown entry={entry} /> : <LegacyBreakdown entry={entry} />}
+          {entry.modules && Object.keys(entry.modules).length > 0 ? (
+            enabledModules
+              .filter((m) => entry.modules?.[m.id])
+              .map((m) => (
+                <div key={m.id} className="mb-4 last:mb-0">
+                  {/* A single-module event has nothing to disambiguate: the
+                      row's own points ARE that module's, so the heading would
+                      just restate the header above it. Show it only once a
+                      second module can contribute. */}
+                  {MULTI_MODULE && (
+                    <p className="mb-2 text-xs uppercase tracking-wider text-muted">
+                      {m.displayName}
+                      <span className="ml-2 font-mono text-zinc-300">{entry.modules![m.id]!.points} pts</span>
+                    </p>
+                  )}
+                  <ModuleDetail moduleId={m.id} progress={entry.modules![m.id]!} entry={entry} />
+                </div>
+              ))
+          ) : capabilities.apps ? (
+            <AppBreakdown entry={entry} />
+          ) : (
+            <LegacyBreakdown entry={entry} />
+          )}
         </div>
       )}
     </li>

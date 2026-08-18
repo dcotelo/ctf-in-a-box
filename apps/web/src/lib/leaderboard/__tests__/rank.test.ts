@@ -114,3 +114,42 @@ describe("rankByStanding", () => {
     ]);
   });
 });
+
+const withModules = (
+  login: string,
+  patched: number,
+  points: number,
+  mods: LeaderboardEntry["modules"],
+): LeaderboardEntry => ({
+  rank: 0, login, team: null, points, patched, failed: 0, total: 0,
+  apps: {}, updatedAt: null, lastSolveAt: null, modules: mods,
+});
+
+describe("compareStanding across modules", () => {
+  it("counts completion across every module, not just patching", () => {
+    // ada: 0 patches but 12 quiz answers; bob: 1 patch, no quiz.
+    const ada = withModules("ada", 0, 120, {
+      quiz: { points: 120, completed: 12, lastActivityAt: null, detail: { answered: 12, total: 15 } },
+    });
+    const bob = withModules("bob", 1, 10, {
+      "secure-development": { points: 10, completed: 1, lastActivityAt: null, detail: { apps: {} } },
+    });
+    expect(rankByStanding([bob, ada]).map((e) => e.login)).toEqual(["ada", "bob"]);
+  });
+
+  it("falls back to `patched` when a source supplies no modules map", () => {
+    const a = withModules("a", 5, 50, {});
+    const b = withModules("b", 3, 90, {});
+    expect(rankByStanding([b, a]).map((e) => e.login)).toEqual(["a", "b"]);
+  });
+
+  it("breaks ties on the earliest activity across modules", () => {
+    const early = withModules("early", 1, 10, {
+      quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T10:00:00.000Z", detail: { answered: 1, total: 5 } },
+    });
+    const late = withModules("late", 1, 10, {
+      quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T12:00:00.000Z", detail: { answered: 1, total: 5 } },
+    });
+    expect(rankByStanding([late, early]).map((e) => e.login)).toEqual(["early", "late"]);
+  });
+});
