@@ -17,9 +17,13 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
  *                                captured at answer time, so a later
  *                                re-pricing of a question never rewrites
  *                                history.
- *   ctf:quiz:attempts:<login>   hash, id -> JSON {attempts, lastAt} — every
- *                                attempt, right or wrong; Task 3's retry gate
- *                                reads this.
+ *   ctf:quiz:attempts:<login>   hash, id -> JSON {attempts, lastAt, lastAtMs}
+ *                                — every attempt, right or wrong; Task 3's
+ *                                retry gate reads this. `lastAtMs` (a plain
+ *                                epoch-ms mirror of `lastAt`) exists only so
+ *                                GRADE_SCRIPT can do cooldown arithmetic in
+ *                                Lua without parsing an ISO-8601 string;
+ *                                readers outside this file should use `lastAt`.
  *
  * Secrecy boundary: `ctf:quiz:key` mirrors how hint text lives in a
  * scorer-owned hash the app only ever reads, and how the scoring rubric
@@ -132,16 +136,32 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   for (const choice of q.choices) {
     if (!QUIZ_ID_RE.test(choice.id)) throw new Error(`Invalid choice id: ${choice.id}`);
   }
+  // Points get written verbatim into the question hash and read back INSIDE
+  // GRADE_SCRIPT by pattern-matching a plain integer (see GRADE_SCRIPT's
+  // comment) — a non-integer here would either fail to match (silently
+  // scoring 0) or, worse, corrupt HINCRBY mid-script after the attempt bump
+  // and answer row had already been written with no way to roll back.
+  if (!Number.isInteger(q.points) || q.points < 0) {
+    throw new Error(`Question points must be a non-negative integer, got ${q.points}`);
+  }
   const choiceIds = new Set(q.choices.map((c) => c.id));
   for (const id of correct) {
     if (!choiceIds.has(id)) throw new Error(`Correct choice id not among choices: ${id}`);
   }
+  // Dedupe BEFORE the length check and the sort: `answerQuestion` dedupes a
+  // submission the same way (`Array.from(new Set(choices)).sort()`), and the
+  // whole "string-compare stands in for set-compare" design in GRADE_SCRIPT
+  // depends on both sides canonicalizing identically. Without this, a
+  // duplicate id here (e.g. ["a","a"]) would store a correct set no
+  // submission could ever equal — a permanently unanswerable question that
+  // silently burns every attempt against it.
+  const uniqueCorrect = [...new Set(correct)];
   // A "single" question must have exactly one correct choice — with more
   // than one, the all-or-nothing grading rule could never be satisfied.
-  if (q.type === "single" && correct.length !== 1) {
-    throw new Error(`A "single" question must have exactly one correct choice, got ${correct.length}`);
+  if (q.type === "single" && uniqueCorrect.length !== 1) {
+    throw new Error(`A "single" question must have exactly one correct choice, got ${uniqueCorrect.length}`);
   }
-  const sortedCorrect = [...correct].sort();
+  const sortedCorrect = uniqueCorrect.sort();
 
   const results = await upstashPipeline([
     ["HSET", QUESTIONS_KEY, q.id, JSON.stringify(q)],
@@ -232,31 +252,23 @@ export type QuizGate =
       attemptsLeft?: number;
     };
 
-/** Decides whether `login` may submit a graded answer for `questionId` right
- *  now. Checked in this order (each one short-circuits the rest):
- *    1. scoring paused, or outside the scheduled scoring window
- *    2. `login` already holds a correct answer for this question
- *    3. `login` has spent every attempt `quizMaxAttempts` allows
- *    4. `login` is still inside the `quizRetryAfterMin` cooldown since its
- *       last attempt
+type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;
+
+/** The gate logic, factored out so `answerQuestion` can reuse a settings
+ *  object it already fetched instead of hitting `ctf:admin:settings` a
+ *  second time. `quizGate` (below) is the public, settings-fetching form —
+ *  used standalone (e.g. a status check before the caller has even chosen an
+ *  answer) and internally as the CHEAP pre-check `answerQuestion` runs
+ *  before ever calling the grading script.
  *
- *  `retryAt` (cooldown reason) is DERIVED from `lastAt + quizRetryAfterMin`
- *  on every call, never stored — so lowering the cooldown mid-event lifts a
- *  lock immediately instead of leaving it stale until some persisted
- *  unlock time catches up.
- *
- *  Fails CLOSED: if the attempt/answer lookup itself errors, this refuses
- *  the answer with its own distinct reason, "unavailable" — deliberately
- *  NOT "exhausted", because misreporting an unverifiable lookup as a real
- *  attempt-count fact (telling a contestant who has used zero attempts that
- *  they have none left) turns a transient Redis blip into a support
- *  conversation about a wrong count. This is the OPPOSITE of the scoring
- *  freeze (`effectivePaused`), which fails OPEN so a Redis blip never drops
- *  a live submission — here, the safe failure is "no attempt", not "grade a
- *  possibly-replayed answer", but the caller must still be told the truth:
- *  the check couldn't be completed, not that they're out of attempts. */
-export async function quizGate(login: string, questionId: string): Promise<QuizGate> {
-  const settings = await getAdminSettings();
+ *  IMPORTANT: this pre-check is NOT the authority on the attempt cap or the
+ *  cooldown — it reads attempts/answers with its own separate, non-atomic
+ *  round trip, so two requests racing each other can both read "0 attempts
+ *  spent" before either has written anything. It exists only to keep an
+ *  obviously-refused answer off the write path cheaply; GRADE_SCRIPT
+ *  re-checks both, against state read fresh at script-execution time, and
+ *  is what actually enforces them (see GRADE_SCRIPT's comment). */
+async function evaluateGate(settings: ResolvedAdminSettings, login: string, questionId: string): Promise<QuizGate> {
   if (effectivePaused(settings)) return { allowed: false, reason: "paused" };
 
   const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
@@ -298,11 +310,51 @@ export async function quizGate(login: string, questionId: string): Promise<QuizG
   return { allowed: true };
 }
 
+/** Decides whether `login` may submit a graded answer for `questionId` right
+ *  now. Checked in this order (each one short-circuits the rest):
+ *    1. scoring paused, or outside the scheduled scoring window
+ *    2. `login` already holds a correct answer for this question
+ *    3. `login` has spent every attempt `quizMaxAttempts` allows
+ *    4. `login` is still inside the `quizRetryAfterMin` cooldown since its
+ *       last attempt
+ *
+ *  `retryAt` (cooldown reason) is DERIVED from `lastAt + quizRetryAfterMin`
+ *  on every call, never stored — so lowering the cooldown mid-event lifts a
+ *  lock immediately instead of leaving it stale until some persisted
+ *  unlock time catches up.
+ *
+ *  Fails CLOSED: if the attempt/answer lookup itself errors, this refuses
+ *  the answer with its own distinct reason, "unavailable" — deliberately
+ *  NOT "exhausted", because misreporting an unverifiable lookup as a real
+ *  attempt-count fact (telling a contestant who has used zero attempts that
+ *  they have none left) turns a transient Redis blip into a support
+ *  conversation about a wrong count. This is the OPPOSITE of the scoring
+ *  freeze (`effectivePaused`), which fails OPEN so a Redis blip never drops
+ *  a live submission — here, the safe failure is "no attempt", not "grade a
+ *  possibly-replayed answer", but the caller must still be told the truth:
+ *  the check couldn't be completed, not that they're out of attempts.
+ *
+ *  This function is a cheap, non-atomic pre-check — see the note on
+ *  `evaluateGate` above about why it is NOT what actually enforces the cap
+ *  or cooldown against a race. */
+export async function quizGate(login: string, questionId: string): Promise<QuizGate> {
+  const settings = await getAdminSettings();
+  return evaluateGate(settings, login, questionId);
+}
+
 // Grades one submission and, on success, records everything it changes in a
 // single atomic operation — mirroring hint-store.ts's REVEAL_SCRIPT, whose
 // SADD-return-value idempotency guard is the pattern copied here as an
-// HEXISTS guard, so a double-click (or two requests racing the gate above)
-// can never double-award points or double-spend an attempt:
+// HEXISTS guard. Unlike the JS-side `quizGate`/`evaluateGate` pre-check
+// (which reads attempts/answers over its own separate, non-atomic round
+// trip and so CANNOT by itself stop two — or fifteen — concurrent requests
+// from all observing "0 attempts spent" before any of them writes), this
+// script is the sole AUTHORITY on the attempt cap and cooldown: it re-reads
+// attempts fresh at execution time, and Redis runs one script to completion
+// before starting the next, so each concurrent submission sees every effect
+// of every submission that finished before it. That's what actually closes
+// the race — no amount of care in the pre-check could, since the pre-check
+// and the script are necessarily two separate round trips.
 //
 //   1. HGET the secret answer key for this question. Missing -> {'missing'}:
 //      there is nothing to grade (the caller passed a bad/deleted id).
@@ -310,33 +362,68 @@ export async function quizGate(login: string, questionId: string): Promise<QuizG
 //      write. A hit means `login` already banked a correct answer here (a
 //      race that slipped past the gate's own read) -> {'already'}, with
 //      nothing else touched.
-//   3. Every submission that reaches this point spends an attempt: read the
-//      current {attempts,lastAt} blob (plain string matching, not a JSON
-//      library — the field format is one this module fully controls), bump
-//      the count, and HSET the new blob with `now`. This happens whether the
+//   3. Read the current {attempts,lastAt,lastAtMs} blob (plain string
+//      matching, not a JSON library — the field format is one this module
+//      fully controls) and, WITHOUT WRITING ANYTHING YET, re-check the cap
+//      and cooldown against ARGV-supplied `maxAttempts`/`cooldownMs` (the
+//      admin setting, resolved by the caller from the CURRENT config on
+//      every call — never stored) and the freshly-read `attempts`/`lastAtMs`
+//      (never a value the caller read earlier and handed in, which is what
+//      would let a race bypass them):
+//        - `attempts >= maxAttempts` (when capped) -> {'exhausted'}
+//        - still within `lastAtMs + cooldownMs` (when cooled down) ->
+//          {'cooldown', retryAtMs}
+//   4. Only past both checks does a submission spend an attempt: bump the
+//      count and HSET the new blob with `now`. This happens whether the
 //      submission turns out right or wrong.
-//   4. Compare the submitted sorted-JSON-array string against the stored
+//   5. Compare the submitted sorted-JSON-array string against the stored
 //      key, byte for byte (both sides are produced by the same
-//      `[...ids].sort()` + `JSON.stringify` recipe, so equal sets serialize
-//      identically regardless of submission order). Not equal -> {'incorrect'}.
-//   5. Equal: HGET the question's current `points` (read at grading time, per
-//      spec, rather than trusting a value the caller might have fetched
-//      earlier), HSET the answer row, and HINCRBY the two aggregate
-//      counters (`ctf:quiz:points`, `ctf:quiz:answered`) that the leaderboard
-//      overlay reads later -> {'correct', points}.
+//      `[...ids].sort()` + `JSON.stringify` recipe — see `upsertQuestion`'s
+//      dedupe-then-sort and `answerQuestion`'s dedupe-then-sort below, which
+//      must keep agreeing for this comparison to mean anything — so equal
+//      sets serialize identically regardless of submission order). Not
+//      equal -> {'incorrect'}.
+//   6. Equal: HGET the question's current `points` (read at grading time,
+//      per spec, rather than trusting a value the caller might have fetched
+//      earlier; `upsertQuestion` requires `points` to be a non-negative
+//      integer so this match — and the HINCRBY below — can't be handed a
+//      decimal mid-script with no way to roll back), HSET the answer row,
+//      and HINCRBY the two aggregate counters (`ctf:quiz:points`,
+//      `ctf:quiz:answered`) that the leaderboard overlay reads later ->
+//      {'correct', points}.
+//
+// Both pattern matches are anchored with a trailing `[,}]` so a value can
+// only match a complete `"field":<value>` pair immediately followed by the
+// next field or the closing brace — not an arbitrary digit run that happens
+// to appear earlier in the blob (e.g. inside a differently-ordered field).
 const GRADE_SCRIPT = `
 local key = redis.call('HGET', KEYS[3], ARGV[1])
 if not key then return {'missing'} end
 if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end
 
+local maxAttempts = tonumber(ARGV[5])
+local cooldownMs = tonumber(ARGV[6])
+local nowMs = tonumber(ARGV[7])
+
 local attemptsRaw = redis.call('HGET', KEYS[1], ARGV[1])
 local attempts = 0
+local lastAtMs = nil
 if attemptsRaw then
-  local found = string.match(attemptsRaw, '"attempts":(%d+)')
-  if found then attempts = tonumber(found) end
+  local foundAttempts = string.match(attemptsRaw, '"attempts":(%d+)[,}]')
+  if foundAttempts then attempts = tonumber(foundAttempts) end
+  local foundLastAtMs = string.match(attemptsRaw, '"lastAtMs":(%d+)[,}]')
+  if foundLastAtMs then lastAtMs = tonumber(foundLastAtMs) end
 end
+
+if maxAttempts > 0 and attempts >= maxAttempts then
+  return {'exhausted'}
+end
+if cooldownMs > 0 and lastAtMs and nowMs < (lastAtMs + cooldownMs) then
+  return {'cooldown', tostring(lastAtMs + cooldownMs)}
+end
+
 attempts = attempts + 1
-redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"lastAt":"' .. ARGV[3] .. '"}')
+redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[7] .. '}')
 
 if key ~= ARGV[2] then
   return {'incorrect', tostring(attempts)}
@@ -345,7 +432,7 @@ end
 local qRaw = redis.call('HGET', KEYS[4], ARGV[1])
 local points = 0
 if qRaw then
-  local found = string.match(qRaw, '"points":([%-%d%.]+)')
+  local found = string.match(qRaw, '"points":(%-?%d+)[,}]')
   if found then points = tonumber(found) end
 end
 redis.call('HSET', KEYS[2], ARGV[1], '{"choices":' .. ARGV[2] .. ',"points":' .. points .. ',"at":"' .. ARGV[3] .. '"}')
@@ -370,10 +457,13 @@ export type AnswerResult =
  *  same as any other wrong answer. Single-choice is simply the one-element
  *  case of this same rule, not a separate path.
  *
- *  The retry gate (`quizGate`) is checked BEFORE the grading script runs —
- *  a refused answer must never reach Redis's scoring path — and this
- *  function never returns the answer key itself, only whether the
- *  submission was right. */
+ *  The retry gate (`quizGate`/`evaluateGate`) is checked BEFORE the grading
+ *  script runs — a refused answer must never reach Redis's scoring path —
+ *  but it is only a cheap pre-check; GRADE_SCRIPT re-checks the same cap and
+ *  cooldown authoritatively (see its comment) using the current admin
+ *  settings resolved by THIS call, so a race that slips past the pre-check
+ *  is still caught, atomically, by the script. This function never returns
+ *  the answer key itself, only whether the submission was right. */
 export async function answerQuestion(login: string, questionId: string, choices: string[]): Promise<AnswerResult> {
   if (!QUIZ_ID_RE.test(questionId)) return { ok: false, reason: "invalid" };
   if (
@@ -384,7 +474,8 @@ export async function answerQuestion(login: string, questionId: string, choices:
     return { ok: false, reason: "invalid" };
   }
 
-  const gate = await quizGate(login, questionId);
+  const settings = await getAdminSettings();
+  const gate = await evaluateGate(settings, login, questionId);
   if (!gate.allowed) {
     // Kept as its own branch (not folded into the passthrough below) so its
     // caller-facing shape can never accidentally pick up a retryAt/attempts
@@ -399,14 +490,22 @@ export async function answerQuestion(login: string, questionId: string, choices:
   // the correct set, so an exact JSON-string match inside the script is a
   // valid stand-in for a set comparison.
   const submitted = JSON.stringify(Array.from(new Set(choices)).sort());
-  const now = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  // Recomputed from the SAME settings the pre-check just used (never a
+  // stored cutoff) and handed to the script as plain numbers — the script
+  // combines them with the attempts row IT reads at execution time, so the
+  // authoritative check is never working from data this call read earlier.
+  const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
+  const cooldownMs = (settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
 
   let verdict: unknown;
   try {
     verdict = await upstashEval(
       GRADE_SCRIPT,
       [attemptsKey(login), answersKey(login), KEY_KEY, QUESTIONS_KEY, POINTS_KEY, ANSWERED_KEY],
-      [questionId, submitted, now, login],
+      [questionId, submitted, nowIso, login, maxAttempts, cooldownMs, now.getTime()],
     );
   } catch (err) {
     console.error("Quiz grading failed:", err);
@@ -415,6 +514,11 @@ export async function answerQuestion(login: string, questionId: string, choices:
 
   const [status, value] = Array.isArray(verdict) ? (verdict as unknown[]) : [];
   if (status === "missing") return { ok: false, reason: "invalid" };
+  if (status === "exhausted") return { ok: false, reason: "exhausted" };
+  if (status === "cooldown") {
+    const retryAtMs = Number(value);
+    return { ok: false, reason: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
+  }
   if (status === "incorrect") return { ok: true, correct: false };
   // Raced a prior correct submission past the gate's own read — already
   // banked, so this call awards nothing further, but it IS a correct answer.

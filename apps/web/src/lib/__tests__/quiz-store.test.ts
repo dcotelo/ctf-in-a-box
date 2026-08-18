@@ -156,6 +156,91 @@ describe("upsertQuestion", () => {
     ).rejects.toThrow(/not among choices/i);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
+
+  it("rejects non-integer points before touching Upstash", async () => {
+    await expect(
+      upsertQuestion(
+        { id: "q1", prompt: "?", type: "single", choices: [{ id: "a", label: "A" }], points: 5.5, order: 1 },
+        ["a"],
+      ),
+    ).rejects.toThrow(/points must be a non-negative integer/i);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("rejects negative points before touching Upstash", async () => {
+    await expect(
+      upsertQuestion(
+        { id: "q1", prompt: "?", type: "single", choices: [{ id: "a", label: "A" }], points: -5, order: 1 },
+        ["a"],
+      ),
+    ).rejects.toThrow(/points must be a non-negative integer/i);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it('rejects a "single" question with more than one correct choice', async () => {
+    await expect(
+      upsertQuestion(
+        {
+          id: "q1",
+          prompt: "?",
+          type: "single",
+          choices: [
+            { id: "a", label: "A" },
+            { id: "b", label: "B" },
+          ],
+          points: 5,
+          order: 1,
+        },
+        ["a", "b"],
+      ),
+    ).rejects.toThrow(/"single" question must have exactly one correct choice/i);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it('rejects a "single" question whose two correct entries dedupe down to one (still not what "exactly one" means going in)', async () => {
+    // Deduping ["a","a"] down to one unique id is fine on its own (see the
+    // dedupe test below) — this checks the OTHER direction: two genuinely
+    // different ids on a "single" question must still be rejected even
+    // though dedup doesn't collapse them.
+    await expect(
+      upsertQuestion(
+        {
+          id: "q1",
+          prompt: "?",
+          type: "single",
+          choices: [
+            { id: "a", label: "A" },
+            { id: "b", label: "B" },
+            { id: "c", label: "C" },
+          ],
+          points: 5,
+          order: 1,
+        },
+        ["a", "b", "c"],
+      ),
+    ).rejects.toThrow(/"single" question must have exactly one correct choice/i);
+  });
+
+  it("dedupes the correct set before storing it, so a duplicate id can't create an unanswerable question", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: "OK" }, { result: "OK" }]);
+    await upsertQuestion(
+      {
+        id: "q1",
+        prompt: "?",
+        type: "multi",
+        choices: [
+          { id: "a", label: "A" },
+          { id: "c", label: "C" },
+        ],
+        points: 5,
+        order: 1,
+      },
+      ["a", "a", "c"],
+    );
+    const cmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
+    const keyCmd = cmds.find((c) => c[1] === "ctf:quiz:key")!;
+    expect(JSON.parse(keyCmd[3])).toEqual(["a", "c"]);
+  });
 });
 
 describe("deleteQuestion", () => {

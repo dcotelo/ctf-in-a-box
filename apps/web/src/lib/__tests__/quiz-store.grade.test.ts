@@ -26,7 +26,13 @@ vi.mock("@/lib/admin-store", async (orig) => ({
   getAdminSettings: mocks.getAdminSettings,
 }));
 
-import { answerQuestion, quizGate, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-store";
+import {
+  answerQuestion,
+  quizGate,
+  upsertQuestion,
+  QUIZ_MAX_ATTEMPTS,
+  QUIZ_RETRY_AFTER_MIN,
+} from "@/lib/quiz-store";
 
 type SettingsOverride = Partial<{
   paused: boolean;
@@ -124,27 +130,132 @@ describe("grading (all-or-nothing, order-insensitive)", () => {
     expect(result).toEqual({ ok: true, correct: true, points: 0 });
   });
 
-  it("guards the idempotency check before the answer write, and gates the aggregates behind the correctness check (one atomic script)", async () => {
+  it("guards the idempotency check before the answer write, re-checks the cap/cooldown before spending an attempt, and gates the aggregates behind the correctness check (one atomic script)", async () => {
     gateReads(null, null);
     mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
     await answerQuestion("octocat", "q1", ["a"]);
     const [script] = mocks.upstashEval.mock.calls[0] as [string, string[], (string | number)[]];
     const missing = script.indexOf("'missing'");
     const guard = script.indexOf("HEXISTS");
+    const exhaustedReturn = script.indexOf("'exhausted'");
+    const cooldownReturn = script.indexOf("'cooldown'");
     const attemptsWrite = script.indexOf("HSET', KEYS[1]");
     const incorrectReturn = script.indexOf("'incorrect'");
     const answerWrite = script.indexOf("HSET', KEYS[2]");
     const pointsIncr = script.indexOf("HINCRBY', KEYS[5]");
     const answeredIncr = script.indexOf("HINCRBY', KEYS[6]");
-    for (const idx of [missing, guard, attemptsWrite, incorrectReturn, answerWrite, pointsIncr, answeredIncr]) {
+    for (const idx of [
+      missing,
+      guard,
+      exhaustedReturn,
+      cooldownReturn,
+      attemptsWrite,
+      incorrectReturn,
+      answerWrite,
+      pointsIncr,
+      answeredIncr,
+    ]) {
       expect(idx).toBeGreaterThan(-1);
     }
     expect(missing).toBeLessThan(guard);
-    expect(guard).toBeLessThan(attemptsWrite);
+    // The authoritative cap/cooldown re-check happens after the idempotency
+    // guard but strictly BEFORE any attempt is spent — a refusal here writes
+    // nothing.
+    expect(guard).toBeLessThan(exhaustedReturn);
+    expect(exhaustedReturn).toBeLessThan(cooldownReturn);
+    expect(cooldownReturn).toBeLessThan(attemptsWrite);
     expect(attemptsWrite).toBeLessThan(incorrectReturn);
     expect(incorrectReturn).toBeLessThan(answerWrite);
     expect(answerWrite).toBeLessThan(pointsIncr);
     expect(pointsIncr).toBeLessThan(answeredIncr);
+  });
+
+  it("anchors the attempts/lastAtMs/points pattern matches to a complete field (not an arbitrary digit run earlier in the blob)", async () => {
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
+    await answerQuestion("octocat", "q1", ["a"]);
+    const [script] = mocks.upstashEval.mock.calls[0] as [string, string[], (string | number)[]];
+    expect(script).toContain(`'"attempts":(%d+)[,}]'`);
+    expect(script).toContain(`'"lastAtMs":(%d+)[,}]'`);
+    expect(script).toContain(`'"points":(%-?%d+)[,}]'`);
+  });
+});
+
+describe("authoritative cap/cooldown enforcement (the script, not just the JS pre-check)", () => {
+  it("passes the CURRENT maxAttempts, cooldown (as a duration in ms), and now (epoch ms) into the script as ARGV, alongside the pre-check", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ quizMaxAttempts: 3, quizRetryAfterMin: 5 }));
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
+    const before = Date.now();
+    await answerQuestion("octocat", "q1", ["a"]);
+    const after = Date.now();
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    expect(args[4]).toBe(3); // maxAttempts
+    expect(args[5]).toBe(5 * 60_000); // cooldown as a duration, not a stored cutoff
+    expect(Number(args[6])).toBeGreaterThanOrEqual(before);
+    expect(Number(args[6])).toBeLessThanOrEqual(after);
+  });
+
+  it("falls back to the baked defaults for the script's ARGV when no admin override is set", async () => {
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
+    await answerQuestion("octocat", "q1", ["a"]);
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    expect(args[4]).toBe(QUIZ_MAX_ATTEMPTS);
+    expect(args[5]).toBe(QUIZ_RETRY_AFTER_MIN * 60_000);
+  });
+
+  it("maps the script's authoritative 'exhausted' verdict onto the same AnswerResult shape as the pre-check's — this is what closes the parallel-submission race the pre-check alone cannot", async () => {
+    // The pre-check (gateReads) sees 0 attempts spent and allows — simulating
+    // N requests racing in with the same stale "0 attempts" read — but the
+    // script (which re-reads fresh, one at a time) has already seen enough
+    // OTHER concurrent submissions land to know the cap is now spent.
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["exhausted"]);
+    const result = await answerQuestion("octocat", "q1", ["a"]);
+    expect(result).toEqual({ ok: false, reason: "exhausted" });
+  });
+
+  it("maps the script's authoritative 'cooldown' verdict onto retryAt, derived from the script's own fresh read", async () => {
+    gateReads(null, null);
+    const retryAtMs = Date.now() + 3 * 60_000;
+    mocks.upstashEval.mockResolvedValueOnce(["cooldown", String(retryAtMs)]);
+    const result = await answerQuestion("octocat", "q1", ["a"]);
+    expect(result).toEqual({ ok: false, reason: "cooldown", retryAt: new Date(retryAtMs).toISOString() });
+  });
+});
+
+describe("canonicalization identity (upsertQuestion's stored key vs. answerQuestion's submission)", () => {
+  it("stores and submits byte-identical JSON for the same set, regardless of input order or duplicates — the whole string-compare-as-set-compare design depends on this", async () => {
+    // upsertQuestion: correct ids given out of order, with a duplicate.
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "OK" }, { result: "OK" }]);
+    await upsertQuestion(
+      {
+        id: "q1",
+        prompt: "?",
+        type: "multi",
+        choices: [
+          { id: "a", label: "A" },
+          { id: "c", label: "C" },
+        ],
+        points: 20,
+        order: 1,
+      },
+      ["c", "a", "a"],
+    );
+    const upsertCmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
+    const storedKey = upsertCmds.find((c) => c[1] === "ctf:quiz:key")![3];
+
+    // answerQuestion: same set submitted in yet another order, also with a
+    // duplicate.
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
+    await answerQuestion("octocat", "q1", ["a", "c", "a"]);
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const submitted = args[1];
+
+    expect(storedKey).toBe(submitted);
+    expect(storedKey).toBe(JSON.stringify(["a", "c"]));
   });
 });
 
