@@ -52,8 +52,8 @@ const trailingNavLinks: NavLink[] = [
 ];
 
 // Module-owned nav entries, in registry order, filtered to modules that
-// actually have a contestant route (a module like quiz in phase 1 has none
-// and contributes no entry).
+// actually have a contestant route — a module gets no entry only if the
+// registry omits `nav` for it (see modules.ts).
 const moduleNavLinks: NavLink[] = enabledModules
   .filter((m) => m.nav)
   .map((m) => m.nav as NavLink);
