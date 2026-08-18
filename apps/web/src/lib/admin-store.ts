@@ -1,6 +1,6 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
-import { isModuleEnabled } from "@/lib/modules";
+import { enabledModules, isModuleEnabled, type ModuleId, type ModuleOverrides } from "@/lib/modules";
 import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
 import {
   QUIZ_QUESTIONS_KEY,
@@ -24,6 +24,15 @@ export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
 /** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
 export const QUIZ_MAX_ATTEMPTS_MAX = 100;
 export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
+/** Caps for organizer-authored per-module naming overrides. */
+export const MODULE_TITLE_MAX = 60;
+export const MODULE_BLURB_MAX = 200;
+const MODULE_FIELD_RE = /^module(Title|Blurb):(.+)$/;
+// Organizer-authored text rendered on pages every contestant loads. Plain text
+// only — reject control characters so nothing can smuggle a terminal escape or
+// a line break into a heading. There is no HTML to sanitise because none is
+// ever interpreted.
+const CONTROL_CHARS_RE = /[\x00-\x1f\x7f]/;
 
 export type AdminSettings = {
   paused: boolean;
@@ -54,6 +63,9 @@ export type AdminSettings = {
   registrationEndsAt: string | null;
   updatedBy: string | null;
   updatedAt: string | null;
+  /** Organizer-authored title/blurb overrides, keyed by module id. Unknown or
+   *  disabled module ids are dropped on read (see decodeSettings). */
+  moduleOverrides: ModuleOverrides;
 };
 
 /** True when a scheduled window puts `now` outside [startsAt, endsAt].
@@ -86,6 +98,11 @@ export type SyncStatus = {
   paused: boolean;
 };
 
+// Dynamic per-module naming fields: moduleTitle:<id> / moduleBlurb:<id>. A
+// template literal type (not a bare index signature) so TypeScript still
+// catches a typo in any of the fixed field names above.
+type ModuleFieldKey = `moduleTitle:${string}` | `moduleBlurb:${string}`;
+
 export type SettingsPatch = {
   paused?: boolean;
   hintsEnabled?: boolean;
@@ -100,7 +117,7 @@ export type SettingsPatch = {
   scoringEndsAt?: string | null;
   registrationStartsAt?: string | null;
   registrationEndsAt?: string | null;
-};
+} & Partial<Record<ModuleFieldKey, string>>;
 
 const SCHEDULE_FIELDS = ["scoringStartsAt", "scoringEndsAt", "registrationStartsAt", "registrationEndsAt"] as const;
 
@@ -126,6 +143,22 @@ function flatToObject(flat: unknown): Record<string, string> {
 // `teamRegistrationOpen` is two-state but inverted: absent means open (the
 // default), and a stored "0" means registration is closed.
 function decodeSettings(h: Record<string, string>): AdminSettings {
+  // Dynamic fields: moduleTitle:<id> / moduleBlurb:<id>. Unknown ids are
+  // dropped on read as well as rejected on write — a stale override left by a
+  // module that has since been disabled must not resurface if it is
+  // re-enabled under a different name.
+  const moduleOverrides: ModuleOverrides = {};
+  const enabledIds = new Set(enabledModules.map((m) => m.id as string));
+  for (const [field, value] of Object.entries(h)) {
+    const m = MODULE_FIELD_RE.exec(field);
+    if (!m) continue;
+    const [, which, id] = m;
+    if (!enabledIds.has(id)) continue;
+    const slot = (moduleOverrides[id as ModuleId] ??= {});
+    if (which === "Title") slot.title = value;
+    else slot.blurb = value;
+  }
+
   return {
     paused: h.paused === "1",
     hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
@@ -141,6 +174,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     registrationEndsAt: h.registrationEndsAt ?? null,
     updatedBy: h.updatedBy ?? null,
     updatedAt: h.updatedAt ?? null,
+    moduleOverrides,
   };
 }
 
@@ -248,6 +282,23 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
         fields.push(k, iso);
         changed[k] = iso as unknown as boolean;
       }
+    } else if (MODULE_FIELD_RE.test(k)) {
+      const [, which, id] = MODULE_FIELD_RE.exec(k)!;
+      // Fail closed: an id that isn't an enabled module is a typo or a probe,
+      // never something to store quietly.
+      if (!enabledModules.some((m) => m.id === id)) {
+        throw new AdminValidationError(k, `unknown module: ${id}`);
+      }
+      if (typeof v !== "string") throw new AdminValidationError(k, `${k} must be a string`);
+      const max = which === "Title" ? MODULE_TITLE_MAX : MODULE_BLURB_MAX;
+      const text = v.trim();
+      if (text.length > max) throw new AdminValidationError(k, `${k} must be at most ${max} characters`);
+      if (CONTROL_CHARS_RE.test(text)) throw new AdminValidationError(k, `${k} must not contain control characters`);
+      // Empty clears the override (HDEL) so the registry default comes back —
+      // storing "" would render a blank heading instead.
+      if (text === "") dels.push(k);
+      else fields.push(k, text);
+      changed[k] = text as unknown as boolean;
     } else {
       throw new AdminValidationError(k, `unknown setting: ${k}`);
     }

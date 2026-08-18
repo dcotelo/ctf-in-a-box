@@ -45,6 +45,7 @@ const settings: AdminSettings = {
   registrationEndsAt: null,
   updatedBy: null,
   updatedAt: null,
+  moduleOverrides: {},
 };
 
 describe("AdminControls", () => {

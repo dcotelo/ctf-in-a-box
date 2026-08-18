@@ -31,7 +31,7 @@ describe("getAdminSettings", () => {
       hintsMinSolves: null, hintsUnlockAfterMin: null,
       quizMaxAttempts: null, quizRetryAfterMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-      updatedBy: null, updatedAt: null,
+      updatedBy: null, updatedAt: null, moduleOverrides: {},
     });
   });
 
@@ -44,7 +44,7 @@ describe("getAdminSettings", () => {
       hintsMinSolves: null, hintsUnlockAfterMin: null,
       quizMaxAttempts: null, quizRetryAfterMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-      updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
+      updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
     });
   });
 
@@ -174,7 +174,7 @@ describe("scheduled windows", () => {
     hintsMinSolves: null, hintsUnlockAfterMin: null,
     quizMaxAttempts: null, quizRetryAfterMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-    updatedBy: null, updatedAt: null,
+    updatedBy: null, updatedAt: null, moduleOverrides: {},
   };
   const T = (iso: string) => Date.parse(iso);
 
@@ -222,5 +222,75 @@ describe("scheduled windows", () => {
 
   it("updateAdminSettings: rejects an unparseable date", async () => {
     await expect(updateAdminSettings({ scoringStartsAt: "not-a-date" }, "a")).rejects.toThrow(AdminValidationError);
+  });
+});
+
+describe("module identity overrides", () => {
+  // This file does not mock @/lib/modules, so decodeSettings/updateAdminSettings
+  // see the REAL registry — derived from the shipped event-config.generated.ts,
+  // which enables only "secure-development". "quiz" and "forensics" are both
+  // unregistered from this suite's point of view; "forensics" is kept as the
+  // reject case so its intent (an unknown id) stays obvious.
+  it("decodes moduleTitle/moduleBlurb fields into moduleOverrides", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{
+      result: [
+        "moduleTitle:secure-development", "Round 1",
+        "moduleBlurb:secure-development", "Ten questions.",
+      ],
+    }]);
+    const s = await getAdminSettings();
+    expect(s.moduleOverrides).toEqual({ "secure-development": { title: "Round 1", blurb: "Ten questions." } });
+  });
+
+  it("defaults moduleOverrides to an empty object", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
+    expect((await getAdminSettings()).moduleOverrides).toEqual({});
+  });
+
+  it("accepts a title for an enabled module", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "Round 1" }, "alice"),
+    ).resolves.toBeDefined();
+  });
+
+  it("rejects a title for a module that is not enabled", async () => {
+    await expect(updateAdminSettings({ "moduleTitle:forensics": "Nope" }, "alice")).rejects.toThrow(
+      AdminValidationError,
+    );
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("rejects an over-length title", async () => {
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "x".repeat(61) }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects an over-length blurb", async () => {
+    await expect(
+      updateAdminSettings({ "moduleBlurb:secure-development": "x".repeat(201) }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects control characters", async () => {
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "bad\x07title" }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects a non-string value", async () => {
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": 7 as never }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("clears the field on an empty string rather than storing it", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+    await updateAdminSettings({ "moduleTitle:secure-development": "" }, "alice");
+    // dels carry the field name in the EVAL argv, matching how the
+    // schedule-field clearing test above asserts its del target.
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    expect(args).toContain("moduleTitle:secure-development");
   });
 });
