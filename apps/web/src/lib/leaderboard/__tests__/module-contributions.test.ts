@@ -29,7 +29,7 @@ describe("withModuleContributions", () => {
     const mod = out.entries[0].modules!["secure-development"]!;
     expect(out.entries[0].points).toBe(30); // unchanged
     expect(mod).toMatchObject({ points: 30, completed: 3, lastActivityAt: "2026-08-01T10:00:00.000Z" });
-    expect(mod.detail).toEqual({ apps: out.entries[0].apps });
+    expect(mod.detail).toEqual({ kind: "secure-development", apps: out.entries[0].apps });
   });
 
   it("re-ranks unconditionally, so ordering never depends on the hint overlay", async () => {

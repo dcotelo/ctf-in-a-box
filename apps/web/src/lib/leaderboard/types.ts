@@ -32,9 +32,12 @@ export type AppProgress = {
 };
 
 /** secure-development's detail block: today's per-target progress map. */
-export type SecureDevelopmentDetail = { apps: Partial<Record<AppId, AppProgress>> };
+export type SecureDevelopmentDetail = { kind: "secure-development"; apps: Partial<Record<AppId, AppProgress>> };
 /** quiz's detail block (populated in phase 2). */
-export type QuizDetail = { answered: number; total: number };
+export type QuizDetail = { kind: "quiz"; answered: number; total: number; points: number };
+/** Discriminated on `kind` — narrow on it rather than casting; each module
+ *  contributes its own detail shape and a new module means a new branch, not
+ *  a wider inferred type. */
 export type ModuleDetail = SecureDevelopmentDetail | QuizDetail;
 
 export type ModuleProgress = {

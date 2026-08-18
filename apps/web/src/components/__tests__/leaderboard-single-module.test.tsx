@@ -41,7 +41,7 @@ const entry: LeaderboardEntry = {
       points: 100,
       completed: 3,
       lastActivityAt: null,
-      detail: { apps: { dvwa: { app: "dvwa", points: 100, maxPoints: 200, patched: 3, total: 6 } } },
+      detail: { kind: "secure-development", apps: { dvwa: { app: "dvwa", points: 100, maxPoints: 200, patched: 3, total: 6 } } },
     },
   },
 };

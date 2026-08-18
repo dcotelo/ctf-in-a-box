@@ -40,7 +40,7 @@ function secureDevelopmentModule(
   lastActivityAt: string | null,
   apps: Partial<Record<AppId, AppProgress>>,
 ): ModuleProgress {
-  return { points, completed: patched, lastActivityAt, detail: { apps } };
+  return { points, completed: patched, lastActivityAt, detail: { kind: "secure-development", apps } };
 }
 
 function attributeEntry(entry: LeaderboardEntry, secureDev: boolean): LeaderboardEntry {
