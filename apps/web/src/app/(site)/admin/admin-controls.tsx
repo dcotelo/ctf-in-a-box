@@ -29,12 +29,20 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
-import type { ResolvedModule } from "@/lib/modules";
+import { enabledModules, type ModuleId, type ResolvedModule } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminEventTab from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
+import AdminModuleIdentity from "./admin-module-identity";
 import type { ConfirmState } from "./types";
+
+// Registry defaults (displayName/description) keyed by id, for the identity
+// form's placeholders. `enabledModules` — not the `modules` prop — because a
+// `ResolvedModule` deliberately has no `displayName`/`description` (see
+// lib/modules.ts): those are what an override REPLACES, and this is the one
+// place the admin panel needs the pre-override default alongside it.
+const MODULE_DEFAULTS = new Map(enabledModules.map((m) => [m.id as string, { title: m.displayName, blurb: m.description }]));
 
 /** The always-present control-plane tab. Module tabs follow it, in the order
  *  the event config lists them. */
@@ -247,8 +255,14 @@ export default function AdminControls({
             />
           ) : (
             <section className="flex flex-col gap-4">
-              {/* Task 6 hangs the per-module title/blurb fields here, as the
-                  first child of the module's panel. */}
+              <AdminModuleIdentity
+                key={`identity-${tab.id}-${settings.moduleOverrides[tab.id as ModuleId]?.title ?? ""}-${settings.moduleOverrides[tab.id as ModuleId]?.blurb ?? ""}`}
+                moduleId={tab.id}
+                defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
+                override={settings.moduleOverrides[tab.id as ModuleId]}
+                pending={pending}
+                apply={apply}
+              />
               {tab.id === "secure-development" ? (
                 <AdminSecureDevTab
                   settings={settings}

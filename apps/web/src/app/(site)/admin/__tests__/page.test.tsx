@@ -46,6 +46,7 @@ describe("admin page gate", () => {
       hintCost: null,
       updatedBy: null,
       updatedAt: null,
+      moduleOverrides: {},
     });
     getSyncStatus.mockResolvedValue({
       lastPollAt: "2026-08-14T00:00:00Z",
@@ -68,6 +69,7 @@ describe("admin page gate", () => {
       hintCost: null,
       updatedBy: null,
       updatedAt: null,
+      moduleOverrides: {},
     });
     getSyncStatus.mockResolvedValue(null);
     const ui = await AdminPage();

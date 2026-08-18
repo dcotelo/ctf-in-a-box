@@ -77,6 +77,17 @@ export function isModuleEnabled(id: ModuleId): boolean {
  *  optional and an empty string means "no override" — see resolveModules. */
 export type ModuleOverrides = Partial<Record<ModuleId, { title?: string; blurb?: string }>>;
 
+/** Caps for organizer-authored per-module naming overrides (title/blurb).
+ *  Defined here — not in `admin-store.ts`, which validates against them —
+ *  because this module is client-safe and `admin-store.ts` is `server-only`;
+ *  the admin panel's identity form (a Client Component) needs these numbers
+ *  for its `maxLength` attributes and would break the client build if it
+ *  imported them (or anything else) from admin-store by value. admin-store
+ *  re-exports these two so it stays the single place server code looks for
+ *  them. */
+export const MODULE_TITLE_MAX = 60;
+export const MODULE_BLURB_MAX = 200;
+
 /** A module with its organizer-authored naming applied: identity only, and
  *  deliberately client-safe.
  *

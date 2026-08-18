@@ -1,6 +1,13 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
-import { enabledModules, isModuleEnabled, type ModuleId, type ModuleOverrides } from "@/lib/modules";
+import {
+  enabledModules,
+  isModuleEnabled,
+  MODULE_TITLE_MAX,
+  MODULE_BLURB_MAX,
+  type ModuleId,
+  type ModuleOverrides,
+} from "@/lib/modules";
 import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
 import {
   QUIZ_QUESTIONS_KEY,
@@ -24,9 +31,10 @@ export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
 /** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
 export const QUIZ_MAX_ATTEMPTS_MAX = 100;
 export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
-/** Caps for organizer-authored per-module naming overrides. */
-export const MODULE_TITLE_MAX = 60;
-export const MODULE_BLURB_MAX = 200;
+// Caps for organizer-authored per-module naming overrides: re-exported so
+// this file stays the place server code looks for them, but DEFINED in
+// @/lib/modules (client-safe) — see the comment there for why.
+export { MODULE_TITLE_MAX, MODULE_BLURB_MAX };
 const MODULE_FIELD_RE = /^module(Title|Blurb):(.+)$/;
 // Organizer-authored text rendered on pages every contestant loads. Plain text
 // only — reject C0 control characters (so nothing can smuggle a terminal

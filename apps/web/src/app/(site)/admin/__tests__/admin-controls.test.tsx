@@ -37,7 +37,10 @@ const { enabledModules } = vi.hoisted(() => ({
   ],
 }));
 
-vi.mock("@/lib/modules", () => ({ enabledModules }));
+// MODULE_TITLE_MAX/MODULE_BLURB_MAX live in @/lib/modules (client-safe — see
+// that file's comment on why they aren't defined in admin-store.ts), so this
+// full-module mock has to supply them too.
+vi.mock("@/lib/modules", () => ({ enabledModules, MODULE_TITLE_MAX: 60, MODULE_BLURB_MAX: 200 }));
 
 import AdminControls from "@/app/(site)/admin/admin-controls";
 
@@ -174,5 +177,53 @@ describe("AdminControls panel contents", () => {
 
     const withDemo = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} demoMode />);
     expect(panelFor(withDemo, "event")).toMatch(/seed demo data/i);
+  });
+});
+
+describe("AdminControls module identity fields", () => {
+  it("renders a title and blurb field in each module panel", () => {
+    const html = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} />);
+    expect(panelFor(html, "quiz")).toContain('name="moduleTitle:quiz"');
+    expect(panelFor(html, "quiz")).toContain('name="moduleBlurb:quiz"');
+    expect(panelFor(html, "secure-development")).toContain('name="moduleTitle:secure-development"');
+    expect(panelFor(html, "secure-development")).toContain('name="moduleBlurb:secure-development"');
+    // Not in the Event panel — module identity is per-module, not global.
+    expect(panelFor(html, "event")).not.toContain("moduleTitle:");
+  });
+
+  it("shows the stored override as the field value", () => {
+    const s = { ...settings, moduleOverrides: { quiz: { title: "Round 1" } } };
+    const html = renderToStaticMarkup(<AdminControls initial={s} modules={twoModules} />);
+    expect(panelFor(html, "quiz")).toContain('value="Round 1"');
+  });
+
+  it("leaves the field blank (not the registry default) when there is no override", () => {
+    const html = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} />);
+    expect(panelFor(html, "quiz")).toContain('name="moduleTitle:quiz" value=""');
+  });
+
+  it("shows the registry default as the placeholder, so blank-restores-default is discoverable", () => {
+    const html = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} />);
+    const quizPanel = panelFor(html, "quiz");
+    expect(quizPanel).toContain('placeholder="Quiz"');
+    expect(quizPanel).toContain('placeholder="Answer security questions for points."');
+    expect(quizPanel).toMatch(/blank/i);
+  });
+
+  it("caps the fields at the stored maxima", () => {
+    const html = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} />);
+    const quizPanel = panelFor(html, "quiz");
+    expect(quizPanel).toContain('maxLength="60"');
+    expect(quizPanel).toContain('maxLength="200"');
+  });
+
+  it("renders module identity as the first child of the module panel", () => {
+    const html = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} />);
+    const quizPanel = panelFor(html, "quiz");
+    const identityAt = quizPanel.indexOf("Module identity");
+    const questionsAt = quizPanel.indexOf("Add question");
+    expect(identityAt).toBeGreaterThan(-1);
+    expect(questionsAt).toBeGreaterThan(-1);
+    expect(identityAt).toBeLessThan(questionsAt);
   });
 });
