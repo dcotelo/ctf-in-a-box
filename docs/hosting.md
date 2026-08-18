@@ -314,8 +314,8 @@ modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
-  # quiz: {}                       # registrable, but not yet implemented —
-                                    # no UI/route/scoring/admin controls (phase 2)
+  quiz: {}                        # single/multi-select question bank, scored
+                                    # app-side — see docs/operations.md's "Quiz"
 ```
 
 **A module is enabled by being present.** There is no `enabled:` key: a
@@ -326,17 +326,25 @@ leaderboard columns, and admin section from appearing at all. Writing
 read by anything.
 
 `modules.secure-development.targets` is still the field that drives the
-app's target list, nav, challenge browser, and leaderboard columns — nothing
-about that changed. A second module block is legal: both readers of
-`event.yaml` — the app's generator
+app's target list, nav, challenge browser, and leaderboard columns for that
+module — nothing about that changed. A second module block is legal: both
+readers of `event.yaml` — the app's generator
 (`apps/web/scripts/generate-event-config.mjs`) and the poll service's config
 loader (`sync/src/config.js`'s `KNOWN_MODULES`) — recognize
 `secure-development` and `quiz` as known ids and reject anything else loudly.
-Adding `quiz:` therefore only adds an id to the app's module registry;
-`sync` tolerates the key and goes on scoring `secure-development` alone. It
-is left commented out because `quiz` renders nothing yet (no route, no
-scoring, no admin controls), not because uncommenting it breaks the stack.
-`modules.secure-development` remains required by `sync` either way.
+Adding `quiz:` turns on a real second module: a "Quiz" nav link and a `/quiz`
+page for contestants, a Quiz section in `/admin` for authoring questions
+(prompt, choices, correct answer(s), points, order) and tuning its two
+retry-gate knobs, and quiz points added on top of the combined leaderboard —
+see [docs/operations.md](operations.md)'s "Quiz" section for the organizer
+walkthrough and [docs/modules.md §5](modules.md#5-ui--presentation-contract)
+for the underlying contract. **`modules.secure-development` remains required
+by `sync` regardless of whether `quiz` is enabled** — `sync`'s config loader
+fails startup if that block is absent (`sync/src/config.js`), so a
+quiz-only event (no `secure-development` block in `event.yaml` at all) is
+still not supported end to end: `sync` only tolerates the `quiz` key (so an
+`event.yaml` the app builds from can't crash-loop the poller) and keeps
+scoring `secure-development` alone.
 
 Copy `event.yaml.example` and fill in `github.org`,
 `modules.secure-development.targets`, `admins` (GitHub logins), and
