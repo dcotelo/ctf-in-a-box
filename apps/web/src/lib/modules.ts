@@ -77,15 +77,27 @@ export function isModuleEnabled(id: ModuleId): boolean {
  *  optional and an empty string means "no override" — see resolveModules. */
 export type ModuleOverrides = Partial<Record<ModuleId, { title?: string; blurb?: string }>>;
 
-/** A module with its organizer-authored naming applied.
+/** A module with its organizer-authored naming applied: identity only, and
+ *  deliberately client-safe.
  *
- *  `displayName`/`description` are deliberately OMITTED rather than carried
- *  through: they are the registry DEFAULTS, and `title`/`blurb` are what a
- *  consumer must render. Keeping both on the same object made reading
- *  `.displayName` off a resolved module — silently ignoring the organizer's
- *  override — a plain property access with no type error. Dropping them turns
- *  that mistake into a compile failure. */
-export type ResolvedModule = Omit<ModuleDef, "displayName" | "description"> & {
+ *  `displayName`/`description` are OMITTED rather than carried through: they
+ *  are the registry DEFAULTS, and `title`/`blurb` are what a consumer must
+ *  render. Keeping both on the same object made reading `.displayName` off a
+ *  resolved module — silently ignoring the organizer's override — a plain
+ *  property access with no type error. Dropping them turns that mistake into
+ *  a compile failure.
+ *
+ *  `home` is OMITTED for a harder reason: `ModuleHome.intro` and
+ *  `ModuleHome.steps` are FUNCTIONS, and resolved modules are handed straight
+ *  from Server Components to `"use client"` components (the admin panel, the
+ *  leaderboard). React's flight serializer throws "Functions cannot be passed
+ *  directly to Client Components" on any function-valued prop, so a resolved
+ *  module carrying `home` would 500 those pages the moment a module defines
+ *  one. Keeping identity-only here makes that structurally impossible instead
+ *  of a trap for the next module to opt into landing-page copy. Server code
+ *  that needs the home block reads it from the registry — see
+ *  `getModuleHome` in `@/lib/resolved-modules`. */
+export type ResolvedModule = Omit<ModuleDef, "displayName" | "description" | "home"> & {
   title: string;
   blurb: string;
 };
@@ -98,8 +110,15 @@ export type ResolvedModule = Omit<ModuleDef, "displayName" | "description"> & {
 export function resolveModules(overrides: ModuleOverrides): readonly ResolvedModule[] {
   // Destructure the defaults OUT rather than spreading them through, so a
   // resolved module genuinely has no `displayName` to read by mistake — the
-  // type and the runtime object agree.
-  return enabledModules.map(({ displayName, description, ...rest }) => {
+  // type and the runtime object agree. `home` goes the same way, and there it
+  // is load-bearing rather than merely tidy: a type-level Omit alone would
+  // leave the functions on the object, still crossing the RSC boundary and
+  // still throwing. Stripping it here is what makes the result client-safe.
+  // `home` is bound only to keep it out of `...rest` — being unused IS the
+  // point, so the lint warning is silenced deliberately rather than worked
+  // around by re-spreading and deleting.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  return enabledModules.map(({ displayName, description, home, ...rest }) => {
     const o = overrides[rest.id];
     return {
       ...rest,

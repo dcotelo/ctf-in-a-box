@@ -19,7 +19,7 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import { enabledModules, resolveModules } from "@/lib/modules";
+import { enabledModules, resolveModules, type ResolvedModule } from "@/lib/modules";
 
 describe("resolveModules", () => {
   it("falls back to registry defaults when there are no overrides", () => {
@@ -74,5 +74,41 @@ describe("resolveModules", () => {
       expect(m).not.toHaveProperty("displayName");
       expect(m).not.toHaveProperty("description");
     }
+  });
+
+  // A resolved module is handed from Server Components straight to
+  // "use client" components (the admin panel's tabs, the leaderboard). React's
+  // flight serializer throws "Functions cannot be passed directly to Client
+  // Components" on ANY function-valued prop, which would 500 /admin and
+  // /leaderboard at runtime — and no component test would catch it, because
+  // those suites render client components directly, with no RSC boundary in
+  // play. `ModuleHome.intro`/`.steps` are functions, so `home` is stripped
+  // from the resolved object (not merely Omitted from the type — a type-only
+  // Omit leaves the functions on the value, which is what actually throws).
+  //
+  // Two guards, because either alone has a hole. The runtime scan below is
+  // vacuous while no module defines a `home` yet, but bites the moment one
+  // does (Task 7) if the strip is ever removed; the compile-time check bites
+  // today, the moment `home` reappears in ResolvedModule's shape.
+  it("carries no function-valued property, so it is safe to pass to a Client Component", () => {
+    for (const m of resolveModules({ quiz: { title: "Trivia" } })) {
+      expect(m).not.toHaveProperty("home");
+      for (const [key, value] of Object.entries(m)) {
+        expect(typeof value, `resolved module ${m.id} exposes a function at .${key}`).not.toBe("function");
+      }
+    }
+  });
+
+  it("keeps `home` off ResolvedModule's type as well as its value", () => {
+    // Fails to COMPILE (not just to run) if `home` — or any other key whose
+    // value type includes a function — is ever added back to ResolvedModule.
+    type FunctionValuedKeys = {
+      [K in keyof ResolvedModule]-?: NonNullable<ResolvedModule[K]> extends (...args: never[]) => unknown
+        ? K
+        : never;
+    }[keyof ResolvedModule];
+    const noFunctionValuedKeys: FunctionValuedKeys extends never ? true : false = true;
+    const homeIsOmitted: "home" extends keyof ResolvedModule ? false : true = true;
+    expect([noFunctionValuedKeys, homeIsOmitted]).toEqual([true, true]);
   });
 });

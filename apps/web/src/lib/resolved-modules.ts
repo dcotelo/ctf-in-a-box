@@ -2,7 +2,13 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { getAdminSettings } from "@/lib/admin-store";
-import { resolveModules, type ResolvedModule } from "@/lib/modules";
+import {
+  enabledModules,
+  resolveModules,
+  type ModuleHome,
+  type ModuleId,
+  type ResolvedModule,
+} from "@/lib/modules";
 
 /** Modules with their organizer-authored names applied.
  *
@@ -37,3 +43,21 @@ export const getResolvedModules = cache(async (): Promise<readonly ResolvedModul
     .catch(() => ({}));
   return resolveModules(overrides);
 });
+
+/** A module's landing-page contribution, read straight from the registry
+ *  (there is nothing organizer-authored about it — only `title`/`blurb` are
+ *  overridable, and those live on the resolved module).
+ *
+ *  This is deliberately a SEPARATE, server-only accessor rather than a field
+ *  on `ResolvedModule`: `ModuleHome.intro` and `ModuleHome.steps` are
+ *  functions, and a resolved module is passed to Client Components, where a
+ *  function-valued prop is a hard flight-serialization error. Keeping the two
+ *  apart means the client-safe object stays client-safe by construction.
+ *
+ *  Callers must be Server Components: call `intro`/`steps` here and pass the
+ *  resulting STRINGS down, never the `ModuleHome` itself. Pair a home block
+ *  with its organizer-resolved name by looking both up by `id`. Returns
+ *  `undefined` for a module that is disabled or has no home block. */
+export function getModuleHome(id: ModuleId): ModuleHome | undefined {
+  return enabledModules.find((m) => m.id === id)?.home;
+}
