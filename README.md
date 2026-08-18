@@ -75,22 +75,17 @@ training day.
   <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
 </p>
 
-<p align="center">
-  <img alt="Contestant leaderboard with a row expanded to its per-app challenge breakdown, each flag marked patched or open" src="docs/assets/hero.jpg" width="820">
-</p>
-
-| Team leaderboard | Challenge browser |
+| Contestant breakdown | Challenge browser |
 |---|---|
-| ![Team standings with a row expanded to members and the team's flags grouped by target, each marked patched or open](docs/assets/leaderboard.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
+| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](docs/assets/hero.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
-with seeded demo players. The app ships a fixed dark theme. The leaderboard ranks
-<strong>teams</strong>, with a CTFd-style score-over-time graph drawn from real
-per-solve timestamps; each row expands to show its members and every member's
-points. The expanded team shows the shared-flag dedupe at work — the team's total
-is less than its members' individual scores added up, because a flag solved by more
-than one teammate counts once. Branding is the neutral "OWASP CTF" default — the
-event name, targets, and links are all event-config driven.</sup>
+with seeded demo players. The app ships a fixed dark theme. The board ranks
+<strong>teams</strong> by default, with a CTFd-style score-over-time graph drawn from
+real per-solve timestamps (above), and switches to individual standings (left). A flag
+solved by more than one teammate counts <strong>once</strong>, so a team's total is
+less than its members' individual scores added up. Branding is the neutral "OWASP CTF"
+default — the event name, targets, and links are all event-config driven.</sup>
 
 ## Quickstart
 

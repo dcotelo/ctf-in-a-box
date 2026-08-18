@@ -55,19 +55,16 @@ scoring code to write.
 
 ## A closer look
 
-![Contestant leaderboard with a row expanded to its per-app challenge breakdown, each flag marked patched or open](assets/hero.jpg)
-
-| Team leaderboard | Challenge browser |
+| Contestant breakdown | Challenge browser |
 |---|---|
-| ![Team standings with a row expanded to members and the team's flags grouped by target, each marked patched or open](assets/leaderboard.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![Challenge browser](assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
-with seeded demo players — a fixed dark theme and a CTFd-style score-over-time graph
-drawn from real per-solve timestamps. The leaderboard ranks <strong>teams</strong>;
-each row expands to its members and every member's points. The expanded team shows the
-shared-flag dedupe — its total is less than its members' scores added up, because a flag
-solved by more than one teammate counts once. Branding is the neutral "OWASP CTF"
-default; the event name, targets, and links are event-config driven.</sup>
+with seeded demo players. The board ranks <strong>teams</strong> by default (above) and
+switches to individual standings (left); a flag solved by more than one teammate counts
+<strong>once</strong>, so a team's total is less than its members' scores added up.
+Branding is the neutral "OWASP CTF" default; the event name, targets, and links are
+event-config driven.</sup>
 
 ## What organizers run
 
