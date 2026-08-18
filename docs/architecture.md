@@ -160,20 +160,32 @@ state; everything else that touches scores goes through it.
    solved/total counts.
 9. Before rendering, the app composes the fetched `LeaderboardData` through a
    fixed pipeline (`app/(site)/leaderboard/page.tsx`):
-   `withModuleContributions` → `withHintPenalties` → `withTeamStandings`
-   (`src/lib/leaderboard/{module-contributions,hint-penalties,team-standings}.ts`).
-   `withModuleContributions` attributes the scorer's points into a
+   `withHintPenalties` → `withModuleContributions` → `withTeamStandings`
+   (`src/lib/leaderboard/{hint-penalties,module-contributions,team-standings}.ts`).
+   `withModuleContributions` attributes each row's points into a
    per-module `ModuleProgress` for every *enabled* module — `secure-development`
    is **attributed**, not added, since its points already came from the
    scorer above; a module that scores app-side (none does yet) would add its
-   own points on top — and re-ranks unconditionally so the board reflects the
-   combined result even when the next stage (hints) is a no-op. Ranking
+   own points on top. It runs *after* hints so it attributes the **net**
+   (post-penalty, floored) figure — attributing first would show an expanded
+   row a larger module total than the header above it — and it re-ranks
+   unconditionally, so being last is what makes the final order deterministic
+   (`withHintPenalties` no-ops when hints are disabled and can't be relied on
+   to produce it). Team rows pass through it untouched: nothing renders a
+   per-module team breakdown yet. Ranking
    itself (`src/lib/leaderboard/rank.ts`'s `compareStanding`) is: items
    completed **across modules** descending, then combined points descending,
    then earliest last-activity ascending, with a `patched`/`lastSolveAt`
    fallback for sources that carry no per-module data (e.g. the legacy
-   Upstash-schema source). With only `secure-development` enabled this is
-   byte-for-byte the old `patched`-then-`points`-then-`lastSolveAt` order. An
+   Upstash-schema source). With only `secure-development` enabled the
+   *populated* case reproduces the old `patched`-then-`points`-then-
+   `lastSolveAt` order exactly. The fallback case does **not** preserve the
+   Upstash source's own arrival order: that source hands back rows ordered by
+   points descending (`ZRANGE`), and ranking on `patched` first moves a row
+   with more patches but fewer points above one with more points. That
+   re-ordering is deliberate — it puts Upstash on the same breadth-first rule
+   as the lambda and mock sources instead of leaving one board scored
+   differently. An
    expanded leaderboard row then renders each enabled module's own detail
    block (`components/module-detail.tsx` switches on `moduleId` — a
    `secure-development` row shows the existing per-target breakdown, and a
@@ -359,7 +371,7 @@ config change").
 |---|---|---|
 | Unit (sync) | `sync/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Config loading/validation, comment parsing and the author grammar, cursor/ETag handling, submit retry semantics, state persistence — in isolation, no network or Docker. |
 | Unit (scorer) | `scorer/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Rubric loading/validation, probe grammar + evaluation, the judge's report format (the score-action regexes and the sync marker, pinned verbatim), serve auth/validation/monotonic-replay semantics, leaderboard aggregation, and both solve stores (memory, and Redis-via-SRH against a mocked endpoint) — in isolation, no network or Docker. |
-| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank. |
+| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; teams pass through untouched) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. |
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |

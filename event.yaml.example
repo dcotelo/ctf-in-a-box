@@ -11,9 +11,12 @@ modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
-  # quiz: { enabled: true }        # registrable today, but NOT YET IMPLEMENTED:
+  # quiz: {}                       # registrable today, but NOT YET IMPLEMENTED:
                                     # no UI, route, scoring, or admin controls
                                     # (phase 2) — see docs/modules.md §5
+# A module is enabled by APPEARING under modules:. There is no `enabled:` key —
+# omitting a module's block entirely is what disables it (and is why `quiz` is
+# commented out above). A module's block holds only its own settings.
 # v1 placeholders — not read at build time: team play is always on with a
 # fixed 4-member cap, and hints (ON by default, 10 points each) are tuned at
 # runtime in /admin — enabled, cost, and the two gating knobs. Remove hints

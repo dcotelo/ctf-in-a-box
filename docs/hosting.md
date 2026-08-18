@@ -314,26 +314,29 @@ modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
-  # quiz: { enabled: true }        # registrable, but not yet implemented —
+  # quiz: {}                       # registrable, but not yet implemented —
                                     # no UI/route/scoring/admin controls (phase 2)
 ```
 
+**A module is enabled by being present.** There is no `enabled:` key: a
+module is live because its key appears under `modules:`, and disabled because
+its block is omitted entirely — which is what keeps its nav entry,
+leaderboard columns, and admin section from appearing at all. Writing
+`quiz: { enabled: false }` would *enable* `quiz`; the `enabled:` field is not
+read by anything.
+
 `modules.secure-development.targets` is still the field that drives the
 app's target list, nav, challenge browser, and leaderboard columns — nothing
-about that changed. A second module block is legal from the **app**'s point
-of view: `apps/web/scripts/generate-event-config.mjs` recognizes both
-`secure-development` and `quiz` as known ids and rejects anything else
-loudly, so adding `quiz:` there only adds an id to the app's module registry
-— `quiz` itself renders nothing yet (no route, no scoring, no admin
-controls), so leave it commented out until it ships. **Do not uncomment it
-against a real event yet**: `sync`'s own config loader (`sync/src/config.js`'s
-`KNOWN_MODULES`) still recognizes only `secure-development` and will refuse
-to start (`event.yaml: unknown module: quiz`) if the same `event.yaml` it
-reads has a `quiz:` block — the app and the poll service are deliberately
-out of step on this, since `quiz` has no scoring path for `sync` to serve
-yet. Omitting a module from `modules:` entirely (rather than disabling
-it some other way) is what keeps its nav entry, leaderboard columns, and
-admin section from appearing at all.
+about that changed. A second module block is legal: both readers of
+`event.yaml` — the app's generator
+(`apps/web/scripts/generate-event-config.mjs`) and the poll service's config
+loader (`sync/src/config.js`'s `KNOWN_MODULES`) — recognize
+`secure-development` and `quiz` as known ids and reject anything else loudly.
+Adding `quiz:` therefore only adds an id to the app's module registry;
+`sync` tolerates the key and goes on scoring `secure-development` alone. It
+is left commented out because `quiz` renders nothing yet (no route, no
+scoring, no admin controls), not because uncommenting it breaks the stack.
+`modules.secure-development` remains required by `sync` either way.
 
 Copy `event.yaml.example` and fill in `github.org`,
 `modules.secure-development.targets`, `admins` (GitHub logins), and

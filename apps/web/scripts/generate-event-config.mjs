@@ -74,6 +74,12 @@ function validateTargets(targets) {
 // Registered modules. A module is code + config: adding a key here is half of
 // registering it, the app's src/lib/modules.ts is the other half. An unknown
 // id fails loudly rather than being silently ignored.
+//
+// Enablement is PRESENCE, not a flag: a module is on because its key appears
+// under `modules:` and off because it doesn't. There is deliberately no
+// `enabled:` key to honour — a validator that ignores its argument (quiz)
+// ignores it because that module has no settings yet, not because a switch is
+// being dropped.
 const MODULE_VALIDATORS = {
   "secure-development": (mod) => ({
     id: "secure-development",
