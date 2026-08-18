@@ -10,6 +10,9 @@ export const HINT_COST_MAX = 100000;
 /** Caps for the two hint-gating knobs (see hint-store's `hintGate`). */
 export const HINT_MIN_SOLVES_MAX = 1000;
 export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
+/** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
+export const QUIZ_MAX_ATTEMPTS_MAX = 100;
+export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
 
 export type AdminSettings = {
   paused: boolean;
@@ -21,6 +24,13 @@ export type AdminSettings = {
   /** Minutes after `scoringStartsAt` before any hint may be bought. Null =
    *  no override; 0 = no time phase. */
   hintsUnlockAfterMin: number | null;
+  /** Attempts a login gets per quiz question before the retry gate refuses
+   *  further submissions (see quiz-store's `quizGate`). Null = no override,
+   *  use the default. 0 = unlimited attempts. */
+  quizMaxAttempts: number | null;
+  /** Minutes a login must wait after its last attempt before it may retry the
+   *  same quiz question. Null = no override; 0 = no cooldown. */
+  quizRetryAfterMin: number | null;
   teamRegistrationOpen: boolean;
   // Scheduled "auto dates" — nullable ISO instants. Absent = no bound.
   // scoring* gates the freeze (before start / after end = paused); registration*
@@ -71,6 +81,8 @@ export type SettingsPatch = {
   hintCost?: number;
   hintsMinSolves?: number;
   hintsUnlockAfterMin?: number;
+  quizMaxAttempts?: number;
+  quizRetryAfterMin?: number;
   teamRegistrationOpen?: boolean;
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
@@ -109,6 +121,8 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     hintCost: h.hintCost === undefined ? null : Number(h.hintCost),
     hintsMinSolves: h.hintsMinSolves === undefined ? null : Number(h.hintsMinSolves),
     hintsUnlockAfterMin: h.hintsUnlockAfterMin === undefined ? null : Number(h.hintsUnlockAfterMin),
+    quizMaxAttempts: h.quizMaxAttempts === undefined ? null : Number(h.quizMaxAttempts),
+    quizRetryAfterMin: h.quizRetryAfterMin === undefined ? null : Number(h.quizRetryAfterMin),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     scoringStartsAt: h.scoringStartsAt ?? null,
     scoringEndsAt: h.scoringEndsAt ?? null,
@@ -194,6 +208,18 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     } else if (k === "hintsUnlockAfterMin") {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > HINT_UNLOCK_AFTER_MAX) {
         throw new AdminValidationError(k, `hintsUnlockAfterMin must be an integer in [0, ${HINT_UNLOCK_AFTER_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "quizMaxAttempts") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > QUIZ_MAX_ATTEMPTS_MAX) {
+        throw new AdminValidationError(k, `quizMaxAttempts must be an integer in [0, ${QUIZ_MAX_ATTEMPTS_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "quizRetryAfterMin") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > QUIZ_RETRY_AFTER_MAX) {
+        throw new AdminValidationError(k, `quizRetryAfterMin must be an integer in [0, ${QUIZ_RETRY_AFTER_MAX}]`);
       }
       fields.push(k, String(v));
       changed[k] = v;

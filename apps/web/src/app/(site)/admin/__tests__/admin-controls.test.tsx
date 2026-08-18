@@ -37,6 +37,8 @@ const settings: AdminSettings = {
   hintCost: null,
   hintsMinSolves: null,
   hintsUnlockAfterMin: null,
+  quizMaxAttempts: null,
+  quizRetryAfterMin: null,
   scoringStartsAt: null,
   scoringEndsAt: null,
   registrationStartsAt: null,
