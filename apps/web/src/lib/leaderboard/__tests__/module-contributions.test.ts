@@ -7,7 +7,7 @@ vi.mock("server-only", () => ({}));
 const mocks = vi.hoisted(() => ({
   isModuleEnabled: vi.fn((id: string) => id === "secure-development"),
   getQuizTotals: vi.fn(),
-  getTeamQuizTotals: vi.fn(),
+  getTeamQuizTotalsBatch: vi.fn(),
   listQuestions: vi.fn(),
 }));
 
@@ -18,7 +18,7 @@ vi.mock("@/lib/modules", () => ({
 
 vi.mock("@/lib/quiz-store", () => ({
   getQuizTotals: mocks.getQuizTotals,
-  getTeamQuizTotals: mocks.getTeamQuizTotals,
+  getTeamQuizTotalsBatch: mocks.getTeamQuizTotalsBatch,
   listQuestions: mocks.listQuestions,
 }));
 
@@ -43,7 +43,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development");
   mocks.getQuizTotals.mockResolvedValue(new Map());
-  mocks.getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
+  mocks.getTeamQuizTotalsBatch.mockImplementation((teams: readonly string[][]) =>
+    Promise.resolve(teams.map(() => ({ points: 0, answered: 0, lastAt: null }))),
+  );
   mocks.listQuestions.mockResolvedValue([]);
 });
 
@@ -73,7 +75,7 @@ describe("withModuleContributions", () => {
     const teams = [{ rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada"] }];
     const out = await withModuleContributions({ ...data([entry("ada", 30, 3)]), teams });
     expect(out.teams).toEqual(teams);
-    expect(mocks.getTeamQuizTotals).not.toHaveBeenCalled();
+    expect(mocks.getTeamQuizTotalsBatch).not.toHaveBeenCalled();
   });
 
   // upstash carries no per-app data and no modules map, so completedCount
@@ -203,19 +205,19 @@ describe("withModuleContributions", () => {
     });
 
     it("adds the team's already-deduped quiz total to team points", async () => {
-      // getTeamQuizTotals owns the union-by-question dedupe logic (proven at
-      // the store level in quiz-store.test.ts, where two members sharing the
-      // same question collapse to one). This test only checks that
-      // withModuleContributions ADDS whatever that function returns — it is
-      // NOT the dedupe proof itself.
-      mocks.getTeamQuizTotals.mockResolvedValue({ points: 20, answered: 1, lastAt: "2026-08-01T11:00:00.000Z" });
+      // getTeamQuizTotalsBatch owns the union-by-question dedupe logic
+      // (proven at the store level in quiz-store.test.ts, where two members
+      // sharing the same question collapse to one). This test only checks
+      // that withModuleContributions ADDS whatever that function returns —
+      // it is NOT the dedupe proof itself.
+      mocks.getTeamQuizTotalsBatch.mockResolvedValue([{ points: 20, answered: 1, lastAt: "2026-08-01T11:00:00.000Z" }]);
 
       const teams: TeamStanding[] = [
         { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada", "cyd"] },
       ];
       const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
 
-      expect(mocks.getTeamQuizTotals).toHaveBeenCalledWith(["ada", "cyd"]);
+      expect(mocks.getTeamQuizTotalsBatch).toHaveBeenCalledWith([["ada", "cyd"]]);
       // 30 (existing, already-deduped secure-dev team points) + 20 (the ONE
       // question's points) — never 40 (which would be double counting the
       // question across both members).
@@ -232,8 +234,97 @@ describe("withModuleContributions", () => {
         capabilities: { apps: true, teams: false, challenges: false },
       });
 
-      expect(mocks.getTeamQuizTotals).not.toHaveBeenCalled();
+      expect(mocks.getTeamQuizTotalsBatch).not.toHaveBeenCalled();
       expect(out.teams).toEqual(teams);
+    });
+
+    // I4: the per-team form issued its own pipeline per team, so a 25-team
+    // event cost 25 Upstash round trips on every render of a page that is
+    // dynamic and fetched `no-store`. The overlay must hand the WHOLE board
+    // to the batched helper in one call.
+    it("asks for every team's quiz total in a single batched call", async () => {
+      mocks.getTeamQuizTotalsBatch.mockResolvedValue([
+        { points: 20, answered: 1, lastAt: "2026-08-01T11:00:00.000Z" },
+        { points: 5, answered: 1, lastAt: "2026-08-01T12:00:00.000Z" },
+        { points: 0, answered: 0, lastAt: null },
+      ]);
+
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada", "cyd"] },
+        { rank: 2, slug: "blue", name: "Blue", captain: "bob", points: 20, members: ["bob"] },
+        { rank: 3, slug: "grey", name: "Grey", captain: "eve", points: 10, members: ["eve"] },
+      ];
+      const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
+
+      expect(mocks.getTeamQuizTotalsBatch).toHaveBeenCalledTimes(1);
+      expect(mocks.getTeamQuizTotalsBatch).toHaveBeenCalledWith([["ada", "cyd"], ["bob"], ["eve"]]);
+      // Each team's own total landed on its own row (order preserved
+      // through the batch's partitioning), and the quiz-less team got none.
+      expect(out.teams.map((t) => [t.slug, t.points])).toEqual([["red", 50], ["blue", 25], ["grey", 10]]);
+      expect(out.teams.find((t) => t.slug === "grey")!.modules?.["quiz"]).toBeUndefined();
+    });
+
+    // I3: the two reads are settled independently. `listQuestions` supplies
+    // only the "answered / total" DENOMINATOR — if it fails, the board must
+    // keep every contestant's quiz POINTS (and the ranking they drive),
+    // never silently zero them and re-rank on wrong totals while /profile
+    // still shows the real number.
+    it("keeps quiz points and ranking when only the question list fails", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["bob", { points: 15, answered: 2, lastAt: null }]]));
+      mocks.listQuestions.mockRejectedValue(new Error("upstash blip"));
+
+      const out = await withModuleContributions(
+        data([
+          entry("ada", 30, 3),
+          { ...entry("bob", 20, 2), apps: { dvwa: { app: "dvwa", points: 20, maxPoints: 30, patched: 2, total: 3 } } },
+        ]),
+      );
+
+      // bob's 20 + 15 quiz = 35 still beats ada's 30, exactly as it would
+      // have with a healthy question list.
+      expect(out.entries.map((e) => [e.login, e.points])).toEqual([["bob", 35], ["ada", 30]]);
+      const quiz = out.entries[0].modules!["quiz"]!;
+      expect(quiz.points).toBe(15);
+      // Only the denominator degrades — and it degrades to the clamp, never
+      // below the numerator.
+      expect(quiz.detail).toEqual({ kind: "quiz", answered: 2, total: 2, points: 15 });
+    });
+
+    it("still shows the board when only the totals read fails", async () => {
+      mocks.getQuizTotals.mockRejectedValue(new Error("upstash blip"));
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      expect(out.entries[0].points).toBe(30);
+      expect(out.entries[0].modules!["quiz"]).toBeUndefined();
+    });
+
+    // I1's display bug: `deleteQuestion` deliberately leaves banked points
+    // and the aggregate `answered` counter alone, so after a delete a login
+    // can hold more answers than the question list has entries. The
+    // denominator must never render below the numerator ("1 / 0 answered").
+    it("never renders a denominator smaller than the numerator after a question is deleted", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 10, answered: 1, lastAt: null }]]));
+      mocks.listQuestions.mockResolvedValue([]); // the only question was deleted
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      const quiz = out.entries[0].modules!["quiz"]!;
+      expect(quiz.detail).toEqual({ kind: "quiz", answered: 1, total: 1, points: 10 });
+      // Points already banked for the deleted question stay on the board.
+      expect(out.entries[0].points).toBe(40);
+    });
+
+    it("clamps a team's denominator the same way", async () => {
+      mocks.listQuestions.mockResolvedValue([{ id: "q1" }]);
+      mocks.getTeamQuizTotalsBatch.mockResolvedValue([{ points: 30, answered: 3, lastAt: null }]);
+
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada", "cyd"] },
+      ];
+      const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
+
+      expect(out.teams[0].modules!["quiz"]!.detail).toEqual({ kind: "quiz", answered: 3, total: 3, points: 30 });
     });
   });
 });

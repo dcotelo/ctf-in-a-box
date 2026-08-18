@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import QuizBoard, { type QuizQuestionView } from "@/components/quiz-board";
+import QuizBoard, { describeCorrect, type QuizQuestionView } from "@/components/quiz-board";
 
 const singleChoiceQuestion: QuizQuestionView = {
   id: "q1",
@@ -119,5 +119,22 @@ describe("QuizBoard", () => {
 
     const html = renderToStaticMarkup(<QuizBoard questions={[leaked]} authenticated />);
     expect(html).not.toContain(leakedCorrectId);
+  });
+});
+
+describe("describeCorrect", () => {
+  it("announces the points awarded for a fresh correct answer", () => {
+    expect(describeCorrect(10)).toBe("Correct — +10 points.");
+    expect(describeCorrect(1)).toBe("Correct — +1 point.");
+  });
+
+  // The API reports an idempotent re-submission of an already-banked
+  // question as `correct: true, points: 0`. Rendering that through the
+  // normal template said "Correct — +0 points.", which reads as "this
+  // question is worth nothing" — the opposite of the truth.
+  it("never announces a +0 award for a question that was already banked", () => {
+    const text = describeCorrect(0, true);
+    expect(text).not.toContain("+0");
+    expect(text).toMatch(/already answered/i);
   });
 });

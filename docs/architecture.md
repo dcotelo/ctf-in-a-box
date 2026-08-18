@@ -260,13 +260,24 @@ they must be **added** onto the scorer-sourced total (`entry.points +=
 quizTotal.points`) before the combined board re-ranks.
 
 A team's quiz total is the **union** of its members' correctly-answered
-questions (`getTeamQuizTotals`), never the sum of their individual
+questions (`getTeamQuizTotalsBatch`), never the sum of their individual
 aggregates — summing would double-count a question two teammates both
 answered, exactly like a shared flag would double-count under naive
 summation. Individual rows read the cheap per-login aggregate counters
 instead (`getQuizTotals`); only a team standing pays the per-member
 `HGETALL` cost, and only once team standings are already available on that
-leaderboard source.
+leaderboard source. Those per-member reads for **every** team on the board
+go out in a single pipeline (one `HGETALL` per distinct member, not one
+round trip per team), because `/leaderboard` is dynamic and fetched
+`no-store` — a per-team round trip would bill an event one REST call per
+team on every page view.
+
+The overlay's two quiz reads are settled **independently**: `getQuizTotals`
+supplies the points, `listQuestions` only the "answered / total"
+denominator. A failed question-list read degrades to a missing denominator
+(clamped to at least the answered count, so the ratio can never read
+"1 / 0"), never to lost points — points and the ranking they drive must not
+hinge on a cosmetic read.
 
 The master reset (below) wipes `ctf:quiz:answers:*`, `ctf:quiz:attempts:*`,
 `ctf:quiz:points`, and `ctf:quiz:answered` — contestant progress — but

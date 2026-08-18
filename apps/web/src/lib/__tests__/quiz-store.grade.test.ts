@@ -123,11 +123,18 @@ describe("grading (all-or-nothing, order-insensitive)", () => {
     expect(args[3]).toBe("octocat");
   });
 
-  it("treats a race that already banked a correct answer as correct, awarding nothing further", async () => {
+  it("treats a race that already banked a correct answer as correct, awarding nothing further — and flags it as `already` so a caller never announces a literal +0 award", async () => {
     gateReads(null, null);
     mocks.upstashEval.mockResolvedValueOnce(["already"]);
     const result = await answerQuestion("octocat", "q1", ["a"]);
-    expect(result).toEqual({ ok: true, correct: true, points: 0 });
+    expect(result).toEqual({ ok: true, correct: true, points: 0, already: true });
+  });
+
+  it("does not flag a genuinely fresh correct answer as `already`", async () => {
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
+    const result = await answerQuestion("octocat", "q1", ["a"]);
+    expect(result).toEqual({ ok: true, correct: true, points: 20 });
   });
 
   it("guards the idempotency check before the answer write, re-checks the cap/cooldown before spending an attempt, and gates the aggregates behind the correctness check (one atomic script)", async () => {

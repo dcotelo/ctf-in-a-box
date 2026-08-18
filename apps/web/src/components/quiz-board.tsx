@@ -36,9 +36,24 @@ export type QuizQuestionView = {
   points: number;
 } & QuizStatus;
 
-type AnswerResponse = { correct: true; points: number } | { correct: false } | { error: string; retryAt?: string };
+type AnswerResponse =
+  | { correct: true; points: number; already?: boolean }
+  | { correct: false }
+  | { error: string; retryAt?: string };
 
 type Feedback = { kind: "success" | "error" | "info"; text: string };
+
+/** Feedback for an accepted (correct) submission. The `already` branch is
+ *  NOT cosmetic: `/api/quiz/answer` reports an idempotent re-submission of a
+ *  question this login had already banked as `correct: true, points: 0`
+ *  (see quiz-store's AnswerResult), and rendering that through the normal
+ *  template would announce "Correct — +0 points." — which reads as "this
+ *  question is worth nothing", the opposite of the truth. Exported for
+ *  direct testing. */
+export function describeCorrect(points: number, already?: boolean): string {
+  if (already) return "You already answered this one — those points are already yours.";
+  return `Correct — +${points} point${points === 1 ? "" : "s"}.`;
+}
 
 function describeRefusal(reason: string, retryAt?: string): string {
   switch (reason) {
@@ -101,7 +116,7 @@ export default function QuizBoard({
         setFeedback((prev) => ({
           ...prev,
           [question.id]: data.correct
-            ? { kind: "success", text: `Correct — +${data.points} point${data.points === 1 ? "" : "s"}.` }
+            ? { kind: "success", text: describeCorrect(data.points, data.already) }
             : { kind: "error", text: "Not quite. Try again." },
         }));
       } else if ("error" in data && typeof data.error === "string") {

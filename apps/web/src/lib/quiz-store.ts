@@ -82,6 +82,16 @@ export const QUIZ_RETRY_AFTER_MIN = 5;
  *  pattern instead of keeping their own copy that could silently desync. */
 export const QUIZ_ID_RE = /^[\w-]{1,64}$/;
 
+/** Upper bound on a question's point value, mirroring `HINT_COST_MAX` in
+ *  admin-store.ts. This is not cosmetic: `upsertQuestion` writes `points`
+ *  verbatim into the question hash via `JSON.stringify`, and at >=1e21
+ *  JavaScript serialises a number in exponential form (`1e+21`), which
+ *  GRADE_SCRIPT's anchored `'"points":(%-?%d+)[,}]'` match cannot read — the
+ *  script would fall back to 0 and silently award nothing for a correct
+ *  answer. A sane cap keeps every storable value inside the plain-integer
+ *  form the script can actually parse. */
+export const QUIZ_POINTS_MAX = 100000;
+
 /** Thrown by `upsertQuestion`/`deleteQuestion` for genuine input-validation
  *  failures (bad id/choice format, non-integer points, a `correct` id not
  *  among the question's choices, wrong arity for a `"single"` question) —
@@ -181,6 +191,12 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   if (!Number.isInteger(q.points) || q.points < 0) {
     throw new QuizValidationError("points", `Question points must be a non-negative integer, got ${q.points}`);
   }
+  // Upper bound too — see QUIZ_POINTS_MAX: past ~1e21 `JSON.stringify` emits
+  // exponential notation the script's integer match can't read, so an
+  // uncapped value would store fine and then score 0 forever.
+  if (q.points > QUIZ_POINTS_MAX) {
+    throw new QuizValidationError("points", `Question points must be an integer in [0, ${QUIZ_POINTS_MAX}]`);
+  }
   const choiceIds = new Set(q.choices.map((c) => c.id));
   for (const id of correct) {
     if (!choiceIds.has(id)) throw new QuizValidationError("correct", `Correct choice id not among choices: ${id}`);
@@ -210,7 +226,26 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
 }
 
-/** Removes a question and its answer key together. */
+/** Removes a question and its answer key together — nothing else.
+ *
+ *  Scope, stated plainly because it is easy to assume otherwise: this
+ *  retires the question from the quiz (contestants stop seeing it, and it
+ *  can no longer be answered — GRADE_SCRIPT's step 1 returns `missing`
+ *  without the key), but it deliberately does NOT touch contestant history.
+ *  `ctf:quiz:answers:<login>` / `ctf:quiz:attempts:<login>` rows for the
+ *  deleted id stay put, and the two aggregate counters
+ *  (`ctf:quiz:points`/`ctf:quiz:answered`) are not decremented — so points
+ *  already banked for this question REMAIN on the leaderboard. Clearing
+ *  banked points is the master reset's job (admin-store's `resetEvent`),
+ *  which wipes exactly those hashes across every login at once.
+ *
+ *  That's a deliberate contract, not an oversight: cascading a delete across
+ *  every per-login hash plus aggregate decrements is a fan-out destructive
+ *  write with no atomic story and no undo, and retiring a question is a far
+ *  more common need than un-awarding points for it. Because the aggregates
+ *  outlive the question, a login can hold more answers than the question
+ *  list has entries — `leaderboard/module-contributions.ts` clamps the
+ *  "answered / total" denominator for exactly that reason. */
 export async function deleteQuestion(id: string): Promise<void> {
   if (!QUIZ_ID_RE.test(id)) throw new QuizValidationError("id", `Invalid question id: ${id}`);
   const results = await upstashPipeline([
@@ -335,14 +370,50 @@ export async function getQuizTotals(): Promise<Map<string, QuizTotal>> {
  *  since-changed question price recorded on someone else's row — never
  *  changes what the team already earned). Teams are capped at a handful of
  *  members, so one HGETALL per member is cheap: this scales with team size,
- *  never with board size. */
+ *  never with board size.
+ *
+ *  This single-team form is one round trip per call. A caller with EVERY
+ *  team in hand (the leaderboard overlay) must use `getTeamQuizTotalsBatch`
+ *  below instead, which folds the whole board into one pipeline. */
 export async function getTeamQuizTotals(members: string[]): Promise<QuizTotal> {
-  if (members.length === 0) return { points: 0, answered: 0, lastAt: null };
+  const [total] = await getTeamQuizTotalsBatch([members]);
+  return total;
+}
 
-  const results = await upstashPipeline(members.map((login) => ["HGETALL", answersKey(login)]));
+/** The batched form of `getTeamQuizTotals`: one team's members per entry in
+ *  `teams`, one `QuizTotal` per entry out, in the same order — and exactly
+ *  ONE `upstashPipeline` round trip for the whole board instead of one per
+ *  team. `/leaderboard` is dynamic and fetched `no-store`, so the per-team
+ *  form cost a 25-team event 25 REST calls on every single page view; this
+ *  makes it 1.
+ *
+ *  The dedupe semantics are identical (they are literally the same fold —
+ *  see `foldTeamAnswers`): a question two teammates both answered still
+ *  counts ONCE, at the EARLIEST answer's stored points. Only the transport
+ *  changes. A login on two teams is fetched once and its replies reused for
+ *  both, so the pipeline carries one `HGETALL` per DISTINCT member. */
+export async function getTeamQuizTotalsBatch(teams: readonly (readonly string[])[]): Promise<QuizTotal[]> {
+  const indexByLogin = new Map<string, number>();
+  for (const members of teams) {
+    for (const login of members) {
+      if (!indexByLogin.has(login)) indexByLogin.set(login, indexByLogin.size);
+    }
+  }
+  const logins = [...indexByLogin.keys()];
+  if (logins.length === 0) return teams.map(() => ({ points: 0, answered: 0, lastAt: null }));
+
+  const results = await upstashPipeline(logins.map((login) => ["HGETALL", answersKey(login)]));
+  return teams.map((members) => foldTeamAnswers(members.map((login) => results[indexByLogin.get(login) ?? -1])));
+}
+
+/** The union-by-question fold both team forms share. Keeps the EARLIEST
+ *  correct answer for any question more than one member holds — a later
+ *  re-answer by a teammate, or a since-changed price recorded on someone
+ *  else's row, never changes what the team already earned. */
+function foldTeamAnswers(memberReplies: ({ result?: unknown; error?: string } | undefined)[]): QuizTotal {
   const byQuestion = new Map<string, { points: number; at: string }>();
-  for (const res of results) {
-    const flat = Array.isArray(res.result) ? (res.result as string[]) : [];
+  for (const res of memberReplies) {
+    const flat = Array.isArray(res?.result) ? (res.result as string[]) : [];
     for (let i = 0; i < flat.length; i += 2) {
       const parsed = parseJsonValue(flat[i + 1], extractAnswered);
       if (!parsed) continue;
@@ -566,7 +637,12 @@ redis.call('HINCRBY', KEYS[6], ARGV[4], 1)
 return {'correct', tostring(points)}`;
 
 export type AnswerResult =
-  | { ok: true; correct: true; points: number }
+  // `already` marks the idempotent re-submission of a question this login
+  // had ALREADY banked (GRADE_SCRIPT's step-2 guard). It is still a correct
+  // answer, but `points` is 0 because this call awarded nothing further —
+  // NOT because the question is worth nothing. Callers must render the two
+  // apart; "Correct — +0 points." is exactly the wrong thing to say here.
+  | { ok: true; correct: true; points: number; already?: boolean }
   | { ok: true; correct: false }
   | { ok: false; reason: "paused" | "answered" | "exhausted" | "cooldown"; retryAt?: string }
   // The gate's lookup itself failed (fail-closed) — kept distinct from
@@ -647,7 +723,9 @@ export async function answerQuestion(login: string, questionId: string, choices:
   if (status === "incorrect") return { ok: true, correct: false };
   // Raced a prior correct submission past the gate's own read — already
   // banked, so this call awards nothing further, but it IS a correct answer.
-  if (status === "already") return { ok: true, correct: true, points: 0 };
+  // `already` is what lets the caller say "you already had this one" rather
+  // than announcing a literal award of zero points.
+  if (status === "already") return { ok: true, correct: true, points: 0, already: true };
   if (status === "correct") return { ok: true, correct: true, points: Number(value) || 0 };
   return { ok: false, reason: "error" };
 }

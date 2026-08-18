@@ -8,7 +8,16 @@ const mocks = vi.hoisted(() => ({ upstashEval: vi.fn(), upstashPipeline: vi.fn()
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
 
-import { deleteQuestion, getQuizTotals, getTeamQuizTotals, getViewerQuiz, listQuestions, upsertQuestion } from "@/lib/quiz-store";
+import {
+  deleteQuestion,
+  getQuizTotals,
+  getTeamQuizTotals,
+  getTeamQuizTotalsBatch,
+  getViewerQuiz,
+  listQuestions,
+  QUIZ_POINTS_MAX,
+  upsertQuestion,
+} from "@/lib/quiz-store";
 
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
@@ -167,6 +176,41 @@ describe("upsertQuestion", () => {
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 
+  it("rejects points above the cap before touching Upstash", async () => {
+    await expect(
+      upsertQuestion(
+        { id: "q1", prompt: "?", type: "single", choices: [{ id: "a", label: "A" }], points: QUIZ_POINTS_MAX + 1, order: 1 },
+        ["a"],
+      ),
+    ).rejects.toThrow(new RegExp(`points must be an integer in \\[0, ${QUIZ_POINTS_MAX}\\]`, "i"));
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("rejects a points value large enough that JSON.stringify would go exponential — GRADE_SCRIPT's integer match can't read that, so it would silently award 0", async () => {
+    // 1e21 is the exact threshold where JSON.stringify emits "1e+21", which
+    // GRADE_SCRIPT's anchored '"points":(%-?%d+)[,}]' cannot match.
+    expect(JSON.stringify({ points: 1e21 })).toContain("1e+21");
+    await expect(
+      upsertQuestion(
+        { id: "q1", prompt: "?", type: "single", choices: [{ id: "a", label: "A" }], points: 1e21, order: 1 },
+        ["a"],
+      ),
+    ).rejects.toThrow(/points must be an integer in/i);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("accepts points exactly at the cap, and stores them as a plain integer the grading script can match", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: "OK" }, { result: "OK" }]);
+    await upsertQuestion(
+      { id: "q1", prompt: "?", type: "single", choices: [{ id: "a", label: "A" }], points: QUIZ_POINTS_MAX, order: 1 },
+      ["a"],
+    );
+    const cmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
+    const qCmd = cmds.find((c) => c[1] === "ctf:quiz:questions")!;
+    expect(qCmd[3]).toContain(`"points":${QUIZ_POINTS_MAX}`);
+    expect(qCmd[3]).not.toMatch(/e\+/i);
+  });
+
   it("rejects negative points before touching Upstash", async () => {
     await expect(
       upsertQuestion(
@@ -257,6 +301,22 @@ describe("deleteQuestion", () => {
   it("rejects a malformed id before touching Upstash", async () => {
     await expect(deleteQuestion("../etc")).rejects.toThrow(/invalid question id/i);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  // The contract, pinned: retiring a question must NOT cascade into
+  // contestant history. Banked points stay on the board (only the master
+  // reset clears them), so no per-login hash and neither aggregate counter
+  // may be touched here. The admin confirm copy and docs/operations.md both
+  // promise exactly this.
+  it("leaves contestant history and the aggregate counters completely untouched", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: 1 }, { result: 1 }]);
+    await deleteQuestion("q1");
+    const cmds = JSON.stringify(mocks.upstashPipeline.mock.calls[0][0]);
+    expect(cmds).not.toContain("ctf:quiz:answers");
+    expect(cmds).not.toContain("ctf:quiz:attempts");
+    expect(cmds).not.toContain("ctf:quiz:points");
+    expect(cmds).not.toContain("ctf:quiz:answered");
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -386,5 +446,79 @@ describe("getTeamQuizTotals", () => {
   it("drops unparseable rows instead of throwing", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", "not json"] }]);
     expect(await getTeamQuizTotals(["ada"])).toEqual({ points: 0, answered: 0, lastAt: null });
+  });
+});
+
+describe("getTeamQuizTotalsBatch", () => {
+  const answer = (points: number, at: string) => JSON.stringify({ choices: ["a"], points, at });
+
+  it("issues ONE pipeline for every team on the board, not one per team", async () => {
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", answer(10, "2026-01-01T00:00:00.000Z")] },
+      { result: ["q2", answer(15, "2026-01-01T01:00:00.000Z")] },
+      { result: ["q3", answer(20, "2026-01-01T02:00:00.000Z")] },
+      { result: [] },
+    ]);
+
+    const totals = await getTeamQuizTotalsBatch([
+      ["ada", "cyd"],
+      ["bob", "eve"],
+    ]);
+
+    // The whole point: one round trip, carrying one HGETALL per member.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(mocks.upstashPipeline.mock.calls[0][0]).toEqual([
+      ["HGETALL", "ctf:quiz:answers:ada"],
+      ["HGETALL", "ctf:quiz:answers:cyd"],
+      ["HGETALL", "ctf:quiz:answers:bob"],
+      ["HGETALL", "ctf:quiz:answers:eve"],
+    ]);
+    // Replies partitioned back to the right team, in input order.
+    expect(totals).toEqual([
+      { points: 25, answered: 2, lastAt: "2026-01-01T01:00:00.000Z" },
+      { points: 20, answered: 1, lastAt: "2026-01-01T02:00:00.000Z" },
+    ]);
+  });
+
+  it("keeps the union-by-question dedupe per team — a question two teammates answered still counts once, at the earliest answer's points", async () => {
+    // Same invariant the single-team form is held to, proven again on the
+    // batched path so the round-trip optimisation can't quietly change it.
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", answer(10, "2026-01-01T00:00:00.000Z")] },
+      { result: ["q1", answer(25, "2026-01-02T00:00:00.000Z")] },
+    ]);
+
+    const [red] = await getTeamQuizTotalsBatch([["ada", "cyd"]]);
+    expect(red).toEqual({ points: 10, answered: 1, lastAt: "2026-01-01T00:00:00.000Z" });
+  });
+
+  it("fetches a member shared by two teams once and credits both teams from that one reply", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", answer(10, "2026-01-01T00:00:00.000Z")] }]);
+
+    const totals = await getTeamQuizTotalsBatch([["ada"], ["ada"]]);
+
+    expect(mocks.upstashPipeline.mock.calls[0][0]).toEqual([["HGETALL", "ctf:quiz:answers:ada"]]);
+    expect(totals[0]).toEqual(totals[1]);
+    expect(totals[0].points).toBe(10);
+  });
+
+  it("returns a zero total per team without touching Upstash when no team has members", async () => {
+    expect(await getTeamQuizTotalsBatch([[], []])).toEqual([
+      { points: 0, answered: 0, lastAt: null },
+      { points: 0, answered: 0, lastAt: null },
+    ]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty array for an empty board without touching Upstash", async () => {
+    expect(await getTeamQuizTotalsBatch([])).toEqual([]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("gives a memberless team a zero total while still reading the teams that do have members", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", answer(10, "2026-01-01T00:00:00.000Z")] }]);
+    const totals = await getTeamQuizTotalsBatch([[], ["ada"]]);
+    expect(totals[0]).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(totals[1].points).toBe(10);
   });
 });

@@ -52,7 +52,13 @@ export async function POST(request: Request) {
 
   const result = await answerQuestion(login, questionId, choices);
   if (result.ok) {
-    return NextResponse.json(result.correct ? { correct: true, points: result.points } : { correct: false });
+    if (!result.correct) return NextResponse.json({ correct: false });
+    // `already` (this login had banked this question before — see
+    // AnswerResult) rides along so the client can say so, instead of
+    // reading the accompanying `points: 0` as an award of nothing.
+    return result.already
+      ? NextResponse.json({ correct: true, points: result.points, already: true })
+      : NextResponse.json({ correct: true, points: result.points });
   }
 
   if (result.reason === "invalid") {
