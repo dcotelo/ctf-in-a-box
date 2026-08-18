@@ -144,8 +144,9 @@ the sections below are the enforceable contract behind it.
    (`test/fixtures/mock-scorer.mjs`) returns `{leaderboard: [{author,
    points, solved}]}` computed as one point per solved challenge ID — a
    simplified stand-in for smoke-testing, not the real scoring/pricing
-   logic (that lives in the private upstream scorer image). The real scorer's leaderboard entries carry, per author,
-   points plus a per-target solved/total breakdown.
+   logic (that lives in this repo's scorer engine, `scorer/src/serve.js`'s
+   `buildLeaderboard`). The real scorer's leaderboard entries carry, per
+   author, points plus a per-target solved/total breakdown.
 
 2. A module MUST define its own challenge catalogue: a fixed set of target
    keys (`secure-development`'s is the `TARGETS` enum in
@@ -174,10 +175,12 @@ challenge list, and leaderboard columns down to the targets under
 `src/lib/__tests__/modules.test.ts` and `scripts/acceptance-app.sh` (which
 asserts a disabled target never renders). The existing challenge catalogue
 (item 2) and per-target solved/total leaderboard columns (item 3) predate
-this work and satisfy those items for the one shipped module. What remains
-open is the organizer admin panel (score adjustments, player removal, hint
-toggles) — `README.md`'s "Status / upstream dependencies" item 3 tracks it
-as Spec B, not yet built — and offering this vendored delta back to
+this work and satisfy those items for the one shipped module. The organizer
+admin panel that was tracked as Spec B is now built — freeze, scheduled
+scoring windows, team-registration windows, hint toggles/cost, demo seed, and
+the master reset (see `docs/operations.md`'s "Organizer admin panel" and
+"Status and upstream dependencies"). What remains open there is score
+adjustments and player removal — and offering this vendored delta back to
 `OWASP-CTF/ctf-owasp-org` once upstream write access opens. This section
 remains the contract a *new* module (forensics, api-security, cloud, …)
 must satisfy to plug into the same UI, since v1 only proves it against the

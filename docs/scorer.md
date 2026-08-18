@@ -42,9 +42,10 @@ and no upstream service anywhere:
    to `score serve` on your box.
 5. The app reads `GET /leaderboard` from that same serve process. The
    response pairs the ranked standings with a rubric-derived `catalog`
-   (per target, each challenge's `id`/`name`/`points`/`owasp`) and a
-   `solvedIds` list on each entry's/team's `apps.<target>`, so the app can
-   show which flags are solved, not just how many.
+   (per target, each challenge's `id`/`name`/`points`/`owasp` — `owasp` is
+   carried only by exec-grammar catalogues, `null` for declarative YAML
+   targets) and a `solvedIds` list on each entry's/team's `apps.<target>`, so
+   the app can show which flags are solved, not just how many.
 
 Push mode short-circuits steps 3–4: the judge POSTs directly to your box's
 public `/score` route and the comment is informational.

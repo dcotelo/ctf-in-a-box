@@ -120,9 +120,8 @@ state; everything else that touches scores goes through it.
 
    `score-action`'s `leaderboard-url`/`leaderboard-token` inputs, which
    push mode needs to know where and how to POST, are still an unlanded
-   upstream change (README's [Status / upstream
-   dependencies](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md#status--upstream-dependencies),
-   item 2).
+   upstream change ([Status and upstream
+   dependencies](operations.md#status-and-upstream-dependencies), item 2).
 4. In poll mode, `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
    `fetchNewScoreComments` (`sync/src/github.js`), which fetches issue
    comments since the last cursor and **filters by comment author
@@ -146,10 +145,12 @@ state; everything else that touches scores goes through it.
    result on the contestant-facing leaderboard page. Alongside the ranked
    `leaderboard`/`teams` standings, the payload carries a top-level `catalog`
    (per target, each challenge's `id`/`name`/`points`/`owasp`, derived from
-   the rubric) and a `solvedIds` array on every entry's and team's
+   the rubric — `owasp` is carried only by exec-grammar catalogues, `null`
+   for declarative YAML targets) and a `solvedIds` array on every entry's and team's
    `apps.<target>`. The app joins the two to show *which* flags are solved —
-   the collapsible per-target list under a contestant's breakdown and a
-   team's collectively-solved flags (its members' union). Both fields are
+   the collapsible per-target list under a contestant's breakdown, and a
+   team's per-target flags (solved by its members' union, plus the ones still
+   open). Both fields are
    additive; an older scorer that omits them simply falls back to the
    solved/total counts.
 
@@ -305,9 +306,8 @@ config change").
   A replayed already-applied score is expected to be a no-op on the scorer
   side, not a double-count. The real (private) `scorer` image doesn't
   accept bearer-token auth on `POST /score` yet — that's an unlanded
-  upstream change (see README's [Status / upstream
-  dependencies](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md#status--upstream-dependencies),
-  item 1); the
+  upstream change (see [Status and upstream
+  dependencies](operations.md#status-and-upstream-dependencies), item 1); the
   offline mock scorer in `scripts/smoke.sh` is today's end-to-end proof of
   this write path, not a live scorer.
 - **Per-event disposable orgs.** Each event gets its own GitHub org

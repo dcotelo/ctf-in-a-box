@@ -1,8 +1,10 @@
 "use client";
 
-// Collapsible per-challenge list inside a profile app card. Client Component
-// because it's pure local expand/collapse state — collapsed by default since
-// some targets (vulnerableapp) have 100+ challenges.
+// Collapsible per-challenge list, reused across the profile app cards, the
+// leaderboard breakdown (a contestant's expanded row), and the team flags
+// view. Client Component because it's pure local expand/collapse state —
+// collapsed by default since some targets (vulnerableapp) have 100+
+// challenges.
 
 import { useState } from "react";
 import type { ChallengeResult } from "@/lib/leaderboard/types";
