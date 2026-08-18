@@ -1,14 +1,15 @@
+"use client";
+
 // Leaderboard line chart — top contestants' (or top teams') cumulative score
 // over time, rendered inside the leaderboard, above the table/rows.
 //
-// This component itself holds no state and has no interactivity of its own
-// (no hover tooltip/crosshair — see the dataviz skill's interaction
-// guidance, which this intentionally trades away for v1): it's a pure
-// function of its `series`/`teamSeries` props, a static SVG either way.
-// It's nested inside <Leaderboard> (a client component) so it can switch
-// between the player and team series as the view toggle flips; nothing here
-// depends on browser-only APIs, so it renders identically server- or
-// client-side and needs no client/server markup reconciliation of its own.
+// The chart geometry is a pure function of its `series`/`teamSeries` props (a
+// deterministic SVG, identical server- or client-side). On top of that it
+// carries one piece of client interactivity: a hover crosshair + tooltip that
+// reads out every plotted series' cumulative score at the pointed-to time
+// (step semantics — a series' "points so far" is its last solve at or before
+// that instant). It's nested inside <Leaderboard> (already a client component)
+// and switches between the player and team series as the view toggle flips.
 //
 // Colors: the dataviz skill's validated default categorical palette (dark
 // steps), re-validated with the skill's validator against this app's actual
@@ -16,6 +17,7 @@
 // eight slots clear the lightness/chroma/CVD/contrast gates in fixed order.
 // A 9th+ line is never a generated hue (the skill's #1 anti-pattern): ranks
 // 9-10 fold into a single shared muted "Other" entry instead.
+import { useRef, useState } from "react";
 import type { PlayerSeries, SeriesPoint, TeamSeries } from "@/lib/leaderboard/types";
 
 const SERIES_COLORS = [
@@ -70,6 +72,9 @@ type PlottedLine = {
   color: string;
   path: string | null; // null when there's only one point — a path would be degenerate
   points: { x: number; y: number }[];
+  /** Sorted-ascending raw (time-ms, cumulative-score) history — drives the
+   *  hover tooltip's "score so far" lookup and the crosshair dot placement. */
+  raw: { t: number; score: number }[];
 };
 
 /** The shared SVG line chart: series-agnostic core reused by both the player
@@ -116,18 +121,109 @@ function renderChart(entries: ChartSeries[], noun: string) {
 
   const lines: PlottedLine[] = ranked.map((s, i) => {
     const color = i < SERIES_COLORS.length ? SERIES_COLORS[i] : OTHER_COLOR;
-    const points = [...s.points]
+    const raw = [...s.points]
       .filter((p) => Number.isFinite(Date.parse(p.t)))
-      .sort((a, b) => Date.parse(a.t) - Date.parse(b.t))
-      .map((p) => ({ x: x(Date.parse(p.t)), y: y(p.score) }));
+      .map((p) => ({ t: Date.parse(p.t), score: p.score }))
+      .sort((a, b) => a.t - b.t);
+    const points = raw.map((p) => ({ x: x(p.t), y: y(p.score) }));
     const path =
       points.length >= 2 ? points.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ") : null;
-    return { key: s.key, label: s.label, color, path, points };
+    return { key: s.key, label: s.label, color, path, points, raw };
   });
 
   const foldedCount = Math.max(0, lines.length - SERIES_COLORS.length);
   const yTicks = Array.from({ length: Y_TICK_COUNT + 1 }, (_, i) => (maxScore / Y_TICK_COUNT) * i);
   const xTicks = Array.from({ length: X_TICK_COUNT + 1 }, (_, i) => minT + ((maxT - minT) / X_TICK_COUNT) * i);
+
+  return (
+    <InteractiveChart
+      lines={lines}
+      foldedCount={foldedCount}
+      yTicks={yTicks}
+      xTicks={xTicks}
+      minT={minT}
+      maxT={maxT}
+      maxScore={maxScore}
+      noun={noun}
+    />
+  );
+}
+
+/** A series' cumulative score AT time `t`: its last recorded solve at or
+ *  before `t` (step semantics — score only rises on a solve), 0 before any.
+ *  Exported for unit testing the hover readout. */
+export function scoreAt(raw: { t: number; score: number }[], t: number): number {
+  let s = 0;
+  for (const p of raw) {
+    if (p.t <= t) s = p.score;
+    else break;
+  }
+  return s;
+}
+
+/** Linear-interpolated y for a line at plot-x `hx`, matching the drawn path,
+ *  or null when `hx` is outside the line's own time span (so no dot rides an
+ *  empty stretch). */
+function interpY(points: { x: number; y: number }[], hx: number): number | null {
+  if (points.length === 0) return null;
+  if (hx < points[0].x || hx > points[points.length - 1].x) return null;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (hx >= a.x && hx <= b.x) {
+      const span = b.x - a.x || 1;
+      return a.y + ((hx - a.x) / span) * (b.y - a.y);
+    }
+  }
+  return points[points.length - 1].y;
+}
+
+/** The rendered chart with a hover crosshair + tooltip. Split out from
+ *  renderChart so the hooks here always run (renderChart's degenerate branches
+ *  return before reaching this), keeping the rules of hooks satisfied. */
+function InteractiveChart({
+  lines,
+  foldedCount,
+  yTicks,
+  xTicks,
+  minT,
+  maxT,
+  maxScore,
+  noun,
+}: {
+  lines: PlottedLine[];
+  foldedCount: number;
+  yTicks: number[];
+  xTicks: number[];
+  minT: number;
+  maxT: number;
+  maxScore: number;
+  noun: string;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hoverX, setHoverX] = useState<number | null>(null);
+
+  const x = (ms: number) => MARGIN.left + ((ms - minT) / (maxT - minT)) * PLOT_W;
+  const y = (score: number) => MARGIN.top + PLOT_H - (score / maxScore) * PLOT_H;
+
+  function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    const svg = svgRef.current;
+    const ctm = svg?.getScreenCTM();
+    if (!svg || !ctm) return;
+    const local = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    setHoverX(Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, local.x)));
+  }
+
+  const hoverT = hoverX == null ? null : minT + ((hoverX - MARGIN.left) / PLOT_W) * (maxT - minT);
+  const rows =
+    hoverT == null
+      ? []
+      : lines
+          .map((l) => ({ key: l.key, label: l.label, color: l.color, score: scoreAt(l.raw, hoverT) }))
+          .sort((a, b) => b.score - a.score);
+  // Position the tooltip on whichever side of the crosshair has room.
+  const hoverPct = hoverX == null ? 0 : (hoverX / WIDTH) * 100;
+  const tooltipLeftSide = hoverPct > 58;
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
@@ -139,12 +235,15 @@ function renderChart(entries: ChartSeries[], noun: string) {
         </span>
       </div>
 
-      <div className="w-full overflow-x-auto">
+      <div className="relative w-full overflow-x-auto">
         <svg
+          ref={svgRef}
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
           aria-label={`Cumulative score over time for the top ${lines.length} ${noun}${lines.length === 1 ? "" : "s"}`}
-          className="h-auto w-full min-w-[480px]"
+          className="h-auto w-full min-w-[480px] touch-none"
+          onPointerMove={onMove}
+          onPointerLeave={() => setHoverX(null)}
         >
           <title>Score over time</title>
 
@@ -222,7 +321,50 @@ function renderChart(entries: ChartSeries[], noun: string) {
               ))}
             </g>
           ))}
+
+          {/* Hover crosshair + per-line markers at the pointed-to time. */}
+          {hoverX != null && (
+            <g pointerEvents="none">
+              <line
+                x1={hoverX}
+                x2={hoverX}
+                y1={MARGIN.top}
+                y2={HEIGHT - MARGIN.bottom}
+                stroke="rgba(255,255,255,0.28)"
+                strokeWidth={1}
+                strokeDasharray="3 3"
+              />
+              {lines.map((line) => {
+                const yy = interpY(line.points, hoverX);
+                if (yy == null) return null;
+                return <circle key={`h-${line.key}`} cx={hoverX} cy={yy} r={4.5} fill={line.color} stroke="#0d0d16" strokeWidth={2} />;
+              })}
+            </g>
+          )}
         </svg>
+
+        {/* Tooltip: HTML overlay so the readout stays crisp and easy to style;
+            positioned by the crosshair's horizontal fraction of the SVG. */}
+        {hoverX != null && hoverT != null && (
+          <div
+            className="pointer-events-none absolute top-2 z-10 w-max max-w-[240px] rounded-md border border-white/10 bg-[#0d0d16]/95 px-2.5 py-2 text-xs shadow-lg"
+            style={{
+              left: `${hoverPct}%`,
+              transform: tooltipLeftSide ? "translateX(calc(-100% - 10px))" : "translateX(10px)",
+            }}
+          >
+            <p className="mb-1 font-mono text-[10px] text-muted">{formatTimeTick(hoverT)}</p>
+            <ul className="flex flex-col gap-0.5">
+              {rows.map((r) => (
+                <li key={r.key} className="flex items-center gap-1.5">
+                  <span aria-hidden="true" className="h-2 w-2 flex-none rounded-full" style={{ background: r.color }} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-zinc-300">{r.label}</span>
+                  <span className="flex-none font-mono tabular-nums text-white">{r.score.toLocaleString("en-US")}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Legend: the dependable identity channel — a single series needs no
