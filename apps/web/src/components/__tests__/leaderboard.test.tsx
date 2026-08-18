@@ -270,8 +270,8 @@ describe("per-module breakdown", () => {
         capabilities={CAPS}
         modules={[
           { id: "secure-development", title: "Patch Track", blurb: "", targets: [] },
-          { id: "quiz", title: "Round 1", blurb: "" },
-        ] as unknown as readonly ResolvedModule[]}
+          { id: "quiz", title: "Round 1", blurb: "", targets: [] },
+        ]}
       />,
     );
     expect(html).toContain("Round 1");
