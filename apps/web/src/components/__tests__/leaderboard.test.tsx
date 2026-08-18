@@ -14,20 +14,21 @@ vi.mock("next/image", () => ({
   },
 }));
 
-// event.yaml (and thus the real eventConfig) only enables secure-development
-// in this repo today — quiz is mocked in so the per-module test below can
-// exercise both branches of ModuleDetail without depending on event config.
-vi.mock("@/lib/modules", () => ({
-  enabledModules: [
-    { id: "secure-development", displayName: "Secure Development", description: "", targets: [] },
-    { id: "quiz", displayName: "Quiz", description: "", targets: [] },
-  ],
-}));
-
 import Leaderboard, { EntryRow, TeamRow } from "@/components/leaderboard";
+import type { ResolvedModule } from "@/lib/modules";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 const CAPS = { apps: true, teams: true, challenges: true } as const;
+
+// Leaderboard/EntryRow render their per-module headings from a `modules`
+// prop supplied by the server page (resolved, organizer-named modules), not
+// from a mocked registry — so tests pass this directly instead of mocking
+// `@/lib/modules`. Two modules, so the per-module heading is exercised (see
+// leaderboard-single-module.test.tsx for the one-module suppression case).
+const MODULES: readonly ResolvedModule[] = [
+  { id: "secure-development", title: "Secure Development", blurb: "", targets: [] },
+  { id: "quiz", title: "Quiz", blurb: "", targets: [] },
+];
 
 function entry(overrides: Partial<LeaderboardEntry> = {}): LeaderboardEntry {
   return {
@@ -73,7 +74,7 @@ describe("Leaderboard", () => {
       teams: [team()],
       capabilities: { apps: false, teams: true, challenges: false },
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
 
     // Team rows render by default.
     expect(html).toContain("Red Team");
@@ -135,7 +136,7 @@ describe("Leaderboard", () => {
       ],
       series: [{ login: "alice", points: [{ t: "2026-08-01T00:00:00.000Z", score: 10 }] }],
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
     expect(html).toMatch(/Top 2 teams/);
   });
 
@@ -161,7 +162,7 @@ describe("Leaderboard", () => {
         },
       ],
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
     // No teams => no toggle at all, individual view stands alone.
     expect(html).not.toMatch(/aria-pressed/);
     expect(html).toContain("alice");
@@ -190,7 +191,7 @@ describe("per-challenge catalog", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <EntryRow entry={withChallenges} topPoints={100} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} />,
+      <EntryRow entry={withChallenges} topPoints={100} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
     );
     // The per-target challenge list is collapsible (collapsed by default —
     // some targets have 100+ challenges), so the expand trigger is what renders
@@ -244,10 +245,36 @@ describe("per-module breakdown", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} />,
+      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
     );
     expect(html).toContain("Secure Development");
     expect(html).toContain("Quiz");
     expect(html).toMatch(/12\s*\/\s*15/); // quiz progress
+  });
+
+  it("heads a module block with its resolved title", () => {
+    const e = entry({
+      points: 132,
+      modules: {
+        "secure-development": { points: 75, completed: 8, lastActivityAt: null, detail: { kind: "secure-development", apps: {} } },
+        quiz: { points: 57, completed: 12, lastActivityAt: null, detail: { kind: "quiz", answered: 12, total: 15, points: 57 } },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <EntryRow
+        entry={e}
+        topPoints={200}
+        isOwn={false}
+        isOpen
+        onToggle={() => {}}
+        capabilities={CAPS}
+        modules={[
+          { id: "secure-development", title: "Patch Track", blurb: "", targets: [] },
+          { id: "quiz", title: "Round 1", blurb: "" },
+        ] as unknown as readonly ResolvedModule[]}
+      />,
+    );
+    expect(html).toContain("Round 1");
+    expect(html).not.toContain(">Quiz<");
   });
 });

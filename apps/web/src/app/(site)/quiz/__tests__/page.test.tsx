@@ -5,12 +5,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { isModuleEnabled, getSession, listQuestions, getViewerQuiz, getAdminSettings } = vi.hoisted(() => ({
+const { isModuleEnabled, getSession, listQuestions, getViewerQuiz, getAdminSettings, getResolvedModules } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   getSession: vi.fn(),
   listQuestions: vi.fn(),
   getViewerQuiz: vi.fn(),
   getAdminSettings: vi.fn(),
+  getResolvedModules: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -23,6 +24,7 @@ vi.mock("next/navigation", async (importOriginal) => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 vi.mock("@/lib/quiz-store", () => ({
@@ -71,6 +73,10 @@ const baseQuestions = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Registry-default fallback, same shape resolveModules would produce for an
+  // event with only the quiz module enabled and no organizer overrides. Tests
+  // that care about an organizer-renamed title override this per-case.
+  getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Quiz", blurb: "Answer security questions for points." }]);
 });
 
 describe("quiz page gate", () => {
@@ -124,5 +130,38 @@ describe("quiz page view model", () => {
 
     const html = renderToStaticMarkup(await QuizPage());
     expect(html).toMatch(/no quiz questions are available/i);
+  });
+
+  it("renders the organizer's module title instead of the default", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listQuestions.mockResolvedValue([]);
+    getAdminSettings.mockResolvedValue({ quizMaxAttempts: null, quizRetryAfterMin: null });
+    getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Round 1", blurb: "Ten questions." }]);
+
+    const html = renderToStaticMarkup(await QuizPage());
+    expect(html).toContain("Round 1");
+  });
+});
+
+describe("quiz page metadata", () => {
+  it("falls back to the registry default title/description when there's no organizer override", async () => {
+    getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Quiz", blurb: "Answer security questions for points." }]);
+    const { generateMetadata } = await import("@/app/(site)/quiz/page");
+
+    await expect(generateMetadata()).resolves.toEqual({
+      title: "Quiz",
+      description: "Answer security questions for points.",
+    });
+  });
+
+  it("uses the organizer's resolved title/blurb when set", async () => {
+    getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Round 1", blurb: "Ten questions." }]);
+    const { generateMetadata } = await import("@/app/(site)/quiz/page");
+
+    await expect(generateMetadata()).resolves.toEqual({
+      title: "Round 1",
+      description: "Ten questions.",
+    });
   });
 });

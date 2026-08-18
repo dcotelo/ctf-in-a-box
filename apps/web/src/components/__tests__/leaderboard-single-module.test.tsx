@@ -1,12 +1,14 @@
-// Single-module regression gate. `vi.mock` is hoisted per file, so the
-// one-module registry needs its own file alongside leaderboard.test.tsx's
-// two-module one.
+// Single-module regression gate. This has its own file (rather than living
+// alongside leaderboard.test.tsx) so its one-module `modules` fixture can't
+// be confused with that file's two-module one.
 //
 // What this pins: for an event with exactly one enabled module — every event
 // shipped so far — an expanded leaderboard row must render the way it did
 // before the multi-module branch: the "App breakdown" label straight above the
 // per-target grid, with no redundant "SECURE DEVELOPMENT <n> pts" heading
 // wedged between them restating the points already shown in the row header.
+// The heading is suppressed off the LENGTH of the `modules` prop (supplied by
+// the server page from the resolved module registry), not a mocked registry.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -17,12 +19,13 @@ vi.mock("next/image", () => ({
   },
 }));
 
-vi.mock("@/lib/modules", () => ({
-  enabledModules: [{ id: "secure-development", displayName: "Secure Development", description: "", targets: [] }],
-}));
-
 import { EntryRow } from "@/components/leaderboard";
+import type { ResolvedModule } from "@/lib/modules";
 import type { LeaderboardEntry } from "@/lib/leaderboard/types";
+
+const MODULES: readonly ResolvedModule[] = [
+  { id: "secure-development", title: "Secure Development", blurb: "", targets: [] },
+];
 
 const CAPS = { apps: true, teams: false, challenges: true } as const;
 
@@ -48,7 +51,7 @@ const entry: LeaderboardEntry = {
 
 describe("expanded row with a single enabled module", () => {
   const html = renderToStaticMarkup(
-    <EntryRow entry={entry} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} />,
+    <EntryRow entry={entry} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
   );
 
   it("suppresses the per-module heading", () => {
