@@ -12,8 +12,18 @@ import {
 } from "@/lib/quiz-keys";
 
 /**
- * The quiz module. This file is the ONLY place that touches `ctf:quiz:*`
- * Redis keys — nothing else in the app should read or write them directly.
+ * The quiz module. This file is the only place that touches `ctf:quiz:*`
+ * Redis keys during normal contestant and authoring activity — answering,
+ * grading, and question authoring/deletion all go through it, and nothing
+ * else should read or write these keys for those flows. Two admin-store.ts
+ * bulk-maintenance paths are the deliberate exception, reusing this file's
+ * key constants/`canonicalizeChoices` (via quiz-keys.ts) rather than going
+ * through these functions: `seedDemoData()` HSETs the questions/key/answers/
+ * aggregate hashes directly when seeding demo data, and the master reset's
+ * `scanDelByPrefix()` SCAN+DELs the per-login answers/attempts hashes and
+ * the two aggregate hashes (never the questions/key hashes — those are
+ * organizer content the reset keeps). See docs/architecture.md's "Quiz data
+ * flow" for the full picture.
  *
  * Key layout:
  *   ctf:quiz:questions          hash, id -> JSON Question (public-safe; this

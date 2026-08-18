@@ -199,8 +199,18 @@ state; everything else that touches scores goes through it.
 
 The `quiz` module never touches `scorer`, `sync`, or GitHub — it's the app's
 own, entirely separate scoring path, running inside `apps/web` against Redis
-keys it owns outright. `apps/web/src/lib/quiz-store.ts` is the **only** file
-that touches `ctf:quiz:*`:
+keys it owns outright. `apps/web/src/lib/quiz-store.ts` is the only writer
+during normal contestant and authoring activity — answering, grading,
+question authoring/deletion all go through it — but two `admin-store.ts`
+bulk-maintenance paths touch `ctf:quiz:*` directly rather than calling into
+`quiz-store.ts`: `seedDemoData()` (`HSET`s the questions key, the answer key,
+a per-login answers hash, and both aggregate hashes when seeding demo data)
+and the master reset's `scanDelByPrefix()` (`SCAN`+`DEL`s
+`ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
+`ctf:quiz:answered` — see "Master reset" below). Both reuse `quiz-keys.ts`'s
+shared key constants and `canonicalizeChoices` recipe rather than
+re-deriving them, so the two writers can't silently disagree on key names or
+answer-set format even though they're separate code paths:
 
 - `ctf:quiz:questions` — the public-safe question hash both contestants and
   the admin panel read: prompt, type, choices, points, `order`. Never
