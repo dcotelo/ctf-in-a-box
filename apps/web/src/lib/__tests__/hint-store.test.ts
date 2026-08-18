@@ -23,10 +23,11 @@ vi.mock("@/lib/admin-store", () => ({
 type HintStore = typeof import("@/lib/hint-store");
 
 /** HINTS_ENABLED is read at module load, so each test re-imports the store
- *  with the env it needs. Enabled = the explicit flag AND Upstash creds. */
-async function loadStore(enabled = true, { creds = enabled }: { creds?: boolean } = {}): Promise<HintStore> {
+ *  with the env it needs. Hints are ON by default now — disabling takes an
+ *  explicit HINTS_ENABLED=false — and Upstash creds are still required. */
+async function loadStore(enabled = true, { creds = true }: { creds?: boolean } = {}): Promise<HintStore> {
   vi.resetModules();
-  vi.stubEnv("HINTS_ENABLED", enabled ? "true" : "");
+  vi.stubEnv("HINTS_ENABLED", enabled ? "true" : "false");
   vi.stubEnv("UPSTASH_REDIS_REST_URL", creds ? "https://fake.upstash.io" : "");
   vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", creds ? "fake-token" : "");
   return import("@/lib/hint-store");
@@ -40,6 +41,11 @@ beforeEach(() => {
     paused: false,
     hintsEnabled: null,
     hintCost: null,
+    // Gate off by default here so the purchase-path tests below stay focused
+    // on charging; the gate has its own describe block.
+    hintsMinSolves: 0,
+    hintsUnlockAfterMin: 0,
+    scoringStartsAt: null,
     updatedBy: null,
     updatedAt: null,
   });
@@ -120,10 +126,17 @@ describe("revealHint", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
-  it("stays off with Upstash creds but no HINTS_ENABLED flag (pre-event state)", async () => {
-    const store = await loadStore(false, { creds: true });
-    expect(store.HINTS_ENABLED).toBe(false);
-    const result = await store.revealHint("octocat", "juice-shop", "Challenge-1");
+  it("is ON by default once Upstash creds exist — opting out takes HINTS_ENABLED=false", async () => {
+    vi.resetModules();
+    vi.stubEnv("HINTS_ENABLED", ""); // unset
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://fake.upstash.io");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "fake-token");
+    const onByDefault = await import("@/lib/hint-store");
+    expect(onByDefault.HINTS_ENABLED).toBe(true);
+
+    const off = await loadStore(false, { creds: true });
+    expect(off.HINTS_ENABLED).toBe(false);
+    const result = await off.revealHint("octocat", "juice-shop", "Challenge-1");
     expect(result).toEqual({ ok: false, error: "Hints are not enabled" });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
@@ -143,6 +156,112 @@ describe("revealHint", () => {
   });
 });
 
+// The anti-burner gate: a throwaway account can eat the hint penalty and relay
+// the text, so price alone can't stop hint farming — earned progress can.
+describe("hintGate", () => {
+  const settings = (over: Record<string, unknown> = {}) => ({
+    paused: false,
+    hintsEnabled: null,
+    hintCost: null,
+    hintsMinSolves: 1,
+    hintsUnlockAfterMin: 0,
+    scoringStartsAt: null,
+    updatedBy: null,
+    updatedAt: null,
+    ...over,
+  });
+  /** HKEYS reply for ctf:solves:<target>: fields are `<author>:<challengeId>`. */
+  const solves = (...fields: string[]) => mocks.upstashPipeline.mockResolvedValueOnce([{ result: fields }]);
+
+  it("blocks an account with no solves on the target (the burner case)", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings());
+    solves("someone-else:challenge-1");
+    expect(await store.hintGate("burner", "juice-shop")).toEqual({
+      allowed: false,
+      reason: "no-progress",
+      needed: 1,
+      have: 0,
+    });
+  });
+
+  it("allows an account that has earned a solve on that target", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings());
+    solves("octocat:challenge-1", "other:challenge-2");
+    expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: true });
+  });
+
+  it("matches the login case-insensitively (GitHub logins are)", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings());
+    solves("OctoCat:challenge-1");
+    expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: true });
+  });
+
+  it("counts solves per target, so progress elsewhere does not unlock this one", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 2 }));
+    solves("octocat:challenge-1"); // only one on this target
+    expect(await store.hintGate("octocat", "juice-shop")).toMatchObject({
+      allowed: false,
+      reason: "no-progress",
+      needed: 2,
+      have: 1,
+    });
+  });
+
+  it("locks every hint until the time phase opens", async () => {
+    const store = await loadStore();
+    const startsAt = new Date(Date.now() - 10 * 60_000).toISOString(); // started 10m ago
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsUnlockAfterMin: 60, scoringStartsAt: startsAt }));
+    const gate = await store.hintGate("octocat", "juice-shop");
+    expect(gate).toMatchObject({ allowed: false, reason: "locked" });
+    // Locked short-circuits before any solve lookup.
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("opens once the unlock delay has elapsed", async () => {
+    const store = await loadStore();
+    const startsAt = new Date(Date.now() - 90 * 60_000).toISOString(); // started 90m ago
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsUnlockAfterMin: 60, scoringStartsAt: startsAt }));
+    solves("octocat:challenge-1");
+    expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: true });
+  });
+
+  it("ignores the time phase when no scoring start is configured", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsUnlockAfterMin: 60, scoringStartsAt: null }));
+    solves("octocat:challenge-1");
+    expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: true });
+  });
+
+  it("skips the progress gate entirely when hintsMinSolves is 0", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0 }));
+    expect(await store.hintGate("burner", "juice-shop")).toEqual({ allowed: true });
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("fails CLOSED when the solve lookup errors — a hint is a paid reveal", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings());
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("upstash down"));
+    expect(await store.hintGate("octocat", "juice-shop")).toMatchObject({ allowed: false, reason: "no-progress" });
+    consoleError.mockRestore();
+  });
+
+  it("revealHint enforces the gate and never reaches the charge script", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings());
+    solves("someone-else:challenge-1");
+    const result = await store.revealHint("burner", "juice-shop", "Challenge-5-Admin-Section");
+    expect(result).toMatchObject({ ok: false, forbidden: true });
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+});
+
 describe("runtime hint override", () => {
   it("charges the overridden cost when set", async () => {
     const store = await loadStore();
@@ -150,6 +269,9 @@ describe("runtime hint override", () => {
       paused: false,
       hintsEnabled: null,
       hintCost: 25,
+      hintsMinSolves: 0,
+      hintsUnlockAfterMin: 0,
+      scoringStartsAt: null,
       updatedBy: null,
       updatedAt: null,
     });
@@ -180,6 +302,9 @@ describe("runtime hint override", () => {
       paused: false,
       hintsEnabled: null,
       hintCost: null,
+      hintsMinSolves: 0,
+      hintsUnlockAfterMin: 0,
+      scoringStartsAt: null,
       updatedBy: null,
       updatedAt: null,
     });

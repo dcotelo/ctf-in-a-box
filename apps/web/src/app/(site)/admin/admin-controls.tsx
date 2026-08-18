@@ -81,6 +81,12 @@ async function postSettings(patch: Record<string, unknown>): Promise<{ settings?
 export default function AdminControls({ initial, demoMode = false }: { initial: AdminSettings; demoMode?: boolean }) {
   const [settings, setSettings] = useState(initial);
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
+  const [minSolvesInput, setMinSolvesInput] = useState(
+    initial.hintsMinSolves === null ? "" : String(initial.hintsMinSolves),
+  );
+  const [unlockAfterInput, setUnlockAfterInput] = useState(
+    initial.hintsUnlockAfterMin === null ? "" : String(initial.hintsUnlockAfterMin),
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -147,20 +153,31 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
     const result = await postSettings(patch);
     if (result.error) setError(result.error);
     else if (result.settings) {
-      setSettings(result.settings);
-      setHintCostInput(result.settings.hintCost === null ? "" : String(result.settings.hintCost));
+      const s = result.settings;
+      setSettings(s);
+      setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
+      setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
+      setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
     }
     setPending(false);
   };
 
-  const commitHintCost = () => {
-    const value = Number(hintCostInput);
-    if (hintCostInput.trim() === "" || !Number.isInteger(value) || value < 0) {
-      setHintCostInput(settings.hintCost === null ? "" : String(settings.hintCost));
+  /** Shared commit for the numeric hint knobs: junk snaps back to the stored
+   *  value, an unchanged value is a no-op, otherwise it's patched server-side
+   *  (which re-validates the range — see admin-store). */
+  const commitNumber = (
+    key: "hintCost" | "hintsMinSolves" | "hintsUnlockAfterMin",
+    raw: string,
+    reset: (v: string) => void,
+  ) => {
+    const current = settings[key];
+    const value = Number(raw);
+    if (raw.trim() === "" || !Number.isInteger(value) || value < 0) {
+      reset(current === null ? "" : String(current));
       return;
     }
-    if (value === settings.hintCost) return;
-    void apply({ hintCost: value });
+    if (value === current) return;
+    void apply({ [key]: value });
   };
 
   return (
@@ -237,7 +254,45 @@ export default function AdminControls({ initial, demoMode = false }: { initial: 
           value={hintCostInput}
           disabled={pending}
           onChange={(e) => setHintCostInput(e.target.value)}
-          onBlur={commitHintCost}
+          onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput)}
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          <span className="text-white">Hints: solves required</span>
+          <span className="block text-xs text-muted">
+            Solves needed on a target before its hints can be bought. Blocks throwaway
+            accounts from farming hint text for a team. 0 disables the gate.
+          </span>
+        </span>
+        <input
+          type="number"
+          min={0}
+          value={minSolvesInput}
+          disabled={pending}
+          onChange={(e) => setMinSolvesInput(e.target.value)}
+          onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput)}
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          <span className="text-white">Hints: unlock after (min)</span>
+          <span className="block text-xs text-muted">
+            Minutes after the scoring start before any hint can be bought. 0 = available
+            immediately; needs a scoring start below to have any effect.
+          </span>
+        </span>
+        <input
+          type="number"
+          min={0}
+          value={unlockAfterInput}
+          disabled={pending}
+          onChange={(e) => setUnlockAfterInput(e.target.value)}
+          onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}
           className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
         />
       </label>
