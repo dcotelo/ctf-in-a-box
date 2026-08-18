@@ -10,8 +10,30 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getSession, requireAdmin, answerQuestion, listQuestions, upsertQuestion, deleteQuestion, upstashPipeline } =
-  vi.hoisted(() => ({
+const {
+  getSession,
+  requireAdmin,
+  answerQuestion,
+  listQuestions,
+  upsertQuestion,
+  deleteQuestion,
+  upstashPipeline,
+  QUIZ_ID_RE,
+  QuizValidationError,
+} = vi.hoisted(() => {
+  // A real (not mocked) QuizValidationError, so `err instanceof
+  // QuizValidationError` in the admin route sees the exact same class the
+  // test constructs errors with — that's what makes the 400-vs-503 split
+  // testable at all.
+  class QuizValidationError extends Error {
+    field: string;
+    constructor(field: string, message: string) {
+      super(message);
+      this.name = "QuizValidationError";
+      this.field = field;
+    }
+  }
+  return {
     getSession: vi.fn(),
     requireAdmin: vi.fn(),
     answerQuestion: vi.fn(),
@@ -19,7 +41,10 @@ const { getSession, requireAdmin, answerQuestion, listQuestions, upsertQuestion,
     upsertQuestion: vi.fn(),
     deleteQuestion: vi.fn(),
     upstashPipeline: vi.fn(),
-  }));
+    QUIZ_ID_RE: /^[\w-]{1,64}$/,
+    QuizValidationError,
+  };
+});
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
@@ -29,6 +54,8 @@ vi.mock("@/lib/quiz-store", () => ({
   listQuestions,
   upsertQuestion,
   deleteQuestion,
+  QUIZ_ID_RE,
+  QuizValidationError,
 }));
 vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
@@ -231,10 +258,17 @@ describe("POST /api/admin/quiz", () => {
     expect(upsertQuestion).not.toHaveBeenCalled();
   });
 
-  it("400 when the store rejects the question (e.g. invalid correct id)", async () => {
-    upsertQuestion.mockRejectedValue(new Error("Correct choice id not among choices: z"));
+  it("400 with the message when the store rejects a genuinely invalid question (QuizValidationError)", async () => {
+    upsertQuestion.mockRejectedValue(new QuizValidationError("correct", "Correct choice id not among choices: z"));
     const res = await adminPOST(adminReq("POST", CREATE_PAYLOAD));
     expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Correct choice id not among choices: z", field: "correct" });
+  });
+
+  it("503, not 400, when the store fails for an infra reason (not a QuizValidationError)", async () => {
+    upsertQuestion.mockRejectedValue(new Error("Upstash HSET failed: timeout"));
+    const res = await adminPOST(adminReq("POST", CREATE_PAYLOAD));
+    expect(res.status).toBe(503);
   });
 
   it("creates/updates a question, echoes it back, and writes an audit line", async () => {
@@ -280,6 +314,19 @@ describe("DELETE /api/admin/quiz", () => {
     expect(res.status).toBe(200);
     expect(deleteQuestion).toHaveBeenCalledWith("q1");
     expect(upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("400 with the message for a QuizValidationError from the store", async () => {
+    deleteQuestion.mockRejectedValue(new QuizValidationError("id", "Invalid question id: ../etc"));
+    const res = await adminDELETE(adminReq("DELETE", { id: "../etc" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Invalid question id: ../etc", field: "id" });
+  });
+
+  it("503, not 400, when the store fails for an infra reason", async () => {
+    deleteQuestion.mockRejectedValue(new Error("Upstash HDEL failed: timeout"));
+    const res = await adminDELETE(adminReq("DELETE", { id: "q1" }));
+    expect(res.status).toBe(503);
   });
 });
 

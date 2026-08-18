@@ -61,8 +61,27 @@ export const QUIZ_MAX_ATTEMPTS = 3;
 export const QUIZ_RETRY_AFTER_MIN = 5;
 
 /** Question/choice ids look like "q1" or "sqli-basics" — reject anything
- *  weirder before it reaches Redis, mirroring hint-store's CHALLENGE_ID_RE. */
-const QUIZ_ID_RE = /^[\w-]{1,64}$/;
+ *  weirder before it reaches Redis, mirroring hint-store's CHALLENGE_ID_RE.
+ *  Exported so callers (e.g. the answer route) validate against this exact
+ *  pattern instead of keeping their own copy that could silently desync. */
+export const QUIZ_ID_RE = /^[\w-]{1,64}$/;
+
+/** Thrown by `upsertQuestion`/`deleteQuestion` for genuine input-validation
+ *  failures (bad id/choice format, non-integer points, a `correct` id not
+ *  among the question's choices, wrong arity for a `"single"` question) —
+ *  mirroring `AdminValidationError` in admin-store.ts. Callers (the admin
+ *  route) can distinguish this from a plain `Error`, which these functions
+ *  still throw for a genuine Upstash/infra failure, so a caller-facing
+ *  status code can tell "your payload was bad" apart from "the store
+ *  failed" instead of misreporting one as the other. */
+export class QuizValidationError extends Error {
+  field: string;
+  constructor(field: string, message: string) {
+    super(message);
+    this.name = "QuizValidationError";
+    this.field = field;
+  }
+}
 
 export type QuestionType = "single" | "multi";
 
@@ -132,9 +151,11 @@ export async function listQuestions(): Promise<Question[]> {
  *  question (no answer) and the sorted key array (answer only, no prompt) in
  *  ONE pipeline call so the two hashes never observably disagree. */
 export async function upsertQuestion(q: Question, correct: string[]): Promise<void> {
-  if (!QUIZ_ID_RE.test(q.id)) throw new Error(`Invalid question id: ${q.id}`);
+  if (!QUIZ_ID_RE.test(q.id)) throw new QuizValidationError("id", `Invalid question id: ${q.id}`);
   for (const choice of q.choices) {
-    if (!QUIZ_ID_RE.test(choice.id)) throw new Error(`Invalid choice id: ${choice.id}`);
+    if (!QUIZ_ID_RE.test(choice.id)) {
+      throw new QuizValidationError("choices", `Invalid choice id: ${choice.id}`);
+    }
   }
   // Points get written verbatim into the question hash and read back INSIDE
   // GRADE_SCRIPT by pattern-matching a plain integer (see GRADE_SCRIPT's
@@ -142,11 +163,11 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   // scoring 0) or, worse, corrupt HINCRBY mid-script after the attempt bump
   // and answer row had already been written with no way to roll back.
   if (!Number.isInteger(q.points) || q.points < 0) {
-    throw new Error(`Question points must be a non-negative integer, got ${q.points}`);
+    throw new QuizValidationError("points", `Question points must be a non-negative integer, got ${q.points}`);
   }
   const choiceIds = new Set(q.choices.map((c) => c.id));
   for (const id of correct) {
-    if (!choiceIds.has(id)) throw new Error(`Correct choice id not among choices: ${id}`);
+    if (!choiceIds.has(id)) throw new QuizValidationError("correct", `Correct choice id not among choices: ${id}`);
   }
   // Dedupe BEFORE the length check and the sort: `answerQuestion` dedupes a
   // submission the same way (`Array.from(new Set(choices)).sort()`), and the
@@ -159,7 +180,10 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   // A "single" question must have exactly one correct choice — with more
   // than one, the all-or-nothing grading rule could never be satisfied.
   if (q.type === "single" && uniqueCorrect.length !== 1) {
-    throw new Error(`A "single" question must have exactly one correct choice, got ${uniqueCorrect.length}`);
+    throw new QuizValidationError(
+      "correct",
+      `A "single" question must have exactly one correct choice, got ${uniqueCorrect.length}`,
+    );
   }
   const sortedCorrect = uniqueCorrect.sort();
 
@@ -173,7 +197,7 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
 
 /** Removes a question and its answer key together. */
 export async function deleteQuestion(id: string): Promise<void> {
-  if (!QUIZ_ID_RE.test(id)) throw new Error(`Invalid question id: ${id}`);
+  if (!QUIZ_ID_RE.test(id)) throw new QuizValidationError("id", `Invalid question id: ${id}`);
   const results = await upstashPipeline([
     ["HDEL", QUESTIONS_KEY, id],
     ["HDEL", KEY_KEY, id],

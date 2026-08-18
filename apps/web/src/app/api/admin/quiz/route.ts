@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
-import { deleteQuestion, listQuestions, upsertQuestion, type Choice, type Question } from "@/lib/quiz-store";
+import {
+  deleteQuestion,
+  listQuestions,
+  QuizValidationError,
+  upsertQuestion,
+  type Choice,
+  type Question,
+} from "@/lib/quiz-store";
 import { upstashPipeline } from "@/lib/upstash";
 
 /**
@@ -78,6 +85,22 @@ function parseQuestionPayload(body: unknown): QuestionPayload | null {
   };
 }
 
+/** Maps an error thrown by `upsertQuestion`/`deleteQuestion` to a response:
+ *  a `QuizValidationError` means the caller's payload was genuinely bad
+ *  (bad id/choice format, non-integer points, a `correct` id not among the
+ *  choices, wrong arity) -> 400 with the message. Anything else is the
+ *  store's own plain `Error` for a real Upstash/infra failure -> 503, so an
+ *  organizer is never told "bad request" for a problem that was never
+ *  theirs to fix (the same principle `quiz-store`'s fail-closed gate
+ *  lookup already applies on the contestant side). */
+function errorResponse(err: unknown): Response {
+  if (err instanceof QuizValidationError) {
+    return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
+  }
+  console.error("[admin/quiz] store write failed", err);
+  return NextResponse.json({ error: "quiz store write failed" }, { status: 503 });
+}
+
 /** Appends one audit line, mirroring admin-store's LPUSH+LTRIM pattern.
  *  Best-effort: an audit-write failure is logged but never fails a request
  *  whose actual data write already succeeded. */
@@ -114,7 +137,7 @@ export async function POST(request: Request) {
   try {
     await upsertQuestion(q, correct);
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "upsert failed" }, { status: 400 });
+    return errorResponse(err);
   }
 
   await writeAudit(gate.login, "quiz-upsert", { questionId: q.id });
@@ -132,7 +155,7 @@ export async function DELETE(request: Request) {
   try {
     await deleteQuestion(id);
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "delete failed" }, { status: 400 });
+    return errorResponse(err);
   }
 
   await writeAudit(gate.login, "quiz-delete", { questionId: id });

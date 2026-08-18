@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { answerQuestion } from "@/lib/quiz-store";
+import { answerQuestion, QUIZ_ID_RE } from "@/lib/quiz-store";
 
-/** Question/choice ids look like "q1" or "sqli-basics" — mirrors
- *  quiz-store's own (private) id format so a malformed request is rejected
- *  here, before it ever reaches `answerQuestion`. Because of that, any
- *  `"invalid"` reason the store itself returns can only mean the question
- *  id doesn't exist (GRADE_SCRIPT's "missing" branch) — not a shape
- *  problem this route already ruled out — which is what lets this route
- *  tell "malformed" (400) apart from "unknown question" (404) even though
- *  the store reports both under the same reason string. */
-const QUIZ_ID_RE = /^[\w-]{1,64}$/;
-
+/** Validating against `quiz-store`'s own exported `QUIZ_ID_RE` (rather than
+ *  a local copy) rejects a malformed request here, before it ever reaches
+ *  `answerQuestion`, and keeps a single source of truth for the pattern —
+ *  a local copy could silently desync if the store's ever changed. Because
+ *  of that upfront check, any `"invalid"` reason the store itself returns
+ *  can only mean the question id doesn't exist (GRADE_SCRIPT's "missing"
+ *  branch) — not a shape problem this route already ruled out — which is
+ *  what lets this route tell "malformed" (400) apart from "unknown
+ *  question" (404) even though the store reports both under the same
+ *  reason string. */
 function isChoiceList(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every((c) => typeof c === "string" && QUIZ_ID_RE.test(c));
 }
