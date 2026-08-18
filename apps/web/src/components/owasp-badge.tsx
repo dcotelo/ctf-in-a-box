@@ -1,7 +1,7 @@
 // Small OWASP category badge. When the code maps to a known OWASP page it
 // renders as a link (new tab) to that Top-10 / API-Top-10 category; otherwise
 // it's plain text. Shared by the per-challenge breakdown and the team's
-// solved-flags list so the link + styling stay in one place.
+// flags list so the link + styling stay in one place.
 
 import { owaspUrl } from "@/lib/owasp";
 

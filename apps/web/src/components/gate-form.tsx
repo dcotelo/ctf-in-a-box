@@ -34,7 +34,9 @@ export default function GateForm() {
       if (res.ok) {
         // Full document load on purpose: the router cache may hold the
         // prefetched proxy redirect for /challenges, and a hard navigation
-        // bypasses it.
+        // bypasses it — router.push() would defeat that, so the lint rule's
+        // suggestion doesn't apply here.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.assign("/challenges");
         return;
       }
