@@ -65,6 +65,12 @@ export type TeamStanding = {
   captain: string;
   points: number;
   members: string[];
+  /** Per-app progress for the team — the UNION of members' solves, with
+   *  each app's `challenges` marking which flags the team has collectively
+   *  solved. Only populated when the source carries a challenge catalogue
+   *  (the `challenges` capability); otherwise undefined and the teams view
+   *  shows members only. */
+  apps?: Partial<Record<AppId, AppProgress>>;
 };
 
 /** A single team's cumulative-score history, ascending by time — mirrors

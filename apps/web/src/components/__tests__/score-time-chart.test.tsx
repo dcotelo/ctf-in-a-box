@@ -5,8 +5,28 @@
 // added just for this test.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import ScoreTimeChart from "@/components/score-time-chart";
+import ScoreTimeChart, { scoreAt } from "@/components/score-time-chart";
 import type { PlayerSeries } from "@/lib/leaderboard/types";
+
+describe("scoreAt (hover readout)", () => {
+  const raw = [
+    { t: 100, score: 5 },
+    { t: 200, score: 12 },
+    { t: 300, score: 20 },
+  ];
+  it("is 0 before the first solve", () => {
+    expect(scoreAt(raw, 50)).toBe(0);
+  });
+  it("holds the last solve's cumulative score between solves (step, not interpolated)", () => {
+    expect(scoreAt(raw, 100)).toBe(5);
+    expect(scoreAt(raw, 150)).toBe(5);
+    expect(scoreAt(raw, 250)).toBe(12);
+  });
+  it("returns the final score at or after the last solve", () => {
+    expect(scoreAt(raw, 300)).toBe(20);
+    expect(scoreAt(raw, 999)).toBe(20);
+  });
+});
 
 function series(overrides: Partial<Record<string, PlayerSeries["points"]>> = {}): PlayerSeries[] {
   const base: Record<string, PlayerSeries["points"]> = {

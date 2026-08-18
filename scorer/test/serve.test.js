@@ -36,6 +36,10 @@ async function boot(t, { rubric = RUBRIC, now = clock() } = {}) {
 
 const solve = (author, target, solved) => ({ author, target, solved, pr: 7, sha: "abc123" });
 
+// Standings-only view of the board — drops the rubric-derived `catalog`, which
+// is present whenever a rubric is loaded regardless of what has been solved.
+const standings = ({ leaderboard, series, teams, teamSeries }) => ({ leaderboard, series, teams, teamSeries });
+
 test("refuses to start without a bearer token", () => {
   assert.throws(
     () => createHandler({ store: createMemoryStore() }),
@@ -48,7 +52,7 @@ test("healthz and leaderboard are unauthenticated; everything else 404", async (
   const health = await fetch(`${base}/healthz`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { ok: true });
-  assert.deepEqual(await board(), { leaderboard: [], series: [], teams: [], teamSeries: [] });
+  assert.deepEqual(standings(await board()), { leaderboard: [], series: [], teams: [], teamSeries: [] });
   assert.equal((await fetch(`${base}/nope`)).status, 404);
   assert.equal((await fetch(`${base}/score`)).status, 404); // GET /score is not a route
 });
@@ -79,7 +83,7 @@ test("POST /score rejects bodies over 64 KiB with 413 (authed callers, defense-i
   const res = await post(big);
   assert.equal(res.status, 413);
   // Nothing was recorded and a normal-size request still works afterwards.
-  assert.deepEqual(await board(), { leaderboard: [], series: [], teams: [], teamSeries: [] });
+  assert.deepEqual(standings(await board()), { leaderboard: [], series: [], teams: [], teamSeries: [] });
   assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]))).status, 202);
 });
 
@@ -90,7 +94,7 @@ test("unknown challenge ids are dropped silently, request still 202s", async (t)
   const { leaderboard } = await board();
   assert.equal(leaderboard.length, 1);
   assert.equal(leaderboard[0].points, 1);
-  assert.deepEqual(leaderboard[0].apps.dvwa, { solved: 1, total: 1 });
+  assert.deepEqual(leaderboard[0].apps.dvwa, { solved: 1, total: 1, solvedIds: ["sqli-low"] });
 });
 
 test("monotonic: replaying a solve changes neither points nor lastSolveAt", async (t) => {
@@ -116,8 +120,8 @@ test("leaderboard pins the full lambda.ts contract shape", async (t) => {
         points: 16,
         lastSolveAt: T[1],
         apps: {
-          dvwa: { solved: 1, total: 1 },
-          "juice-shop": { solved: 2, total: 2 },
+          dvwa: { solved: 1, total: 1, solvedIds: ["sqli-low"] },
+          "juice-shop": { solved: 2, total: 2, solvedIds: ["reflected-xss-search", "sql-injection-login"] },
         },
       },
       {
@@ -126,8 +130,8 @@ test("leaderboard pins the full lambda.ts contract shape", async (t) => {
         points: 5,
         lastSolveAt: T[2],
         apps: {
-          dvwa: { solved: 0, total: 1 },
-          "juice-shop": { solved: 1, total: 2 },
+          dvwa: { solved: 0, total: 1, solvedIds: [] },
+          "juice-shop": { solved: 1, total: 2, solvedIds: ["sql-injection-login"] },
         },
       },
     ],
@@ -146,6 +150,13 @@ test("leaderboard pins the full lambda.ts contract shape", async (t) => {
     ],
     teams: [], // no team data on this store -> empty rollup
     teamSeries: [],
+    catalog: {
+      dvwa: [{ id: "sqli-low", name: "SQL injection (low) is patched", points: 1, owasp: null }],
+      "juice-shop": [
+        { id: "reflected-xss-search", name: "Search box no longer reflects HTML", points: 10, owasp: null },
+        { id: "sql-injection-login", name: "Login rejects SQL injection", points: 5, owasp: null },
+      ],
+    },
   });
 });
 
@@ -183,7 +194,21 @@ test("POST /score returns 503 while the store reports paused", async (t) => {
   assert.equal(res.status, 503);
   assert.deepEqual(await res.json(), { error: "scoring is paused" });
   const board = await (await fetch(`${base}/leaderboard`)).json();
-  assert.deepEqual(board, { leaderboard: [], series: [], teams: [], teamSeries: [] }); // nothing was recorded
+  // Nothing was recorded, so the standings are empty — but `catalog` is
+  // rubric-derived, independent of solves, so it is still present.
+  assert.deepEqual(board, {
+    leaderboard: [],
+    series: [],
+    teams: [],
+    teamSeries: [],
+    catalog: {
+      dvwa: [{ id: "sqli-low", name: "SQL injection (low) is patched", points: 1, owasp: null }],
+      "juice-shop": [
+        { id: "reflected-xss-search", name: "Search box no longer reflects HTML", points: 10, owasp: null },
+        { id: "sql-injection-login", name: "Login rejects SQL injection", points: 5, owasp: null },
+      ],
+    },
+  });
 });
 
 test("POST /score records normally when the store is not paused", async (t) => {
@@ -204,19 +229,20 @@ test("no-rubric degenerate mode: 1 point per solve, totals from distinct ids see
         author: "octocat",
         points: 2,
         lastSolveAt: T[0],
-        apps: { "anything-goes": { solved: 2, total: 3 } },
+        apps: { "anything-goes": { solved: 2, total: 3, solvedIds: ["a", "b"] } },
       },
       {
         rank: 2,
         author: "hubot",
         points: 2,
         lastSolveAt: T[1],
-        apps: { "anything-goes": { solved: 2, total: 3 } },
+        apps: { "anything-goes": { solved: 2, total: 3, solvedIds: ["b", "c"] } },
       },
     ],
     series: [], // no rubric -> no per-challenge points to accumulate
     teams: [],
     teamSeries: [],
+    catalog: {}, // no rubric -> no per-challenge metadata
   });
 });
 
@@ -304,7 +330,7 @@ test("team rollup: same flag solved by two members counts once, not doubled", as
   assert.equal(teams.length, 1);
   assert.equal(teams[0].points, 1); // ONCE, not 2
   assert.equal(teams[0].lastSolveAt, T[0]); // union keeps the MIN at per flag
-  assert.deepEqual(teams[0].apps.dvwa, { solved: 1, total: 1 });
+  assert.deepEqual(teams[0].apps.dvwa, { solved: 1, total: 1, solvedIds: ["sqli-low"] });
 });
 
 test("team rollup: disjoint flags sum across members", async () => {
@@ -313,7 +339,11 @@ test("team rollup: disjoint flags sum across members", async () => {
   await store.recordSolves("juice-shop", "bob", ["sql-injection-login"], T[1]); // 5
   const { teams } = await buildLeaderboard({ store, rubric: RUBRIC, targets: TARGETS });
   assert.equal(teams[0].points, 15);
-  assert.deepEqual(teams[0].apps["juice-shop"], { solved: 2, total: 2 });
+  assert.deepEqual(teams[0].apps["juice-shop"], {
+    solved: 2,
+    total: 2,
+    solvedIds: ["reflected-xss-search", "sql-injection-login"],
+  });
   assert.equal(teams[0].lastSolveAt, T[1]);
 });
 

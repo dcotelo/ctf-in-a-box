@@ -225,3 +225,87 @@ describe("lambdaSource.getLeaderboard teams", () => {
     expect(data.capabilities.teams).toBe(true);
   });
 });
+
+describe("lambdaSource.getLeaderboard catalog (per-challenge)", () => {
+  // A response carrying the newer `catalog` + `solvedIds` fields.
+  const WITH_CATALOG = {
+    leaderboard: [
+      {
+        rank: 1,
+        author: "neo",
+        points: 15,
+        lastSolveAt: "2026-08-14T11:00:00.000Z",
+        apps: { "juice-shop": { solved: 1, total: 2, solvedIds: ["xss"] } },
+      },
+    ],
+    teams: [
+      {
+        rank: 1,
+        slug: "zero-cool",
+        name: "Zero Cool",
+        captain: "neo",
+        members: ["neo", "trin"],
+        points: 15,
+        apps: { "juice-shop": { solved: 2, total: 2, solvedIds: ["xss", "sqli"] } },
+      },
+    ],
+    catalog: {
+      "juice-shop": [
+        { id: "xss", name: "Reflected XSS", points: 10, owasp: "A03" },
+        { id: "sqli", name: "SQL injection", points: 5, owasp: null },
+      ],
+    },
+  };
+
+  it("joins catalog + solvedIds into per-challenge results and flips the challenges capability", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(WITH_CATALOG);
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.capabilities.challenges).toBe(true);
+    const app = data.entries[0].apps["juice-shop"]!;
+    expect(app.challenges).toEqual([
+      { key: "xss", name: "Reflected XSS", points: 10, owasp: "A03", status: "patched" },
+      { key: "sqli", name: "SQL injection", points: 5, owasp: null, status: "open" },
+    ]);
+    // Points/max are derived from the catalogue for the solved subset.
+    expect(app.points).toBe(10);
+    expect(app.maxPoints).toBe(15);
+  });
+
+  it("builds the team's union of solved flags from its apps.solvedIds", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(WITH_CATALOG);
+    const data = await lambdaSource.getLeaderboard();
+    const teamApp = data.teams[0].apps?.["juice-shop"];
+    expect(teamApp?.challenges?.every((c) => c.status === "patched")).toBe(true);
+    expect(teamApp?.challenges?.map((c) => c.key)).toEqual(["xss", "sqli"]);
+  });
+
+  it("leaves the challenges capability off and attaches no challenges when there is no catalog", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(RESPONSE); // no catalog field
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.capabilities.challenges).toBe(false);
+    expect(data.entries[0].apps["juice-shop"]?.challenges).toBeUndefined();
+    expect(data.teams[0]?.apps).toBeUndefined();
+  });
+
+  it("tolerates a malformed catalog rather than throwing", async () => {
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch({
+      ...WITH_CATALOG,
+      catalog: {
+        "juice-shop": [
+          { id: "ok", name: "Fine", points: 3, owasp: null },
+          { id: 42, name: "bad id", points: 1 }, // dropped
+          { name: "no id", points: 1 }, // dropped
+          "nope", // dropped
+        ],
+        "bad-app": "not an array", // ignored
+      },
+    });
+    const data = await lambdaSource.getLeaderboard();
+    expect(data.capabilities.challenges).toBe(true);
+    expect(data.entries[0].apps["juice-shop"]?.challenges?.map((c) => c.key)).toEqual(["ok"]);
+  });
+});

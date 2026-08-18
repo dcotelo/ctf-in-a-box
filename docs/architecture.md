@@ -143,7 +143,15 @@ state; everything else that touches scores goes through it.
    idempotent-on-replay update — the write model is described in
    [docs/decisions.md #5](decisions.md#5-single-score-writer-monotonic-writes-at-least-once-delivery).
 8. `app` reads `GET ${LEADERBOARD_API_URL}/leaderboard` and renders the
-   result on the contestant-facing leaderboard page.
+   result on the contestant-facing leaderboard page. Alongside the ranked
+   `leaderboard`/`teams` standings, the payload carries a top-level `catalog`
+   (per target, each challenge's `id`/`name`/`points`/`owasp`, derived from
+   the rubric) and a `solvedIds` array on every entry's and team's
+   `apps.<target>`. The app joins the two to show *which* flags are solved —
+   the collapsible per-target list under a contestant's breakdown and a
+   team's collectively-solved flags (its members' union). Both fields are
+   additive; an older scorer that omits them simply falls back to the
+   solved/total counts.
 
 ## Organizer admin panel (runtime overrides)
 

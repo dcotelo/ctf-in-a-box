@@ -27,6 +27,13 @@ test("defaults missing difficulty to 1 point", () => {
   assert.equal(noDiff.points, 1);
 });
 
+test("carries the OWASP code, defaulting to null when absent", () => {
+  const entries = loadCatalogue(fixture("catalogue-vampi"), "vampi");
+  assert.equal(entries[0].owasp, "API3");
+  const noOwasp = entries.find((c) => c.key === "Challenge-2-No-Difficulty");
+  assert.equal(noOwasp.owasp, null);
+});
+
 test("rejects two keys that collide once lowercased", () => {
   assert.throws(
     () => loadCatalogue(fixture("catalogue-bad-dupe"), "vampi"),

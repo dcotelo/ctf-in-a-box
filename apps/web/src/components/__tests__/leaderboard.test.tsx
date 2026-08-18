@@ -14,8 +14,10 @@ vi.mock("next/image", () => ({
   },
 }));
 
-import Leaderboard, { TeamRow } from "@/components/leaderboard";
+import Leaderboard, { EntryRow, TeamRow } from "@/components/leaderboard";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
+
+const CAPS = { apps: true, teams: true, challenges: true } as const;
 
 function entry(overrides: Partial<LeaderboardEntry> = {}): LeaderboardEntry {
   return {
@@ -157,5 +159,67 @@ describe("Leaderboard", () => {
     expect(html).toMatch(/Sort:/);
     // Player chart (not team chart) renders from `series`.
     expect(html).toMatch(/Top 2 contestants/);
+  });
+});
+
+describe("per-challenge catalog", () => {
+  it("lists an entry's challenges (solved + open) in the expanded breakdown", () => {
+    const withChallenges = entry({
+      apps: {
+        "juice-shop": {
+          app: "juice-shop",
+          points: 10,
+          maxPoints: 15,
+          patched: 1,
+          total: 2,
+          challenges: [
+            { key: "xss", name: "Reflected XSS", points: 10, owasp: "A03", status: "patched" },
+            { key: "sqli", name: "SQL injection", points: 5, owasp: null, status: "open" },
+          ],
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <EntryRow entry={withChallenges} topPoints={100} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} />,
+    );
+    // The per-target challenge list is collapsible (collapsed by default —
+    // some targets have 100+ challenges), so the expand trigger is what renders
+    // in static markup, under the target's name.
+    expect(html).toMatch(/Show 2 challenges/);
+    expect(html).toContain("Juice Shop");
+  });
+
+  it("shows a team's flags (solved + pending) grouped by target, when expanded", () => {
+    const withFlags = team({
+      apps: {
+        "juice-shop": {
+          app: "juice-shop",
+          points: 15,
+          maxPoints: 20,
+          patched: 2,
+          total: 3,
+          challenges: [
+            { key: "xss", name: "Reflected XSS", points: 10, owasp: "A03", status: "patched" },
+            { key: "sqli", name: "SQL injection", points: 5, owasp: null, status: "patched" },
+            { key: "csrf", name: "CSRF token", points: 5, owasp: "A01", status: "open" },
+          ],
+        },
+      },
+    });
+    const html = renderToStaticMarkup(<TeamRow team={withFlags} topPoints={150} isOpen onToggle={() => {}} />);
+    expect(html).toContain(">Flags<");
+    // Reuses the same collapsible AppChallengeList as the individual view, so
+    // the per-target expand trigger renders under the target name (collapsed) —
+    // and the count covers pending flags too (2 of 3, one still open).
+    expect(html).toContain("Juice Shop");
+    expect(html).toMatch(/2 \/ 3 patched/);
+    expect(html).toMatch(/Show 3 challenges/);
+    // Members still render alongside the flags.
+    expect(html).toContain("alice");
+  });
+
+  it("omits the flags section for a team without per-challenge data", () => {
+    const html = renderToStaticMarkup(<TeamRow team={team()} topPoints={150} isOpen onToggle={() => {}} />);
+    expect(html).not.toContain(">Flags<");
   });
 });

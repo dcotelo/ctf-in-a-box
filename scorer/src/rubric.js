@@ -26,6 +26,7 @@ function loadExecTarget(dir, name) {
       id: e.id,
       name: e.name,
       points: e.points,
+      owasp: e.owasp ?? null,
       exec: { file: e.file, key: e.key, byName, testsDir },
     };
   });
