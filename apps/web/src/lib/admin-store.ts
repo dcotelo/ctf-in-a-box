@@ -7,11 +7,20 @@ export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
 export const SYNC_STATUS_KEY = "ctf:sync:status";
 export const AUDIT_CAP = 500;
 export const HINT_COST_MAX = 100000;
+/** Caps for the two hint-gating knobs (see hint-store's `hintGate`). */
+export const HINT_MIN_SOLVES_MAX = 1000;
+export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
 
 export type AdminSettings = {
   paused: boolean;
   hintsEnabled: boolean | null;
   hintCost: number | null;
+  /** Solves a login needs ON THE TARGET before it may buy that target's
+   *  hints — the anti-burner gate. Null = no override, use the default. */
+  hintsMinSolves: number | null;
+  /** Minutes after `scoringStartsAt` before any hint may be bought. Null =
+   *  no override; 0 = no time phase. */
+  hintsUnlockAfterMin: number | null;
   teamRegistrationOpen: boolean;
   // Scheduled "auto dates" — nullable ISO instants. Absent = no bound.
   // scoring* gates the freeze (before start / after end = paused); registration*
@@ -60,6 +69,8 @@ export type SettingsPatch = {
   paused?: boolean;
   hintsEnabled?: boolean;
   hintCost?: number;
+  hintsMinSolves?: number;
+  hintsUnlockAfterMin?: number;
   teamRegistrationOpen?: boolean;
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
@@ -96,6 +107,8 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     paused: h.paused === "1",
     hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
     hintCost: h.hintCost === undefined ? null : Number(h.hintCost),
+    hintsMinSolves: h.hintsMinSolves === undefined ? null : Number(h.hintsMinSolves),
+    hintsUnlockAfterMin: h.hintsUnlockAfterMin === undefined ? null : Number(h.hintsUnlockAfterMin),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     scoringStartsAt: h.scoringStartsAt ?? null,
     scoringEndsAt: h.scoringEndsAt ?? null,
@@ -169,6 +182,18 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     } else if (k === "hintCost") {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > HINT_COST_MAX) {
         throw new AdminValidationError(k, `hintCost must be an integer in [0, ${HINT_COST_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "hintsMinSolves") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > HINT_MIN_SOLVES_MAX) {
+        throw new AdminValidationError(k, `hintsMinSolves must be an integer in [0, ${HINT_MIN_SOLVES_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "hintsUnlockAfterMin") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > HINT_UNLOCK_AFTER_MAX) {
+        throw new AdminValidationError(k, `hintsUnlockAfterMin must be an integer in [0, ${HINT_UNLOCK_AFTER_MAX}]`);
       }
       fields.push(k, String(v));
       changed[k] = v;

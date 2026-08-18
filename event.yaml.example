@@ -12,7 +12,9 @@ modules:
     targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
 # v1 placeholders — not read at build time: team play is always on with a
-# fixed 4-member cap, and hint on/off + cost are set at runtime in /admin.
+# fixed 4-member cap, and hints (ON by default, 10 points each) are tuned at
+# runtime in /admin — enabled, cost, and the two gating knobs. Remove hints
+# entirely with HINTS_ENABLED=false in .env.
 teams: { enabled: true, max_size: 4 }
-hints: { enabled: false }
+hints: { enabled: true }
 admins: [your-github-login]     # allowlist for /admin (status, freeze, hint controls) — case-insensitive

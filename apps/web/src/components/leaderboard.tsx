@@ -286,6 +286,14 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { 
                 {team.points.toLocaleString()}
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
+              {team.hintPenalty ? (
+                <p
+                  className="font-mono text-[10px] tabular-nums text-[#d4a017]/80"
+                  title="Points its members spent on hints (already deducted)"
+                >
+                  −{team.hintPenalty} hints
+                </p>
+              ) : null}
             </div>
             <div className="hidden sm:block">
               <p className="font-mono text-base tabular-nums text-zinc-300">{team.members.length}</p>

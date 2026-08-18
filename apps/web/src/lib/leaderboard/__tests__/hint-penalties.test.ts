@@ -3,7 +3,7 @@
 // source data untouched.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LeaderboardData, LeaderboardEntry } from "../types";
+import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 
 const mocks = vi.hoisted(() => ({
   getHintPenalties: vi.fn<() => Promise<Map<string, number>>>(),
@@ -92,5 +92,70 @@ describe("withHintPenalties", () => {
     const base = data([entry("ada", 100)]);
     expect(await withHintPenalties(base)).toBe(base);
     consoleError.mockRestore();
+  });
+});
+
+// The teams view is the DEFAULT board when teams exist, so leaving team totals
+// unpenalised would make hints effectively free on the primary leaderboard.
+describe("withHintPenalties — teams", () => {
+  const team = (slug: string, points: number, members: string[]): TeamStanding => ({
+    rank: 0,
+    slug,
+    name: slug,
+    captain: members[0] ?? "",
+    points,
+    members,
+  });
+  const withTeams = (entries: LeaderboardEntry[], teams: TeamStanding[]): LeaderboardData => ({
+    ...data(entries),
+    teams: teams.map((t, i) => ({ ...t, rank: i + 1 })),
+    capabilities: { apps: true, teams: true, challenges: false },
+  });
+
+  it("charges a team the SUM of its members' hint spend and re-ranks", async () => {
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["ada", 30], ["bob", 25]]));
+    const result = await withHintPenalties(
+      withTeams(
+        [entry("ada", 100), entry("bob", 100), entry("cyd", 90)],
+        [team("red", 200, ["ada", "bob"]), team("blue", 150, ["cyd"])],
+      ),
+    );
+    // red: 200 - (30 + 25) = 145, which drops it below blue's untouched 150.
+    expect(result.teams.map((t) => [t.slug, t.points, t.rank])).toEqual([
+      ["blue", 150, 1],
+      ["red", 145, 2],
+    ]);
+  });
+
+  it("exposes the deducted total as hintPenalty for the transparency chip", async () => {
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["ada", 30], ["bob", 25]]));
+    const result = await withHintPenalties(
+      withTeams([entry("ada", 100)], [team("red", 200, ["ada", "bob"])]),
+    );
+    expect(result.teams[0].hintPenalty).toBe(55);
+  });
+
+  it("floors a team at 0 rather than going negative", async () => {
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["ada", 500]]));
+    const result = await withHintPenalties(withTeams([entry("ada", 10)], [team("red", 10, ["ada"])]));
+    expect(result.teams[0].points).toBe(0);
+  });
+
+  it("leaves a team whose members bought nothing untouched (no hintPenalty field)", async () => {
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["zed", 40]]));
+    const result = await withHintPenalties(
+      withTeams([entry("ada", 100)], [team("red", 200, ["ada", "bob"])]),
+    );
+    expect(result.teams[0].points).toBe(200);
+    expect(result.teams[0].hintPenalty).toBeUndefined();
+  });
+
+  it("charges a hint bought by two teammates twice — hints are per-person", async () => {
+    // Deliberate asymmetry with flag scoring, where a shared flag counts once.
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["ada", 10], ["bob", 10]]));
+    const result = await withHintPenalties(
+      withTeams([entry("ada", 50)], [team("red", 100, ["ada", "bob"])]),
+    );
+    expect(result.teams[0].points).toBe(80);
   });
 });

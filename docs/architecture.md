@@ -163,9 +163,10 @@ config above — this one *is* readable/writable while the stack is running,
 without a rebuild:
 
 - **`ctf:admin:settings`** (Redis hash, `apps/web/src/lib/admin-store.ts`) —
-  `paused` (two-state: `"1"` or absent — absent means false), `hintsEnabled`
-  and `hintCost` (three-state: `"1"`/`"0"`/absent — absent means "no
-  override, use the build-time default"), plus `updatedBy`/`updatedAt` and
+  `paused` (two-state: `"1"` or absent — absent means false), `hintsEnabled`,
+  `hintCost`, `hintsMinSolves` and `hintsUnlockAfterMin` (three-state:
+  a value or absent — absent means "no override, use the build-time
+  default"), plus `updatedBy`/`updatedAt` and
   `resetAt` (the master-reset epoch `sync` honours — see below). Every
   reader applies **override-else-default** precedence (`s.hintsEnabled ??
   HINTS_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.

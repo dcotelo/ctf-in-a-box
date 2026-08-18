@@ -23,14 +23,30 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
  *  count), so purchases made before a price change keep their old price. */
 export const HINT_COST = 10;
 
-/** Master switch for paid hints: HINTS_ENABLED=true opts in explicitly (so
- *  hints stay hidden until the event even where the backend is configured).
- *  The hint text lives only in Upstash, so credentials must also be present
- *  (read/write — revealing writes to Redis, already required for
- *  TEAM_WRITES_ENABLED). */
+/** Master switch for paid hints: ON by default — set HINTS_ENABLED=false to
+ *  opt out entirely. (Organizers who want hints dark until mid-event should
+ *  use the gate below rather than this switch; see `hintGate`.) The hint text
+ *  lives only in Upstash, so credentials must also be present (read/write —
+ *  revealing writes to Redis, already required for TEAM_WRITES_ENABLED). */
 export const HINTS_ENABLED =
-  process.env.HINTS_ENABLED === "true" &&
+  process.env.HINTS_ENABLED !== "false" &&
   Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+
+/** Default anti-burner gate: you must have solved at least this many
+ *  challenges ON THE TARGET before you may buy that target's hints.
+ *
+ *  Why: a hint's PRICE lands on the account that reveals it, but the hint
+ *  TEXT is trivially relayed — so a throwaway account can buy hints, eat a
+ *  penalty nobody cares about, and pass the text to the real team. Pricing
+ *  alone cannot stop that. Requiring earned progress can: a fresh account has
+ *  no solves, so it can never reveal anything, and farming hints costs the
+ *  same real work the event is scored on. 0 disables the gate. */
+export const HINT_MIN_SOLVES = 1;
+
+/** Default minutes after `scoringStartsAt` before ANY hint may be bought.
+ *  0 = no time phase (the schedule is opt-in per event). Inert when no
+ *  `scoringStartsAt` is configured — there is no phase without a start. */
+export const HINT_UNLOCK_AFTER_MIN = 0;
 
 const SPENT_KEY = "ctf:hints:spent";
 const userHintsKey = (login: string) => `ctf:user:${login}:hints`;
@@ -59,17 +75,80 @@ return {'owned', hint, redis.call('HGET', KEYS[2], ARGV[3]) or '0'}`;
 
 export type RevealResult =
   | { ok: true; hint: string; alreadyOwned: boolean; spent: number }
-  | { ok: false; error: string; missing?: boolean };
+  | { ok: false; error: string; missing?: boolean; forbidden?: boolean };
 
 /** Resolves the effective hint config for this request: an admin override
  *  (Task 1's `getAdminSettings`) wins when set, else the baked default.
  *  `??` (not `||`) so an explicit `false`/`0` override beats an "on" default. */
-export async function resolveHintConfig(): Promise<{ enabled: boolean; cost: number }> {
+export async function resolveHintConfig(): Promise<{
+  enabled: boolean;
+  cost: number;
+  minSolves: number;
+  unlockAfterMin: number;
+  scoringStartsAt: string | null;
+}> {
   const s = await getAdminSettings();
   return {
     enabled: s.hintsEnabled ?? HINTS_ENABLED,
     cost: s.hintCost ?? HINT_COST,
+    minSolves: s.hintsMinSolves ?? HINT_MIN_SOLVES,
+    unlockAfterMin: s.hintsUnlockAfterMin ?? HINT_UNLOCK_AFTER_MIN,
+    scoringStartsAt: s.scoringStartsAt,
   };
+}
+
+/** Solves `login` has recorded for `app`, counted straight off the scorer's
+ *  `ctf:solves:<target>` hash (fields are `<author>:<challengeId>`). Compared
+ *  case-insensitively because GitHub logins are, while the stored field keeps
+ *  whatever casing the PR author used. */
+async function countSolves(login: string, app: AppId): Promise<number> {
+  const [res] = await upstashPipeline([["HKEYS", `ctf:solves:${app}`]]);
+  const fields = Array.isArray(res.result) ? (res.result as string[]) : [];
+  const prefix = `${login.toLowerCase()}:`;
+  return fields.filter((f) => f.toLowerCase().startsWith(prefix)).length;
+}
+
+export type HintGate =
+  | { allowed: true }
+  | { allowed: false; reason: "disabled" }
+  /** The event's hint phase hasn't opened yet. */
+  | { allowed: false; reason: "locked"; unlocksAt: string }
+  /** Caller hasn't earned enough on this target yet (the anti-burner gate). */
+  | { allowed: false; reason: "no-progress"; needed: number; have: number };
+
+/** Decides whether `login` may buy a hint on `app` right now. Both gates are
+ *  evaluated at READ time (no scheduler on the box), matching how the freeze
+ *  and registration windows work. */
+export async function hintGate(login: string, app: AppId): Promise<HintGate> {
+  const { enabled, minSolves, unlockAfterMin, scoringStartsAt } = await resolveHintConfig();
+  if (!enabled) return { allowed: false, reason: "disabled" };
+
+  // Time phase: only meaningful once the organizer has set a scoring start.
+  if (unlockAfterMin > 0 && scoringStartsAt) {
+    const startMs = Date.parse(scoringStartsAt);
+    if (Number.isFinite(startMs)) {
+      const opensMs = startMs + unlockAfterMin * 60_000;
+      if (Date.now() < opensMs) {
+        return { allowed: false, reason: "locked", unlocksAt: new Date(opensMs).toISOString() };
+      }
+    }
+  }
+
+  // Progress gate. Redis trouble fails CLOSED here (unlike the scoring freeze,
+  // which must never drop live submissions): a hint is a paid reveal, so the
+  // safe failure is "no hint", not "free hint for an unverified account".
+  if (minSolves > 0) {
+    let have: number;
+    try {
+      have = await countSolves(login, app);
+    } catch (err) {
+      console.error("hint gate: solve lookup failed:", err);
+      return { allowed: false, reason: "no-progress", needed: minSolves, have: 0 };
+    }
+    if (have < minSolves) return { allowed: false, reason: "no-progress", needed: minSolves, have };
+  }
+
+  return { allowed: true };
 }
 
 export async function revealHint(login: string, app: string, id: string): Promise<RevealResult> {
@@ -77,6 +156,24 @@ export async function revealHint(login: string, app: string, id: string): Promis
   if (!enabled) return { ok: false, error: "Hints are not enabled" };
   if (!isAppId(app)) return { ok: false, error: "Unknown app" };
   if (!CHALLENGE_ID_RE.test(id)) return { ok: false, error: "Invalid challenge id" };
+
+  // Gate BEFORE the charge script. Enforced here (not just in the route) so
+  // every caller goes through it — the UI hides locked hints, but the API is
+  // the boundary that actually decides.
+  const gate = await hintGate(login, app);
+  if (!gate.allowed) {
+    if (gate.reason === "locked") {
+      return { ok: false, forbidden: true, error: `Hints unlock at ${gate.unlocksAt}` };
+    }
+    if (gate.reason === "no-progress") {
+      return {
+        ok: false,
+        forbidden: true,
+        error: `Solve ${gate.needed} challenge${gate.needed === 1 ? "" : "s"} on this target before buying its hints (you have ${gate.have})`,
+      };
+    }
+    return { ok: false, error: "Hints are not enabled" };
+  }
 
   let verdict: unknown;
   try {

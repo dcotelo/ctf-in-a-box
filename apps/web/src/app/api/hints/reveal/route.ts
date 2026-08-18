@@ -19,7 +19,8 @@ export async function POST(request: Request) {
     typeof body.id === "string" ? body.id : "",
   );
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.missing ? 404 : 400 });
+    const status = result.missing ? 404 : result.forbidden ? 403 : 400;
+    return NextResponse.json({ error: result.error }, { status });
   }
   const { cost } = await resolveHintConfig();
   return NextResponse.json({

@@ -65,6 +65,10 @@ export type TeamStanding = {
   captain: string;
   points: number;
   members: string[];
+  /** Points deducted for hints its members revealed (see leaderboard/
+   *  hint-penalties.ts). `points` is net — this is a transparency marker,
+   *  mirroring `LeaderboardEntry.hintPenalty`. */
+  hintPenalty?: number;
   /** Per-app progress for the team — the UNION of members' solves, with
    *  each app's `challenges` marking which flags the team has collectively
    *  solved. Only populated when the source carries a challenge catalogue

@@ -65,13 +65,41 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
 - **Hint controls** — an override for whether hints are enabled and what
-  they cost, on top of the build-time default. This takes effect immediately
-  for whether a hint **can be bought**. It does **not** currently change,
-  live, whether the challenges page **offers** the hint button, the
-  hint-notice banner, or the leaderboard's hint-penalty display — those still
-  reflect whatever `HINTS_ENABLED` was baked in at build time. See
+  they cost, on top of the build-time default. Hints are **on by default**
+  (set `HINTS_ENABLED=false` to remove them entirely) and cost 10 points
+  each. This takes effect immediately for whether a hint **can be bought**.
+  It does **not** currently change, live, whether the challenges page
+  **offers** the hint button, the hint-notice banner, or the leaderboard's
+  hint-penalty display — those still reflect whatever `HINTS_ENABLED` was
+  baked in at build time. See
   [docs/architecture.md](architecture.md#organizer-admin-panel-runtime-overrides)
   for the full breakdown of this limitation.
+- **Hint gating** — two knobs that decide *who* may buy a hint and *when*,
+  enforced server-side in `revealHint` (the API is the boundary; the UI only
+  hides things):
+  - **Solves required** (`hintsMinSolves`, default **1**) — a login must
+    already have solved that many challenges **on that target** before it can
+    buy any of that target's hints. This is the anti-farming gate: a hint's
+    price lands on the account that reveals it, but the hint *text* is
+    trivially relayed, so a throwaway account could otherwise buy hints, eat
+    a penalty nobody cares about, and pass the text to a real team. Requiring
+    earned progress makes that cost the same real work the event scores. Set
+    to `0` to disable.
+  - **Unlock after** (`hintsUnlockAfterMin`, default **0**) — minutes after
+    the scheduled scoring start before *any* hint can be bought, so the early
+    game is decided on unaided work. Needs a scoring start (see the schedule
+    below) to have any effect; `0` means hints are available immediately.
+
+  Both fail **closed**: if the solve lookup errors, the hint is refused
+  rather than handed out unverified. Denials return `403` with a message
+  naming what's missing.
+- **Hint penalties apply to teams too.** A team's displayed points are its
+  scorer total minus the **sum** of its members' hint spend, floored at 0,
+  and the team board re-ranks on the penalised figure (a `−N hints` chip
+  shows the deduction). Note the deliberate asymmetry with flag scoring: a
+  flag solved by two teammates counts **once**, but a hint bought by two
+  teammates is charged **twice** — hints are individually purchased, so
+  redundant buying is the team's own coordination cost.
 
 - **Master reset** (danger zone) — wipes **all** event data so a test run or a
   botched setup can be cleared before the real event. It deletes every solve,
