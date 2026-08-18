@@ -166,25 +166,62 @@ the sections below are the enforceable contract behind it.
 ## 5. UI / presentation contract
 
 **Honesty constraint up front:** the vendored contestant app (`apps/web/`,
-see `apps/web/VENDORED.md`) now implements display metadata (item 1) and
-the enablement rule (item 4) for `secure-development`: `src/lib/modules.ts`
-sources the display name/description from a module registry rather than a
-hardcoded string, and `src/lib/apps.ts`'s `enabledApps` filters nav,
-challenge list, and leaderboard columns down to the targets under
-`event.yaml`'s `modules.secure-development.targets` — see
-`src/lib/__tests__/modules.test.ts` and `scripts/acceptance-app.sh` (which
-asserts a disabled target never renders). The existing challenge catalogue
-(item 2) and per-target solved/total leaderboard columns (item 3) predate
-this work and satisfy those items for the one shipped module. The organizer
-admin panel that was tracked as Spec B is now built — freeze, scheduled
-scoring windows, team-registration windows, hint toggles/cost, demo seed, and
-the master reset (see `docs/operations.md`'s "Organizer admin panel" and
-"Status and upstream dependencies"). What remains open there is score
-adjustments and player removal — and offering this vendored delta back to
-`OWASP-CTF/ctf-owasp-org` once upstream write access opens. This section
-remains the contract a *new* module (forensics, api-security, cloud, …)
-must satisfy to plug into the same UI, since v1 only proves it against the
-one worked example.
+see `apps/web/VENDORED.md`) now derives its module registry from `event.yaml`
+rather than hardcoding a single module. `src/lib/modules.ts`'s
+`enabledModules` maps every id under `event.yaml`'s `modules:` block (surfaced
+through the generator, `apps/web/scripts/generate-event-config.mjs`, which
+emits a structured `modules` array plus a derived back-compat `targets` array)
+to a `ModuleDef` — display name, description, and nav entry are code-side
+registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
+entirely config-driven. Two ids are registered today: `secure-development`
+(targets, catalogue, scoring — the worked example throughout this document)
+and `quiz` (a registrable placeholder id — see below). An id outside the
+registry still fails the build loudly (`generate-event-config.mjs`'s
+`validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
+
+Display metadata (item 1) and the enablement rule (item 4) now hold for real
+across the app, not just as a filter over one hardcoded target list:
+`src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
+header iff that module is enabled *and* defines a `nav` (`quiz` defines
+none, so it contributes nothing); the leaderboard pipeline's
+`withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
+attributes `secure-development`'s scorer-sourced points into a per-module
+`ModuleProgress`, and an expanded leaderboard row renders each enabled
+module's own detail block (`components/module-detail.tsx`) instead of one
+hardcoded shape; the admin panel (`admin-controls.tsx`) is sectioned by
+enabled module, with the four hint controls now living under Secure
+Development's section rather than a flat list. The existing challenge
+catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
+predate this work and satisfy those items for the one shipped, scored module.
+The organizer admin panel that was tracked as Spec B is still built out —
+freeze, scheduled scoring windows, team-registration windows, hint
+toggles/cost, demo seed, and the master reset (see `docs/operations.md`'s
+"Organizer admin panel" and "Status and upstream dependencies"). What remains
+open there is score adjustments and player removal — and offering this
+vendored delta back to `OWASP-CTF/ctf-owasp-org` once upstream write access
+opens.
+
+What remains open from *this* work, so the registry's existence isn't
+mistaken for a second working module:
+
+- **`quiz` has no UI, no route, no scoring, and no admin controls.** It is
+  purely a registrable config id (`ModuleId` in `modules.ts`, a validator in
+  `generate-event-config.mjs`) that renders nothing — a phase-2 placeholder,
+  not a working vertical. Its presence proves the registry mechanism, not
+  that the contract below is satisfied twice.
+- **No per-module leaderboards or module switcher exist.** The leaderboard is
+  one board; a module's contribution shows only as a row's expandable
+  per-module breakdown, never a separate view.
+- **No scorer or sync changes shipped.** `sync/src/config.js` still
+  recognizes only `secure-development` as a known module — per-module
+  `score_ingest`/rubric plumbing for a module that actually needs
+  scorer-mediated scoring was deliberately deferred until one exists that
+  needs it.
+
+This section remains the contract a *new* module (forensics, api-security,
+cloud, …) must satisfy to plug into the same UI: it is proven against one
+real, scored module (`secure-development`) and one placeholder id that
+proves only the registry mechanism, not the rest of the contract.
 
 1. **Display metadata.** A module MUST provide a human-readable display
    name, a short description, and a nav label, sourced from the module's

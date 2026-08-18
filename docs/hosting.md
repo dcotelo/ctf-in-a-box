@@ -306,8 +306,34 @@ register the OAuth app on your personal account rather than the org.
 
 `event.yaml` uses a **modules** schema. Platform settings (`event`, `github`,
 `teams`, `hints`, `admins`) sit at the top level; challenge content is
-namespaced under `modules.<name>`. v1 ships exactly one module,
-`modules.secure-development`, holding the target list and `score_ingest`.
+namespaced under `modules.<name>`, one block per registered module id. Two
+ids are registered today:
+
+```yaml
+modules:
+  secure-development:
+    targets: [juice-shop, dvwa]    # any subset of the six
+    score_ingest: poll             # poll | push
+  # quiz: { enabled: true }        # registrable, but not yet implemented —
+                                    # no UI/route/scoring/admin controls (phase 2)
+```
+
+`modules.secure-development.targets` is still the field that drives the
+app's target list, nav, challenge browser, and leaderboard columns — nothing
+about that changed. A second module block is legal from the **app**'s point
+of view: `apps/web/scripts/generate-event-config.mjs` recognizes both
+`secure-development` and `quiz` as known ids and rejects anything else
+loudly, so adding `quiz:` there only adds an id to the app's module registry
+— `quiz` itself renders nothing yet (no route, no scoring, no admin
+controls), so leave it commented out until it ships. **Do not uncomment it
+against a real event yet**: `sync`'s own config loader (`sync/src/config.js`'s
+`KNOWN_MODULES`) still recognizes only `secure-development` and will refuse
+to start (`event.yaml: unknown module: quiz`) if the same `event.yaml` it
+reads has a `quiz:` block — the app and the poll service are deliberately
+out of step on this, since `quiz` has no scoring path for `sync` to serve
+yet. Omitting a module from `modules:` entirely (rather than disabling
+it some other way) is what keeps its nav entry, leaderboard columns, and
+admin section from appearing at all.
 
 Copy `event.yaml.example` and fill in `github.org`,
 `modules.secure-development.targets`, `admins` (GitHub logins), and

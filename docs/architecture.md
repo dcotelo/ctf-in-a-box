@@ -17,8 +17,13 @@ day-to-day operation, see
 CTF-in-a-box is a **control plane** with **modules** plugged into it. The split
 is deliberate: the platform never knows what a challenge *is*, only how a score
 arrives and how a leaderboard renders; a module never re-implements org
-provisioning, teams, ingestion, or ranking. v1 ships one module,
-`secure-development`; the boundary is the [module contract](modules.md).
+provisioning, teams, ingestion, or ranking. `event.yaml`'s `modules:` map
+accepts more than one registered module id — `secure-development` (targets,
+scoring, the worked example throughout this doc) and `quiz` (a registrable id
+with no UI, route, or scoring yet — a phase-2 placeholder, see
+[docs/modules.md §5](modules.md#5-ui--presentation-contract)). An id outside
+the registry still fails the build loudly; the boundary is the
+[module contract](modules.md).
 
 | The platform (control plane) owns | A module provides |
 |---|---|
@@ -153,6 +158,26 @@ state; everything else that touches scores goes through it.
    open). Both fields are
    additive; an older scorer that omits them simply falls back to the
    solved/total counts.
+9. Before rendering, the app composes the fetched `LeaderboardData` through a
+   fixed pipeline (`app/(site)/leaderboard/page.tsx`):
+   `withModuleContributions` → `withHintPenalties` → `withTeamStandings`
+   (`src/lib/leaderboard/{module-contributions,hint-penalties,team-standings}.ts`).
+   `withModuleContributions` attributes the scorer's points into a
+   per-module `ModuleProgress` for every *enabled* module — `secure-development`
+   is **attributed**, not added, since its points already came from the
+   scorer above; a module that scores app-side (none does yet) would add its
+   own points on top — and re-ranks unconditionally so the board reflects the
+   combined result even when the next stage (hints) is a no-op. Ranking
+   itself (`src/lib/leaderboard/rank.ts`'s `compareStanding`) is: items
+   completed **across modules** descending, then combined points descending,
+   then earliest last-activity ascending, with a `patched`/`lastSolveAt`
+   fallback for sources that carry no per-module data (e.g. the legacy
+   Upstash-schema source). With only `secure-development` enabled this is
+   byte-for-byte the old `patched`-then-`points`-then-`lastSolveAt` order. An
+   expanded leaderboard row then renders each enabled module's own detail
+   block (`components/module-detail.tsx` switches on `moduleId` — a
+   `secure-development` row shows the existing per-target breakdown, and a
+   module with a different progress shape defines its own).
 
 ## Organizer admin panel (runtime overrides)
 
@@ -249,13 +274,24 @@ config — it's baked into the `app` image at build time:
    enum and unknown-module/unknown-target rejection rules as `sync/src/config.js`
    (see
    [decisions.md #13](decisions.md#13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build)).
-   It writes `apps/web/src/lib/event-config.generated.ts` (gitignored — a
-   typed `const` module) and fails the build loudly (non-zero exit) on
-   invalid input.
+   It validates every key under `event.yaml`'s `modules:` map against a fixed
+   set of registered ids (today: `secure-development`, `quiz`) and emits a
+   structured `modules` array (one entry per registered, enabled id) plus a
+   derived back-compat `targets` array — `secure-development`'s `targets`
+   list, or `[]` if that module isn't enabled — so existing `targets`
+   consumers don't need to know the config is now multi-module. It writes
+   `apps/web/src/lib/event-config.generated.ts` (gitignored — a typed `const`
+   module) and fails the build loudly (non-zero exit) on invalid input,
+   including an unregistered module id.
 5. `src/lib/event-config.ts`, `src/lib/modules.ts`, `src/lib/apps.ts`, and
    `src/lib/site.ts` import the generated module and derive `eventConfig`,
    `enabledModules`, `enabledApps`, and the site-wide `event` object from
-   it.
+   it. `modules.ts`'s `enabledModules` maps the generated `modules` array to
+   each id's registry entry (display name, description, nav) — enablement
+   comes from config, display metadata lives in code — and `site.ts`'s
+   `moduleNavLinks` splices a module's nav entry into the header nav iff that
+   module is enabled and defines one (a module with no contestant route, like
+   `quiz` today, contributes no link).
 6. `next build` statically renders pages against those values — event name,
    dates, and the enabled-target subset are compiled into the served HTML,
    not read at request time.
@@ -323,7 +359,7 @@ config change").
 |---|---|---|
 | Unit (sync) | `sync/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Config loading/validation, comment parsing and the author grammar, cursor/ETag handling, submit retry semantics, state persistence — in isolation, no network or Docker. |
 | Unit (scorer) | `scorer/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Rubric loading/validation, probe grammar + evaluation, the judge's report format (the score-action regexes and the sync marker, pinned verbatim), serve auth/validation/monotonic-replay semantics, leaderboard aggregation, and both solve stores (memory, and Redis-via-SRH against a mocked endpoint) — in isolation, no network or Docker. |
-| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation. |
+| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank. |
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
