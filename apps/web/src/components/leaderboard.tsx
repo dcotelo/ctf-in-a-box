@@ -88,43 +88,54 @@ function AppBreakdown({ entry }: { entry: LeaderboardEntry }) {
       </div>
       {withChallenges.length > 0 && (
         <div className="mt-3 flex flex-col gap-3">
-          {withChallenges.map((app) => (
-            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
-              <p className="text-xs" style={{ color: app.accent }}>
-                {app.name}
-              </p>
-              <AppChallengeList challenges={entry.apps[app.id]!.challenges!} />
-            </div>
-          ))}
+          {withChallenges.map((app) => {
+            const progress = entry.apps[app.id]!;
+            return (
+              <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
+                <p className="text-sm">
+                  <span style={{ color: app.accent }}>{app.name}</span>
+                  <span className="ml-1.5 font-mono text-xs text-muted">
+                    {progress.patched} / {progress.total} patched
+                  </span>
+                </p>
+                <AppChallengeList challenges={progress.challenges!} />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-/** The team's collectively-solved flags (the union across members), grouped by
- *  target. Reuses the same collapsible AppChallengeList as a contestant's
- *  breakdown so both views read identically — here every listed flag is solved
- *  (the union is patched-only). Rendered only when the source carries
- *  per-challenge data. */
-function TeamSolvedFlags({ team }: { team: TeamStanding }) {
+/** The team's per-target flag progress — every challenge, marked patched
+ *  (solved by the union of members) or open (still pending). Reuses the same
+ *  collapsible AppChallengeList as a contestant's breakdown so both views read
+ *  identically. Rendered only when the source carries per-challenge data. */
+function TeamFlags({ team }: { team: TeamStanding }) {
   if (!team.apps) return null;
   const groups = appList
-    .map((app) => ({ app, solved: (team.apps![app.id]?.challenges ?? []).filter((c) => c.status === "patched") }))
-    .filter((g) => g.solved.length > 0);
+    .map((app) => ({ app, challenges: team.apps![app.id]?.challenges ?? [] }))
+    .filter((g) => g.challenges.length > 0);
   if (groups.length === 0) return null;
   return (
     <div className="mt-4 border-t border-white/[0.06] pt-4">
-      <p className="mb-3 text-xs uppercase tracking-wider text-muted">Solved flags</p>
+      <p className="mb-3 text-xs uppercase tracking-wider text-muted">Flags</p>
       <div className="flex flex-col gap-3">
-        {groups.map(({ app, solved }) => (
-          <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
-            <p className="text-xs" style={{ color: app.accent }}>
-              {app.name}
-            </p>
-            <AppChallengeList challenges={solved} />
-          </div>
-        ))}
+        {groups.map(({ app, challenges }) => {
+          const patched = challenges.filter((c) => c.status === "patched").length;
+          return (
+            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
+              <p className="text-sm">
+                <span style={{ color: app.accent }}>{app.name}</span>
+                <span className="ml-1.5 font-mono text-xs text-muted">
+                  {patched} / {challenges.length} patched
+                </span>
+              </p>
+              <AppChallengeList challenges={challenges} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -311,7 +322,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { 
               </span>
             ))}
           </div>
-          <TeamSolvedFlags team={team} />
+          <TeamFlags team={team} />
         </div>
       )}
     </li>

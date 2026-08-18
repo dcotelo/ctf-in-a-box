@@ -23,7 +23,7 @@ export default function AppChallengeList({ challenges }: { challenges: Challenge
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
       >
         <svg
           className={`transition-transform ${open ? "rotate-90" : ""}`}
@@ -40,7 +40,7 @@ export default function AppChallengeList({ challenges }: { challenges: Challenge
           {challenges.map((c) => {
             const style = STATUS_STYLE[c.status];
             return (
-              <li key={c.key} className="flex items-center gap-2 py-0.5 text-xs">
+              <li key={c.key} className="flex items-center gap-2 py-1 text-sm">
                 <span
                   className="h-1.5 w-1.5 flex-none rounded-full"
                   style={{ background: style.dot }}
@@ -48,8 +48,8 @@ export default function AppChallengeList({ challenges }: { challenges: Challenge
                 />
                 <span className="min-w-0 flex-1 truncate text-zinc-300">{c.name}</span>
                 {c.owasp && <OwaspBadge code={c.owasp} />}
-                <span className="flex-none font-mono text-[10px] text-muted">{c.points}pt</span>
-                <span className="w-20 flex-none text-right text-[10px] uppercase tracking-wide" style={{ color: style.dot }}>
+                <span className="flex-none font-mono text-xs text-muted">{c.points}pt</span>
+                <span className="w-20 flex-none text-right text-xs uppercase tracking-wide" style={{ color: style.dot }}>
                   {style.label}
                 </span>
               </li>
