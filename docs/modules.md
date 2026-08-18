@@ -224,12 +224,15 @@ hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; the admin panel
-(`admin-controls.tsx`) is sectioned by
-enabled module, with the four hint controls living under Secure
-Development's section and the quiz's two retry-gate knobs plus its full
-question-authoring UI (`components/admin-quiz-controls.tsx`) under Quiz's —
+(`admin-controls.tsx`) is a tab shell — one **Event** tab for the
+control-plane settings that belong to the platform itself, then one tab per
+enabled module, labelled with that module's organizer-resolved `title` — with
+the four hint controls living in Secure
+Development's tab (`admin-secure-dev-tab.tsx`) and the quiz's two retry-gate
+knobs plus its full
+question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's —
 so the generic "No settings for this module yet." fallback that a module
-section renders when it defines no controls is, today, dead code for both
+tab renders when it defines no controls is, today, dead code for both
 shipped modules; it stays wired for whatever module ships next with no
 settings of its own. The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
