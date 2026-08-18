@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Poppins, Barlow, Geist_Mono } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
-import { event } from "@/lib/site";
+import { buildNavLinks, event } from "@/lib/site";
+import { getResolvedModules } from "@/lib/resolved-modules";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -27,18 +28,19 @@ export const metadata: Metadata = {
   description: `${event.name} — patch real vulnerabilities in OWASP training apps${event.dates ? ` — ${event.dates}` : ""}${event.location ? `, ${event.location}` : ""}.`,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const navLinks = buildNavLinks(await getResolvedModules());
   return (
     <html
       lang="en"
       className={`${poppins.variable} ${barlow.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <SiteHeader />
+        <SiteHeader navLinks={navLinks} />
         {children}
         <VisitBeacon />
       </body>

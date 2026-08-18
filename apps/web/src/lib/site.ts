@@ -61,6 +61,19 @@ const moduleNavLinks: NavLink[] = enabledModules
 // Order here drives the header nav left-to-right.
 export const navLinks: NavLink[] = [...leadingNavLinks, ...moduleNavLinks, ...trailingNavLinks];
 
+/** Pure builder for the resolved-module nav: same platform link order as
+ *  `navLinks` above, but with each module link's label taken from the
+ *  organizer-authored `title` (falling back to the registry nav label) —
+ *  see resolved-modules.ts for where the modules come from. A module with no
+ *  `nav` entry contributes nothing. Pure — no I/O — so it's testable on its
+ *  own with plain object literals, independent of the module registry. */
+export function buildNavLinks(modules: readonly { nav?: NavLink; title?: string }[]): NavLink[] {
+  const moduleLinks = modules
+    .filter((m) => m.nav)
+    .map((m) => ({ href: m.nav!.href, label: m.title || m.nav!.label }));
+  return [...leadingNavLinks, ...moduleLinks, ...trailingNavLinks];
+}
+
 // Policy routes. Deliberately kept out of `navLinks` — these belong in the
 // footer's secondary row, not the header nav.
 export const legalLinks: NavLink[] = [
