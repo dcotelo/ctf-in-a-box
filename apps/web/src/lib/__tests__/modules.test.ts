@@ -28,3 +28,25 @@ describe("module registry", () => {
     expect(enabledModules.find((m) => m.id === "quiz")!.nav).toBeUndefined();
   });
 });
+
+describe("module registry — negative enablement", () => {
+  it("omits a module from enabledModules and isModuleEnabled when it is absent from config", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/event-config", () => ({
+      eventConfig: {
+        targets: ["dvwa"],
+        // secure-development is deliberately omitted here.
+        modules: [{ id: "quiz" }],
+      },
+    }));
+
+    const { enabledModules: enabled, isModuleEnabled: isEnabled } = await import("@/lib/modules");
+
+    expect(enabled.map((m) => m.id)).toEqual(["quiz"]);
+    expect(enabled.some((m) => m.id === "secure-development")).toBe(false);
+    expect(isEnabled("secure-development")).toBe(false);
+
+    vi.doUnmock("@/lib/event-config");
+    vi.resetModules();
+  });
+});
