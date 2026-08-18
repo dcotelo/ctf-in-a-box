@@ -2,6 +2,16 @@ import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import { isModuleEnabled } from "@/lib/modules";
 import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
+import {
+  QUIZ_QUESTIONS_KEY,
+  QUIZ_KEY_KEY,
+  QUIZ_POINTS_KEY,
+  QUIZ_ANSWERED_KEY,
+  QUIZ_ANSWERS_PREFIX,
+  QUIZ_ATTEMPTS_PREFIX,
+  quizAnswersKey,
+  canonicalizeChoices,
+} from "@/lib/quiz-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -275,10 +285,10 @@ const RESET_PREFIXES: readonly [string, string][] = [
   ["users", "ctf:user:*"],
   ["joinCodes", "ctf:joincode:*"],
   ["hints", "ctf:hints:*"],
-  ["quizAnswers", "ctf:quiz:answers:*"],
-  ["quizAttempts", "ctf:quiz:attempts:*"],
-  ["quizPoints", "ctf:quiz:points"],
-  ["quizAnswered", "ctf:quiz:answered"],
+  ["quizAnswers", `${QUIZ_ANSWERS_PREFIX}*`],
+  ["quizAttempts", `${QUIZ_ATTEMPTS_PREFIX}*`],
+  ["quizPoints", QUIZ_POINTS_KEY],
+  ["quizAnswered", QUIZ_ANSWERED_KEY],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the
@@ -334,18 +344,6 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
 
 // --- demo seed (DEMO_MODE only) ----------------------------------------------
 
-// Quiz key names/patterns for the demo seed. Duplicated (not imported) from
-// quiz-store.ts's own QUESTIONS_KEY/KEY_KEY/POINTS_KEY/ANSWERED_KEY/answersKey
-// deliberately: quiz-store.ts already imports THIS file (for getAdminSettings/
-// effectivePaused), so importing back would be a require cycle. Keep these
-// four literals in lockstep with quiz-store.ts's key layout — a mismatch here
-// would make every demo answer ungradeable-looking (right shape, wrong key).
-const QUIZ_QUESTIONS_KEY = "ctf:quiz:questions";
-const QUIZ_KEY_KEY = "ctf:quiz:key";
-const QUIZ_POINTS_KEY = "ctf:quiz:points";
-const QUIZ_ANSWERED_KEY = "ctf:quiz:answered";
-const quizAnswersKey = (login: string) => `ctf:quiz:answers:${login}`;
-
 /**
  * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
  * (so the scorer awards points), spread over the last ~6h for a rising
@@ -393,14 +391,15 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   const quizEnabled = isModuleEnabled("quiz");
   let quizAnswersSeeded = 0;
   if (quizEnabled) {
-    // Write the public question + its correct-answer key with EXACTLY the
-    // recipe quiz-store's upsertQuestion uses (dedupe then sort into a JSON
-    // array) — GRADE_SCRIPT string-compares a submission's canonicalized
-    // array against this key byte-for-byte, so any other shape here would
-    // silently make every demo question ungradeable.
+    // Write the public question + its correct-answer key with the SAME
+    // shared `canonicalizeChoices` recipe quiz-store's upsertQuestion uses
+    // (dedupe then sort into a JSON array) — GRADE_SCRIPT string-compares a
+    // submission's canonicalized array against this key byte-for-byte, so
+    // any other shape here would silently make every demo question
+    // ungradeable.
     for (const { correct, ...question } of DEMO_QUESTIONS) {
       cmds.push(["HSET", QUIZ_QUESTIONS_KEY, question.id, JSON.stringify(question)]);
-      cmds.push(["HSET", QUIZ_KEY_KEY, question.id, JSON.stringify([...new Set(correct)].sort())]);
+      cmds.push(["HSET", QUIZ_KEY_KEY, question.id, JSON.stringify(canonicalizeChoices(correct))]);
     }
 
     const questionsById = new Map(DEMO_QUESTIONS.map((q) => [q.id, q]));
@@ -411,10 +410,10 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       if (!q) return; // fixture-consistency guard; should never trigger
       const frac = nAnswers > 0 ? (i + 0.5) / nAnswers : 0.5;
       const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
-      // Same sorted-array recipe as the key above: a demo answer's banked
+      // Same shared recipe as the key above: a demo answer's banked
       // `choices` is always the question's full correct set (it's recorded
       // as correct), stored the same way GRADE_SCRIPT stores a live one.
-      const choices = [...new Set(q.correct)].sort();
+      const choices = canonicalizeChoices(q.correct);
       cmds.push(["HSET", quizAnswersKey(login), questionId, JSON.stringify({ choices, points: q.points, at })]);
 
       const agg = aggregates.get(login) ?? { points: 0, answered: 0 };

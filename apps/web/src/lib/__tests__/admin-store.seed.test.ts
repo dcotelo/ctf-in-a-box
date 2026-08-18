@@ -10,6 +10,7 @@ vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipelin
 vi.mock("@/lib/modules", () => ({ isModuleEnabled: mocks.isModuleEnabled }));
 
 import { seedDemoData } from "@/lib/admin-store";
+import { upsertQuestion } from "@/lib/quiz-store";
 import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
 
 beforeEach(() => {
@@ -92,14 +93,26 @@ describe("seedDemoData", () => {
     }
 
     // one HSET per question into the answer-key hash, each a sorted, deduped
-    // JSON array of correct choice ids — quiz-store's exact stored format
+    // JSON array of correct choice ids — proven by driving quiz-store's OWN
+    // upsertQuestion with the same `correct` set and asserting the seed's
+    // stored value is byte-identical to what upsertQuestion itself writes.
+    // This must fail if quiz-store's canonicalization ever changes and the
+    // seed doesn't follow, rather than the test re-deriving the formula
+    // (which would drift in lockstep with a bug instead of catching it).
     const keyCmds = cmds.filter((c) => c[0] === "HSET" && c[1] === "ctf:quiz:key");
     expect(keyCmds.length).toBe(DEMO_QUESTIONS.length);
     for (const q of DEMO_QUESTIONS) {
-      const cmd = keyCmds.find((c) => c[2] === q.id)!;
-      const stored = JSON.parse(String(cmd[3]));
-      const expected = [...new Set(q.correct)].sort();
-      expect(stored).toEqual(expected);
+      await upsertQuestion(
+        { id: q.id, prompt: q.prompt, type: q.type, choices: q.choices, points: q.points, order: q.order },
+        q.correct,
+      );
+      const realCall = mocks.upstashPipeline.mock.calls.at(-1)![0];
+      const realKeyCmd = realCall.find((c) => c[0] === "HSET" && c[1] === "ctf:quiz:key")!;
+
+      const seededCmd = keyCmds.find((c) => c[2] === q.id)!;
+      expect(seededCmd[3]).toBe(realKeyCmd[3]); // byte-identical to quiz-store's own output
+
+      const stored = JSON.parse(String(seededCmd[3]));
       expect(stored).toEqual([...stored].sort()); // sorted
       expect(new Set(stored).size).toBe(stored.length); // deduped
     }

@@ -1,6 +1,15 @@
 import "server-only";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import {
+  QUIZ_QUESTIONS_KEY as QUESTIONS_KEY,
+  QUIZ_KEY_KEY as KEY_KEY,
+  QUIZ_POINTS_KEY as POINTS_KEY,
+  QUIZ_ANSWERED_KEY as ANSWERED_KEY,
+  quizAnswersKey as answersKey,
+  quizAttemptsKey as attemptsKey,
+  canonicalizeChoices,
+} from "@/lib/quiz-keys";
 
 /**
  * The quiz module. This file is the ONLY place that touches `ctf:quiz:*`
@@ -42,15 +51,12 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
  * client-supplied identity.
  */
 
-const QUESTIONS_KEY = "ctf:quiz:questions";
-const KEY_KEY = "ctf:quiz:key";
-const answersKey = (login: string) => `ctf:quiz:answers:${login}`;
-const attemptsKey = (login: string) => `ctf:quiz:attempts:${login}`;
-/** Running totals, updated atomically by the grading script alongside the
- *  per-login answer row — the same `ctf:hints:spent` trick, so a leaderboard
- *  overlay costs one HGETALL each regardless of board size. */
-const POINTS_KEY = "ctf:quiz:points";
-const ANSWERED_KEY = "ctf:quiz:answered";
+// Key names/builders live in ./quiz-keys (a dependency-free module) rather
+// than as local consts here — see quiz-keys.ts's header comment for why.
+// POINTS_KEY/ANSWERED_KEY are running totals, updated atomically by the
+// grading script alongside the per-login answer row — the same
+// `ctf:hints:spent` trick, so a leaderboard overlay costs one HGETALL each
+// regardless of board size.
 
 /** Default cap on graded attempts per question before the retry gate
  *  refuses further submissions. 0 would mean unlimited (not the default). */
@@ -169,23 +175,22 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   for (const id of correct) {
     if (!choiceIds.has(id)) throw new QuizValidationError("correct", `Correct choice id not among choices: ${id}`);
   }
-  // Dedupe BEFORE the length check and the sort: `answerQuestion` dedupes a
-  // submission the same way (`Array.from(new Set(choices)).sort()`), and the
-  // whole "string-compare stands in for set-compare" design in GRADE_SCRIPT
-  // depends on both sides canonicalizing identically. Without this, a
-  // duplicate id here (e.g. ["a","a"]) would store a correct set no
+  // Dedupe-then-sort via the shared `canonicalizeChoices` recipe BEFORE the
+  // length check: `answerQuestion` canonicalizes a submission the same way,
+  // and the whole "string-compare stands in for set-compare" design in
+  // GRADE_SCRIPT depends on both sides canonicalizing identically. Without
+  // this, a duplicate id here (e.g. ["a","a"]) would store a correct set no
   // submission could ever equal — a permanently unanswerable question that
   // silently burns every attempt against it.
-  const uniqueCorrect = [...new Set(correct)];
+  const sortedCorrect = canonicalizeChoices(correct);
   // A "single" question must have exactly one correct choice — with more
   // than one, the all-or-nothing grading rule could never be satisfied.
-  if (q.type === "single" && uniqueCorrect.length !== 1) {
+  if (q.type === "single" && sortedCorrect.length !== 1) {
     throw new QuizValidationError(
       "correct",
-      `A "single" question must have exactly one correct choice, got ${uniqueCorrect.length}`,
+      `A "single" question must have exactly one correct choice, got ${sortedCorrect.length}`,
     );
   }
-  const sortedCorrect = uniqueCorrect.sort();
 
   const results = await upstashPipeline([
     ["HSET", QUESTIONS_KEY, q.id, JSON.stringify(q)],
@@ -596,10 +601,10 @@ export async function answerQuestion(login: string, questionId: string, choices:
       : { ok: false, reason: gate.reason };
   }
 
-  // Order-insensitive: dedupe then sort, exactly as `upsertQuestion` stores
-  // the correct set, so an exact JSON-string match inside the script is a
-  // valid stand-in for a set comparison.
-  const submitted = JSON.stringify(Array.from(new Set(choices)).sort());
+  // Order-insensitive: the same shared `canonicalizeChoices` recipe
+  // `upsertQuestion` stores the correct set with, so an exact JSON-string
+  // match inside the script is a valid stand-in for a set comparison.
+  const submitted = JSON.stringify(canonicalizeChoices(choices));
   const now = new Date();
   const nowIso = now.toISOString();
 
