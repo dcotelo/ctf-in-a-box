@@ -6,6 +6,117 @@
 export type DemoContestant = { login: string; solves: Record<string, string[]> };
 export type DemoTeam = { slug: string; name: string; captain: string; members: string[] };
 
+// Quiz demo data (DEMO_MODE 'Seed demo data', quiz module only). Mirrors the
+// shape quiz-store.ts's `Question`/correct-answer-key expects: `correct` is
+// NOT part of the public `Question` shape written to `ctf:quiz:questions` —
+// it is used only to derive `ctf:quiz:key`'s sorted, deduped array (the same
+// recipe `upsertQuestion` applies) and each demo answer's banked `choices`.
+export type DemoChoice = { id: string; label: string };
+export type DemoQuestionType = "single" | "multi";
+export type DemoQuestion = {
+  id: string;
+  prompt: string;
+  type: DemoQuestionType;
+  choices: DemoChoice[];
+  points: number;
+  order: number;
+  /** Correct choice id(s) — one for `"single"`, two or more for `"multi"`. */
+  correct: string[];
+};
+
+export const DEMO_QUESTIONS: DemoQuestion[] = [
+  {
+    id: "xss-basics",
+    prompt: "What does XSS stand for?",
+    type: "single",
+    order: 1,
+    points: 50,
+    choices: [
+      { id: "a", label: "Cross-Site Scripting" },
+      { id: "b", label: "XML Signature Exchange" },
+      { id: "c", label: "Cross-Server Xchange" },
+      { id: "d", label: "Extended Session Storage" },
+    ],
+    correct: ["a"],
+  },
+  {
+    id: "injection-types",
+    prompt: "Which of these are injection vulnerabilities? (choose all that apply)",
+    type: "multi",
+    order: 2,
+    points: 100,
+    choices: [
+      { id: "a", label: "SQL Injection" },
+      { id: "b", label: "Command Injection" },
+      { id: "c", label: "Cross-Site Scripting" },
+      { id: "d", label: "Broken Access Control" },
+    ],
+    correct: ["a", "b"],
+  },
+  {
+    id: "owasp-top10-2021",
+    prompt: "Which OWASP Top 10 (2021) category covers broken access control?",
+    type: "single",
+    order: 3,
+    points: 50,
+    choices: [
+      { id: "a", label: "A01:2021" },
+      { id: "b", label: "A03:2021" },
+      { id: "c", label: "A05:2021" },
+      { id: "d", label: "A07:2021" },
+    ],
+    correct: ["a"],
+  },
+  {
+    id: "secure-headers",
+    prompt: "Which HTTP response headers help mitigate common web attacks? (choose all that apply)",
+    type: "multi",
+    order: 4,
+    points: 100,
+    choices: [
+      { id: "a", label: "Content-Security-Policy" },
+      { id: "b", label: "X-Frame-Options" },
+      { id: "c", label: "Set-Cookie" },
+      { id: "d", label: "Strict-Transport-Security" },
+    ],
+    correct: ["a", "b", "d"],
+  },
+  {
+    id: "csrf-defense",
+    prompt: "What is the primary defense against CSRF attacks?",
+    type: "single",
+    order: 5,
+    points: 75,
+    choices: [
+      { id: "a", label: "Anti-CSRF tokens" },
+      { id: "b", label: "Rate limiting" },
+      { id: "c", label: "Password hashing" },
+      { id: "d", label: "CORS headers" },
+    ],
+    correct: ["a"],
+  },
+];
+
+export type DemoQuizAnswer = { login: string; questionId: string };
+
+// Spread across every demo contestant (not just the top solver) so DEMO_MODE
+// shows a genuinely combined leaderboard — patching points AND quiz points
+// both moving the same board.
+export const DEMO_QUIZ_ANSWERS: DemoQuizAnswer[] = [
+  { login: "neo-anderson", questionId: "xss-basics" },
+  { login: "neo-anderson", questionId: "injection-types" },
+  { login: "neo-anderson", questionId: "csrf-defense" },
+  { login: "trinity-h", questionId: "xss-basics" },
+  { login: "trinity-h", questionId: "owasp-top10-2021" },
+  { login: "kevin-mitnick", questionId: "injection-types" },
+  { login: "kevin-mitnick", questionId: "secure-headers" },
+  { login: "grace-hopper", questionId: "xss-basics" },
+  { login: "grace-hopper", questionId: "secure-headers" },
+  { login: "grace-hopper", questionId: "csrf-defense" },
+  { login: "ada-lovelace", questionId: "owasp-top10-2021" },
+  { login: "morpheus-z", questionId: "injection-types" },
+];
+
 export const DEMO_CONTESTANTS: DemoContestant[] = [
   {
     "login": "neo-anderson",

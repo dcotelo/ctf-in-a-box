@@ -29,7 +29,7 @@ vi.mock("@/lib/admin-store", async (orig) => ({
   seedDemoData,
 }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
-vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event" } }));
+vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event", modules: [] } }));
 
 import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";

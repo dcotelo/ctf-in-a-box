@@ -1,6 +1,7 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
-import { DEMO_CONTESTANTS, DEMO_TEAMS } from "@/lib/demo-fixture";
+import { isModuleEnabled } from "@/lib/modules";
+import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -258,12 +259,26 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
 // ctf:admin:settings (kept), ctf:admin:audit (appended, not cleared), and
 // ctf:sync:status (sync owns it). ctf:user:* covers both the team-membership
 // hash and ctf:user:<login>:hints; ctf:team:* covers <slug> and <slug>:members.
+//
+// Quiz scope (spec Q1): wipes contestant PROGRESS (per-login answers/attempts,
+// plus the two running-total aggregate hashes) and deliberately KEEPS
+// `ctf:quiz:questions` / `ctf:quiz:key` — those are organizer CONTENT, like
+// `ctf:admin:settings`, not something a reset should ever destroy. The
+// aggregates (`ctf:quiz:points`/`ctf:quiz:answered`) MUST still be cleared:
+// leaving them would show contestants stale quiz points on a freshly reset
+// board with no answers behind them. `ctf:quiz:points`/`ctf:quiz:answered`
+// are exact key names, not globs, but `scanDelByPrefix`'s SCAN MATCH works
+// the same either way.
 const RESET_PREFIXES: readonly [string, string][] = [
   ["solves", "ctf:solves:*"],
   ["teams", "ctf:team:*"],
   ["users", "ctf:user:*"],
   ["joinCodes", "ctf:joincode:*"],
   ["hints", "ctf:hints:*"],
+  ["quizAnswers", "ctf:quiz:answers:*"],
+  ["quizAttempts", "ctf:quiz:attempts:*"],
+  ["quizPoints", "ctf:quiz:points"],
+  ["quizAnswered", "ctf:quiz:answered"],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the
@@ -319,11 +334,27 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
 
 // --- demo seed (DEMO_MODE only) ----------------------------------------------
 
+// Quiz key names/patterns for the demo seed. Duplicated (not imported) from
+// quiz-store.ts's own QUESTIONS_KEY/KEY_KEY/POINTS_KEY/ANSWERED_KEY/answersKey
+// deliberately: quiz-store.ts already imports THIS file (for getAdminSettings/
+// effectivePaused), so importing back would be a require cycle. Keep these
+// four literals in lockstep with quiz-store.ts's key layout — a mismatch here
+// would make every demo answer ungradeable-looking (right shape, wrong key).
+const QUIZ_QUESTIONS_KEY = "ctf:quiz:questions";
+const QUIZ_KEY_KEY = "ctf:quiz:key";
+const QUIZ_POINTS_KEY = "ctf:quiz:points";
+const QUIZ_ANSWERED_KEY = "ctf:quiz:answered";
+const quizAnswersKey = (login: string) => `ctf:quiz:answers:${login}`;
+
 /**
  * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
  * (so the scorer awards points), spread over the last ~6h for a rising
- * score-over-time graph, plus a few teams. Additive — does not clear first.
- * Gated by the route on DEMO_MODE + requireAdmin; never a production path.
+ * score-over-time graph, plus a few teams. When the quiz module is enabled,
+ * also seeds a small demo question bank and a spread of correct answers
+ * across the same contestants (timestamped inside the same ~6h window) so
+ * DEMO_MODE shows a genuinely combined two-module leaderboard. Additive —
+ * does not clear first. Gated by the route on DEMO_MODE + requireAdmin;
+ * never a production path.
  */
 export async function seedDemoData(actor: string): Promise<{ contestants: number; teams: number; solves: number }> {
   const now = Date.now();
@@ -356,6 +387,52 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
     for (const m of t.members) cmds.push(["HSET", `ctf:user:${m}`, "team", t.slug]);
   }
+
+  // Quiz demo data — only when the module is enabled, so a disabled quiz
+  // module leaves the seed byte-for-byte identical to pre-quiz behavior.
+  const quizEnabled = isModuleEnabled("quiz");
+  let quizAnswersSeeded = 0;
+  if (quizEnabled) {
+    // Write the public question + its correct-answer key with EXACTLY the
+    // recipe quiz-store's upsertQuestion uses (dedupe then sort into a JSON
+    // array) — GRADE_SCRIPT string-compares a submission's canonicalized
+    // array against this key byte-for-byte, so any other shape here would
+    // silently make every demo question ungradeable.
+    for (const { correct, ...question } of DEMO_QUESTIONS) {
+      cmds.push(["HSET", QUIZ_QUESTIONS_KEY, question.id, JSON.stringify(question)]);
+      cmds.push(["HSET", QUIZ_KEY_KEY, question.id, JSON.stringify([...new Set(correct)].sort())]);
+    }
+
+    const questionsById = new Map(DEMO_QUESTIONS.map((q) => [q.id, q]));
+    const aggregates = new Map<string, { points: number; answered: number }>();
+    const nAnswers = DEMO_QUIZ_ANSWERS.length;
+    DEMO_QUIZ_ANSWERS.forEach(({ login, questionId }, i) => {
+      const q = questionsById.get(questionId);
+      if (!q) return; // fixture-consistency guard; should never trigger
+      const frac = nAnswers > 0 ? (i + 0.5) / nAnswers : 0.5;
+      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      // Same sorted-array recipe as the key above: a demo answer's banked
+      // `choices` is always the question's full correct set (it's recorded
+      // as correct), stored the same way GRADE_SCRIPT stores a live one.
+      const choices = [...new Set(q.correct)].sort();
+      cmds.push(["HSET", quizAnswersKey(login), questionId, JSON.stringify({ choices, points: q.points, at })]);
+
+      const agg = aggregates.get(login) ?? { points: 0, answered: 0 };
+      agg.points += q.points;
+      agg.answered += 1;
+      aggregates.set(login, agg);
+      quizAnswersSeeded++;
+    });
+    // Aggregates are written as the final absolute total (not HINCRBY'd),
+    // unlike GRADE_SCRIPT's live increments — the fixture already knows each
+    // login's final total, and an absolute HSET keeps re-running the seed
+    // idempotent instead of doubling the totals on a second seed.
+    for (const [login, agg] of aggregates) {
+      cmds.push(["HSET", QUIZ_POINTS_KEY, login, agg.points]);
+      cmds.push(["HSET", QUIZ_ANSWERED_KEY, login, agg.answered]);
+    }
+  }
+
   const audit = JSON.stringify({
     at: new Date(now).toISOString(),
     by: actor,
@@ -363,6 +440,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     contestants: DEMO_CONTESTANTS.length,
     teams: DEMO_TEAMS.length,
     solves: total,
+    ...(quizEnabled ? { quizQuestions: DEMO_QUESTIONS.length, quizAnswers: quizAnswersSeeded } : {}),
   });
   cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
   cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);
