@@ -24,8 +24,14 @@ function completedCount(entry: LeaderboardEntry): number {
   return mods.reduce((n, m) => n + (m?.completed ?? 0), 0);
 }
 
-/** Earliest scoring activity: the oldest per-module timestamp, falling back to
- *  the entry's own lastSolveAt. */
+/** An entry's most recent scoring activity: the newest per-module timestamp
+ *  (an entry's own "last touched" moment), falling back to `lastSolveAt`.
+ *  DO NOT change `Math.max` to `Math.min` — the comparator sorts these
+ *  values ASCENDING across entries, so the entry whose most recent activity
+ *  is earliest (i.e. stopped changing soonest) wins the tie, which is what
+ *  makes "reached that score first ranks higher" hold. Entries with no
+ *  parseable timestamp anywhere get `Number.MAX_SAFE_INTEGER` so they still
+ *  sort last. */
 function activityMs(entry: LeaderboardEntry): number {
   const stamps = Object.values(entry.modules ?? {})
     .map((m) => m?.lastActivityAt)
