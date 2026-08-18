@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import crypto from "node:crypto";
-import { loadConfig, REPO_NAMES } from "../src/config.js";
+import { loadConfig, REPO_NAMES, KNOWN_MODULES } from "../src/config.js";
 
 const APP_KEY_B64 = Buffer.from(
   crypto.generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey
@@ -50,6 +50,30 @@ test("REPO_NAMES maps every valid target", () => {
 test("rejects unknown module key", () => {
   const p = writeYaml(`github: { org: my-org }\nmodules:\n  forensics: {}\n`);
   assert.throws(() => loadConfig(p, ENV), /unknown module: forensics/);
+});
+
+// The app and sync mount the SAME event.yaml. `quiz` is a registered id the
+// app's generator accepts, so sync must tolerate it rather than crash-loop the
+// poller (which would silently freeze the leaderboard) — while still scoring
+// only secure-development.
+test("tolerates a registered module key it does not score (quiz)", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa]\n  quiz: {}\n`);
+  const cfg = loadConfig(p, ENV);
+  assert.deepEqual(cfg.targets, ["dvwa"]);
+});
+
+test("still requires secure-development even when another known module is present", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  quiz: {}\n`);
+  assert.throws(() => loadConfig(p, ENV), /modules\.secure-development/);
+});
+
+test("a typo'd secure-development key is rejected, not treated as satisfied", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-develpment:\n    targets: [dvwa]\n`);
+  assert.throws(() => loadConfig(p, ENV), /unknown module: secure-develpment/);
+});
+
+test("KNOWN_MODULES lists the ids sync tolerates", () => {
+  assert.deepEqual(KNOWN_MODULES, ["secure-development", "quiz"]);
 });
 
 test("rejects missing modules section or missing secure-development", () => {
