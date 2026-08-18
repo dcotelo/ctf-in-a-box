@@ -177,10 +177,37 @@ describe("withModuleContributions", () => {
       expect(out.entries.map((e) => e.rank)).toEqual([1, 2]);
     });
 
-    it("dedupes a team's quiz points: a question answered by two members counts ONCE", async () => {
-      // getTeamQuizTotals is the union-by-question function under test here —
-      // simulate what it would return for two teammates who both answered the
-      // SAME 20-point question correctly: the union has exactly one entry.
+    // Regression (C1): rank.ts's completedCount must not drop `patched` the
+    // moment ANY module populates `modules` — only when secure-development's
+    // OWN block is present does `patched` already have a representative in
+    // the sum. On upstash (`capabilities.apps: false`), a row never gets a
+    // secure-development block, so answering a quiz question (which DOES
+    // stamp a `quiz` block) must not zero out that row's real patch count.
+    // ada has more patches AND a quiz answer on top of bob — she must never
+    // rank below him.
+    it("does not let quiz activity demote a patched-heavy row on an upstash-shaped board", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 5, answered: 1, lastAt: null }]]));
+
+      const bare = (login: string, points: number, patched: number) => ({
+        ...entry(login, points, patched), apps: {},
+      });
+
+      const out = await withModuleContributions({
+        ...data([bare("ada", 50, 5), bare("bob", 30, 3)]),
+        capabilities: { apps: false, teams: false, challenges: false },
+      });
+
+      expect(out.entries.map((e) => e.login)).toEqual(["ada", "bob"]);
+      expect(out.entries[0].modules!["secure-development"]).toBeUndefined();
+      expect(out.entries[0].modules!["quiz"]).toBeDefined();
+    });
+
+    it("adds the team's already-deduped quiz total to team points", async () => {
+      // getTeamQuizTotals owns the union-by-question dedupe logic (proven at
+      // the store level in quiz-store.test.ts, where two members sharing the
+      // same question collapse to one). This test only checks that
+      // withModuleContributions ADDS whatever that function returns — it is
+      // NOT the dedupe proof itself.
       mocks.getTeamQuizTotals.mockResolvedValue({ points: 20, answered: 1, lastAt: "2026-08-01T11:00:00.000Z" });
 
       const teams: TeamStanding[] = [
