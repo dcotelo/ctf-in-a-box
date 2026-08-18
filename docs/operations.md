@@ -161,10 +161,17 @@ answer(s) first — the answer key never reaches any client, admin session
 included — so every save requires re-selecting the correct choice(s), even
 when you're only fixing a typo in the prompt.
 
-Deleting a question is destructive: it permanently wipes every contestant's
-answer and attempt history for that question, with no undo. The delete
-button is gated behind typing the question's own id to confirm, the same
-pattern the master reset uses.
+**Deleting a question removes it from the quiz and hides it from
+contestants — but points already banked for it remain on the leaderboard.**
+Deletion drops the question and its answer key, nothing else: nobody can
+answer it any more, and it disappears from every contestant's board, but the
+contestants who already answered it correctly keep those points, and their
+answer/attempt history for it is left alone. If you need those points gone
+too, use the master reset (which clears all quiz progress at once, for
+everyone). There is no way to un-award a single question. The delete button
+is still gated behind typing the question's own id to confirm, the same
+pattern the master reset uses — deleting mid-event changes what contestants
+see, even though it doesn't take points back.
 
 **Grading is all-or-nothing and order-insensitive**: a submission scores
 points only if its set of selected choices exactly matches the correct set —
@@ -203,12 +210,24 @@ flags. Quiz points show up as an addition on top of a contestant's or
 team's other points, never folded silently into a single number with no
 breakdown — see the architecture doc for how that addition happens.
 
+**Quiz points reach the leaderboard only once a contestant has at least one
+scored submission.** The board is built from contestants who already have a
+scored PR, and the quiz overlay adds points to those rows — it never creates
+a row of its own. So someone who answers questions before opening their
+first PR sees their quiz points on their own `/profile`, correctly, but has
+no row on `/leaderboard` yet. Their first scored submission brings the row
+into existence with the quiz points already on it; nothing is lost in the
+meantime. In a normal event (where the quiz sits alongside the patch
+challenges) this resolves itself; it is most visible in the first hour, or
+if you run the quiz as a warm-up before the challenges open.
+
 **What the quiz doesn't do (yet):** free-text answers, partial credit, and
 per-question attempt/cooldown overrides are all out of scope — the two
 retry knobs are global settings, not per-question ones. A quiz-only event
 (no `secure-development` module at all) is also still not supported
 end-to-end: `sync` still requires the `secure-development` module to be
-configured.
+configured, and (per the note above) a leaderboard with no scored
+submissions on it has no rows for quiz points to land on.
 
 ## Verifying it works
 

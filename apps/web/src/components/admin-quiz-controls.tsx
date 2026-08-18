@@ -26,11 +26,18 @@
 // this form — it never reads one back, so there is nothing for a shared
 // component or contestant-facing view model to ever leak.
 //
-// Deletion is destructive on live event data (Requirement 3: it destroys
-// every contestant's answer/attempt history for that question), so it is
+// Deletion changes live event data mid-flight — the question disappears
+// from every contestant's board and can no longer be answered — so it is
 // gated behind the same `ConfirmModal` + `requireType` pattern the master
-// reset uses — Confirm stays disabled until the organizer types the
+// reset uses: Confirm stays disabled until the organizer types the
 // question's own id.
+//
+// What deletion does NOT do: it does not clear contestant history. Points
+// already banked for the question stay on the leaderboard, because
+// `deleteQuestion` removes only the question and its answer key (see its
+// doc comment in quiz-store.ts — that contract is deliberate). Clearing
+// banked points is the master reset's job. The confirm copy below says so
+// in as many words; keep the two in step.
 
 import { useEffect, useState } from "react";
 import type { Choice, Question, QuestionType } from "@/lib/quiz-store";
@@ -63,16 +70,27 @@ export function describeQuizError(status: number, message?: string): string {
   return message ?? "That didn't work — check the question and try again.";
 }
 
-/** The exact copy + gating for the destructive delete confirmation. Typing
- *  the question's own id (not a generic word) forces the organizer to read
- *  which question they're about to destroy. Exported for direct testing. */
+/** The exact copy + gating for the delete confirmation. Typing the
+ *  question's own id (not a generic word) forces the organizer to read which
+ *  question they're about to remove.
+ *
+ *  `body` states the real contract, which is narrower than it looks: the
+ *  question goes away, banked points do not. Saying otherwise (an earlier
+ *  draft claimed it "permanently destroys every contestant's answer and
+ *  attempt history") would send an organizer trying to un-award points down
+ *  a path that doesn't do that — the master reset is what does. Exported for
+ *  direct testing. */
 export function questionDeleteConfirm(question: Question): {
   title: string;
+  body: string;
   requireType: string;
   confirmLabel: string;
 } {
   return {
     title: `Delete "${question.prompt}"?`,
+    body:
+      "This removes the question from the quiz and hides it from contestants. " +
+      "Points already banked for it stay on the leaderboard — to clear those, use the master reset.",
     requireType: question.id,
     confirmLabel: "Delete question",
   };
@@ -385,8 +403,7 @@ export default function AdminQuizControls({
           title={confirmCopy.title}
           body={
             <>
-              Deleting this question permanently destroys every contestant&apos;s answer and attempt history for
-              it. This cannot be undone.
+              {confirmCopy.body}
               {deleteError && <span className="mt-2 block text-[#e53e3e]">{deleteError}</span>}
             </>
           }

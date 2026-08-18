@@ -170,6 +170,23 @@ describe("questionDeleteConfirm", () => {
     expect(copy.requireType).toBe(question.id);
     expect(copy.title).toContain(question.prompt);
   });
+
+  // The copy must match what `deleteQuestion` actually does: it drops the
+  // question and its answer key and NOTHING else. An earlier draft promised
+  // it wiped contestant history, which would send an organizer trying to
+  // un-award points down a path that doesn't do that.
+  it("promises only what deletion actually does — the question goes, banked points stay", () => {
+    const { body } = questionDeleteConfirm(question);
+    expect(body).toMatch(/removes the question/i);
+    expect(body).toMatch(/points already banked.*(stay|remain)/i);
+    expect(body).toMatch(/master reset/i);
+  });
+
+  it("never claims deletion destroys answer or attempt history", () => {
+    const { body } = questionDeleteConfirm(question);
+    expect(body).not.toMatch(/destroy|wipe/i);
+    expect(body).not.toMatch(/attempt history/i);
+  });
 });
 
 describe("describeQuizError", () => {
