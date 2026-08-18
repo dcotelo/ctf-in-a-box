@@ -8,6 +8,7 @@ import PageHeader from "@/components/page-header";
 import Leaderboard from "@/components/leaderboard";
 import MockDataNotice from "@/components/mock-data-notice";
 import { getLeaderboardSource, getLeaderboardSourceMode } from "@/lib/leaderboard/source";
+import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
 import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { formatRelativeTime } from "@/lib/relative-time";
@@ -21,10 +22,15 @@ export const metadata: Metadata = {
 
 export default async function LeaderboardPage() {
   const source = getLeaderboardSource();
-  // Penalties before team standings: team totals sum member points, so they
-  // must sum the already-deducted (and floored) values.
+  // Module contributions before penalties before team standings: the
+  // module overlay re-ranks unconditionally on combined standing (breadth
+  // across modules, then points, then activity) and must run before
+  // withHintPenalties, which returns early when hints are disabled and so
+  // can't be relied on to produce the final order by itself. Penalties
+  // before team standings: team totals sum member points, so they must sum
+  // the already-deducted (and floored) values.
   const [data, session] = await Promise.all([
-    source.getLeaderboard().then(withHintPenalties).then(withTeamStandings),
+    source.getLeaderboard().then(withModuleContributions).then(withHintPenalties).then(withTeamStandings),
     auth.api.getSession({ headers: await headers() }),
   ]);
 
