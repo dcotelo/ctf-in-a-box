@@ -111,9 +111,14 @@ describe("AdminControls tab shell", () => {
     }
   });
 
-  it("marks exactly one tab selected", () => {
+  it("marks exactly one tab selected, and it is Event", () => {
     const html = renderToStaticMarkup(<AdminControls initial={settings} modules={twoModules} />);
     expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
+    // Which one matters: an organizer opening /admin lands on the
+    // control-plane settings, not on whichever module happens to be first.
+    expect(html).toContain('id="tab-event" aria-selected="true"');
+    // …and it is the Event panel that is visible, not a hidden one.
+    expect(panelFor(html, "event")).not.toContain('hidden=""');
   });
 
   it("gives only the selected tab a reachable tabIndex (roving tabindex)", () => {
