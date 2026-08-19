@@ -792,8 +792,8 @@ git push -u origin fix/<short-description>`,
     description: "Find the flag, submit the string, take the points.",
     nav: { href: "/flags", label: "Flags" },
     emptyBoard: {
-      line: "No flags captured yet. Every rank is unclaimed. Solve your first challenge and you’ll be the one everyone else is chasing.",
-      cta: { href: "/flags", label: "$ pick a challenge" },
+      line: "No flags captured yet. Every rank is unclaimed. Solve your first flag and you’ll be the one everyone else is chasing.",
+      cta: { href: "/flags", label: "$ pick a flag" },
     },
     // Deliberately plain and factual, and deliberately silent on AI, for the
     // same reason quiz's copy is: secure-development invites an agent because
