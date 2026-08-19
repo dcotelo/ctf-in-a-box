@@ -437,13 +437,85 @@ seed any**, unlike the quiz — see the note under "Organizer admin panel"
 above. Plan around this if you run a rehearsal on the `classic` module
 before the real event.
 
-**What classic doesn't do (in this PR):** there is no bulk import/export for
-challenges (one at a time through the admin form, same as the quiz), no file
-attachments (a challenge's description is text only — nowhere to attach an
-image, a capture file, or a binary for contestants to download), and no
-hint system of its own (the hint gate and its knobs apply to
-secure-development targets only). All three are planned for later PRs in
-this series, not this one.
+**Bulk authoring: import and export the whole challenge set as one file.**
+Beyond the admin form's one-challenge-at-a-time editing, the Classic tab's
+own panel has an **Export challenges** button and an **Import a bundle**
+box (paste JSON, or choose a `.json` file) for authoring — or backing up —
+many challenges in one pass. A bundle is a single JSON object: a
+`categories` list, and a `challenges` array where each entry has exactly the
+fields the admin form itself collects, flag included. For example, a
+two-challenge, two-category bundle:
+
+```json
+{
+  "version": 1,
+  "categories": ["Web", "Crypto"],
+  "challenges": [
+    {
+      "id": "web-warmup-x7k2",
+      "title": "Web Warmup",
+      "category": "Web",
+      "description": "Find the flag hidden in the page source.",
+      "points": 100,
+      "order": 0,
+      "flag": "CTF{view_source_ftw}"
+    },
+    {
+      "id": "crypto-basics-q9pm",
+      "title": "Crypto Basics",
+      "category": "Crypto",
+      "description": "Decode the Base64 string to find the flag.",
+      "points": 150,
+      "order": 0,
+      "flag": "CTF{base64_is_not_encryption}"
+    }
+  ]
+}
+```
+
+Every challenge's `category` must appear in that same file's own
+`categories` list — a bundle has to be self-contained, so importing it
+never silently depends on categories the target event happens to already
+have. The whole file is validated in one pass before anything is written:
+every row's problems are reported together, and if the file has even one
+bad row, nothing is imported — there's no partial write from a mostly-good
+file.
+
+**Import is upsert by id, and it never deletes.** Each challenge in the
+file is created if its id is new to the board, or overwritten in place if
+that id already exists — that is the entire rule. A challenge that's
+currently on the board but simply isn't mentioned in the file is left
+completely untouched. This is worth stating plainly because the natural
+assumption runs the other way: importing a 10-challenge file into a board
+that already has 15 does **not** shrink the board to 10 — the other 5 stay
+exactly as they were. There is no way to delete a challenge through import;
+use the admin form's own Delete button for that, one at a time.
+
+**Ids round-trip, so an export is a genuinely usable backup.** Exporting
+writes back the same ids the board already has, so re-importing an
+unmodified export updates every challenge in place instead of duplicating
+it. Because a contestant's solve history is keyed by challenge id, this
+also means re-importing your own backup never detaches anyone's
+already-banked points from the challenge that earned them.
+
+**Categories are unioned, not replaced.** Importing a file appends any of
+its categories that the board doesn't already have, in the order the file
+lists them, after the categories already there — the existing order is
+left exactly as it was. Importing a bundle can only grow the category
+list, never reorder or drop anything from it.
+
+**The exported file contains every flag in plaintext.** Export is the
+event's entire answer key in one JSON file — every challenge's flag,
+unmasked. Do not commit it to a public repository, paste it into a public
+issue or chat, or otherwise share it casually; treat it with the same care
+as `/admin` access itself, since a saved copy of the file protects nothing
+on its own.
+
+**What classic still doesn't do (in this PR):** no file attachments (a
+challenge's description is text only — nowhere to attach an image, a
+capture file, or a binary for contestants to download), and no hint system
+of its own (the hint gate and its knobs apply to secure-development targets
+only). Both are planned for later PRs in this series, not this one.
 
 ## Verifying it works
 
