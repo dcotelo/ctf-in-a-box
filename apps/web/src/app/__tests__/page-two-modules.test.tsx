@@ -55,7 +55,7 @@ describe("landing page with two modules enabled", () => {
 
   it("renders both modules' hero intros", () => {
     expect(html).toContain("Break real vulnerabilities in 1 OWASP training app");
-    expect(html).toContain("Answer security questions drawn from the OWASP Top 10.");
+    expect(html).toContain("Answer security questions for points.");
   });
 
   it("renders both modules' CTAs, in registry order, alongside the platform's", () => {

@@ -62,6 +62,12 @@ describe("landing page in a quiz-only event", () => {
     expect(html).not.toContain("fork");
     expect(html).not.toContain("Secure Development CTF");
     expect(html).not.toContain("Browse targets");
+    // "patched" is the string that actually leaked: the platform frame's
+    // progress card used to promise a "patched and non-patched count per app",
+    // which a quiz-only event has no such thing as. Absence of the OTHER four
+    // strings passed even while that sentence shipped, so this assertion is
+    // the one carrying weight here.
+    expect(html).not.toContain("patched");
   });
 
   // "writing the patch with an AI agent is the skill this event exists to
@@ -79,7 +85,7 @@ describe("landing page in a quiz-only event", () => {
   });
 
   it("renders the quiz module's own copy instead", () => {
-    expect(html).toContain("Answer security questions drawn from the OWASP Top 10.");
+    expect(html).toContain("Answer security questions for points.");
     expect(html).toContain("Straight questions, scored on submit");
     expect(html).toContain("Take the quiz");
     expect(html).toContain('href="/quiz"');

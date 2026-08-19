@@ -363,9 +363,14 @@ export default async function Home() {
         <section className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="max-w-xl">
             <h3 className="text-lg font-semibold text-white">Track your progress live</h3>
+            {/* Deliberately module-neutral. This used to promise a "patched and
+                non-patched count per app", which a quiz-only event does not
+                have — the last piece of secure-development copy left in the
+                platform frame. page-quiz-only.test.tsx pins the absence of
+                "patched" so it can't come back. */}
             <p className="mt-1 text-sm leading-relaxed text-zinc-400">
-              Sign in with GitHub to claim your row on the leaderboard, follow your patched and
-              non-patched count per app on your profile, and team up with other contestants.
+              Sign in with GitHub to claim your row on the leaderboard, follow your progress on
+              your profile, and team up with other contestants.
             </p>
           </div>
           <div className="flex flex-none flex-wrap gap-3">

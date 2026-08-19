@@ -107,13 +107,23 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     // secure-development module invites an agent because patching WITH one is
     // the skill it teaches; on a graded question set the same invitation would
     // read as permission to cheat.
+    //
+    // Every claim below is checked against the implementation, because this is
+    // contestant-facing copy and a landing page that promises something the
+    // quiz doesn't do is worse than a plainer one that's true. Specifically:
+    // there is NO topic constraint (upsertQuestion validates ids, choices and
+    // points, nothing else), the UI never shows a remaining-attempts COUNT
+    // (QuizQuestionView is unanswered | answered | cooldown | exhausted, and
+    // quiz-board only says "No attempts remaining" once exhausted), the
+    // attempt allowance itself is never rendered, and grading is exact-match
+    // against a sorted key — all-or-nothing, including for `multi`.
     home: {
       tagline: "Quiz",
       intro: () =>
-        "Answer security questions drawn from the OWASP Top 10. Every question carries its own point value, is graded the moment you submit it, and counts toward your place on the leaderboard.",
+        "Answer security questions for points. Every question carries its own point value, is graded the moment you submit it, and counts toward your place on the leaderboard.",
       expect: {
         heading: "Straight questions, scored on submit",
-        lede: "Each question is multiple choice and graded automatically against a stored answer key. The organizers set how many attempts a question allows and how long you wait between them; both are shown on the question itself.",
+        lede: "Each question is multiple choice: some have a single right answer, others are select-all-that-apply and only score if your whole selection matches. Grading is automatic, against a stored answer key. Organizers can cap how many times a question may be attempted and make you wait between tries; the question tells you when it is on cooldown and when you have run out of attempts.",
       },
       steps: () => [
         {
@@ -122,11 +132,11 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
         },
         {
           title: "Work through the questions",
-          body: "Take the set at your own pace. Each question shows what it is worth, how many attempts you have left, and whether it is still on cooldown from your last try.",
+          body: "Take the set at your own pace. Each question shows what it is worth, and says so when it is on cooldown or out of attempts.",
         },
         {
           title: "Get scored on submit",
-          body: "Your answer is graded immediately against the answer key. Points land on your profile and the leaderboard with no manual review.",
+          body: "Your answer is graded immediately against the answer key. A correct answer scores its full points, a wrong one scores nothing, and either way there is no manual review.",
         },
       ],
       cta: { href: "/quiz", label: "Take the quiz" },

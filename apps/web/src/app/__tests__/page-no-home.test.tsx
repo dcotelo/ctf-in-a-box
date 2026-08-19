@@ -58,9 +58,15 @@ describe("landing page with no module home blocks", () => {
     expect(html).toContain("Track your progress live");
   });
 
+  // Asserted on CONTENT, not on a Tailwind class: a restyle must not be able
+  // to silently satisfy this. The tagline <p> is the only thing that can sit
+  // between the headline and the close of its wrapper, so its absence is
+  // structural rather than cosmetic.
   it("renders no tagline line and no what-to-expect section", () => {
-    expect(html).not.toContain("tracking-[0.25em]");
+    expect(html).toMatch(/<\/h1><\/div>/);
     expect(html).not.toContain("What to expect");
+    expect(html).not.toContain("Straight questions, scored on submit");
+    expect(html).not.toContain("Answer security questions");
   });
 
   it("renders no module CTA", () => {
