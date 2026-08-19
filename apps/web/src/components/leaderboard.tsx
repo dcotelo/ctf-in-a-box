@@ -126,9 +126,13 @@ export function EntryRow({
 }) {
   // A single-module event has nothing to disambiguate: the row's own points
   // ARE that module's, so a per-module heading would just restate the header
-  // above it. Show it only once a second module can contribute — derived from
-  // the resolved `modules` prop rather than a build-time constant, so a
-  // module toggled on/off at runtime is reflected without a rebuild.
+  // above it. Show it only once a second module can contribute.
+  //
+  // The count comes off the `modules` prop rather than importing
+  // `enabledModules` here, so this stays a Client Component with no registry
+  // import — but WHICH modules are on is still build-time truth
+  // (`resolveModules` maps `enabledModules`, i.e. `eventConfig.modules`).
+  // Only a module's NAME is runtime; enabling or disabling one is a rebuild.
   const multiModule = modules.length > 1;
   return (
     <li

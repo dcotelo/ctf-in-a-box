@@ -134,7 +134,8 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
       <div>
         <span className="text-white">Module identity</span>
         <span className="block text-xs text-muted">
-          Leave blank to use the default. Shown in the nav, on the leaderboard, and on the home page.
+          Plain text. Leave a field blank to clear the override and go back to the default shown in
+          the box.
         </span>
       </div>
 
@@ -150,6 +151,18 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
           multiline={false}
           apply={apply}
         />
+        {/* Each claim here is a surface that actually renders the resolved
+            title today. The leaderboard block and the landing-page section
+            heading are called out as multi-module only because both are
+            suppressed on a single-module event (there is nothing to
+            disambiguate), so on most events a rename reaches the first three
+            and no more. Overstating the reach is how an organizer ends up
+            hunting for a name that was never going to appear. */}
+        <span className="text-xs text-muted">
+          Renames the module on this tab, in the nav, and on the module&rsquo;s own page. With more
+          than one module enabled it also heads that module&rsquo;s leaderboard block and its
+          landing-page section.
+        </span>
       </label>
 
       <label className="flex flex-col gap-1">
@@ -164,6 +177,15 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
           multiline
           apply={apply}
         />
+        {/* The blurb is very nearly write-only, and saying so is the honest
+            thing to put in front of the organizer typing into it: the only
+            consumer in the app is /quiz's `generateMetadata` description.
+            Do NOT fix this by inventing a page to render it on. */}
+        <span className="text-xs text-muted">
+          Not shown on any page. It only sets the module page&rsquo;s meta description, for search
+          results and link previews &mdash; and only where that page has one, which today means the
+          quiz.
+        </span>
       </label>
     </div>
   );

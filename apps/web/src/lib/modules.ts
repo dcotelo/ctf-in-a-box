@@ -117,10 +117,19 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     // quiz-board only says "No attempts remaining" once exhausted), the
     // attempt allowance itself is never rendered, and grading is exact-match
     // against a sorted key — all-or-nothing, including for `multi`.
+    //
+    // The copy deliberately does NOT promise a leaderboard place. It used to,
+    // and that claim fails on exactly the event this module exists for:
+    // `withModuleContributions` overlays quiz points onto rows the scoring
+    // backend already produced, so a contestant whose only points are quiz
+    // points has no row to overlay onto and never appears. That is the known
+    // Phase B gap (spec §B.2, documented in operations.md), not something to
+    // paper over in the copy — so the copy says what is true today, and the
+    // promise goes back in when row creation ships.
     home: {
       tagline: "Quiz",
       intro: () =>
-        "Answer security questions for points. Every question carries its own point value, is graded the moment you submit it, and counts toward your place on the leaderboard.",
+        "Answer security questions for points. Every question carries its own point value and is graded the moment you submit it.",
       expect: {
         heading: "Straight questions, scored on submit",
         lede: "Each question is multiple choice: some have a single right answer, others are select-all-that-apply and only score if your whole selection matches. Grading is automatic, against a stored answer key. Organizers can cap how many times a question may be attempted and make you wait between tries; the question tells you when it is on cooldown and when you have run out of attempts.",
@@ -128,7 +137,7 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
       steps: () => [
         {
           title: "Sign in with GitHub",
-          body: "Sign in to claim your row on the leaderboard. Answers and points are recorded against your account, so you can leave and pick the set back up later.",
+          body: "Sign in so your answers and points are recorded against your account. Nothing is graded for a signed-out visitor, and signing in is what lets you leave and pick the set back up later.",
         },
         {
           title: "Work through the questions",
