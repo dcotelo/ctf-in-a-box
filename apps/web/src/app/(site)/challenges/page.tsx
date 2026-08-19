@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import ChallengeGrid from "@/components/challenge-grid";
 import HintNotice from "@/components/hint-notice";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store";
+import { isModuleEnabled } from "@/lib/modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 
@@ -34,6 +36,15 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function ChallengesPage() {
+  // Gated on the module registry rather than on auth: this route only exists
+  // at all when the secure-development module is enabled (module contract
+  // §5.4), so an event without it 404s here exactly like any other unknown
+  // route — same gate `/quiz` runs for its own module, and for the same
+  // reason: the nav entry disappearing isn't enough, the URL itself must not
+  // resolve. First statement, before anything async, so a disabled module
+  // never reaches the data fetches below.
+  if (!isModuleEnabled("secure-development")) notFound();
+
   // Both fetches are ISR-cached (revalidate 300); hint availability is public
   // (ids only, no hint text). The page itself renders dynamically regardless —
   // the root layout resolves module names per request, so every route under it
