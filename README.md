@@ -22,11 +22,20 @@
 **CTF-in-a-box is a control plane, not a single game.** It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
-plug challenge content into that spine. The first module is the **OWASP Secure
-Development CTF**; the box is built to host further modules (forensics,
-API-security, cloud, …) on the same spine as they land. The
+plug challenge content into that spine. Three modules ship today: the
+**OWASP Secure Development CTF** (the first and deepest, fork-patch-PR
+scored by GitHub Actions), **Quiz** (a self-paced single/multi-select
+question bank, scored entirely inside the app), and **Classic CTF** (a
+jeopardy-style flag board — organizer-authored challenges, each hiding a
+flag, graded the instant a contestant submits it, also scored entirely
+inside the app). Any subset can run alone or together, and the box is built
+to host further modules (forensics, API-security, cloud, …) on the same
+spine as they land. The
 [module contract](docs/modules.md) is the boundary between the two. What
-follows describes the platform and that first module.
+follows describes the platform in depth and the Secure Development module,
+its first and most involved one — see docs/operations.md's
+[Quiz](docs/operations.md#quiz) and [Classic](docs/operations.md#classic)
+sections for those two modules' organizer guides.
 
 The OWASP Secure Development CTF teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,

@@ -80,7 +80,8 @@ live on the next request; there is no rebuild and no cache to wait out.
 **Where a rename actually shows up.** Set a title and it replaces the module's
 name in three places on every event: **the tab's own label**, **the nav link**
 (header and footer alike), and **the module's own page header and browser tab
-title** (`/challenges` for Secure Development, `/quiz` for Quiz). Two further
+title** (`/challenges` for Secure Development, `/quiz` for Quiz, `/flags` for
+Classic). Two further
 surfaces exist but are **suppressed on a single-module event**, which is what
 most events are:
 
@@ -103,13 +104,16 @@ places:
 
 - the **meta description** of the module's own page (what a search result or a
   chat link preview shows);
-- **`/quiz`'s page header**, as the lede under the title. This is the module
-  describing itself; the "You've answered 2 of 5 questions." line is *your*
-  progress, and sits above the questions instead;
+- **`/quiz`'s and `/flags`'s page header**, as the lede under the title. This
+  is the module describing itself; the "You've answered 2 of 5 questions."
+  (or "You've solved N of M challenges.") line is *your* progress, and sits
+  above the questions/challenges instead;
 - the **landing page section lede**, but only for a module that ships no
-  registry `home` block. Both modules that exist today have one, so today this
+  registry `home` block. All three modules that exist today have one, so
+  today this
   is a fallback for a future module rather than something you can see —
-  Secure Development's and Quiz's landing copy comes from the registry and is
+  Secure Development's, Quiz's, and Classic's landing copy all come from the
+  registry and are
   not organizer-editable.
 
 Leaving it blank restores the module's registry default, which is a complete
@@ -188,12 +192,18 @@ The panel offers:
   retry-gate knobs (max attempts, retry cooldown) plus full question
   authoring: add, edit, reorder (drag, or Move up / Move down), and delete.
   See [Quiz](#quiz) below for what these do and their defaults.
+- **Classic controls** (Classic tab, present only when the `classic` module
+  is enabled) — the submission-cooldown knob (in **seconds**, not minutes)
+  plus category management and full challenge authoring: add, edit, reorder
+  (drag, or Move up / Move down), and delete. See [Classic](#classic) below
+  for what these do and their defaults.
 - **Seed demo data** (demo mode only) — populates the leaderboard with fake
   contestants, teams, and real-challenge-id solves so you can preview the app
   without running real PRs. When the `quiz` module is enabled, this also seeds
   a small demo question bank with some already answered, so the board shows a
   genuinely combined score (patch points plus quiz points) rather than just
-  one module. The button and its route only exist when the app is
+  one module. **It does not currently seed any classic demo data** — see
+  [Classic](#classic) below for that gap. The button and its route only exist when the app is
   started with `DEMO_MODE=1` (the local `scripts/dev-stack up` sets it); they are
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
@@ -209,6 +219,14 @@ counters the leaderboard reads) — but it deliberately **keeps your authored
 questions and their answer keys**, the same way it keeps `event.yaml`-derived
 admin settings. A reset event doesn't mean re-building the quiz from scratch.
 See [Quiz](#quiz) below.
+
+**The master reset does not currently touch `classic` at all.** Unlike quiz,
+none of `ctf:classic:*` (challenges, flags, solves, attempts, or the three
+aggregate counters) is cleared by a reset today — a stated gap, not a
+documented feature. If you run a test event on the `classic` module and then
+reset for the real thing, wipe those keys by hand (or plan to run the whole
+stack against a fresh Redis volume) rather than relying on the reset button.
+See [Classic](#classic) below.
 
 ## Quiz
 
@@ -326,6 +344,107 @@ for how the board is built when there's no scoring backend behind it at all.
 per-question attempt/cooldown overrides are all out of scope — the two
 retry knobs are global settings, not per-question ones.
 
+## Classic
+
+When `event.yaml`'s `modules:` map includes `classic: {}` (see
+`event.yaml.example`), contestants get a jeopardy-style flag board: a set of
+organizer-authored challenges, each hiding a flag, graded the instant a
+contestant submits a matching string. Like the quiz, it doesn't touch
+GitHub, the scorer, or `sync` at all — see
+[docs/architecture.md](architecture.md#classic-data-flow) for how it scores
+entirely inside the app.
+
+**Authoring** happens in `/admin`, under the Classic module's tab (see
+"Classic controls" above). Before adding a challenge you need at least one
+**category** — categories are a simple ordered list (add, reorder by
+dragging or Move up/Move down, remove), and a category can only be removed
+while no challenge still files under it; the panel tells you exactly how
+many challenges are blocking a removal. A challenge itself has a title, a
+category (picked from that list), a Markdown description (a live preview
+renders alongside the box as you type), a point value, and a flag.
+
+**A flag is stored in plaintext, and it is visible to anyone with `/admin`
+access.** The flag input is masked by default (a Reveal toggle uncovers it,
+in case you're screen-sharing the panel), but there is no hashing and no
+one-way transform anywhere in the store beyond the case/whitespace
+normalization grading itself uses (below) — an organizer opening a
+challenge to fix a typo sees the flag exactly as it was typed. That is a
+deliberate trade-off, not an oversight: withholding it would buy nothing
+(anyone through the `/admin` gate can already rewrite or delete the flag
+outright) while costing real correctness — an edit form that starts blank
+turns every typo fix into a chance to silently redefine what counts as
+solved. Treat `/admin` access itself as the actual secrecy boundary for
+every flag on the board.
+
+**You don't type a challenge id.** Adding a challenge mints one from its
+title plus a short random suffix when you save, exactly like the quiz's
+question ids, and for the same reason: it's the reference every contestant's
+solve is recorded against, so on an existing challenge it never changes.
+Delete and re-add if a challenge genuinely needs a new one, after reading
+the deletion paragraph below.
+
+**Ordering is done by dragging**, the same as the quiz's question list: drag
+a row, or use its Move up/Move down buttons, and the stored `order` is
+rewritten from the resulting positions.
+
+**Deleting a challenge removes it from the board and hides it from
+contestants — but points already banked for it remain on the leaderboard.**
+Nobody can submit against a deleted challenge's id again, but the
+contestants who already solved it keep those points, and their solve/attempt
+history for it is left alone. Deletion is gated behind typing the
+challenge's own title to confirm (falling back to its id for a
+blank/whitespace-only title), the same pattern the quiz's delete and the
+master reset use.
+
+**Matching is case- and whitespace-insensitive, normalized identically on
+both the authoring and submission sides.** The stored flag is trimmed, then
+Unicode-NFC-normalized, then lowercased before comparison — every submitted
+flag goes through the same normalization before it's checked. A stray
+leading/trailing space or a different capitalization never costs a
+contestant a solve.
+
+**There is no cap on attempts — only a cooldown, and it is set in
+SECONDS.** The **Submission cooldown (sec)** field (`classicCooldownSec`,
+default **5**, capped at **3600** — one hour) is the only throttle: a
+contestant can try a challenge as many times as they like, but must wait
+that many seconds between submissions on the *same* challenge once they've
+made one. Set it to `0` to remove the cooldown entirely. This is worth
+calling out plainly because every other retry-gate setting on this platform
+(the quiz's retry cooldown, the hint gate's unlock delay) is in **minutes**
+— classic's own knob is not.
+
+**Points are static.** A challenge's point value is fixed by whoever wrote
+it and is read off the challenge record at the instant of a correct solve;
+there is no decay as more people solve it and no first-blood bonus for being
+first. Re-pricing a challenge afterward never changes what a contestant
+already banked, the same rule the quiz follows.
+
+**Team totals dedupe by challenge**, the same rule already used for the quiz
+and for secure-development's shared flags: if two teammates both solve the
+same challenge, the team's board counts it once, not twice. Classic points
+show up as an addition on top of a contestant's or team's other points,
+using the exact same union-and-add mechanism the quiz does — see the
+architecture doc for the details.
+
+**A classic solve gets a contestant a leaderboard row on their own — a
+scored PR is no longer required,** the same rule the quiz established: the
+board's login set is the union of whoever the scoring backend reports and
+whoever holds quiz or classic points, so a login with only classic points
+(or an event running the `classic` module alone) still gets a row.
+
+**The master reset does not currently clear classic progress or demo mode
+seed any**, unlike the quiz — see the note under "Organizer admin panel"
+above. Plan around this if you run a rehearsal on the `classic` module
+before the real event.
+
+**What classic doesn't do (in this PR):** there is no bulk import/export for
+challenges (one at a time through the admin form, same as the quiz), no file
+attachments (a challenge's description is text only — nowhere to attach an
+image, a capture file, or a binary for contestants to download), and no
+hint system of its own (the hint gate and its knobs apply to
+secure-development targets only). All three are planned for later PRs in
+this series, not this one.
+
 ## Verifying it works
 
 No GitHub org, Action runs, or scorer image access needed to check the kit
@@ -397,17 +516,21 @@ top of the leaderboard/challenge-browsing experience it gives you immediately.
 ## Known limitations
 
 **The pre-event gate is page-only.** With `CHALLENGES_GATE_ENABLED=true`,
-every enabled module's own page route (`/challenges`, `/quiz`) redirects a
+every enabled module's own page route (`/challenges`, `/quiz`, `/flags`)
+redirects a
 visitor without a valid unlock cookie to `/gate`. That list is exact-match and
 it is *pages*: the module **API routes are not behind it**. A signed-in
-contestant who knows the endpoint can `POST /api/quiz/answer` while the lock
-screen is up and be scored before the doors open — the answer is still graded,
+contestant who knows the endpoint can `POST /api/quiz/answer` or
+`POST /api/classic/submit` while the lock
+screen is up and be scored before the doors open — the answer or flag is
+still graded,
 the points still post.
 
 What still holds while the gate is up: the API routes enforce their own rules
 regardless of it — a session is required, the admin **pause** and the
 **scheduled scoring window** are checked on every write, and per-question
-attempt caps and cooldowns apply. So the operator control that actually stops
+attempt caps and cooldowns (or classic's own submission cooldown) apply. So
+the operator control that actually stops
 early scoring is the schedule/pause pair in the admin panel (see [Organizer
 admin panel](#organizer-admin-panel)), not the access password.
 
