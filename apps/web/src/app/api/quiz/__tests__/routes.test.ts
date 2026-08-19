@@ -292,6 +292,31 @@ describe("POST /api/admin/quiz", () => {
     expect(upsertQuestion).not.toHaveBeenCalled();
   });
 
+  // A whitespace-only prompt is not merely untidy. The delete confirmation
+  // asks the organizer to retype the trimmed prompt, and `ConfirmModal` reads
+  // an empty `requireType` as "no phrase required" — so storing one would
+  // leave that question deletable in a single click, with the type-to-confirm
+  // gate silently disarmed. `upsertQuestion` validates the id, choices and
+  // points but never the prompt, which makes this boundary the only place
+  // that catches it. Not reachable through the admin form (`isDraftValid`
+  // trims), but very reachable by an admin POSTing directly.
+  it("400 for a whitespace-only prompt, so the delete gate can't be disarmed", async () => {
+    // Store mocked to SUCCEED, so nothing downstream can be the reason this
+    // request fails: if the boundary check goes, the write goes through and
+    // this is a 200 — which is precisely the report we want.
+    upsertQuestion.mockResolvedValue(ADMIN_ROW);
+    const res = await adminPOST(adminReq("POST", { ...CREATE_PAYLOAD, prompt: "   \t\n " }));
+    expect(res.status).toBe(400);
+    expect(upsertQuestion).not.toHaveBeenCalled();
+  });
+
+  it("stores a padded prompt trimmed, so what is stored is what the gate asks for", async () => {
+    upsertQuestion.mockResolvedValue(ADMIN_ROW);
+    const res = await adminPOST(adminReq("POST", { ...CREATE_PAYLOAD, prompt: "  2+2?  " }));
+    expect(res.status).toBe(200);
+    expect(upsertQuestion).toHaveBeenCalledWith({ ...QUESTION, prompt: "2+2?" }, ["opt-right"]);
+  });
+
   it("400 for a missing correct array", async () => {
     const { correct: _correct, ...withoutCorrect } = CREATE_PAYLOAD;
     void _correct;

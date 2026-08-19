@@ -72,7 +72,16 @@ function parseChoice(v: unknown): ChoicePayload | null {
 function parseQuestionPayload(body: unknown): QuestionPayload | null {
   if (!isPlainObject(body) || !hasOnlyKeys(body, QUESTION_KEYS)) return null;
   if (typeof body.id !== "string" || body.id.length === 0) return null;
-  if (typeof body.prompt !== "string" || body.prompt.length === 0) return null;
+  // TRIMMED, not merely non-empty, and stored trimmed. A whitespace-only
+  // prompt is empty for every consumer that trims it later, and one of those
+  // consumers is a safety gate: the delete confirmation's required phrase is
+  // the trimmed prompt, and `ConfirmModal` reads an empty `requireType` as
+  // "no phrase required" — so a question with a blank prompt would delete on
+  // a single click with no type-to-confirm at all. `upsertQuestion` validates
+  // the id, the choices and the points but never the prompt, so this boundary
+  // is the only place that catches it. Fixed here, once, rather than by
+  // teaching the modal about a value it should never have been handed.
+  if (typeof body.prompt !== "string" || body.prompt.trim().length === 0) return null;
   if (body.type !== "single" && body.type !== "multi") return null;
   if (typeof body.points !== "number" || !Number.isInteger(body.points) || body.points < 0) return null;
   if (typeof body.order !== "number" || !Number.isInteger(body.order)) return null;
@@ -87,7 +96,7 @@ function parseQuestionPayload(body: unknown): QuestionPayload | null {
   if (!body.correct.every((c) => typeof c === "string")) return null;
   return {
     id: body.id,
-    prompt: body.prompt,
+    prompt: body.prompt.trim(),
     type: body.type,
     choices,
     points: body.points,
