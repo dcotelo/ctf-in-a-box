@@ -7,10 +7,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { event, type NavLink as NavLinkType } from "@/lib/site";
+import { event, isNavGroup, type NavEntry } from "@/lib/site";
 import AuthNav from "@/components/auth-nav";
+import NavDropdown from "@/components/nav-dropdown";
 
-export default function SiteHeader({ navLinks }: { navLinks: NavLinkType[] }) {
+export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -29,21 +30,27 @@ export default function SiteHeader({ navLinks }: { navLinks: NavLinkType[] }) {
 
         {/* Desktop nav */}
         <ul className="hidden items-center gap-1 md:flex">
-          {navLinks.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                aria-current={isActive(link.href) ? "page" : undefined}
-                className={`rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
-                  isActive(link.href)
-                    ? "bg-white/[0.06] font-medium text-white"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                {link.label}
-              </Link>
-            </li>
-          ))}
+          {navLinks.map((entry) =>
+            isNavGroup(entry) ? (
+              <li key={entry.label}>
+                <NavDropdown label={entry.label} items={entry.items} isActive={isActive} />
+              </li>
+            ) : (
+              <li key={entry.href}>
+                <Link
+                  href={entry.href}
+                  aria-current={isActive(entry.href) ? "page" : undefined}
+                  className={`rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+                    isActive(entry.href)
+                      ? "bg-white/[0.06] font-medium text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  {entry.label}
+                </Link>
+              </li>
+            ),
+          )}
           {/* External, so it can't come from navLinks — those are internal
               routes and drive the active-link state. */}
           {event.discordUrl && (
@@ -82,25 +89,54 @@ export default function SiteHeader({ navLinks }: { navLinks: NavLinkType[] }) {
         </div>
       </nav>
 
-      {/* Mobile menu */}
+      {/* Mobile menu. The whole panel is already a disclosure toggled by the
+          button above, so a group renders as a plain label over its
+          indented children rather than a second, nested interactive menu —
+          there's nothing for a mobile menu-button pattern to add here. */}
       {open && (
         <ul className="flex flex-col gap-1 border-t border-white/[0.06] px-4 pb-4 pt-2 md:hidden">
-          {navLinks.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                onClick={() => setOpen(false)}
-                aria-current={isActive(link.href) ? "page" : undefined}
-                className={`block rounded-md px-3 py-2 text-sm transition-colors ${
-                  isActive(link.href)
-                    ? "bg-white/[0.06] font-medium text-white"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                {link.label}
-              </Link>
-            </li>
-          ))}
+          {navLinks.map((entry) =>
+            isNavGroup(entry) ? (
+              <li key={entry.label}>
+                <span className="block px-3 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  {entry.label}
+                </span>
+                <ul className="flex flex-col gap-1">
+                  {entry.items.map((item) => (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={() => setOpen(false)}
+                        aria-current={isActive(item.href) ? "page" : undefined}
+                        className={`block rounded-md px-5 py-2 text-sm transition-colors ${
+                          isActive(item.href)
+                            ? "bg-white/[0.06] font-medium text-white"
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ) : (
+              <li key={entry.href}>
+                <Link
+                  href={entry.href}
+                  onClick={() => setOpen(false)}
+                  aria-current={isActive(entry.href) ? "page" : undefined}
+                  className={`block rounded-md px-3 py-2 text-sm transition-colors ${
+                    isActive(entry.href)
+                      ? "bg-white/[0.06] font-medium text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  {entry.label}
+                </Link>
+              </li>
+            ),
+          )}
           {event.discordUrl && (
             <li>
               <a

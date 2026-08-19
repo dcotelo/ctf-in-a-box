@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { getAdminSettings } from "@/lib/admin-store";
-import { buildNavLinks, type NavLink } from "@/lib/site";
+import { buildNavLinks, buildNavGroups, type NavEntry, type NavLink } from "@/lib/site";
 import {
   enabledModules,
   resolveModules,
@@ -65,6 +65,16 @@ export const getResolvedModules = cache(async (): Promise<readonly ResolvedModul
  *  memoization: several callers on one page cost one settings read. */
 export async function getNavLinks(): Promise<NavLink[]> {
   return buildNavLinks(await getResolvedModules());
+}
+
+/** The header's grouped nav — same resolved modules and fail-open,
+ *  per-request-memoized `getResolvedModules()` call as `getNavLinks`, run
+ *  through `buildNavGroups` instead of `buildNavLinks`. Collapses 2+ module
+ *  nav entries into one "Challenges" dropdown; falls back to a flat link,
+ *  identical to `getNavLinks`'s output, for 0 or 1. The footer stays on
+ *  `getNavLinks` — a footer is a link list, not a menu. */
+export async function getNavGroups(): Promise<NavEntry[]> {
+  return buildNavGroups(await getResolvedModules());
 }
 
 /** A module's landing-page contribution, read straight from the registry

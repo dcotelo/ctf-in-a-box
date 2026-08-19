@@ -379,7 +379,17 @@ of one module's shape.
 
    **Where a rename reaches, honestly.** On every event: the module's admin
    tab label, its nav link (header *and* footer), and its own page
-   header/`<title>`. Only on a **multi-module** event: the leaderboard's
+   header/`<title>`. The header's convention changes once 2+ modules have a
+   `nav` entry: `site.ts`'s `buildNavGroups` collapses them into one dropdown
+   literally labelled "Challenges", whose items read each module's `title`
+   (the override, or `displayName`) rather than `nav.label` — a dropdown
+   called "Challenges" containing an item also called "Challenges" would be
+   nonsense. A rename still reaches it, just through `title` instead of
+   `titleOverride || nav.label`; the footer stays flat and keeps the
+   `nav.label` convention regardless of module count (see `getNavLinks` vs.
+   `getNavGroups` in `resolved-modules.ts`). Exactly one module still renders
+   as a plain link, identical to a single-module event before grouping
+   existed. Only on a **multi-module** event: the leaderboard's
    per-module block heading and the module's landing-page section heading —
    both are deliberately suppressed while a single module is enabled (there
    is nothing to disambiguate), and the landing page's uppercase kicker comes
