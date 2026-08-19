@@ -23,3 +23,6 @@ dist/
 apps/web/node_modules/
 apps/web/.next/
 apps/web/.env.local
+
+# Local worktrees for parallel branch work (never committed)
+.worktrees/
