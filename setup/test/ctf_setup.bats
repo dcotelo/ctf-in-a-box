@@ -204,6 +204,69 @@ EOF
   [[ "$output" != *"gh repo fork "*"WebGoat"* ]]
 }
 
+@test "org: quiz-only config provisions nothing and succeeds" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
+}
+
+@test "render: quiz-only config writes nothing and succeeds" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  [ ! -d dist ]
+}
+
+@test "doctor: quiz-only config reports no provisioned content" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" doctor --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qi 'no .*content'
+}
+
+@test "unknown module key in event.yaml fails loudly (bash mirrors sync/src/config.js)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics:
+    targets: [dvwa]
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'unknown module: forensics'
+}
+
+@test "quiz alongside secure-development is a known combination, not rejected" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+  quiz: {}
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'gh repo fork digininja/DVWA'
+}
+
 @test "missing config file gives clean error" {
   run bash "$SCRIPT" org --dry-run --config nonexistent.yaml
   [ "$status" -ne 0 ]

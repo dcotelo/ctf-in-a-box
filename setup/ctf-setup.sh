@@ -251,6 +251,15 @@ cmd_doctor() {
     printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
 
+  # No secure-development module: no forks, no scorer image, nothing in the
+  # per-target matrix below to check — an empty table (headers only) would
+  # read as a failure rather than the truth, which is that quiz-only events
+  # have no fork-based content at all. Report that plainly instead and stop.
+  if ! has_module secure-development; then
+    printf '%sℹ️  no secure-development module configured — no provisioned content to check (nothing forked, nothing to inspect here).%s\n' "$C_CYAN" "$C_RESET"
+    return 0
+  fi
+
   # One row per target, one column per provisioning step (+ fork-detach). Each
   # cell: ✅ done · ❌ missing (automatable — fails the exit code) · ⚠️ manual
   # step not yet done (advisory) · – not applicable to this target.
@@ -325,6 +334,7 @@ fi
 # Verify config file exists (only for subcommands that need it)
 require_config() {
   [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
+  check_known_modules || exit 1
 }
 
 # target key -> default APP_URL for the rendered workflow. Targets self-boot as
@@ -378,6 +388,49 @@ yaml_targets() {
   # secure-development: to next line at equal-or-lower indent), then parse flow-style list.
   awk '/^[[:space:]]*secure-development:/{flag=1; next} flag && /^[[:space:]]{0,2}[^[:space:]]/{flag=0} flag' "$CONFIG" | \
     sed -n 's/^[[:space:]]*targets:[[:space:]]*\[\(.*\)\].*/\1/p' | head -1 | tr -d ' ' | tr ',' '\n'
+}
+
+# The module keys this build KNOWS how to provision-check for. Mirrors
+# sync/src/config.js's KNOWN_MODULES — the two readers parse the same
+# event.yaml in different languages with no shared code, and AGENTS.md's
+# lockstep-readers rule requires they still agree in BEHAVIOUR: a MISSING
+# secure-development block is tolerated (every caller below skips its
+# fork-based provisioning), an UNKNOWN key is still a hard error. Only
+# secure-development has anything here to fork/render/check; quiz is scored
+# entirely app-side.
+KNOWN_MODULES="secure-development quiz"
+
+# Top-level keys directly under `modules:` (2-space indent), covering both
+# block style (`secure-development:` with nested lines) and one-line flow
+# style (`quiz: {}`). Scoped the same way yaml_targets scopes to
+# modules.secure-development: an awk range from the modules: line to the next
+# equal-or-lower-indent top-level key.
+yaml_module_keys() {
+  awk '/^modules:/{flag=1; next} flag && /^[^[:space:]]/{flag=0} flag' "$CONFIG" | \
+    sed -n 's/^[[:space:]]\{2\}\([A-Za-z0-9_-]*\):.*/\1/p'
+}
+
+# Is module $1 declared under modules: at all? A module is enabled by
+# PRESENCE and disabled by omission (docs/modules.md §1) — there is no
+# `enabled:` key to check instead.
+has_module() {
+  yaml_module_keys | grep -qx "$1"
+}
+
+# Fail loudly on any module key event.yaml declares that this build doesn't
+# recognize. A missing secure-development block is fine (callers below
+# tolerate that); an unrecognized key never is — same check as
+# sync/src/config.js's KNOWN_MODULES guard, so an organizer's typo doesn't
+# silently no-op in one reader while crash-looping the other.
+check_known_modules() {
+  local k
+  while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    case " $KNOWN_MODULES " in
+      *" $k "*) ;;
+      *) echo "event.yaml: unknown module: $k (known modules: $KNOWN_MODULES)" >&2; return 1 ;;
+    esac
+  done < <(yaml_module_keys)
 }
 
 run() {
@@ -495,6 +548,16 @@ cmd_org() {
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
 
+  # No secure-development module: there is nothing fork-based to provision
+  # (quiz is scored entirely app-side). This is not an error — a module is
+  # enabled by presence and disabled by omission — so report it and stop
+  # before even resolving SCORE_IMAGE (the quiz-only path needs no scorer
+  # image, and --dry-run must make zero gh/docker calls either way).
+  if ! has_module secure-development; then
+    echo "== event.yaml has no secure-development module — no provisioned content to fork; nothing to do."
+    return 0
+  fi
+
   # Scorer source image: SCORE_IMAGE env var, else .env. Deliberately NO
   # upstream default — the kit assumes zero upstream access: build your own
   # image from scorer/ (docs/scorer.md) and point SCORE_IMAGE at it. Resolved
@@ -536,6 +599,14 @@ cmd_render() {
   require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+
+  # No secure-development module: nothing fork-based to render a scoring
+  # workflow for. Not an error — same reasoning as cmd_org.
+  if ! has_module secure-development; then
+    echo "== event.yaml has no secure-development module — no provisioned content to render; nothing to do."
+    return 0
+  fi
+
   local targets_arr=()
   while IFS= read -r t; do
     [ -n "$t" ] || continue
