@@ -18,6 +18,7 @@ const {
   setCategories,
   upsertChallenge,
   deleteChallenge,
+  importBundle,
   upstashPipeline,
   ClassicValidationError,
 } = vi.hoisted(() => {
@@ -40,6 +41,7 @@ const {
     setCategories: vi.fn(),
     upsertChallenge: vi.fn(),
     deleteChallenge: vi.fn(),
+    importBundle: vi.fn(),
     upstashPipeline: vi.fn(),
     ClassicValidationError,
   };
@@ -53,12 +55,17 @@ vi.mock("@/lib/classic-store", () => ({
   setCategories,
   upsertChallenge,
   deleteChallenge,
+  importBundle,
   ClassicValidationError,
 }));
 vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
 
-import { GET, POST, DELETE, CHALLENGE_KEYS, CATEGORIES_KEYS } from "@/app/api/admin/classic/route";
+// classic-io's parseBundle is deliberately NOT mocked: the whole point of the
+// import route is that it re-validates the raw text server-side with the
+// REAL parser, so a test that mocked parseBundle away could not tell a route
+// that actually re-validates from one that just trusts the client.
+import { GET, POST, DELETE, CHALLENGE_KEYS, CATEGORIES_KEYS, IMPORT_KEYS } from "@/app/api/admin/classic/route";
 
 const adminReq = (method: "GET" | "POST" | "DELETE", body?: unknown) =>
   new Request("http://x/api/admin/classic", {
@@ -98,6 +105,7 @@ beforeEach(() => {
   setCategories.mockReset();
   upsertChallenge.mockReset();
   deleteChallenge.mockReset();
+  importBundle.mockReset();
   upstashPipeline.mockReset();
   allowAdmin();
   listChallengesForAdmin.mockResolvedValue([ADMIN_ROW]);
@@ -149,18 +157,28 @@ describe("GET /api/admin/classic", () => {
   });
 });
 
-// Finding A: the admin POST route dispatches between the categories shape
-// and the challenge shape by KEY SET ALONE, with no discriminator field.
-// That only stays safe as long as the two parsers' allowed key sets never
-// overlap. This test derives both sets from the actual constants the route's
-// parsers use (`CHALLENGE_KEYS` / `CATEGORIES_KEYS`, both exported from the
-// route for exactly this purpose) rather than hardcoding a second copy of
-// the key lists here — a hardcoded copy would keep passing after a real
-// schema change, which is the exact failure this guards against.
+// Finding A: the admin POST route dispatches between payload shapes by KEY
+// SET ALONE, with no discriminator field. That only stays safe as long as
+// EVERY PAIR of the route's shapes' allowed key sets is disjoint — not just
+// one hand-picked pair. This test derives all three sets from the actual
+// exported constants the route's parsers use (`CHALLENGE_KEYS` /
+// `CATEGORIES_KEYS` / `IMPORT_KEYS`) and checks every pair among them, so a
+// FOURTH shape added later is covered automatically just by being added to
+// the `sets` list below — a hardcoded pairwise copy would silently miss it.
 describe("POST /api/admin/classic — dispatch key sets", () => {
-  it("CHALLENGE_KEYS and CATEGORIES_KEYS never overlap", () => {
-    const overlap = [...CHALLENGE_KEYS].filter((k) => CATEGORIES_KEYS.has(k));
-    expect(overlap).toEqual([]);
+  it("keeps every payload key set pairwise disjoint", () => {
+    const sets = [
+      ["CHALLENGE_KEYS", CHALLENGE_KEYS],
+      ["CATEGORIES_KEYS", CATEGORIES_KEYS],
+      ["IMPORT_KEYS", IMPORT_KEYS],
+    ] as const;
+    for (const [aName, a] of sets) {
+      for (const [bName, b] of sets) {
+        if (aName === bName) continue;
+        const overlap = [...a].filter((k) => b.has(k));
+        expect(overlap, `${aName} vs ${bName}`).toEqual([]);
+      }
+    }
   });
 
   it("400s a body that matches neither shape", async () => {
@@ -278,6 +296,102 @@ describe("POST /api/admin/classic — categories", () => {
     expect(setCategories).toHaveBeenCalledWith(["Web", "Crypto"]);
     expect(await res.json()).toEqual({ categories: ["Web", "Crypto"] });
     expect(upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+});
+
+const validBundle = {
+  version: 1,
+  categories: ["Web", "Crypto"],
+  challenges: [
+    { id: "web-one-ab12cd", title: "One", category: "Web", description: "**find it**", points: 50, order: 0, flag: "ctfbox{One}" },
+    { id: "crypto-two-ef34gh", title: "Two", category: "Crypto", description: "look `here`", points: 100, order: 0, flag: "ctfbox{Two}" },
+  ],
+};
+
+// Deliberately wrong in MULTIPLE independent ways (bad id shape, missing
+// title, unknown category, negative points, empty flag) so a route that
+// truncated to the first parseBundle error, rather than returning the whole
+// list, would still show a suspiciously short `errors` array here.
+const badBundle = {
+  version: 1,
+  categories: [],
+  challenges: [{ id: "x!", title: "", category: "Nope", description: "", points: -1, order: 0, flag: "" }],
+};
+
+describe("POST /api/admin/classic — import", () => {
+  it("401s for no session, without parsing or importing anything", async () => {
+    requireAdmin.mockResolvedValue({ ok: false, status: 401 });
+    const res = await POST(adminReq("POST", { import: JSON.stringify(validBundle) }));
+    expect(res.status).toBe(401);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  it("checks requireAdmin before parsing or importing", async () => {
+    denyAdmin();
+    const res = await POST(adminReq("POST", { import: JSON.stringify(validBundle) }));
+    expect(res.status).toBe(403);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  it("imports a valid bundle and reports what changed", async () => {
+    importBundle.mockResolvedValue({ created: 2, updated: 0, categories: 2 });
+    const res = await POST(adminReq("POST", { import: JSON.stringify(validBundle) }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: 2, updated: 0, categories: 2 });
+    expect(importBundle).toHaveBeenCalledWith(validBundle);
+  });
+
+  it("400s an invalid bundle and returns EVERY error, writing nothing", async () => {
+    const res = await POST(adminReq("POST", { import: JSON.stringify(badBundle) }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errors.length).toBeGreaterThan(1);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  // The whole reason the route accepts raw TEXT rather than a pre-parsed
+  // bundle: this payload is shaped exactly like a bundle object (right
+  // top-level keys, an array of "challenges") but every field inside is
+  // invalid. A route that skipped its own `parseBundle` call and forwarded
+  // the client's object straight to `importBundle` would let this through.
+  it("re-validates server-side even if the client sent something shaped right", async () => {
+    const res = await POST(
+      adminReq("POST", {
+        import: JSON.stringify({
+          version: 1,
+          categories: [],
+          challenges: [{ id: "x!", title: "", category: "Nope", description: "", points: -1, order: 0, flag: "" }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  it("400s malformed JSON in the import string", async () => {
+    const res = await POST(adminReq("POST", { import: "{not json" }));
+    expect(res.status).toBe(400);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  it("maps a store failure to 503, not 400", async () => {
+    importBundle.mockRejectedValue(new Error("upstash down"));
+    const res = await POST(adminReq("POST", { import: JSON.stringify(validBundle) }));
+    expect(res.status).toBe(503);
+  });
+
+  it("imports and writes an audit line recording the counts", async () => {
+    importBundle.mockResolvedValue({ created: 2, updated: 0, categories: 2 });
+    await POST(adminReq("POST", { import: JSON.stringify(validBundle) }));
+    expect(upstashPipeline).toHaveBeenCalledTimes(1);
+    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
+    expect(commands[0][0]).toBe("LPUSH");
+    expect(commands[0][1]).toBe("ctf:admin:audit");
+    const audit = String(commands[0][2]);
+    expect(audit).toContain('"by":"alice"');
+    expect(audit).toContain('"created":2');
+    expect(audit).toContain('"updated":0');
+    expect(audit).toContain('"categories":2');
   });
 });
 
