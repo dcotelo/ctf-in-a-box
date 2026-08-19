@@ -795,6 +795,181 @@ git push -u origin fix/<short-description>`,
       line: "No flags captured yet. Every rank is unclaimed. Solve your first challenge and you’ll be the one everyone else is chasing.",
       cta: { href: "/flags", label: "$ pick a challenge" },
     },
+    // Deliberately plain and factual, and deliberately silent on AI, for the
+    // same reason quiz's copy is: secure-development invites an agent because
+    // patching WITH one is the skill it teaches; on a flag hunt the same
+    // invitation reads as permission to cheat.
+    //
+    // Deliberately says "flag" where the other modules say "challenge" or
+    // "question": "challenge" is on the secure-development term list this
+    // whole module family gets checked against (see secure-dev-terms.ts) —
+    // secure-development's own copy uses it constantly ("pick a challenge",
+    // "every challenge is worth") — so a classic-only /how-to-play, /rules,
+    // /faq or /terms that used it would trip that page's own leak test. "Flag"
+    // is also just the word contestants actually use for one of these.
+    //
+    // Every claim below is checked against the implementation, same
+    // discipline as quiz's: `normalizeFlag` (classic-keys.ts) trims, NFC-
+    // normalizes and lowercases BOTH sides of the comparison, so matching is
+    // case-insensitive and ignores leading/trailing whitespace — say so,
+    // contestants ask. There is NO attempt cap anywhere in classic-store.ts's
+    // `evaluateGate`; it only ever refuses on paused/already-solved/cooldown,
+    // never on a spent allowance, so never promise or imply one. There IS a
+    // cooldown (`CLASSIC_COOLDOWN_SEC`, organizer-configurable in seconds via
+    // `classicCooldownSec`). Every challenge carries a category and a point
+    // value, and the board shows a solve count (`classic-board.tsx`'s
+    // `ChallengeCard`: the category heading, the "N pts" badge, the "N
+    // solve(s)" line). Points are static — `SUBMIT_SCRIPT` reads the price off
+    // the challenge hash at solve time and nothing anywhere lowers it as more
+    // people solve. Nothing is graded for a signed-out visitor (`/flags`
+    // renders a sign-in prompt instead of an input; `/api/classic/submit`
+    // 401s with no session). Descriptions render through `markdown.ts`'s
+    // small subset — bold, italics, inline code, lists, code blocks and
+    // links — never raw HTML.
+    home: {
+      tagline: "Classic CTF",
+      intro: () =>
+        "Find each flag and submit it for points. Every flag carries its own point value, grading happens the instant you submit, and matching is case-insensitive and ignores leading or trailing whitespace, so a stray capital or space never costs you a solve.",
+      expect: {
+        heading: "Find it, submit it, get scored on the spot",
+        lede: "Each flag sits under a category and is worth a fixed number of points, and the board shows how many people have already solved it. There's no cap on attempts, though organizers can set a short cooldown between tries on the same flag. Matching is exact once it's normalized: case doesn't matter, and leading or trailing whitespace is stripped before it's compared.",
+      },
+      steps: () => [
+        {
+          title: "Sign in with GitHub",
+          body: "Sign in to claim your row on the leaderboard. Nothing is graded for a signed-out visitor, and signing in is what lets you leave and come back to the board later.",
+        },
+        {
+          title: "Pick a flag and go find it",
+          body: "Every flag is grouped by category and shows what it's worth and how many people have already solved it. Work in any order, at your own pace.",
+        },
+        {
+          title: "Submit it and get scored",
+          body: "Paste the flag into the box and submit. It's checked immediately: matching ignores case and leading or trailing whitespace, so a slightly different spelling still counts as long as the flag itself is right.",
+        },
+      ],
+      cta: { href: "/flags", label: "Browse the flags" },
+    },
+    // The long-form guide. Same discipline as `home` above: every claim is
+    // checked against classic-store.ts and classic-board.tsx. No `example` or
+    // `callout` block — classic has no worked example to walk (there's no
+    // fixed method for finding a flag) and, like quiz, is deliberately silent
+    // on AI.
+    guide: {
+      lede: "New to the board? Here's everything you need to go from a GitHub sign-in to your first solved flag.",
+      metaDescription:
+        "Step-by-step guide to the flag board: sign in with GitHub, work through the flags, and get scored the instant you submit a correct one.",
+      loop: {
+        kicker: "The loop",
+        cycle: ["find the flag", "submit it", "it's scored on the spot"],
+        note: "Every flag is checked immediately against the answer stored for it, the moment you submit.",
+      },
+      steps: () => [
+        {
+          title: "Sign in with GitHub",
+          body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress, and nothing is graded for a signed-out visitor.",
+        },
+        {
+          title: "Open the board",
+          body: "Every flag the organizers have published is on the Flags page, grouped by category. Each one shows what it's worth and how many people have already solved it. Work in any order, at your own pace.",
+        },
+        {
+          title: "Find the flag",
+          body: "Read the description, then do whatever it takes to turn up the flag it's pointing at. There's no fixed method — some flags live in a file, others in a running app, others in the description itself.",
+        },
+        {
+          title: "Submit it and get scored",
+          body: "Paste the flag into the box and submit. It's checked instantly: matching is case-insensitive and ignores leading or trailing whitespace, so an exact copy-paste with different casing still counts. There's no cap on how many times you can try, though organizers can set a short cooldown between submissions on the same flag.",
+        },
+      ],
+      notes: [
+        "Every flag carries its own point value, and shows what it's worth before you submit it, plus how many people have already solved it.",
+        "There's no cap on attempts. Organizers can set a short cooldown between submissions on the same flag, and the board tells you when it's still counting down.",
+        "Points are credited to the GitHub account you signed in with. Team totals are the sum of what each member finds individually.",
+      ],
+      scoring:
+        "Every flag is worth a fixed number of points, set by whoever wrote it, and that value never changes as more people solve it. Points are awarded the instant a correct flag is submitted, matched case-insensitively and with leading or trailing whitespace ignored, so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
+      cta: { href: "/flags", label: "Browse the flags" },
+    },
+    rules: () => ({
+      teams: [
+        "Your GitHub login is your identity for scoring. Submit flags from the account you signed in with.",
+      ],
+      fairPlay: [
+        "The published flags are the whole game. Do not attack the scoring pipeline, the leaderboard, or other contestants' accounts.",
+        "Submit your own work. Don't publish flags or writeups for others to copy during the event.",
+        "Automated or scripted submission to farm attempts will get your account rate-limited or disqualified.",
+      ],
+      conduct: [
+        "Found a bug in a flag, the scoring pipeline, or the site itself? Report it to an organizer instead of exploiting it for an unfair edge.",
+      ],
+      scoring: [
+        "Each flag is worth a fixed point value, set by whoever wrote it, and that value doesn't change as more people solve it.",
+        "Points post the instant a correct flag is submitted. There's no cap on attempts, though a short cooldown between submissions on the same flag may apply.",
+      ],
+    }),
+    faq: () => ({
+      gettingStarted: [
+        {
+          q: "Do I need experience to compete?",
+          a: "No. The flags span a range of difficulty, and points scale with it. Start with whichever one looks approachable and work up.",
+        },
+      ],
+      prep: [
+        {
+          q: "What do I need to bring?",
+          a: "A GitHub account and a laptop with whatever tools you're comfortable poking around with. There's no required software beyond what a flag itself calls for.",
+        },
+      ],
+      playing: [
+        {
+          q: "How do I submit a flag?",
+          a: [
+            "Sign in, open the ",
+            { route: { href: "/flags", label: "Flags" } },
+            " page, and paste the flag into the box under the one you solved. Grading is instant and happens the moment you submit: there's nothing to wait for and nothing for an organizer to review.",
+          ],
+        },
+        {
+          q: "Does case or extra spacing matter?",
+          a: "No. Matching trims leading and trailing whitespace and ignores case, so it's the exact same flag either way as long as the rest matches precisely.",
+        },
+        {
+          q: "How is my progress tracked?",
+          a: "Sign in with GitHub to claim your row on the live leaderboard and see how many flags you've solved, and what they were worth, on your profile. Points are credited to the account you signed in with, and nothing is graded for a signed-out visitor.",
+        },
+        {
+          q: "Can I retry a flag I got wrong?",
+          a: "Yes, as many times as you like — there's no cap on attempts. Organizers can put a short cooldown between submissions on the same flag; the board tells you when it's still counting down.",
+        },
+        {
+          q: "I submitted the right flag but didn't get points. What happened?",
+          a: "Check that you were signed in first: nothing is graded for a signed-out visitor. If you'd already solved that one before, resubmitting the same flag doesn't add more points — you already have them.",
+        },
+      ],
+    }),
+    terms: () => ({
+      eligibility: [
+        "You need a GitHub account. Your GitHub login is your identity for scoring, so submit every flag from the account you sign in with. Points are credited to that account and cannot be moved between accounts afterwards.",
+        "Organizers and anyone who wrote or reviewed the flags may compete for fun but are not eligible for prizes.",
+      ],
+      scope: [
+        "This event authorizes no testing of any system. The published flags are the whole of what you're invited to do here.",
+        "Explicitly out of scope: the scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
+        "Found a real security bug in this site or in the scoring pipeline? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
+        "Automated or scripted submission, to farm attempts or to enumerate flags, will get your account rate-limited or disqualified.",
+      ],
+      submissions: [
+        "You submit work by finding and entering the flag for each one you solve. Each submission is graded automatically against the stored answer the moment you submit it.",
+        "Submit your own work. Passing off another contestant's flag as yours is not allowed.",
+        "Don't publish flags or writeups for others to copy while the event is running. Afterwards, write up whatever you like.",
+      ],
+      scoring: [
+        "Each flag is worth a fixed point value, set by whoever wrote it, awarded automatically the instant a correct submission is graded. That value doesn't change as more people solve it.",
+        "There is no cap on attempts. A short cooldown between submissions on the same flag may apply, and organizers may adjust it during the event.",
+      ],
+    }),
+    routeCard: () => "Every flag the organizers have published.",
   },
 };
 
