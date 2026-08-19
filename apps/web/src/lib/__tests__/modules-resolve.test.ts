@@ -51,6 +51,29 @@ describe("resolveModules", () => {
     expect(resolved.find((m) => m.id === "quiz")?.title).toBe("Quiz");
   });
 
+  // `title` can't answer "did the organizer rename this?" — it always has a
+  // value. Surfaces whose own default is deliberately NOT the module's name
+  // (the nav label, /challenges' page title) key off `titleOverride`, so
+  // "unset" has to be distinguishable from "set to the registry default".
+  it("reports no titleOverride when the organizer has set none", () => {
+    const resolved = resolveModules({ quiz: { blurb: "Ten questions." } });
+    const quiz = resolved.find((m) => m.id === "quiz");
+    expect(quiz?.titleOverride).toBeUndefined();
+    expect(quiz?.title).toBe("Quiz");
+  });
+
+  it("reports the trimmed override as titleOverride when one is set", () => {
+    const resolved = resolveModules({ quiz: { title: "  Round 1  " } });
+    const quiz = resolved.find((m) => m.id === "quiz");
+    expect(quiz?.titleOverride).toBe("Round 1");
+    expect(quiz?.title).toBe("Round 1");
+  });
+
+  it("reports no titleOverride for a whitespace-only override", () => {
+    expect(resolveModules({ quiz: { title: "   " } }).find((m) => m.id === "quiz")?.titleOverride)
+      .toBeUndefined();
+  });
+
   it("preserves registry order and the nav entry", () => {
     const resolved = resolveModules({ quiz: { title: "Trivia" } });
     expect(resolved.map((m) => m.id)).toEqual(enabledModules.map((m) => m.id));

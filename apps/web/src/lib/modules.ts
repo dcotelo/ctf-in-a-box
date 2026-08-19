@@ -189,8 +189,27 @@ export const MODULE_BLURB_MAX = 200;
  *  that needs the home block reads it from the registry — see
  *  `getModuleHome` in `@/lib/resolved-modules`. */
 export type ResolvedModule = Omit<ModuleDef, "displayName" | "description" | "home"> & {
+  /** What to render wherever the MODULE names itself: the organizer's
+   *  override, or the registry `displayName`. Never empty. */
   title: string;
   blurb: string;
+  /** The organizer's override alone — trimmed, or `undefined` when unset.
+   *
+   *  This exists because `title` cannot answer "did the organizer rename
+   *  this?", and some surfaces have a per-surface default that is
+   *  deliberately NOT the module's name. `secure-development`'s nav label is
+   *  "Challenges" while its display name is "Secure Development": one names
+   *  the module, the other describes the destination page. Rendering `title`
+   *  there silently renamed the nav on every existing event with no override
+   *  involved. The rule is: an explicit override replaces the module's name
+   *  wherever it appears; with no override, the existing per-surface default
+   *  stands unchanged. Surfaces with their own default read
+   *  `titleOverride || <that default>`; surfaces that always showed the
+   *  module's name keep reading `title`.
+   *
+   *  A string (or absent), so this stays safe to hand to a Client Component
+   *  — see the note above about `home`. */
+  titleOverride?: string;
 };
 
 /** Merge registry defaults with organizer overrides. Pure — no I/O — so it is
@@ -211,9 +230,15 @@ export function resolveModules(overrides: ModuleOverrides): readonly ResolvedMod
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return enabledModules.map(({ displayName, description, home, ...rest }) => {
     const o = overrides[rest.id];
+    // Computed once and carried through as `titleOverride`, so a consumer
+    // with its own per-surface default (the nav label, /challenges' page
+    // title) can tell "the organizer renamed this" from "the registry
+    // default happens to be this string" — see ResolvedModule.
+    const titleOverride = o?.title?.trim() || undefined;
     return {
       ...rest,
-      title: o?.title?.trim() || displayName,
+      titleOverride,
+      title: titleOverride ?? displayName,
       blurb: o?.blurb?.trim() || description,
     };
   });
