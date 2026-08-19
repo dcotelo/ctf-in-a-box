@@ -49,7 +49,7 @@ jobs:
             # (module gating, /quiz, /leaderboard) and sync (the exits-0
             # contract), plus docker-compose.yml itself (sync's restart
             # policy the gate asserts on).
-            echo "quiz=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-quiz-only\.sh$CI")"
+            echo "quiz=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-quiz-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:

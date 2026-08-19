@@ -119,23 +119,40 @@ done
 
 # ---------------------------------------------------------------------------
 # Seed the quiz's real Redis schema directly (see header comment for why).
-# One question, one contestant with a distinctive point total (137 — not a
-# value that could coincidentally appear elsewhere on an otherwise-empty
-# quiz-only leaderboard), so the /leaderboard assertion is on named content,
-# never on "the page loaded with no errors".
+# Key names/shapes are the canonical ones from apps/web/src/lib/quiz-keys.ts
+# (ctf:quiz:questions, ctf:quiz:key, ctf:quiz:answers:<login>, ctf:quiz:points,
+# ctf:quiz:answered) — this duplication fails CLOSED, not silently: a renamed
+# key or a value shape parseQuestion()/parseCounterHash() (quiz-store.ts)
+# rejects yields a blank /quiz or /leaderboard and a failed grep below, never
+# a silent pass.
+#
+# One question (price 137) and one contestant. The contestant's TOTAL is a
+# separate, deliberately larger figure (4321, >= 1000 so
+# entry.points.toLocaleString() — leaderboard.tsx — comma-formats it to
+# "4,321") specifically so the /leaderboard assertion below can tell "the
+# totals hash" apart from "the question's own price": both would otherwise
+# render as the same bare "137", and a bare unanchored grep for either could
+# also coincidentally match a chunk id/hash elsewhere on the page.
+#
+# `ctf:quiz:key` and `ctf:quiz:answers:<login>` are seeded here for realism
+# (a real answer always writes all five keys together) but NOT independently
+# asserted below — this script never exercises grading, so their shapes are
+# not verified by anything here.
 # ---------------------------------------------------------------------------
 QUESTION_ID="acceptance-xss-basics"
 QUESTION_PROMPT="ACCEPTANCE-GATE-QUESTION: what does XSS stand for?"
+QUESTION_POINTS=137
 CONTESTANT_LOGIN="quiz-acceptance-bot"
-CONTESTANT_POINTS=137
+CONTESTANT_POINTS=4321
+CONTESTANT_POINTS_FORMATTED="4,321"
 
 echo "--- seeding one quiz question + one contestant's answer"
 docker exec qo-redis redis-cli HSET ctf:quiz:questions "$QUESTION_ID" \
-  '{"id":"acceptance-xss-basics","prompt":"'"$QUESTION_PROMPT"'","type":"single","choices":[{"id":"a","label":"Cross-Site Scripting"},{"id":"b","label":"XML Signature Exchange"}],"points":137,"order":1}' \
+  '{"id":"acceptance-xss-basics","prompt":"'"$QUESTION_PROMPT"'","type":"single","choices":[{"id":"a","label":"Cross-Site Scripting"},{"id":"b","label":"XML Signature Exchange"}],"points":'"$QUESTION_POINTS"',"order":1}' \
   >/dev/null
 docker exec qo-redis redis-cli HSET ctf:quiz:key "$QUESTION_ID" '["a"]' >/dev/null
 docker exec qo-redis redis-cli HSET "ctf:quiz:answers:$CONTESTANT_LOGIN" "$QUESTION_ID" \
-  '{"choices":["a"],"points":137,"at":"2026-08-19T00:00:00.000Z"}' >/dev/null
+  '{"choices":["a"],"points":'"$QUESTION_POINTS"',"at":"2026-08-19T00:00:00.000Z"}' >/dev/null
 docker exec qo-redis redis-cli HSET ctf:quiz:points "$CONTESTANT_LOGIN" "$CONTESTANT_POINTS" >/dev/null
 docker exec qo-redis redis-cli HSET ctf:quiz:answered "$CONTESTANT_LOGIN" 1 >/dev/null
 
@@ -178,7 +195,18 @@ CHALLENGES_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/challenges")
 echo "--- /leaderboard shows the seeded contestant by login, with their quiz points"
 LEADERBOARD_HTML=$(curl -sf "$APP_URL/leaderboard")
 echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_LOGIN"
-echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_POINTS"
+# Anchored, not a bare grep for the number: a Next.js page is full of digit
+# strings (chunk ids, hashes, asset query strings) an unanchored grep could
+# coincidentally match. Take a window of text around the login's occurrence
+# and require the comma-formatted TOTAL inside it — this is also what
+# distinguishes "the totals hash rendered" from "the question's own price
+# leaked in some unrelated context" (see the seeding comment above).
+# Two chained bounded quantifiers, not one — BSD grep (macOS) caps a single
+# interval expression at 255 repetitions ("maximum repetition exceeds 255"),
+# and the real distance between the login and the formatted total in the
+# rendered row (measured empirically) is ~350 chars, past a single {0,255}.
+LOGIN_WINDOW=$(echo "$LEADERBOARD_HTML" | grep -oE ".{0,200}.{0,200}$CONTESTANT_LOGIN.{0,200}.{0,200}")
+echo "$LOGIN_WINDOW" | grep -qF "$CONTESTANT_POINTS_FORMATTED"
 
 # ---------------------------------------------------------------------------
 # sync: through the real docker-compose.yml (see header comment for why),
@@ -188,7 +216,12 @@ echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_POINTS"
 echo "--- bringing up sync (poll profile) against the quiz-only config"
 sync_compose --profile poll up -d --build --no-deps sync
 
-SYNC_CID=$(sync_compose ps -q sync)
+
+# `ps -q` (running only) races a fast-exiting container — exactly what this
+# script expects sync to do — and can come back empty even though sync
+# started and already exited cleanly, misreporting a PASS as "never
+# started". `ps -aq` includes exited containers too.
+SYNC_CID=$(sync_compose ps -aq sync)
 [ -n "$SYNC_CID" ] || { echo "FAIL: sync container never started"; exit 1; }
 
 echo "--- waiting for sync to exit"
