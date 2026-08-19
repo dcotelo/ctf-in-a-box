@@ -237,7 +237,10 @@ shipped modules; it stays wired for whatever module ships next with no
 settings of its own. Every module tab opens with an identity editor
 (`admin-module-identity.tsx`) for that module's title/blurb override (item 1
 above); this is the same organizer-resolved name rendered in the tab label
-itself, the nav, the leaderboard block, and the module's own page header. The
+itself, the nav, and the module's own page header — plus the leaderboard block
+and the landing-page section heading on a *multi-module* event, both of which
+are suppressed while only one module is enabled (see item 1 for the full
+reach). The
 landing page (`app/page.tsx`) is composed the same way: the platform frame
 (logo, event name, dates, countdown, its own CTAs, Discord link, progress
 card) stays code, and each enabled module's `home` block (item 5 above)
@@ -305,13 +308,44 @@ of one module's shape.
    runtime override layer uses (`moduleTitle:<id>`/`moduleBlurb:<id>` —
    decision 19's override-else-default precedence applies here too: leaving
    a field blank clears the override and restores the registry default,
-   never stores an empty string). The resolved name is what actually renders
-   everywhere a module names itself: the nav link, the leaderboard's
-   per-module block, the module's own page header, its admin tab label, and
-   its landing-page section heading (item 5 below). A module MUST NOT read
-   its own registry `displayName`/`description` directly in any of those
-   surfaces — it must go through the resolved name, or an organizer's
-   override silently does nothing there.
+   never stores an empty string).
+
+   **Two resolved fields, and they are not interchangeable.**
+   `ResolvedModule.title` is the module's name — the override if there is
+   one, the registry `displayName` otherwise — and it is what a surface that
+   has always shown the module's name must render.
+   `ResolvedModule.titleOverride` is the organizer's rename *alone*, or
+   `undefined`, and it is what a surface with its own established default
+   must render *instead of* that default. The rule the platform follows, and
+   a new module MUST follow: **an explicit rename replaces the module's name
+   wherever it appears; with no rename, each surface's existing default
+   stands unchanged.** The nav is the worked example —
+   `secure-development`'s registry `nav.label` is "Challenges" while its
+   `displayName` is "Secure Development", because one describes the
+   destination page and the other names the module — so the nav reads
+   `titleOverride || nav.label`, and an event that never touched `/admin`
+   still says "Challenges". Reading `title` there instead renames the nav on
+   every such event, which is a real bug this kit shipped and fixed. Same for
+   `/challenges`, whose page title defaults to "Challenges", not to the
+   module's display name.
+
+   **Where a rename reaches, honestly.** On every event: the module's admin
+   tab label, its nav link (header *and* footer), and its own page
+   header/`<title>`. Only on a **multi-module** event: the leaderboard's
+   per-module block heading and the module's landing-page section heading —
+   both are deliberately suppressed while a single module is enabled (there
+   is nothing to disambiguate), and the landing page's uppercase kicker comes
+   from the registry `home.tagline`, which is not overridable at all. So a
+   single-module event sees three surfaces change, not five.
+
+   The **blurb** has a much smaller reach than the title, and a module author
+   should not assume otherwise: today its only consumer is the module page's
+   meta description (`/quiz`'s `generateMetadata`). It is rendered on no page,
+   and `secure-development` does not consume it at all.
+
+   A module MUST NOT read its own registry `displayName`/`description`
+   directly in any surface that names it — it must go through the resolved
+   fields, or an organizer's override silently does nothing there.
 
 2. **Challenge catalogue for UI.** A module MUST expose, per challenge: id,
    title, target/app grouping, and point value — built on the same

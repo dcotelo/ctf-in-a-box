@@ -74,10 +74,33 @@ that module's display name. The title is capped at 60 characters, the blurb at
 characters are rejected, since there is no markup to sanitise, only rendered
 text to keep intact. **Leaving a field blank clears the override and restores
 the module's registry default** — the field's placeholder shows what that
-default is, so clearing it is discoverable rather than a guess. The resolved
-name is what actually renders everywhere the module names itself: this tab's
-own label, the nav link, the leaderboard's per-module block, the module's own
-page header, and its section on the landing page.
+default is, so clearing it is discoverable rather than a guess. Changes are
+live on the next request; there is no rebuild and no cache to wait out.
+
+**Where a rename actually shows up.** Set a title and it replaces the module's
+name in three places on every event: **the tab's own label**, **the nav link**
+(header and footer alike), and **the module's own page header and browser tab
+title** (`/challenges` for Secure Development, `/quiz` for Quiz). Two further
+surfaces exist but are **suppressed on a single-module event**, which is what
+most events are:
+
+- the **leaderboard's per-module block heading** — hidden while only one
+  module is enabled, because a row's points *are* that module's and the
+  heading would only restate the column above it;
+- the **landing page's per-module section heading** — a lone module's section
+  is headed "What to expect" instead, and the page's uppercase kicker comes
+  from the module's registry tagline, which is **not** overridable at all.
+
+So on a one-module event a rename reaches three surfaces, not five. Nothing is
+broken if you cannot find your new name on the leaderboard or the landing
+page — those two only start naming modules once there are two to tell apart.
+
+**Leave a field blank if you have nothing to say — especially the blurb.** The
+blurb is *not rendered on any page*. Its only effect today is the meta
+description of the module's own page (what a search result or a chat link
+preview shows), and only `/quiz` uses it; Secure Development's blurb reaches
+nothing at all. Treat it as SEO text for the quiz, not as contestant-facing
+copy.
 
 The panel offers:
 
