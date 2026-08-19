@@ -1,5 +1,6 @@
 import "server-only";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
   QUIZ_QUESTIONS_KEY as QUESTIONS_KEY,
@@ -513,34 +514,17 @@ export async function getTeamQuizTotalsBatch(teams: readonly (readonly string[])
 /** The union-by-question fold both team forms share. Keeps the EARLIEST
  *  correct answer for any question more than one member holds — a later
  *  re-answer by a teammate, or a since-changed price recorded on someone
- *  else's row, never changes what the team already earned. */
+ *  else's row, never changes what the team already earned.
+ *
+ *  The rule itself lives in `leaderboard/team-fold.ts` and is shared verbatim
+ *  with classic-store's team fold: the two are structurally identical (dedupe
+ *  by hash field, earliest wins, sum points, latest timestamp), and two
+ *  near-identical copies of a scoring rule drifting apart is exactly the
+ *  failure mode this repo keeps its lockstep rule for. All this wrapper does
+ *  is rename the shared `completed` to quiz's own noun. */
 function foldTeamAnswers(memberReplies: ({ result?: unknown; error?: string } | undefined)[]): QuizTotal {
-  const byQuestion = new Map<string, { points: number; at: string }>();
-  for (const res of memberReplies) {
-    const flat = Array.isArray(res?.result) ? (res.result as string[]) : [];
-    for (let i = 0; i < flat.length; i += 2) {
-      const parsed = parseJsonValue(flat[i + 1], extractAnswered);
-      if (!parsed) continue;
-      const questionId = flat[i];
-      const existing = byQuestion.get(questionId);
-      if (!existing || Date.parse(parsed.at) < Date.parse(existing.at)) {
-        byQuestion.set(questionId, parsed);
-      }
-    }
-  }
-
-  let points = 0;
-  let lastAtMs = -Infinity;
-  for (const { points: questionPoints, at } of byQuestion.values()) {
-    points += questionPoints;
-    const ms = Date.parse(at);
-    if (Number.isFinite(ms) && ms > lastAtMs) lastAtMs = ms;
-  }
-  return {
-    points,
-    answered: byQuestion.size,
-    lastAt: Number.isFinite(lastAtMs) ? new Date(lastAtMs).toISOString() : null,
-  };
+  const { points, completed, lastAt } = foldTeamItems(memberReplies);
+  return { points, answered: completed, lastAt };
 }
 
 export type QuizGate =

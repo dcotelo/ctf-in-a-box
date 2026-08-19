@@ -19,6 +19,13 @@ import {
   quizAnswersKey,
   canonicalizeChoices,
 } from "@/lib/quiz-keys";
+import {
+  CLASSIC_POINTS_KEY,
+  CLASSIC_SOLVED_KEY,
+  CLASSIC_SOLVECOUNT_KEY,
+  CLASSIC_SOLVES_PREFIX,
+  CLASSIC_ATTEMPTS_PREFIX,
+} from "@/lib/classic-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -31,6 +38,8 @@ export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
 /** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
 export const QUIZ_MAX_ATTEMPTS_MAX = 100;
 export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
+/** Cap for the classic-module submission cooldown (see below). */
+export const CLASSIC_COOLDOWN_SEC_MAX = 3600;
 // MODULE_TITLE_MAX / MODULE_BLURB_MAX (used below for validation) are
 // defined in @/lib/modules — client-safe, unlike this file — so the admin
 // panel's identity form can read them too. Not re-exported here: nothing in
@@ -64,6 +73,10 @@ export type AdminSettings = {
   /** Minutes a login must wait after its last attempt before it may retry the
    *  same quiz question. Null = no override; 0 = no cooldown. */
   quizRetryAfterMin: number | null;
+  /** Seconds a login must wait between flag submissions on the SAME classic
+   *  challenge. null = use the module default. Seconds, not minutes: its job
+   *  is blocking scripted brute force, not rationing tries. */
+  classicCooldownSec: number | null;
   teamRegistrationOpen: boolean;
   // Scheduled "auto dates" — nullable ISO instants. Absent = no bound.
   // scoring* gates the freeze (before start / after end = paused); registration*
@@ -124,6 +137,7 @@ export type SettingsPatch = {
   hintsUnlockAfterMin?: number;
   quizMaxAttempts?: number;
   quizRetryAfterMin?: number;
+  classicCooldownSec?: number;
   teamRegistrationOpen?: boolean;
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
@@ -180,6 +194,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     hintsUnlockAfterMin: h.hintsUnlockAfterMin === undefined ? null : Number(h.hintsUnlockAfterMin),
     quizMaxAttempts: h.quizMaxAttempts === undefined ? null : Number(h.quizMaxAttempts),
     quizRetryAfterMin: h.quizRetryAfterMin === undefined ? null : Number(h.quizRetryAfterMin),
+    classicCooldownSec: h.classicCooldownSec === undefined ? null : Number(h.classicCooldownSec),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     scoringStartsAt: h.scoringStartsAt ?? null,
     scoringEndsAt: h.scoringEndsAt ?? null,
@@ -281,6 +296,12 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       }
       fields.push(k, String(v));
       changed[k] = v;
+    } else if (k === "classicCooldownSec") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > CLASSIC_COOLDOWN_SEC_MAX) {
+        throw new AdminValidationError(k, `classicCooldownSec must be an integer in [0, ${CLASSIC_COOLDOWN_SEC_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
     } else if ((SCHEDULE_FIELDS as readonly string[]).includes(k)) {
       // Nullable ISO bound: null/"" clears it (HDEL); a value must parse as a
       // date and is stored normalised to its ISO-8601 UTC form.
@@ -343,6 +364,15 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
 // board with no answers behind them. `ctf:quiz:points`/`ctf:quiz:answered`
 // are exact key names, not globs, but `scanDelByPrefix`'s SCAN MATCH works
 // the same either way.
+//
+// Classic scope mirrors quiz's exactly, for the same reason (see
+// deleteChallenge's doc comment in classic-store.ts for the same contract
+// stated from the single-challenge-delete side): wipes contestant PROGRESS —
+// per-login solves/attempts, plus the three aggregate hashes
+// (`ctf:classic:points`/`ctf:classic:solved`/`ctf:classic:solvecount`) the
+// leaderboard reads — and deliberately KEEPS `ctf:classic:challenges` /
+// `ctf:classic:flag` / `ctf:classic:flagnorm` / `ctf:classic:categories`,
+// which are organizer CONTENT, not something a reset should ever destroy.
 const RESET_PREFIXES: readonly [string, string][] = [
   ["solves", "ctf:solves:*"],
   ["teams", "ctf:team:*"],
@@ -353,6 +383,11 @@ const RESET_PREFIXES: readonly [string, string][] = [
   ["quizAttempts", `${QUIZ_ATTEMPTS_PREFIX}*`],
   ["quizPoints", QUIZ_POINTS_KEY],
   ["quizAnswered", QUIZ_ANSWERED_KEY],
+  ["classicSolves", `${CLASSIC_SOLVES_PREFIX}*`],
+  ["classicAttempts", `${CLASSIC_ATTEMPTS_PREFIX}*`],
+  ["classicPoints", CLASSIC_POINTS_KEY],
+  ["classicSolved", CLASSIC_SOLVED_KEY],
+  ["classicSolveCount", CLASSIC_SOLVECOUNT_KEY],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the

@@ -7,17 +7,21 @@ title: Module contract
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
-ships two registered modules: `secure-development` (the OWASP Secure
+ships three registered modules: `secure-development` (the OWASP Secure
 Development CTF patch-the-vulnerability format: fork target app, find + patch
-the vuln, PR back, GitHub Actions scores the patch) and `quiz` (a self-paced
+the vuln, PR back, GitHub Actions scores the patch), `quiz` (a self-paced
 single/multi-select question bank, authored in `/admin` and scored entirely
-inside the app — no GitHub, `sync`, or `scorer` involvement at all; §5 covers
-what its UI contract satisfies and what it still doesn't). This document is
+inside the app — no GitHub, `sync`, or `scorer` involvement at all), and
+`classic` (a jeopardy-style flag board: organizer-authored challenges, each
+hiding a flag, graded the instant a contestant submits a matching string —
+scored entirely inside the app exactly like `quiz`, with no GitHub/`sync`/
+`scorer` involvement either; §5 covers what its UI contract satisfies and
+what it still doesn't, for both app-side modules). This document is
 the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
 `secure-development` as the worked example throughout, since it is the one
 module that actually exercises the GitHub-mediated scoring contract (§2–3,
-§6–8) that `quiz` deliberately bypasses.
+§6–8) that `quiz` and `classic` deliberately bypass.
 
 The platform sections of `event.yaml` (`event`, `github`, `teams`, `hints`,
 `admins`) are shared. Everything module-specific — target list, challenge
@@ -46,7 +50,7 @@ the sections below are the enforceable contract behind it.
    generator (`apps/web/scripts/generate-event-config.mjs`). In `sync`:
 
    ```js
-   export const KNOWN_MODULES = ["secure-development", "quiz"];
+   export const KNOWN_MODULES = ["secure-development", "quiz", "classic"];
    const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
    if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
    ```
@@ -203,34 +207,44 @@ through the generator, `apps/web/scripts/generate-event-config.mjs`, which
 emits a structured `modules` array plus a derived back-compat `targets` array)
 to a `ModuleDef` — display name, description, and nav entry are code-side
 registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
-entirely config-driven. Two ids are registered today, and — as of this work —
-**both are real, working modules**, not one module plus a registry-proving
-placeholder: `secure-development` (targets, catalogue, GitHub-mediated
-scoring — the worked example throughout this document) and `quiz` (a
-self-paced single/multi-select question bank, scored entirely inside the app
-— see [docs/architecture.md#quiz-data-flow](architecture.md#quiz-data-flow)
-for its data flow and `docs/operations.md`'s "Quiz" section for the
-organizer-facing authoring/retry-knob guide). An id outside the
+entirely config-driven. Three ids are registered today, and — as of this
+work — **all three are real, working modules**, not one module plus
+registry-proving placeholders: `secure-development` (targets, catalogue,
+GitHub-mediated scoring — the worked example throughout this document),
+`quiz` (a self-paced single/multi-select question bank, scored entirely
+inside the app — see
+[docs/architecture.md#quiz-data-flow](architecture.md#quiz-data-flow) for its
+data flow and `docs/operations.md`'s "Quiz" section for the organizer-facing
+authoring/retry-knob guide), and `classic` (a jeopardy-style flag board,
+also scored entirely inside the app — see
+[docs/architecture.md#classic-data-flow](architecture.md#classic-data-flow)
+for its data flow and `docs/operations.md`'s "Classic" section for the
+organizer-facing authoring/cooldown guide). An id outside the
 registry still fails the build loudly (`generate-event-config.mjs`'s
 `validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
 `src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
-header iff that module is enabled *and* defines a `nav` — both modules do
+header iff that module is enabled *and* defines a `nav` — all three modules do
 now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`, rendering
-`components/quiz-board.tsx`); the leaderboard pipeline's
+`components/quiz-board.tsx`) and `classic`'s pointing at `/flags`
+(`apps/web/src/app/(site)/flags/`, rendering `components/classic-board.tsx`);
+the leaderboard pipeline's
 `withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
 attributes `secure-development`'s scorer-sourced points (net of hint
 penalties — it runs after `withHintPenalties`) into a per-module
-`ModuleProgress`, and now *also* computes `quiz`'s points app-side and adds
-them into the combined total (never attributes them — the scorer never sees
-a quiz question, so there is nothing of the quiz's to attribute from) — see
-the architecture doc for why the two modules use different verbs there. An
+`ModuleProgress`, and now *also* computes `quiz`'s and `classic`'s points
+app-side and adds them into the combined total (never attributes them — the
+scorer never sees a quiz question or a captured flag, so there is nothing of
+theirs to attribute from) — see
+the architecture doc for why secure-development and the two app-side modules
+use different verbs there. An
 expanded leaderboard row renders each enabled
 module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
-patched/target breakdown, `quiz`'s shows an answered/total count — with the
+patched/target breakdown, `quiz`'s shows an answered/total count, `classic`'s
+a solved/total count — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; `/profile` renders
 the same per-module blocks for the signed-in contestant's own progress,
@@ -242,11 +256,13 @@ panel
 control-plane settings that belong to the platform itself, then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
 the four hint controls living in Secure
-Development's tab (`admin-secure-dev-tab.tsx`) and the quiz's two retry-gate
+Development's tab (`admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
-question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's —
+question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's, and
+classic's submission-cooldown knob plus its full challenge/category
+authoring UI (`components/admin-classic-controls.tsx`) in Classic's —
 so the generic "No settings for this module yet." fallback that a module
-tab renders when it defines no controls is, today, dead code for both
+tab renders when it defines no controls is, today, dead code for all three
 shipped modules; it stays wired for whatever module ships next with no
 settings of its own. Every module tab opens with an identity editor
 (`admin-module-identity.tsx`) for that module's title/blurb override (item 1
@@ -267,8 +283,9 @@ actually running — as are `/faq`, `/terms` and the 404's route directory
 (item 7). The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
 predate this work and satisfy those items for `secure-development`; `quiz`
-satisfies the same items with its own semantics (item 3 below covers the
-difference). The organizer admin panel that was tracked as Spec B is still
+and `classic` each satisfy the same items with their own semantics — a flat
+answered/total count and a flat solved/total count respectively (item 3
+below covers the difference). The organizer admin panel that was tracked as Spec B is still
 built out — freeze, scheduled scoring windows, team-registration windows, hint
 toggles/cost, demo seed, and the master reset (see `docs/operations.md`'s
 "Organizer admin panel" and "Status and upstream dependencies"). What remains
@@ -276,21 +293,25 @@ open there is score adjustments and player removal — and offering this
 vendored delta back to `OWASP-CTF/ctf-owasp-org` once upstream write access
 opens.
 
-What remains open from *this* work, so a real second module isn't mistaken
-for a fully general n-module platform:
+What remains open from this work and the quiz work before it, so a real
+third module isn't mistaken for a fully general n-module platform:
 
 - **No per-module leaderboards or module switcher exist.** The leaderboard is
   one board; a module's contribution shows only as a row's expandable
-  per-module breakdown, never a separate view. This is unchanged by `quiz`
-  going live — it added a second breakdown block, not a second board.
-- **`sync` still doesn't score anything for `quiz`, by design, not as a gap.**
-  `sync/src/config.js`'s `KNOWN_MODULES` tolerates the `quiz` key purely so an
+  per-module breakdown, never a separate view. This is unchanged by `quiz` or
+  `classic` going live — each added its own breakdown block, not a second or
+  third board.
+- **`sync` still doesn't score anything for `quiz` or `classic`, by design,
+  not as a gap.**
+  `sync/src/config.js`'s `KNOWN_MODULES` tolerates both keys purely so an
   `event.yaml` the app builds from can't crash-loop the poller (the two
   services mount the same file); `sync` still scores `secure-development`
-  alone, because `quiz` never produces a score for GitHub to relay in the
-  first place — it grades server-side inside the app's own Redis keys (see
+  alone, because neither app-side module ever produces a score for GitHub to
+  relay in the
+  first place — both grade server-side inside the app's own Redis keys (see
   the architecture doc). Per-module `score_ingest`/rubric plumbing was for a
-  module that needs scorer-mediated scoring; `quiz` is proof one doesn't
+  module that needs scorer-mediated scoring; `quiz` and `classic` are proof
+  one doesn't
   always need it, not evidence that plumbing is still missing.
 - **Quiz question authoring has no bulk import/export** — one question at a
   time through the admin form, no CSV/JSON upload path.
@@ -298,12 +319,26 @@ for a fully general n-module platform:
   attempt/cooldown overrides** — single- and multi-select only, all-or-nothing
   grading, and the two retry-gate settings (`quizMaxAttempts`,
   `quizRetryAfterMin`) are global, not settable per question.
+- **`classic` in *this* PR has no bulk import/export, no file attachments,
+  and no hints — plainly, not by omission.** Challenges are authored one at a
+  time through the admin form exactly like quiz questions (no CSV/JSON
+  upload path); a challenge's `description` is Markdown text only, with
+  nowhere to attach a downloadable file (an image, a pcap, a binary) for a
+  contestant to pull down; and the hint system (`hintsEnabled`/`hintCost`/the
+  two gating knobs) is wired to `secure-development` targets alone — a
+  classic challenge has no hint of its own to buy, at any price. All three
+  are scoped to later PRs in this same series (bulk import/export, then
+  attachments, then hints), not to this one, and none of the three exists
+  anywhere in `classic-store.ts` or `admin-classic-controls.tsx` today for a
+  reader to find by trial and error.
 
 This section remains the contract a *new* module (forensics, api-security,
-cloud, …) must satisfy to plug into the same UI: it is now proven against two
+cloud, …) must satisfy to plug into the same UI: it is now proven against
+three
 real modules with genuinely different shapes — `secure-development`
-(GitHub-mediated scoring, per-target progress) and `quiz` (app-side scoring,
-a flat answered/total count) — which is what makes item 3 below a contract
+(GitHub-mediated scoring, per-target progress), `quiz` (app-side scoring,
+a flat answered/total count), and `classic` (app-side scoring, a flat
+solved/total count) — which is what makes item 3 below a contract
 about *defining your own progress semantics*, not an accidental description
 of one module's shape.
 
@@ -689,3 +724,29 @@ Parity guards catch the most common drift: `scorer/test/targets.test.js`
 (targets.js ↔ entrypoints ↔ rubric dirs) and `apps/web` `apps.test.ts` /
 `apps-catalogue.test.ts` (apps.ts ↔ sync config ↔ catalogue). Run the full test
 suite after adding a module — a mismatch across these lists fails loudly.
+
+The table above is the worked example for a module with a **target and a
+scorer** — the shape `secure-development` has. A module with no target and no
+scorer-mediated scoring at all (`quiz`, and now `classic`) touches a
+different, smaller set of files, since none of `scorer/`'s rows apply and
+`setup/ctf-setup.sh`'s fork/render/mirror steps have nothing to do (§7).
+`classic`'s actual footprint in this PR:
+
+| File | What it added |
+|---|---|
+| `sync/src/config.js` | add `classic` to `KNOWN_MODULES` (tolerated so the shared `event.yaml` can't crash-loop the poller; `classic` never produces a score for `sync` to relay — §2) |
+| `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
+| `setup/ctf-setup.sh` | recognise the `classic` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz` (§7) |
+| `apps/web/src/lib/classic-keys.ts` | key names/builders, `normalizeFlag`, challenge-id generation — dependency-free, shared by the client-side admin form and the server-only store |
+| `apps/web/src/lib/classic-store.ts` | the module's own `ctf:classic:*` Redis store, its atomic flag-grading Lua script, and the admin/contestant secrecy split |
+| `apps/web/src/lib/markdown.ts` + `apps/web/src/components/markdown.tsx` | the restricted Markdown parser and its node-tree-to-React renderer for challenge descriptions |
+| `apps/web/src/app/api/classic/submit/route.ts` + `apps/web/src/app/api/admin/classic/route.ts` | the flag-submission and organizer-authoring wire contract |
+| `apps/web/src/app/(site)/flags/page.tsx` + `apps/web/src/components/classic-board.tsx` | the contestant-facing board |
+| `apps/web/src/components/admin-classic-controls.tsx` | the organizer's cooldown knob, category manager, and challenge authoring UI |
+| `apps/web/src/lib/leaderboard/module-contributions.ts` + `apps/web/src/lib/leaderboard/team-fold.ts` | the leaderboard overlay (points added, never attributed) and the union-by-item team dedupe it shares with `quiz` |
+| `apps/web/src/lib/modules.ts` | register display name/description/nav plus the `home`/`guide`/`rules`/`faq`/`terms`/`routeCard` copy blocks (§5.5–5.7) |
+| `event.yaml.example` + `README.md` | document the module |
+
+Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
+this way — there is no target, no rubric, and no catalogue for the scorer to
+know about.

@@ -24,7 +24,13 @@ export type ConfirmState = {
  *  the union across all tabs — a function that accepts the whole union is
  *  assignable to a tab prop that only names its own subset. */
 export type CommitNumber = (
-  key: "hintCost" | "hintsMinSolves" | "hintsUnlockAfterMin" | "quizMaxAttempts" | "quizRetryAfterMin",
+  key:
+    | "hintCost"
+    | "hintsMinSolves"
+    | "hintsUnlockAfterMin"
+    | "quizMaxAttempts"
+    | "quizRetryAfterMin"
+    | "classicCooldownSec",
   raw: string,
   reset: (v: string) => void,
 ) => void;

@@ -1,0 +1,357 @@
+// Unit tests for the classic submission gate and flag grading. Upstash is
+// mocked, so "correct"/"incorrect"/"already"/"cooldown" verdicts from the Lua
+// script are simulated via mocked upstashEval replies — the actual comparison
+// and the atomic guards live in SUBMIT_SCRIPT (a Lua string this file can
+// inspect but not execute), so those invariants are proven here by asserting
+// on the script's own TEXT and on the args sent into it, the same way
+// quiz-store.grade.test.ts proves GRADE_SCRIPT's ordering.
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  upstashEval: vi.fn<(script: string, keys: string[], args: (string | number)[]) => Promise<unknown>>(),
+  upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
+  getAdminSettings: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/upstash", () => ({
+  upstashEval: mocks.upstashEval,
+  upstashPipeline: mocks.upstashPipeline,
+}));
+vi.mock("@/lib/admin-store", async (orig) => ({
+  // Real `effectivePaused` (pure logic over the settings object) — only
+  // `getAdminSettings` (the Redis read) is mocked.
+  ...(await orig<typeof import("@/lib/admin-store")>()),
+  getAdminSettings: mocks.getAdminSettings,
+}));
+
+import { CLASSIC_COOLDOWN_SEC, submitFlag, upsertChallenge } from "@/lib/classic-store";
+
+type SettingsOverride = Partial<{
+  paused: boolean;
+  scoringStartsAt: string | null;
+  scoringEndsAt: string | null;
+  classicCooldownSec: number | null;
+}>;
+
+const settings = (over: SettingsOverride = {}) => ({
+  paused: false,
+  scoringStartsAt: null,
+  scoringEndsAt: null,
+  classicCooldownSec: null,
+  ...over,
+});
+
+const solveRow = (points: number, at: string) => JSON.stringify({ points, at });
+const attemptRow = (attempts: number, lastAt: string) => JSON.stringify({ attempts, lastAt });
+
+/** Mocks the gate's one pipeline call: HGET on the solves hash, then HGET on
+ *  the attempts hash, in that order. */
+function gateReads(solve: string | null, attempt: string | null) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: solve }, { result: attempt }]);
+}
+
+/** The next `upstashEval` resolves to this script verdict. */
+function evalReturns(verdict: unknown[]) {
+  mocks.upstashEval.mockResolvedValueOnce(verdict);
+}
+
+const evalCalls = () => mocks.upstashEval.mock.calls;
+/** The most recent grading call, destructured. */
+const lastEval = () => {
+  const [script, keys, argv] = mocks.upstashEval.mock.calls.at(-1) as [string, string[], (string | number)[]];
+  return { script, keys, argv };
+};
+
+beforeEach(() => {
+  mocks.upstashEval.mockReset();
+  mocks.upstashPipeline.mockReset();
+  mocks.getAdminSettings.mockReset();
+  mocks.getAdminSettings.mockResolvedValue(settings());
+  // Default gate reads: nothing solved, nothing attempted — the gate allows.
+  mocks.upstashPipeline.mockResolvedValue([{ result: null }, { result: null }]);
+  mocks.upstashEval.mockResolvedValue(["incorrect", "1"]);
+});
+
+describe("submitFlag normalization", () => {
+  it("normalizes the submission with the same recipe as authoring", async () => {
+    await submitFlag("alice", "chal-1", "  CTF{Flag}  ");
+    expect(lastEval().argv[1]).toBe("ctf{flag}");
+  });
+
+  it("stores and submits a byte-identical value for the same flag, including non-ASCII — the whole whole-value-compare design depends on this", async () => {
+    // Authoring: precomposed e-acute, padded. Written as an escape sequence
+    // so the two spellings below stay distinguishable in the source.
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web"]) }]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { result: 1 }, { result: 1 }]);
+    await upsertChallenge(
+      {
+        id: "chal-1",
+        title: "T",
+        category: "Web",
+        description: "",
+        points: 50,
+        order: 1,
+      },
+      "  CTF{caf\u00e9}  ", // e-acute as ONE code point
+    );
+    const upsertCmds = mocks.upstashPipeline.mock.calls.at(-1)![0] as (string | number)[][];
+    const storedNorm = upsertCmds.find((c) => c[1] === "ctf:classic:flagnorm")![3];
+
+    // Submission: the SAME flag typed with a combining accent (e + U+0301)
+    // and different casing. NFC-then-lowercase makes the two agree; a Lua-side
+    // `string.lower` never would.
+    gateReads(null, null);
+    evalReturns(["correct", "50"]);
+    await submitFlag("alice", "chal-1", "CTF{CAFE\u0301}");
+
+    expect(lastEval().argv[1]).toBe(storedNorm);
+    expect(storedNorm).toBe("ctf{caf\u00e9}");
+  });
+
+  it("hands the script the normalized flag and NEVER the authored one", async () => {
+    await submitFlag("alice", "chal-1", "CTF{Flag}");
+    const { argv, keys } = lastEval();
+    expect(argv).not.toContain("CTF{Flag}");
+    // ...and never points the script at the authored-flag hash either.
+    expect(keys).not.toContain("ctf:classic:flag");
+    expect(keys[2]).toBe("ctf:classic:flagnorm");
+  });
+});
+
+describe("the gate (checked before the grading script ever runs)", () => {
+  it("refuses when scoring is paused, without touching the grading script", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ paused: true }));
+    const res = await submitFlag("alice", "chal-1", "x");
+    expect(res).toEqual({ ok: false, reason: "paused" });
+    expect(evalCalls()).toHaveLength(0);
+    // Not even the gate's own lookup ran.
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("refuses outside the scheduled scoring window — the real effectivePaused, not a mocked one", async () => {
+    mocks.getAdminSettings.mockResolvedValue(
+      settings({ scoringStartsAt: new Date(Date.now() + 60_000).toISOString() }),
+    );
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({ ok: false, reason: "paused" });
+    expect(evalCalls()).toHaveLength(0);
+  });
+
+  it("refuses a challenge this login already solved, without spending an attempt", async () => {
+    gateReads(solveRow(50, "2026-08-19T10:00:00.000Z"), null);
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({ ok: false, reason: "solved" });
+    expect(evalCalls()).toHaveLength(0);
+  });
+
+  it("refuses inside the cooldown and reports retryAt derived from the CURRENT setting", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ classicCooldownSec: 60 }));
+    const lastAt = new Date(Date.now() - 10_000).toISOString();
+    gateReads(null, attemptRow(1, lastAt));
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({
+      ok: false,
+      reason: "cooldown",
+      retryAt: new Date(Date.parse(lastAt) + 60_000).toISOString(),
+    });
+    expect(evalCalls()).toHaveLength(0);
+  });
+
+  it("lifts the lock immediately when the organizer lowers the cooldown — retryAt is derived, never stored", async () => {
+    const lastAt = new Date(Date.now() - 10_000).toISOString(); // unchanged
+    mocks.getAdminSettings.mockResolvedValue(settings({ classicCooldownSec: 60 }));
+    gateReads(null, attemptRow(1, lastAt));
+    expect(await submitFlag("alice", "chal-1", "x")).toMatchObject({ ok: false, reason: "cooldown" });
+
+    mocks.getAdminSettings.mockResolvedValue(settings({ classicCooldownSec: 5 }));
+    gateReads(null, attemptRow(1, lastAt));
+    evalReturns(["incorrect", "2"]);
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({ ok: true, correct: false });
+  });
+
+  it("fails CLOSED with 'unavailable' when the lookup itself errors", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("upstash down"));
+    const res = await submitFlag("alice", "chal-1", "x");
+    // Deliberately NOT reported as a spent attempt or a cooldown: telling a
+    // contestant a false fact about their own attempts is worse than telling
+    // them the check failed.
+    expect(res).toEqual({ ok: false, reason: "unavailable" });
+    expect(evalCalls()).toHaveLength(0);
+    consoleError.mockRestore();
+  });
+
+  it("fails OPEN when the SETTINGS read errors — a Redis blip must never silently drop a live submission", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
+    gateReads(null, null);
+    evalReturns(["correct", "50"]);
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({ ok: true, correct: true, points: 50 });
+    // ...and the script still gets a real cooldown to enforce.
+    expect(lastEval().argv[4]).toBe(CLASSIC_COOLDOWN_SEC * 1000);
+    consoleError.mockRestore();
+  });
+
+  it("rejects a malformed challenge id and an empty flag before touching Upstash", async () => {
+    expect(await submitFlag("alice", "../etc", "x")).toEqual({ ok: false, reason: "invalid" });
+    expect(await submitFlag("alice", "chal-1", "   ")).toEqual({ ok: false, reason: "invalid" });
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+    expect(evalCalls()).toHaveLength(0);
+  });
+});
+
+describe("the grading script's arguments", () => {
+  it("keys the grading call by the server-derived login, the challenge id, and every hash the script touches", async () => {
+    await submitFlag("alice", "chal-1", "x");
+    const { keys, argv } = lastEval();
+    expect(keys).toEqual([
+      "ctf:classic:attempts:alice",
+      "ctf:classic:solves:alice",
+      "ctf:classic:flagnorm",
+      "ctf:classic:challenges",
+      "ctf:classic:points",
+      "ctf:classic:solvecount",
+      "ctf:classic:solved",
+    ]);
+    expect(argv[0]).toBe("chal-1");
+    expect(argv[2]).toBe(new Date(Number(argv[5])).toISOString());
+    expect(argv[3]).toBe("alice");
+  });
+
+  it("passes the CURRENT cooldown setting to the script, never a stored cutoff", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ classicCooldownSec: 30 }));
+    await submitFlag("alice", "chal-1", "x");
+    expect(lastEval().argv[4]).toBe(30_000);
+  });
+
+  it("falls back to the module default cooldown when no admin override is set", async () => {
+    const before = Date.now();
+    await submitFlag("alice", "chal-1", "x");
+    const after = Date.now();
+    const { argv } = lastEval();
+    expect(argv[4]).toBe(CLASSIC_COOLDOWN_SEC * 1000);
+    expect(Number(argv[5])).toBeGreaterThanOrEqual(before);
+    expect(Number(argv[5])).toBeLessThanOrEqual(after);
+  });
+
+  it("passes 0 through as 'no cooldown' rather than falling back to the default", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ classicCooldownSec: 0 }));
+    await submitFlag("alice", "chal-1", "x");
+    expect(lastEval().argv[4]).toBe(0);
+  });
+});
+
+describe("the grading script itself (text invariants)", () => {
+  it("guards the already-solved check before ANY write, re-checks the cooldown before spending an attempt, and gates the counters behind the correctness check", async () => {
+    await submitFlag("alice", "chal-1", "x");
+    const { script } = lastEval();
+    const missing = script.indexOf("'missing'");
+    const guard = script.indexOf("HEXISTS");
+    const cooldownReturn = script.indexOf("'cooldown'");
+    const attemptsWrite = script.indexOf("HSET', KEYS[1]");
+    const incorrectReturn = script.indexOf("'incorrect'");
+    const solveWrite = script.indexOf("HSET', KEYS[2]");
+    const pointsIncr = script.indexOf("HINCRBY', KEYS[5]");
+    const solvedIncr = script.indexOf("HINCRBY', KEYS[7]");
+    const solveCountIncr = script.indexOf("HINCRBY', KEYS[6]");
+    for (const idx of [
+      missing,
+      guard,
+      cooldownReturn,
+      attemptsWrite,
+      incorrectReturn,
+      solveWrite,
+      pointsIncr,
+      solvedIncr,
+      solveCountIncr,
+    ]) {
+      expect(idx).toBeGreaterThan(-1);
+    }
+    expect(missing).toBeLessThan(guard);
+    // The authoritative cooldown re-check happens after the already-solved
+    // guard but strictly BEFORE any attempt is spent — a refusal writes
+    // nothing. And because the guard precedes every increment, a login can
+    // never bump the per-challenge solve counter twice.
+    expect(guard).toBeLessThan(cooldownReturn);
+    expect(cooldownReturn).toBeLessThan(attemptsWrite);
+    expect(attemptsWrite).toBeLessThan(incorrectReturn);
+    expect(incorrectReturn).toBeLessThan(solveWrite);
+    expect(solveWrite).toBeLessThan(pointsIncr);
+    expect(pointsIncr).toBeLessThan(solvedIncr);
+    expect(solvedIncr).toBeLessThan(solveCountIncr);
+  });
+
+  it("compares the flag as a WHOLE VALUE, never parsed out of a JSON blob", async () => {
+    await submitFlag("alice", "chal-1", "x");
+    const { script } = lastEval();
+    // The stored value IS the whole hash field: a flag routinely contains
+    // braces, quotes and backslashes, so any in-script pattern match against a
+    // blob containing one is an escaping bug.
+    expect(script).toContain("local target = redis.call('HGET', KEYS[3], ARGV[1])");
+    expect(script).toContain("if target ~= ARGV[2] then");
+    expect(script).not.toContain('string.match(target');
+  });
+
+  it("never normalizes in Lua — string.lower is ASCII-only and would disagree with normalizeFlag", async () => {
+    await submitFlag("alice", "chal-1", "x");
+    const { script } = lastEval();
+    expect(script).not.toContain("string.lower");
+    expect(script).not.toContain("string.upper");
+  });
+
+  it("anchors the attempts/lastAtMs/points pattern matches to a complete field", async () => {
+    await submitFlag("alice", "chal-1", "x");
+    const { script } = lastEval();
+    expect(script).toContain(`'"attempts":(%d+)[,}]'`);
+    expect(script).toContain(`'"lastAtMs":(%d+)[,}]'`);
+    expect(script).toContain(`'"points":(%-?%d+)[,}]'`);
+  });
+});
+
+describe("verdict mapping", () => {
+  it("maps every script verdict to its result shape", async () => {
+    evalReturns(["missing"]);
+    expect(await submitFlag("a", "c", "x")).toEqual({ ok: false, reason: "invalid" });
+    evalReturns(["incorrect", "2"]);
+    expect(await submitFlag("a", "c", "x")).toEqual({ ok: true, correct: false });
+    evalReturns(["already"]);
+    expect(await submitFlag("a", "c", "x")).toEqual({ ok: true, correct: true, points: 0, already: true });
+    evalReturns(["correct", "50"]);
+    expect(await submitFlag("a", "c", "x")).toEqual({ ok: true, correct: true, points: 50 });
+    evalReturns(["cooldown", "1770000000000"]);
+    expect(await submitFlag("a", "c", "x")).toEqual({
+      ok: false,
+      reason: "cooldown",
+      retryAt: new Date(1770000000000).toISOString(),
+    });
+  });
+
+  it("maps the script's authoritative 'cooldown' verdict even when the pre-check allowed — this is what closes the parallel-submission race", async () => {
+    // The pre-check sees no prior attempt (simulating N requests racing in
+    // with the same stale read), but the script, which re-reads fresh one
+    // submission at a time, has already seen another land.
+    gateReads(null, null);
+    const retryAtMs = Date.now() + 5_000;
+    evalReturns(["cooldown", String(retryAtMs)]);
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({
+      ok: false,
+      reason: "cooldown",
+      retryAt: new Date(retryAtMs).toISOString(),
+    });
+  });
+
+  it("degrades to a friendly error when the script itself fails, or returns something unrecognised", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.upstashEval.mockRejectedValueOnce(new Error("upstash down"));
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({ ok: false, reason: "error" });
+    evalReturns(["who knows"]);
+    expect(await submitFlag("alice", "chal-1", "x")).toEqual({ ok: false, reason: "error" });
+    consoleError.mockRestore();
+  });
+
+  it("never echoes the submitted flag back in any result", async () => {
+    evalReturns(["incorrect", "1"]);
+    const res = await submitFlag("alice", "chal-1", "CTF{secret}");
+    expect(JSON.stringify(res)).not.toContain("CTF{secret}");
+    expect(JSON.stringify(res)).not.toContain("ctf{secret}");
+  });
+});

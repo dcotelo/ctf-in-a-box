@@ -1,0 +1,440 @@
+// Unit tests for the classic challenge store — most importantly that NEITHER
+// flag hash (`ctf:classic:flag`, the flag as authored, or
+// `ctf:classic:flagnorm`, the normalized form grading compares) ever reaches a
+// caller that only asked for challenges.
+//
+// The flags ARE readable by exactly one function, `listChallengesForAdmin`,
+// whose only caller is the `requireAdmin`-gated `GET /api/admin/classic`. The
+// two are pinned apart below: `listChallenges` must never issue a command
+// against either flag hash, and `listChallengesForAdmin` must return the flag
+// in its own field.
+//
+// The gate and `submitFlag` live in classic-store.grade.test.ts instead —
+// they need a PARTIAL `@/lib/admin-store` mock (real `effectivePaused`, mocked
+// `getAdminSettings`), and forcing both halves into one file would mean a
+// compromised mock for both.
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ upstashEval: vi.fn(), upstashPipeline: vi.fn() }));
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
+
+import {
+  CLASSIC_CATEGORIES_MAX,
+  CLASSIC_CATEGORY_MAX_LEN,
+  CLASSIC_POINTS_MAX,
+  ClassicValidationError,
+  deleteChallenge,
+  getClassicTotals,
+  getSolveCounts,
+  getTeamClassicTotalsBatch,
+  getViewerClassic,
+  listCategories,
+  listChallenges,
+  listChallengesForAdmin,
+  setCategories,
+  upsertChallenge,
+  type AdminChallenge,
+  type Challenge,
+} from "@/lib/classic-store";
+import { MARKDOWN_MAX } from "@/lib/markdown";
+
+/** Every `upstashPipeline` call's command list, oldest first. */
+const pipelineCalls = (): (string | number)[][][] =>
+  mocks.upstashPipeline.mock.calls.map((call) => call[0] as (string | number)[][]);
+
+/** The next pipeline reply is a `GET ctf:classic:categories` returning these
+ *  names — `upsertChallenge` reads the category list before it writes. */
+function categoriesReply(names: string[]) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(names) }]);
+}
+
+/** The next pipeline reply is `n` successful writes. */
+function writeReply(n: number) {
+  mocks.upstashPipeline.mockResolvedValueOnce(Array.from({ length: n }, () => ({ result: 1 })));
+}
+
+const challenge = (over: Partial<Challenge> = {}): Challenge => ({
+  id: "chal-1",
+  title: "A challenge",
+  category: "Web",
+  description: "Find the flag.",
+  points: 50,
+  order: 1,
+  ...over,
+});
+
+const row = (c: Challenge) => [c.id, JSON.stringify(c)];
+
+beforeEach(() => {
+  mocks.upstashPipeline.mockReset();
+  mocks.upstashEval.mockReset();
+  // Default: every hash read comes back empty. Tests that care queue their own
+  // reply with `mockResolvedValueOnce`, which takes precedence.
+  mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: [] }, { result: [] }]);
+});
+
+describe("listChallenges", () => {
+  it("never issues a command against either flag hash", async () => {
+    await listChallenges();
+    const commands = pipelineCalls().flat();
+    const keys = commands.map((c) => c[1]);
+    expect(keys).not.toContain("ctf:classic:flag");
+    expect(keys).not.toContain("ctf:classic:flagnorm");
+    // Belt and braces: not as an argument to some other command either.
+    expect(JSON.stringify(commands)).not.toContain("ctf:classic:flag");
+  });
+
+  it("sorts by points ascending, then order, then id", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      {
+        result: [
+          ...row(challenge({ id: "dear-a", points: 200, order: 1 })),
+          ...row(challenge({ id: "cheap-b", points: 50, order: 2 })),
+          ...row(challenge({ id: "cheap-a", points: 50, order: 1 })),
+        ],
+      },
+    ]);
+    const list = await listChallenges();
+    expect(list.map((c) => c.id)).toEqual(["cheap-a", "cheap-b", "dear-a"]);
+  });
+
+  it("falls back to id order when points and order both tie", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      {
+        result: [
+          ...row(challenge({ id: "b", points: 50, order: 1 })),
+          ...row(challenge({ id: "a", points: 50, order: 1 })),
+        ],
+      },
+    ]);
+    expect((await listChallenges()).map((c) => c.id)).toEqual(["a", "b"]);
+  });
+
+  it("drops unparseable rows instead of throwing", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: [...row(challenge({ id: "chal-1" })), "bad", "not json"] },
+    ]);
+    expect((await listChallenges()).map((c) => c.id)).toEqual(["chal-1"]);
+  });
+
+  it("returns an empty list when the hash is empty", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }]);
+    expect(await listChallenges()).toEqual([]);
+  });
+});
+
+describe("listChallengesForAdmin", () => {
+  it("returns each challenge WITH its authored flag, reading both hashes in one pipeline", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: [...row(challenge({ id: "b", points: 100 })), ...row(challenge({ id: "a", points: 50 }))] },
+      { result: ["a", "CTF{Aaa}", "b", "CTF{Bbb}"] },
+    ]);
+
+    const rows = await listChallengesForAdmin();
+
+    expect(rows.map((r) => r.challenge.id)).toEqual(["a", "b"]);
+    expect(rows.map((r) => r.flag)).toEqual(["CTF{Aaa}", "CTF{Bbb}"]);
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(pipelineCalls()[0]).toEqual([
+      ["HGETALL", "ctf:classic:challenges"],
+      // The AUTHORED flag, not the normalized one: an edit form must show the
+      // organizer what they typed, casing included.
+      ["HGETALL", "ctf:classic:flag"],
+    ]);
+  });
+
+  it("keeps the flag in its OWN field, never merged into the challenge record", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: "a" })) },
+      { result: ["a", "CTF{secret}"] },
+    ]);
+    const [first] = await listChallengesForAdmin();
+    // The shape is load-bearing: `AdminChallenge` is deliberately not
+    // assignable to `Challenge`, which is what makes handing an admin row to a
+    // contestant-facing component a compile error rather than a leak.
+    expect(Object.keys(first)).toEqual(["challenge", "flag"]);
+    expect(JSON.stringify(first.challenge)).not.toContain("CTF{secret}");
+  });
+
+  it("reports a missing flag row as empty rather than hiding the challenge", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: row(challenge({ id: "a" })) }, { result: [] }]);
+    expect(await listChallengesForAdmin()).toEqual([{ challenge: challenge({ id: "a" }), flag: "" }]);
+  });
+});
+
+describe("categories", () => {
+  it("reads the stored list in the organizer's order", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web", "Crypto"]) }]);
+    expect(await listCategories()).toEqual(["Web", "Crypto"]);
+  });
+
+  it("reads an absent or unparseable list as empty rather than throwing", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }]);
+    expect(await listCategories()).toEqual([]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "{not json" }]);
+    expect(await listCategories()).toEqual([]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web", 7]) }]);
+    expect(await listCategories()).toEqual(["Web"]);
+  });
+
+  it("stores the trimmed list, deduped case-insensitively, order preserved", async () => {
+    writeReply(1);
+    const stored = await setCategories(["  Web  ", "Crypto", "web"]);
+    expect(stored).toEqual(["Web", "Crypto"]);
+    expect(pipelineCalls()[0]).toEqual([["SET", "ctf:classic:categories", JSON.stringify(["Web", "Crypto"])]]);
+  });
+
+  it("rejects an empty, oversized, or non-string name and an oversized list", async () => {
+    await expect(setCategories(["  "])).rejects.toThrow(ClassicValidationError);
+    await expect(setCategories(["x".repeat(CLASSIC_CATEGORY_MAX_LEN + 1)])).rejects.toThrow(ClassicValidationError);
+    await expect(setCategories([7 as never])).rejects.toThrow(ClassicValidationError);
+    await expect(
+      setCategories(Array.from({ length: CLASSIC_CATEGORIES_MAX + 1 }, (_, i) => `c${i}`)),
+    ).rejects.toThrow(ClassicValidationError);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
+describe("upsertChallenge", () => {
+  const base = challenge();
+
+  it("writes flag and flagnorm in ONE pipeline so they cannot disagree", async () => {
+    categoriesReply(["Web"]);
+    writeReply(3);
+    await upsertChallenge(base, "  CTF{Flag}  ");
+    const [call] = pipelineCalls().slice(-1);
+    const keys = call.map((c) => c[1]);
+    expect(keys).toEqual(["ctf:classic:challenges", "ctf:classic:flag", "ctf:classic:flagnorm"]);
+  });
+
+  it("stores the flag as authored and the normalized form separately", async () => {
+    categoriesReply(["Web"]);
+    writeReply(3);
+    await upsertChallenge(base, "  CTF{Flag}  ");
+    const [call] = pipelineCalls().slice(-1);
+    expect(call[1][3]).toBe("CTF{Flag}"); // trimmed, casing preserved
+    expect(call[2][3]).toBe("ctf{flag}"); // normalized
+  });
+
+  it("never writes a flag into the public challenge record", async () => {
+    categoriesReply(["Web"]);
+    writeReply(3);
+    await upsertChallenge(base, "CTF{Flag}");
+    const [call] = pipelineCalls().slice(-1);
+    expect(String(call[0][3])).not.toContain("CTF{Flag}");
+    expect(String(call[0][3])).not.toContain("ctf{flag}");
+  });
+
+  it("returns what was stored, with the flag trimmed", async () => {
+    categoriesReply(["Web"]);
+    writeReply(3);
+    expect(await upsertChallenge(base, "  CTF{Flag}  ")).toEqual({ challenge: base, flag: "CTF{Flag}" });
+  });
+
+  it("rejects a challenge whose category is not a known category", async () => {
+    categoriesReply(["Web"]);
+    await expect(upsertChallenge({ ...base, category: "ghost" }, "f")).rejects.toThrow(ClassicValidationError);
+    // Nothing was written.
+    expect(pipelineCalls()).toHaveLength(1);
+  });
+
+  it("rejects non-integer, negative, and oversized points", async () => {
+    for (const points of [1.5, -1, 1e21, CLASSIC_POINTS_MAX + 1]) {
+      categoriesReply(["Web"]);
+      await expect(upsertChallenge({ ...base, points }, "f")).rejects.toThrow(ClassicValidationError);
+    }
+  });
+
+  it("rejects an empty flag", async () => {
+    categoriesReply(["Web"]);
+    await expect(upsertChallenge(base, "   ")).rejects.toThrow(ClassicValidationError);
+  });
+
+  it("rejects a malformed id and an empty title before reading anything", async () => {
+    await expect(upsertChallenge({ ...base, id: "bad id" }, "f")).rejects.toThrow(ClassicValidationError);
+    await expect(upsertChallenge({ ...base, title: "   " }, "f")).rejects.toThrow(ClassicValidationError);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("rejects a description past the markdown cap", async () => {
+    categoriesReply(["Web"]);
+    await expect(upsertChallenge({ ...base, description: "x".repeat(MARKDOWN_MAX + 1) }, "f")).rejects.toThrow(
+      ClassicValidationError,
+    );
+  });
+
+  it("surfaces an Upstash write failure as a plain Error, distinct from a validation error", async () => {
+    categoriesReply(["Web"]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { error: "WRONGTYPE" }, { result: 1 }]);
+    await expect(upsertChallenge(base, "f")).rejects.not.toBeInstanceOf(ClassicValidationError);
+  });
+});
+
+describe("AdminChallenge", () => {
+  it("is not assignable to Challenge", () => {
+    // Compile-time guarantee, asserted here so the intent is documented.
+    // @ts-expect-error AdminChallenge must NOT be usable where Challenge is.
+    const c: Challenge = {} as AdminChallenge;
+    void c;
+  });
+});
+
+describe("deleteChallenge", () => {
+  it("removes the challenge and BOTH flag rows, leaving history and aggregates alone", async () => {
+    writeReply(3);
+    await deleteChallenge("chal-1");
+    expect(pipelineCalls()[0]).toEqual([
+      ["HDEL", "ctf:classic:challenges", "chal-1"],
+      ["HDEL", "ctf:classic:flag", "chal-1"],
+      ["HDEL", "ctf:classic:flagnorm", "chal-1"],
+    ]);
+    // Deliberately NOT the per-login solve/attempt hashes or the aggregate
+    // counters — see deleteChallenge's contract.
+    const keys = pipelineCalls().flat().map((c) => c[1]);
+    expect(keys).not.toContain("ctf:classic:points");
+    expect(keys).not.toContain("ctf:classic:solved");
+    expect(keys).not.toContain("ctf:classic:solvecount");
+  });
+
+  it("rejects a malformed id without touching Upstash", async () => {
+    await expect(deleteChallenge("../etc")).rejects.toThrow(ClassicValidationError);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
+describe("getViewerClassic", () => {
+  it("returns the caller's solves and never reads a flag hash", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: ["chal-1", JSON.stringify({ points: 50, at: "2026-08-19T10:00:00.000Z" }), "bad", "not json"] },
+      { result: [] },
+    ]);
+    const viewer = await getViewerClassic("alice");
+    expect(viewer).toEqual({ solved: { "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } }, attempts: {} });
+    const keys = pipelineCalls().flat().map((c) => c[1]);
+    expect(keys).toEqual(["ctf:classic:solves:alice", "ctf:classic:attempts:alice"]);
+    expect(JSON.stringify(pipelineCalls())).not.toMatch(/ctf:classic:flag/);
+  });
+
+  // The gap this task closes: the board needs `attempts` (mirroring
+  // `ViewerQuiz.attempts`) to derive a server-side cooldown status, in the
+  // SAME pipeline call as the solves read — one extra HGETALL, no change to
+  // the existing solved-only behaviour, and still no flag hash touched.
+  it("also returns every attempt (right or wrong), keyed by challenge id, in the same pipeline", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: ["chal-1", JSON.stringify({ points: 50, at: "2026-08-19T10:00:00.000Z" })] },
+      {
+        result: [
+          "chal-1",
+          JSON.stringify({ attempts: 1, lastAt: "2026-08-19T09:59:00.000Z", lastAtMs: 1755597540000 }),
+          "chal-2",
+          JSON.stringify({ attempts: 3, lastAt: "2026-08-19T09:00:00.000Z", lastAtMs: 1755594000000 }),
+          "bad",
+          "not json",
+        ],
+      },
+    ]);
+
+    const viewer = await getViewerClassic("alice");
+
+    expect(viewer.solved).toEqual({ "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } });
+    expect(viewer.attempts).toEqual({
+      "chal-1": { attempts: 1, lastAt: "2026-08-19T09:59:00.000Z" },
+      "chal-2": { attempts: 3, lastAt: "2026-08-19T09:00:00.000Z" },
+    });
+    // ONE pipeline call carrying both HGETALLs, not two round trips.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(pipelineCalls()[0]).toEqual([
+      ["HGETALL", "ctf:classic:solves:alice"],
+      ["HGETALL", "ctf:classic:attempts:alice"],
+    ]);
+  });
+
+  it("returns empty solved/attempts when both hashes are empty", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }, { result: [] }]);
+    expect(await getViewerClassic("alice")).toEqual({ solved: {}, attempts: {} });
+  });
+});
+
+describe("getSolveCounts", () => {
+  it("reads the per-challenge solve counter in one call", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["chal-1", "3", "chal-2", "1"] }]);
+    expect([...(await getSolveCounts())]).toEqual([
+      ["chal-1", 3],
+      ["chal-2", 1],
+    ]);
+    expect(pipelineCalls()[0]).toEqual([["HGETALL", "ctf:classic:solvecount"]]);
+  });
+});
+
+describe("getClassicTotals", () => {
+  it("unions the two aggregate hashes into one total per login, in two round trips", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: ["alice", "150", "bob", "50"] },
+      { result: ["alice", "2"] },
+    ]);
+    const totals = await getClassicTotals();
+    expect(totals.get("alice")).toEqual({ points: 150, solved: 2, lastAt: null });
+    expect(totals.get("bob")).toEqual({ points: 50, solved: 0, lastAt: null });
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getTeamClassicTotalsBatch", () => {
+  const solves = (rows: Record<string, { points: number; at: string }>) => ({
+    result: Object.entries(rows).flatMap(([id, v]) => [id, JSON.stringify(v)]),
+  });
+
+  it("counts a challenge two teammates both solved exactly once, at the earliest solve", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      solves({ "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } }),
+      solves({ "chal-1": { points: 90, at: "2026-08-19T11:00:00.000Z" } }),
+    ]);
+    const [total] = await getTeamClassicTotalsBatch([["alice", "bob"]]);
+    expect(total).toEqual({ points: 50, solved: 1, lastAt: "2026-08-19T10:00:00.000Z" });
+  });
+
+  it("issues ONE pipeline for the whole board and fetches a shared member once", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([solves({}), solves({}), solves({})]);
+    await getTeamClassicTotalsBatch([
+      ["alice", "bob"],
+      ["bob", "carol"],
+    ]);
+    expect(pipelineCalls()).toHaveLength(1);
+    expect(pipelineCalls()[0]).toEqual([
+      ["HGETALL", "ctf:classic:solves:alice"],
+      ["HGETALL", "ctf:classic:solves:bob"],
+      ["HGETALL", "ctf:classic:solves:carol"],
+    ]); // alice, bob, carol — not 4
+  });
+
+  it("returns one total per team, in the same order, reusing a shared member's reply", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      solves({ "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } }), // alice
+      solves({ "chal-2": { points: 10, at: "2026-08-19T09:00:00.000Z" } }), // bob
+      solves({ "chal-2": { points: 10, at: "2026-08-19T12:00:00.000Z" } }), // carol
+    ]);
+    const totals = await getTeamClassicTotalsBatch([
+      ["alice", "bob"],
+      ["bob", "carol"],
+    ]);
+    expect(totals).toEqual([
+      { points: 60, solved: 2, lastAt: "2026-08-19T10:00:00.000Z" },
+      { points: 10, solved: 1, lastAt: "2026-08-19T09:00:00.000Z" },
+    ]);
+  });
+
+  it("skips unparseable rows rather than throwing", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["chal-1", "not json"] }]);
+    expect(await getTeamClassicTotalsBatch([["alice"]])).toEqual([{ points: 0, solved: 0, lastAt: null }]);
+  });
+
+  it("costs no round trip at all when no team has a member", async () => {
+    expect(await getTeamClassicTotalsBatch([[], []])).toEqual([
+      { points: 0, solved: 0, lastAt: null },
+      { points: 0, solved: 0, lastAt: null },
+    ]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});

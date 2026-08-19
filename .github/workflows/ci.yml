@@ -20,6 +20,7 @@ jobs:
       shell: ${{ steps.f.outputs.shell }}
       smoke: ${{ steps.f.outputs.smoke }}
       quiz: ${{ steps.f.outputs.quiz }}
+      classic: ${{ steps.f.outputs.classic }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != "pull_request" ]; then
-            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; } >> "$GITHUB_OUTPUT"
+            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; echo "classic=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
@@ -57,6 +58,10 @@ jobs:
             # contract), plus docker-compose.yml itself (sync's restart
             # policy the gate asserts on).
             echo "quiz=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-quiz-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
+            # classic mirrors quiz's reasoning exactly: it spans the app
+            # (module gating, /flags, /challenges 404, /leaderboard) and sync
+            # (the exits-0 contract), plus docker-compose.yml itself.
+            echo "classic=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-classic-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
@@ -147,3 +152,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./scripts/acceptance-quiz-only.sh
+
+  classic-only:
+    needs: changes
+    if: needs.changes.outputs.classic == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./scripts/acceptance-classic-only.sh

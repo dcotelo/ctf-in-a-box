@@ -948,3 +948,182 @@ assertion that catches this class of bug directly: the documented quiz-only
 line-up must contain no `scorer` and no `sync`, and the scored line-up must
 still contain both — a check the rest of that gate structurally could not
 make, since it builds the app by hand and brings `sync` up with `--no-deps`.
+
+## 27. Two flag hashes rather than one
+
+**Context.** The classic module's admin authoring surface needs to prefill
+an existing challenge's flag when an organizer opens it for editing — the
+same reasoning `quiz`'s answer-key prefill already established: an edit form
+that starts blank forces a retype from memory, and a mistake there silently
+redefines what counts as solved for every contestant, with no diff and no
+warning. Grading, meanwhile, needs a value it can compare a submission
+against cheaply and exactly. A single hash can't serve both needs well.
+Storing only the flag AS AUTHORED means grading has to normalize it (trim,
+case-fold, Unicode-normalize) on every submission — cheap, but it also means
+the *comparison* target is derived at read time, one more place the
+authoring and submission recipes could quietly diverge. Storing only the
+*normalized* form solves grading cleanly but throws away the organizer's
+original casing/whitespace, so the edit form can only ever show a
+canonicalized flag, not what was actually typed.
+
+**Decision.** Store both, as two separate hashes keyed by challenge id:
+`ctf:classic:flag` (the flag AS AUTHORED, trimmed but otherwise verbatim —
+read by exactly one function, `listChallengesForAdmin`, itself reachable
+only from the `requireAdmin`-gated `GET /api/admin/classic`) and
+`ctf:classic:flagnorm` (`normalizeFlag(flag)` — trim, Unicode NFC-normalize,
+lowercase — the ONLY value grading's Lua script ever reads or compares
+against). `upsertChallenge` writes the challenge record and both flag hashes
+in one Upstash pipeline call, so all three can never observably disagree —
+a challenge can never be live with a `flagnorm` belonging to a previous
+version of its flag. `listChallenges`, the one list function a
+contestant-facing route or the leaderboard may call, issues no command
+against either flag hash, and its `Challenge` return type has no field that
+could carry one even by accident — the split is a type boundary, not a
+habit callers have to remember.
+
+**Consequences.** The admin edit form always shows exactly what an organizer
+typed, so a typo fix is a diff against real text instead of a blind
+retype-and-hope. Grading never normalizes at submission time — it reads an
+already-normalized value straight off `flagnorm` and compares whole strings
+with Lua's `==`, so there is nothing for the grading path to get subtly
+wrong on a given submission. The cost is genuinely small: one extra hash
+field per challenge, written together with the other two so there is no
+window where they could disagree, and deleted together in
+`deleteChallenge`. The two hashes are deliberately readable by different
+functions (`listChallengesForAdmin` for `flag`, the grading script alone for
+`flagnorm`) rather than merged into one record type, which is what makes
+"the contestant path never touches a flag" a property the compiler can
+check rather than a discipline every future call site has to maintain by
+hand.
+
+## 28. A hand-rolled Markdown renderer rather than a library
+
+**Context.** A classic challenge's description is organizer-authored content
+that needs a little formatting — bold, italics, inline code, lists, a code
+block, an occasional link — rendered for every contestant who opens the
+board. Every mainstream Markdown library (`marked`, `markdown-it`,
+`remark`-to-HTML) produces an HTML *string*, which then has to be either
+rendered with `dangerouslySetInnerHTML` or run through a sanitizer
+(DOMPurify and similar) before it can be. Either choice makes an
+organizer-authored field — admin-gated, but authored by potentially many
+organizers across many events, and the one place on this platform closest
+to "arbitrary rich text from a semi-trusted party" — a standing injection
+surface: a sanitizer allowlist can regress with a library upgrade, and a
+`dangerouslySetInnerHTML` call is one `git blame` away from being copied
+somewhere it shouldn't be.
+
+**Decision.** `apps/web/src/lib/markdown.ts` hand-parses a small, fixed
+subset directly into a typed node tree — `MdBlock`/`MdInline` unions for
+paragraphs, fenced code blocks, ordered/unordered lists, strong/em/inline
+code/links — and never into an HTML string at any stage. Two passes:
+`parseMarkdown` splits input into blocks (fenced code, lists, paragraphs,
+each capped by `MARKDOWN_MAX`), and `parseInline` runs a small ordered
+pattern set within a block (code wins over emphasis, so `` `**x**` ``
+renders literally). Links go through `safeHref`, an explicit allowlist of
+exactly three schemes (`http:`, `https:`, `mailto:`) — control characters
+and whitespace are stripped from the raw target BEFORE parsing (closing
+`java\nscript:`/`java\tscript:`-style browser-normalization bypasses a check
+on the parsed URL alone would miss) and scheme-relative `//host` is rejected
+outright, since `new URL` cannot parse it standalone and it would otherwise
+inherit the page's own scheme. `components/markdown.tsx` renders the node
+tree into React elements directly — `dangerouslySetInnerHTML` is never
+called anywhere in this pipeline, so injected markup is structurally
+impossible to render, not merely filtered out by a sanitizer that has to
+keep being right.
+
+**Consequences.** The supported subset is deliberately small: no headings,
+no images, no tables, no raw HTML passthrough of any kind — a real
+capability gap next to a full Markdown library, and `<` is just a character
+here with no special handling anywhere in the pipeline. That gap is the
+trade for the injection surface it closes: a future feature that genuinely
+needs raw HTML needs a new design, not a hole poked in this one (the
+module's own header comment says so in as many words). The admin panel's
+live preview renders through this exact same parser/renderer pair a
+contestant's board uses — never a second implementation — so what an
+organizer sees while authoring is never a preview of something different
+from what ships.
+
+## 29. No attempt cap on flag submission
+
+**Context.** The quiz module enforces two retry-gate knobs together: a
+maximum attempt count per question and a cooldown between attempts, because
+a quiz question's answer space is small and enumerable (a handful of
+labelled choices) — without a cap, exhausting every combination is a
+realistic brute-force path. Classic's answer space is categorically
+different: a flag is an arbitrary string with no enumerable option set, so
+the brute-force risk a cap defends against for quiz simply doesn't apply the
+same way here. A cap would instead mostly punish a contestant legitimately
+iterating on a real hunch, or retrying immediately after noticing a typo —
+friction with no matching security benefit, since the normalization
+(decision noted in the architecture doc) already forgives case and
+whitespace variance, the two mistakes an attempt cap might otherwise seem to
+guard against.
+
+**Decision.** `evaluateGate`/`SUBMIT_SCRIPT` enforce exactly one throttle:
+`classicCooldownSec`, organizer-configurable, default `5`, capped at `3600`
+(`CLASSIC_COOLDOWN_SEC_MAX` in `admin-store.ts`) — `0` disables it entirely.
+There is no attempt-count field anywhere in the gate; the only refusal
+reasons `submitFlag` can return are paused/scheduled, already-solved,
+cooldown, or an unverifiable lookup (`"unavailable"`, fail-closed) — never a
+spent allowance. The cooldown is expressed in **seconds**, not minutes,
+deliberately unlike every neighbouring retry-gate setting on this platform
+(`quizRetryAfterMin`, `hintsUnlockAfterMin`): the job here is blunting a
+scripted brute-force loop hammering the endpoint, a sub-minute-timescale
+problem, not rationing a contestant's genuine tries the way quiz's cap does.
+The Lua script, not the JS pre-check, is the authority: it re-reads the
+cooldown against the attempts row at script-execution time, so a burst of
+near-simultaneous submissions can't collectively outrun a cooldown the
+pre-check alone would have let through.
+
+**Consequences.** A contestant can retry a classic challenge as many times
+as they like, gated only by how long they're willing to wait between tries
+— an organizer who wants a harder anti-brute-force posture has one lever
+(raise the cooldown, up to the one-hour cap) rather than two. This is judged
+adequate specifically because the flag space is arbitrary text: even a slow
+scripted guesser gains nothing meaningful within the cap's lifetime, unlike
+quiz's small enumerable option space, where a cap is load-bearing. If a
+future need arises for a genuine per-challenge attempt limit, it is a new
+knob, not an extension of the cooldown — the two solve different problems
+and conflating them would blur which knob to reach for.
+
+## 30. One shared team-dedupe fold
+
+**Context.** Both `quiz` and `classic` need a team's total to be the
+**union** of what its members individually banked — never the sum, which
+double-counts any item two teammates both hold, the same double-counting
+mistake naive summation would make with a shared secure-development flag.
+Both stores also happen to bank a contestant's earned items in the identical
+shape: a per-login hash keyed by item id, valued `{points, at}` (`at` the
+solve/answer timestamp). Before `classic` existed, this union-fold logic —
+parse each member's hash reply, dedupe by item id keeping the earliest
+record on a tie, sum the deduped points, track the latest timestamp for
+"last activity" — lived once, inside `quiz-store.ts`, written for quiz
+alone.
+
+**Decision.** Extract the fold into `apps/web/src/lib/leaderboard/team-fold.ts`'s
+`foldTeamItems`, a pure function over Upstash pipeline replies with no
+dependency on either store — deliberately not `server-only`, so both
+`quiz-store.ts` and `classic-store.ts` can call it and its own tests can
+exercise it directly. Both stores' team-total functions
+(`getTeamQuizTotalsBatch`/`getTeamClassicTotalsBatch`) call the identical
+function and rename only the returned `completed` count to their own noun
+(`answered` for quiz, `solved` for classic) — the SHAPE is shared, the
+vocabulary is not. The dedupe key is the hash field name (question id or
+challenge id); the record kept for a key more than one member holds is the
+EARLIEST one, so a later re-solve by a teammate, or a since-changed item
+price recorded on someone else's row, never changes what the team already
+earned; `lastAt` is the LATEST timestamp in the deduped set, for the "last
+activity" column.
+
+**Consequences.** One rule, one set of tests
+(`leaderboard/__tests__/team-fold.test.ts`) governs tie-breaking and
+timestamp handling for every module that ever needs a team-item dedupe,
+instead of two copies that could silently diverge on either. A third
+capture-style module (one that banks `{points, at}` per item per login)
+gets correct team dedupe for free by calling `foldTeamItems` rather than
+re-deriving the rule; a module whose progress doesn't fit that shape simply
+doesn't use it, the same way `secure-development`'s per-target flags don't.
+The shared function's vocabulary (`completed`, `Earned`) is intentionally
+generic — each caller still translates it into its own domain language
+(`ClassicTotal`/`QuizTotal`) at the boundary, so nothing downstream of
+either store has to know the fold is shared.

@@ -35,10 +35,14 @@ export type AppProgress = {
 export type SecureDevelopmentDetail = { kind: "secure-development"; apps: Partial<Record<AppId, AppProgress>> };
 /** quiz's detail block (populated in phase 2). */
 export type QuizDetail = { kind: "quiz"; answered: number; total: number; points: number };
+/** classic's detail block: flags solved out of the challenges on offer.
+ *  `total` is CLAMPED to at least `solved` by whoever builds it — see
+ *  `classicModule` in module-contributions.ts. */
+export type ClassicDetail = { kind: "classic"; solved: number; total: number; points: number };
 /** Discriminated on `kind` — narrow on it rather than casting; each module
  *  contributes its own detail shape and a new module means a new branch, not
  *  a wider inferred type. */
-export type ModuleDetail = SecureDevelopmentDetail | QuizDetail;
+export type ModuleDetail = SecureDevelopmentDetail | QuizDetail | ClassicDetail;
 
 export type ModuleProgress = {
   /** This module's contribution to the row's total points. */

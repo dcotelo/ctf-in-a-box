@@ -1,0 +1,77 @@
+// Shared `ctf:classic:*` key names/builders, the flag normalization recipe,
+// and id generation. Dependency-free ON PURPOSE — no imports at all — so
+// admin-store.ts (the demo seed and the master reset both need these names)
+// can use it without a require cycle through classic-store.ts, which imports
+// admin-store.ts itself. Same reasoning as quiz-keys.ts.
+
+export const CLASSIC_CHALLENGES_KEY = "ctf:classic:challenges";
+export const CLASSIC_FLAG_KEY = "ctf:classic:flag";
+export const CLASSIC_FLAGNORM_KEY = "ctf:classic:flagnorm";
+export const CLASSIC_CATEGORIES_KEY = "ctf:classic:categories";
+export const CLASSIC_POINTS_KEY = "ctf:classic:points";
+export const CLASSIC_SOLVED_KEY = "ctf:classic:solved";
+export const CLASSIC_SOLVECOUNT_KEY = "ctf:classic:solvecount";
+export const CLASSIC_SOLVES_PREFIX = "ctf:classic:solves:";
+export const CLASSIC_ATTEMPTS_PREFIX = "ctf:classic:attempts:";
+
+export const classicSolvesKey = (login: string) => `${CLASSIC_SOLVES_PREFIX}${login}`;
+export const classicAttemptsKey = (login: string) => `${CLASSIC_ATTEMPTS_PREFIX}${login}`;
+
+/** Challenge ids look like "sql-injection-101-ab12cd" — same shape and cap as
+ *  the quiz's, and validated in the same places (store write, API boundary). */
+export const CLASSIC_ID_RE = /^[\w-]{1,64}$/;
+
+/** THE canonical flag form. Used by the authoring path (what gets stored in
+ *  `ctf:classic:flagnorm`) and by the submission path (what gets compared
+ *  against it). Both sides MUST use this one function — the whole "compare
+ *  whole values with Lua `==`" design depends on them agreeing byte for byte.
+ *
+ *  NFC before lowercasing, so a flag typed with a combining accent matches
+ *  the same flag typed with a precomposed one — two spellings that look
+ *  identical to the contestant reading them off a screen.
+ *
+ *  This must NEVER be reimplemented in Lua. `string.lower` is ASCII-only, so
+ *  a Lua-side normalization of any non-ASCII flag disagrees with this one and
+ *  produces a challenge nobody can solve. */
+export function normalizeFlag(raw: string): string {
+  return raw.trim().normalize("NFC").toLowerCase();
+}
+
+const ID_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+const ID_SUFFIX_LENGTH = 6;
+const ID_SLUG_MAX = 32;
+
+/** A short random suffix. `Math.random` on purpose: the id is storage
+ *  plumbing, exposed to every contestant in the `/flags` payload the moment
+ *  the challenge is published, so guessing it buys nothing. It only has to
+ *  not collide. `random` is injectable so tests pin a value. */
+export function randomIdSuffix(random: () => number = Math.random): string {
+  let out = "";
+  for (let i = 0; i < ID_SUFFIX_LENGTH; i += 1) {
+    out += ID_SUFFIX_ALPHABET[Math.floor(random() * ID_SUFFIX_ALPHABET.length)] ?? "0";
+  }
+  return out;
+}
+
+export function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, ID_SLUG_MAX)
+    .replace(/-+$/, "");
+}
+
+/** Title slug + random suffix, so two identically-titled challenges cannot
+ *  collide. A collision would overwrite the first challenge AND inherit every
+ *  solve already recorded against its id.
+ *
+ *  The result is checked against `CLASSIC_ID_RE` before return — not
+ *  decorative, because `suffix` is a parameter and a caller can hand in
+ *  something the slug rules never would. This function's contract is that it
+ *  cannot emit an id the store would reject. */
+export function generateChallengeId(title: string, suffix: string = randomIdSuffix()): string {
+  const candidate = `${slugifyTitle(title) || "c"}-${suffix}`;
+  if (CLASSIC_ID_RE.test(candidate)) return candidate;
+  return `c-${randomIdSuffix()}`;
+}

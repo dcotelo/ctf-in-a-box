@@ -51,13 +51,18 @@ describe("resetEvent", () => {
       quizAttempts: 2,
       quizPoints: 2,
       quizAnswered: 2,
+      classicSolves: 2,
+      classicAttempts: 2,
+      classicPoints: 2,
+      classicSolved: 2,
+      classicSolveCount: 2,
     });
     expect(out.resetAt).toMatch(/^\d+$/);
 
-    // one SCAN + one DEL per prefix (9 prefixes) = 18 pipeline calls
+    // one SCAN + one DEL per prefix (14 prefixes) = 28 pipeline calls
     const verbs = mocks.upstashPipeline.mock.calls.map((c) => c[0][0][0]);
-    expect(verbs.filter((v) => v === "SCAN").length).toBe(9);
-    expect(verbs.filter((v) => v === "DEL").length).toBe(9);
+    expect(verbs.filter((v) => v === "SCAN").length).toBe(14);
+    expect(verbs.filter((v) => v === "DEL").length).toBe(14);
     // every wiped prefix, and NOT settings/audit/sync
     const patterns = mocks.upstashPipeline.mock.calls
       .filter((c) => c[0][0][0] === "SCAN")
@@ -72,6 +77,11 @@ describe("resetEvent", () => {
       "ctf:quiz:attempts:*",
       "ctf:quiz:points",
       "ctf:quiz:answered",
+      "ctf:classic:solves:*",
+      "ctf:classic:attempts:*",
+      "ctf:classic:points",
+      "ctf:classic:solved",
+      "ctf:classic:solvecount",
     ]);
 
     // the freeze + audit eval: settings + audit keys, and a reset audit line
@@ -114,6 +124,42 @@ describe("resetEvent", () => {
     expect(patterns).toContain("ctf:quiz:answered");
     expect(out.cleared.quizPoints).toBe(1);
     expect(out.cleared.quizAnswered).toBe(1);
+  });
+
+  it("wipes classic solves and attempts", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:classic:solves:*");
+    expect(patterns).toContain("ctf:classic:attempts:*");
+  });
+
+  it("KEEPS the classic challenge bank, flag key, and categories across a reset", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).not.toContain("ctf:classic:challenges");
+    expect(patterns).not.toContain("ctf:classic:flag");
+    expect(patterns).not.toContain("ctf:classic:flagnorm");
+    expect(patterns).not.toContain("ctf:classic:categories");
+  });
+
+  it("also clears the classic aggregate totals", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    const out = await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:classic:points");
+    expect(patterns).toContain("ctf:classic:solved");
+    expect(patterns).toContain("ctf:classic:solvecount");
+    expect(out.cleared.classicPoints).toBe(1);
+    expect(out.cleared.classicSolved).toBe(1);
+    expect(out.cleared.classicSolveCount).toBe(1);
   });
 
   it("skips DEL for an empty prefix and paginates a multi-page prefix", async () => {

@@ -677,7 +677,7 @@ yaml_targets() {
 # fork-based provisioning), an UNKNOWN key is still a hard error. Only
 # secure-development has anything here to fork/render/check; quiz is scored
 # entirely app-side.
-KNOWN_MODULES="secure-development quiz"
+KNOWN_MODULES="secure-development quiz classic"
 
 # Top-level keys directly under `modules:`, one per line. Exit status is part
 # of the contract: nonzero means "could not parse", NOT "no modules" — every
@@ -1277,11 +1277,11 @@ wiz_module_default() {
 #
 # Emits a block ONLY for the modules that were enabled, and only the keys each
 # module actually has: secure-development carries targets + score_ingest; quiz
-# carries nothing — its attempt cap and retry cooldown are runtime /admin
-# settings in Redis, not build-time config, so there is nothing to ask for and
-# nothing to write. Fails closed on an empty or unknown selection instead of
-# emitting a `modules:` block with no keys under it, which every reader
-# rejects.
+# and classic carry nothing — quiz's attempt cap and retry cooldown, and
+# classic's submission cooldown, are runtime /admin settings in Redis, not
+# build-time config, so there is nothing to ask for and nothing to write.
+# Fails closed on an empty or unknown selection instead of emitting a
+# `modules:` block with no keys under it, which every reader rejects.
 #
 # Args: name url dates org modules targets ingest admins
 wiz_event_yaml() {
@@ -1303,6 +1303,7 @@ wiz_event_yaml() {
           "$(csv_of "$targets")" "$ingest"
         ;;
       quiz) printf '  quiz: {}\n' ;;
+      classic) printf '  classic: {}\n' ;;
       *) echo "event.yaml: unknown module: $m" >&2; return 1 ;;
     esac
   done

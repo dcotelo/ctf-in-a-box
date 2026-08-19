@@ -86,6 +86,17 @@ export const SECURE_DEV_TERMS = [
   "branch",
   "github action",
   "scorer",
+  // "challenge" is NOT exclusive to secure-development's vocabulary — the
+  // classic module's own store type is `Challenge` (classic-store.ts), and
+  // its admin authoring form says "Challenge id". /admin and /leaderboard
+  // are surfaces where classic legitimately renders that word by design
+  // (the leaderboard empty-board line and CTA for classic both say
+  // "flag", not "challenge" — see modules.ts — but the admin panel's own
+  // labels for the classic module do say "challenge"). A leak test written
+  // against either of those two surfaces for a classic-only event will see
+  // this term false-positive there; that is a reason to keep the check off
+  // those surfaces, per this file's header rule, never a reason to drop the
+  // term.
   "challenge",
   "hint",
   "top 10",

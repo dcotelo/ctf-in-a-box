@@ -33,6 +33,7 @@ import type { AdminSettings } from "@/lib/admin-store";
 import { enabledModules, type ModuleId, type ResolvedModule } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
+import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminEventTab from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
@@ -112,6 +113,9 @@ export default function AdminControls({
   );
   const [quizRetryAfterInput, setQuizRetryAfterInput] = useState(
     initial.quizRetryAfterMin === null ? "" : String(initial.quizRetryAfterMin),
+  );
+  const [classicCooldownSecInput, setClassicCooldownSecInput] = useState(
+    initial.classicCooldownSec === null ? "" : String(initial.classicCooldownSec),
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +226,7 @@ export default function AdminControls({
       setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
       setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
       setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
+      setClassicCooldownSecInput(s.classicCooldownSec === null ? "" : String(s.classicCooldownSec));
     }
     setPending(false);
     return true;
@@ -231,7 +236,13 @@ export default function AdminControls({
    *  stored value, an unchanged value is a no-op, otherwise it's patched
    *  server-side (which re-validates the range — see admin-store). */
   const commitNumber = (
-    key: "hintCost" | "hintsMinSolves" | "hintsUnlockAfterMin" | "quizMaxAttempts" | "quizRetryAfterMin",
+    key:
+      | "hintCost"
+      | "hintsMinSolves"
+      | "hintsUnlockAfterMin"
+      | "quizMaxAttempts"
+      | "quizRetryAfterMin"
+      | "classicCooldownSec",
     raw: string,
     reset: (v: string) => void,
   ) => {
@@ -323,6 +334,13 @@ export default function AdminControls({
                   setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
                   quizRetryAfterInput={quizRetryAfterInput}
                   setQuizRetryAfterInput={setQuizRetryAfterInput}
+                  commitNumber={commitNumber}
+                />
+              ) : tab.id === "classic" ? (
+                <AdminClassicControls
+                  pending={pending}
+                  classicCooldownSecInput={classicCooldownSecInput}
+                  setClassicCooldownSecInput={setClassicCooldownSecInput}
                   commitNumber={commitNumber}
                 />
               ) : (

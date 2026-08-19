@@ -13,6 +13,7 @@
 //   src/lib/hint-store.ts ............ hint purchases
 //   src/lib/team-store.ts ............ team membership
 //   src/lib/quiz-store.ts ............ quiz answers and points
+//   src/lib/classic-store.ts ......... classic flag solves, attempts, points
 //
 // Tone note: this page reads as reassuring because the underlying design
 // genuinely is careful — not the other way round. Don't add warmth here that
@@ -20,11 +21,13 @@
 //
 // The page is PLATFORM copy — it describes this codebase, not a module's game
 // — but which stores are live is per-event: hint purchases exist only where
-// secure-development runs, quiz answers only where the quiz does. So the
-// module-specific claims are gated on the modules being enabled rather than
-// contributed from the registry. That keeps this an honest inventory of what
-// is actually stored: a quiz-only event neither promises a per-challenge
-// breakdown it doesn't have, nor stays silent about the answers it does keep.
+// secure-development runs, quiz answers only where the quiz does, classic
+// solves/attempts only where classic does. So the module-specific claims are
+// gated on the modules being enabled rather than contributed from the
+// registry. That keeps this an honest inventory of what is actually stored: a
+// quiz-only (or classic-only) event neither promises a per-challenge
+// breakdown it doesn't have, nor stays silent about the answers/solves it
+// does keep.
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -34,6 +37,7 @@ import { event } from "@/lib/site";
 
 const secureDev = isModuleEnabled("secure-development");
 const quiz = isModuleEnabled("quiz");
+const classic = isModuleEnabled("classic");
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -184,9 +188,10 @@ export default function PrivacyPage() {
       <Card heading="What we store while you compete">
         {/* One bullet per store that this event actually writes to. Hints are
             secure-development's (hint-store.ts), answers are the quiz's
-            (quiz-store.ts) — listing either on an event that doesn't run it
-            would be a promise about code that never executes, and omitting
-            the quiz's was a real gap: those answers ARE stored. */}
+            (quiz-store.ts), solves/attempts are classic's (classic-store.ts)
+            — listing any of these on an event that doesn't run it would be a
+            promise about code that never executes, and omitting one that IS
+            running would be a real gap: those records ARE stored. */}
         <Bullets
           items={[
             <>
@@ -212,6 +217,16 @@ export default function PrivacyPage() {
                     <span className="text-white">Your answers</span>: which questions you have
                     answered, the choices you submitted, when, how many attempts you have spent,
                     and the points each answer earned, all keyed to your GitHub login.
+                  </>,
+                ]
+              : []),
+            ...(classic
+              ? [
+                  <>
+                    <span className="text-white">Your classic progress</span>: which challenges
+                    you have solved, the points you earned and when, how many attempts you have
+                    made on each challenge and when, and your running point and solve totals, all
+                    keyed to your GitHub login.
                   </>,
                 ]
               : []),
@@ -318,7 +333,9 @@ export default function PrivacyPage() {
             ? " your email address, your real name, and the contents of any hint you've revealed."
             : quiz
               ? " your email address, your real name, and which questions you have answered."
-              : " your email address and your real name."}
+              : classic
+                ? " your email address, your real name, and which classic challenges you have solved or attempted."
+                : " your email address and your real name."}
           {" "}Those appear only on your own profile page, behind your own session.
         </p>
       </Card>
@@ -384,7 +401,13 @@ export default function PrivacyPage() {
           {(event.contactEmail || event.discordUrl) && (
             <>
               {" "}For CTF-specific data such as team membership
-              {secureDev ? " or hint purchases" : quiz ? " or your answers" : ""},{" "}
+              {secureDev
+                ? " or hint purchases"
+                : quiz
+                  ? " or your answers"
+                  : classic
+                    ? " or your classic solves"
+                    : ""},{" "}
               {event.contactEmail && (
                 <>
                   email the organizers at{" "}

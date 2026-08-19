@@ -19,11 +19,13 @@ is deliberate: the platform never knows what a challenge *is*, only how a score
 arrives and how a leaderboard renders; a module never re-implements org
 provisioning, teams, ingestion, or ranking. `event.yaml`'s `modules:` map
 accepts more than one registered module id — `secure-development` (targets,
-GitHub-mediated scoring, the worked example throughout this doc) and `quiz`
+GitHub-mediated scoring, the worked example throughout this doc), `quiz`
 (a self-paced single/multi-select question bank, scored entirely inside the
-app — see [Quiz data flow](#quiz-data-flow) below and
-[docs/modules.md §5](modules.md#5-ui--presentation-contract) for what its UI
-contract still leaves open). An id outside
+app — see [Quiz data flow](#quiz-data-flow) below), and `classic` (a
+jeopardy-style flag board, also scored entirely inside the app — see
+[Classic data flow](#classic-data-flow) below). See
+[docs/modules.md §5](modules.md#5-ui--presentation-contract) for what the two
+app-side modules' UI contract still leaves open. An id outside
 the registry still fails the build loudly; the boundary is the
 [module contract](modules.md).
 
@@ -167,10 +169,12 @@ state; everything else that touches scores goes through it.
    `withModuleContributions` attributes each row's points into a
    per-module `ModuleProgress` for every *enabled* module — `secure-development`
    is **attributed**, not added, since its points already came from the
-   scorer above; `quiz` scores entirely app-side, so its points are never
-   inside `entry.points` to begin with and are **added** on top instead
-   (`entry.points += quizTotal.points`) — see
-   [Quiz data flow](#quiz-data-flow) below. It runs *after* hints so it attributes the **net**
+   scorer above; `quiz` and `classic` each score entirely app-side, so neither
+   module's points are ever
+   inside `entry.points` to begin with and both are **added** on top instead
+   (`entry.points += quizTotal.points + classicTotal.points`) — see
+   [Quiz data flow](#quiz-data-flow) and [Classic data flow](#classic-data-flow)
+   below. It runs *after* hints so it attributes the **net**
    (post-penalty, floored) figure — attributing first would show an expanded
    row a larger module total than the header above it — and it re-ranks
    unconditionally, so being last is what makes the final order deterministic
@@ -199,7 +203,8 @@ state; everything else that touches scores goes through it.
 
 Steps 1–8 above assume `secure-development` is enabled — there is a scorer,
 and `LEADERBOARD_API_URL`/`LEADERBOARD_SOURCE` name a real backend to read.
-When it's disabled (a quiz-only event, or any event with no scored module),
+When it's disabled (a quiz-only or classic-only event, or any event with no
+scored module),
 none of that pipeline runs at all: `getLeaderboardSourceMode`
 (`src/lib/leaderboard/source.ts`) checks `isModuleEnabled("secure-development")`
 *before* looking at `LEADERBOARD_SOURCE`, and — not overridably by that env
@@ -207,22 +212,28 @@ var — resolves to `"empty"` instead, serving `emptySource`
 (`src/lib/leaderboard/empty.ts`): no entries, no teams, every capability
 `false`. This is deliberately not the mock source; placeholder data would be
 indistinguishable from real standings on a board that also carries real quiz
-points.
+or classic points.
 
 Everything a contestant sees on such a board is then built by the overlay
 pipeline itself, on top of nothing. `withModuleContributions` creates a row
-for any login that holds module (quiz) points and has no entry from the
+for any login that holds module (quiz and/or classic) points and has no
+entry from the
 source — the board's login set is the *union* of the source's logins and the
 logins holding module points, matched case-insensitively, so a contestant
-with quiz points but no scored PR gets a row instead of staying invisible
-until one exists. A created row has every scorer-supplied field
+with quiz or classic points but no scored PR gets a row instead of staying
+invisible
+until one exists — and a login holding both modules' points gets ONE row
+carrying both blocks, never one row per module. A created row has every scorer-supplied field
 (`patched`/`failed`/`total`/`apps`) genuinely zero — there is no scoring
-entry behind it — and its only points are the module's, added rather than
-attributed (see [Quiz data flow](#quiz-data-flow) below for why those are
+entry behind it — and its only points are the modules', added rather than
+attributed (see [Quiz data flow](#quiz-data-flow) and
+[Classic data flow](#classic-data-flow) below for why those are
 different verbs). `withTeamStandings` does the same one step later for
 teams: its membership-only rows (synthesised from live team records whenever
-the source has no team concept of its own) get quiz points added via
-`withTeamQuizPoints`, deduped by question across members, so a quiz-only
+the source has no team concept of its own) get quiz and classic points added
+via
+`withTeamQuizPoints`/`withTeamClassicPoints`, each deduped by question/flag
+across members, so a quiz-only or classic-only
 event's default view — the teams board, whenever teams exist — doesn't open
 on every team tied at zero. See
 [decisions.md #25](decisions.md#25-building-a-leaderboard-with-no-scoring-backend)
@@ -353,6 +364,146 @@ The master reset (below) wipes `ctf:quiz:answers:*`, `ctf:quiz:attempts:*`,
 deliberately leaves `ctf:quiz:questions` and `ctf:quiz:key` untouched, the
 same way it leaves `ctf:admin:settings` untouched: both are organizer-
 authored content, not event-run state a reset should ever destroy.
+
+## Classic data flow
+
+The `classic` module is the jeopardy-style flag board: an organizer authors a
+set of challenges, each hiding a flag under a description; a contestant reads
+the description, finds the flag by whatever means the challenge calls for,
+and submits the string for points, graded instantly. Like `quiz`, it never
+touches `scorer`, `sync`, or GitHub — it is a second, entirely separate
+app-side scoring path, running inside `apps/web` against its own Redis keys.
+`apps/web/src/lib/classic-store.ts` is the only writer during normal
+contestant and authoring activity (submitting, grading, challenge
+authoring/deletion all go through it); `admin-store.ts`'s bulk-maintenance
+paths (demo seed, master reset) are the one documented exception, reusing
+`classic-keys.ts`'s shared key constants directly rather than calling into
+`classic-store.ts` — the same deliberate exception `quiz-store.ts` documents.
+
+**Authoring produces TWO flag hashes, not one**, keyed by challenge id:
+
+- `ctf:classic:flag` — the flag AS AUTHORED, trimmed. Read by exactly one
+  function, `listChallengesForAdmin` (the `GET /api/admin/classic` surface
+  behind `requireAdmin`), so an organizer's edit form can show what they
+  typed, casing included, instead of forcing a retype-from-memory on every
+  typo fix.
+- `ctf:classic:flagnorm` — `normalizeFlag(flag)` (`classic-keys.ts`): trim,
+  then Unicode NFC-normalize, then lowercase. This is the ONLY value grading
+  ever compares against.
+
+Both are written together in one Upstash pipeline call inside
+`upsertChallenge`, so they can never observably disagree — a challenge can
+never be live with a `flagnorm` belonging to a previous version of its flag.
+See [decisions.md's ADR on two flag hashes](decisions.md#27-two-flag-hashes-rather-than-one)
+for why the store keeps both rather than one.
+
+**Normalization happens in JS, on both the authoring and submission paths,
+and deliberately NEVER in Lua.** `normalizeFlag` is the one function either
+side may use, precisely so they can never independently drift; Lua's
+`string.lower` is ASCII-only, so a Lua-side re-normalization of any
+non-ASCII flag would disagree with the JS side and produce a challenge
+nobody could solve. `SUBMIT_SCRIPT` (below) receives an already-normalized
+value and compares whole strings with Lua's `==` — a flag can contain
+braces, quotes, and backslashes, so it is never pattern-matched out of a
+JSON blob the way a points value is.
+
+**The full key layout is nine `ctf:classic:*` keys**, enumerated in
+`classic-store.ts`'s header comment: `challenges` (the public-safe hash
+contestants see — no field on it could carry a flag even by accident),
+`flag` and `flagnorm` (above), `categories` (one JSON array, the organizer's
+chosen display order), `solves:<login>` (a contestant's banked solves —
+`{points, at}`, points captured at solve time so a later re-price never
+rewrites history), `attempts:<login>` (every submission, right or wrong —
+`{attempts, lastAt, lastAtMs}`, the cooldown's own read), and three running
+aggregates: `points` and `solved` (per-login totals the leaderboard overlay
+reads with two `HGETALL`s regardless of board size) and `solvecount` (the
+per-challenge distinct-solver count the board displays, distinct by
+construction because the already-solved guard runs before any write).
+
+**Submission**: `POST /api/classic/submit` derives `login` from the session
+(never the request body) and calls `submitFlag(login, challengeId, flag)`.
+A cheap, non-atomic JS pre-check (`evaluateGate`) short-circuits on, in
+order: scoring paused/outside the scheduled window (fails **open** — a Redis
+blip must never silently drop a submission a contestant is entitled to
+make), already solved, or still inside the cooldown (fails **closed**, with
+its own `"unavailable"` reason, if the lookup itself errors). Past the
+pre-check, one atomic Lua script — `SUBMIT_SCRIPT`, not the pre-check — is
+the actual authority: it re-reads the already-solved guard and the cooldown
+against state read fresh at script-execution time (never a value the caller
+read earlier), so a race that slips past the pre-check is still caught,
+atomically. On a correct submission it reads the challenge's current price
+off the challenge hash, writes the solve row, and bumps all three aggregate
+counters (`points`, `solved`, `solvecount`) in the same script execution.
+
+**There is no attempt cap anywhere in this gate — only a cooldown, in
+SECONDS.** `classicCooldownSec` (organizer-configurable, default `5`,
+capped at `3600` — `CLASSIC_COOLDOWN_SEC_MAX` in `admin-store.ts`) is the
+only knob; `0` disables it. This is worth stating explicitly because every
+neighbouring retry-gate setting on this platform (`quizRetryAfterMin`,
+`hintsUnlockAfterMin`) is expressed in **minutes** — classic's is seconds,
+because the job is blunting scripted brute force on a short timescale, not
+rationing genuine tries the way quiz's attempt cap does. See
+[decisions.md's ADR on no attempt cap](decisions.md#29-no-attempt-cap-on-flag-submission).
+
+**Points are static.** `SUBMIT_SCRIPT` reads a challenge's price off
+`ctf:classic:challenges` at the moment of a correct solve; nothing anywhere
+lowers it as more contestants solve it, and there is no first-blood bonus.
+Re-pricing a challenge later never changes what was already banked, because
+`solves:<login>` captures `points` at solve time.
+
+**Descriptions render through a hand-rolled Markdown subset**
+(`apps/web/src/lib/markdown.ts`): bold, italics, inline code, fenced code
+blocks, ordered/unordered lists, and links restricted to an `http:`/
+`https:`/`mailto:` scheme allowlist (control characters and whitespace
+stripped before parsing, scheme-relative `//host` rejected outright). The
+parser produces a typed node tree, never an HTML string, and
+`components/markdown.tsx` renders that tree into React elements —
+`dangerouslySetInnerHTML` is never called anywhere in the pipeline, so
+injected markup is structurally impossible rather than filtered out. See
+[decisions.md's ADR on the hand-rolled renderer](decisions.md#28-a-hand-rolled-markdown-renderer-rather-than-a-library).
+
+**Classic points are ADDED to the leaderboard, never attributed** — the
+scorer never sees a flag, so there is nothing of classic's to attribute from
+(same reasoning as quiz's points; see [Quiz data flow](#quiz-data-flow)
+above). A team's classic total is the **union** of its members' solved
+challenges (`getTeamClassicTotalsBatch`), never the sum of their individual
+aggregates, for the same double-counting reason a shared flag or a shared
+quiz answer would otherwise double count. That union-by-item fold is not
+classic's own logic: it is `leaderboard/team-fold.ts`'s `foldTeamItems`,
+the identical function `quiz-store.ts` calls for its own team total —
+one shared dedupe rule (earliest-record-wins on a tie, latest timestamp for
+"last activity") rather than two copies that could silently diverge. See
+[decisions.md's ADR on the shared fold](decisions.md#30-one-shared-team-dedupe-fold).
+
+**Secrecy is a contestant boundary, not an absolute one — mirroring
+`ctf:quiz:key`.** `listChallenges` (the contestant path — `/flags`, and the
+leaderboard's read of the catalogue) never issues a command against
+`ctf:classic:flag` or `ctf:classic:flagnorm`, and the `Challenge` shape it
+returns has no field that could carry a flag. `listChallengesForAdmin`
+(the `GET /api/admin/classic` surface, behind `requireAdmin`) DOES return a
+challenge's flag, in a separate `AdminChallenge` shape (`{challenge, flag}`)
+deliberately **not** assignable to `Challenge` — reaching the public half
+takes an explicit `.challenge`, so handing an admin record to a
+contestant-facing component is a compile error, not a leak someone has to
+notice in review. **A flag is genuinely stored in plaintext and visible to
+anyone with `/admin` access** — see `docs/operations.md`'s "Classic" section
+for the organizer-facing statement of that trade-off.
+
+**Deleting a challenge retires it — contestant history and banked points are
+untouched.** `deleteChallenge` removes the challenge and both flag rows, but
+deliberately leaves `solves:<login>`/`attempts:<login>` rows and the three
+aggregate counters alone, mirroring `deleteQuestion`. Points already banked
+for a deleted challenge stay on the leaderboard; only the master reset
+clears them.
+
+**Known gap, stated plainly:** unlike `quiz`, `classic`'s Redis keys are
+currently **not** included in either the master reset's `RESET_PREFIXES`
+(`admin-store.ts`) or the `DEMO_MODE` seed (`seedDemoData`). A master reset
+today wipes secure-development solves, teams, users, join codes, hints, and
+every quiz key — but leaves every `ctf:classic:*` key untouched, and demo
+mode seeds fake secure-development solves and quiz answers but no demo
+classic challenges or solves. This is a known follow-up, not a documented
+feature of either mechanism.
 
 ## Organizer admin panel (runtime overrides)
 

@@ -25,27 +25,51 @@ modules:
                                     # per team by question. See
                                     # docs/operations.md's "Quiz" section and
                                     # docs/modules.md §5.
+  classic: {}                      # jeopardy-style flag board, scored app-side
+                                    # (no targets/score_ingest of its own —
+                                    # nothing to configure but presence).
+                                    # Turns on: a "Flags" nav link and /flags
+                                    # page for contestants; a Classic section
+                                    # in /admin to manage categories and author
+                                    # challenges (title, category, Markdown
+                                    # description, points, flag) and tune the
+                                    # submission-cooldown knob (in SECONDS,
+                                    # default 5, no attempt cap); and classic
+                                    # points added on top of the combined
+                                    # leaderboard, deduped per team by
+                                    # challenge. A flag is stored in plaintext
+                                    # and visible to anyone with /admin access.
+                                    # See docs/operations.md's "Classic"
+                                    # section and docs/modules.md §5.
 # Don't want to write this file by hand? `./setup/ctf-setup.sh` (the wizard)
 # asks which modules to enable and then asks only what those modules need —
-# targets + score_ingest for secure-development, nothing for quiz — and writes
-# the result here. A quiz-only answer emits no secure-development block at all.
+# targets + score_ingest for secure-development, nothing for quiz or classic —
+# and writes the result here. A quiz-only or classic-only answer emits no
+# secure-development block at all.
 #
 # A module is enabled by APPEARING under modules:. There is no `enabled:` key —
 # omitting a module's block entirely is what disables it. A module's block
-# holds only its own settings (`quiz`'s has none yet, hence `{}`).
+# holds only its own settings (`quiz`'s and `classic`'s have none yet, hence
+# `{}`).
 #
 # `secure-development` is optional too — a single module is enough to run an
-# event. A quiz-only event drops the block above entirely and looks like this
+# event, and `quiz`/`classic` can run alone or together. A quiz-only event
+# drops the block above entirely and looks like this
 # (the `modules:` key itself must still be present — an event.yaml with no
 # `modules:` block at all is rejected by both readers):
 #
 #   modules:
 #     quiz: {}
 #
+# A classic-only event looks the same shape, just with `classic: {}` instead
+# (or alongside it — `modules: { quiz: {}, classic: {} }` runs both app-side
+# modules with no secure-development block at all).
+#
 # `sync` tolerates `secure-development` being absent (it exits cleanly with
 # nothing to poll) and `ctf-setup.sh org`/`render`/`doctor` skip fork
 # provisioning; `/challenges` 404s, and `/how-to-play`, `/rules`, the landing
-# page, and the leaderboard all compose from `quiz` alone. See
+# page, and the leaderboard all compose from whichever of `quiz`/`classic` is
+# enabled. See
 # docs/hosting.md's "Configuration" section and docs/modules.md §7.
 # v1 placeholders — not read at build time: team play is always on with a
 # fixed 4-member cap, and hints (ON by default, 10 points each) are tuned at

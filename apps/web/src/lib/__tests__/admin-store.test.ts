@@ -29,7 +29,7 @@ describe("getAdminSettings", () => {
     expect(await getAdminSettings()).toEqual({
       paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
       hintsMinSolves: null, hintsUnlockAfterMin: null,
-      quizMaxAttempts: null, quizRetryAfterMin: null,
+      quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
     });
@@ -42,7 +42,7 @@ describe("getAdminSettings", () => {
     expect(await getAdminSettings()).toEqual({
       paused: true, hintsEnabled: false, hintCost: 25, teamRegistrationOpen: true,
       hintsMinSolves: null, hintsUnlockAfterMin: null,
-      quizMaxAttempts: null, quizRetryAfterMin: null,
+      quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
     });
@@ -152,6 +152,33 @@ describe("updateAdminSettings write", () => {
   });
 });
 
+describe("classicCooldownSec", () => {
+  it("stores a valid classic cooldown and rejects an out-of-range one", async () => {
+    mocks.upstashEval.mockResolvedValue([
+      "classicCooldownSec", "15", "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z",
+    ]);
+    await updateAdminSettings({ classicCooldownSec: 15 }, "alice");
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const strArgs = args.map(String);
+    // Positional ARGV layout: the field name must be immediately followed by
+    // its value in the HSET half of argv, not merely present somewhere (which
+    // would also be true if it landed in the HDEL half).
+    const idx = strArgs.indexOf("classicCooldownSec");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe("15");
+
+    await expect(updateAdminSettings({ classicCooldownSec: 4000 }, "alice")).rejects.toThrow(
+      /classicCooldownSec must be an integer in \[0, 3600\]/,
+    );
+    await expect(updateAdminSettings({ classicCooldownSec: 1.5 }, "alice")).rejects.toThrow(
+      AdminValidationError,
+    );
+    await expect(updateAdminSettings({ classicCooldownSec: "nope" as never }, "alice")).rejects.toThrow(
+      AdminValidationError,
+    );
+  });
+});
+
 describe("getSyncStatus", () => {
   it("returns null when the poller has never written", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
@@ -172,7 +199,7 @@ describe("scheduled windows", () => {
   const base: AdminSettings = {
     paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
     hintsMinSolves: null, hintsUnlockAfterMin: null,
-    quizMaxAttempts: null, quizRetryAfterMin: null,
+    quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
     updatedBy: null, updatedAt: null, moduleOverrides: {},
   };

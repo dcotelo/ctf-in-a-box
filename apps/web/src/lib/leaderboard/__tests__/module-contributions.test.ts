@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   getQuizTotals: vi.fn(),
   getTeamQuizTotalsBatch: vi.fn(),
   listQuestions: vi.fn(),
+  getClassicTotals: vi.fn(),
+  getTeamClassicTotalsBatch: vi.fn(),
+  listChallenges: vi.fn(),
 }));
 
 vi.mock("@/lib/modules", () => ({
@@ -20,6 +23,12 @@ vi.mock("@/lib/quiz-store", () => ({
   getQuizTotals: mocks.getQuizTotals,
   getTeamQuizTotalsBatch: mocks.getTeamQuizTotalsBatch,
   listQuestions: mocks.listQuestions,
+}));
+
+vi.mock("@/lib/classic-store", () => ({
+  getClassicTotals: mocks.getClassicTotals,
+  getTeamClassicTotalsBatch: mocks.getTeamClassicTotalsBatch,
+  listChallenges: mocks.listChallenges,
 }));
 
 import { withModuleContributions } from "../module-contributions";
@@ -37,8 +46,9 @@ const data = (entries: LeaderboardEntry[], teams: TeamStanding[] = []): Leaderbo
   capabilities: { apps: true, teams: teams.length > 0, challenges: false },
 });
 
-/** Quiz disabled by default (only secure-development enabled), matching the
- *  checked-in event.yaml today. Tests that need the quiz module override this. */
+/** Quiz and classic disabled by default (only secure-development enabled),
+ *  matching the checked-in event.yaml today. Tests that need one of the
+ *  app-side modules override this. */
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development");
@@ -47,6 +57,11 @@ beforeEach(() => {
     Promise.resolve(teams.map(() => ({ points: 0, answered: 0, lastAt: null }))),
   );
   mocks.listQuestions.mockResolvedValue([]);
+  mocks.getClassicTotals.mockResolvedValue(new Map());
+  mocks.getTeamClassicTotalsBatch.mockImplementation((teams: readonly string[][]) =>
+    Promise.resolve(teams.map(() => ({ points: 0, solved: 0, lastAt: null }))),
+  );
+  mocks.listChallenges.mockResolvedValue([]);
 });
 
 describe("withModuleContributions", () => {
@@ -197,14 +212,21 @@ describe("withModuleContributions", () => {
     // Matching them exactly would split one contestant into two rows the moment
     // the two disagreed on case — the union is taken case-insensitively, like
     // admin-auth and hint-store do.
+    //
+    // NEITHER side of this fixture is lowercase by accident. The membership
+    // decision compares the quiz store's login against a `seen` set built from
+    // the SCORED logins; if the scored spelling here were already lowercase
+    // ("ada"), a case-sensitive `seen` would still match the lowercased lookup
+    // key and this test would pass against broken code. "Ada" vs "ADA" makes
+    // both sides differ, so only a genuinely case-insensitive union passes.
     it("matches logins case-insensitively, so one contestant never becomes two rows", async () => {
       mocks.getQuizTotals.mockResolvedValue(new Map([["ADA", { points: 30, answered: 3, lastAt: null }]]));
 
-      const out = await withModuleContributions(data([entry("ada", 10, 1)]));
+      const out = await withModuleContributions(data([entry("Ada", 10, 1)]));
 
       expect(out.entries).toHaveLength(1);
       // The scored row's own spelling wins — it is the row that already exists.
-      expect(out.entries[0].login).toBe("ada");
+      expect(out.entries[0].login).toBe("Ada");
       expect(out.entries[0].points).toBe(40);
     });
 
@@ -392,6 +414,243 @@ describe("withModuleContributions", () => {
       const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
 
       expect(out.teams[0].modules!["quiz"]!.detail).toEqual({ kind: "quiz", answered: 3, total: 3, points: 30 });
+    });
+  });
+
+  describe("with the classic module disabled", () => {
+    it("never reads classic data and adds no classic block", async () => {
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+      expect(out.entries[0].modules!["classic"]).toBeUndefined();
+      expect(out.entries[0].points).toBe(30);
+      expect(mocks.getClassicTotals).not.toHaveBeenCalled();
+      expect(mocks.listChallenges).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("with the classic module enabled", () => {
+    beforeEach(() => {
+      mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development" || id === "classic");
+      mocks.listChallenges.mockResolvedValue([{ id: "c1" }, { id: "c2" }, { id: "c3" }]);
+    });
+
+    // The scorer never sees a captured flag, so classic points are NOT already
+    // inside `entry.points` — they are ADDED. Attributing them (the verb
+    // secure-development uses, because ITS points already are inside
+    // `entry.points`) would show the contestant's classic total as zero.
+    it("ADDS classic points rather than attributing them", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["alice", { points: 50, solved: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("alice", 100, 3)]));
+
+      expect(out.entries[0].points).toBe(150); // 100 scored + 50 classic
+      const classic = out.entries[0].modules!["classic"]!;
+      expect(classic).toMatchObject({ points: 50, completed: 2 });
+      expect(classic.detail).toEqual({ kind: "classic", solved: 2, total: 3, points: 50 });
+      // secure-development's own attribution is untouched by the addition.
+      expect(out.entries[0].modules!["secure-development"]).toMatchObject({ points: 100, completed: 3 });
+    });
+
+    // Without this, every contestant on a classic-only event is invisible:
+    // the source is `emptySource` and carries no rows at all to overlay onto.
+    it("creates a row for a login with classic points and no scored entry", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["alice", { points: 50, solved: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([]));
+
+      expect(out.entries.map((e) => e.login)).toContain("alice");
+      const alice = out.entries.find((e) => e.login === "alice")!;
+      expect(alice.points).toBe(50);
+      // Nothing behind this row came from the scorer, so nothing scorer-shaped
+      // may be non-zero on it.
+      expect(alice).toMatchObject({ patched: 0, failed: 0, total: 0, apps: {}, team: null });
+      expect(alice.modules!["classic"]).toMatchObject({ points: 50, completed: 2 });
+    });
+
+    // The scorer records the PR author's login, the classic store the
+    // session's. Matching them exactly would split one contestant into two
+    // rows the moment the two disagreed on case.
+    it("unions logins case-insensitively so one contestant is never two rows", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["alice", { points: 50, solved: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("Alice", 0, 0)]));
+
+      expect(out.entries).toHaveLength(1);
+      // The scored row's own spelling wins — it is the row that already exists
+      // — and it carries the classic points, proving the LOOKUP is
+      // case-insensitive too and not just the create-or-not decision.
+      expect(out.entries[0].login).toBe("Alice");
+      expect(out.entries[0].points).toBe(50);
+      expect(out.entries[0].modules!["classic"]).toMatchObject({ points: 50, completed: 2 });
+    });
+
+    // The denominator is cosmetic; the points are not. A shared try/catch
+    // over the two reads silently deleted everyone's points and re-ranked the
+    // board — a bug this kit has already shipped once, on the quiz path.
+    it("keeps points when only the challenge list read fails", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["alice", { points: 50, solved: 2, lastAt: null }]]));
+      mocks.listChallenges.mockRejectedValue(new Error("upstash blip"));
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const out = await withModuleContributions(data([entry("alice", 0, 0)]));
+
+        expect(out.entries[0].points).toBe(50);
+        // Only the denominator degrades — and it degrades to the clamp, never
+        // below its own numerator.
+        expect(out.entries[0].modules!["classic"]!.detail).toEqual({
+          kind: "classic",
+          solved: 2,
+          total: 2,
+          points: 50,
+        });
+      } finally {
+        err.mockRestore();
+      }
+    });
+
+    it("still shows the board when only the totals read fails", async () => {
+      mocks.getClassicTotals.mockRejectedValue(new Error("upstash blip"));
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+        expect(out.entries[0].points).toBe(30);
+        expect(out.entries[0].modules!["classic"]).toBeUndefined();
+        // The totals map is where created rows come from, so a failed read
+        // degrades to the classic-less board — never invented rows.
+        expect(out.entries.map((e) => e.login)).toEqual(["ada"]);
+      } finally {
+        err.mockRestore();
+      }
+    });
+
+    // `deleteChallenge` deliberately leaves banked points and the aggregate
+    // counter alone, so the challenge list can be SHORTER than the solve
+    // count. Unclamped this renders "1 / 0 flags".
+    it("clamps the denominator below its own numerator", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["alice", { points: 50, solved: 1, lastAt: null }]]));
+      mocks.listChallenges.mockResolvedValue([]); // the only challenge was deleted
+
+      const out = await withModuleContributions(data([entry("alice", 0, 0)]));
+
+      const detail = out.entries[0].modules?.classic?.detail;
+      if (detail?.kind !== "classic") throw new Error("shape");
+      expect(detail.total).toBeGreaterThanOrEqual(detail.solved);
+      expect(detail).toEqual({ kind: "classic", solved: 1, total: 1, points: 50 });
+      // Points already banked for the deleted challenge stay on the board.
+      expect(out.entries[0].points).toBe(50);
+    });
+
+    it("gives a login with no solves no classic block", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["ada", { points: 0, solved: 0, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      expect(out.entries[0].modules!["classic"]).toBeUndefined();
+      expect(out.entries[0].points).toBe(30);
+      // …and a zero-solve login must not become a row of its own either.
+      expect(out.entries).toHaveLength(1);
+    });
+
+    it("reflects the added classic points in ranking", async () => {
+      mocks.getClassicTotals.mockResolvedValue(new Map([["bob", { points: 40, solved: 3, lastAt: null }]]));
+
+      const out = await withModuleContributions(
+        data([
+          entry("ada", 30, 3),
+          { ...entry("bob", 20, 2), apps: { dvwa: { app: "dvwa", points: 20, maxPoints: 30, patched: 2, total: 3 } } },
+        ]),
+      );
+
+      expect(out.entries.map((e) => [e.login, e.points])).toEqual([["bob", 60], ["ada", 30]]);
+      expect(out.entries.map((e) => e.rank)).toEqual([1, 2]);
+    });
+
+    // ONE pipeline for the whole board, never one call per team: /leaderboard
+    // is dynamic and fetched `no-store`, so a per-team form would bill a
+    // 25-team event 25 Upstash round trips on every single page view.
+    it("asks for every team's classic total in a single batched call", async () => {
+      mocks.getTeamClassicTotalsBatch.mockResolvedValue([
+        { points: 20, solved: 1, lastAt: "2026-08-01T11:00:00.000Z" },
+        { points: 0, solved: 0, lastAt: null },
+      ]);
+
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada", "cyd"] },
+        { rank: 2, slug: "grey", name: "Grey", captain: "eve", points: 10, members: ["eve"] },
+      ];
+      const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
+
+      expect(mocks.getTeamClassicTotalsBatch).toHaveBeenCalledTimes(1);
+      expect(mocks.getTeamClassicTotalsBatch).toHaveBeenCalledWith([["ada", "cyd"], ["eve"]]);
+      // 30 (already-deduped secure-dev team points) + 20 (the ONE challenge's
+      // points) — never 40, which would double count it across both members.
+      expect(out.teams.map((t) => [t.slug, t.points])).toEqual([["red", 50], ["grey", 10]]);
+      expect(out.teams[0].modules!["classic"]).toMatchObject({ points: 20, completed: 1 });
+      // A team with no solves gets no block rather than an empty one.
+      expect(out.teams.find((t) => t.slug === "grey")!.modules?.["classic"]).toBeUndefined();
+    });
+  });
+
+  // Both app-side modules on at once. The two are added independently and must
+  // land on ONE row per contestant — not one row per module, and not one
+  // module's points silently replacing the other's.
+  describe("with both quiz and classic enabled", () => {
+    beforeEach(() => {
+      mocks.isModuleEnabled.mockImplementation((id: string) => id !== "secure-development");
+      mocks.listQuestions.mockResolvedValue([{ id: "q1" }, { id: "q2" }]);
+      mocks.listChallenges.mockResolvedValue([{ id: "c1" }, { id: "c2" }]);
+    });
+
+    it("creates ONE row carrying both modules' blocks and both modules' points", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["alice", { points: 15, answered: 1, lastAt: null }]]));
+      // Different casing from the quiz store's spelling of the same login.
+      mocks.getClassicTotals.mockResolvedValue(new Map([["Alice", { points: 50, solved: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([]));
+
+      expect(out.entries).toHaveLength(1);
+      expect(out.entries[0].points).toBe(65);
+      expect(out.entries[0].modules!["quiz"]).toMatchObject({ points: 15, completed: 1 });
+      expect(out.entries[0].modules!["classic"]).toMatchObject({ points: 50, completed: 2 });
+    });
+
+    it("adds both modules' points to one scored row", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 1, lastAt: null }]]));
+      mocks.getClassicTotals.mockResolvedValue(new Map([["ada", { points: 50, solved: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 10, 1)]));
+
+      expect(out.entries).toHaveLength(1);
+      expect(out.entries[0].points).toBe(75); // 10 + 15 + 50
+    });
+
+    it("adds both modules' points to one team row", async () => {
+      mocks.getTeamQuizTotalsBatch.mockResolvedValue([{ points: 15, answered: 1, lastAt: null }]);
+      mocks.getTeamClassicTotalsBatch.mockResolvedValue([{ points: 50, solved: 2, lastAt: null }]);
+
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada"] },
+      ];
+      const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
+
+      expect(out.teams[0].points).toBe(95); // 30 + 15 + 50
+      expect(out.teams[0].modules!["quiz"]).toMatchObject({ points: 15 });
+      expect(out.teams[0].modules!["classic"]).toMatchObject({ points: 50 });
+    });
+
+    // One module's outage must cost only its own points — never the other's.
+    it("keeps quiz points when the classic totals read fails", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 1, lastAt: null }]]));
+      mocks.getClassicTotals.mockRejectedValue(new Error("upstash blip"));
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const out = await withModuleContributions(data([entry("ada", 10, 1)]));
+        expect(out.entries[0].points).toBe(25);
+        expect(out.entries[0].modules!["quiz"]).toMatchObject({ points: 15 });
+        expect(out.entries[0].modules!["classic"]).toBeUndefined();
+      } finally {
+        err.mockRestore();
+      }
     });
   });
 });
