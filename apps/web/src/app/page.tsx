@@ -18,7 +18,7 @@ import SiteFooter from "@/components/site-footer";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { isModuleEnabled, type HomeContext } from "@/lib/modules";
-import { getModuleHome, getResolvedModules } from "@/lib/resolved-modules";
+import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 
 // Tailwind scans for literal class strings, so the step grid's widest breakpoint
@@ -73,6 +73,11 @@ export default async function Home() {
   // Zero modules with a home block is a valid event, not an error: the frame
   // renders on its own.
   const taglines = sections.map((s) => s.tagline).join(" · ");
+
+  // This route is outside the `(site)` group, so it re-creates the footer
+  // itself — and must therefore resolve its links the same way, or the landing
+  // page's footer disagrees with its own header. Same memoized read as above.
+  const navLinks = await getNavLinks();
 
   return (
     <div className="flex flex-1 flex-col">
@@ -390,7 +395,7 @@ export default async function Home() {
         </section>
       </div>
 
-      <SiteFooter />
+      <SiteFooter navLinks={navLinks} />
     </div>
   );
 }

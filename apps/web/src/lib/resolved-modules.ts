@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { getAdminSettings } from "@/lib/admin-store";
+import { buildNavLinks, type NavLink } from "@/lib/site";
 import {
   enabledModules,
   resolveModules,
@@ -43,6 +44,23 @@ export const getResolvedModules = cache(async (): Promise<readonly ResolvedModul
     .catch(() => ({}));
   return resolveModules(overrides);
 });
+
+/** The site nav, with organizer renames applied — the ONE accessor every
+ *  surface that renders those links must go through.
+ *
+ *  Both the header (root layout) and the footer (the `(site)` layout, the
+ *  landing page, and the 404) render the same link list, and they used to
+ *  build it two different ways: the header off resolved modules, the footer
+ *  off `site.ts`'s static `navLinks`. A rename then showed up in one and not
+ *  the other, so the two disagreed on every page of the site. Funnelling both
+ *  through here is what makes that class of drift impossible rather than
+ *  merely fixed once; `site-nav-parity.test.tsx` pins it.
+ *
+ *  Inherits `getResolvedModules`' fail-open behaviour and its per-request
+ *  memoization: several callers on one page cost one settings read. */
+export async function getNavLinks(): Promise<NavLink[]> {
+  return buildNavLinks(await getResolvedModules());
+}
 
 /** A module's landing-page contribution, read straight from the registry
  *  (there is nothing organizer-authored about it — only `title`/`blurb` are

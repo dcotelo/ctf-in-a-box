@@ -10,6 +10,7 @@ import Link from "next/link";
 import SiteFooter from "@/components/site-footer";
 import PageHeader from "@/components/page-header";
 import { enabledApps } from "@/lib/apps";
+import { getNavLinks } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 
 const routes = [
@@ -23,7 +24,10 @@ const routes = [
   { href: "/faq", label: "FAQ", body: "Answers to what contestants ask most." },
 ];
 
-export default function NotFound() {
+// `async` because it re-creates the footer, whose links are resolved
+// per-request (`not-found.js` may be a Server Component and may be async —
+// see the vendored not-found docs' "Data Fetching" example).
+export default async function NotFound() {
   return (
     <>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
@@ -71,7 +75,7 @@ export default function NotFound() {
           </p>
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter navLinks={await getNavLinks()} />
     </>
   );
 }
