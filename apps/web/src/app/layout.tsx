@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { Poppins, Barlow, Geist_Mono } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
-import { buildNavLinks, event } from "@/lib/site";
+import { event } from "@/lib/site";
 import { enabledModules } from "@/lib/modules";
-import { getResolvedModules } from "@/lib/resolved-modules";
+import { getNavLinks } from "@/lib/resolved-modules";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -47,7 +47,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const navLinks = buildNavLinks(await getResolvedModules());
+  const navLinks = await getNavLinks();
   return (
     <html
       lang="en"

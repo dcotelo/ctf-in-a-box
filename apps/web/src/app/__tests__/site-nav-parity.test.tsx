@@ -14,6 +14,9 @@
 // session-reading client controls, and the server-only settings read.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Two modules with nav entries, so there is something to disagree about.
 vi.mock("@/lib/event-config", () => ({
@@ -94,5 +97,50 @@ describe("header and footer nav", () => {
   it("leaves an un-renamed module's registry nav label alone in both", () => {
     expect(headerLinks.get("/challenges")).toEqual(new Set(["Challenges"]));
     expect(footerLinks.get("/challenges")).toEqual(new Set(["Challenges"]));
+  });
+});
+
+// The render test above proves the `(site)` layout's footer agrees with the
+// header. But <SiteFooter> is rendered from THREE places — the `(site)`
+// layout, the landing page, and the 404 — and the other two are far more
+// expensive to render here (the landing page alone needs the challenge
+// catalogue, next/image and the countdown stubbed). Rendering only one of
+// three would leave the drift gated on the site we already fixed and open on
+// the two we might add to next.
+//
+// So this asserts the invariant at the source level instead: every footer
+// render site resolves its links. That is exactly the mistake that shipped —
+// a footer built from `site.ts`'s static list rather than the resolved one —
+// and it catches a fourth call site the day someone adds it.
+describe("every SiteFooter render site resolves its nav links", () => {
+  const appDir = fileURLToPath(new URL("../", import.meta.url));
+
+  const files = readdirSync(appDir, { recursive: true, encoding: "utf8" })
+    .filter((f) => f.endsWith(".tsx") && !f.includes("__tests__"))
+    .map((f) => [f, readFileSync(join(appDir, f), "utf8")] as const)
+    .filter(([, src]) => src.includes("<SiteFooter"));
+
+  it("finds every known render site", () => {
+    // Guards the guard: if this drops to zero (a rename, a moved directory),
+    // the assertions below would pass by iterating nothing.
+    expect(files.map(([f]) => f).sort()).toEqual(
+      ["(site)/layout.tsx", "not-found.tsx", "page.tsx"].sort(),
+    );
+  });
+
+  // Deliberately two loose checks rather than one exact expression: call sites
+  // legitimately differ (the landing page binds `const navLinks = await
+  // getNavLinks()` once and reuses it; the others inline the await). Pinning
+  // one spelling would fail on a harmless refactor while still missing a
+  // footer fed from the static list, which is the failure that matters.
+  it.each(files.map(([f]) => f))("%s passes resolved links", (file) => {
+    const src = files.find(([f]) => f === file)![1];
+    const rendered = src.match(/<SiteFooter/g)?.length ?? 0;
+    const passed = src.match(/<SiteFooter\s+navLinks=/g)?.length ?? 0;
+    expect(passed, `${file} renders ${rendered} footer(s), ${passed} given navLinks`).toBe(rendered);
+    expect(src, `${file} must resolve its nav links`).toContain("getNavLinks");
+    expect(src, `${file} must not read site.ts's unresolved navLinks`).not.toMatch(
+      /import\s*\{[^}]*\bnavLinks\b[^}]*\}\s*from\s*["']@\/lib\/site["']/,
+    );
   });
 });
