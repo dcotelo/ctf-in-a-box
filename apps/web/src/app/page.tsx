@@ -53,26 +53,35 @@ export default async function Home() {
   // Registry order, organizer-resolved titles, and — crucially — plain strings:
   // intro() and steps() are invoked HERE, on the server. Nothing below this
   // line holds a function.
-  const sections = (await getResolvedModules()).flatMap((module) => {
+  //
+  // A module with NO `home` block still gets a section, led by its
+  // organizer-editable `blurb`. `home` is optional on ModuleDef precisely so a
+  // module can ship a route before it ships hero copy, and the old behaviour —
+  // drop it from the landing page entirely — meant such a module was invisible
+  // here no matter what the organizer wrote about it in /admin. The blurb is
+  // the one sentence every module has, so it is the sensible lede; everything
+  // that has no fallback (the uppercase tagline, the hero paragraph, the
+  // numbered steps, the CTA) stays absent rather than being invented.
+  const sections = (await getResolvedModules()).map((module) => {
     const home = getModuleHome(module.id);
-    if (!home) return [];
-    return [
-      {
-        id: module.id,
-        title: module.title,
-        tagline: home.tagline,
-        intro: home.intro(ctx),
-        expect: home.expect,
-        steps: home.steps(ctx),
-        cta: home.cta,
-        extra: home.extra,
-      },
-    ];
+    return {
+      id: module.id,
+      title: module.title,
+      tagline: home?.tagline ?? null,
+      intro: home ? home.intro(ctx) : null,
+      expect: home?.expect ?? { heading: module.title, lede: module.blurb },
+      steps: home ? home.steps(ctx) : [],
+      cta: home?.cta ?? null,
+      extra: home?.extra ?? null,
+    };
   });
 
-  // Zero modules with a home block is a valid event, not an error: the frame
+  // Zero modules with a tagline is a valid event, not an error: the frame
   // renders on its own.
-  const taglines = sections.map((s) => s.tagline).join(" · ");
+  const taglines = sections
+    .map((s) => s.tagline)
+    .filter((t): t is string => Boolean(t))
+    .join(" · ");
 
   // This route is outside the `(site)` group, so it re-creates the footer
   // itself — and must therefore resolve its links the same way, or the landing
@@ -205,14 +214,17 @@ export default async function Home() {
             )}
           </div>
 
-          {sections.map((section) => (
-            <p
-              key={section.id}
-              className="max-w-2xl text-balance text-base leading-relaxed text-zinc-400"
-            >
-              {section.intro}
-            </p>
-          ))}
+          {sections.map(
+            (section) =>
+              section.intro && (
+                <p
+                  key={section.id}
+                  className="max-w-2xl text-balance text-base leading-relaxed text-zinc-400"
+                >
+                  {section.intro}
+                </p>
+              ),
+          )}
 
         </main>
 
@@ -240,22 +252,27 @@ export default async function Home() {
                 <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
               </div>
 
-              <ol
-                className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${STEP_GRID_LG[section.steps.length] ?? "lg:grid-cols-4"}`}
-              >
-                {section.steps.map((step, i) => (
-                  <li
-                    key={step.title}
-                    className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
-                  >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
-                      {i + 1}
-                    </span>
-                    <h3 className="font-semibold text-white">{step.title}</h3>
-                    <p className="text-sm leading-relaxed text-zinc-400">{step.body}</p>
-                  </li>
-                ))}
-              </ol>
+              {/* Only a module with authored steps gets the numbered grid; a
+                  blurb-only section is its heading and lede, not an empty
+                  list. */}
+              {section.steps.length > 0 && (
+                <ol
+                  className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${STEP_GRID_LG[section.steps.length] ?? "lg:grid-cols-4"}`}
+                >
+                  {section.steps.map((step, i) => (
+                    <li
+                      key={step.title}
+                      className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
+                        {i + 1}
+                      </span>
+                      <h3 className="font-semibold text-white">{step.title}</h3>
+                      <p className="text-sm leading-relaxed text-zinc-400">{step.body}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </section>
 
             {/* A module's optional extra section. For secure-development this is

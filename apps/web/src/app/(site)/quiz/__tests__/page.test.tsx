@@ -144,6 +144,68 @@ describe("quiz page view model", () => {
   });
 });
 
+// The blurb is organizer-editable in /admin and used to reach `generateMetadata`
+// and nothing else — an organizer could rewrite it, save, reload the page they
+// were describing, and see no change at all. It is the module's own account of
+// itself, so it is the page's lede; the per-viewer progress line that used to
+// occupy that slot is viewer state, and moved into the body.
+describe("quiz page blurb and progress line", () => {
+  beforeEach(() => {
+    isModuleEnabled.mockReturnValue(true);
+    getAdminSettings.mockResolvedValue({ quizMaxAttempts: null, quizRetryAfterMin: null });
+    getViewerQuiz.mockResolvedValue({ answered: {}, attempts: {} });
+    listQuestions.mockResolvedValue(baseQuestions);
+    getResolvedModules.mockResolvedValue([
+      { id: "quiz", title: "Round 1", blurb: "Ten questions on the OWASP Top 10, one point each." },
+    ]);
+  });
+
+  it("renders the organizer's blurb as the page header's description", async () => {
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+
+    const html = renderToStaticMarkup(await QuizPage());
+
+    expect(html).toContain("Ten questions on the OWASP Top 10, one point each.");
+    // In the HEADER, not merely somewhere on the page: the blurb must sit
+    // between the <h1> and the header's divider, which is the slot the
+    // progress line used to hold. Matching across the h1 is what makes this
+    // fail if the blurb is only rendered further down the body.
+    expect(html).toMatch(/<h1[^>]*>Round 1<\/h1><p[^>]*>Ten questions on the OWASP Top 10, one point each\.<\/p>/);
+  });
+
+  it("still renders the per-viewer progress line — moved into the body, not dropped", async () => {
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+
+    const html = renderToStaticMarkup(await QuizPage());
+
+    expect(html).toMatch(/answered 0 of 4 questions/i);
+    // Below the header divider, i.e. genuinely relocated rather than still
+    // sitting in the description slot under a new name.
+    const dividerAt = html.indexOf("bg-gradient-to-r");
+    const progressAt = html.search(/You&#x27;ve answered 0 of 4 questions/);
+    expect(dividerAt).toBeGreaterThan(-1);
+    expect(progressAt).toBeGreaterThan(dividerAt);
+  });
+
+  it("still prompts a signed-out visitor to sign in, in the body", async () => {
+    getSession.mockResolvedValue(null);
+
+    const html = renderToStaticMarkup(await QuizPage());
+
+    expect(html).toMatch(/sign in with github to answer questions/i);
+    // And the header still describes the module rather than the viewer.
+    expect(html).toMatch(/<h1[^>]*>Round 1<\/h1><p[^>]*>Ten questions on the OWASP Top 10, one point each\.<\/p>/);
+  });
+
+  it("falls back to the registry default blurb when the organizer set none", async () => {
+    getSession.mockResolvedValue(null);
+    getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Quiz", blurb: "Answer security questions for points." }]);
+
+    const html = renderToStaticMarkup(await QuizPage());
+    expect(html).toContain("Answer security questions for points.");
+  });
+});
+
 describe("quiz page metadata", () => {
   it("falls back to the registry default title/description when there's no organizer override", async () => {
     getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Quiz", blurb: "Answer security questions for points." }]);

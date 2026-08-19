@@ -349,12 +349,21 @@ of one module's shape.
    both are deliberately suppressed while a single module is enabled (there
    is nothing to disambiguate), and the landing page's uppercase kicker comes
    from the registry `home.tagline`, which is not overridable at all. So a
-   single-module event sees three surfaces change, not five.
+   single-module event sees three surfaces change, not five. (A module with
+   no `home` block is the one exception: with no authored heading to prefer,
+   its landing-page section is headed by its resolved `title`, so a rename
+   reaches it even on a single-module event.)
 
-   The **blurb** has a much smaller reach than the title, and a module author
-   should not assume otherwise: today its only consumer is the module page's
-   meta description (`/quiz`'s `generateMetadata`). It is rendered on no page,
-   and `secure-development` does not consume it at all.
+   The **blurb** has a smaller reach than the title, but it is rendered copy,
+   not metadata: it supplies the module page's meta description
+   (`generateMetadata`) **and** that page's header lede — `/quiz` renders it
+   under the title, where a per-viewer progress line used to sit. A module
+   that has no registry `home` block also gets it as the lede of its
+   landing-page section, so a module can ship a route and a sentence about
+   itself before it ships hero copy. `secure-development` HAS a `home` block
+   and its own page title, so it consumes the blurb only as a meta
+   description; a new module should assume the blurb will be read by a
+   contestant, not by a crawler alone.
 
    A module MUST NOT read its own registry `displayName`/`description`
    directly in any surface that names it — it must go through the resolved
