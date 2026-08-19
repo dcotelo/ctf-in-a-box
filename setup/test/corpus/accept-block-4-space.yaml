@@ -1,0 +1,6 @@
+# targets: dvwa
+github:
+  org: test-event-org
+modules:
+    secure-development:
+        targets: [dvwa]

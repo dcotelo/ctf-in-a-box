@@ -1,0 +1,7 @@
+# targets: juice-shop,vampi
+github:
+  org: test-event-org
+modules: {
+  quiz: {},
+  secure-development: { targets: [juice-shop, vampi] }
+}

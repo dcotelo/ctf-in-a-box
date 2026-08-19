@@ -1,0 +1,8 @@
+# targets: dvwa
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+    score_ingest: poll
+  quiz: {}

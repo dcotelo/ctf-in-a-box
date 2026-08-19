@@ -42,8 +42,15 @@ jobs:
           {
             echo "app=$(m "^apps/web/|^scripts/acceptance-app\.sh$CI")"
             echo "scorer=$(m "^scorer/|^scripts/acceptance-scorer\.sh$CI")"
-            echo "sync=$(m "^sync/$CI")"
-            echo "shell=$(m "^scripts/|^setup/|^scorer/entrypoint$CI")"
+            # The modules: reader contract is shared between sync and
+            # ctf-setup.sh: setup/test/corpus/ is one corpus asserted from
+            # BOTH sides (sync/test/module-readers.differential.test.js and
+            # setup/test/module_readers.bats), and both sides also parse
+            # event.yaml.example. Each area therefore has to run when the
+            # corpus (or the example config) moves, or half the contract
+            # goes unchecked on the PR that breaks it.
+            echo "sync=$(m "^event\.yaml\.example|^sync/|^setup/test/corpus/$CI")"
+            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^scorer/entrypoint$CI")"
             echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow$CI")"
             # Quiz-only spans BOTH areas it proves compose end to end: the app
             # (module gating, /quiz, /leaderboard) and sync (the exits-0
