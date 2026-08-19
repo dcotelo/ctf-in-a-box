@@ -37,13 +37,17 @@ describe("Markdown", () => {
   });
 
   it("renders organizer prose about dangerous patterns without corruption", () => {
-    // Regression test: ensures that when organizers write about dangerous
-    // patterns like "the onload= attribute", the text renders correctly without
-    // entity-substitution corruption (e.g., not becoming "onload&#61;").
-    // This is important for legitimate educational content.
-    const source = "the `onload=` attribute is dangerous";
+    // Regression test: ensures that when organizers write plain prose containing
+    // dangerous pattern names (onerror=, onload=, javascript:), the text renders
+    // correctly without entity-substitution corruption that would garble it.
+    // This is critical because organizers document these patterns in educational content.
+    const source = "Never ship an onload= handler or a javascript: URI in your patch.";
     const html = renderToStaticMarkup(<Markdown source={source} />);
+    // Both dangerous pattern names must appear as literal text in the output
     expect(html).toContain("onload=");
+    expect(html).toContain("javascript:");
+    // No entity substitution corruption (& from &#61; or &#58; should not appear)
     expect(html).not.toContain("&#61;");
+    expect(html).not.toContain("&#58;");
   });
 });
