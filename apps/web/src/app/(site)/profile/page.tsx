@@ -14,6 +14,12 @@ import TeamCard from "@/components/team-card";
 import type { AppId } from "@/lib/apps";
 import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
+import {
+  getClassicTotals,
+  listChallenges,
+  type Challenge,
+  type ClassicTotal,
+} from "@/lib/classic-store";
 import { getViewerHints } from "@/lib/hint-store";
 import type { AppProgress, LeaderboardEntry, ModuleProgress } from "@/lib/leaderboard/types";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
@@ -61,22 +67,27 @@ export default async function ProfilePage() {
   if (!login) redirect("/");
 
   const quizEnabled = isModuleEnabled("quiz");
+  const classicEnabled = isModuleEnabled("classic");
   const secureDevEnabled = isModuleEnabled("secure-development");
 
-  // Quiz totals/questions are per-login and cheap to fetch here regardless of
-  // board size (two HGETALLs — see getQuizTotals), but only when the module
-  // is enabled: this must never read `ctf:quiz:*` when quiz is off.
+  // Quiz/classic totals and item lists are per-login and cheap to fetch here
+  // regardless of board size (two HGETALLs each — see getQuizTotals /
+  // getClassicTotals), but only when the module is enabled: this must never
+  // read `ctf:quiz:*` when quiz is off, nor `ctf:classic:*` when classic is.
   // `resolvedModules` (organizer-renamed titles) is what drives the
   // per-module breakdown below off the enabled-module LIST rather than a
   // per-module branch — see the module block loop.
-  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, resolvedModules] = await Promise.all([
-    getLeaderboardSource().getUser(login),
-    getViewerTeam(login),
-    getViewerHints(login),
-    quizEnabled ? getQuizTotals() : Promise.resolve(new Map<string, QuizTotal>()),
-    quizEnabled ? listQuestions() : Promise.resolve([] as Question[]),
-    getResolvedModules(),
-  ]);
+  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, resolvedModules] =
+    await Promise.all([
+      getLeaderboardSource().getUser(login),
+      getViewerTeam(login),
+      getViewerHints(login),
+      quizEnabled ? getQuizTotals() : Promise.resolve(new Map<string, QuizTotal>()),
+      quizEnabled ? listQuestions() : Promise.resolve([] as Question[]),
+      classicEnabled ? getClassicTotals() : Promise.resolve(new Map<string, ClassicTotal>()),
+      classicEnabled ? listChallenges() : Promise.resolve([] as Challenge[]),
+      getResolvedModules(),
+    ]);
 
   // Live/mock team membership from the store wins; fall back to whatever the
   // leaderboard source reports (only the mock fixture populates it today).
@@ -90,14 +101,16 @@ export default async function ProfilePage() {
   // challenges) — deliberately not called "failed" so contestants who
   // haven't gotten to a challenge yet don't read it as losing.
   const nonPatched = profile ? Math.max(0, profile.total - profile.patched) : 0;
-  // Hint spend is deducted and quiz points are added, in that order, as
-  // overlays — the exact same math (and order) as the leaderboard's
+  // Hint spend is deducted and the app-side modules' points are added, in that
+  // order, as overlays — the exact same math (and order) as the leaderboard's
   // withHintPenalties (subtract, floor at 0) followed by
-  // withModuleContributions (add quiz points on top) — so the profile
-  // matches the contestant's public row.
+  // withModuleContributions (add quiz and classic points on top) — so the
+  // profile matches the contestant's public row.
   const quizTotal = quizTotals.get(login);
   const quizPoints = quizTotal?.points ?? 0;
-  const netPoints = Math.max(0, (profile?.points ?? 0) - viewerHints.spent) + quizPoints;
+  const classicTotal = classicTotals.get(login);
+  const classicPoints = classicTotal?.points ?? 0;
+  const netPoints = Math.max(0, (profile?.points ?? 0) - viewerHints.spent) + quizPoints + classicPoints;
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
   const progressPct = !profile
@@ -144,6 +157,23 @@ export default async function ProfilePage() {
       // quizModule — a deleted question or a failed `listQuestions` must
       // never make the denominator read smaller than the numerator.
       detail: { kind: "quiz", answered: quizTotal.answered, total: Math.max(quizQuestions.length, quizTotal.answered), points: quizTotal.points },
+    };
+  }
+  if (classicEnabled && classicTotal && classicTotal.solved > 0) {
+    moduleProgress["classic"] = {
+      points: classicTotal.points,
+      completed: classicTotal.solved,
+      lastActivityAt: classicTotal.lastAt,
+      // Clamped to at least `solved`, mirroring module-contributions.ts's
+      // classicModule — a deleted challenge (which deliberately leaves banked
+      // points and the aggregate counter alone) must never make the
+      // denominator read smaller than the numerator.
+      detail: {
+        kind: "classic",
+        solved: classicTotal.solved,
+        total: Math.max(classicChallenges.length, classicTotal.solved),
+        points: classicTotal.points,
+      },
     };
   }
   // `ModuleDetail`/`AppBreakdown` (the same renderers the leaderboard uses)

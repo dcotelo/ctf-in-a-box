@@ -1,5 +1,6 @@
 import "server-only";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
@@ -540,34 +541,14 @@ export async function getTeamClassicTotalsBatch(
 }
 
 /** The union-by-challenge fold. Keeps the EARLIEST solve for any challenge
- *  more than one member holds. */
+ *  more than one member holds.
+ *
+ *  The rule itself lives in `leaderboard/team-fold.ts` and is shared verbatim
+ *  with quiz-store's team fold — see the note there. All this wrapper does is
+ *  rename the shared `completed` to classic's own noun. */
 function foldTeamSolves(memberReplies: ({ result?: unknown; error?: string } | undefined)[]): ClassicTotal {
-  const byChallenge = new Map<string, Solve>();
-  for (const res of memberReplies) {
-    const flat = Array.isArray(res?.result) ? (res.result as string[]) : [];
-    for (let i = 0; i < flat.length; i += 2) {
-      const parsed = parseJsonValue(flat[i + 1], extractSolve);
-      if (!parsed) continue;
-      const challengeId = flat[i];
-      const existing = byChallenge.get(challengeId);
-      if (!existing || Date.parse(parsed.at) < Date.parse(existing.at)) {
-        byChallenge.set(challengeId, parsed);
-      }
-    }
-  }
-
-  let points = 0;
-  let lastAtMs = -Infinity;
-  for (const { points: solvePoints, at } of byChallenge.values()) {
-    points += solvePoints;
-    const ms = Date.parse(at);
-    if (Number.isFinite(ms) && ms > lastAtMs) lastAtMs = ms;
-  }
-  return {
-    points,
-    solved: byChallenge.size,
-    lastAt: Number.isFinite(lastAtMs) ? new Date(lastAtMs).toISOString() : null,
-  };
+  const { points, completed, lastAt } = foldTeamItems(memberReplies);
+  return { points, solved: completed, lastAt };
 }
 
 type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;
