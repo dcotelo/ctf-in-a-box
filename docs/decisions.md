@@ -727,7 +727,12 @@ ABSENCE against a deliberately enumerated secure-development vocabulary
 (`app/(site)/__tests__/secure-dev-terms.ts`), narrowing a term rather than
 dropping it when it risks a false positive — the previous round's list
 checked "pull request", "fork" and "Browse targets" but not "patched", which
-was the one string that had actually leaked. Copy stays plain data rather
+was the one string that had actually leaked, and dropping "target" over
+`target="_blank"` left prose about targets sailing through until it came back
+as a bounded pattern. The list is self-verifying: a companion test renders
+the pages that ARE supposed to carry this vocabulary and fails if any term
+matches nothing, so a term cannot rot into decoration while the absence
+assertions keep passing. Copy stays plain data rather
 than JSX (`Copy`/`CopySegment` covers the emphasis and links a sentence needs
 inline), so the registry remains importable either side of the server
 boundary, and the new fields are stripped from `ResolvedModule` for the

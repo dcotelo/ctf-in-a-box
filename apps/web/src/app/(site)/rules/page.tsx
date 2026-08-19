@@ -51,6 +51,7 @@ export default async function RulesPage() {
   });
   const fromModules = (section: "teams" | "fairPlay" | "conduct" | "scoring") =>
     contributions.flatMap((c) => c[section] ?? []).map((copy, i) => <ModuleCopy key={i} copy={copy} />);
+  const fairPlayFromModules = fromModules("fairPlay");
 
   // Rules are React nodes rather than plain strings so a rule can link to the
   // document it defers to — a rule that just says a code of conduct applies is
@@ -65,11 +66,23 @@ export default async function RulesPage() {
       ],
     },
     {
-      // Every fair-play rule this event has ever had names a module's own
-      // artifacts — its targets, its submissions, its abuse vectors — so the
-      // whole section is module-contributed and disappears with them.
+      // Every fair-play rule this event ships names a module's own artifacts
+      // — its targets, its submissions, its abuse vectors — so the modules
+      // write them. But the PRINCIPLES underneath (don't collude, don't
+      // attack the platform) hold on any event whatsoever, and a module that
+      // ships no `rules` block must not leave a CTF running with no
+      // anti-collusion rule at all. These two generic bullets stand in when,
+      // and only when, no enabled module has contributed any: on every event
+      // that has one they render nothing, so they cost zero bytes on the
+      // secure-development page.
       heading: "Fair play",
-      rules: fromModules("fairPlay"),
+      rules:
+        fairPlayFromModules.length > 0
+          ? fairPlayFromModules
+          : [
+              "Submit your own work. Don't publish full solutions for others to copy during the event.",
+              "Do not attack the scoring pipeline, the leaderboard, or other contestants. Report anything you find to an organizer instead of exploiting it.",
+            ],
     },
     {
       heading: "Conduct",

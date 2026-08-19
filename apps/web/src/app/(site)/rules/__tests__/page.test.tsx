@@ -10,7 +10,6 @@ vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: {} }),
 }));
 
-import { findSecureDevLeaks } from "../../__tests__/secure-dev-terms";
 import Rules from "@/app/(site)/rules/page";
 
 const html = await Rules().then(renderToStaticMarkup);
@@ -56,15 +55,6 @@ describe("/rules on a secure-development event", () => {
     );
     expect(html).toContain(
       '<a href="https://github.com/OWASP/secure-agent-playbook" target="_blank" rel="noopener noreferrer" class="ds-link">Secure Agent Playbook</a>',
-    );
-  });
-
-  // Guards page-quiz-only.test.tsx from going vacuous — see the same test in
-  // how-to-play's suite. /rules carries fewer of these terms than
-  // /how-to-play does, so this only pins that a meaningful handful appear.
-  it("carries the very terms the quiz-only suite asserts are absent", () => {
-    expect(findSecureDevLeaks(html)).toEqual(
-      expect.arrayContaining(["pull request", "fork", "patch", "hint", "challenge"]),
     );
   });
 

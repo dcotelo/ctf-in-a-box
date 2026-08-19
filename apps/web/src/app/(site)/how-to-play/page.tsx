@@ -217,8 +217,11 @@ export default async function HowToPlayPage() {
         <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
           <h2 className="font-semibold text-white">Good to know</h2>
           <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-zinc-400">
-            {notes.map((note) => (
-              <li key={note}>{note}</li>
+            {/* Index keys: two modules can word an identical caveat ("Points
+                are credited to the GitHub account you signed in with"), and
+                the note text is therefore not a unique identity. */}
+            {notes.map((note, i) => (
+              <li key={i}>{note}</li>
             ))}
           </ul>
         </div>

@@ -421,9 +421,13 @@ of one module's shape.
    `scoring`. The platform keeps the section headings and the genuinely
    event-wide rules (team size, code of conduct, prizes, organizer
    decisions); a module owns every rule that names its own artifacts —
-   targets, pull requests, patches, hints, questions. "Fair play" is entirely
-   module-contributed today and disappears with the modules; a section with
-   no rules is not rendered.
+   targets, pull requests, patches, hints, questions. "Fair play" is written
+   entirely by the modules — but the principles under it (don't collude,
+   don't attack the platform) hold on any event, so the platform renders two
+   generic fallback bullets if, and only if, no enabled module contributed
+   any: a module that ships without a `rules` block must not leave a CTF with
+   no anti-collusion rule at all. A section that ends up with no rules is not
+   rendered.
 
    `guide.steps`/`guide.example` and `rules` itself are **functions** (of
    `GuideContext`/`RulesContext` — the target count and list, the GitHub org,

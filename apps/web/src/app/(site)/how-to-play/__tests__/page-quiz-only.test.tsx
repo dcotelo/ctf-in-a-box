@@ -13,7 +13,12 @@
 // registry under test — same split as lib/__tests__/modules-resolve.test.ts.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { findSecureDevLeaks, SECURE_DEV_TERMS } from "../../__tests__/secure-dev-terms";
+import {
+  findSecureDevLeaks,
+  normalizeHtml,
+  SECURE_DEV_PATTERNS,
+  SECURE_DEV_TERMS,
+} from "../../__tests__/secure-dev-terms";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
@@ -61,7 +66,11 @@ describe("/how-to-play in a quiz-only event", () => {
   // Belt and braces: the same terms, one assertion each, so a failure points
   // at the exact word rather than at a list.
   it.each(SECURE_DEV_TERMS)("does not leak %j", (term) => {
-    expect(html.toLowerCase()).not.toContain(term);
+    expect(normalizeHtml(html)).not.toContain(term);
+  });
+
+  it.each(SECURE_DEV_PATTERNS)("does not leak %s", (pattern) => {
+    expect(html).not.toMatch(pattern);
   });
 
   it("renders the quiz's own guide instead", () => {

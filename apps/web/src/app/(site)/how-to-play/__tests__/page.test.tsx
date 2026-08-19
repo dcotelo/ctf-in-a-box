@@ -12,7 +12,6 @@ vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: {} }),
 }));
 
-import { findSecureDevLeaks, SECURE_DEV_TERMS } from "../../__tests__/secure-dev-terms";
 import HowToPlay, { metadata } from "@/app/(site)/how-to-play/page";
 
 const html = await HowToPlay().then(renderToStaticMarkup);
@@ -79,14 +78,6 @@ describe("/how-to-play on a secure-development event", () => {
     expect(html).toContain('href="/challenges"');
     expect(html).toContain("Read the rules");
     expect(html).toContain("View the leaderboard");
-  });
-
-  // Guards the quiz-only suite from going vacuous: its whole value is the
-  // enumerated absence list, which proves nothing if the terms don't appear
-  // on the page that IS supposed to carry them. Most of the list must fire
-  // here.
-  it("carries the very terms the quiz-only suite asserts are absent", () => {
-    expect(findSecureDevLeaks(html).length).toBeGreaterThan(SECURE_DEV_TERMS.length / 2);
   });
 
   it("describes the page with the module's meta description", () => {
