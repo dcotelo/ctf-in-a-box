@@ -224,14 +224,29 @@ hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; the admin panel
-(`admin-controls.tsx`) is sectioned by
-enabled module, with the four hint controls living under Secure
-Development's section and the quiz's two retry-gate knobs plus its full
-question-authoring UI (`components/admin-quiz-controls.tsx`) under Quiz's —
+(`admin-controls.tsx`) is a tab shell — one **Event** tab for the
+control-plane settings that belong to the platform itself, then one tab per
+enabled module, labelled with that module's organizer-resolved `title` — with
+the four hint controls living in Secure
+Development's tab (`admin-secure-dev-tab.tsx`) and the quiz's two retry-gate
+knobs plus its full
+question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's —
 so the generic "No settings for this module yet." fallback that a module
-section renders when it defines no controls is, today, dead code for both
+tab renders when it defines no controls is, today, dead code for both
 shipped modules; it stays wired for whatever module ships next with no
-settings of its own. The existing challenge
+settings of its own. Every module tab opens with an identity editor
+(`admin-module-identity.tsx`) for that module's title/blurb override (item 1
+above); this is the same organizer-resolved name rendered in the tab label
+itself, the nav, and the module's own page header — plus the leaderboard block
+and the landing-page section heading on a *multi-module* event, both of which
+are suppressed while only one module is enabled (see item 1 for the full
+reach). The
+landing page (`app/page.tsx`) is composed the same way: the platform frame
+(logo, event name, dates, countdown, its own CTAs, Discord link, progress
+card) stays code, and each enabled module's `home` block (item 5 above)
+supplies the page's tagline, hero paragraph, "what to expect" section, and
+optional CTA/extra section — so a quiz-only event's landing page never
+mentions forks or patches. The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
 predate this work and satisfy those items for `secure-development`; `quiz`
 satisfies the same items with its own semantics (item 3 below covers the
@@ -285,6 +300,53 @@ of one module's shape.
    example: `secure-development` supplies "Secure Development" as its
    display name (not a string baked into `ctf-owasp-org`'s UI layer).
 
+   A module's registry display name/description MAY be overridden at
+   runtime by the organizer — a title (≤60 chars) and a blurb (≤200 chars)
+   per module, editable from that module's own `/admin` tab, plain text only
+   (control characters and Unicode bidi-override/isolate characters
+   rejected), stored on the same `ctf:admin:settings` hash the rest of the
+   runtime override layer uses (`moduleTitle:<id>`/`moduleBlurb:<id>` —
+   decision 19's override-else-default precedence applies here too: leaving
+   a field blank clears the override and restores the registry default,
+   never stores an empty string).
+
+   **Two resolved fields, and they are not interchangeable.**
+   `ResolvedModule.title` is the module's name — the override if there is
+   one, the registry `displayName` otherwise — and it is what a surface that
+   has always shown the module's name must render.
+   `ResolvedModule.titleOverride` is the organizer's rename *alone*, or
+   `undefined`, and it is what a surface with its own established default
+   must render *instead of* that default. The rule the platform follows, and
+   a new module MUST follow: **an explicit rename replaces the module's name
+   wherever it appears; with no rename, each surface's existing default
+   stands unchanged.** The nav is the worked example —
+   `secure-development`'s registry `nav.label` is "Challenges" while its
+   `displayName` is "Secure Development", because one describes the
+   destination page and the other names the module — so the nav reads
+   `titleOverride || nav.label`, and an event that never touched `/admin`
+   still says "Challenges". Reading `title` there instead renames the nav on
+   every such event, which is a real bug this kit shipped and fixed. Same for
+   `/challenges`, whose page title defaults to "Challenges", not to the
+   module's display name.
+
+   **Where a rename reaches, honestly.** On every event: the module's admin
+   tab label, its nav link (header *and* footer), and its own page
+   header/`<title>`. Only on a **multi-module** event: the leaderboard's
+   per-module block heading and the module's landing-page section heading —
+   both are deliberately suppressed while a single module is enabled (there
+   is nothing to disambiguate), and the landing page's uppercase kicker comes
+   from the registry `home.tagline`, which is not overridable at all. So a
+   single-module event sees three surfaces change, not five.
+
+   The **blurb** has a much smaller reach than the title, and a module author
+   should not assume otherwise: today its only consumer is the module page's
+   meta description (`/quiz`'s `generateMetadata`). It is rendered on no page,
+   and `secure-development` does not consume it at all.
+
+   A module MUST NOT read its own registry `displayName`/`description`
+   directly in any surface that names it — it must go through the resolved
+   fields, or an organizer's override silently does nothing there.
+
 2. **Challenge catalogue for UI.** A module MUST expose, per challenge: id,
    title, target/app grouping, and point value — built on the same
    catalogue and the same stable challenge IDs required for scoring (item
@@ -313,6 +375,27 @@ of one module's shape.
    `modules:` may leak into nav, leaderboard, or challenge listings; an
    organizer who omits a module from their event config gets an app with no
    trace of it, not a greyed-out or hidden-but-present surface.
+
+5. **Landing-page contribution (optional).** A module MAY contribute a
+   `home` block to its registry entry (`ModuleHome` in
+   `apps/web/src/lib/modules.ts`): an uppercase tagline, a hero `intro`
+   paragraph, a "what to expect" heading/lede, numbered `steps`, an optional
+   `cta` into the module's own route, and an optional full-width `extra`
+   section. The platform frame (`app/page.tsx`) owns the logo, event name,
+   dates, countdown, its own CTAs, the Discord link, and the
+   progress-tracking card; it composes each enabled module's `home` block in
+   registry order alongside that frame. A module with no `home` contributes
+   nothing to the landing page — valid, not an error — and an event whose
+   enabled modules all lack one still renders the frame on its own.
+
+   `intro` and `steps` are **functions**, not static strings — they take a
+   `HomeContext` (`appCount`, `appList`, `topAppsList`, `totalChallenges`,
+   built once per render so two modules can't disagree about how many
+   targets the event has) and must be called server-side, with only the
+   resulting strings ever handed further down the tree. A module's `home`
+   block MUST NOT be passed to a Client Component for this reason — see
+   `docs/decisions.md`'s ADR on why `ResolvedModule` omits `home` entirely
+   and server code reaches it through a dedicated accessor instead.
 
 ## 6. Security requirements (non-negotiable)
 

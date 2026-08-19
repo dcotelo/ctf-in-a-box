@@ -10,6 +10,7 @@ import PageHeader from "@/components/page-header";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { formatRelativeTime } from "@/lib/relative-time";
+import { getResolvedModules } from "@/lib/resolved-modules";
 import AdminControls from "./admin-controls";
 
 export const metadata: Metadata = {
@@ -39,9 +40,15 @@ export default async function AdminPage() {
   // (both come back as null) — the poller heartbeat is advisory, not a
   // correctness signal, so collapsing the two cases is an acceptable
   // simplification rather than adding a second null-ish state to track.
-  const [settings, sync] = await Promise.all([
+  //
+  // `getResolvedModules` is deliberately NOT wrapped in a catch: it already
+  // fails open to the registry defaults internally (see
+  // src/lib/resolved-modules.ts), and it is `cache()`d per request, so this
+  // call rides along with whatever the root layout's nav already paid for.
+  const [settings, sync, modules] = await Promise.all([
     getAdminSettings().catch(() => null),
     getSyncStatus().catch(() => null),
+    getResolvedModules(),
   ]);
 
   return (
@@ -83,7 +90,7 @@ export default async function AdminPage() {
       </div>
 
       {settings ? (
-        <AdminControls initial={settings} demoMode={process.env.DEMO_MODE === "1"} />
+        <AdminControls initial={settings} demoMode={process.env.DEMO_MODE === "1"} modules={modules} />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>

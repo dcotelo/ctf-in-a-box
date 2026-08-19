@@ -1,9 +1,16 @@
 // Footer shared by content routes. Plain Server Component — no interactivity.
+//
+// `navLinks` comes in as a PROP, resolved by the caller through
+// `getNavLinks()`, exactly as the root layout feeds <SiteHeader>. It used to
+// import `site.ts`'s static list directly, which meant an organizer's module
+// rename appeared in the header and not the footer — the same links,
+// disagreeing on every page. The prop is what keeps the two in step; don't
+// reach for the static list here.
 
 import Link from "next/link";
-import { event, navLinks, legalLinks } from "@/lib/site";
+import { event, legalLinks, type NavLink } from "@/lib/site";
 
-export default function SiteFooter() {
+export default function SiteFooter({ navLinks }: { navLinks: NavLink[] }) {
   return (
     <footer className="relative mt-auto border-t border-white/[0.06]">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#2563eb]/20 to-transparent" />

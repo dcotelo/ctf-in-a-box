@@ -1,6 +1,7 @@
 import "server-only";
 import { getAdminSettings } from "@/lib/admin-store";
 import { apps, appsById, type AppId } from "@/lib/apps";
+import { isModuleEnabled } from "@/lib/modules";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 
 /**
@@ -120,6 +121,10 @@ export type HintGate =
  *  evaluated at READ time (no scheduler on the box), matching how the freeze
  *  and registration windows work. */
 export async function hintGate(login: string, app: AppId): Promise<HintGate> {
+  // Hints are a Secure Development concept — the keys are per-challenge and a
+  // quiz has nothing to hint. Fail closed, consistent with the rest of this file.
+  if (!isModuleEnabled("secure-development")) return { allowed: false, reason: "disabled" };
+
   const { enabled, minSolves, unlockAfterMin, scoringStartsAt } = await resolveHintConfig();
   if (!enabled) return { allowed: false, reason: "disabled" };
 

@@ -3,10 +3,15 @@
 // a centered content column, and the footer across the grouped pages.
 
 import SiteFooter from "@/components/site-footer";
+import { getNavLinks } from "@/lib/resolved-modules";
 
 // The shared header lives in the root layout, so it's already rendered above
 // this content. Here we just provide the centered column and the footer.
-export default function SiteLayout({
+//
+// The footer's links are resolved from the SAME accessor the root layout uses
+// for the header, so an organizer's module rename reaches both. The read is
+// memoized per request, so this costs nothing on top of the header's.
+export default async function SiteLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -16,7 +21,7 @@ export default function SiteLayout({
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
         {children}
       </main>
-      <SiteFooter />
+      <SiteFooter navLinks={await getNavLinks()} />
     </>
   );
 }

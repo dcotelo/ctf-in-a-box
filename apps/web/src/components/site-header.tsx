@@ -7,10 +7,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { event, navLinks } from "@/lib/site";
+import { event, type NavLink as NavLinkType } from "@/lib/site";
 import AuthNav from "@/components/auth-nav";
 
-export default function SiteHeader() {
+export default function SiteHeader({ navLinks }: { navLinks: NavLinkType[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 

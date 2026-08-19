@@ -1,0 +1,107 @@
+// THE regression this whole task exists for: an event that runs only the quiz
+// must not describe a game it isn't running. The failure mode is silent — a
+// quiz-only landing page telling contestants to fork a repo and open a pull
+// request still renders, still passes any "does it contain the event name"
+// check, and only a human reading the deployed page notices. So the assertions
+// that matter here are on ABSENCE.
+//
+// Own file because `vi.mock` hoists per file and this fixture needs its own
+// event config (the shipped one enables secure-development only) — same split
+// as lib/__tests__/modules-resolve.test.ts.
+import { describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+
+vi.mock("@/lib/event-config", () => ({
+  eventConfig: {
+    name: "Quiz Night",
+    theme: "",
+    dates: "",
+    location: "",
+    ctfStartsAt: null,
+    url: "http://localhost:3000",
+    contactEmail: "",
+    githubOrg: "OWASP-CTF",
+    discordUrl: "",
+    modules: [{ id: "quiz" }],
+    targets: [],
+    admins: [],
+  },
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/admin-store", () => ({
+  getAdminSettings: async () => ({ moduleOverrides: {} }),
+}));
+vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "" });
+  return { Poppins: font, Barlow: font, Geist_Mono: font };
+});
+vi.mock("next/image", () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} />
+  ),
+}));
+
+import Home from "@/app/page";
+import { metadata } from "@/app/layout";
+
+const html = await Home().then(renderToStaticMarkup);
+
+describe("landing page in a quiz-only event", () => {
+  it("still renders the platform frame", () => {
+    expect(html).toContain("Quiz Night");
+    expect(html).toContain("How to play");
+    expect(html).toContain("Track your progress live");
+  });
+
+  it("renders no patch/PR/fork copy", () => {
+    expect(html).not.toContain("pull request");
+    expect(html).not.toContain("fork");
+    expect(html).not.toContain("Secure Development CTF");
+    expect(html).not.toContain("Browse targets");
+    // "patched" is the string that actually leaked: the platform frame's
+    // progress card used to promise a "patched and non-patched count per app",
+    // which a quiz-only event has no such thing as. Absence of the OTHER four
+    // strings passed even while that sentence shipped, so this assertion is
+    // the one carrying weight here.
+    expect(html).not.toContain("patched");
+  });
+
+  // "writing the patch with an AI agent is the skill this event exists to
+  // build" is secure-development's thesis. On a graded question set the same
+  // section reads as an invitation to cheat, so it must travel with its module.
+  it("does not invite contestants to bring an AI agent", () => {
+    expect(html).not.toContain("Please use AI");
+    expect(html).not.toContain("Bring your agent");
+    expect(html).not.toContain("Secure Agent Playbook");
+  });
+
+  it("renders no targets grid", () => {
+    expect(html).not.toContain("Each app is a well-known");
+    expect(html).not.toContain("Juice Shop");
+  });
+
+  it("renders the quiz module's own copy instead", () => {
+    expect(html).toContain("Answer security questions for points.");
+    expect(html).toContain("Straight questions, scored on submit");
+    expect(html).toContain("Take the quiz");
+    expect(html).toContain('href="/quiz"');
+  });
+
+  it("renders the quiz's three steps", () => {
+    for (const title of [
+      "Sign in with GitHub",
+      "Work through the questions",
+      "Get scored on submit",
+    ]) {
+      expect(html).toContain(title);
+    }
+  });
+
+  it("describes the event with the quiz tagline, not secure-development's", () => {
+    expect(metadata.description).toBe("Quiz Night — Quiz.");
+  });
+});

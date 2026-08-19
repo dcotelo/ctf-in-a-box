@@ -3,6 +3,8 @@ import { Poppins, Barlow, Geist_Mono } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
 import { event } from "@/lib/site";
+import { enabledModules } from "@/lib/modules";
+import { getNavLinks } from "@/lib/resolved-modules";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -22,23 +24,37 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// What this event actually is, in the enabled modules' own words. This used to
+// hardcode "patch real vulnerabilities in OWASP training apps" — secure-
+// development's pitch, served as the description of EVERY page, including on
+// an event that runs no such module. Taglines come off the registry (they are
+// not organizer-overridable, unlike title/blurb), so this stays a static
+// `metadata` object: no request-time read, nothing for the build to freeze.
+// A module with no `home` contributes nothing, and an event whose modules all
+// lack one falls back to the event name and its dates alone.
+const moduleTaglines = enabledModules
+  .map((m) => m.home?.tagline)
+  .filter(Boolean)
+  .join(" · ");
+
 export const metadata: Metadata = {
   title: { default: event.name, template: `%s · ${event.name}` },
-  description: `${event.name} — patch real vulnerabilities in OWASP training apps${event.dates ? ` — ${event.dates}` : ""}${event.location ? `, ${event.location}` : ""}.`,
+  description: `${event.name}${moduleTaglines ? ` — ${moduleTaglines}` : ""}${event.dates ? ` — ${event.dates}` : ""}${event.location ? `, ${event.location}` : ""}.`,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const navLinks = await getNavLinks();
   return (
     <html
       lang="en"
       className={`${poppins.variable} ${barlow.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <SiteHeader />
+        <SiteHeader navLinks={navLinks} />
         {children}
         <VisitBeacon />
       </body>

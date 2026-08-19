@@ -5,16 +5,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { requireAdmin, getAdminSettings, getSyncStatus } = vi.hoisted(() => ({
+const { requireAdmin, getAdminSettings, getSyncStatus, getResolvedModules } = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
   getAdminSettings: vi.fn(),
   getSyncStatus: vi.fn(),
+  // The real one calls `connection()`, which needs a request context that
+  // renderToStaticMarkup does not provide — and the resolution itself has its
+  // own suite (lib/__tests__/resolved-modules.test.ts).
+  getResolvedModules: vi.fn(async () => [
+    {
+      id: "secure-development",
+      title: "Secure Development",
+      blurb: "Find the vulnerability, patch it for real, ship the fix as a PR.",
+      targets: ["juice-shop"],
+    },
+  ]),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 
 import AdminPage from "@/app/(site)/admin/page";
 
@@ -34,6 +46,7 @@ describe("admin page gate", () => {
       hintCost: null,
       updatedBy: null,
       updatedAt: null,
+      moduleOverrides: {},
     });
     getSyncStatus.mockResolvedValue({
       lastPollAt: "2026-08-14T00:00:00Z",
@@ -56,6 +69,7 @@ describe("admin page gate", () => {
       hintCost: null,
       updatedBy: null,
       updatedAt: null,
+      moduleOverrides: {},
     });
     getSyncStatus.mockResolvedValue(null);
     const ui = await AdminPage();

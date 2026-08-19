@@ -576,3 +576,115 @@ limitation above: v1 ships a toggle whose effect is real but partial, and
 that partiality must stay documented (README, this entry, and
 `docs/architecture.md`'s "Organizer admin panel" section) rather than
 implied to be complete.
+
+## 20. Landing-page frame is code; module content is contributed, not organizer-authored
+
+**Context.** The landing page hardcoded `secure-development`'s own pitch — a
+tagline, a hero paragraph, four "how it works" steps, a "please use AI"
+section — as if it were the platform's own copy, the same problem decision
+14 solved for event branding, but for a module's sales pitch instead of the
+event's name. Composing the page from whatever modules an event actually
+enables meant deciding, up front, who authors what.
+
+**Decision.** The platform frame stays code, unconditionally: `app/page.tsx`
+owns the logo, event name, dates, countdown, its own CTAs (how to
+play/leaderboard/Discord), and the progress-tracking card, none of it
+organizer-editable at runtime. Each enabled module instead contributes its
+own landing-page content — tagline, hero paragraph, a "what to expect"
+heading/lede, numbered steps, an optional CTA, an optional extra section —
+through a `home` block on its registry entry (`src/lib/modules.ts`), read at
+request time and rendered inside that frame. Rejected: making the platform's
+own hero copy admin-editable, e.g. a rich-text or Markdown field an organizer
+could set per event. That needs a real sanitisation story for
+organizer-authored markup reaching every contestant's browser, in exchange
+for a rebranding need that's already covered — the event name (decisions 12
+and 14) handles what the event is called, and the per-module title/blurb
+override (`docs/modules.md §5.1`) handles what each module is called. There
+was no remaining gap to justify taking on HTML sanitisation for.
+
+**Consequences.** An event's homepage always looks and functions like the
+kit — frame, countdown, nav, CTAs — and only the module-specific pitch
+changes with which modules are enabled: a quiz-only event's landing page
+never mentions forking a repo or opening a PR, and a two-module event gets
+two "what to expect" sections with no per-page conditional logic added for
+it. Because `home` carries no organizer-editable field, there is nothing on
+this page that needs HTML sanitisation, unlike the rejected alternative
+would have required.
+
+## 21. Module identity resolution makes every page dynamic
+
+**Context.** An organizer's title/blurb override for a module (decision 19's
+runtime-override layer, extended to module naming) has to show up in the
+nav, the leaderboard, the module's own page header, its admin tab label, and
+its landing-page section heading. The root layout that renders the nav had
+no Request-time API of its own (no `cookies`/`headers` call), so Next
+happily prerendered it at **build** time — against an Upstash that is
+deliberately unreachable during the Docker build (see `apps/web/Dockerfile`)
+— and baked that one-shot, fail-open fallback (registry defaults) into the
+static HTML for every route that didn't otherwise opt out of prerendering.
+An organizer's rename would then only ever appear on the handful of routes
+that already had their own Request-time API (`/admin`, `/leaderboard`,
+`/profile`, `/gate`); everywhere else the nav was silently and permanently
+wrong, with no error raised anywhere to say so.
+
+**Decision.** `getResolvedModules()` (`src/lib/resolved-modules.ts`) calls
+`await connection()` before its settings read. This has no effect on the
+data returned; its only job is to tell Next this function needs Request-time
+information, which forces the root layout — and therefore every route under
+it — to render dynamically, per request, instead of being statically
+prerendered at build time. Rejected alternative: wrap the header/nav in
+`<Suspense>` so the rest of the shell could stay a static, prerendered shell
+around a dynamically-streamed nav. Declined because a `Suspense` fallback
+has to render *something* while the real per-request read resolves, and the
+only sensible fallback is the registry-default nav — so a contestant loading
+the page right after a rename would see the *old* module name for a moment,
+then have it swapped out from under them. That is a worse failure mode than
+uniformly dynamic rendering, which never shows a wrong name at all. CI
+carries a regression gate for this class of bug (`.github/workflows/ci.yml`,
+after the app build): it fails if `apps/web/.next/server/app/index.html`
+exists, since a unit test cannot detect a prerendering regression — only the
+build output can.
+
+**Consequences.** Every page under the root layout is dynamically rendered
+per request now; there is no static shell for the nav. That is the accepted
+cost of the fix: it is what makes an organizer's rename live on the very
+next request everywhere, matching the override-else-default precedence the
+rest of the runtime-override layer already promises (decision 19).
+`getResolvedModules()` is wrapped in React's `cache()` so the settings read
+is deduped within one request — the root layout's nav and a page's own
+`generateMetadata`/body can all call it and only the first pays for the
+Redis round trip — and it still fails open on a settings-read error,
+rendering the registry-default nav rather than an empty one.
+
+## 22. Resolved modules are identity-only, deliberately
+
+**Context.** A resolved module (registry defaults merged with the
+organizer's title/blurb override) is handed to both server code and Client
+Components — the admin panel's tab shell, the leaderboard. Two fields on the
+underlying `ModuleDef` don't survive that trip safely: `displayName` and
+`description` are exactly the registry defaults that `title`/`blurb` exist to
+replace, and `home`'s `intro`/`steps` are **functions** — React's flight
+serializer throws "Functions cannot be passed directly to Client Components"
+the instant a function-valued prop crosses into one.
+
+**Decision.** `ResolvedModule` (`src/lib/modules.ts`) is defined as
+`Omit<ModuleDef, "displayName" | "description" | "home"> & { title: string;
+blurb: string }` — both problem fields are dropped from the object as well as
+the type, not merely shadowed by their replacements. Server code that needs a
+module's landing-page content goes through a separate, server-only accessor,
+`getModuleHome(id)` (`src/lib/resolved-modules.ts`), which returns the raw
+`ModuleHome` — functions included — straight off the registry, never off a
+`ResolvedModule`; callers must be Server Components, calling `intro()`/
+`steps()` there and passing only the resulting strings downward.
+
+**Consequences.** Reading `.displayName`/`.description` off a resolved
+module — silently rendering the registry default instead of the organizer's
+override — is a compile error, not a property access that quietly returns
+`undefined`. And no resolved module can ever carry a function value across
+the RSC boundary, so a future module defining `home` cannot accidentally 500
+`/admin` or `/leaderboard` by having its `ModuleHome` attached to the same
+object those pages already pass to Client Components. Both omissions are
+guarded by tests (`modules-resolve.test.ts`), which assert a resolved module
+has no `displayName`/`description`/`home` key at all — including a
+compile-time assertion on the type itself — not just that today's consumers
+happen not to read them.

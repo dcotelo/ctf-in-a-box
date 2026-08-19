@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn<(script: string, keys: string[], args: (string | number)[]) => Promise<unknown>>(),
   upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
   getAdminSettings: vi.fn(),
+  isModuleEnabled: vi.fn<(id: string) => boolean>(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -18,6 +19,9 @@ vi.mock("@/lib/upstash", () => ({
 }));
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: mocks.getAdminSettings,
+}));
+vi.mock("@/lib/modules", () => ({
+  isModuleEnabled: mocks.isModuleEnabled,
 }));
 
 type HintStore = typeof import("@/lib/hint-store");
@@ -35,6 +39,9 @@ async function loadStore(enabled = true, { creds = true }: { creds?: boolean } =
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Hints belong to the Secure Development module; every test below assumes
+  // it is enabled unless it says otherwise.
+  mocks.isModuleEnabled.mockReturnValue(true);
   // Default: no admin override present, so every test not exercising the
   // override sees only the baked env default (as before this override existed).
   mocks.getAdminSettings.mockResolvedValue({
@@ -172,6 +179,16 @@ describe("hintGate", () => {
   });
   /** HKEYS reply for ctf:solves:<target>: fields are `<author>:<challengeId>`. */
   const solves = (...fields: string[]) => mocks.upstashPipeline.mockResolvedValueOnce([{ result: fields }]);
+
+  it("refuses outright when the secure-development module is disabled", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id) => id !== "secure-development");
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0, hintsEnabled: true }));
+    expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: false, reason: "disabled" });
+    // Fails closed before any settings or Redis read.
+    expect(mocks.getAdminSettings).not.toHaveBeenCalled();
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
 
   it("blocks an account with no solves on the target (the burner case)", async () => {
     const store = await loadStore();

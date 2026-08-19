@@ -31,7 +31,7 @@ describe("getAdminSettings", () => {
       hintsMinSolves: null, hintsUnlockAfterMin: null,
       quizMaxAttempts: null, quizRetryAfterMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-      updatedBy: null, updatedAt: null,
+      updatedBy: null, updatedAt: null, moduleOverrides: {},
     });
   });
 
@@ -44,7 +44,7 @@ describe("getAdminSettings", () => {
       hintsMinSolves: null, hintsUnlockAfterMin: null,
       quizMaxAttempts: null, quizRetryAfterMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-      updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z",
+      updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
     });
   });
 
@@ -174,7 +174,7 @@ describe("scheduled windows", () => {
     hintsMinSolves: null, hintsUnlockAfterMin: null,
     quizMaxAttempts: null, quizRetryAfterMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-    updatedBy: null, updatedAt: null,
+    updatedBy: null, updatedAt: null, moduleOverrides: {},
   };
   const T = (iso: string) => Date.parse(iso);
 
@@ -222,5 +222,105 @@ describe("scheduled windows", () => {
 
   it("updateAdminSettings: rejects an unparseable date", async () => {
     await expect(updateAdminSettings({ scoringStartsAt: "not-a-date" }, "a")).rejects.toThrow(AdminValidationError);
+  });
+});
+
+describe("module identity overrides", () => {
+  // This file does not mock @/lib/modules, so decodeSettings/updateAdminSettings
+  // see the REAL registry — derived from the shipped event-config.generated.ts,
+  // which enables only "secure-development". "quiz" and "forensics" are both
+  // unregistered from this suite's point of view; "forensics" is kept as the
+  // reject case so its intent (an unknown id) stays obvious.
+  it("decodes moduleTitle/moduleBlurb fields into moduleOverrides", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{
+      result: [
+        "moduleTitle:secure-development", "Round 1",
+        "moduleBlurb:secure-development", "Ten questions.",
+      ],
+    }]);
+    const s = await getAdminSettings();
+    expect(s.moduleOverrides).toEqual({ "secure-development": { title: "Round 1", blurb: "Ten questions." } });
+  });
+
+  it("drops an override for a module id that is not enabled, keeping a valid one alongside it", async () => {
+    // Read-side half of the fail-closed contract: a stale/forged field for a
+    // module that isn't enabled must never resurface, even sitting right next
+    // to a legitimate override for an enabled module.
+    mocks.upstashPipeline.mockResolvedValue([{
+      result: [
+        "moduleTitle:forensics", "Nope",
+        "moduleTitle:secure-development", "Round 1",
+      ],
+    }]);
+    const s = await getAdminSettings();
+    expect(s.moduleOverrides).toEqual({ "secure-development": { title: "Round 1" } });
+  });
+
+  it("defaults moduleOverrides to an empty object", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
+    expect((await getAdminSettings()).moduleOverrides).toEqual({});
+  });
+
+  it("accepts a title for an enabled module", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+    await updateAdminSettings({ "moduleTitle:secure-development": "Round 1" }, "alice");
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const strArgs = args.map(String);
+    const idx = strArgs.indexOf("moduleTitle:secure-development");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe("Round 1"); // written as an HSET pair, not dropped silently
+  });
+
+  it("rejects a title for a module that is not enabled", async () => {
+    await expect(updateAdminSettings({ "moduleTitle:forensics": "Nope" }, "alice")).rejects.toThrow(
+      AdminValidationError,
+    );
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("rejects an over-length title", async () => {
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "x".repeat(61) }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects an over-length blurb", async () => {
+    await expect(
+      updateAdminSettings({ "moduleBlurb:secure-development": "x".repeat(201) }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects control characters", async () => {
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "bad\x07title" }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects a Unicode bidi override character", async () => {
+    // U+202E (RIGHT-TO-LEFT OVERRIDE) reorders rendered glyphs rather than
+    // injecting anything — it could still visually scramble a heading every
+    // contestant loads, so it's rejected alongside C0 control characters.
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": "bad\u202Etitle" }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("rejects a non-string value", async () => {
+    await expect(
+      updateAdminSettings({ "moduleTitle:secure-development": 7 as never }, "alice"),
+    ).rejects.toThrow(AdminValidationError);
+  });
+
+  it("clears the field on an empty string (HDEL), not by storing it (HSET)", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+    await updateAdminSettings({ "moduleTitle:secure-development": "" }, "alice");
+    // Assert the positional ARGV layout, same as the schedule-field clearing
+    // case above: numDels at index 4, then the del target(s) in the slots
+    // immediately after. A plain `toContain` on the field name would pass
+    // whether it landed in dels or in fields — this pins it to HDEL.
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    const strArgs = args.map(String);
+    expect(strArgs[4]).toBe("1"); // numDels = 1
+    expect(strArgs.slice(5, 6)).toContain("moduleTitle:secure-development"); // the del target
   });
 });

@@ -19,12 +19,19 @@ import QuizBoard, { type QuizQuestionView, type QuizStatus } from "@/components/
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
 import { isModuleEnabled } from "@/lib/modules";
+import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerQuiz, listQuestions, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN, type ViewerQuiz } from "@/lib/quiz-store";
 
-export const metadata: Metadata = {
-  title: "Quiz",
-  description: "Answer security questions for points.",
-};
+// `metadata` is a static export and cannot await Redis for the organizer's
+// resolved title, so this is `generateMetadata` instead — see
+// resolved-modules.ts for why every consumer of it renders dynamically.
+export async function generateMetadata(): Promise<Metadata> {
+  const mod = (await getResolvedModules()).find((m) => m.id === "quiz");
+  return {
+    title: mod?.title ?? "Quiz",
+    description: mod?.blurb ?? "Answer security questions for points.",
+  };
+}
 
 /** Derives this viewer's status for one question from the SAME cap/cooldown
  *  rule quiz-store's `evaluateGate` enforces authoritatively at submit time
@@ -69,11 +76,14 @@ export default async function QuizPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
 
-  const [questions, viewerQuiz, settings] = await Promise.all([
+  const [questions, viewerQuiz, settings, modules] = await Promise.all([
     listQuestions(),
     login ? getViewerQuiz(login) : Promise.resolve<ViewerQuiz>({ answered: {}, attempts: {} }),
     getAdminSettings(),
+    getResolvedModules(),
   ]);
+
+  const moduleTitle = modules.find((m) => m.id === "quiz")?.title ?? "Quiz";
 
   const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
   const cooldownMs = (settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
@@ -96,7 +106,7 @@ export default async function QuizPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow="Quiz" title="Quiz" description={description} />
+      <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={description} />
       {questions.length === 0 ? (
         <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
           <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>

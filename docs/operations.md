@@ -50,7 +50,59 @@ the admin panel below.
 
 Anyone listed in `event.yaml`'s `admins` (checked case-insensitively against
 their GitHub login) can sign in and reach `/admin` — everyone else gets a
-403, on both the page and its API routes. The panel offers:
+403, on both the page and its API routes.
+
+The controls are grouped into **tabs**: an **Event** tab for the settings that
+belong to the platform itself (freeze, team registration, the schedule, demo
+seed, master reset), then **one tab per enabled module**, labelled with that
+module's name as the organizer has set it. A module's own knobs live in its own
+tab, so an event that doesn't run a module never sees its settings at all. The
+tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
+the ends). **Event is always the default tab** on load, regardless of how many
+modules are enabled.
+
+Hints moved from a flat settings list into the Secure Development tab as part
+of this reorganization. **This is a UI relocation only** — the underlying
+storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
+`hintsUnlockAfterMin`) and their validation are completely unchanged, so no
+deployed event's settings, or their meaning, changed by upgrading to this
+tabbed panel.
+
+**Module identity.** Every module's tab opens with a title/blurb editor for
+that module's display name. The title is capped at 60 characters, the blurb at
+200; both are plain text only — control characters and Unicode bidi-override
+characters are rejected, since there is no markup to sanitise, only rendered
+text to keep intact. **Leaving a field blank clears the override and restores
+the module's registry default** — the field's placeholder shows what that
+default is, so clearing it is discoverable rather than a guess. Changes are
+live on the next request; there is no rebuild and no cache to wait out.
+
+**Where a rename actually shows up.** Set a title and it replaces the module's
+name in three places on every event: **the tab's own label**, **the nav link**
+(header and footer alike), and **the module's own page header and browser tab
+title** (`/challenges` for Secure Development, `/quiz` for Quiz). Two further
+surfaces exist but are **suppressed on a single-module event**, which is what
+most events are:
+
+- the **leaderboard's per-module block heading** — hidden while only one
+  module is enabled, because a row's points *are* that module's and the
+  heading would only restate the column above it;
+- the **landing page's per-module section heading** — a lone module's section
+  is headed "What to expect" instead, and the page's uppercase kicker comes
+  from the module's registry tagline, which is **not** overridable at all.
+
+So on a one-module event a rename reaches three surfaces, not five. Nothing is
+broken if you cannot find your new name on the leaderboard or the landing
+page — those two only start naming modules once there are two to tell apart.
+
+**Leave a field blank if you have nothing to say — especially the blurb.** The
+blurb is *not rendered on any page*. Its only effect today is the meta
+description of the module's own page (what a search result or a chat link
+preview shows), and only `/quiz` uses it; Secure Development's blurb reaches
+nothing at all. Treat it as SEO text for the quiz, not as contestant-facing
+copy.
+
+The panel offers:
 
 - **Status** — the sync poller's heartbeat (last poll time, comments
   ingested, repos polled, last error) and a best-effort leaderboard
@@ -64,7 +116,7 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
 - **Team registration** — an open/close switch for the team-forming window.
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
-- **Hint controls** — an override for whether hints are enabled and what
+- **Hint controls** (Secure Development tab) — an override for whether hints are enabled and what
   they cost, on top of the build-time default. Hints are **on by default**
   (set `HINTS_ENABLED=false` to remove them entirely) and cost 10 points
   each. This takes effect immediately for whether a hint **can be bought**.
@@ -92,7 +144,9 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
 
   Both fail **closed**: if the solve lookup errors, the hint is refused
   rather than handed out unverified. Denials return `403` with a message
-  naming what's missing.
+  naming what's missing. The gate also refuses outright when the
+  `secure-development` module is not enabled — hint keys are per-challenge,
+  so there is nothing for a quiz-only event to hint.
 - **Hint penalties apply to teams too.** A team's displayed points are its
   scorer total minus the **sum** of its members' hint spend, floored at 0,
   and the team board re-ranks on the penalised figure (a `−N hints` chip
@@ -116,7 +170,7 @@ their GitHub login) can sign in and reach `/admin` — everyone else gets a
   the poller re-reads those still-present comments — for a post-event wipe that
   stays gone, also delete (or the org, archive) the source PR comments.
 
-- **Quiz controls** (only when the `quiz` module is enabled) — the two
+- **Quiz controls** (Quiz tab, present only when the `quiz` module is enabled) — the two
   retry-gate knobs (max attempts, retry cooldown) plus full question
   authoring: add, edit, and delete. See [Quiz](#quiz) below for what these
   do and their defaults.

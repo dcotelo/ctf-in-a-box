@@ -14,6 +14,7 @@ import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { auth } from "@/lib/auth";
 import { event } from "@/lib/site";
+import { getResolvedModules } from "@/lib/resolved-modules";
 
 export const metadata: Metadata = {
   title: "Leaderboard",
@@ -33,9 +34,10 @@ export default async function LeaderboardPage() {
   // withHintPenalties' — which returns early when hints are disabled.
   // Team standings last: they only overlay membership onto sources with no
   // team concept, and read the entries as already scored and ranked.
-  const [data, session] = await Promise.all([
+  const [data, session, modules] = await Promise.all([
     source.getLeaderboard().then(withHintPenalties).then(withModuleContributions).then(withTeamStandings),
     auth.api.getSession({ headers: await headers() }),
+    getResolvedModules(),
   ]);
 
   // Pre-format relative times server-side so client and server render
@@ -60,6 +62,7 @@ export default async function LeaderboardPage() {
       <Leaderboard
         data={{ ...data, entries }}
         viewerLogin={session?.user?.login ?? null}
+        modules={modules}
       />
     </div>
   );

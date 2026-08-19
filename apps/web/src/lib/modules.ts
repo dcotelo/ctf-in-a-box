@@ -6,6 +6,32 @@ import { eventConfig } from "@/lib/event-config";
 
 export type ModuleId = "secure-development" | "quiz";
 
+/** Context handed to a module's home-page copy so it can interpolate live
+ *  facts (target counts, app names) without importing them itself. */
+export type HomeContext = {
+  appCount: number;
+  appList: string;
+  topAppsList: string;
+  totalChallenges: number;
+};
+
+/** A module's contribution to the landing page. Plain data + pure functions —
+ *  no JSX — so the registry stays importable from server and client alike. */
+export type ModuleHome = {
+  /** Uppercase kicker rendered under the event name. */
+  tagline: string;
+  /** The hero paragraph for this module. */
+  intro: (ctx: HomeContext) => string;
+  /** "What to expect" heading and lede. */
+  expect: { heading: string; lede: string };
+  /** Numbered how-it-works cards. */
+  steps: (ctx: HomeContext) => { title: string; body: string }[];
+  /** Optional CTA into the module's own route. */
+  cta?: { href: string; label: string };
+  /** Optional extra full-width section. */
+  extra?: { kicker: string; heading: string; body: string };
+};
+
 export type ModuleDef = {
   id: ModuleId;
   displayName: string;
@@ -15,6 +41,12 @@ export type ModuleDef = {
   nav?: { href: string; label: string };
   /** Targets this module owns; empty for modules that have none (e.g. quiz). */
   targets: readonly AppId[];
+  /** Landing-page copy for this module, composed into `app/page.tsx` by the
+   *  platform frame. Optional: a module with no `home` simply contributes
+   *  nothing to the landing page, which is valid, not an error. Server code
+   *  reaches it through `getModuleHome` — never off a ResolvedModule, which
+   *  strips it so the object stays safe to hand to a Client Component. */
+  home?: ModuleHome;
 };
 
 // Display metadata per registered module. Registration is deliberate: an entry
@@ -25,12 +57,99 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     displayName: "Secure Development",
     description: "Find the vulnerability, patch it for real, ship the fix as a PR.",
     nav: { href: "/challenges", label: "Challenges" },
+    // Moved VERBATIM off app/page.tsx, curly apostrophes included: the JSX
+    // spelled them `&rsquo;`, which React emits as a literal U+2019, so the
+    // rendered bytes are unchanged. Retyping them as ASCII "'" would be a
+    // silent copy change no test would notice.
+    home: {
+      tagline: "Secure Development CTF",
+      intro: (ctx) =>
+        `Break real vulnerabilities in ${ctx.appCount} OWASP training ${ctx.appCount === 1 ? "app" : "apps"}, patch them for real, and ship the fix as a GitHub pull request. CI validates your patch and scores it automatically. Practice the full secure development lifecycle, not just flag-hunting.`,
+      expect: {
+        heading: "This isn’t flag hunting. It’s the real fix workflow",
+        lede: "Every challenge maps to a real, disclosed vulnerability class from the OWASP Top 10. You find it, patch it, and prove the fix with a passing regression test, the same loop a security engineer runs against a live codebase.",
+      },
+      steps: (ctx) => [
+        {
+          title: "Pick a target",
+          body: `Choose from ${ctx.appCount} real, deliberately vulnerable OWASP ${ctx.appCount === 1 ? "app" : "apps"}: ${ctx.appList}.`,
+        },
+        {
+          title: "Find the vulnerability",
+          body: "Work through the OWASP Top 10 (Web and API) to identify a real flaw in the target's source. Please use AI. Point an agent at the codebase. That's the workflow this event is built to teach.",
+        },
+        {
+          title: "Patch it and open a PR",
+          body: "Fix the vulnerability in your fork, then submit a pull request against the repo's main branch. This is secure development, not flag hunting.",
+        },
+        {
+          title: "Get scored automatically",
+          body: "A GitHub Action runs that challenge's regression test against your patched app. A passing test scores points immediately, no manual grading.",
+        },
+      ],
+      cta: { href: "/challenges", label: "Browse targets" },
+      // "Please use AI" belongs to THIS module, not to the platform frame: it
+      // says writing the patch with an agent is the skill the event exists to
+      // build, which in a quiz-only event would read as an invitation to cheat.
+      extra: {
+        kicker: "Bring your agent",
+        heading: "Please use AI",
+        body: "This isn’t tolerated, it’s the point. Reviewing code, finding the flaw, and writing the patch with an AI agent is the skill this event exists to build. Bring whatever you already use (Claude Code, Copilot, Cursor, your own harness) and let it read the target.",
+      },
+    },
   },
   quiz: {
     id: "quiz",
     displayName: "Quiz",
     description: "Answer security questions for points.",
     nav: { href: "/quiz", label: "Quiz" },
+    // Deliberately plain and factual, and deliberately silent on AI: the
+    // secure-development module invites an agent because patching WITH one is
+    // the skill it teaches; on a graded question set the same invitation would
+    // read as permission to cheat.
+    //
+    // Every claim below is checked against the implementation, because this is
+    // contestant-facing copy and a landing page that promises something the
+    // quiz doesn't do is worse than a plainer one that's true. Specifically:
+    // there is NO topic constraint (upsertQuestion validates ids, choices and
+    // points, nothing else), the UI never shows a remaining-attempts COUNT
+    // (QuizQuestionView is unanswered | answered | cooldown | exhausted, and
+    // quiz-board only says "No attempts remaining" once exhausted), the
+    // attempt allowance itself is never rendered, and grading is exact-match
+    // against a sorted key — all-or-nothing, including for `multi`.
+    //
+    // The copy deliberately does NOT promise a leaderboard place. It used to,
+    // and that claim fails on exactly the event this module exists for:
+    // `withModuleContributions` overlays quiz points onto rows the scoring
+    // backend already produced, so a contestant whose only points are quiz
+    // points has no row to overlay onto and never appears. That is the known
+    // Phase B gap (spec §B.2, documented in operations.md), not something to
+    // paper over in the copy — so the copy says what is true today, and the
+    // promise goes back in when row creation ships.
+    home: {
+      tagline: "Quiz",
+      intro: () =>
+        "Answer security questions for points. Every question carries its own point value and is graded the moment you submit it.",
+      expect: {
+        heading: "Straight questions, scored on submit",
+        lede: "Each question is multiple choice: some have a single right answer, others are select-all-that-apply and only score if your whole selection matches. Grading is automatic, against a stored answer key. Organizers can cap how many times a question may be attempted and make you wait between tries; the question tells you when it is on cooldown and when you have run out of attempts.",
+      },
+      steps: () => [
+        {
+          title: "Sign in with GitHub",
+          body: "Sign in so your answers and points are recorded against your account. Nothing is graded for a signed-out visitor, and signing in is what lets you leave and pick the set back up later.",
+        },
+        {
+          title: "Work through the questions",
+          body: "Take the set at your own pace. Each question shows what it is worth, and says so when it is on cooldown or out of attempts.",
+        },
+        {
+          title: "Get scored on submit",
+          body: "Your answer is graded immediately against the answer key. A correct answer scores its full points, a wrong one scores nothing, and either way there is no manual review.",
+        },
+      ],
+      cta: { href: "/quiz", label: "Take the quiz" },
+    },
   },
 };
 
@@ -41,4 +160,95 @@ export const enabledModules: readonly ModuleDef[] = eventConfig.modules.map((cfg
 
 export function isModuleEnabled(id: ModuleId): boolean {
   return enabledModules.some((m) => m.id === id);
+}
+
+/** Organizer-authored, runtime overrides keyed by module id. Both fields are
+ *  optional and an empty string means "no override" — see resolveModules. */
+export type ModuleOverrides = Partial<Record<ModuleId, { title?: string; blurb?: string }>>;
+
+/** Caps for organizer-authored per-module naming overrides (title/blurb).
+ *  Defined here — not in `admin-store.ts`, which validates against them —
+ *  because this module is client-safe and `admin-store.ts` is `server-only`;
+ *  the admin panel's identity form (a Client Component) needs these numbers
+ *  for its `maxLength` attributes and would break the client build if it
+ *  imported them (or anything else) from admin-store by value. admin-store
+ *  re-exports these two so it stays the single place server code looks for
+ *  them. */
+export const MODULE_TITLE_MAX = 60;
+export const MODULE_BLURB_MAX = 200;
+
+/** A module with its organizer-authored naming applied: identity only, and
+ *  deliberately client-safe.
+ *
+ *  `displayName`/`description` are OMITTED rather than carried through: they
+ *  are the registry DEFAULTS, and `title`/`blurb` are what a consumer must
+ *  render. Keeping both on the same object made reading `.displayName` off a
+ *  resolved module — silently ignoring the organizer's override — a plain
+ *  property access with no type error. Dropping them turns that mistake into
+ *  a compile failure.
+ *
+ *  `home` is OMITTED for a harder reason: `ModuleHome.intro` and
+ *  `ModuleHome.steps` are FUNCTIONS, and resolved modules are handed straight
+ *  from Server Components to `"use client"` components (the admin panel, the
+ *  leaderboard). React's flight serializer throws "Functions cannot be passed
+ *  directly to Client Components" on any function-valued prop, so a resolved
+ *  module carrying `home` would 500 those pages the moment a module defines
+ *  one. Keeping identity-only here makes that structurally impossible instead
+ *  of a trap for the next module to opt into landing-page copy. Server code
+ *  that needs the home block reads it from the registry — see
+ *  `getModuleHome` in `@/lib/resolved-modules`. */
+export type ResolvedModule = Omit<ModuleDef, "displayName" | "description" | "home"> & {
+  /** What to render wherever the MODULE names itself: the organizer's
+   *  override, or the registry `displayName`. Never empty. */
+  title: string;
+  blurb: string;
+  /** The organizer's override alone — trimmed, or `undefined` when unset.
+   *
+   *  This exists because `title` cannot answer "did the organizer rename
+   *  this?", and some surfaces have a per-surface default that is
+   *  deliberately NOT the module's name. `secure-development`'s nav label is
+   *  "Challenges" while its display name is "Secure Development": one names
+   *  the module, the other describes the destination page. Rendering `title`
+   *  there silently renamed the nav on every existing event with no override
+   *  involved. The rule is: an explicit override replaces the module's name
+   *  wherever it appears; with no override, the existing per-surface default
+   *  stands unchanged. Surfaces with their own default read
+   *  `titleOverride || <that default>`; surfaces that always showed the
+   *  module's name keep reading `title`.
+   *
+   *  A string (or absent), so this stays safe to hand to a Client Component
+   *  — see the note above about `home`. */
+  titleOverride?: string;
+};
+
+/** Merge registry defaults with organizer overrides. Pure — no I/O — so it is
+ *  testable on its own and usable either side of the server boundary. An
+ *  override for a module that isn't enabled has nothing to apply to and is
+ *  simply absent from the result; an empty string is treated as unset so
+ *  clearing a field in the admin UI restores the registry default. */
+export function resolveModules(overrides: ModuleOverrides): readonly ResolvedModule[] {
+  // Destructure the defaults OUT rather than spreading them through, so a
+  // resolved module genuinely has no `displayName` to read by mistake — the
+  // type and the runtime object agree. `home` goes the same way, and there it
+  // is load-bearing rather than merely tidy: a type-level Omit alone would
+  // leave the functions on the object, still crossing the RSC boundary and
+  // still throwing. Stripping it here is what makes the result client-safe.
+  // `home` is bound only to keep it out of `...rest` — being unused IS the
+  // point, so the lint warning is silenced deliberately rather than worked
+  // around by re-spreading and deleting.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  return enabledModules.map(({ displayName, description, home, ...rest }) => {
+    const o = overrides[rest.id];
+    // Computed once and carried through as `titleOverride`, so a consumer
+    // with its own per-surface default (the nav label, /challenges' page
+    // title) can tell "the organizer renamed this" from "the registry
+    // default happens to be this string" — see ResolvedModule.
+    const titleOverride = o?.title?.trim() || undefined;
+    return {
+      ...rest,
+      titleOverride,
+      title: titleOverride ?? displayName,
+      blurb: o?.blurb?.trim() || description,
+    };
+  });
 }

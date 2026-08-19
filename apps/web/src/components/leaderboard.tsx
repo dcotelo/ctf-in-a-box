@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
-import { enabledModules } from "@/lib/modules";
+import type { ResolvedModule } from "@/lib/modules";
 import ScoreTimeChart from "@/components/score-time-chart";
 import AppChallengeList from "@/components/app-challenge-list";
 import AppBreakdown from "@/components/app-breakdown";
@@ -20,10 +20,6 @@ import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/lead
 
 type View = "individual" | "teams";
 type SortKey = "rank" | "points" | "patched";
-
-// Build-time constant (`enabledModules` is derived from the baked event
-// config): whether an expanded row needs per-module headings at all.
-const MULTI_MODULE = enabledModules.length > 1;
 
 // Podium accents for the top three, drawn from the design tokens.
 const PODIUM: Record<number, string> = {
@@ -118,6 +114,7 @@ export function EntryRow({
   isOpen,
   onToggle,
   capabilities,
+  modules,
 }: {
   entry: LeaderboardEntry;
   topPoints: number;
@@ -125,7 +122,18 @@ export function EntryRow({
   isOpen: boolean;
   onToggle: () => void;
   capabilities: LeaderboardData["capabilities"];
+  modules: readonly ResolvedModule[];
 }) {
+  // A single-module event has nothing to disambiguate: the row's own points
+  // ARE that module's, so a per-module heading would just restate the header
+  // above it. Show it only once a second module can contribute.
+  //
+  // The count comes off the `modules` prop rather than importing
+  // `enabledModules` here, so this stays a Client Component with no registry
+  // import — but WHICH modules are on is still build-time truth
+  // (`resolveModules` maps `enabledModules`, i.e. `eventConfig.modules`).
+  // Only a module's NAME is runtime; enabling or disabling one is a rebuild.
+  const multiModule = modules.length > 1;
   return (
     <li
       className={`ds-card group rounded-lg border bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] ${
@@ -206,17 +214,13 @@ export function EntryRow({
             {entry.updatedAgo && <span>Last update {entry.updatedAgo}</span>}
           </div>
           {entry.modules && Object.keys(entry.modules).length > 0 ? (
-            enabledModules
+            modules
               .filter((m) => entry.modules?.[m.id])
               .map((m) => (
                 <div key={m.id} className="mb-4 last:mb-0">
-                  {/* A single-module event has nothing to disambiguate: the
-                      row's own points ARE that module's, so the heading would
-                      just restate the header above it. Show it only once a
-                      second module can contribute. */}
-                  {MULTI_MODULE && (
+                  {multiModule && (
                     <p className="mb-2 text-xs uppercase tracking-wider text-muted">
-                      {m.displayName}
+                      {m.title}
                       <span className="ml-2 font-mono text-zinc-300">{entry.modules![m.id]!.points} pts</span>
                     </p>
                   )}
@@ -373,9 +377,11 @@ function NoMatch({ noun, query, onClear }: { noun: string; query: string; onClea
 export default function Leaderboard({
   data,
   viewerLogin,
+  modules,
 }: {
   data: LeaderboardData;
   viewerLogin: string | null;
+  modules: readonly ResolvedModule[];
 }) {
   // Teams are the primary competitive unit once they exist — default there
   // and let individual standings be the secondary, opt-in view.
@@ -514,6 +520,7 @@ export default function Leaderboard({
                 isOpen={expanded === entry.login}
                 onToggle={() => setExpanded(expanded === entry.login ? null : entry.login)}
                 capabilities={data.capabilities}
+                modules={modules}
               />
             ))}
           </ul>

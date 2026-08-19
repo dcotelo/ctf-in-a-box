@@ -61,6 +61,28 @@ const moduleNavLinks: NavLink[] = enabledModules
 // Order here drives the header nav left-to-right.
 export const navLinks: NavLink[] = [...leadingNavLinks, ...moduleNavLinks, ...trailingNavLinks];
 
+/** Pure builder for the resolved-module nav: same platform link order as
+ *  `navLinks` above, but with each module link's label replaced by the
+ *  organizer's EXPLICIT rename when there is one — see resolved-modules.ts
+ *  for where the modules come from. A module with no `nav` entry contributes
+ *  nothing. Pure — no I/O — so it's testable on its own with plain object
+ *  literals, independent of the module registry.
+ *
+ *  `titleOverride`, deliberately, not `title`: `title` is always set (it
+ *  falls back to the registry `displayName`), so reading it here renamed the
+ *  nav on every event that had never touched the admin panel —
+ *  secure-development's nav label is "Challenges" but its display name is
+ *  "Secure Development". With no override the registry's own nav label
+ *  stands, unchanged; with one, the organizer's name wins. */
+export function buildNavLinks(
+  modules: readonly { nav?: NavLink; titleOverride?: string }[],
+): NavLink[] {
+  const moduleLinks = modules
+    .filter((m) => m.nav)
+    .map((m) => ({ href: m.nav!.href, label: m.titleOverride || m.nav!.label }));
+  return [...leadingNavLinks, ...moduleLinks, ...trailingNavLinks];
+}
+
 // Policy routes. Deliberately kept out of `navLinks` — these belong in the
 // footer's secondary row, not the header nav.
 export const legalLinks: NavLink[] = [

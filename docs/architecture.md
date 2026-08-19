@@ -34,7 +34,7 @@ the registry still fails the build loudly; the boundary is the
 | **Team** registration, roster, join codes, dedupe rollup (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
 | The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
-| The **admin panel** runtime overrides (freeze, hints, registration) (`ctf:admin:settings`). | — (inherits the controls). |
+| The **admin panel** runtime overrides (freeze, hints, registration, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
 | **Event config** schema, top-level (`event`, `github`, `teams`, `hints`, `admins`) baked into the app (build-time flow below). | Its `modules.<name>` config block and the loader/validator entry that recognizes it (contract §1). |
 
 Everything below — the services, the score data flow, the security model — is
@@ -301,6 +301,24 @@ without a rebuild:
   `resetAt` (the master-reset epoch `sync` honours — see below). Every
   reader applies **override-else-default** precedence (`s.hintsEnabled ??
   HINTS_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
+
+  Two field *families* live on the same hash, keyed by module id rather than
+  fixed-name, so a third module needs no storage change:
+  **`moduleTitle:<moduleId>`** and **`moduleBlurb:<moduleId>`** — the
+  organizer's per-module display name (≤60 chars) and blurb (≤200), plain
+  text only (control characters and Unicode bidi-override/isolate characters
+  rejected), and validated **fail-closed against `enabledModules`**: a field
+  naming a module this event does not run is refused on write and dropped on
+  read, so a stale override can neither be planted nor resurface if a module
+  is re-enabled later under a different name. An empty
+  value `HDEL`s the field rather than storing `""`, so clearing the box
+  restores the registry default. Same override-else-default precedence,
+  applied by `apps/web/src/lib/modules.ts`'s pure `resolveModules()`; the
+  request-scoped reader is `lib/resolved-modules.ts`'s `getResolvedModules()`,
+  which **fails open** (a settings-read error resolves to registry defaults,
+  because a wrong display name is cosmetic where a wrong gate decision awards
+  points). Only the module's *name* is runtime: which modules are enabled
+  stays build-time `event.yaml` config.
 - **`ctf:admin:audit`** — a capped list (`AUDIT_CAP` = 500, `LPUSH`+`LTRIM`)
   of every settings change, written atomically with the change itself (one
   Lua script, so a change can never land without its audit line).
