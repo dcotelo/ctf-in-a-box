@@ -43,6 +43,20 @@ export const event = {
 
 export type NavLink = { href: string; label: string };
 
+/** A grouped nav entry: one dropdown parent label with its own child links.
+ *  See `buildNavGroups` for when this appears instead of a flat `NavLink`. */
+export type NavGroup = { label: string; items: NavLink[] };
+
+/** One header nav slot: either a plain link or a dropdown group of them. */
+export type NavEntry = NavLink | NavGroup;
+
+/** True iff `entry` is a `NavGroup` rather than a plain `NavLink`. The two
+ *  shapes don't overlap on any field, so this is a plain structural check —
+ *  no discriminant tag needed. */
+export function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return "items" in entry;
+}
+
 // Platform-level pages that exist regardless of which modules are enabled.
 // Module-owned entries (e.g. Challenges) are NOT listed here — they're
 // spliced in from the module registry below, so a module's nav entry
@@ -84,6 +98,41 @@ export function buildNavLinks(
     .filter((m) => m.nav)
     .map((m) => ({ href: m.nav!.href, label: m.titleOverride || m.nav!.label }));
   return [...leadingNavLinks, ...moduleLinks, ...trailingNavLinks];
+}
+
+/** Same platform link order as `buildNavLinks`, but collapses module nav
+ *  entries into a single "Challenges" dropdown once there are two or more of
+ *  them — a fourth module would otherwise mean a fourth top-level header
+ *  entry. Pure — no I/O — for the same reason `buildNavLinks` is.
+ *
+ *  - **2+ modules with a nav entry**: one `NavGroup` labelled the literal
+ *    string "Challenges", whose items carry each module's `title` (the
+ *    organizer's override, or the registry `displayName`) — NOT its
+ *    `nav.label`. `nav.label` names the destination PAGE ("Challenges"); a
+ *    dropdown called "Challenges" containing an item also called "Challenges"
+ *    is nonsense, so the child must read the module's own name instead. An
+ *    organizer rename still flows in: with an override, `title` IS it.
+ *  - **Exactly 1 module**: falls back to `buildNavLinks` verbatim — a plain
+ *    `NavLink` labelled `titleOverride || nav.label`, byte-for-byte the same
+ *    single-module header this kit has always rendered. Reading `title` here
+ *    instead is the accidental-rename bug `buildNavLinks` itself guards
+ *    against (see its own doc comment) — don't reintroduce it by routing the
+ *    1-module case through the grouped label instead.
+ *  - **0 modules**: contributes nothing, same as `buildNavLinks`. */
+export function buildNavGroups(
+  modules: readonly { nav?: NavLink; title: string; titleOverride?: string }[],
+): NavEntry[] {
+  const withNav = modules.filter(
+    (m): m is typeof m & { nav: NavLink } => m.nav !== undefined,
+  );
+  if (withNav.length < 2) {
+    return buildNavLinks(modules);
+  }
+  const group: NavGroup = {
+    label: "Challenges",
+    items: withNav.map((m) => ({ href: m.nav.href, label: m.title })),
+  };
+  return [...leadingNavLinks, group, ...trailingNavLinks];
 }
 
 // Policy routes. Deliberately kept out of `navLinks` — these belong in the

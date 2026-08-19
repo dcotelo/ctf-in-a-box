@@ -1,12 +1,15 @@
 // Header/footer nav parity, asserted through the REAL layouts.
 //
 // The header is rendered by the root layout and the footer by the `(site)`
-// layout — two files, two call sites, one link list. They drifted once
-// already: the header resolved its links from the module registry with the
-// organizer's renames applied while the footer imported `site.ts`'s static
-// `navLinks`, so a renamed module showed one label up top and a different one
-// at the bottom of the very same page. Fixing the footer once doesn't stop
-// that recurring; asserting the two agree does.
+// layout — two files, two call sites, and (since the header groups 2+ module
+// links into a "Challenges" dropdown while the footer stays flat) two
+// deliberately different SHAPES built from one shared resolved-modules read.
+// They drifted once already, before the grouping existed: the header resolved
+// its links from the module registry with the organizer's renames applied
+// while the footer imported `site.ts`'s static `navLinks`, so a renamed
+// module showed one label up top and a different one at the bottom of the
+// very same page. Fixing the footer once doesn't stop that recurring;
+// asserting both derive from the same resolved modules does.
 //
 // So this deliberately renders the actual layout components rather than
 // feeding both a hand-built list (which would pass no matter what the layouts
@@ -57,6 +60,8 @@ vi.mock("@/components/visit-beacon", () => ({ default: () => null }));
 
 import RootLayout from "@/app/layout";
 import SiteLayout from "@/app/(site)/layout";
+import { getNavGroups, getNavLinks } from "@/lib/resolved-modules";
+import { isNavGroup } from "@/lib/site";
 
 /** Every `href` → the link texts rendered for it. A Map of sets because the
  *  header renders its nav twice (desktop + mobile menu). */
@@ -70,33 +75,69 @@ function linkLabels(html: string): Map<string, Set<string>> {
   return found;
 }
 
-const headerLinks = linkLabels(renderToStaticMarkup(await RootLayout({ children: null })));
-const footerLinks = linkLabels(renderToStaticMarkup(await SiteLayout({ children: null })));
+const headerHtml = renderToStaticMarkup(await RootLayout({ children: null }));
+const footerHtml = renderToStaticMarkup(await SiteLayout({ children: null }));
+const headerLinks = linkLabels(headerHtml);
+const footerLinks = linkLabels(footerHtml);
 
-describe("header and footer nav", () => {
-  it("renders a link for each module in both", () => {
-    for (const href of ["/challenges", "/quiz"]) {
-      expect(headerLinks.has(href), `header is missing ${href}`).toBe(true);
-      expect(footerLinks.has(href), `footer is missing ${href}`).toBe(true);
-    }
+// This mock config enables two modules with nav entries (secure-development,
+// unrenamed; quiz, renamed to "Round 1"), so the header now collapses them
+// into one "Challenges" dropdown (see buildNavGroups) instead of rendering
+// two top-level links. That dropdown's items sit behind a `useState` toggle
+// that starts closed, so — per this repo's testing rule that anything behind
+// a client-side toggle never appears in `renderToStaticMarkup` — the header's
+// initial render exposes neither module href as a plain `<a>`; only the
+// footer (which stays flat, per design) does.
+//
+// The header/footer split this file used to pin was "the same static list,
+// rendered two different ways." The two anti-drift assertions that actually
+// carry that guarantee now are: the footer-label check below (an un-renamed
+// module's `nav.label` survives, an override still wins — read straight off
+// the rendered `(site)` layout) and the closed-trigger check after it (the
+// header really did collapse into a dropdown, proven off the rendered root
+// layout, not off a hand-called builder). Both render the REAL layout
+// components, so a regression in either one's wiring — reverting the footer
+// to `site.ts`'s static list, or the header silently falling back to flat
+// links — fails a test here.
+//
+// A third assertion used to sit here comparing `getNavLinks()`/
+// `getNavGroups()` against `buildNavLinks(resolved)`/`buildNavGroups(resolved)`
+// called directly. That was a tautology, not a test: `getNavLinks` IS
+// `buildNavLinks(await getResolvedModules())` verbatim (see
+// resolved-modules.ts), so the assertion re-ran the exact same two lines of
+// code on both sides of `toEqual` and could not fail without also changing
+// what it was "checking" — it implied coverage of the shared-resolved-modules
+// property that the render-based assertions below already provide for real.
+// Removed rather than kept for looks. If you're tempted to re-add a
+// direct-call comparison like it, don't: prove the property by rendering,
+// the way the two assertions below do.
+describe("header groups module nav links; footer stays flat", () => {
+  const navGroups = getNavGroups();
+
+  it("collapses 2+ module links into one dropdown labelled the literal \"Challenges\", using each module's title", async () => {
+    const group = (await navGroups).find(isNavGroup);
+    if (!group) throw new Error("expected getNavGroups() to contain a NavGroup");
+    expect(group.label).toBe("Challenges");
+    // secure-development has no override, so its child reads its registry
+    // `displayName` ("Secure Development") — NOT its nav.label ("Challenges")
+    // — while quiz's admin override ("Round 1") flows straight through.
+    expect(group.items).toEqual([
+      { href: "/challenges", label: "Secure Development" },
+      { href: "/quiz", label: "Round 1" },
+    ]);
   });
 
-  it("labels every shared link identically in both", () => {
-    for (const [href, labels] of headerLinks) {
-      const footer = footerLinks.get(href);
-      if (!footer) continue;
-      expect([...footer].sort(), `label drift on ${href}`).toEqual([...labels].sort());
-    }
-  });
-
-  it("shows the organizer's rename in both", () => {
-    expect(headerLinks.get("/quiz")).toEqual(new Set(["Round 1"]));
+  it("keeps the footer flat: an un-renamed module's nav.label survives, an override still wins", async () => {
+    expect(footerLinks.get("/challenges")).toEqual(new Set(["Challenges"]));
     expect(footerLinks.get("/quiz")).toEqual(new Set(["Round 1"]));
   });
 
-  it("leaves an un-renamed module's registry nav label alone in both", () => {
-    expect(headerLinks.get("/challenges")).toEqual(new Set(["Challenges"]));
-    expect(footerLinks.get("/challenges")).toEqual(new Set(["Challenges"]));
+  it("renders the header trigger closed by default, with the required ARIA wiring, and no module hrefs exposed until it opens", () => {
+    expect(headerHtml).toMatch(/aria-haspopup="menu"/);
+    expect(headerHtml).toMatch(/aria-expanded="false"/);
+    expect(headerHtml).not.toContain('role="menu"');
+    expect(headerLinks.has("/challenges"), "the collapsed dropdown must not leak its item hrefs into a closed render").toBe(false);
+    expect(headerLinks.has("/quiz"), "the collapsed dropdown must not leak its item hrefs into a closed render").toBe(false);
   });
 });
 

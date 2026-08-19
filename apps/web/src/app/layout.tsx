@@ -4,7 +4,7 @@ import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
 import { event } from "@/lib/site";
 import { enabledModules } from "@/lib/modules";
-import { getNavLinks } from "@/lib/resolved-modules";
+import { getNavGroups } from "@/lib/resolved-modules";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -47,7 +47,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const navLinks = await getNavLinks();
+  const navLinks = await getNavGroups();
   return (
     <html
       lang="en"

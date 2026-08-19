@@ -642,9 +642,15 @@ config — it's baked into the `app` image at build time:
    it. `modules.ts`'s `enabledModules` maps the generated `modules` array to
    each id's registry entry (display name, description, nav) — enablement
    comes from config, display metadata lives in code — and `site.ts`'s
-   `moduleNavLinks` splices a module's nav entry into the header nav iff that
-   module is enabled and defines one (a module with no contestant route, like
-   `quiz` today, contributes no link).
+   `moduleNavLinks`/`buildNavLinks` splice a module's nav entry into the flat
+   list iff that module is enabled and defines one (a module with no
+   contestant route, like `quiz` today, contributes no link). The header and
+   the footer diverge from there: the footer (`getNavLinks`) always renders
+   that flat list, but the header (`getNavGroups`) collapses it further —
+   exactly one module still renders as a plain link, but two or more collapse
+   into a single "Challenges" dropdown (`buildNavGroups`) whose items read
+   each module's `title`, not its `nav.label` (see `docs/modules.md`'s
+   "Where a rename reaches, honestly" for why the two labels differ).
 6. `next build` statically renders pages against those values — event name,
    dates, and the enabled-target subset are compiled into the served HTML,
    not read at request time.
