@@ -422,6 +422,17 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
     unioned.push(name);
   }
 
+  // Maps each surviving spelling's fold back to itself, so every stored
+  // challenge's category can be canonicalized to whichever spelling the
+  // union above kept. Without this, a bundle spelling a category
+  // differently from the store ("web" vs. the store's "Web") would write
+  // its challenges under a spelling absent from `unioned` — invisible to
+  // classic-board.tsx's exact-equality filter and to upsertChallenge's exact
+  // `.includes` check, despite the import reporting success. This is the
+  // invariant the rest of the module assumes: every challenge's `category`
+  // is present in the stored category list.
+  const canon = new Map(unioned.map((name) => [name.toLowerCase(), name]));
+
   let created = 0;
   let updated = 0;
   const commands: (string | number)[][] = [];
@@ -430,11 +441,14 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
     else created += 1;
 
     // Built field by field, mirroring upsertChallenge's write: the flag
-    // never reaches this record.
+    // never reaches this record. `title` is trimmed and `category` is
+    // canonicalized to the surviving spelling, for the same reason
+    // `parseChallengePayload` trims `title` on the single-challenge path —
+    // a bundle-authored row must end up identical to a form-authored one.
     const record: Challenge = {
       id: c.id,
-      title: c.title,
-      category: c.category,
+      title: c.title.trim(),
+      category: canon.get(c.category.toLowerCase()) ?? c.category,
       description: c.description,
       points: c.points,
       order: c.order,

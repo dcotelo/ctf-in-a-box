@@ -11,14 +11,17 @@
 //   - No choices/correct answer. A challenge has a category (drawn from an
 //     organizer-managed list), a Markdown description, a point value, and a
 //     flag.
-//   - The wire contract is TWO payload shapes on ONE endpoint
+//   - The wire contract is THREE payload shapes on ONE endpoint
 //     (`POST /api/admin/classic`), dispatched by the server on exact key set:
 //     `{categories: string[]}` (exactly one key) replaces the category list;
-//     anything else is parsed as a challenge-plus-flag upsert against
-//     `CHALLENGE_KEYS` (see that route's header comment). This component's
-//     `postCategories` and `postChallenge` helpers exist specifically so
-//     every categories POST carries exactly `{categories}` and nothing else —
-//     a stray extra key would fall through to the challenge parser and 400.
+//     `{import: <raw text>}` (exactly one key) bulk-imports a pasted/uploaded
+//     bundle, parsed and validated by `parseBundle` before anything is
+//     written; anything else is parsed as a challenge-plus-flag upsert
+//     against `CHALLENGE_KEYS` (see that route's header comment). This
+//     component's `postCategories` and `postChallenge` helpers exist
+//     specifically so every categories POST carries exactly `{categories}`
+//     and nothing else — a stray extra key would fall through to the next
+//     parser in line and 400.
 //   - Categories can be removed only while nothing references them. The
 //     store itself does not enforce this (`setCategories` just validates and
 //     dedupes the list), so the refusal lives here, client-side, computed

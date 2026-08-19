@@ -200,10 +200,23 @@ export function parseBundle(raw: string): ParseResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (err) {
+  } catch {
+    // Deliberately generic, with NO part of the underlying SyntaxError or the
+    // raw input echoed back: V8's own JSON.parse error message embeds a
+    // ~10-20 character excerpt of the offending text verbatim (e.g.
+    // `Unexpected token 'c', "{"a": ctfbox{Sec"... is not valid JSON`), and on
+    // a malformed bundle that excerpt can contain flag text. This response is
+    // admin-only (route + body both behind `requireAdmin`, and the pasted
+    // text is the admin's own), so no privilege boundary is crossed, but it
+    // can still land on a screen-shared admin panel mid-event — and the
+    // excerpt can't be safely truncated out after the fact, either: V8 wraps
+    // it in quotes without escaping quotes that occur WITHIN the excerpt, so
+    // a regex expecting balanced quoting can stop early and still leave part
+    // of the secret text in the "trimmed" message. Not echoing anything at
+    // all avoids that failure mode entirely.
     return {
       ok: false,
-      errors: [{ where: "(document)", message: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}` }],
+      errors: [{ where: "(document)", message: "Invalid JSON" }],
     };
   }
 

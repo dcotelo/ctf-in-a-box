@@ -579,6 +579,37 @@ describe("importBundle", () => {
     await importBundle({ ...twoRowBundle, categories: ["Web", "Crypto"] });
     expect(JSON.parse(valueFor("ctf:classic:categories"))).toEqual(["Forensics", "Web", "Crypto"]);
   });
+
+  // The invariant the rest of the module assumes (`setCategories`'
+  // first-spelling-wins rule depends on it, and the board's exact-equality
+  // filter in classic-board.tsx depends on it too): every stored challenge's
+  // `category` must appear, verbatim, in the stored category list. The union
+  // above folds case-insensitively and keeps the EXISTING spelling ("Web"),
+  // so a bundle that spells the same category "web" must have its challenge
+  // canonicalized to "Web" — otherwise it is written under a spelling the
+  // category list doesn't contain and disappears from the board.
+  it("canonicalizes a stored challenge's category to the surviving (existing) spelling", async () => {
+    seedCategories(["Web"]);
+    const bundle: ClassicBundle = {
+      version: CLASSIC_BUNDLE_VERSION,
+      categories: ["web"],
+      challenges: [
+        {
+          id: "web-one-ab12cd",
+          title: "One",
+          category: "web",
+          description: "find it",
+          points: 50,
+          order: 0,
+          flag: "ctfbox{One}",
+        },
+      ],
+    };
+    await importBundle(bundle);
+    const record = JSON.parse(valueFor("ctf:classic:challenges", "web-one-ab12cd"));
+    const categories = JSON.parse(valueFor("ctf:classic:categories"));
+    expect(categories).toContain(record.category);
+  });
 });
 
 describe("exportBundle", () => {
