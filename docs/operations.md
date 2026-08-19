@@ -90,17 +90,31 @@ most events are:
 - the **landing page's per-module section heading** — a lone module's section
   is headed "What to expect" instead, and the page's uppercase kicker comes
   from the module's registry tagline, which is **not** overridable at all.
+  (A module with no registry `home` block is the exception: its section
+  heading *is* its title, override included, because there is no authored
+  heading to prefer. Neither module shipped today is in that position.)
 
 So on a one-module event a rename reaches three surfaces, not five. Nothing is
 broken if you cannot find your new name on the leaderboard or the landing
 page — those two only start naming modules once there are two to tell apart.
 
-**Leave a field blank if you have nothing to say — especially the blurb.** The
-blurb is *not rendered on any page*. Its only effect today is the meta
-description of the module's own page (what a search result or a chat link
-preview shows), and only `/quiz` uses it; Secure Development's blurb reaches
-nothing at all. Treat it as SEO text for the quiz, not as contestant-facing
-copy.
+**The blurb is contestant-facing copy — write it as such.** It reaches three
+places:
+
+- the **meta description** of the module's own page (what a search result or a
+  chat link preview shows);
+- **`/quiz`'s page header**, as the lede under the title. This is the module
+  describing itself; the "You've answered 2 of 5 questions." line is *your*
+  progress, and sits above the questions instead;
+- the **landing page section lede**, but only for a module that ships no
+  registry `home` block. Both modules that exist today have one, so today this
+  is a fallback for a future module rather than something you can see —
+  Secure Development's and Quiz's landing copy comes from the registry and is
+  not organizer-editable.
+
+Leaving it blank restores the module's registry default, which is a complete
+sentence, so a blank blurb is a perfectly good answer — it is never an empty
+line on a page.
 
 The panel offers:
 
@@ -172,8 +186,8 @@ The panel offers:
 
 - **Quiz controls** (Quiz tab, present only when the `quiz` module is enabled) — the two
   retry-gate knobs (max attempts, retry cooldown) plus full question
-  authoring: add, edit, and delete. See [Quiz](#quiz) below for what these
-  do and their defaults.
+  authoring: add, edit, reorder (drag, or Move up / Move down), and delete.
+  See [Quiz](#quiz) below for what these do and their defaults.
 - **Seed demo data** (demo mode only) — populates the leaderboard with fake
   contestants, teams, and real-challenge-id solves so you can preview the app
   without running real PRs. When the `quiz` module is enabled, this also seeds
@@ -209,11 +223,39 @@ entirely inside the app.
 **Authoring** happens in `/admin`, under the Quiz module's section (see
 "Quiz controls" above): add a question with a prompt, pick **single choice**
 or **multiple choice**, give it two or more labeled choices, mark which
-one(s) are correct, and set its point value and its `order` (position in the
-list). Editing an existing question never shows you its current correct
-answer(s) first — the answer key never reaches any client, admin session
-included — so every save requires re-selecting the correct choice(s), even
-when you're only fixing a typo in the prompt.
+one(s) are correct, and set its point value. **Editing an existing question
+prefills its current correct answer(s)**, so fixing a typo in a prompt
+doesn't mean re-picking the answer from memory — get that wrong and you'd
+silently change what counts as correct for every contestant, with no warning
+and no way to notice until the scores look off. The answer key is visible
+only inside the edit form and only to an admin (`/admin` is gated, and anyone
+through that gate can already rewrite or delete the answer outright); the
+question list itself doesn't show it, and it never reaches a contestant —
+`/quiz` is served from a separate, keyless read that never touches the answer
+hash at all.
+
+**You don't type a question id.** Adding a question mints one from its prompt
+plus a short random suffix (`which-header-mitigates-clickjack-k3f9qa`) when
+you save. The suffix is not decoration: two questions worded identically
+would otherwise land on the same id, and the second would overwrite the first
+*and* inherit every answer already banked against it.
+
+**An existing question's id never changes.** The edit form shows it,
+read-only, and there is no way to alter it. That is deliberate rather than
+merely conservative: the id is the field name in `ctf:quiz:questions` and
+`ctf:quiz:key` **and** the reference every contestant's answer row is
+recorded against, so changing it would orphan every answer already banked —
+the points would stay on the leaderboard with no question behind them. If a
+question needs a different id, delete it and add a new one, and read the
+paragraph below first about what deletion does and doesn't take with it.
+
+**Ordering is done by dragging.** The question list in `/admin` is sortable:
+drag a row to where you want it, or use its **Move up** / **Move down**
+buttons (the keyboard-operable path — dragging is not the only way in). The
+stored `order` field is rewritten from the resulting positions and the moved
+questions are saved immediately; contestants see the new order on their next
+page load. There is no order number to type any more, and nothing to
+renumber by hand.
 
 **Deleting a question removes it from the quiz and hides it from
 contestants — but points already banked for it remain on the leaderboard.**
@@ -223,9 +265,14 @@ contestants who already answered it correctly keep those points, and their
 answer/attempt history for it is left alone. If you need those points gone
 too, use the master reset (which clears all quiz progress at once, for
 everyone). There is no way to un-award a single question. The delete button
-is still gated behind typing the question's own id to confirm, the same
-pattern the master reset uses — deleting mid-event changes what contestants
-see, even though it doesn't take points back.
+is still gated behind typing a phrase to confirm, the same pattern the master
+reset uses — deleting mid-event changes what contestants see, even though it
+doesn't take points back. The phrase is now the question's **prompt** (cut at
+a word boundary for a long one; the dialog shows exactly what to type, and
+names the id alongside it). It used to be the id, which stopped being a
+useful gate once ids were generated: transcribing
+`which-header-mitigates-clickjack-k3f9qa` proves you can copy a string, not
+that you read which question you were about to remove.
 
 **Grading is all-or-nothing and order-insensitive**: a submission scores
 points only if its set of selected choices exactly matches the correct set —

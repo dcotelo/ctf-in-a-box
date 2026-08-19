@@ -83,7 +83,13 @@ export default async function QuizPage() {
     getResolvedModules(),
   ]);
 
-  const moduleTitle = modules.find((m) => m.id === "quiz")?.title ?? "Quiz";
+  const mod = modules.find((m) => m.id === "quiz");
+  const moduleTitle = mod?.title ?? "Quiz";
+  // The organizer-editable blurb, which is the MODULE's own description of
+  // itself and belongs in the page's lede. It used to reach `generateMetadata`
+  // and nothing else, so an organizer could edit it, save, and see the page
+  // they were looking at not change at all.
+  const blurb = mod?.blurb ?? "Answer security questions for points.";
 
   const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
   const cooldownMs = (settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
@@ -100,20 +106,34 @@ export default async function QuizPage() {
   }));
 
   const answeredCount = viewQuestions.filter((q) => q.status === "answered").length;
-  const description = login
+  // Per-VIEWER state, so it sits above the board rather than in the header:
+  // a page description says what the page is, and this says what *you* have
+  // done on it — two different things that were sharing one slot, with the
+  // organizer-controlled one losing.
+  const progress = login
     ? `You've answered ${answeredCount} of ${questions.length} question${questions.length === 1 ? "" : "s"}.`
     : "Sign in with GitHub to answer questions.";
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={description} />
-      {questions.length === 0 ? (
-        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
-          <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
-        </div>
-      ) : (
-        <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} />
-      )}
+      <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={blurb} />
+      {/* The progress line sits OUTSIDE the empty-state branch on purpose. It
+          used to be the header description, which rendered whatever the
+          question count was; moving it into the populated branch quietly took
+          the "Sign in with GitHub" prompt away from a signed-out visitor
+          looking at a quiz whose questions haven't been authored yet — exactly
+          the visitor most worth telling, since signing in now is what lets
+          them answer the moment questions appear. */}
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-zinc-400">{progress}</p>
+        {questions.length === 0 ? (
+          <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
+            <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
+          </div>
+        ) : (
+          <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} />
+        )}
+      </div>
     </div>
   );
 }

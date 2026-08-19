@@ -9,6 +9,7 @@ import {
   quizAnswersKey as answersKey,
   quizAttemptsKey as attemptsKey,
   canonicalizeChoices,
+  QUIZ_ID_RE,
 } from "@/lib/quiz-keys";
 
 /**
@@ -29,8 +30,10 @@ import {
  *   ctf:quiz:questions          hash, id -> JSON Question (public-safe; this
  *                                is what contestants see)
  *   ctf:quiz:key                hash, id -> JSON sorted array of correct
- *                                choice ids (SECRET — never returned by any
- *                                function a contestant-facing route can call)
+ *                                choice ids (SECRET from contestants — never
+ *                                returned by any function a contestant-facing
+ *                                route can call; readable by the admin-gated
+ *                                `listQuestionsForAdmin` alone)
  *   ctf:quiz:answers:<login>    hash, id -> JSON {choices, points, at} —
  *                                records ONLY correct answers. Points are
  *                                captured at answer time, so a later
@@ -44,12 +47,27 @@ import {
  *                                Lua without parsing an ISO-8601 string;
  *                                readers outside this file should use `lastAt`.
  *
- * Secrecy boundary: `ctf:quiz:key` mirrors how hint text lives in a
- * scorer-owned hash the app only ever reads, and how the scoring rubric
- * stays private. `listQuestions` never issues a command against
- * `ctf:quiz:key`, and the `Question` type has no field that could carry a
- * correct-answer id. Grading (which DOES need to read the key) is Task 3's
- * responsibility, added to this same file — kept server-only and never
+ * Secrecy boundary — it is a CONTESTANT boundary, not an absolute one:
+ * `ctf:quiz:key` mirrors how hint text lives in a scorer-owned hash the app
+ * only ever reads, and how the scoring rubric stays private. Two readers,
+ * deliberately kept apart:
+ *
+ *   - `listQuestions` (the CONTESTANT path — `/quiz`, the leaderboard
+ *     overlay) never issues a command against `ctf:quiz:key`, and the
+ *     `Question` type it returns has no field that could carry a
+ *     correct-answer id. That property is absolute and must stay that way.
+ *   - `listQuestionsForAdmin` (the ADMIN path — `GET /api/admin/quiz`, which
+ *     is behind `requireAdmin`) DOES read the key, and returns it in a
+ *     separate `AdminQuestion` shape that is deliberately not assignable to
+ *     `Question` (see its doc comment). It exists because withholding the
+ *     key from an organizer who is editing the question buys nothing —
+ *     anyone through that gate can already delete the question, rewrite its
+ *     answer, or reset the whole event — while costing real correctness: an
+ *     edit form that starts with nothing marked correct makes every typo fix
+ *     a chance to silently re-define what counts as right, with no diff and
+ *     no warning.
+ *
+ * Grading (which also reads the key) is likewise server-only and never
  * exposed by a route that echoes its input back to the caller.
  *
  * The key ALWAYS stores a sorted JSON array of correct choice ids, even for
@@ -76,11 +94,16 @@ export const QUIZ_MAX_ATTEMPTS = 3;
  *  before it may try again. 0 would mean no cooldown (not the default). */
 export const QUIZ_RETRY_AFTER_MIN = 5;
 
-/** Question/choice ids look like "q1" or "sqli-basics" — reject anything
- *  weirder before it reaches Redis, mirroring hint-store's CHALLENGE_ID_RE.
- *  Exported so callers (e.g. the answer route) validate against this exact
- *  pattern instead of keeping their own copy that could silently desync. */
-export const QUIZ_ID_RE = /^[\w-]{1,64}$/;
+/** Question/choice id pattern, re-exported so callers (e.g. the answer route)
+ *  validate against this exact pattern instead of keeping their own copy that
+ *  could silently desync.
+ *
+ *  It is DEFINED in quiz-keys.ts rather than here: the admin panel's
+ *  id generator (`generateQuestionId`) runs in the browser and must check its
+ *  output against the same object this file validates with, and this file is
+ *  `server-only`. Moving it kept every existing
+ *  `import { QUIZ_ID_RE } from "@/lib/quiz-store"` working unchanged. */
+export { QUIZ_ID_RE };
 
 /** Upper bound on a question's point value, mirroring `HINT_COST_MAX` in
  *  admin-store.ts. This is not cosmetic: `upsertQuestion` writes `points`
@@ -126,6 +149,29 @@ export type Question = {
   order: number;
 };
 
+/** One question as the ADMIN-GATED surface sees it: the public-safe record
+ *  and its correct-choice set, side by side but in two SEPARATE fields.
+ *
+ *  The nesting is the point, not an accident of style. The obvious shape —
+ *  `Question & { correct: string[] }` — is structurally still a `Question`,
+ *  so handing an admin record to a contestant-facing component or view model
+ *  (`<QuizBoard questions={rows} />`) would type-check and quietly ship the
+ *  answer key to every visitor. This shape is NOT assignable to `Question`,
+ *  so that mistake is a compile error; reaching the public half takes an
+ *  explicit `.question`, which is a thing you write on purpose rather than a
+ *  thing you forget. That is what keeps the keyless contestant guarantee a
+ *  property of the types instead of a property of remembering which variable
+ *  you happen to be holding. */
+export type AdminQuestion = {
+  /** Byte-for-byte what `listQuestions` would have returned for this id. */
+  question: Question;
+  /** The correct choice ids, sorted, exactly as `ctf:quiz:key` stores them.
+   *  Empty only if the key row is missing or unparseable — a question in
+   *  that state can never be answered correctly, which is worth seeing in
+   *  the edit form rather than hiding. */
+  correct: string[];
+};
+
 function isChoice(value: unknown): value is Choice {
   return (
     typeof value === "object" &&
@@ -160,7 +206,10 @@ function parseQuestion(raw: string): Question | null {
 }
 
 /** All quiz questions, ascending by `order` then `id`. Answer key excluded —
- *  this issues a single HGETALL against the public-safe hash only. */
+ *  this issues a single HGETALL against the public-safe hash only, and the
+ *  `Question` shape it returns has nowhere to put a correct-answer id even
+ *  if it did. This is the ONLY list function a contestant-facing route (or
+ *  the leaderboard) may call. */
 export async function listQuestions(): Promise<Question[]> {
   const [res] = await upstashPipeline([["HGETALL", QUESTIONS_KEY]]);
   const flat = Array.isArray(res.result) ? (res.result as string[]) : [];
@@ -173,10 +222,63 @@ export async function listQuestions(): Promise<Question[]> {
   return questions;
 }
 
+/** Parses one `ctf:quiz:key` row — a JSON array of choice-id strings. */
+function parseCorrect(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === "string")) return null;
+    return parsed as string[];
+  } catch {
+    return null;
+  }
+}
+
+/** The same list, WITH each question's correct-choice set — for the
+ *  admin-gated authoring surface ONLY (`GET /api/admin/quiz`, behind
+ *  `requireAdmin`).
+ *
+ *  Named so a call site reads as a decision rather than a default: any route
+ *  reaching for this one is asserting it has already established the caller
+ *  is an organizer. Contestant-facing code calls `listQuestions` instead,
+ *  and the `AdminQuestion` return shape (not assignable to `Question`) is
+ *  what stops the two from being mixed up by accident.
+ *
+ *  Both hashes are read in ONE pipeline, so the questions and their keys
+ *  come from the same instant — an edit form can never prefill a correct set
+ *  belonging to a version of the question it isn't showing. */
+export async function listQuestionsForAdmin(): Promise<AdminQuestion[]> {
+  const [questionsRes, keyRes] = await upstashPipeline([
+    ["HGETALL", QUESTIONS_KEY],
+    ["HGETALL", KEY_KEY],
+  ]);
+
+  const keyFlat = Array.isArray(keyRes.result) ? (keyRes.result as string[]) : [];
+  const correctById = new Map<string, string[]>();
+  for (let i = 0; i < keyFlat.length; i += 2) {
+    const parsed = parseCorrect(keyFlat[i + 1]);
+    if (parsed) correctById.set(keyFlat[i], parsed);
+  }
+
+  const flat = Array.isArray(questionsRes.result) ? (questionsRes.result as string[]) : [];
+  const rows: AdminQuestion[] = [];
+  for (let i = 0; i < flat.length; i += 2) {
+    const question = parseQuestion(flat[i + 1]);
+    if (question) rows.push({ question, correct: correctById.get(question.id) ?? [] });
+  }
+  rows.sort((a, b) => a.question.order - b.question.order || a.question.id.localeCompare(b.question.id));
+  return rows;
+}
+
 /** Creates or replaces a question and its correct-answer set. Writes the
  *  question (no answer) and the sorted key array (answer only, no prompt) in
- *  ONE pipeline call so the two hashes never observably disagree. */
-export async function upsertQuestion(q: Question, correct: string[]): Promise<void> {
+ *  ONE pipeline call so the two hashes never observably disagree.
+ *
+ *  Returns what was actually STORED, as an `AdminQuestion` — the correct set
+ *  after dedupe-and-sort, not the caller's raw array. The admin route echoes
+ *  this back so the authoring client's in-memory list holds the canonical
+ *  set the store now has, identical to what a later `listQuestionsForAdmin`
+ *  would hand it. Contestant-facing code never sees this value. */
+export async function upsertQuestion(q: Question, correct: string[]): Promise<AdminQuestion> {
   if (!QUIZ_ID_RE.test(q.id)) throw new QuizValidationError("id", `Invalid question id: ${q.id}`);
   for (const choice of q.choices) {
     if (!QUIZ_ID_RE.test(choice.id)) {
@@ -224,6 +326,8 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<vo
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
+
+  return { question: q, correct: sortedCorrect };
 }
 
 /** Removes a question and its answer key together — nothing else.

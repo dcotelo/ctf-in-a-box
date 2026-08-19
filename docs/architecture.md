@@ -248,11 +248,40 @@ answer-set format even though they're separate code paths:
 - `ctf:quiz:questions` — the public-safe question hash both contestants and
   the admin panel read: prompt, type, choices, points, `order`. Never
   carries a correct answer.
+
+  The **field name is the question id**, which is also the field name in
+  `ctf:quiz:key` and the reference every `ctf:quiz:answers:<login>` row is
+  recorded against. Organizers no longer author it: `generateQuestionId`
+  (in the dependency-free, client-safe `quiz-keys.ts`, alongside the
+  `QUIZ_ID_RE` the store validates with — one object, checked on both sides)
+  derives a slug from the prompt plus a short random suffix when a NEW
+  question is saved, and checks its own output against that pattern before
+  returning it. On an EXISTING question the id is immutable, and structurally
+  so: the admin form's `QuestionDraft` type has no `id` field for an edit to
+  change. Rewriting one would orphan every banked answer — the points would
+  stay on the leaderboard with nothing behind them.
+
+  `order` is likewise derived rather than typed: the admin list is sortable
+  (drag, or per-row Move up/Move down for keyboard operation) and the pure
+  `reorderQuestions(list, from, to)` recomputes every row's `order` from its
+  new position, with only the changed rows POSTed back. Storage and the
+  read path are unchanged — `listQuestions` still sorts by `order`.
 - `ctf:quiz:key` — the correct-choice-id set per question, always stored as
   a sorted JSON array (a `"single"` question is simply the one-element
-  case, not a separate format). Read only inside `quiz-store.ts`'s grading
-  path; no route that echoes its input back to the caller ever touches it,
-  so the answer key never reaches a client — contestant or admin.
+  case, not a separate format). **Never reaches a contestant**, and the
+  boundary is a type, not a habit: `listQuestions()` — the only list
+  function `/quiz` and the leaderboard may call — issues no command against
+  this hash at all, and the `Question` shape it returns has no field that
+  could carry a correct-answer id. Two server-side readers, and only two,
+  touch it: the grading script, and `listQuestionsForAdmin()`, whose sole
+  caller is the `requireAdmin`-gated `GET /api/admin/quiz`. That admin read
+  is deliberate — it prefills the organizer's edit form with the choices
+  currently marked correct, so fixing a typo in a prompt doesn't require
+  re-picking the answer from memory and silently redefining it. It is sound
+  because anyone past that gate can already rewrite or delete the answer
+  outright. Its return type, `AdminQuestion` (`{ question, correct }`), is
+  deliberately **not** assignable to `Question`, so handing an admin record
+  to a contestant-facing component is a compile error rather than a leak.
 - `ctf:quiz:answers:<login>` / `ctf:quiz:attempts:<login>` — one
   contestant's correctly-answered questions (points and timestamp captured
   at answer time) and every attempt, right or wrong.
@@ -532,7 +561,7 @@ config change").
 |---|---|---|
 | Unit (sync) | `sync/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Config loading/validation, comment parsing and the author grammar, cursor/ETag handling, submit retry semantics, state persistence — in isolation, no network or Docker. |
 | Unit (scorer) | `scorer/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Rubric loading/validation, probe grammar + evaluation, the judge's report format (the score-action regexes and the sync marker, pinned verbatim), serve auth/validation/monotonic-replay semantics, leaderboard aggregation, and both solve stores (memory, and Redis-via-SRH against a mocked endpoint) — in isolation, no network or Docker. |
-| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; with the quiz module disabled a source's teams pass through untouched and no quiz block is read at all; with it enabled, quiz points are added to an entry's and a deduped team's totals, a quiz-less entry gets no quiz block, and quiz activity can't demote a patched-heavy row on an upstash-shaped board) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. The quiz store itself (`src/lib/__tests__/quiz-store*.test.ts`) covers all-or-nothing set comparison, the attempt cap and cooldown (including the atomic grading script's authority over the JS-side pre-check, and its fail-closed behavior on a lookup error), and question authoring validation; `components/__tests__/{admin-quiz-controls,quiz-board}.test.tsx` cover the authoring form and the contestant answer UI. |
+| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module/target rejection, timezone-independent date formatting), module/app enablement filtering, site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; with the quiz module disabled a source's teams pass through untouched and no quiz block is read at all; with it enabled, quiz points are added to an entry's and a deduped team's totals, a quiz-less entry gets no quiz block, and quiz activity can't demote a patched-heavy row on an upstash-shaped board) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. The quiz store itself (`src/lib/__tests__/quiz-store*.test.ts`) covers all-or-nothing set comparison, the attempt cap and cooldown (including the atomic grading script's authority over the JS-side pre-check, and its fail-closed behavior on a lookup error), and question authoring validation; `components/__tests__/{admin-quiz-controls,quiz-board}.test.tsx` cover the authoring form and the contestant answer UI. The derived-plumbing rules get their own direct coverage, since neither is observable in a static render: `src/lib/__tests__/quiz-id.test.ts` pins that `generateQuestionId` always emits an id `QUIZ_ID_RE` accepts (across a corpus of punctuation-only, non-Latin, emoji and over-long prompts) and that two identical prompts never collide, and `admin-quiz-controls.test.tsx` pins that `payloadFromEditor` submits an existing question's stored id no matter how the draft was rewritten, plus `reorderQuestions`'s recomputed `order` values. The drag handlers themselves are deliberately NOT unit-tested — this repo has no testing-library and does not want one — which is why every decision they make lives in those two pure functions instead. The answer-key boundary is pinned from both sides: `listQuestions` never issues a command against `ctf:quiz:key` while `listQuestionsForAdmin` returns the set paired by question id (`quiz-store.test.ts`), `GET /api/admin/quiz` returns it for an admin and returns a body with no answer data at all for a 401/403 (`app/api/quiz/__tests__/routes.test.ts`), the admin edit draft prefills it (`admin-quiz-controls.test.tsx`) while the collapsed question list doesn't paint it, and `/quiz`'s page-level view model strips it even when the store hands one over (`app/(site)/quiz/__tests__/page-view-model.test.tsx`, with `quiz-board.test.tsx`'s markup check as the independent second guard). |
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
 | Two-reader corpus | `setup/test/corpus/` (fixtures), asserted from both sides by `setup/test/module_readers.bats` and `sync/test/module-readers.differential.test.js` | That `ctf-setup.sh` and `sync/src/config.js` — two `modules:` parsers in two languages sharing no code — ACCEPT and REJECT the same `event.yaml` files, and extract the same targets. Each fixture records its verdict in its filename, so agreeing with the corpus is agreeing with each other. Covers block style at 2/4/8 spaces, flow style on one line and across several, quoted keys, interleaved comments, CRLF, block- and flow-sequence targets, a bare `modules:`, an absent one, unknown keys, merge keys, tabs and sequences where a mapping belongs. The bash side additionally asserts the organizer-visible behaviour (flow style really forks and renders; an unparseable block fails CLOSED in `org` and `doctor` rather than printing "nothing to do"). See [ADR 24](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one). |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |

@@ -1,6 +1,11 @@
 // Unit tests for the quiz store — most importantly that the answer key
 // (`ctf:quiz:key`) never reaches a caller that only asked for questions, and
 // that the key always stores a sorted array regardless of question type.
+//
+// The key IS readable by exactly one function, `listQuestionsForAdmin`, whose
+// only caller is the `requireAdmin`-gated `GET /api/admin/quiz`. The two are
+// pinned apart below: `listQuestions` must never issue a command against
+// `ctf:quiz:key`, and `listQuestionsForAdmin` must return the set.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +20,7 @@ import {
   getTeamQuizTotalsBatch,
   getViewerQuiz,
   listQuestions,
+  listQuestionsForAdmin,
   QUIZ_POINTS_MAX,
   upsertQuestion,
 } from "@/lib/quiz-store";
@@ -77,6 +83,82 @@ describe("listQuestions", () => {
   it("returns an empty list when the hash is empty", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
     expect(await listQuestions()).toEqual([]);
+  });
+});
+
+describe("listQuestionsForAdmin", () => {
+  const q = (id: string, order: number) =>
+    JSON.stringify({ id, prompt: `${id}?`, type: "single", choices: [{ id: "a", label: "A" }], points: 5, order });
+
+  it("returns each question WITH its correct set, reading both hashes in one pipeline", async () => {
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q2", q("q2", 2), "q1", q("q1", 1)] },
+      { result: ["q1", JSON.stringify(["a"]), "q2", JSON.stringify(["a", "b"])] },
+    ]);
+
+    const rows = await listQuestionsForAdmin();
+
+    // Sorted by order, same rule listQuestions uses.
+    expect(rows.map((r) => r.question.id)).toEqual(["q1", "q2"]);
+    expect(rows.map((r) => r.correct)).toEqual([["a"], ["a", "b"]]);
+    // ONE round trip — the questions and their keys come from the same
+    // instant, so an edit form can't prefill a set from a stale read.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(mocks.upstashPipeline.mock.calls[0][0]).toEqual([
+      ["HGETALL", "ctf:quiz:questions"],
+      ["HGETALL", "ctf:quiz:key"],
+    ]);
+  });
+
+  it("keeps the correct set in its OWN field, never merged into the question record", async () => {
+    // The shape is load-bearing: `AdminQuestion` is deliberately not
+    // assignable to `Question`, which is what makes handing an admin row to a
+    // contestant-facing component a compile error rather than a leak.
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", q("q1", 1)] },
+      { result: ["q1", JSON.stringify(["a"])] },
+    ]);
+
+    const [row] = await listQuestionsForAdmin();
+
+    expect(Object.keys(row).sort()).toEqual(["correct", "question"]);
+    expect(JSON.stringify(row.question)).not.toMatch(/correct/i);
+  });
+
+  it("pairs each question with ITS OWN key row, never by position", async () => {
+    // The two HGETALLs come back in whatever order Redis hashes them, which
+    // need not match. Pairing by index instead of by id would hand q1 the
+    // answer to q2 — an organizer would then 'confirm' the wrong answer.
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", q("q1", 1), "q2", q("q2", 2)] },
+      { result: ["q2", JSON.stringify(["b"]), "q1", JSON.stringify(["a"])] },
+    ]);
+
+    const rows = await listQuestionsForAdmin();
+    expect(rows.find((r) => r.question.id === "q1")!.correct).toEqual(["a"]);
+    expect(rows.find((r) => r.question.id === "q2")!.correct).toEqual(["b"]);
+  });
+
+  it("still returns a question whose key row is missing or unparseable, with an empty set", async () => {
+    // Such a question can never be answered correctly. Surfacing it in the
+    // edit form (with nothing selected) beats dropping it from the organizer's
+    // list entirely, which would leave a broken question invisible.
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: ["q1", q("q1", 1), "q2", q("q2", 2), "q3", q("q3", 3)] },
+      { result: ["q1", "not json", "q2", JSON.stringify([1, 2])] },
+    ]);
+
+    const rows = await listQuestionsForAdmin();
+    expect(rows.map((r) => [r.question.id, r.correct])).toEqual([
+      ["q1", []],
+      ["q2", []],
+      ["q3", []],
+    ]);
+  });
+
+  it("returns an empty list when there are no questions", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: [] }]);
+    expect(await listQuestionsForAdmin()).toEqual([]);
   });
 });
 
@@ -284,6 +366,30 @@ describe("upsertQuestion", () => {
     const cmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
     const keyCmd = cmds.find((c) => c[1] === "ctf:quiz:key")!;
     expect(JSON.parse(keyCmd[3])).toEqual(["a", "c"]);
+  });
+
+  it("returns what was STORED — the deduped, sorted set, not the caller's raw array", async () => {
+    // The admin route echoes this back to the authoring client, so returning
+    // the caller's array verbatim would leave the panel's list holding a set
+    // the store never wrote (and a later reload would silently disagree).
+    mocks.upstashPipeline.mockResolvedValue([{ result: "OK" }, { result: "OK" }]);
+    const saved = await upsertQuestion(
+      {
+        id: "q1",
+        prompt: "?",
+        type: "multi",
+        choices: [
+          { id: "a", label: "A" },
+          { id: "c", label: "C" },
+        ],
+        points: 5,
+        order: 1,
+      },
+      ["c", "a", "c"],
+    );
+    expect(saved.correct).toEqual(["a", "c"]);
+    expect(saved.question.id).toBe("q1");
+    expect(JSON.stringify(saved.question)).not.toMatch(/correct/i);
   });
 });
 
