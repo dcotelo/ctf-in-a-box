@@ -91,20 +91,41 @@ export async function tick(cfg, state, deps = {}) {
   return state;
 }
 
-async function main() {
-  const cfg = loadConfig();
+// Exported for the tests: every collaborator is injectable so main() can be
+// exercised WITHOUT a real config file, Redis, GitHub, or an unstoppable poll
+// loop. It used to be unreachable from a test — the null-config guard below
+// could be deleted with the whole suite still green (49/49), which is no
+// guard at all. test/main.test.js now watches it fail.
+export async function main(deps = {}) {
+  const {
+    load = loadConfig,
+    log = console.log,
+    logErr = console.error,
+    readState = loadState,
+    writeState = saveState,
+    makeRedisImpl = makeRedis,
+    runTick = tick,
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  } = deps;
+
+  const cfg = load();
+  // No polled module in this event.yaml (a quiz-only event): exit cleanly
+  // BEFORE touching state, Redis or the poll loop. Returning here — paired
+  // with compose's `restart: on-failure` — is the whole reason the poller
+  // stops instead of crash-looping with nothing to poll.
   if (!cfg) {
-    console.log("ctf-sync: no polled module enabled, nothing to do");
+    log("ctf-sync: no polled module enabled, nothing to do");
     return;
   }
-  const state = loadState(cfg.statePath);
-  const redis = makeRedis();
-  console.error(`ctf-sync: polling ${cfg.targets.length} repos in ${cfg.org} every ${cfg.pollIntervalMs}ms`);
+
+  const state = readState(cfg.statePath);
+  const redis = makeRedisImpl();
+  logErr(`ctf-sync: polling ${cfg.targets.length} repos in ${cfg.org} every ${cfg.pollIntervalMs}ms`);
   for (;;) {
-    await tick(cfg, state, { redis });
-    saveState(cfg.statePath, state);
+    await runTick(cfg, state, { redis });
+    writeState(cfg.statePath, state);
     const jitter = cfg.pollIntervalMs * 0.2 * (2 * Math.random() - 1);
-    await new Promise((r) => setTimeout(r, cfg.pollIntervalMs + jitter));
+    await sleep(cfg.pollIntervalMs + jitter);
   }
 }
 
