@@ -4,7 +4,7 @@
 import type { AppId } from "@/lib/apps";
 import { eventConfig } from "@/lib/event-config";
 
-export type ModuleId = "secure-development" | "quiz";
+export type ModuleId = "secure-development" | "quiz" | "classic";
 
 /** Context handed to a module's home-page copy so it can interpolate live
  *  facts (target counts, app names) without importing them itself. */
@@ -785,6 +785,16 @@ git push -u origin fix/<short-description>`,
       ],
     }),
     routeCard: () => "Every question the organizers have published.",
+  },
+  classic: {
+    id: "classic",
+    displayName: "Classic CTF",
+    description: "Find the flag, submit the string, take the points.",
+    nav: { href: "/flags", label: "Flags" },
+    emptyBoard: {
+      line: "No flags captured yet. Every rank is unclaimed. Solve your first challenge and you’ll be the one everyone else is chasing.",
+      cta: { href: "/flags", label: "$ pick a challenge" },
+    },
   },
 };
 

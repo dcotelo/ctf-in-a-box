@@ -67,13 +67,26 @@ test("returns null when no polled module is enabled (quiz-only)", () => {
   assert.equal(loadConfig(p, ENV), null);
 });
 
+// classic is a registered id (the app's generator accepts it) but is not a
+// polled module — same contract as quiz-only: nothing for sync to score, a
+// clean null rather than a throw.
+test("returns null when no polled module is enabled (classic-only)", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  classic: {}\n`);
+  assert.equal(loadConfig(p, ENV), null);
+});
+
+test("still rejects a genuinely unknown module key", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  forensics: {}\n`);
+  assert.throws(() => loadConfig(p, ENV), /unknown module: forensics/);
+});
+
 test("a typo'd secure-development key is rejected, not treated as satisfied", () => {
   const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-develpment:\n    targets: [dvwa]\n`);
   assert.throws(() => loadConfig(p, ENV), /unknown module: secure-develpment/);
 });
 
 test("KNOWN_MODULES lists the ids sync tolerates", () => {
-  assert.deepEqual(KNOWN_MODULES, ["secure-development", "quiz"]);
+  assert.deepEqual(KNOWN_MODULES, ["secure-development", "quiz", "classic"]);
 });
 
 test("rejects a missing modules section entirely (not the same as an empty one)", () => {

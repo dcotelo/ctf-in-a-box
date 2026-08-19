@@ -87,6 +87,7 @@ const MODULE_VALIDATORS = {
     scoreIngest: mod?.score_ingest === "push" ? "push" : "poll",
   }),
   quiz: () => ({ id: "quiz" }),
+  classic: () => ({ id: "classic" }),
 };
 
 function validateModules(modules) {

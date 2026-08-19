@@ -9,7 +9,7 @@ import { makeAppAuth } from "./appAuth.js";
 // (apps/web/scripts/generate-event-config.mjs's MODULE_VALIDATORS): both read
 // the SAME event.yaml, so a key the app accepts but sync rejects crash-loops
 // the poller and silently freezes the leaderboard.
-export const KNOWN_MODULES = ["secure-development", "quiz"];
+export const KNOWN_MODULES = ["secure-development", "quiz", "classic"];
 // The one module sync actually scores. Deliberately a literal, not
 // KNOWN_MODULES[0] — tolerating a key is not the same as serving it, and the
 // two must not drift if the list is reordered or extended.

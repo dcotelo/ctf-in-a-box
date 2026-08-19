@@ -10,7 +10,7 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import { enabledModules, isModuleEnabled } from "@/lib/modules";
+import { ALL_MODULE_ROUTES, enabledModules, isModuleEnabled } from "@/lib/modules";
 
 describe("module registry", () => {
   it("derives the enabled modules from config, in registry order", () => {
@@ -26,6 +26,11 @@ describe("module registry", () => {
 
   it("gives quiz its own nav entry now that /quiz exists", () => {
     expect(enabledModules.find((m) => m.id === "quiz")!.nav).toEqual({ href: "/quiz", label: "Quiz" });
+  });
+
+  it("registers classic with its own route, distinct from secure-development's", () => {
+    expect(ALL_MODULE_ROUTES).toContain("/flags");
+    expect(ALL_MODULE_ROUTES).toContain("/challenges");
   });
 });
 

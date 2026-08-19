@@ -50,5 +50,5 @@ export function proxy(request: NextRequest) {
 // `ALL_MODULE_ROUTES`. A route in here that this event doesn't enable simply
 // falls through to `next()` and 404s on its own, as it did before.
 export const config = {
-  matcher: ["/profile", "/challenges", "/quiz"],
+  matcher: ["/profile", "/challenges", "/quiz", "/flags"],
 };
