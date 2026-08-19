@@ -477,18 +477,18 @@ git push -u origin fix/<short-description>`,
     // attempt allowance itself is never rendered, and grading is exact-match
     // against a sorted key — all-or-nothing, including for `multi`.
     //
-    // The copy deliberately does NOT promise a leaderboard place. It used to,
-    // and that claim fails on exactly the event this module exists for:
-    // `withModuleContributions` overlays quiz points onto rows the scoring
-    // backend already produced, so a contestant whose only points are quiz
-    // points has no row to overlay onto and never appears. That is the known
-    // Phase B gap (spec §B.2, documented in operations.md), not something to
-    // paper over in the copy — so the copy says what is true today, and the
-    // promise goes back in when row creation ships.
+    // The copy DOES promise a leaderboard place, and that promise is true on
+    // exactly the event this module exists for: `withModuleContributions`
+    // takes the board's login set as the UNION of the scoring source's logins
+    // and the ones holding module points, so a contestant whose only points
+    // are quiz points gets a row CREATED for them rather than being invisible.
+    // The promise was pulled once, while row creation was still an open gap;
+    // it is back because the code changed. Check that function before pulling
+    // it again.
     home: {
       tagline: "Quiz",
       intro: () =>
-        "Answer security questions for points. Every question carries its own point value and is graded the moment you submit it.",
+        "Answer security questions for points. Every question carries its own point value, is graded the moment you submit it, and counts toward your place on the leaderboard.",
       expect: {
         heading: "Straight questions, scored on submit",
         lede: "Each question is multiple choice: some have a single right answer, others are select-all-that-apply and only score if your whole selection matches. Grading is automatic, against a stored answer key. Organizers can cap how many times a question may be attempted and make you wait between tries; the question tells you when it is on cooldown and when you have run out of attempts.",
@@ -496,7 +496,7 @@ git push -u origin fix/<short-description>`,
       steps: () => [
         {
           title: "Sign in with GitHub",
-          body: "Sign in so your answers and points are recorded against your account. Nothing is graded for a signed-out visitor, and signing in is what lets you leave and pick the set back up later.",
+          body: "Sign in to claim your row on the leaderboard. Your answers and points are recorded against your account, nothing is graded for a signed-out visitor, and signing in is what lets you leave and pick the set back up later.",
         },
         {
           title: "Work through the questions",
@@ -549,7 +549,7 @@ git push -u origin fix/<short-description>`,
         "Points are credited to the GitHub account you signed in with. Team totals are the sum of what each member scores individually.",
       ],
       scoring:
-        "Every question is worth a fixed number of points, set by the organizers when they author it. Points are awarded the moment a correct answer is submitted, graded against a stored answer key, so nothing waits on manual review. Your live total is visible on your profile once you're signed in.",
+        "Every question is worth a fixed number of points, set by the organizers when they author it. Points are awarded the moment a correct answer is submitted, graded against a stored answer key, so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
       cta: { href: "/quiz", label: "Take the quiz" },
     },
     rules: () => ({
