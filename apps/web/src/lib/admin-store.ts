@@ -8,7 +8,15 @@ import {
   type ModuleId,
   type ModuleOverrides,
 } from "@/lib/modules";
-import { DEMO_CONTESTANTS, DEMO_TEAMS, DEMO_QUESTIONS, DEMO_QUIZ_ANSWERS } from "@/lib/demo-fixture";
+import {
+  DEMO_CONTESTANTS,
+  DEMO_TEAMS,
+  DEMO_QUESTIONS,
+  DEMO_QUIZ_ANSWERS,
+  DEMO_CHALLENGES,
+  DEMO_CLASSIC_CATEGORIES,
+  DEMO_CLASSIC_SOLVES,
+} from "@/lib/demo-fixture";
 import {
   QUIZ_QUESTIONS_KEY,
   QUIZ_KEY_KEY,
@@ -20,11 +28,17 @@ import {
   canonicalizeChoices,
 } from "@/lib/quiz-keys";
 import {
+  CLASSIC_CHALLENGES_KEY,
+  CLASSIC_FLAG_KEY,
+  CLASSIC_FLAGNORM_KEY,
+  CLASSIC_CATEGORIES_KEY,
   CLASSIC_POINTS_KEY,
   CLASSIC_SOLVED_KEY,
   CLASSIC_SOLVECOUNT_KEY,
   CLASSIC_SOLVES_PREFIX,
   CLASSIC_ATTEMPTS_PREFIX,
+  classicSolvesKey,
+  normalizeFlag,
 } from "@/lib/classic-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
@@ -531,6 +545,65 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     }
   }
 
+  // Classic demo data — only when the module is enabled, so a disabled
+  // classic module leaves the seed byte-for-byte identical to pre-classic
+  // behavior (same reasoning as the quiz gate above).
+  const classicEnabled = isModuleEnabled("classic");
+  let classicSolvesSeeded = 0;
+  if (classicEnabled) {
+    // Public challenge record ONLY — built field by field from `Challenge`'s
+    // own shape, never by spreading the fixture object, so the flag (which
+    // lives alongside it on the fixture) has no path into
+    // ctf:classic:challenges. The authored flag and its normalized form are
+    // written into their own separate hashes in the SAME pipeline, exactly
+    // as upsertChallenge does — normalizeFlag is the ONLY thing allowed to
+    // produce ctf:classic:flagnorm's value; a hand-rolled lowercase here
+    // would silently desync from what submitFlag compares against.
+    for (const dc of DEMO_CHALLENGES) {
+      const challenge = {
+        id: dc.id,
+        title: dc.title,
+        category: dc.category,
+        description: dc.description,
+        points: dc.points,
+        order: dc.order,
+      };
+      cmds.push(["HSET", CLASSIC_CHALLENGES_KEY, dc.id, JSON.stringify(challenge)]);
+      cmds.push(["HSET", CLASSIC_FLAG_KEY, dc.id, dc.flag]);
+      cmds.push(["HSET", CLASSIC_FLAGNORM_KEY, dc.id, normalizeFlag(dc.flag)]);
+    }
+    cmds.push(["SET", CLASSIC_CATEGORIES_KEY, JSON.stringify(DEMO_CLASSIC_CATEGORIES)]);
+
+    const challengesById = new Map(DEMO_CHALLENGES.map((c) => [c.id, c]));
+    const classicAggregates = new Map<string, { points: number; solved: number }>();
+    const solveCounts = new Map<string, number>();
+    const nSolves = DEMO_CLASSIC_SOLVES.length;
+    DEMO_CLASSIC_SOLVES.forEach(({ login, challengeId }, i) => {
+      const challenge = challengesById.get(challengeId);
+      if (!challenge) return; // fixture-consistency guard; should never trigger
+      const frac = nSolves > 0 ? (i + 0.5) / nSolves : 0.5;
+      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      cmds.push(["HSET", classicSolvesKey(login), challengeId, JSON.stringify({ points: challenge.points, at })]);
+
+      const agg = classicAggregates.get(login) ?? { points: 0, solved: 0 };
+      agg.points += challenge.points;
+      agg.solved += 1;
+      classicAggregates.set(login, agg);
+
+      solveCounts.set(challengeId, (solveCounts.get(challengeId) ?? 0) + 1);
+      classicSolvesSeeded++;
+    });
+    // Aggregates written as the final absolute total (not HINCRBY'd), mirroring
+    // the quiz aggregates above — idempotent on a second seed run.
+    for (const [login, agg] of classicAggregates) {
+      cmds.push(["HSET", CLASSIC_POINTS_KEY, login, agg.points]);
+      cmds.push(["HSET", CLASSIC_SOLVED_KEY, login, agg.solved]);
+    }
+    for (const [challengeId, count] of solveCounts) {
+      cmds.push(["HSET", CLASSIC_SOLVECOUNT_KEY, challengeId, count]);
+    }
+  }
+
   const audit = JSON.stringify({
     at: new Date(now).toISOString(),
     by: actor,
@@ -539,6 +612,9 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     teams: DEMO_TEAMS.length,
     solves: total,
     ...(quizEnabled ? { quizQuestions: DEMO_QUESTIONS.length, quizAnswers: quizAnswersSeeded } : {}),
+    ...(classicEnabled
+      ? { classicChallenges: DEMO_CHALLENGES.length, classicSolves: classicSolvesSeeded }
+      : {}),
   });
   cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
   cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);
