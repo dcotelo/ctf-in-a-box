@@ -197,6 +197,23 @@ describe("quiz page blurb and progress line", () => {
     expect(html).toMatch(/<h1[^>]*>Round 1<\/h1><p[^>]*>Ten questions on the OWASP Top 10, one point each\.<\/p>/);
   });
 
+  // Regression guard for the blurb swap itself. The progress line used to be
+  // the header description, which rendered whatever the question count was;
+  // relocating it into the populated branch took the sign-in prompt away from
+  // a signed-out visitor looking at a quiz with no questions authored yet —
+  // the visitor most worth telling, since signing in now is what lets them
+  // answer the moment questions appear.
+  it("still prompts a signed-out visitor to sign in when there are no questions at all", async () => {
+    getSession.mockResolvedValue(null);
+    listQuestions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await QuizPage());
+
+    // Non-vacuity: this really is the empty-state render, not a populated one.
+    expect(html).toMatch(/no quiz questions are available/i);
+    expect(html).toMatch(/sign in with github to answer questions/i);
+  });
+
   it("falls back to the registry default blurb when the organizer set none", async () => {
     getSession.mockResolvedValue(null);
     getResolvedModules.mockResolvedValue([{ id: "quiz", title: "Quiz", blurb: "Answer security questions for points." }]);

@@ -117,16 +117,23 @@ export default async function QuizPage() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={blurb} />
-      {questions.length === 0 ? (
-        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
-          <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <p className="text-sm text-zinc-400">{progress}</p>
+      {/* The progress line sits OUTSIDE the empty-state branch on purpose. It
+          used to be the header description, which rendered whatever the
+          question count was; moving it into the populated branch quietly took
+          the "Sign in with GitHub" prompt away from a signed-out visitor
+          looking at a quiz whose questions haven't been authored yet — exactly
+          the visitor most worth telling, since signing in now is what lets
+          them answer the moment questions appear. */}
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-zinc-400">{progress}</p>
+        {questions.length === 0 ? (
+          <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
+            <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
+          </div>
+        ) : (
           <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
