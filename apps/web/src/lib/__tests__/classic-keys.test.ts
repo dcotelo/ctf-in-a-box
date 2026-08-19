@@ -19,8 +19,8 @@ describe("normalizeFlag", () => {
   });
 
   it("unifies Unicode composition so visually identical flags match", () => {
-    const composed = "CTF{é}";     // e-acute as ONE code point
-    const decomposed = "CTF{é}";   // e + combining acute
+    const composed = "CTF{\u00e9}";     // e-acute as ONE code point
+    const decomposed = "CTF{e\u0301}";   // e + combining acute
     // Guard against vacuity: if these ever become the same literal, the
     // assertion below passes trivially and proves nothing.
     expect(composed).not.toBe(decomposed);
