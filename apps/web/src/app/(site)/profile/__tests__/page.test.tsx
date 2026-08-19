@@ -23,6 +23,7 @@ const {
   getQuizTotals,
   listQuestions,
   getTeamQuizTotals,
+  getResolvedModules,
 } = vi.hoisted(() => ({
   getSession: vi.fn(),
   getUser: vi.fn(),
@@ -33,6 +34,7 @@ const {
   getQuizTotals: vi.fn(),
   listQuestions: vi.fn(),
   getTeamQuizTotals: vi.fn(),
+  getResolvedModules: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -51,7 +53,20 @@ vi.mock("@/lib/team-store", () => ({
   TEAM_WRITES_ENABLED: false,
 }));
 vi.mock("@/lib/hint-store", () => ({ getViewerHints, getHintPenalties, HINTS_ENABLED: true }));
-vi.mock("@/lib/modules", () => ({ isModuleEnabled, enabledModules: [] }));
+// Partial mock: `isModuleEnabled` is what this page's gates call, but
+// `@/lib/site` reads `SECURE_AGENT_PLAYBOOK_URL` off this same module at
+// import time (the registry owns the constant; site.ts re-exports it as
+// `event.secureAgentPlaybookUrl`), so a whole-module replacement that omits
+// it makes every importer of site.ts throw — same trap `challenges/
+// __tests__/page.test.tsx` documents for its own `@/lib/modules` mock.
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled,
+}));
+// The per-module block list is driven off this, not off `@/lib/modules`
+// directly — these tests don't exercise the breakdown blocks, so an empty
+// list is enough to keep the page from rendering any.
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
@@ -65,6 +80,7 @@ beforeEach(() => {
   getViewerTeam.mockResolvedValue(null);
   listQuestions.mockResolvedValue([]);
   getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
+  getResolvedModules.mockResolvedValue([]);
 });
 
 const baseProfile = {
@@ -128,5 +144,65 @@ describe("profile page points vs. the leaderboard row", () => {
 
     expect(getQuizTotals).not.toHaveBeenCalled();
     expect(html).toContain(">30<"); // 40 - 10, no quiz points added
+  });
+});
+
+// Regression coverage for review round 1: the per-app points figure the
+// pre-module custom grid used to show ("DVWA 30 / 60 pts") was silently
+// dropped when the grid was replaced by AppBreakdown/ModuleDetail, and a
+// separate regression let the per-module heading show the RAW scorer total
+// instead of the hint-netted one the headline and the leaderboard row use.
+describe("profile per-module block content", () => {
+  it("shows the per-app points figure via the reused AppBreakdown (showPoints)", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "secure-development");
+    getResolvedModules.mockResolvedValue([
+      {
+        id: "secure-development",
+        nav: { href: "/challenges", label: "Challenges" },
+        targets: ["dvwa"],
+        title: "Secure Development",
+        blurb: "",
+      },
+    ]);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({
+      ...baseProfile,
+      apps: [{ app: "dvwa", points: 30, maxPoints: 60, patched: 3, total: 4 }],
+    });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    expect(html).toContain(">30<");
+    expect(html).toContain("/ 60 pts");
+  });
+
+  it("nets hint spend into the secure-development module's own point total, matching the headline", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "secure-development" || id === "quiz");
+    // Two resolved modules so `multiModule` is true and the per-module
+    // heading (which carries the points figure under test) renders at all.
+    getResolvedModules.mockResolvedValue([
+      {
+        id: "secure-development",
+        nav: { href: "/challenges", label: "Challenges" },
+        targets: ["dvwa"],
+        title: "Secure Development",
+        blurb: "",
+      },
+      { id: "quiz", nav: { href: "/quiz", label: "Quiz" }, targets: [], title: "Quiz", blurb: "" },
+    ]);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({
+      ...baseProfile,
+      apps: [{ app: "dvwa", points: 40, maxPoints: 100, patched: 4, total: 6 }],
+    });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 10, count: 1 });
+    getQuizTotals.mockResolvedValue(new Map());
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    // 40 raw - 10 hint spend = 30. NOT the raw 40.
+    expect(html).toContain(">30 pts<");
+    expect(html).not.toContain(">40 pts<");
   });
 });

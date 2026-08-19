@@ -1,0 +1,7 @@
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+modules:
+  secure-development:
+    targets: [dvwa]

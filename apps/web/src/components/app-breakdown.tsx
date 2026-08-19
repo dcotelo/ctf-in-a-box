@@ -4,8 +4,14 @@ import type { LeaderboardEntry } from "@/lib/leaderboard/types";
 
 /** The contestant's per-target flag progress — extracted from `leaderboard.tsx`
  *  unchanged so it can be reused both as the pre-module fallback (a row with no
- *  `modules` map) and as secure-development's module detail block. */
-export default function AppBreakdown({ entry }: { entry: LeaderboardEntry }) {
+ *  `modules` map) and as secure-development's module detail block.
+ *
+ *  `showPoints` is opt-in and defaults to unset/falsy so every existing
+ *  leaderboard call site (which passes none) renders byte-identically to
+ *  before it existed. `/profile` is the one caller that sets it — the
+ *  per-app `points / maxPoints` figure it shows is real data `AppProgress`
+ *  already carries, just never rendered by this component until now. */
+export default function AppBreakdown({ entry, showPoints }: { entry: LeaderboardEntry; showPoints?: boolean }) {
   const attempted = appList.filter((app) => entry.apps[app.id]);
   if (attempted.length === 0) {
     return <p className="text-sm text-muted">No app breakdown reported yet.</p>;
@@ -24,6 +30,15 @@ export default function AppBreakdown({ entry }: { entry: LeaderboardEntry }) {
               <p className="text-xs" style={{ color: app.accent }}>
                 {app.name}
               </p>
+              {/* Sources without per-app point data (lambda) report
+                  maxPoints 0 — showing "0 / 0 pts" reads as broken, so only
+                  render the stat when it exists AND the caller opted in. */}
+              {showPoints && progress.maxPoints > 0 && (
+                <p className="font-mono text-xs text-zinc-400">
+                  {progress.points}
+                  <span className="text-muted"> / {progress.maxPoints} pts</span>
+                </p>
+              )}
               <p className="font-mono text-sm tabular-nums text-white">
                 {progress.patched}
                 <span className="ml-1 text-xs text-muted">/ {progress.total} patched</span>

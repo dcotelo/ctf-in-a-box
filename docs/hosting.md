@@ -92,8 +92,10 @@ cp event.yaml.example event.yaml
 ```sh
 # 9. Bring the containers up. EVENT_CONFIG_B64 is REQUIRED — building the app without
 #    it yields neutral defaults (empty admins → /admin 403, generic branding).
+#    The profiles follow your enabled modules — see "Which profiles do I need?"
+#    below; this is the poll-mode secure-development line-up.
 EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
-  docker compose --profile poll --profile app up -d --build app
+  docker compose --profile poll --profile app up -d --build
 
 # 10. Verify: watch the poller heartbeat, open the app, sign in, hit /admin.
 docker compose logs -f sync
@@ -236,8 +238,28 @@ actually shipping, and Caddy only exposes the `/score` route externally when
 running with the `push` Caddyfile.
 
 Start the poll pipeline with `docker compose --profile poll --profile app up
--d` — the `poll` profile brings up `sync`, and `app` brings up the
-contestant-facing app. Push mode does not need `sync` running.
+-d` — the `poll` profile brings up `sync` and the `scorer`, and `app` brings
+up the contestant-facing app. Push mode does not need `sync` running, so it
+uses `--profile push --profile app` instead (the `push` profile carries the
+scorer without the poller).
+
+### Which profiles do I need?
+
+Compose profiles follow your **enabled modules**, not your taste: `app` is
+always on, and the score-ingest profile — `poll` or `push`, whichever
+`SCORE_INGEST` you set — carries everything `secure-development` needs. The
+`scorer` is part of that module (it exists to score PRs against forked
+targets), so it is profiled exactly like `sync` is; a quiz-only event must
+not be asked to pull a scorer image it has no reason to own.
+
+| `modules:` in your `event.yaml` | Command |
+|---|---|
+| `secure-development` (poll mode), with or without `quiz` | `docker compose --profile poll --profile app up -d --build` |
+| `secure-development` (push mode), with or without `quiz` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| `quiz` only | `docker compose --profile app up -d --build` |
+
+`ctf-setup.sh wizard` prints (and offers to run) the right one for the
+`event.yaml` you configured, so you do not have to pick by hand.
 
 Prefer a cloud VM over your own machine? [Deploy on AWS](aws.md) ships a
 Terraform module for a single-shot EC2 deploy — `terraform apply` up,
@@ -347,13 +369,40 @@ page for contestants, a Quiz section in `/admin` for authoring questions
 retry-gate knobs, and quiz points added on top of the combined leaderboard —
 see [docs/operations.md](operations.md)'s "Quiz" section for the organizer
 walkthrough and [docs/modules.md §5](modules.md#5-ui--presentation-contract)
-for the underlying contract. **`modules.secure-development` remains required
-by `sync` regardless of whether `quiz` is enabled** — `sync`'s config loader
-fails startup if that block is absent (`sync/src/config.js`), so a
-quiz-only event (no `secure-development` block in `event.yaml` at all) is
-still not supported end to end: `sync` only tolerates the `quiz` key (so an
-`event.yaml` the app builds from can't crash-loop the poller) and keeps
-scoring `secure-development` alone.
+for the underlying contract.
+
+**`secure-development` is not required — a single module is enough to run an
+event.** `sync`'s config loader tolerates its absence (`sync/src/config.js`'s
+`loadConfig` returns `null` when `modules.secure-development` is missing) and
+`ctf-setup.sh`'s `org`/`render`/`doctor` each skip fork-based provisioning and
+report "nothing to provision/check" instead of failing. What's still an error
+in both readers is a `modules:` block that's missing entirely, or a key
+neither recognizes at all — the tolerance is specifically for a *known*
+module simply not being configured, not for a malformed file. A quiz-only
+`event.yaml` (`modules: { quiz: {} }`, no `secure-development` block at all)
+is therefore a supported event on its own: `/challenges` 404s (that route
+doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
+the landing page, the leaderboard, and `/profile` all compose from whatever
+modules *are* enabled instead of assuming `secure-development` is one of
+them. See [docs/modules.md §5](modules.md#5-ui--presentation-contract) for
+the UI composition contract and [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+for why the missing-vs-unknown distinction is drawn where it is.
+
+**Boot a quiz-only event with `docker compose --profile app up -d --build`**
+— just the `app` profile. The score-ingest profiles (`poll` / `push`) carry
+`secure-development`'s two services, `sync` and the `scorer`, and a quiz-only
+event has no use for either: nothing to poll, and no scorer image to pull
+(the compose fallback is the maintainers' private image, so asking for it
+fails the bring-up). See the [profiles table](#which-profiles-do-i-need)
+above.
+
+If you do pass `--profile poll` anyway — say you enabled `secure-development`
+mid-event and then dropped it again — `sync` starts, logs `ctf-sync: no
+polled module enabled, nothing to do` and exits `0` rather than entering the
+poll loop (`sync/src/index.js`'s `main()`), and `docker-compose.yml`'s `sync`
+service is `restart: on-failure` (changed from `unless-stopped`) so that
+clean exit isn't treated as a crash and restarted forever. You still need a
+`SCORE_IMAGE` for the scorer that profile also brings up.
 
 Copy `event.yaml.example` and fill in `github.org`,
 `modules.secure-development.targets`, `admins` (GitHub logins), and
@@ -377,7 +426,7 @@ an `event.yaml` edit:
 
 ```sh
 EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile app build app
-docker compose --profile poll --profile app up -d
+docker compose --profile poll --profile app up -d   # quiz-only: --profile app alone
 ```
 
 Building without `EVENT_CONFIG_B64` falls back to the neutral "OWASP CTF"

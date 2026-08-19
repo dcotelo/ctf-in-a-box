@@ -2,18 +2,39 @@
 // Terms of Service — OWASP publishes no ToS, and its General Disclaimer is the
 // governing document, linked below. What's here is limited to what taking part
 // in this competition actually commits you to.
+//
+// A PLATFORM frame with module contributions, like /rules and /faq. Every
+// participation term this kit has written names a module's own artifacts —
+// what you submit, where you may test, what a point is worth — so the modules
+// own them, and the platform keeps the two that hold on any event (prizes,
+// disputes) plus a fallback list per section.
+//
+// The scope section is why this page mattered most: with no module owning it,
+// an event with no targets rendered "Your authorization to test covers the 0
+// challenge targets only: ," — a legal scope clause that authorized nothing,
+// on the page that tells contestants what they are permitted to attack. The
+// fallbacks below exist so that section can never be empty either.
+//
+// Server Component, and must stay one: `ModuleTerms` is a FUNCTION of the live
+// event facts, called here so only plain data is rendered.
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames } from "@/lib/apps";
+import type { Copy, OrgContext } from "@/lib/modules";
+import { getModuleTerms, getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
 export const metadata: Metadata = {
   title: "Terms",
+  // Module-agnostic, same reason as /faq's: the clauses below come from
+  // whichever modules the event enables, so the description cannot name one
+  // (it used to say "secure development CTF" on every event).
   description:
-    `Participation terms for the ${event.name} secure development CTF: eligibility, testing scope, submissions, scoring, and prizes.`,
+    `Participation terms for ${event.name}: eligibility, testing scope, submissions, scoring, and prizes.`,
 };
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
@@ -27,46 +48,62 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
   </a>
 );
 
-const appList = joinAppNames(enabledApps.map((a) => a.name));
+// Stand-ins for an event whose modules contribute no terms of their own. They
+// render only when NO enabled module contributed to that section, so on every
+// event that has one they cost nothing — the same shape as /rules' fair-play
+// fallback. Deliberately generic: they must hold whatever the event turns out
+// to be, which is exactly what makes them a floor rather than a default.
+const FALLBACK: Record<"eligibility" | "scope" | "submissions", Copy[]> = {
+  eligibility: [
+    "You need a GitHub account. Your GitHub login is your identity for scoring, so take part from the account you sign in with. Points are credited to that account and cannot be moved between accounts afterwards.",
+    "Organizers and anyone who worked on the competition's content or its scoring may compete for fun but are not eligible for prizes.",
+  ],
+  scope: [
+    "This event authorizes no testing of any system. Nothing here should be read as permission to attack anything.",
+    "Explicitly out of scope: the scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts or machines.",
+    "Found a real security bug in this site or in the scoring pipeline? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
+  ],
+  submissions: [
+    "Submit your own work. Passing off another contestant's work as your own is not allowed.",
+    "Don't publish full solutions for others to copy while the event is running. Afterwards, write up whatever you like.",
+  ],
+};
 
-const sections: { heading: string; items: React.ReactNode[] }[] = [
-  {
-    heading: "Eligibility",
-    items: [
-      "You need a GitHub account. Your GitHub login is your identity for scoring, so open every pull request from the account you sign in with. Points are credited to the PR author and cannot be moved between accounts afterwards.",
-      "Organizers and anyone who worked on the challenge targets, the scorer, or the rubric may compete for fun but are not eligible for prizes.",
-    ],
-  },
-  {
-    heading: "Scope of authorized testing",
-    items: [
-      `Your authorization to test covers the ${enabledApps.length} challenge ${enabledApps.length === 1 ? "target" : "targets"} only: ${appList}, in your own fork under the ${eventConfig.githubOrg} organization.`,
-      "Explicitly out of scope: the CI scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts, forks, or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
-      "Found a real vulnerability in the scorer or this site? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
-      "Automated mass-submission, or spamming pull requests to farm scoring runs, will get your account rate-limited or disqualified.",
-    ],
-  },
-  {
-    heading: "Your submissions",
-    items: [
-      "You submit work as a pull request against the target repository's main branch. Those repositories are OWASP projects under their own existing open-source licenses, and your contribution is offered under the license of the repository you are contributing to.",
-      "Submit your own work. Using AI tooling to find and fix vulnerabilities is expected and encouraged here (see the Rules), but passing off another contestant's patch as yours is not.",
-      "Don't publish full solutions or patches for others to copy while the event is running. Afterwards, write up whatever you like.",
-      "Organizers may reference or showcase submitted patches when talking about the event.",
-    ],
-  },
-  {
-    heading: "Scoring and prizes",
-    items: [
-      "Each challenge is worth a fixed point value based on difficulty, awarded automatically when that challenge's regression test passes against your patched app. Your best-ever result per challenge counts.",
-      "Revealing a hint deducts points from your leaderboard total. Hint purchases are final. There is no refund.",
-      "Prizes go to the top individuals and top teams overall. You must be present at the closing ceremony to claim.",
-      "Organizer decisions on scoring disputes are final.",
-    ],
-  },
-];
+export default async function TermsPage() {
+  const ctx: OrgContext = {
+    appCount: enabledApps.length,
+    appList: joinAppNames(enabledApps.map((a) => a.name)),
+    githubOrg: eventConfig.githubOrg,
+  };
 
-export default function TermsPage() {
+  const contributions = (await getResolvedModules()).flatMap((module) => {
+    const terms = getModuleTerms(module.id);
+    return terms ? [terms(ctx)] : [];
+  });
+  const fromModules = (section: "eligibility" | "scope" | "submissions" | "scoring") =>
+    contributions.flatMap((c) => c[section] ?? []);
+  const render = (items: Copy[]): React.ReactNode[] =>
+    items.map((copy, i) => <ModuleCopy key={i} copy={copy} />);
+  // Module bullets, or the floor when there are none.
+  const orFallback = (section: "eligibility" | "scope" | "submissions") => {
+    const own = fromModules(section);
+    return render(own.length > 0 ? own : FALLBACK[section]);
+  };
+
+  const sections: { heading: string; items: React.ReactNode[] }[] = [
+    { heading: "Eligibility", items: orFallback("eligibility") },
+    { heading: "Scope of authorized testing", items: orFallback("scope") },
+    { heading: "Your submissions", items: orFallback("submissions") },
+    {
+      heading: "Scoring and prizes",
+      items: [
+        ...render(fromModules("scoring")),
+        "Prizes go to the top individuals and top teams overall. You must be present at the closing ceremony to claim.",
+        "Organizer decisions on scoring disputes are final.",
+      ],
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-10">
       <PageHeader

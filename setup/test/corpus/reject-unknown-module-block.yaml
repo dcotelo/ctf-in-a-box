@@ -1,0 +1,5 @@
+github:
+  org: test-event-org
+modules:
+  forensics:
+    targets: [dvwa]

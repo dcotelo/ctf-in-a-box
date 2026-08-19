@@ -1,18 +1,34 @@
 import "server-only";
 import { listTeams } from "@/lib/team-store";
+import { withTeamQuizPoints } from "./module-contributions";
 import type { LeaderboardData, TeamStanding } from "./types";
 
 /**
  * Overlays live team MEMBERSHIP (from the team store's ctf:team:* records)
- * onto leaderboard data from a source that has no team concept
- * (upstash). This source only has each player's per-login TOTAL, not which
- * flag earned which point — so it has no way to tell whether two teammates'
- * totals overlap on a flag they both solved. Summing member totals into a
- * team score would double-count any such shared flag, so this deliberately
- * does NOT fabricate a points figure: team rows get `points: 0` and exist
- * only so the row chip renders. Real (deduped) team points require the
- * scorer/lambda path, which computes them from per-flag data upstream and
- * sets `capabilities.teams = true` before this function ever runs.
+ * onto leaderboard data from a source that has no team concept (upstash, and
+ * the empty source a quiz-only event uses). Such a source only has each
+ * player's per-login TOTAL, not which flag earned which point — so it has no
+ * way to tell whether two teammates' totals overlap on a flag they both
+ * solved. Summing member totals into a team score would double-count any such
+ * shared flag, so a synthesised row deliberately fabricates no SCORER points:
+ * it starts at `points: 0`. Real (deduped) secure-development team points
+ * require the scorer/lambda path, which computes them from per-flag data
+ * upstream and sets `capabilities.teams = true` before this function ever runs.
+ *
+ * Module points ARE added to the rows synthesised here, via
+ * `withTeamQuizPoints` — the quiz stores which QUESTION each member answered,
+ * so a team's total can be deduped by question (a question three teammates
+ * answered counts once) with no per-flag data involved. Leaving them at zero
+ * meant a quiz-only event opened on its DEFAULT view — the teams board,
+ * whenever teams exist — with every team tied at nothing while the individual
+ * view showed real points. The attribution deliberately lives in
+ * `module-contributions.ts` and is merely CALLED from here, so the union rule
+ * has exactly one implementation; the pipeline order is unchanged.
+ *
+ * Membership is matched case-insensitively, like every other login join in
+ * this codebase: rows created from module points carry the module store's
+ * spelling of the login, and a case disagreement with the team record would
+ * otherwise silently drop the team chip.
  *
  * No-ops when the source already provides deduped teams (mock/lambda), when
  * team writes are disabled, or when no teams exist yet. Upstash trouble
@@ -32,10 +48,10 @@ export async function withTeamStandings(data: LeaderboardData): Promise<Leaderbo
 
   const teamByLogin = new Map<string, string>();
   for (const team of teams) {
-    for (const member of team.members) teamByLogin.set(member, team.slug);
+    for (const member of team.members) teamByLogin.set(member.toLowerCase(), team.slug);
   }
 
-  const standings: TeamStanding[] = teams
+  const membershipOnly: TeamStanding[] = teams
     .map((team) => ({
       slug: team.slug,
       name: team.name,
@@ -45,17 +61,23 @@ export async function withTeamStandings(data: LeaderboardData): Promise<Leaderbo
       captain: team.members[0] ?? "",
       members: team.members,
       // No per-flag data here to dedupe shared flags with — see doc above.
+      // Module points are added on top, by question, below.
       points: 0,
     }))
-    // No real point figure to rank by; alphabetical keeps the order stable.
+    // Alphabetical is the tie-break, not the order: withTeamQuizPoints re-ranks
+    // on the attributed totals and keeps this position for teams it cannot
+    // separate (and for every team, when no module has points to add).
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((team, i) => ({ ...team, rank: i + 1 }));
 
+  const standings = await withTeamQuizPoints(membershipOnly);
+
   return {
     ...data,
-    entries: data.entries.map((entry) =>
-      teamByLogin.has(entry.login) ? { ...entry, team: teamByLogin.get(entry.login)! } : entry,
-    ),
+    entries: data.entries.map((entry) => {
+      const slug = teamByLogin.get(entry.login.toLowerCase());
+      return slug ? { ...entry, team: slug } : entry;
+    }),
     teams: standings,
     capabilities: { ...data.capabilities, teams: true },
   };

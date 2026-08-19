@@ -24,8 +24,7 @@ export function compareStanding(a: LeaderboardEntry, b: LeaderboardEntry): numbe
  *  points-descending order it arrives in: a row with more patches but fewer
  *  points now ranks higher. This is deliberate — it makes upstash rank by the
  *  same breadth-first rule as the lambda and mock sources rather than being
- *  the one board scored differently. See `__tests__/rank.test.ts`'s
- *  upstash-shaped case, which pins the resulting order.
+ *  the one board scored differently.
  *
  *  The fallback is keyed on the `secure-development` block specifically, NOT
  *  on `modules` being empty — an upstash row with quiz activity gets a `quiz`
@@ -33,7 +32,15 @@ export function compareStanding(a: LeaderboardEntry, b: LeaderboardEntry): numbe
  *  real, un-represented completions. Falling back only when `modules` is
  *  empty would drop `patched` entirely the moment ANY module (e.g. quiz)
  *  populated the map — demoting a contestant for answering a quiz question,
- *  which is the opposite of what adding quiz points is supposed to do. */
+ *  which is the opposite of what adding quiz points is supposed to do.
+ *
+ *  That mutation is caught in
+ *  `__tests__/module-contributions.test.ts` ("does not let quiz activity
+ *  demote a patched-heavy row on an upstash-shaped board"), NOT in
+ *  `__tests__/rank.test.ts`, which has no upstash-shaped case: this
+ *  comparator only sees the rows `withModuleContributions` has already
+ *  stamped, so the upstash shape can only be built through that function.
+ *  Follow the pointer before changing the fallback. */
 function completedCount(entry: LeaderboardEntry): number {
   const mods = Object.values(entry.modules ?? {});
   const base = entry.modules?.["secure-development"] ? 0 : entry.patched;

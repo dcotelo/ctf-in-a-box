@@ -55,8 +55,14 @@ the sections below are the enforceable contract behind it.
    startup failure (`sync/test/config.test.js`, "rejects unknown module
    key"), not a silently ignored block. Note what `KNOWN_MODULES` means:
    the ids `sync` *tolerates* in the file, not the ids it scores — it scores
-   exactly one, the separate `MODULE` literal, and still fails if
-   `modules.secure-development` is absent. The two lists MUST stay in step,
+   exactly one, the separate `MODULE` literal. **An unknown key and a
+   missing module are not the same failure.** `sync` rejects the former
+   (any key outside `KNOWN_MODULES`, or `modules:` absent entirely) but
+   tolerates the latter: `if (!mod) return null;` when
+   `modules.secure-development` itself is simply not configured, which is
+   what lets a quiz-only event run `sync` to a clean exit instead of a
+   crash loop (see [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+   for why the line is drawn there). The two lists MUST stay in step,
    because both services mount the same file: an id the app accepts and
    `sync` rejects crash-loops the poller and silently freezes the
    leaderboard.
@@ -67,8 +73,11 @@ the sections below are the enforceable contract behind it.
    `config.js`). `setup/ctf-setup.sh`'s `yaml_targets` needs no change: it is
    scoped to the `secure-development:` block by construction and provisions
    that module's forks only, so a module with its own provisioning adds its
-   own step instead. Registration is deliberate, not dynamic; this is a v1
-   constraint, not a permanent architectural stance.
+   own step instead. The script does carry its own `KNOWN_MODULES` mirror,
+   though (`check_known_modules`/`has_module`), for the same missing-vs-unknown
+   distinction `sync` draws — see §7 below for what it gates. Registration is
+   deliberate, not dynamic; this is a v1 constraint, not a permanent
+   architectural stance.
 
    A module is enabled by **being present** under `modules:` and disabled by
    being omitted. There is no `enabled:` key — a module MUST NOT invent one.
@@ -223,7 +232,12 @@ module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count — with the
 per-module heading suppressed while only one module is enabled, so a
-single-module event's row reads exactly as it did before; the admin panel
+single-module event's row reads exactly as it did before; `/profile` renders
+the same per-module blocks for the signed-in contestant's own progress,
+built off the same `ModuleDetail` renderer as the leaderboard rather than a
+second one — the page's headline total was already net and correct before
+this, what it was missing was the per-module breakdown behind it; the admin
+panel
 (`admin-controls.tsx`) is a tab shell — one **Event** tab for the
 control-plane settings that belong to the platform itself, then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
@@ -246,7 +260,11 @@ landing page (`app/page.tsx`) is composed the same way: the platform frame
 card) stays code, and each enabled module's `home` block (item 5 above)
 supplies the page's tagline, hero paragraph, "what to expect" section, and
 optional CTA/extra section — so a quiz-only event's landing page never
-mentions forks or patches. The existing challenge
+mentions forks or patches. `/how-to-play` and `/rules` are composed the same
+way from each module's `guide` and `rules` blocks (item 6 below), so the
+step-by-step guide and the fair-play rules describe the game the event is
+actually running — as are `/faq`, `/terms` and the 404's route directory
+(item 7). The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
 predate this work and satisfy those items for `secure-development`; `quiz`
 satisfies the same items with its own semantics (item 3 below covers the
@@ -274,11 +292,6 @@ for a fully general n-module platform:
   the architecture doc). Per-module `score_ingest`/rubric plumbing was for a
   module that needs scorer-mediated scoring; `quiz` is proof one doesn't
   always need it, not evidence that plumbing is still missing.
-- **`sync` still requires `modules.secure-development` unconditionally**
-  (`sync/src/config.js`: `if (!mod) throw ...`), so a quiz-only event — no
-  `secure-development` block in `event.yaml` at all — is still not supported
-  end to end, even though the app itself would happily run quiz-only. This
-  was already true before this work and remains true after it.
 - **Quiz question authoring has no bulk import/export** — one question at a
   time through the admin form, no CSV/JSON upload path.
 - **No free-text questions, no partial credit, and no per-question
@@ -374,7 +387,14 @@ of one module's shape.
    loader validates (section 1). Nothing about a module absent from
    `modules:` may leak into nav, leaderboard, or challenge listings; an
    organizer who omits a module from their event config gets an app with no
-   trace of it, not a greyed-out or hidden-but-present surface.
+   trace of it, not a greyed-out or hidden-but-present surface. This reaches
+   the module's own dedicated route, not just its nav entry: a disabled
+   module's page MUST 404, not merely disappear from the header — worked
+   example, `/challenges` (`app/(site)/challenges/page.tsx`) calls
+   `notFound()` as its first statement when `secure-development` is
+   disabled, the same gate `/quiz` already ran for its own module.
+
+
 
 5. **Landing-page contribution (optional).** A module MAY contribute a
    `home` block to its registry entry (`ModuleHome` in
@@ -396,6 +416,116 @@ of one module's shape.
    block MUST NOT be passed to a Client Component for this reason — see
    `docs/decisions.md`'s ADR on why `ResolvedModule` omits `home` entirely
    and server code reaches it through a dedicated accessor instead.
+
+6. **Guide and rules contributions (optional).** The same split applies to
+   `/how-to-play` and `/rules`, which used to be secure-development's
+   workflow written out longhand — patch, fork, pull request — on every
+   event, whether or not that module was enabled.
+
+   A module MAY contribute a `guide` block (`ModuleGuide`): the page lede
+   and meta description, an optional "the loop" callout, an optional callout
+   above the steps, the numbered `steps`, an optional end-to-end `example`
+   (with code blocks and a bonus note), "good to know" `notes`, a `scoring`
+   paragraph and a `cta`. The platform frame (`app/(site)/how-to-play`) owns
+   the page header, the "Good to know" and "How scoring works" cards, the
+   links to the rules and leaderboard, and the organizer/Discord line, and
+   composes each enabled module's block in registry order — with a per-module
+   heading only when more than one module is guided, and each module's own
+   lede promoted to the page lede when it is the only one.
+
+   A module MAY also contribute a `rules` block (`ModuleRules`), bucketed by
+   the `/rules` section it belongs in: `teams`, `fairPlay`, `conduct`,
+   `scoring`. The platform keeps the section headings and the genuinely
+   event-wide rules (team size, code of conduct, prizes, organizer
+   decisions); a module owns every rule that names its own artifacts —
+   targets, pull requests, patches, hints, questions. "Fair play" is written
+   entirely by the modules — but the principles under it (don't collude,
+   don't attack the platform) hold on any event, so the platform renders two
+   generic fallback bullets if, and only if, no enabled module contributed
+   any: a module that ships without a `rules` block must not leave a CTF with
+   no anti-collusion rule at all. A section that ends up with no rules is not
+   rendered.
+
+   `guide.steps`/`guide.example` and `rules` itself are **functions** (of
+   `GuideContext`/`RulesContext` — the target count and list, the GitHub org,
+   the worked-example variant), so both fields carry the same server-only
+   contract as `home`: called server-side, never handed to a Client
+   Component, reached through `getModuleGuide`/`getModuleRules` and stripped
+   from `ResolvedModule`. Copy is authored as plain data, not JSX; where a
+   sentence needs inline markup it uses `Copy`/`CopySegment` (an emphasised
+   phrase, a bold lead-in, an external link), rendered by
+   `components/module-copy.tsx`. Nothing is written twice — a string lives in
+   `home` or in `guide`, never in both.
+
+7. **FAQ, terms and 404 contributions (optional).** The same split reaches
+   the last three contestant-facing pages that were written as though every
+   event ran `secure-development`.
+
+   A module MAY contribute an `faq` block (`ModuleFaq`), bucketed by where
+   its questions land in the platform's own running order:
+   `gettingStarted` (before "Can I compete solo?"), `prep` (after it) and
+   `playing` (the play loop). Buckets rather than one flat list because the
+   platform's own questions are not all at one end — the page reads wrong if
+   every module question is shunted to the top or the bottom. `/faq` matters
+   more than its traffic suggests: it is in the **header nav**, so a page
+   describing a game the event isn't running is linked from every page of
+   the site.
+
+   A module MAY contribute a `terms` block (`ModuleTerms`), bucketed by
+   `/terms` section: `eligibility`, `scope`, `submissions`, `scoring`. Every
+   participation term this kit has written names a module's own artifacts —
+   what you submit, where you may test, what a point is worth — so the
+   platform keeps only the two that hold on any event (prizes, organizer
+   decisions) plus a **fallback list per section**, rendered if and only if
+   no enabled module contributed to that section. The fallbacks are not
+   decoration: with none, an event whose modules ship no `terms` renders an
+   empty "Scope of authorized testing", and that section is the one that
+   tells contestants what they are permitted to attack. (Before this, the
+   scope statement was hardcoded secure-development copy and rendered as
+   *"your authorization to test covers the 0 challenge targets only: ,"* on
+   an event with no targets.)
+
+   A module MAY contribute a `routeCard`: the one line under its card in the
+   404's directory of routes. The card's label and href come from `nav`
+   (`titleOverride || nav.label`, per the naming rule above), so the 404
+   offers each enabled module's own route and never a route the event does
+   not have.
+
+   All three are **functions** (of `OrgContext`/`RulesContext`) and carry the
+   same server-only contract as `guide`/`rules`: called server-side, reached
+   through `getModuleFaq`/`getModuleTerms`/`getModuleRouteCard`, stripped
+   from `ResolvedModule`.
+
+   Two platform pages — `/privacy` and `/code-of-conduct` — are deliberately
+   **not** composed from the registry. They describe the platform's own code
+   and policies, not a module's game, so their module-specific claims (hint
+   purchases, quiz answers, the GitHub org the code of conduct reaches into)
+   are gated on `isModuleEnabled` instead. `/privacy` is an inventory of what
+   this codebase stores, and which stores are live is per-event: it must
+   neither promise a per-challenge breakdown an event has no notion of, nor
+   stay silent about the answers a quiz-only event does keep.
+
+8. **Pre-event gate.** The gate (`proxy.ts` + `/gate`) covers **every enabled
+   module's own page route** — the exact `nav.href` each module registers —
+   rather than the hardcoded `/challenges` it used to. `proxy.ts` derives the
+   gated set from the registry (`enabledModuleRoutes`), and `/gate` sends an
+   unlocked visitor to the first of them, falling back to `/`. Next requires
+   `config.matcher` to be a static literal, so it cannot be computed — it
+   lists every registry route by hand and `src/__tests__/proxy.test.ts`
+   asserts it covers `ALL_MODULE_ROUTES`, so a newly registered module cannot
+   end up silently un-gated. `proxy-quiz-only.test.ts` and
+   `proxy-disabled-module.test.ts` pin what it then *does* with them.
+
+   Know what this is and is not. It is **page-only and exact-match**: it
+   protects the module's page, not any deeper path under it, and **not the
+   module's API routes** — `POST /api/quiz/answer` is reachable with the lock
+   screen up, so a signed-in contestant can be scored before the event opens.
+   The gate is a "the board opens at the keynote" curtain, not an
+   authorization boundary; every API route enforces its own rules
+   (authentication, the pause/schedule window, attempt caps) independently
+   and must keep doing so. A module MUST NOT treat "the gate is up" as a
+   reason to skip a check in its own API. See `docs/operations.md`'s
+   "Known limitations" for the operator-facing note.
 
 ## 6. Security requirements (non-negotiable)
 
@@ -445,6 +575,24 @@ of one module's shape.
    app is a free point for every contestant and fails the build.
 
 ## 7. Provisioning & lifecycle hooks
+
+**A module that needs no forks and no scored transport is a first-class
+citizen, not a lesser one.** `quiz` is the worked example: it satisfies this
+section by having nothing to provision at all — no repo to fork, no
+workflow to install, no image to mirror, nothing to archive at teardown.
+That MUST be a legitimate, fully-supported shape for a module to have, not
+just a legitimate shape for a module to have *alongside* one that does need
+provisioning. Concretely, that means `ctf-setup.sh org`/`render`/`doctor`
+MUST tolerate `secure-development` being the *only* provisioning-needing
+module and simply absent — not merely tolerate it being present alongside
+`quiz` — and report "nothing to provision/check" rather than erroring
+(`has_module secure-development` gates each of the three; see the ADR
+referenced in §1.2). A module standing alone this way still owes the rest of
+the contract in full: display metadata (§5.1), a challenge catalogue if it
+has one (§4.2/§5.2), its own leaderboard progress semantics (§5.3), and the
+UI composition surfaces in §5.5/§5.6 — "first-class" means the platform
+never assumes a *different* module is also enabled, not that this module
+gets to skip sections that apply to it.
 
 `ctf-setup.sh` implements `secure-development`'s provisioning today
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):

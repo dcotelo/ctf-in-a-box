@@ -1,0 +1,6 @@
+# targets: webgoat
+github:
+  org: test-event-org
+modules:
+        secure-development:
+                targets: [webgoat]

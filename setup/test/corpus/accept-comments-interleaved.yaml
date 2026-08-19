@@ -1,0 +1,10 @@
+# targets: dvwa
+github:
+  org: test-event-org
+modules:          # the enabled modules
+  # secure-development is the fork-based module
+  secure-development:
+    # any subset of the six
+    targets: [dvwa]   # trailing comment
+
+  quiz: {}          # scored app-side

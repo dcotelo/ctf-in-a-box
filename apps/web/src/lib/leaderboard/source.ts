@@ -1,8 +1,10 @@
 import "server-only";
+import { isModuleEnabled } from "@/lib/modules";
 import type { LeaderboardData, UserProfile } from "./types";
 import { mockSource } from "./mock";
 import { lambdaSource } from "./lambda";
 import { upstashSource } from "./upstash";
+import { emptySource } from "./empty";
 
 export interface LeaderboardSource {
   getLeaderboard(): Promise<LeaderboardData>;
@@ -16,12 +18,21 @@ export interface LeaderboardSource {
  *                per-app solved/total, no per-challenge or point breakdown).
  *  - "upstash" — direct read of the CURRENT real Upstash schema (read-only
  *                token) — aggregates only, no teams, no per-app breakdown.
+ *
+ * An event with no scored module (`secure-development` disabled) ignores the
+ * variable entirely and resolves to the "empty" mode — see
+ * getLeaderboardSourceMode and ./empty.ts.
  */
 const VALID_MODES = ["mock", "lambda", "upstash"] as const;
 
-export type LeaderboardSourceMode = (typeof VALID_MODES)[number];
+/** The modes an organizer can actually configure. */
+type ConfiguredMode = (typeof VALID_MODES)[number];
 
-function isValidMode(value: string | undefined): value is LeaderboardSourceMode {
+/** …plus "empty", which is never configured: it is what an event with no
+ *  scored module resolves to regardless of what `LEADERBOARD_SOURCE` says. */
+export type LeaderboardSourceMode = ConfiguredMode | "empty";
+
+function isValidMode(value: string | undefined): value is ConfiguredMode {
   return (VALID_MODES as readonly string[]).includes(value ?? "");
 }
 
@@ -30,6 +41,16 @@ function isValidMode(value: string | undefined): value is LeaderboardSourceMode 
 const warnedValues = new Set<string>();
 
 export function getLeaderboardSourceMode(): LeaderboardSourceMode {
+  // Checked BEFORE the env var, and deliberately not overridable by it: with
+  // `secure-development` disabled there is no scorer, no lambda and no Upstash
+  // scoring data for this event, so every configured source is wrong rather
+  // than misconfigured — pointing at a backend that was never deployed is not
+  // a mistake the organizer can fix by editing a value. The board is built
+  // entirely by the module overlays on top of `emptySource` instead. This also
+  // keeps the "mock" mode (and with it /leaderboard's placeholder-data banner)
+  // off a board that carries real module points.
+  if (!isModuleEnabled("secure-development")) return "empty";
+
   const mode = process.env.LEADERBOARD_SOURCE;
   if (isValidMode(mode)) return mode;
   // A typo here fails toward placeholder data rather than toward an error, so
@@ -53,5 +74,7 @@ export function getLeaderboardSource(): LeaderboardSource {
       return upstashSource;
     case "mock":
       return mockSource;
+    case "empty":
+      return emptySource;
   }
 }

@@ -55,7 +55,7 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, `HINTS_ENABLED=true`, or `CHALLENGES_GATE_ENABLED=true` | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
 | `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
 | `HINTS_ENABLED` | No | `true` turns on paid hints on `/challenges` (needs the Upstash vars). Leave unset until the event so contestants can't buy hints early |
-| `CHALLENGES_GATE_ENABLED` | No | `true` locks `/challenges` behind the pre-event password gate — see [Pre-event challenges gate](#pre-event-challenges-gate) |
+| `CHALLENGES_GATE_ENABLED` | No | `true` locks every enabled module's page (`/challenges`, `/quiz`) behind the pre-event password gate — pages only, not the module APIs; see [Pre-event challenges gate](#pre-event-challenges-gate) |
 | `CHALLENGES_GATE_PASSWORD` | Only if `CHALLENGES_GATE_ENABLED=true` | The shared access password. Server-side only; the gate stays open if this is unset |
 
 > Env var changes only take effect on the **next build/restart** of the container — rebuild the image (see [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)) or restart the `app` service after adding or changing one.
@@ -165,9 +165,11 @@ The scorer's `leaderboard` ZSET is never decremented. Instead, displayed scores 
 
 ## Pre-event challenges gate
 
-Until the conference starts, `/challenges` can be locked behind a shared password: set `CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` (both, plus the always-required `BETTER_AUTH_SECRET`, which signs the unlock cookie). A half-configured gate (flag without password) stays open rather than locking everyone out. Only the challenge board is gated; the leaderboard, rules, and the rest of the site stay public, and the homepage keeps showing catalogue totals.
+Until the conference starts, each enabled module's own page — `/challenges`, `/quiz` — can be locked behind a shared password: set `CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` (both, plus the always-required `BETTER_AUTH_SECRET`, which signs the unlock cookie). A half-configured gate (flag without password) stays open rather than locking everyone out. Only those module pages are gated; the leaderboard, rules, and the rest of the site stay public, and the homepage keeps showing catalogue totals.
 
-How it works: the proxy (`src/proxy.ts`) redirects visitors without a valid signed cookie to `/gate`, which POSTs the password to `/api/gate`. Verification is entirely server-side (constant-time compare; the password never reaches the client bundle), and success sets an HMAC-signed, httpOnly cookie good for 30 days.
+How it works: the proxy (`src/proxy.ts`) redirects visitors without a valid signed cookie to `/gate`, which POSTs the password to `/api/gate`. Verification is entirely server-side (constant-time compare; the password never reaches the client bundle), and success sets an HMAC-signed, httpOnly cookie good for 30 days. The gated set is derived from the module registry (`enabledModuleRoutes`), so a module is gated by being enabled rather than by being remembered.
+
+**Scope, precisely:** page-only and exact-match. The module **API routes are not behind this gate** — a signed-in contestant can `POST /api/quiz/answer` with the lock screen up and be scored. Those routes enforce their own rules regardless (session, the admin pause and the scheduled scoring window, attempt caps), so the control that actually stops early scoring is the scoring window, not the password. See "Known limitations" in [docs/operations.md](../../docs/operations.md#known-limitations).
 
 Brute-force throttle: five attempts from one IP, then that IP is locked for 24 hours (`gate:attempts:<ip>` in Upstash Redis). Locked attempts are rejected before the password is even compared, so the right password won't unlock a locked IP either. If Upstash is unreachable the gate fails closed.
 

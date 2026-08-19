@@ -22,15 +22,26 @@ modules:
                                     # attempts, default 3; retry cooldown,
                                     # default 5 min); and quiz points added on
                                     # top of the combined leaderboard, deduped
-                                    # per team by question. `sync` still
-                                    # requires `secure-development` to be
-                                    # configured too — a quiz-only event isn't
-                                    # supported end to end yet. See
+                                    # per team by question. See
                                     # docs/operations.md's "Quiz" section and
                                     # docs/modules.md §5.
 # A module is enabled by APPEARING under modules:. There is no `enabled:` key —
 # omitting a module's block entirely is what disables it. A module's block
 # holds only its own settings (`quiz`'s has none yet, hence `{}`).
+#
+# `secure-development` is optional too — a single module is enough to run an
+# event. A quiz-only event drops the block above entirely and looks like this
+# (the `modules:` key itself must still be present — an event.yaml with no
+# `modules:` block at all is rejected by both readers):
+#
+#   modules:
+#     quiz: {}
+#
+# `sync` tolerates `secure-development` being absent (it exits cleanly with
+# nothing to poll) and `ctf-setup.sh org`/`render`/`doctor` skip fork
+# provisioning; `/challenges` 404s, and `/how-to-play`, `/rules`, the landing
+# page, and the leaderboard all compose from `quiz` alone. See
+# docs/hosting.md's "Configuration" section and docs/modules.md §7.
 # v1 placeholders — not read at build time: team play is always on with a
 # fixed 4-member cap, and hints (ON by default, 10 points each) are tuned at
 # runtime in /admin — enabled, cost, and the two gating knobs. Remove hints

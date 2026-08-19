@@ -204,6 +204,151 @@ EOF
   [[ "$output" != *"gh repo fork "*"WebGoat"* ]]
 }
 
+@test "org: quiz-only config provisions nothing and succeeds" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
+}
+
+@test "render: quiz-only config writes nothing and succeeds" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  [ ! -d dist ]
+}
+
+@test "doctor: quiz-only config reports no provisioned content" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" doctor --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qi 'no .*content'
+}
+
+@test "unknown module key in event.yaml fails loudly (bash mirrors sync/src/config.js)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics:
+    targets: [dvwa]
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'unknown module: forensics'
+}
+
+@test "quiz alongside secure-development is a known combination, not rejected" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+  quiz: {}
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'gh repo fork digininja/DVWA'
+}
+
+@test "org: event.yaml with no modules: block at all fails (mirrors sync's requirement)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
+}
+
+@test "doctor: event.yaml with no modules: block at all fails" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+EOF
+  run bash "$SCRIPT" doctor --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
+}
+
+@test "render: event.yaml with no modules: block at all fails" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+EOF
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
+}
+
+@test "org: a present modules: block that only lacks secure-development still succeeds" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'no provisioned content'
+}
+
+@test "teardown --dry-run still works with an unknown module key (no stranded organizer)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics:
+    targets: [dvwa]
+EOF
+  run bash "$SCRIPT" teardown --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  # teardown reads only the secure-development: block (yaml_targets is scoped
+  # to it), so an unrecognized module elsewhere is inert here — decisive part
+  # of this test is that it is NOT rejected by the module-key check at all.
+  [ -z "$(printf '%s' "$output" | grep -F 'unknown module')" ]
+}
+
+@test "app-manifest --dry-run still works with an unknown module key (no functional dependency on modules)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics: {}
+EOF
+  run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'organizations/test-event-org/settings/apps/new'
+}
+
+@test "oauth-app --dry-run still works with an unknown module key (no functional dependency on modules)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics: {}
+EOF
+  run bash "$SCRIPT" oauth-app --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'organizations/test-event-org/settings/applications/new'
+}
+
 @test "missing config file gives clean error" {
   run bash "$SCRIPT" org --dry-run --config nonexistent.yaml
   [ "$status" -ne 0 ]
@@ -480,6 +625,40 @@ YAML
   echo "$output" | grep -q "2/8  Secrets"
   echo "$output" | grep -q "3/8  Event config"
   echo "$output" | grep -q "8/8  Bring the containers up"
+}
+
+@test "wizard prints the compose profiles the configured modules actually need" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+YAML
+  # A quiz-only event has no scorer image to pull and nothing to poll, so the
+  # bring-up it prints must NOT ask for the score-ingest profiles — those
+  # carry secure-development's sync + scorer (docker-compose.yml, ADR 26).
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F -- '--profile poll')" ]
+  [ -z "$(echo "$output" | grep -F -- '--profile push')" ]
+  echo "$output" | grep -qF 'docker compose --profile app up -d --build'
+}
+
+@test "wizard prints the poll profiles for a secure-development event" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
 }
 
 @test "wizard --dry-run does not build or push the scorer image" {

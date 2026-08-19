@@ -663,28 +663,288 @@ organizer's title/blurb override) is handed to both server code and Client
 Components — the admin panel's tab shell, the leaderboard. Two fields on the
 underlying `ModuleDef` don't survive that trip safely: `displayName` and
 `description` are exactly the registry defaults that `title`/`blurb` exist to
-replace, and `home`'s `intro`/`steps` are **functions** — React's flight
-serializer throws "Functions cannot be passed directly to Client Components"
-the instant a function-valued prop crosses into one.
+replace, and the registry's copy blocks — `home`'s `intro`/`steps`,
+`guide`'s `steps`/`example`, and `rules` itself — are **functions** — React's
+flight serializer throws "Functions cannot be passed directly to Client
+Components" the instant a function-valued prop crosses into one.
 
 **Decision.** `ResolvedModule` (`src/lib/modules.ts`) is defined as
-`Omit<ModuleDef, "displayName" | "description" | "home"> & { title: string;
-blurb: string }` — both problem fields are dropped from the object as well as
-the type, not merely shadowed by their replacements. Server code that needs a
-module's landing-page content goes through a separate, server-only accessor,
-`getModuleHome(id)` (`src/lib/resolved-modules.ts`), which returns the raw
-`ModuleHome` — functions included — straight off the registry, never off a
+`Omit<ModuleDef, "displayName" | "description" | "home" | "guide" |
+"rules"> & { title: string; blurb: string }` — every problem field is dropped
+from the object as well as the type, not merely shadowed by its replacement.
+Server code that needs a module's page content goes through separate,
+server-only accessors — `getModuleHome(id)`, `getModuleGuide(id)` and
+`getModuleRules(id)` (`src/lib/resolved-modules.ts`) — which return the raw
+copy blocks, functions included, straight off the registry, never off a
 `ResolvedModule`; callers must be Server Components, calling `intro()`/
-`steps()` there and passing only the resulting strings downward.
+`steps()`/`example()` there and passing only the resulting plain data
+downward.
 
 **Consequences.** Reading `.displayName`/`.description` off a resolved
 module — silently rendering the registry default instead of the organizer's
 override — is a compile error, not a property access that quietly returns
 `undefined`. And no resolved module can ever carry a function value across
 the RSC boundary, so a future module defining `home` cannot accidentally 500
-`/admin` or `/leaderboard` by having its `ModuleHome` attached to the same
-object those pages already pass to Client Components. Both omissions are
+`/admin` or `/leaderboard` by having its copy blocks attached to the same
+object those pages already pass to Client Components. The omissions are
 guarded by tests (`modules-resolve.test.ts`), which assert a resolved module
-has no `displayName`/`description`/`home` key at all — including a
-compile-time assertion on the type itself — not just that today's consumers
-happen not to read them.
+has no `displayName`/`description`/`home`/`guide`/`rules` key at all, and
+scan it recursively for any function value — including a compile-time
+assertion on the type itself — not just that today's consumers happen not to
+read them.
+
+## 23. `/how-to-play` gets its own registry field, not a reuse of `home.steps`
+
+**Context.** Decision 20 composed the landing page from each module's `home`
+block. `/how-to-play` and `/rules` had the same defect and worse: ~29
+references to patching, forks and pull requests, with no module awareness at
+all, so a quiz-only event handed contestants a step-by-step guide to a game
+it was not running. The open question was where that page's copy should come
+from — reuse `ModuleHome.steps`, or give the guide its own registry field.
+
+**Decision.** Its own field, `guide` (`ModuleGuide`), plus a `rules` field
+for `/rules`. The two step lists are not the same copy at different lengths:
+`home.steps` is four short cards that *pitch* the event ("Patch it and open a
+PR. Fix the vulnerability in your fork…"), while the guide's five *instruct*
+a contestant through their first submission, and the guide additionally
+carries a loop callout, a callout above the steps, a seven-step worked
+example with code blocks, "good to know" caveats and a scoring paragraph that
+have no landing-page counterpart. Reusing `home.steps` would therefore have
+had to either change what the landing page says or change what the guide
+says. The constraint that *is* enforced is the one that matters: no string is
+written twice — a given sentence lives in `home` or in `guide`, never both,
+so there is exactly one place to edit it. Rejected: a single merged copy
+block for both pages (it would have to grow a "which page is this for?"
+discriminator on every field), and leaving the guide in the page behind
+`isModuleEnabled` gates (that keeps module copy in platform code, which is
+what decision 20 exists to stop).
+
+**Consequences.** A quiz-only event's `/how-to-play` and `/rules` describe
+the quiz, and a secure-development event's read exactly as they did before
+the split — verified by rendering both pages before and after the change and
+diffing the HTML byte for byte. The guarantee is held by suites that assert
+ABSENCE against a deliberately enumerated secure-development vocabulary
+(`app/(site)/__tests__/secure-dev-terms.ts`), narrowing a term rather than
+dropping it when it risks a false positive — the previous round's list
+checked "pull request", "fork" and "Browse targets" but not "patched", which
+was the one string that had actually leaked, and dropping "target" over
+`target="_blank"` left prose about targets sailing through until it came back
+as a bounded pattern. The list is self-verifying: a companion test renders
+the pages that ARE supposed to carry this vocabulary and fails if any term
+matches nothing, so a term cannot rot into decoration while the absence
+assertions keep passing. Copy stays plain data rather
+than JSX (`Copy`/`CopySegment` covers the emphasis and links a sentence needs
+inline), so the registry remains importable either side of the server
+boundary, and the new fields are stripped from `ResolvedModule` for the
+reason decision 22 gives.
+
+## 24. Tolerating a missing module vs rejecting an unknown one
+
+**Context.** Two independent readers parse the same `event.yaml` for module
+keys and share no code: `sync/src/config.js` (JS, the poller) and
+`setup/ctf-setup.sh` (bash, provisioning) — AGENTS.md's lockstep rule
+requires them to agree in behaviour anyway. Before this decision, `sync`'s
+`loadConfig` treated an absent `modules.secure-development` block exactly
+like an unknown module key: both threw, crash-looping the poller on a
+quiz-only `event.yaml` the app itself was happy to build and run. The two
+situations are not the same failure. A module this build knows about but
+that isn't configured for this event is a legitimate config choice — nothing
+for `sync` to poll. A module key this build has never heard of is a typo or
+a vertical that was never wired into this reader — the deliberate-
+registration model in [docs/modules.md §1.2](modules.md#1-module-identity--config-block)
+means a new vertical is always a code change, never config alone, so an
+unrecognized key can't mean "a module I haven't heard of, ignore it."
+
+**Decision.** Tolerate a missing `secure-development` block; keep rejecting
+an unknown key, in both readers, and keep an absent `modules:` block itself
+an error in both. In `sync/src/config.js`, `loadConfig` returns `null` when
+`modules.secure-development` is absent — `if (!mod) return null;` — while an
+unknown key or a missing `modules:` object still throws. `sync/src/index.js`'s
+`main()` treats `null` as "nothing to do": it logs `ctf-sync: no polled
+module enabled, nothing to do` and returns (exit 0) before touching
+`loadState`/`makeRedis`/the poll loop. `setup/ctf-setup.sh` mirrors the same
+split with its own `KNOWN_MODULES` list and `check_known_modules`/
+`has_module`/`yaml_has_modules_block` helpers: a present `modules:` block
+that simply lacks `secure-development` is fine (`cmd_org`/`cmd_render`/
+`cmd_doctor` each check `has_module secure-development` and skip their
+fork-based work with an informational message instead of erroring), while an
+absent `modules:` block or an unrecognized key is a hard error — the same
+two checks `sync/src/config.js`'s `loadConfig` makes.
+
+`check_known_modules` is called only by `org`, `render`, and `doctor` — the
+three commands that actually consume module keys — deliberately not by
+`teardown`, `app-manifest`, or `oauth-app`. `teardown` is the recovery path
+for an event whose config may now be wrong in some way; gating it on config
+validity would strand an organizer who typo'd a module name with already-
+forked repos they can no longer tear down through the tool. `app-manifest`/
+`oauth-app` open GitHub UI flows with no functional dependency on module keys
+at all.
+
+The compose `restart:` policy for `sync` changed from `unless-stopped` to
+`on-failure` alongside this, because `unless-stopped` restarts a container
+regardless of its exit code: a clean `exit 0` from the new "nothing to do"
+path would have been indistinguishable from a crash and looped forever.
+`on-failure` only restarts on a genuine nonzero exit.
+
+**Consequences.** A quiz-only `event.yaml` (`modules: { quiz: {} }`, no
+`secure-development` block at all) boots on `--profile app` alone (ADR 26)
+and runs `sync` to a single clean exit if `--profile poll` is passed anyway,
+and `ctf-setup.sh org`/`render`/`doctor`
+report "nothing to provision/check" instead of failing. An organizer who
+typos a module name, or omits `modules:` entirely, still gets a loud failure
+in both readers — and can still run `teardown` to recover already-forked
+repos regardless of what's currently wrong with `event.yaml`.
+`scripts/acceptance-quiz-only.sh` is the CI gate proving the `sync` half end
+to end, including that the restart-policy change holds (it samples
+`RestartCount` after the exit, not just the exit code once). The two readers
+still share no code — a third module key is still a by-hand addition to both
+`KNOWN_MODULES` lists, same as before this decision.
+
+**Agreement is now tested, not asserted.** "Two readers must behave the
+same" broke twice on its own: first when `sync` threw on a missing module,
+then when `ctf-setup.sh`'s hand-rolled reader — which only understood
+2-space block indentation — returned zero keys for the flow style
+(`modules: { quiz: {} }`) these very docs print, so `org`/`render`/`doctor`
+exited 0 having provisioned nothing while `sync` was perfectly happy. Two
+rules fell out of that. First, the bash reader FAILS CLOSED: it parses block
+style at any indent, flow style, quoted keys, comments and CRLF, and it
+*errors* on anything it cannot confidently parse rather than reporting "no
+modules" — a silently empty result is indistinguishable from a legitimately
+quiz-only event, which is what made the bug invisible. `has_module` aborts
+rather than answering "absent" on a parse failure, because every caller
+spells it `if ! has_module …; then <skip everything>`. Second,
+`setup/test/corpus/` is a shared corpus of `event.yaml` shapes (block at 2/4/8
+spaces, flow on one line and across several, quoted keys, tabs, a bare
+`modules:`, an absent one, unknown keys, merge keys, sequences where mappings
+belong, targets as flow *and* block sequences). Each fixture records its
+verdict in its filename; `setup/test/module_readers.bats` runs the corpus
+through the bash reader and `sync/test/module-readers.differential.test.js`
+runs the same files through `sync`'s, so agreeing with the corpus is agreeing
+with each other. The corpus immediately found one live divergence — `modules:
+[]` was accepted by `sync` (`typeof [] === "object"`) and rejected by bash —
+now closed with an `Array.isArray` guard. A second one turned up later, in
+the dangerous direction: YAML forbids repeated mapping keys, so both JS
+readers throw on `quiz: {}` twice over (or on a second top-level `modules:`
+block) while the bash reader took first-wins and provisioned whatever the
+first copy said — `ctf-setup.sh org` exiting 0 having forked nothing, with the
+failure surfacing at app build much later. The bash reader rejects both
+shapes now, with four fixtures pinning it. One asymmetry is left open
+deliberately: `modules: *alias` is rejected by bash (it resolves no anchors)
+and accepted by the JS readers. That points the safe way — the strict reader
+is the one that fails, loudly, at provisioning time.
+
+The third reader, `apps/web/scripts/generate-event-config.mjs`, is not in that
+corpus (it runs under the app's own vitest suite, at image-build time rather
+than boot time) and it is deliberately one notch stricter: a *present but
+empty* `modules: {}` fails its build ("at least one module is required")
+while `sync` and `ctf-setup.sh` treat it as a valid config with nothing
+enabled. That asymmetry is safe in the direction it points — the strict
+reader fails loudly at build time, it does not silently provision less — but
+it is the known gap to close if the corpus is ever extended to all three.
+
+## 25. Building a leaderboard with no scoring backend
+
+**Context.** `secure-development` disabled means there is no scorer, no
+lambda, and no Upstash scoring data for this event at all — every
+`LEADERBOARD_SOURCE` value names a backend that was never deployed. Before
+this decision, `getLeaderboardSource` still tried to honor that env var
+(falling back to the mock source on a bad value), and the board itself was
+built only from rows the source supplied — a contestant with quiz points but
+no scored submission had nothing to attach them to, because there was no
+"attach points to a row" step that could run before a row existed. A
+quiz-only event is exactly this case for every contestant, all the time: no
+row for anyone, ever, on the scored path.
+
+**Decision.** Two changes, working together. First,
+`getLeaderboardSourceMode` (`src/lib/leaderboard/source.ts`) checks
+`isModuleEnabled("secure-development")` *before* the env var and,
+deliberately not overridably by it, resolves straight to a new `"empty"`
+mode — `emptySource` (`src/lib/leaderboard/empty.ts`) returns no entries, no
+teams, and every capability `false`. This is deliberately not the mock
+source: placeholder data on a board that also carries real quiz points would
+be indistinguishable from a contestant's actual standing. Second,
+`withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
+now creates a row for any login that holds quiz points and has no entry from
+the source — the board's login set becomes the union of the source's logins
+and the logins holding module points, matched case-insensitively. A created
+row has every scorer-supplied field (`patched`/`failed`/`total`/`apps`)
+genuinely zero, because there is no scoring entry behind it to report. Team
+rows get the same treatment one step later: `withTeamStandings` synthesises
+membership-only rows (from live team records) when the source has no team
+concept, and now calls `withTeamQuizPoints` on them so a quiz-only event's
+default board — teams, whenever teams exist — doesn't open on every team
+tied at zero while the individual view shows real points.
+
+**Quiz points are ADDED, secure-development points are ATTRIBUTED, and that
+verb difference is preserved everywhere in this decision.** `entry.points`
+already holds `secure-development`'s score when that module is enabled (the
+scorer computed it), so attributing it into a `ModuleProgress` block reports
+an existing figure; adding it again would double-count. The quiz never
+submits through `scorer`'s `POST /score` — the app holds no writer token for
+that endpoint — so its points exist nowhere else, and must be added onto
+whatever total the row already has (`0` for a created row) rather than
+attributed from it. A created row therefore has nothing to double-count in
+the first place: its only points are the ones just added. Team quiz totals
+are deduped by *question*, not summed per member — `getTeamQuizTotalsBatch`
+reads every member's answer hash directly and unions the question ids, so a
+question three teammates all answered correctly still counts once, the same
+rule already used for shared secure-development flags.
+
+**Consequences.** A quiz-only event has a real, populated leaderboard from
+first launch: a contestant who has answered nothing has no row (same as
+today, on any event), and a contestant with quiz points has a row the moment
+they earn any, with no scored submission required. `LEADERBOARD_SOURCE` is
+inert while `secure-development` is disabled — pointing it at `lambda` or
+`upstash` on a quiz-only event does nothing, by design, because there is no
+backend there to point at. `scripts/acceptance-quiz-only.sh` proves the
+individual-row half of this against a real built app and a real Redis; the
+team half is covered at the unit level
+(`src/lib/leaderboard/__tests__/team-standings-quiz-only.test.ts`). The
+empty source's `getUser` also returns `null` unconditionally, which
+`/profile` already handles as "no scored profile" for any unscored login —
+so the page renders the module blocks it can build on its own rather than
+gaining a second code path for "no backend at all."
+
+## 26. Compose profiles follow the enabled modules
+
+**Context.** `docker-compose.yml` put `sync` behind `profiles: ["poll"]` but
+left `scorer` in the default (profile-less) set, and `app` carried
+`depends_on: [srh, scorer]`. Both of those quietly assume every event scores
+PRs. On a quiz-only event they are false, and expensively so: `docker compose
+--profile poll --profile app up -d` — the command docs/hosting.md called
+"safe to run as-is on a quiz-only event" — resolved to `redis srh scorer app
+caddy sync` and tried to pull `ghcr.io/owasp-ctf/score:latest`, the
+maintainers' PRIVATE image, which a quiz-only organizer has no access to and
+no reason to want. The documented boot command for the branch's headline
+feature could not be run.
+
+**Decision.** Profiles express MODULE membership. `app` (the contestant app)
+is always on. `poll` and `push` — the two `SCORE_INGEST` modes — carry
+everything `secure-development` needs, which is `sync` *and* the `scorer`; the
+scorer is as much a part of that module as the poller is, since it exists to
+judge PRs against forked targets. So `scorer` gains `profiles: ["poll",
+"push"]`, and `app` loses `scorer` from its `depends_on` (it reads the scorer
+lazily over HTTP per request, and `depends_on` never waited for readiness
+anyway — it only ever expressed start order, at the cost of dragging the
+scorer into every `up`).
+
+The alternative was a distinct `scored` profile. Rejected: it would have
+added a third flag to the primary, well-worn command in every doc, script and
+deploy module, and forgetting it fails SILENTLY at runtime (an app with no
+scorer behind it) rather than loudly at bring-up. Putting the scorer in the
+ingest profiles instead leaves the poll-mode command byte-identical — which is
+what almost every organizer runs — and confines the change to the new,
+documented quiz-only path.
+
+**Consequences.** `--profile poll --profile app` is unchanged (`redis srh
+scorer app caddy sync`); push mode now needs `--profile push` where the
+scorer used to arrive by default; a quiz-only event boots with `--profile app`
+alone. `ctf-setup.sh wizard` prints and runs the line-up that matches the
+`event.yaml` it just configured, so the organizer never picks by hand.
+`scripts/dev-stack` and `scripts/smoke.sh` name their services explicitly
+(and compose auto-enables a profile for an explicitly targeted service), so
+both are unaffected. `scripts/acceptance-quiz-only.sh` gained the structural
+assertion that catches this class of bug directly: the documented quiz-only
+line-up must contain no `scorer` and no `sync`, and the scored line-up must
+still contain both — a check the rest of that gate structurally could not
+make, since it builds the app by hand and brings `sync` up with `--no-deps`.

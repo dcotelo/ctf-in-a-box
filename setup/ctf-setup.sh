@@ -241,6 +241,7 @@ do_step() {
 # CI / the future admin wizard can gate on a clean provision.
 cmd_doctor() {
   require_config
+  check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
   local rc=0 t id cell name
@@ -250,6 +251,21 @@ cmd_doctor() {
   else
     printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
+
+  # No secure-development module: no forks, no scorer image, nothing in the
+  # per-target matrix below to check — an empty table (headers only) would
+  # read as a failure rather than the truth, which is that quiz-only events
+  # have no fork-based content at all. Report that plainly instead and stop.
+  if ! has_module secure-development; then
+    printf '%sℹ️  no secure-development module configured — no provisioned content to check (nothing forked, nothing to inspect here).%s\n' "$C_CYAN" "$C_RESET"
+    return 0
+  fi
+
+  # secure-development IS enabled: it must have targets. Without this, an
+  # unreadable targets list printed an empty (headers-only) table and exited
+  # 0 — doctor reporting "all fine" for a config sync rejects outright
+  # ("targets must be a non-empty list"). Same check cmd_org makes.
+  yaml_targets | grep -q . || { echo "event.yaml: no targets under modules.secure-development" >&2; exit 1; }
 
   # One row per target, one column per provisioning step (+ fork-detach). Each
   # cell: ✅ done · ❌ missing (automatable — fails the exit code) · ⚠️ manual
@@ -322,7 +338,14 @@ if [ "$CMD" != "__selftest" ]; then
   done
 fi
 
-# Verify config file exists (only for subcommands that need it)
+# Verify config file exists (only for subcommands that need it). Module-key
+# validation (check_known_modules) is deliberately NOT run here — it is
+# called explicitly by the module-consuming commands (org/render/doctor)
+# only. Gating every require_config caller on it would also block teardown
+# (the recovery path for a botched event.yaml — an organizer who typo'd a
+# module name must still be able to tear down already-forked repos) and the
+# UI-flow openers app-manifest/oauth-app, which have no functional
+# dependency on module keys at all.
 require_config() {
   [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
 }
@@ -373,11 +396,351 @@ yaml_url() {
   sed -n 's/^[[:space:]]*url:[[:space:]]*\([^#]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//'
 }
 
+# ---------------------------------------------------------------------------
+# event.yaml's `modules:` block — the only place this script parses structured
+# YAML, and a contract it shares with a second reader written in another
+# language (sync/src/config.js, plus the app's
+# apps/web/scripts/generate-event-config.mjs). The two must agree on
+# accept/reject for the same file: setup/test/module_readers.bats and
+# sync/test/module-readers.differential.test.js run a shared corpus of
+# event.yaml shapes through BOTH and assert they do.
+#
+# Everything below FAILS CLOSED. If it cannot confidently parse the block it
+# errors (exit 2) instead of reporting "no modules" — a silently empty result
+# is indistinguishable from a quiz-only event and makes org/render/doctor
+# no-op on a perfectly valid config, which is exactly the bug this parser
+# replaced (the old one hard-coded 2-space block style and returned zero keys
+# for flow style, 4-space indent, quoted keys, tabs, or a bare `modules:`).
+#
+# Understood — every one of these is real YAML the other readers accept:
+#   - block style at ANY indent, ending at the first line indented less than
+#     the module keys
+#   - flow style: `modules: { quiz: {}, secure-development: { targets: [dvwa] } }`,
+#     including a flow mapping spread over several lines
+#   - quoted keys, interleaved comments, blank lines, CRLF, a leading &anchor
+#   - targets as a flow sequence (`targets: [a, b]`) or a block sequence
+#     (`- a` lines)
+# Rejected LOUDLY, never silently: tab indentation, a bare `modules:` with
+# nothing under it, a scalar or sequence value for `modules:`, sequence items
+# or merge keys (`<<:`) where module keys belong, an unterminated flow
+# mapping, an alias (`modules: *base`) this parser cannot resolve, DUPLICATE
+# module keys and a duplicated top-level `modules:` block, and any other shape
+# it does not understand.
+#
+# The duplicates are there for the same reason as everything else on that
+# list: the YAML libraries behind the other two readers reject a repeated
+# mapping key outright ("Map keys must be unique"), so first-wins here meant
+# `ctf-setup.sh org` exiting 0 having provisioned whatever the first copy
+# said, with the same file blowing up much later at app build. Same shape as
+# the flow-style divergence this parser replaced, in miniature.
+#
+# want=keys    -> one module key per line
+# want=targets -> one target per line, scoped to modules.<mod> (a `targets:`
+#                 line anywhere else in the file is ignored)
+_yaml_modules() {
+  awk -v want="$1" -v mod="${2:-}" '
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    function unquote(s,   c) {
+      c = substr(s, 1, 1)
+      if ((c == "\"" || c == "\047") && length(s) >= 2 && substr(s, length(s), 1) == c)
+        return substr(s, 2, length(s) - 2)
+      return s
+    }
+    # Strip a trailing `# comment`, honouring quotes (a # inside "..." is data).
+    function strip_comment(s,   i, c, p, q, o) {
+      q = ""; o = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") { o = o c; if (c == q) q = ""; continue }
+        if (c == "\"" || c == "\047") { q = c; o = o c; continue }
+        if (c == "#") {
+          if (i == 1) return o
+          p = substr(s, i - 1, 1)
+          if (p == " " || p == "\t") return o
+        }
+        o = o c
+      }
+      return o
+    }
+    function fail(msg) { printf("event.yaml: %s\n", msg) > "/dev/stderr"; failed = 1; exit 2 }
+    # Duplicate module keys, tracked as a "\nkey\n..." string rather than an
+    # array so a partial flow scan can restore it by assignment (see
+    # flow_scan) without depending on `delete arr`.
+    function seen(key) { return index(seenbuf, "\n" key "\n") > 0 }
+    function see(key) { seenbuf = seenbuf key "\n" }
+    function emit(v) { out = out v "\n" }
+    function emit_list(inner,   n, a, i, t) {
+      n = split(inner, a, ",")
+      for (i = 1; i <= n; i++) { t = unquote(trim(a[i])); if (t != "") emit(t) }
+    }
+    # targets: [ ... ] out of a flow mapping value such as "{targets: [a, b]}"
+    function flow_targets(v,   s, i) {
+      if (!match(v, /(^|[{, \t])targets[ \t]*:[ \t]*\[/)) return
+      s = substr(v, RSTART + RLENGTH)
+      i = index(s, "]")
+      if (i == 0) fail("unterminated targets: [ ... ] under modules." mod)
+      emit_list(substr(s, 1, i - 1))
+    }
+    function pair(k, v) {
+      if (want == "keys") { emit(k); return }
+      if (k == mod) flow_targets(v)
+    }
+    # Quote-aware scan of a flow mapping. Returns 1 when the mapping closed
+    # (keys/targets emitted), -1 when it needs more lines. Errors are fatal.
+    function flow_scan(s,   i, c, q, depth, tok, st, key, saved, saved_seen) {
+      saved = out                        # a partial scan must emit nothing
+      # ...and must remember no keys either: a multi-line flow mapping is
+      # re-scanned from the start on every added line, so keys carried over
+      # from the previous pass would read as duplicates of themselves.
+      saved_seen = seenbuf
+      q = ""; depth = 0; tok = ""; st = "key"; key = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") { tok = tok c; if (c == q) q = ""; continue }
+        if (c == "\"" || c == "\047") { q = c; tok = tok c; continue }
+        if (c == "{" || c == "[") { depth++; if (depth == 1) tok = ""; else tok = tok c; continue }
+        if (c == "}" || c == "]") {
+          depth--
+          if (depth == 0) {
+            if (st == "key" && trim(tok) != "") fail("modules: is not a mapping of module keys near: " trim(tok))
+            if (st == "val") pair(key, tok)
+            if (trim(substr(s, i + 1)) != "") fail("unexpected text after the modules: mapping: " trim(substr(s, i + 1)))
+            return 1
+          }
+          tok = tok c
+          continue
+        }
+        if (depth == 1 && c == ":" && st == "key") {
+          key = unquote(trim(tok))
+          if (key == "") fail("modules: has an entry with an empty key")
+          if (seen(key)) fail("modules: has a duplicate key: " key)
+          see(key)
+          tok = ""; st = "val"; continue
+        }
+        if (depth == 1 && c == ",") {
+          if (st == "key") {
+            if (trim(tok) != "") fail("modules: entry is not a key: value pair near: " trim(tok))
+            continue
+          }
+          pair(key, tok); tok = ""; st = "key"; continue
+        }
+        tok = tok c
+      }
+      out = saved
+      seenbuf = saved_seen
+      return -1
+    }
+    # Position of the colon that ends a (possibly quoted) mapping key, or 0.
+    function key_colon(s,   i, c, q) {
+      q = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") { if (c == q) q = ""; continue }
+        if (c == "\"" || c == "\047") { q = c; continue }
+        if (c == ":") return i
+      }
+      return 0
+    }
+    # targets out of the collected block-style subtree of modules.<mod>.
+    function block_targets(   n, a, i, j, k, ind, cb, body, rest, acc, item) {
+      n = split(modbuf, a, "\n")
+      cb = -1
+      for (i = 1; i <= n; i++) {
+        if (a[i] ~ /^[ \t]*$/ || a[i] ~ /^[ \t]*#/) continue
+        match(a[i], /^[ \t]*/); ind = RLENGTH
+        if (cb < 0) cb = ind
+        if (ind != cb) continue
+        body = trim(strip_comment(substr(a[i], cb + 1)))
+        j = key_colon(body)
+        if (j == 0) continue
+        if (unquote(trim(substr(body, 1, j - 1))) != "targets") continue
+        rest = trim(substr(body, j + 1))
+        if (rest == "") {
+          # block sequence: `- item` lines at or below the targets: key
+          for (k = i + 1; k <= n; k++) {
+            if (a[k] ~ /^[ \t]*$/ || a[k] ~ /^[ \t]*#/) continue
+            match(a[k], /^[ \t]*/); if (RLENGTH < cb) break
+            item = trim(strip_comment(substr(a[k], RLENGTH + 1)))
+            if (substr(item, 1, 1) != "-") break
+            item = unquote(trim(substr(item, 2)))
+            if (item != "") emit(item)
+          }
+          return
+        }
+        if (substr(rest, 1, 1) != "[") return   # a scalar: not a list, emit nothing
+        acc = rest
+        for (k = i + 1; index(acc, "]") == 0 && k <= n; k++) acc = acc " " trim(strip_comment(a[k]))
+        if (index(acc, "]") == 0) fail("unterminated targets: [ ... ] under modules." mod)
+        emit_list(substr(acc, 2, index(acc, "]") - 2))
+        return
+      }
+    }
+
+    BEGIN { state = "pre"; base = -1; out = ""; modbuf = ""; inmod = 0; found = 0; seenbuf = "\n" }
+
+    {
+      line = $0
+      sub(/\r$/, "", line)
+
+      # A SECOND top-level `modules:` key. YAML calls that a duplicate mapping
+      # key and the other two readers throw on it; reading it as "the block
+      # ended" (which is what an indent-0 line means in state block, and what
+      # state done ignores outright) would provision the first copy and drop
+      # the second in silence. Not checked in state flow: there, an indent-0
+      # line is either inside an unterminated flow mapping — already fatal at
+      # END — or a nested key of it.
+      if ((state == "block" || state == "done") && line ~ /^modules[ \t]*:/)
+        fail("more than one top-level modules: key (line " NR ")")
+
+      if (state == "done") next
+
+      if (state == "pre") {
+        if (line !~ /^modules[ \t]*:/) next
+        found = 1
+        rest = trim(strip_comment(substr(line, index(line, ":") + 1)))
+        sub(/^&[^ \t]+[ \t]*/, "", rest)          # `modules: &anchor {...}`
+        if (rest == "") { state = "block"; next }
+        if (substr(rest, 1, 1) != "{")
+          fail("modules: must be a mapping of module keys, got: " rest)
+        state = "flow"; flowbuf = rest
+        if (flow_scan(flowbuf) == 1) state = "done"
+        next
+      }
+
+      if (state == "flow") {
+        flowbuf = flowbuf " " trim(strip_comment(line))
+        if (flow_scan(flowbuf) == 1) state = "done"
+        next
+      }
+
+      # block style
+      if (line ~ /^[ \t]*$/ || line ~ /^[ \t]*#/) next
+      match(line, /^[ \t]*/); ind = RLENGTH
+      if (substr(line, 1, ind) ~ /\t/)
+        fail("tab indentation under modules: is not valid YAML (line " NR ")")
+      if (base < 0) {
+        if (ind == 0) fail("modules: has no module keys under it — declare at least one module")
+        base = ind
+      }
+      if (ind < base) { state = "done"; next }
+      if (ind > base) { if (want == "targets" && inmod) modbuf = modbuf line "\n"; next }
+
+      inmod = 0
+      body = trim(strip_comment(substr(line, base + 1)))
+      if (body == "") next
+      if (substr(body, 1, 1) == "-")
+        fail("modules: must be a mapping of module keys, found a sequence item (line " NR ")")
+      if (body ~ /^<</)
+        fail("merge keys (<<) under modules: are not supported (line " NR ")")
+      if (substr(body, 1, 1) == "?")
+        fail("complex keys (?) under modules: are not supported (line " NR ")")
+      ci = key_colon(body)
+      if (ci == 0)
+        fail("modules: entry is not a `key:` mapping (line " NR "): " body)
+      key = unquote(trim(substr(body, 1, ci - 1)))
+      if (key == "") fail("modules: has an entry with an empty key (line " NR ")")
+      if (seen(key)) fail("modules: has a duplicate key: " key " (line " NR ")")
+      see(key)
+      val = trim(substr(body, ci + 1))
+      sub(/^&[^ \t]+[ \t]*/, "", val)
+      if (want == "keys") { emit(key); next }
+      if (key != mod) next
+      inmod = 1
+      if (val != "") { inmod = 0; if (substr(val, 1, 1) == "{") flow_targets(val) }
+      next
+    }
+
+    END {
+      if (failed) exit 2
+      if (!found) { printf("event.yaml: no modules: block\n") > "/dev/stderr"; exit 3 }
+      if (state == "flow") fail("unterminated flow mapping after modules:")
+      if (state == "block" && base < 0)
+        fail("modules: has no module keys under it — declare at least one module")
+      if (want == "targets" && modbuf != "") block_targets()
+      printf "%s", out
+    }
+  ' "$CONFIG"
+}
+
+# The targets of modules.secure-development, one per line. Empty output means
+# "no targets configured" — every caller treats that as an error when the
+# module IS enabled (mirroring sync's "targets must be a non-empty list").
 yaml_targets() {
-  # Extract targets from modules.secure-development block only (awk range from
-  # secure-development: to next line at equal-or-lower indent), then parse flow-style list.
-  awk '/^[[:space:]]*secure-development:/{flag=1; next} flag && /^[[:space:]]{0,2}[^[:space:]]/{flag=0} flag' "$CONFIG" | \
-    sed -n 's/^[[:space:]]*targets:[[:space:]]*\[\(.*\)\].*/\1/p' | head -1 | tr -d ' ' | tr ',' '\n'
+  _yaml_modules targets secure-development
+}
+
+# The module keys this build KNOWS how to provision-check for. Mirrors
+# sync/src/config.js's KNOWN_MODULES — the two readers parse the same
+# event.yaml in different languages with no shared code, and AGENTS.md's
+# lockstep-readers rule requires they still agree in BEHAVIOUR: a MISSING
+# secure-development block is tolerated (every caller below skips its
+# fork-based provisioning), an UNKNOWN key is still a hard error. Only
+# secure-development has anything here to fork/render/check; quiz is scored
+# entirely app-side.
+KNOWN_MODULES="secure-development quiz"
+
+# Top-level keys directly under `modules:`, one per line. Exit status is part
+# of the contract: nonzero means "could not parse", NOT "no modules" — every
+# caller must treat a failure as fatal (see has_module / check_known_modules).
+yaml_module_keys() {
+  _yaml_modules keys
+}
+
+# Is module $1 declared under modules: at all? A module is enabled by
+# PRESENCE and disabled by omission (docs/modules.md §1) — there is no
+# `enabled:` key to check instead.
+#
+# FAILS CLOSED: a boolean cannot express "I could not read the file", and
+# every caller spells this `if ! has_module secure-development; then <skip
+# all provisioning>` — so returning "absent" on a parse error would turn a
+# malformed (or merely unsupported) event.yaml into a silent, successful
+# no-op. On a parse error this aborts the whole script instead. Callers
+# already run check_known_modules first, so this is the second line of
+# defence, not the only one.
+has_module() {
+  local keys
+  if ! keys="$(yaml_module_keys)"; then
+    echo "event.yaml: cannot read the modules: block — refusing to guess what is enabled" >&2
+    exit 1
+  fi
+  printf '%s\n' "$keys" | grep -qx "$1"
+}
+
+# Does event.yaml declare a top-level `modules:` key at all? A config with NO
+# modules: block has nothing enabled, ever — that's malformed config, not a
+# "nothing to provision" state. Mirrors sync/src/config.js:49
+# (`if (!modules || typeof modules !== "object") throw ...`): a config
+# missing `modules` entirely is rejected there too, distinct from a present
+# `modules:` block that merely lacks `secure-development` (which IS
+# tolerated — see has_module above / the callers that use it).
+yaml_has_modules_block() {
+  grep -qE '^modules[[:space:]]*:' "$CONFIG"
+}
+
+# Fail loudly on a malformed modules: section: either no modules: block at
+# all, or a module key event.yaml declares that this build doesn't
+# recognize. A PRESENT modules: block that simply lacks secure-development is
+# fine (callers below tolerate that via has_module); an ABSENT modules: block
+# or an unrecognized key never is — same two checks as sync/src/config.js's
+# loadConfig, so an organizer's typo (or an empty event.yaml) doesn't
+# silently no-op in one reader while crash-looping the other.
+check_known_modules() {
+  yaml_has_modules_block || { echo "event.yaml: modules.secure-development is required" >&2; return 1; }
+  # Command substitution, not a process substitution feeding `while` — a
+  # pipeline/redirect swallows the parser's exit status, and "could not parse"
+  # must never be read as "no modules declared" (that is precisely how a flow-
+  # style config used to provision nothing while reporting success).
+  local keys k
+  keys="$(yaml_module_keys)" || return 1
+  while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    case " $KNOWN_MODULES " in
+      *" $k "*) ;;
+      *) echo "event.yaml: unknown module: $k (known modules: $KNOWN_MODULES)" >&2; return 1 ;;
+    esac
+  done <<EOF
+$keys
+EOF
 }
 
 run() {
@@ -492,8 +855,19 @@ cmd_secrets() {
 
 cmd_org() {
   require_config
+  check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+
+  # No secure-development module: there is nothing fork-based to provision
+  # (quiz is scored entirely app-side). This is not an error — a module is
+  # enabled by presence and disabled by omission — so report it and stop
+  # before even resolving SCORE_IMAGE (the quiz-only path needs no scorer
+  # image, and --dry-run must make zero gh/docker calls either way).
+  if ! has_module secure-development; then
+    echo "== event.yaml has no secure-development module — no provisioned content to fork; nothing to do."
+    return 0
+  fi
 
   # Scorer source image: SCORE_IMAGE env var, else .env. Deliberately NO
   # upstream default — the kit assumes zero upstream access: build your own
@@ -534,8 +908,17 @@ EOF
 # event.yaml edit without re-running forks or the image mirror.
 cmd_render() {
   require_config
+  check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+
+  # No secure-development module: nothing fork-based to render a scoring
+  # workflow for. Not an error — same reasoning as cmd_org.
+  if ! has_module secure-development; then
+    echo "== event.yaml has no secure-development module — no provisioned content to render; nothing to do."
+    return 0
+  fi
+
   local targets_arr=()
   while IFS= read -r t; do
     [ -n "$t" ] || continue
@@ -982,13 +1365,29 @@ EOF
   echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
 
   # 8. Bring the containers up.
+  #
+  # Compose profiles follow the ENABLED MODULES: `app` always, plus the
+  # score-ingest profile (poll or push — both carry the scorer, which belongs
+  # to secure-development just as `sync` does) only when that module is
+  # configured. A quiz-only event needs neither: it has nothing to poll and no
+  # scorer image to pull, and asking for one would fail the bring-up outright.
+  # A missing config (only possible under --dry-run here) assumes the full
+  # poll stack, the historical default.
   wiz_step "8/8  Bring the containers up"
+  local profiles=(--profile app)
+  if [ ! -f "$CONFIG" ] || has_module secure-development; then
+    if [ "$(env_val SCORE_INGEST)" = "push" ]; then
+      profiles=(--profile push "${profiles[@]}")
+    else
+      profiles=(--profile poll "${profiles[@]}")
+    fi
+  fi
   cat <<EOF
   EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
-    docker compose --profile poll --profile app up -d --build app
+    docker compose ${profiles[*]} up -d --build
 EOF
   if ask_yn "  Bring the containers up now?" Y; then
-    EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose --profile poll --profile app up -d --build app
+    EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose "${profiles[@]}" up -d --build
   fi
 
   echo

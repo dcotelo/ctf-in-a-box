@@ -32,21 +32,43 @@ import type { ModuleId } from "@/lib/modules";
  * — all of them in ONE pipeline for the whole board — and dedupes per team;
  * see its doc comment in quiz-store.ts.
  *
- * A contestant with quiz points but no scored submission yet has no row to
- * attribute: this maps over `data.entries` and never invents one, and both
- * real sources only carry logins with at least one scored PR. Their points
- * are real and visible on `/profile`; they join the board with their first
- * scored submission. Documented in docs/operations.md's Quiz section.
+ * The board's login set is the UNION of the source's logins and the logins
+ * holding module points, so a contestant with quiz points but no scored
+ * submission — every contestant on a quiz-only event, where the source is
+ * `emptySource` and carries no rows at all — gets a row CREATED for them here
+ * rather than being invisible until their first scored PR. The union is taken
+ * case-insensitively (the scorer records the PR author's login, the quiz the
+ * session's; a case disagreement must not split one contestant into two rows),
+ * and a created row is the only kind with no scoring entry behind it — so
+ * there is nothing on it to double count, and every scorer-supplied field
+ * (`patched`/`failed`/`total`/`apps`) stays zero-valued on it.
  *
- * Team quiz points are only added when `data.capabilities.teams` is already
- * true, i.e. the source (mock/lambda) already provides deduped team rows with
- * real per-flag points — the same gate `secureDev` uses for
- * `capabilities.apps`. On the upstash path `capabilities.teams` is false here
- * (team membership hasn't been overlaid yet — `withTeamStandings` runs
- * AFTER this in the real pipeline and replaces `data.teams` wholesale with
- * membership-only, zero-point rows), so there is nothing yet to attach a
- * quiz total to; team quiz points on that path arrive whenever
- * `withTeamStandings` itself grows real per-flag dedup.
+ * Rows are only ever created from totals actually read: a failed `getQuizTotals`
+ * degrades to the quiz-less board, never to invented or zero-point rows.
+ *
+ * Hint penalties are applied by `withHintPenalties`, which runs BEFORE this and
+ * so only ever sees the source's rows — a created row is never passed through
+ * it. This has NO NUMERIC EFFECT and is not a gap: the penalty is subtracted
+ * from SCORER points and floored at 0 (`Math.max(0, points - penalty)`), and a
+ * created row has 0 scorer points, so the deduction would be
+ * `max(0, 0 - penalty) === 0` either way — quiz points are ADDED after it in
+ * both paths, so the same login lands on the same total whether or not it has
+ * a scored row. The only difference is cosmetic: a created row shows no
+ * "−N hints" transparency chip. It is also all but unreachable, since
+ * `hintGate` requires solves that would have put the login on the scored
+ * source in the first place (unless an organizer sets `hintsMinSolves: 0`).
+ * The pipeline order is load-bearing and stays as it is.
+ *
+ * Team quiz points are added HERE only when `data.capabilities.teams` is
+ * already true, i.e. the source (mock/lambda) already provides deduped team
+ * rows with real per-flag points — the same gate `secureDev` uses for
+ * `capabilities.apps`. On the upstash and empty paths `capabilities.teams` is
+ * false at this point (team membership hasn't been overlaid yet), so there is
+ * nothing here to attach a quiz total to: `withTeamStandings` runs AFTER this
+ * and SYNTHESISES the team rows from membership, then calls
+ * `withTeamQuizPoints` below on the rows it just created. Same fold, same
+ * dedupe, applied where the rows actually exist rather than by moving a
+ * pipeline stage.
  */
 export async function withModuleContributions(data: LeaderboardData): Promise<LeaderboardData> {
   const secureDev = isModuleEnabled("secure-development") && data.capabilities.apps;
@@ -79,20 +101,83 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
     }
   }
 
-  const entries = rankByStanding(
-    data.entries.map((entry) => attributeEntry(entry, secureDev, quizTotals, quizTotalQuestions)),
-  );
+  // Logins are matched case-insensitively throughout (see the doc comment).
+  // Two keys in `quizTotals` colliding on case cannot happen — a login is
+  // unique case-insensitively on GitHub and every writer stores the one the
+  // session reports — but the fold below is what makes the lookup and the
+  // union agree on a single rule either way.
+  const quizByLogin = new Map<string, QuizTotal>();
+  for (const [login, total] of quizTotals) quizByLogin.set(login.toLowerCase(), total);
+
+  const entries = rankByStanding([
+    ...data.entries.map((entry) => attributeEntry(entry, secureDev, quizByLogin, quizTotalQuestions)),
+    ...createdEntries(data.entries, quizTotals, quizTotalQuestions),
+  ]);
 
   let teams = data.teams;
   if (quizEnabled && data.capabilities.teams && data.teams.length > 0) {
     try {
-      teams = await attributeTeams(data.teams, quizTotalQuestions);
+      teams = attributeTeams(data.teams, await teamQuizTotals(data.teams), quizTotalQuestions);
     } catch (err) {
       console.error("quiz team totals unavailable for leaderboard:", err);
     }
   }
 
   return { ...data, entries, teams };
+}
+
+/**
+ * The team half of this overlay, for team rows that did NOT exist when
+ * `withModuleContributions` ran: the membership-only rows `withTeamStandings`
+ * synthesises on a source with no team concept of its own (upstash, and the
+ * empty source a quiz-only event uses). Those rows arrive with `points: 0`
+ * because there is no per-flag data to dedupe secure-development points from
+ * — but their quiz points ARE dedupable, and leaving them at zero put every
+ * team on a quiz-only event's DEFAULT board (teams, whenever teams exist) on
+ * an all-zero scoreboard while the individual view showed real points.
+ *
+ * Lives here, and is CALLED by `withTeamStandings`, so that all quiz
+ * attribution keeps one owner and one dedupe rule — the union-by-question fold
+ * in `getTeamQuizTotalsBatch`, never a sum of member aggregates. Calling it
+ * from there rather than moving a pipeline stage is deliberate: the
+ * `withHintPenalties → withModuleContributions → withTeamStandings` order is
+ * load-bearing (see the page's pipeline comment), and these rows simply do not
+ * exist until the last of those runs.
+ *
+ * Degrades like every other overlay: a failed totals read returns the teams
+ * untouched (their quiz points are missing, never wrong), and a failed
+ * question list costs only the "answered / total" denominator — the same split
+ * that `withModuleContributions` keeps for individuals, and for the same
+ * reason.
+ */
+export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
+  if (!isModuleEnabled("quiz") || teams.length === 0) return teams;
+
+  // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
+  // totals carry POINTS (and with them the team board's order), the question
+  // list only the DENOMINATOR.
+  const [totalsResult, questionsResult] = await Promise.allSettled([teamQuizTotals(teams), listQuestions()]);
+
+  if (totalsResult.status !== "fulfilled") {
+    console.error("quiz team totals unavailable for leaderboard:", totalsResult.reason);
+    return teams;
+  }
+  if (questionsResult.status !== "fulfilled") {
+    console.error("quiz question list unavailable for leaderboard denominator:", questionsResult.reason);
+  }
+
+  return attributeTeams(
+    teams,
+    totalsResult.value,
+    questionsResult.status === "fulfilled" ? questionsResult.value.length : 0,
+  );
+}
+
+/** ONE pipeline for the whole board, never one call per team — see
+ *  `getTeamQuizTotalsBatch`'s doc comment (a per-team form billed a 25-team
+ *  event 25 Upstash round trips on every render of a `no-store` page). */
+function teamQuizTotals(teams: readonly TeamStanding[]): Promise<QuizTotal[]> {
+  return getTeamQuizTotalsBatch(teams.map((team) => team.members));
 }
 
 function secureDevelopmentModule(
@@ -127,6 +212,56 @@ function quizModule(total: QuizTotal, totalQuestions: number): ModuleProgress {
   };
 }
 
+/** The rows the board is MISSING: one per login that holds quiz points and has
+ *  no entry from the scoring source. Scored rows come first in the ranked list,
+ *  so a created row never displaces one it is fully tied with.
+ *
+ *  `quizTotals` is iterated in its original casing (that spelling is all a
+ *  created row has to display), while membership is decided on the lowercased
+ *  form — a login already on the board keeps its scored row, which
+ *  `attributeEntry` has already added the same quiz points to. Empty whenever
+ *  the quiz module is off or its totals read failed: both leave `quizTotals`
+ *  empty, so this creates nothing without inspecting either condition again. */
+function createdEntries(
+  scored: readonly LeaderboardEntry[],
+  quizTotals: Map<string, QuizTotal>,
+  quizTotalQuestions: number,
+): LeaderboardEntry[] {
+  const seen = new Set(scored.map((entry) => entry.login.toLowerCase()));
+  const created: LeaderboardEntry[] = [];
+
+  for (const [login, total] of quizTotals) {
+    const key = login.toLowerCase();
+    // `answered > 0` is the same gate `attributeEntry` uses to stamp a quiz
+    // block: a login with no correct answer has no module progress to show and
+    // must not become a row.
+    if (seen.has(key) || total.answered <= 0) continue;
+    seen.add(key);
+    created.push({
+      rank: 0, // stamped by rankByStanding below
+      login,
+      // Membership is withTeamStandings' to overlay, one step later.
+      team: null,
+      points: total.points,
+      // Everything the scorer would have supplied. There is no scoring entry
+      // behind this row, so these are genuinely zero rather than unknown.
+      patched: 0,
+      failed: 0,
+      total: 0,
+      apps: {},
+      // The module's own activity time is the only honest value for both
+      // (`getQuizTotals` has none to give today, so it is null in practice).
+      updatedAt: total.lastAt,
+      lastSolveAt: total.lastAt,
+      modules: { quiz: quizModule(total, quizTotalQuestions) },
+    });
+  }
+
+  return created;
+}
+
+/** `quizTotals` here is keyed by LOWERCASED login — see the fold in
+ *  `withModuleContributions`. */
 function attributeEntry(
   entry: LeaderboardEntry,
   secureDev: boolean,
@@ -145,7 +280,7 @@ function attributeEntry(
     );
   }
 
-  const quizTotal = quizTotals.get(entry.login);
+  const quizTotal = quizTotals.get(entry.login.toLowerCase());
   if (quizTotal && quizTotal.answered > 0) {
     modules["quiz"] = quizModule(quizTotal, quizTotalQuestions);
     points += quizTotal.points;
@@ -154,19 +289,18 @@ function attributeEntry(
   return { ...entry, points, modules };
 }
 
-/** Adds each team's deduped quiz total to its points and stamps a `quiz`
- *  module block, then re-ranks the teams on the new totals — mirroring
- *  `withHintPenalties`'s team sort (points descending, original position
- *  breaking ties) since this is the last step to touch team points before
- *  `withTeamStandings`'s no-op pass-through on this path. */
-async function attributeTeams(teams: TeamStanding[], quizTotalQuestions: number): Promise<TeamStanding[]> {
-  // ONE pipeline for the whole board, not one per team: `/leaderboard` is
-  // dynamic and fetched `no-store`, so the per-team form billed a 25-team
-  // event 25 Upstash REST round trips on every page view. The dedupe rule is
-  // unchanged — `getTeamQuizTotalsBatch` runs the same union-by-question fold
-  // per team, it just fetches every member's answers in one go.
-  const totals = await getTeamQuizTotalsBatch(teams.map((team) => team.members));
-
+/** Adds each team's already-deduped quiz total (`totals[i]` belongs to
+ *  `teams[i]`) to its points and stamps a `quiz` module block, then re-ranks
+ *  the teams on the new totals — mirroring `withHintPenalties`'s team sort
+ *  (points descending, original position breaking ties). Shared verbatim by
+ *  both callers, so a source-provided team row and a synthesised one are
+ *  attributed by exactly the same rule; it is the last step to touch team
+ *  points either way. */
+function attributeTeams(
+  teams: TeamStanding[],
+  totals: readonly QuizTotal[],
+  quizTotalQuestions: number,
+): TeamStanding[] {
   return teams
     .map((team, i) => {
       const total = totals[i];

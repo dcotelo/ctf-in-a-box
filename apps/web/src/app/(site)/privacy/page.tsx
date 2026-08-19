@@ -12,15 +12,28 @@
 //   src/lib/stats-store.ts ........... aggregate country counters
 //   src/lib/hint-store.ts ............ hint purchases
 //   src/lib/team-store.ts ............ team membership
+//   src/lib/quiz-store.ts ............ quiz answers and points
 //
 // Tone note: this page reads as reassuring because the underlying design
 // genuinely is careful — not the other way round. Don't add warmth here that
 // the code doesn't earn.
+//
+// The page is PLATFORM copy — it describes this codebase, not a module's game
+// — but which stores are live is per-event: hint purchases exist only where
+// secure-development runs, quiz answers only where the quiz does. So the
+// module-specific claims are gated on the modules being enabled rather than
+// contributed from the registry. That keeps this an honest inventory of what
+// is actually stored: a quiz-only event neither promises a per-challenge
+// breakdown it doesn't have, nor stays silent about the answers it does keep.
 
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
+import { isModuleEnabled } from "@/lib/modules";
 import { event } from "@/lib/site";
+
+const secureDev = isModuleEnabled("secure-development");
+const quiz = isModuleEnabled("quiz");
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -58,7 +71,11 @@ const NEVER = [
   "No advertising, no tracking pixels, no third-party analytics, no data broker. Nothing about you is sold or shared.",
   "No consent banner, because there is nothing to consent to. Every cookie we set is doing a job you asked for.",
   "Your email address and your real name are never written to our databases and never appear anywhere on this site.",
-  "We never ask GitHub for write access. We cannot push code, open pull requests, change your repositories, or act as you.",
+  // Same promise either way; it just can't be made concrete with artifacts an
+  // event without secure-development has no notion of.
+  secureDev
+    ? "We never ask GitHub for write access. We cannot push code, open pull requests, change your repositories, or act as you."
+    : "We never ask GitHub for write access. The scopes we ask for are read-only, so we cannot write anything to your GitHub account or act as you.",
   "We don't keep the GitHub access token issued at sign-in, so there is no key to your GitHub account sitting in our systems.",
   "We don't build a location history. The only geographic data we hold is a per-country tally with nobody's name on it.",
 ];
@@ -75,8 +92,12 @@ const cookies: { name: string; what: string; life: string }[] = [
     life: "10 minutes",
   },
   {
+    // The literal cookie name, which is what a reader inspecting their browser
+    // will see. It is not renamed per event — an identifier, not copy.
     name: "ctf-challenges-gate",
-    what: "Remembers that the challenge-board password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you.",
+    what: secureDev
+      ? "Remembers that the challenge-board password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you."
+      : "Remembers that the event's access password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you.",
     life: "30 days",
   },
   {
@@ -107,17 +128,24 @@ export default function PrivacyPage() {
           governing document and covers OWASP as a whole. This page is narrower and more
           specific: it describes what{" "}
           <span className="text-white">this competition site</span>{" "}
-          does, because a general policy can&apos;t tell you what happens to a hint purchase or
-          a GitHub login on a leaderboard.
+          does, because a general policy can&apos;t tell you what happens to{" "}
+          {secureDev ? "a hint purchase or a GitHub login" : "a GitHub login"} on a leaderboard.
         </p>
       </section>
 
       <Card heading="Most of this site needs nothing from you">
         <Bullets
-          items={[
-            "Browsing the challenges, the leaderboard, the rules, and these policy pages requires no account and no sign-in. Nothing personal is collected while you read.",
-            "Sign in only if you want to claim your row on the leaderboard, see your own per-challenge breakdown, join a team, or reveal a hint. Working through the challenges without ever signing in is a perfectly valid way to use this event.",
-          ]}
+          items={
+            secureDev
+              ? [
+                  "Browsing the challenges, the leaderboard, the rules, and these policy pages requires no account and no sign-in. Nothing personal is collected while you read.",
+                  "Sign in only if you want to claim your row on the leaderboard, see your own per-challenge breakdown, join a team, or reveal a hint. Working through the challenges without ever signing in is a perfectly valid way to use this event.",
+                ]
+              : [
+                  "Browsing this site — the leaderboard, the rules, these policy pages — requires no account and no sign-in. Nothing personal is collected while you read.",
+                  "Sign in only if you want to claim your row on the leaderboard, see your own progress, or join a team. Reading your way through without ever signing in is a perfectly valid way to use this event.",
+                ]
+          }
         />
       </Card>
 
@@ -136,9 +164,11 @@ export default function PrivacyPage() {
             </>,
             <>
               Of those we keep exactly one: your{" "}
-              <span className="text-white">GitHub login</span>, because the scorer credits
-              points to the account that authored a pull request. The rest renders the page
-              you&apos;re on and is then forgotten.
+              <span className="text-white">GitHub login</span>,{" "}
+              {secureDev
+                ? "because the scorer credits points to the account that authored a pull request."
+                : "because your points are recorded against the account you signed in with."}{" "}
+              The rest renders the page you&apos;re on and is then forgotten.
             </>,
             <>
               We deliberately{" "}
@@ -152,21 +182,39 @@ export default function PrivacyPage() {
       </Card>
 
       <Card heading="What we store while you compete">
+        {/* One bullet per store that this event actually writes to. Hints are
+            secure-development's (hint-store.ts), answers are the quiz's
+            (quiz-store.ts) — listing either on an event that doesn't run it
+            would be a promise about code that never executes, and omitting
+            the quiz's was a real gap: those answers ARE stored. */}
         <Bullets
           items={[
             <>
               <span className="text-white">Team membership</span>: the team&apos;s name, who
               created it, and the GitHub logins of its members.
             </>,
-            <>
-              <span className="text-white">Hint purchases</span>: which hints you revealed,
-              when, and the running point penalty against your login.
-            </>,
-            <>
-              <span className="text-white">Your scores</span>{" "}
-              come from the scoring pipeline, keyed to the GitHub login that authored the pull
-              request. This site reads them; it doesn&apos;t create them.
-            </>,
+            ...(secureDev
+              ? [
+                  <>
+                    <span className="text-white">Hint purchases</span>: which hints you revealed,
+                    when, and the running point penalty against your login.
+                  </>,
+                  <>
+                    <span className="text-white">Your scores</span>{" "}
+                    come from the scoring pipeline, keyed to the GitHub login that authored the pull
+                    request. This site reads them; it doesn&apos;t create them.
+                  </>,
+                ]
+              : []),
+            ...(quiz
+              ? [
+                  <>
+                    <span className="text-white">Your answers</span>: which questions you have
+                    answered, the choices you submitted, when, how many attempts you have spent,
+                    and the points each answer earned, all keyed to your GitHub login.
+                  </>,
+                ]
+              : []),
           ]}
         />
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
@@ -178,7 +226,7 @@ export default function PrivacyPage() {
         </p>
       </Card>
 
-      <Card heading="Protecting the challenge board">
+      <Card heading={secureDev ? "Protecting the challenge board" : "Protecting the board before it opens"}>
         <p className="text-sm leading-relaxed text-zinc-400">
           Before the board opens it sits behind a password, and to stop that password being
           brute forced we count failed attempts per IP address: five wrong tries locks that
@@ -250,16 +298,28 @@ export default function PrivacyPage() {
         </p>
         <Bullets
           items={[
-            "Your GitHub login and avatar, your rank, your points, and how many challenges you have patched and not patched.",
+            secureDev
+              ? "Your GitHub login and avatar, your rank, your points, and how many challenges you have patched and not patched."
+              : "Your GitHub login and avatar, your rank, and your points.",
             "Your team, if you're on one. Expanding a team shows every member's login and avatar.",
-            "The total point penalty from hints you've revealed. Which specific hints you bought stays private.",
-            "For some scoring modes, the number of your most recent pull request and a short commit hash.",
+            // Both of these describe secure-development's own board: the hint
+            // penalty chip and the PR/commit columns the scorer supplies.
+            ...(secureDev
+              ? [
+                  "The total point penalty from hints you've revealed. Which specific hints you bought stays private.",
+                  "For some scoring modes, the number of your most recent pull request and a short commit hash.",
+                ]
+              : []),
           ]}
         />
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
           Not public, and not visible to other contestants or to organizers browsing the site:
-          your email address, your real name, and the contents of any hint you&apos;ve revealed.
-          Those appear only on your own profile page, behind your own session.
+          {secureDev
+            ? " your email address, your real name, and the contents of any hint you've revealed."
+            : quiz
+              ? " your email address, your real name, and which questions you have answered."
+              : " your email address and your real name."}
+          {" "}Those appear only on your own profile page, behind your own session.
         </p>
       </Card>
 
@@ -267,10 +327,12 @@ export default function PrivacyPage() {
         <Bullets
           items={[
             <>
-              <span className="text-white">GitHub</span>: handles sign-in, hosts the challenge
-              repositories, and serves avatar images. Worth knowing: avatars load straight from
-              GitHub, so GitHub sees the IP of anyone viewing a page with avatars on it,
-              including the leaderboard.
+              <span className="text-white">GitHub</span>:{" "}
+              {secureDev
+                ? "handles sign-in, hosts the challenge repositories, and serves avatar images."
+                : "handles sign-in and serves avatar images."}{" "}
+              Worth knowing: avatars load straight from GitHub, so GitHub sees the IP of anyone
+              viewing a page with avatars on it, including the leaderboard.
             </>,
             <>
               <span className="text-white">The event organizer</span>: hosts this site on their
@@ -302,7 +364,9 @@ export default function PrivacyPage() {
       <Card heading="Your choices, and how to reach a human">
         <Bullets
           items={[
-            "Don't sign in. Everything except your own profile, teams, and hints works signed out.",
+            secureDev
+              ? "Don't sign in. Everything except your own profile, teams, and hints works signed out."
+              : "Don't sign in. Everything except your own profile and teams works signed out — nothing you do while signed out is scored, and nothing about you is recorded.",
             "Leave your team at any time from your profile. That removes your login from the team record immediately.",
             "Clear your cookies, or just wait for them to expire, to end the session.",
           ]}
@@ -319,7 +383,8 @@ export default function PrivacyPage() {
           EEA and California residents.
           {(event.contactEmail || event.discordUrl) && (
             <>
-              {" "}For CTF-specific data such as team membership or hint purchases,{" "}
+              {" "}For CTF-specific data such as team membership
+              {secureDev ? " or hint purchases" : quiz ? " or your answers" : ""},{" "}
               {event.contactEmail && (
                 <>
                   email the organizers at{" "}

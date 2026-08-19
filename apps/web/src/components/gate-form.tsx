@@ -15,7 +15,18 @@ function lockedMessage(retryAfter: string | null): string {
   return "Too many attempts. Try again later.";
 }
 
-export default function GateForm() {
+/** `destination` and `unlockLabel` are handed down by /gate rather than
+ *  hardcoded here: this form used to send everyone to /challenges, which does
+ *  not exist on an event without secure-development. The page derives both
+ *  from the enabled modules — see UNLOCKED_DESTINATION there — and this stays
+ *  a Client Component with no registry import. */
+export default function GateForm({
+  destination,
+  unlockLabel,
+}: {
+  destination: string;
+  unlockLabel: string;
+}) {
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,11 +44,12 @@ export default function GateForm() {
       });
       if (res.ok) {
         // Full document load on purpose: the router cache may hold the
-        // prefetched proxy redirect for /challenges, and a hard navigation
-        // bypasses it — router.push() would defeat that, so the lint rule's
-        // suggestion doesn't apply here.
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.assign("/challenges");
+        // prefetched proxy redirect for the gated route, and a hard navigation
+        // bypasses it — router.push() would defeat that. (The
+        // no-location-assign-relative-destination rule only fires on a literal
+        // destination, so there is no directive to silence here any more; the
+        // reasoning still stands.)
+        window.location.assign(destination);
         return;
       }
       if (res.status === 429) {
@@ -72,7 +84,7 @@ export default function GateForm() {
         disabled={pending || !password}
         className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
       >
-        {pending ? "Checking…" : "Unlock challenges"}
+        {pending ? "Checking…" : unlockLabel}
       </button>
       {error && (
         <p role="alert" className="text-sm text-[#e53e3e]">

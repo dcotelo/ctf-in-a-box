@@ -10,10 +10,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { getResolvedModules, getChallengeCatalog, getHintAvailability } = vi.hoisted(() => ({
+const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEnabled } = vi.hoisted(() => ({
   getResolvedModules: vi.fn(),
   getChallengeCatalog: vi.fn(),
   getHintAvailability: vi.fn(),
+  isModuleEnabled: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -23,6 +24,14 @@ vi.mock("@/lib/hint-store", () => ({
   getHintAvailability,
   HINTS_ENABLED: false,
   HINT_COST: 0,
+}));
+// Partial mock: `isModuleEnabled` is what this page's gate calls, but
+// `site.ts` (imported transitively through HintNotice -> EventCountdown)
+// reads `enabledModules` off this same module, so a full replacement would
+// break that unrelated import instead of exercising the gate.
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled,
 }));
 
 import ChallengesPage, { generateMetadata } from "@/app/(site)/challenges/page";
@@ -40,8 +49,16 @@ const resolved = (titleOverride?: string) => [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  isModuleEnabled.mockReturnValue(true);
   getChallengeCatalog.mockResolvedValue(null);
   getHintAvailability.mockResolvedValue({});
+});
+
+describe("challenges page gate", () => {
+  it("404s when secure-development is disabled", async () => {
+    isModuleEnabled.mockReturnValue(false);
+    await expect(ChallengesPage()).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
+  });
 });
 
 describe("/challenges with no organizer override", () => {

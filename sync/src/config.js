@@ -46,11 +46,22 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
   const org = doc?.github?.org;
   if (!org) throw new Error("event.yaml: github.org is required");
   const modules = doc?.modules;
-  if (!modules || typeof modules !== "object") throw new Error(`event.yaml: modules.${MODULE} is required`);
+  // Array.isArray is not redundant: `modules: []` (or a `- quiz` sequence) is
+  // typeof "object" and truthy, so without it a sequence where a mapping
+  // belongs was accepted here as "nothing enabled" while ctf-setup.sh rejected
+  // the same file outright — a two-readers divergence the shared corpus in
+  // test/module-readers.differential.test.js now pins.
+  if (!modules || typeof modules !== "object" || Array.isArray(modules)) {
+    throw new Error(`event.yaml: modules.${MODULE} is required`);
+  }
   const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
   if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
   const mod = modules[MODULE];
-  if (!mod) throw new Error(`event.yaml: modules.${MODULE} is required`);
+  // A module this build cannot serve is not an error — it just means there is
+  // nothing to poll. Returning null (rather than throwing) is what lets a
+  // quiz-only event run: throwing here crash-looped the poller and froze the
+  // leaderboard with no signal beyond a restart count.
+  if (!mod) return null;
   const targets = mod.targets;
   if (!Array.isArray(targets) || targets.length === 0) throw new Error("event.yaml: targets must be a non-empty list");
   const bad = targets.filter((t) => !TARGETS.includes(t));

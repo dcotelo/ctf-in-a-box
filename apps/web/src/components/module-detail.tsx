@@ -11,14 +11,18 @@ import AppBreakdown from "@/components/app-breakdown";
 export default function ModuleDetail({
   progress,
   entry,
+  showPoints,
 }: {
   moduleId: ModuleId;
   progress: ModuleProgress;
   entry: LeaderboardEntry;
+  /** Forwarded verbatim to `AppBreakdown` — see its doc comment. Unset here
+   *  too by every existing (leaderboard) call site. */
+  showPoints?: boolean;
 }) {
   const { detail } = progress;
   if (detail.kind === "secure-development") {
-    return <AppBreakdown entry={{ ...entry, apps: detail.apps }} />;
+    return <AppBreakdown entry={{ ...entry, apps: detail.apps }} showPoints={showPoints} />;
   }
   return (
     <p className="font-mono text-sm tabular-nums text-white">

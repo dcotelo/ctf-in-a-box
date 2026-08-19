@@ -1,7 +1,22 @@
+// /rules is a PLATFORM frame with module contributions, on the same basis as
+// /how-to-play: the platform owns the section headings and the rules that hold
+// on any event whatsoever (team size, the code of conduct, prizes, organizer
+// decisions), and each enabled module contributes the rules that name its own
+// artifacts. "Submit every pull request from the account you signed in with"
+// and "Revealing a hint deducts points" are not event-wide rules — they are
+// secure-development's, and on a quiz-only event they describe a game that
+// isn't running.
+//
+// Server Component, and must stay one: `ModuleRules` is a FUNCTION of the
+// live target list, called here so only plain data is rendered. See
+// lib/modules.ts for why it never rides on a ResolvedModule.
 import type { Metadata } from "next";
 import Link from "next/link";
+import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames } from "@/lib/apps";
+import type { RulesContext } from "@/lib/modules";
+import { getModuleRules, getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -20,67 +35,85 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
   </a>
 );
 
-// Rules are React nodes rather than plain strings so a rule can link to the
-// document it defers to — a rule that just says a code of conduct applies is
-// not much use without a way to go read it.
-const appList = joinAppNames(enabledApps.map((a) => a.name));
+export default async function RulesPage() {
+  const ctx: RulesContext = {
+    appCount: enabledApps.length,
+    appList: joinAppNames(enabledApps.map((a) => a.name)),
+  };
 
-const sections: { heading: string; rules: React.ReactNode[] }[] = [
-  {
-    heading: "Teams",
-    rules: [
-      "You can compete solo or as a team of up to four. Teams are optional, and you can join or create one from your profile after signing in with GitHub.",
-      "Each person belongs to at most one team at a time.",
-      "Your GitHub login is your identity for scoring. Submit every pull request from the account you signed in with.",
-    ],
-  },
-  {
-    heading: "Fair play",
-    rules: [
-      `Only the ${enabledApps.length} challenge ${enabledApps.length === 1 ? "target" : "targets"} (${appList}) ${enabledApps.length === 1 ? "is" : "are"} in scope. Do not attack the CI scoring pipeline, the leaderboard, or other contestants' forks.`,
-      "Submit your own work. Don't publish full solutions or patches for others to copy during the event.",
-      "Automated mass-submission or spamming pull requests to farm scoring runs will get your account rate-limited or disqualified.",
-      <>
-        <span className="text-white">Please use AI.</span>{" "}
-        Finding and patching these vulnerabilities with an AI agent is the intended workflow,
-        not a shortcut against the rules. It&apos;s the skill the event is built to teach. Start with OWASP&apos;s{" "}
-        <ExternalLink href={event.secureAgentPlaybookUrl}>Secure Agent Playbook</ExternalLink>.
-      </>,
-    ],
-  },
-  {
-    heading: "Conduct",
-    rules: [
-      <>
-        The{" "}
-        <ExternalLink href={event.owaspCodeOfConductUrl}>OWASP Code of Conduct</ExternalLink>{" "}
-        applies at all times.
-        Harassment of any kind ends your event. See our{" "}
-        <Link
-          href="/code-of-conduct"
-          className="ds-link"
-        >
-          code of conduct page
-        </Link>{" "}
-        for how to report a problem.
-      </>,
-      "Be excellent to the volunteers, organizers, and your fellow competitors.",
-      "Found a bug in a challenge, the scorer, or the site itself? Report it to an organizer instead of exploiting it for an unfair edge.",
-    ],
-  },
-  {
-    heading: "Scoring & prizes",
-    rules: [
-      "Each challenge is worth a fixed point value based on difficulty. Points post the moment your PR's regression test passes.",
-      "Your best-ever result per challenge counts. A later successful patch always replaces an earlier miss.",
-      "Revealing a hint deducts points from your total, and hint purchases are final.",
-      "Prizes are awarded to the top individuals and top teams overall. Winners must be present to claim.",
-      "Organizer decisions on scoring disputes are final.",
-    ],
-  },
-];
+  // Registry order. Each module's bullets are collected per section so the
+  // platform decides where they land — module rules lead "Fair play" and
+  // "Scoring & prizes" (they are the specific ones) and follow the platform's
+  // in "Teams" and "Conduct" (which open with the event-wide statement).
+  const contributions = (await getResolvedModules()).flatMap((module) => {
+    const rules = getModuleRules(module.id);
+    return rules ? [rules(ctx)] : [];
+  });
+  const fromModules = (section: "teams" | "fairPlay" | "conduct" | "scoring") =>
+    contributions.flatMap((c) => c[section] ?? []).map((copy, i) => <ModuleCopy key={i} copy={copy} />);
+  const fairPlayFromModules = fromModules("fairPlay");
 
-export default function RulesPage() {
+  // Rules are React nodes rather than plain strings so a rule can link to the
+  // document it defers to — a rule that just says a code of conduct applies is
+  // not much use without a way to go read it.
+  const sections: { heading: string; rules: React.ReactNode[] }[] = [
+    {
+      heading: "Teams",
+      rules: [
+        "You can compete solo or as a team of up to four. Teams are optional, and you can join or create one from your profile after signing in with GitHub.",
+        "Each person belongs to at most one team at a time.",
+        ...fromModules("teams"),
+      ],
+    },
+    {
+      // Every fair-play rule this event ships names a module's own artifacts
+      // — its targets, its submissions, its abuse vectors — so the modules
+      // write them. But the PRINCIPLES underneath (don't collude, don't
+      // attack the platform) hold on any event whatsoever, and a module that
+      // ships no `rules` block must not leave a CTF running with no
+      // anti-collusion rule at all. These two generic bullets stand in when,
+      // and only when, no enabled module has contributed any: on every event
+      // that has one they render nothing, so they cost zero bytes on the
+      // secure-development page.
+      heading: "Fair play",
+      rules:
+        fairPlayFromModules.length > 0
+          ? fairPlayFromModules
+          : [
+              "Submit your own work. Don't publish full solutions for others to copy during the event.",
+              "Do not attack the scoring pipeline, the leaderboard, or other contestants. Report anything you find to an organizer instead of exploiting it.",
+            ],
+    },
+    {
+      heading: "Conduct",
+      rules: [
+        <>
+          The{" "}
+          <ExternalLink href={event.owaspCodeOfConductUrl}>OWASP Code of Conduct</ExternalLink>{" "}
+          applies at all times.
+          Harassment of any kind ends your event. See our{" "}
+          <Link
+            href="/code-of-conduct"
+            className="ds-link"
+          >
+            code of conduct page
+          </Link>{" "}
+          for how to report a problem.
+        </>,
+        "Be excellent to the volunteers, organizers, and your fellow competitors.",
+        ...fromModules("conduct"),
+      ],
+    },
+    {
+      heading: "Scoring & prizes",
+      rules: [
+        ...fromModules("scoring"),
+        "Prizes are awarded to the top individuals and top teams overall. Winners must be present to claim.",
+        "Organizer decisions on scoring disputes are final.",
+      ],
+    },
+  ].filter((section) => section.rules.length > 0);
+
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
