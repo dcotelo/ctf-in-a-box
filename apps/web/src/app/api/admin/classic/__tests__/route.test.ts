@@ -58,7 +58,7 @@ vi.mock("@/lib/classic-store", () => ({
 vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
 
-import { GET, POST, DELETE } from "@/app/api/admin/classic/route";
+import { GET, POST, DELETE, CHALLENGE_KEYS, CATEGORIES_KEYS } from "@/app/api/admin/classic/route";
 
 const adminReq = (method: "GET" | "POST" | "DELETE", body?: unknown) =>
   new Request("http://x/api/admin/classic", {
@@ -128,6 +128,53 @@ describe("GET /api/admin/classic", () => {
     const res = await GET(adminReq("GET"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ challenges: [ADMIN_ROW], categories: ["Web"] });
+  });
+
+  // Finding B: the store reads were not wrapped in a try/catch, so a
+  // rejection here became an unhandled rejection instead of the clean 503
+  // the write paths already get via `errorResponse`. Each list function is
+  // rejected in turn so a fix that only guards one of the two calls (e.g.
+  // `Promise.all` wrapped, but only the FIRST leg awaited defensively) can't
+  // pass by accident.
+  it("503s (not throw) when listChallengesForAdmin rejects", async () => {
+    listChallengesForAdmin.mockRejectedValue(new Error("upstash down"));
+    const res = await GET(adminReq("GET"));
+    expect(res.status).toBe(503);
+  });
+
+  it("503s (not throw) when listCategories rejects", async () => {
+    listCategories.mockRejectedValue(new Error("upstash down"));
+    const res = await GET(adminReq("GET"));
+    expect(res.status).toBe(503);
+  });
+});
+
+// Finding A: the admin POST route dispatches between the categories shape
+// and the challenge shape by KEY SET ALONE, with no discriminator field.
+// That only stays safe as long as the two parsers' allowed key sets never
+// overlap. This test derives both sets from the actual constants the route's
+// parsers use (`CHALLENGE_KEYS` / `CATEGORIES_KEYS`, both exported from the
+// route for exactly this purpose) rather than hardcoding a second copy of
+// the key lists here — a hardcoded copy would keep passing after a real
+// schema change, which is the exact failure this guards against.
+describe("POST /api/admin/classic — dispatch key sets", () => {
+  it("CHALLENGE_KEYS and CATEGORIES_KEYS never overlap", () => {
+    const overlap = [...CHALLENGE_KEYS].filter((k) => CATEGORIES_KEYS.has(k));
+    expect(overlap).toEqual([]);
+  });
+
+  it("400s a body that matches neither shape", async () => {
+    const res = await POST(adminReq("POST", { nonsense: true }));
+    expect(res.status).toBe(400);
+    expect(upsertChallenge).not.toHaveBeenCalled();
+    expect(setCategories).not.toHaveBeenCalled();
+  });
+
+  it("rejects a body carrying BOTH a categories key and challenge keys, rather than silently picking one", async () => {
+    const res = await POST(adminReq("POST", { ...validPayload, categories: ["Web"] }));
+    expect(res.status).toBe(400);
+    expect(upsertChallenge).not.toHaveBeenCalled();
+    expect(setCategories).not.toHaveBeenCalled();
   });
 });
 

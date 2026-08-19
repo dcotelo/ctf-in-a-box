@@ -49,7 +49,16 @@ import { upstashPipeline } from "@/lib/upstash";
 
 type ChallengePayload = Challenge & { flag: string };
 
-const CHALLENGE_KEYS = new Set(["id", "title", "category", "description", "points", "order", "flag"]);
+/** The two POST shapes' allowed key sets. Exported (not just module-private)
+ *  so a test can assert, structurally, that they stay disjoint — see the
+ *  route test file's "categories/challenge key sets never overlap" case.
+ *  Asserting this in code rather than trusting the two parsers to agree by
+ *  construction is what catches a future optional challenge field, or a
+ *  challenge field literally named `categories`, before it reintroduces the
+ *  ambiguity this route's shape-only dispatch depends on there being none
+ *  of. */
+export const CHALLENGE_KEYS = new Set(["id", "title", "category", "description", "points", "order", "flag"]);
+export const CATEGORIES_KEYS = new Set(["categories"]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -83,14 +92,16 @@ function parseChallengePayload(body: unknown): ChallengePayload | null {
 }
 
 /** Recognizes the OTHER POST shape: a body carrying exactly one key,
- *  `categories`, an array of strings. Deliberately exact (`Object.keys(...)
- *  .length === 1`) rather than merely "has a categories key" — that is what
- *  keeps this shape and the challenge shape mutually exclusive without a
- *  discriminator field. */
+ *  `categories`, an array of strings. Deliberately exact (`hasOnlyKeys` PLUS
+ *  requiring the key present, not merely "no other keys") rather than merely
+ *  "has a categories key" — that is what keeps this shape and the challenge
+ *  shape mutually exclusive without a discriminator field. A body carrying
+ *  BOTH `categories` and any challenge key fails `hasOnlyKeys` here (an
+ *  unrecognized key for this shape) and also fails `parseChallengePayload`'s
+ *  own `hasOnlyKeys` (an unrecognized key there), so it falls through to the
+ *  400 catch-all rather than being silently treated as either shape. */
 function parseCategoriesPayload(body: unknown): string[] | null {
-  if (!isPlainObject(body)) return null;
-  const keys = Object.keys(body);
-  if (keys.length !== 1 || keys[0] !== "categories") return null;
+  if (!isPlainObject(body) || !hasOnlyKeys(body, CATEGORIES_KEYS)) return null;
   if (!Array.isArray(body.categories)) return null;
   if (!body.categories.every((c) => typeof c === "string")) return null;
   return body.categories as string[];
@@ -134,7 +145,13 @@ export async function GET(request: Request) {
   // comment. The `requireAdmin` check above must stay the first statement in
   // this handler: with flags in the payload, an early store read on an
   // unauthenticated request is no longer merely wasted work.
-  const [challenges, categories] = await Promise.all([listChallengesForAdmin(), listCategories()]);
+  let challenges: AdminChallenge[];
+  let categories: string[];
+  try {
+    [challenges, categories] = await Promise.all([listChallengesForAdmin(), listCategories()]);
+  } catch (err) {
+    return errorResponse(err);
+  }
   return NextResponse.json({ challenges, categories });
 }
 
