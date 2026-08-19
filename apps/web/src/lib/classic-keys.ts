@@ -21,6 +21,21 @@ export const classicAttemptsKey = (login: string) => `${CLASSIC_ATTEMPTS_PREFIX}
  *  the quiz's, and validated in the same places (store write, API boundary). */
 export const CLASSIC_ID_RE = /^[\w-]{1,64}$/;
 
+/** Upper bound on a challenge's point value, mirroring `QUIZ_POINTS_MAX`.
+ *  This is not cosmetic: `upsertChallenge` writes `points` verbatim into the
+ *  challenge hash via `JSON.stringify`, and at >=1e21 JavaScript serialises a
+ *  number in exponential form (`1e+21`), which SUBMIT_SCRIPT's anchored
+ *  `'"points":(%-?%d+)[,}]'` match cannot read — the script would fall back to
+ *  0 and silently award nothing for a correct flag. A sane cap keeps every
+ *  storable value inside the plain-integer form the script can actually
+ *  parse. */
+export const CLASSIC_POINTS_MAX = 100000;
+
+/** Caps on the category list. Categories are rendered as headings on a page
+ *  every contestant loads, and the whole list is stored in one string value. */
+export const CLASSIC_CATEGORY_MAX_LEN = 64;
+export const CLASSIC_CATEGORIES_MAX = 50;
+
 /** THE canonical flag form. Used by the authoring path (what gets stored in
  *  `ctf:classic:flagnorm`) and by the submission path (what gets compared
  *  against it). Both sides MUST use this one function — the whole "compare

@@ -15,6 +15,9 @@ import {
   classicAttemptsKey as attemptsKey,
   normalizeFlag,
   CLASSIC_ID_RE,
+  CLASSIC_POINTS_MAX,
+  CLASSIC_CATEGORY_MAX_LEN,
+  CLASSIC_CATEGORIES_MAX,
 } from "@/lib/classic-keys";
 
 /**
@@ -101,27 +104,16 @@ import {
  *  not rationing tries. 0 (an admin override) means no cooldown. */
 export const CLASSIC_COOLDOWN_SEC = 5;
 
-/** Upper bound on a challenge's point value, mirroring `QUIZ_POINTS_MAX`.
- *  This is not cosmetic: `upsertChallenge` writes `points` verbatim into the
- *  challenge hash via `JSON.stringify`, and at >=1e21 JavaScript serialises a
- *  number in exponential form (`1e+21`), which SUBMIT_SCRIPT's anchored
- *  `'"points":(%-?%d+)[,}]'` match cannot read — the script would fall back to
- *  0 and silently award nothing for a correct flag. A sane cap keeps every
- *  storable value inside the plain-integer form the script can actually
- *  parse. */
-export const CLASSIC_POINTS_MAX = 100000;
-
-/** Caps on the category list. Categories are rendered as headings on a page
- *  every contestant loads, and the whole list is stored in one string value. */
-export const CLASSIC_CATEGORY_MAX_LEN = 64;
-export const CLASSIC_CATEGORIES_MAX = 50;
-
 /** Challenge id pattern, re-exported so callers (e.g. the submit route)
  *  validate against this exact pattern instead of keeping their own copy that
  *  could silently desync. It is DEFINED in classic-keys.ts because the admin
  *  panel's id generator runs in the browser and must check its output against
- *  the same object this `server-only` file validates with. */
-export { CLASSIC_ID_RE };
+ *  the same object this `server-only` file validates with. `CLASSIC_POINTS_MAX`,
+ *  `CLASSIC_CATEGORY_MAX_LEN` and `CLASSIC_CATEGORIES_MAX` are re-exported for
+ *  the same reason: classic-io.ts (the bulk import/export parser) is also
+ *  client-safe and needs these bounds to validate a pasted bundle without
+ *  importing this `server-only` file. */
+export { CLASSIC_ID_RE, CLASSIC_POINTS_MAX, CLASSIC_CATEGORY_MAX_LEN, CLASSIC_CATEGORIES_MAX };
 
 /** Thrown by the authoring functions for genuine input-validation failures
  *  (bad id, unknown category, non-integer points, empty flag) — mirroring
