@@ -11,6 +11,12 @@
 // This is the check that keeps a newly registered module from being silently
 // un-gated: a route in `ALL_MODULE_ROUTES` that the matcher does not carry
 // fails here.
+//
+// It is HALF the contract, and only half: the matcher decides where the proxy
+// RUNS, never what it then does. `proxy-quiz-only.test.ts` and
+// `proxy-disabled-module.test.ts` call `proxy()` and pin the decision itself —
+// without them, reverting the gate check to `pathname === "/challenges"` left
+// this file (and the whole suite) green.
 
 import { describe, expect, it } from "vitest";
 import { config } from "@/proxy";
