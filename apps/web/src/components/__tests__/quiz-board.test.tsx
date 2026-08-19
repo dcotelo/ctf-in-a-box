@@ -78,11 +78,24 @@ describe("QuizBoard", () => {
     expect(html).not.toMatch(/submit answer/i);
   });
 
-  it("shows a cooldown question with its retry time and disables submission", () => {
+  // The retry instant is never printed. It renders as a live countdown that
+  // starts after hydration, so the server render — which is all
+  // `renderToStaticMarkup` produces — deliberately shows a time-free
+  // placeholder instead. Reading a clock during render would disagree with
+  // the client's first paint and trip a hydration mismatch.
+  //
+  // What is testable here: the placeholder, the absence of the raw timestamp,
+  // and that submission stays shut. The ticking itself needs a mounted effect,
+  // which this repo has no way to drive (no testing-library, by choice); the
+  // arithmetic and the "4m 12s" formatting are covered directly in
+  // `src/lib/__tests__/countdown.test.ts`.
+  it("shows a cooldown question without leaking the raw instant, and disables submission", () => {
     const retryAt = "2026-08-18T12:34:56.000Z";
     const cooling: QuizQuestionView = { ...singleChoiceQuestion, status: "cooldown", retryAt };
     const html = renderToStaticMarkup(<QuizBoard questions={[cooling]} authenticated />);
-    expect(html).toContain(retryAt);
+    expect(html).not.toContain(retryAt);
+    expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(html).toMatch(/on cooldown/i);
     // Choices are still visible for review, but every input and the submit
     // control are disabled.
     expect(html).toContain("<input");
