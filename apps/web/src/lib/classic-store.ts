@@ -1,5 +1,6 @@
 import "server-only";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { CLASSIC_BUNDLE_VERSION, type ClassicBundle, type ClassicBundleChallenge } from "@/lib/classic-io";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
@@ -349,6 +350,127 @@ export async function upsertChallenge(c: Challenge, flag: string): Promise<Admin
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
 
   return { challenge: c, flag: authored };
+}
+
+/** Result of a bulk import: how many bundle rows were brand new vs. already
+ *  on the board, and how many categories the bundle itself carried (its own
+ *  scope, not the post-union total — an organizer reading this back wants to
+ *  know what THEY just submitted). */
+export type ImportSummary = { created: number; updated: number; categories: number };
+
+/** Applies a PRE-VALIDATED bundle (produced by `classic-io.ts`'s
+ *  `parseBundle`) to the store: upserts every challenge it contains and
+ *  unions its categories into the existing list.
+ *
+ *  `importBundle` re-validates NOTHING — its whole contract is that the
+ *  caller already ran the bundle through `parseBundle`. Validation lives in
+ *  exactly one place so the single-challenge admin form and this bulk path
+ *  can never quietly grow different rules; a caller that skips `parseBundle`
+ *  before calling this is the one at fault, not something this function
+ *  guards against.
+ *
+ *  UPSERT BY ID, NEVER DELETE. A challenge already in the store but absent
+ *  from this bundle is left completely untouched — there is no HDEL
+ *  anywhere on this path. That is the whole reason import is safe to run
+ *  against a live board: an organizer can import a partial file (this
+ *  week's new challenges, say) without erasing anything else already
+ *  authored. Existing ids are read FIRST (one HKEYS) so `created`/`updated`
+ *  reflect what was already on the board before this call, not what ends up
+ *  there after.
+ *
+ *  Categories are UNIONED, never replaced: the existing order is preserved
+ *  and any category new to the store is appended in the bundle's own order
+ *  (case-insensitive membership check, mirroring `setCategories`). Replacing
+ *  the list outright would silently drop or reorder categories belonging to
+ *  challenges this bundle never mentions — part of the board the organizer
+ *  wasn't touching.
+ *
+ *  All challenge/flag/flagnorm writes plus the categories write happen in
+ *  ONE `upstashPipeline` call — the same discipline `upsertChallenge` follows
+ *  for a single row — so those hashes (and the category list) can never
+ *  observably disagree partway through a bulk import. The membership reads
+ *  that decide created/updated and the union happen in their OWN earlier
+ *  pipeline call, exactly like `upsertChallenge` reads `listCategories()`
+ *  before its own write. */
+export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary> {
+  const [idsRes, categoriesRes] = await upstashPipeline([
+    ["HKEYS", CHALLENGES_KEY],
+    ["GET", CATEGORIES_KEY],
+  ]);
+
+  const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
+
+  let existingCategories: string[] = [];
+  if (typeof categoriesRes.result === "string") {
+    try {
+      const parsed = JSON.parse(categoriesRes.result) as unknown;
+      if (Array.isArray(parsed)) existingCategories = parsed.filter((v): v is string => typeof v === "string");
+    } catch {
+      existingCategories = [];
+    }
+  }
+
+  // Union: keep the existing list's order verbatim, then append anything
+  // from the bundle not already present (case-insensitive), in the bundle's
+  // own order.
+  const unioned = [...existingCategories];
+  const seen = new Set(existingCategories.map((name) => name.toLowerCase()));
+  for (const name of bundle.categories) {
+    const fold = name.toLowerCase();
+    if (seen.has(fold)) continue;
+    seen.add(fold);
+    unioned.push(name);
+  }
+
+  let created = 0;
+  let updated = 0;
+  const commands: (string | number)[][] = [];
+  for (const c of bundle.challenges) {
+    if (existingIds.has(c.id)) updated += 1;
+    else created += 1;
+
+    // Built field by field, mirroring upsertChallenge's write: the flag
+    // never reaches this record.
+    const record: Challenge = {
+      id: c.id,
+      title: c.title,
+      category: c.category,
+      description: c.description,
+      points: c.points,
+      order: c.order,
+    };
+    commands.push(["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)]);
+    commands.push(["HSET", FLAG_KEY, c.id, c.flag.trim()]);
+    commands.push(["HSET", FLAGNORM_KEY, c.id, normalizeFlag(c.flag)]);
+  }
+  commands.push(["SET", CATEGORIES_KEY, JSON.stringify(unioned)]);
+
+  const results = await upstashPipeline(commands);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash bulk import failed: ${failed.error}`);
+
+  return { created, updated, categories: bundle.categories.length };
+}
+
+/** The current board, in the same shape `importBundle` accepts — so
+ *  exporting then re-importing round-trips (every id already exists, so
+ *  nothing is reported `created`), which is what makes an export usable as a
+ *  backup. Reads the admin-gated challenge list (WITH each flag AS
+ *  AUTHORED — never the normalized form) and the category list; every row
+ *  comes back with its flag alongside the public fields, matching
+ *  `ClassicBundleChallenge`. */
+export async function exportBundle(): Promise<ClassicBundle> {
+  const [rows, categories] = await Promise.all([listChallengesForAdmin(), listCategories()]);
+  const challenges: ClassicBundleChallenge[] = rows.map(({ challenge, flag }) => ({
+    id: challenge.id,
+    title: challenge.title,
+    category: challenge.category,
+    description: challenge.description,
+    points: challenge.points,
+    order: challenge.order,
+    flag,
+  }));
+  return { version: CLASSIC_BUNDLE_VERSION, categories, challenges };
 }
 
 /** Removes a challenge and both of its flag rows together — nothing else.
