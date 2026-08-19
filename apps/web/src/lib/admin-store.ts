@@ -19,6 +19,13 @@ import {
   quizAnswersKey,
   canonicalizeChoices,
 } from "@/lib/quiz-keys";
+import {
+  CLASSIC_POINTS_KEY,
+  CLASSIC_SOLVED_KEY,
+  CLASSIC_SOLVECOUNT_KEY,
+  CLASSIC_SOLVES_PREFIX,
+  CLASSIC_ATTEMPTS_PREFIX,
+} from "@/lib/classic-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -357,6 +364,15 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
 // board with no answers behind them. `ctf:quiz:points`/`ctf:quiz:answered`
 // are exact key names, not globs, but `scanDelByPrefix`'s SCAN MATCH works
 // the same either way.
+//
+// Classic scope mirrors quiz's exactly, for the same reason (see
+// deleteChallenge's doc comment in classic-store.ts for the same contract
+// stated from the single-challenge-delete side): wipes contestant PROGRESS —
+// per-login solves/attempts, plus the three aggregate hashes
+// (`ctf:classic:points`/`ctf:classic:solved`/`ctf:classic:solvecount`) the
+// leaderboard reads — and deliberately KEEPS `ctf:classic:challenges` /
+// `ctf:classic:flag` / `ctf:classic:flagnorm` / `ctf:classic:categories`,
+// which are organizer CONTENT, not something a reset should ever destroy.
 const RESET_PREFIXES: readonly [string, string][] = [
   ["solves", "ctf:solves:*"],
   ["teams", "ctf:team:*"],
@@ -367,6 +383,11 @@ const RESET_PREFIXES: readonly [string, string][] = [
   ["quizAttempts", `${QUIZ_ATTEMPTS_PREFIX}*`],
   ["quizPoints", QUIZ_POINTS_KEY],
   ["quizAnswered", QUIZ_ANSWERED_KEY],
+  ["classicSolves", `${CLASSIC_SOLVES_PREFIX}*`],
+  ["classicAttempts", `${CLASSIC_ATTEMPTS_PREFIX}*`],
+  ["classicPoints", CLASSIC_POINTS_KEY],
+  ["classicSolved", CLASSIC_SOLVED_KEY],
+  ["classicSolveCount", CLASSIC_SOLVECOUNT_KEY],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the
