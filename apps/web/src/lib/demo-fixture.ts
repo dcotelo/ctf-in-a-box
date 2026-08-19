@@ -6,6 +6,190 @@
 export type DemoContestant = { login: string; solves: Record<string, string[]> };
 export type DemoTeam = { slug: string; name: string; captain: string; members: string[] };
 
+// Classic (jeopardy-style flag) demo data (DEMO_MODE 'Seed demo data', classic
+// module only). Mirrors the `Challenge` shape classic-store.ts expects — see
+// its header comment for the key layout. `flag` is NOT part of that public
+// shape; it exists here only so seedDemoData can derive `ctf:classic:flag`
+// (as authored) and `ctf:classic:flagnorm` (via `normalizeFlag`) the same way
+// `upsertChallenge` does.
+export type DemoChallenge = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  points: number;
+  order: number;
+  flag: string;
+};
+
+// Categories, in the display order the demo board renders them.
+export const DEMO_CLASSIC_CATEGORIES: string[] = ["Web", "Crypto", "Forensics", "Recon"];
+
+// Descriptions deliberately exercise the markdown subset markdown.ts actually
+// parses (bold, italic, inline code, a fenced code block, a list, an
+// https:// link) so the seeded board also demonstrates the renderer — see
+// markdown.ts's header comment for exactly what is (and is not) supported.
+export const DEMO_CHALLENGES: DemoChallenge[] = [
+  {
+    id: "web-robots-only",
+    title: "Robots Only",
+    category: "Web",
+    order: 1,
+    points: 50,
+    description:
+      "The site's root **disallows** crawling for a reason. Check `/robots.txt` — nothing is ever *truly* " +
+      "hidden from a determined recon pass. See the [OWASP Testing Guide](https://owasp.org/www-project-web-security-testing-guide/) " +
+      "for the general approach.",
+    flag: "ctfbox{Robots_Dot_Txt_Never_Lies}",
+  },
+  {
+    id: "web-hidden-comment",
+    title: "Hidden in Plain Sight",
+    category: "Web",
+    order: 2,
+    points: 150,
+    description:
+      "Somebody left a debug comment in the markup. View source and look for anything wrapped in `<!-- -->`. " +
+      "Typical spots to check:\n\n" +
+      "- Response headers\n" +
+      "- HTML comments\n" +
+      "- JS source maps\n\n" +
+      "Once you find it, submit the flag exactly as shown.",
+    flag: "ctfbox{Html_Comments_Are_Forever}",
+  },
+  {
+    id: "web-cookie-jar",
+    title: "Cookie Jar",
+    category: "Web",
+    order: 3,
+    points: 300,
+    description:
+      "This app trusts a client-supplied session cookie a little too much. Decode it, tweak the role field, " +
+      "and re-encode.\n\n" +
+      "```\n" +
+      "echo 'eyJhbGciOiJIUzI1NiJ9...' | base64 -d\n" +
+      "```\n\n" +
+      "The **payload** is not signed the way you'd expect.",
+    flag: "ctfbox{Unsigned_Role_Swap}",
+  },
+  {
+    id: "crypto-caesar-whisper",
+    title: "Caesar's Whisper",
+    category: "Crypto",
+    order: 1,
+    points: 75,
+    description:
+      "An old-school substitution hides the flag: `synt{arkg_fghcvq}` — shift each letter back by 13 and " +
+      "you're done. *ROT13 never goes out of style.*",
+    flag: "ctfbox{Rot13_Is_Not_Encryption}",
+  },
+  {
+    id: "crypto-base-case",
+    title: "Base Case",
+    category: "Crypto",
+    order: 2,
+    points: 125,
+    description:
+      "Multiple layers of encoding stand between you and the flag.\n\n" +
+      "```\n" +
+      "echo '<encoded blob here>' | base64 -d | base64 -d\n" +
+      "```\n\n" +
+      "Keep decoding until it stops looking like `base64`.",
+    flag: "ctfbox{Base64_All_The_Way_Down}",
+  },
+  {
+    id: "crypto-rsa-101",
+    title: "RSA 101",
+    category: "Crypto",
+    order: 3,
+    points: 400,
+    description:
+      "A tiny modulus makes this **breakable** by hand. Factor `n`, derive `d`, and decrypt `c`. Tools like " +
+      "[FactorDB](https://factordb.com) can save you the trouble.",
+    flag: "ctfbox{Small_Primes_Big_Problems}",
+  },
+  {
+    id: "forensics-metadata-leak",
+    title: "Metadata Leak",
+    category: "Forensics",
+    order: 1,
+    points: 100,
+    description:
+      "A photo says more than it should. Pull the EXIF data and look for anything that isn't a camera " +
+      "setting:\n\n" +
+      "- GPS coordinates\n" +
+      "- Software field\n" +
+      "- Comment field\n\n" +
+      "`exiftool` is your friend here.",
+    flag: "ctfbox{Exif_Never_Forgets}",
+  },
+  {
+    id: "forensics-packet-peek",
+    title: "Packet Peek",
+    category: "Forensics",
+    order: 2,
+    points: 350,
+    description:
+      "A capture from the CTF's own network holds a plaintext credential. Filter for it:\n\n" +
+      "```\n" +
+      'tcp.port == 21 && ftp.request.command == "PASS"\n' +
+      "```\n\n" +
+      "*FTP never learned to keep a secret.*",
+    flag: "ctfbox{Plaintext_Ftp_Strikes_Again}",
+  },
+  {
+    id: "recon-subdomain-sweep",
+    title: "Subdomain Sweep",
+    category: "Recon",
+    order: 1,
+    points: 200,
+    description:
+      "The main domain is locked down, but a forgotten subdomain never got the memo. Enumerate with your " +
+      "favorite tool, or just check [crt.sh](https://crt.sh) for certificate transparency logs — " +
+      "**passive recon** beats brute force every time.",
+    flag: "ctfbox{Forgotten_Subdomain_Found}",
+  },
+  {
+    id: "recon-whois-wonders",
+    title: "Whois Wonders",
+    category: "Recon",
+    order: 2,
+    points: 500,
+    description:
+      "Historical WHOIS records sometimes outlive a takedown. Look for a registrant email that was reused " +
+      "elsewhere — that's the pivot. Combine it with:\n\n" +
+      "- Search engines\n" +
+      "- Paste sites\n" +
+      "- Old social profiles\n\n" +
+      "Patience beats tooling on this one.",
+    flag: "ctfbox{Whois_History_Repeats}",
+  },
+];
+
+export type DemoClassicSolve = { login: string; challengeId: string };
+
+// Spread across several demo contestants (and across both members of more
+// than one team) so the classic board's contribution to the combined
+// leaderboard is visible, not just an authored board with nobody on it.
+// Every (login, challengeId) pair here is unique so solvecount can be derived
+// directly as "how many rows name this challengeId" without a dedupe step.
+export const DEMO_CLASSIC_SOLVES: DemoClassicSolve[] = [
+  { login: "neo-anderson", challengeId: "web-robots-only" },
+  { login: "neo-anderson", challengeId: "web-hidden-comment" },
+  { login: "neo-anderson", challengeId: "crypto-caesar-whisper" },
+  { login: "trinity-h", challengeId: "web-robots-only" },
+  { login: "trinity-h", challengeId: "crypto-base-case" },
+  { login: "kevin-mitnick", challengeId: "crypto-caesar-whisper" },
+  { login: "kevin-mitnick", challengeId: "forensics-metadata-leak" },
+  { login: "kevin-mitnick", challengeId: "recon-subdomain-sweep" },
+  { login: "grace-hopper", challengeId: "web-hidden-comment" },
+  { login: "grace-hopper", challengeId: "web-cookie-jar" },
+  { login: "grace-hopper", challengeId: "forensics-packet-peek" },
+  { login: "ada-lovelace", challengeId: "crypto-base-case" },
+  { login: "ada-lovelace", challengeId: "recon-subdomain-sweep" },
+  { login: "morpheus-z", challengeId: "web-robots-only" },
+];
+
 // Quiz demo data (DEMO_MODE 'Seed demo data', quiz module only). Mirrors the
 // shape quiz-store.ts's `Question`/correct-answer-key expects: `correct` is
 // NOT part of the public `Question` shape written to `ctf:quiz:questions` —
