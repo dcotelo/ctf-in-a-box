@@ -4,11 +4,21 @@
 // contestants actually need in the moment: that the code applies, and how to
 // report something.
 
+//
+// Platform copy throughout: the code applies to the event, not to a module's
+// game. The one module-shaped clause is where the code REACHES — a
+// secure-development event runs in a GitHub org, with pull requests and
+// reviews in it, and an event without that module does not — so that clause is
+// gated rather than left to name repositories nobody has.
+
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
+import { isModuleEnabled } from "@/lib/modules";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
+
+const secureDev = isModuleEnabled("secure-development");
 
 export const metadata: Metadata = {
   title: "Code of Conduct",
@@ -46,9 +56,15 @@ export default function CodeOfConductPage() {
               <ExternalLink href={event.owaspCodeOfConductUrl}>
                 OWASP Code of Conduct
               </ExternalLink>{" "}
-              governs this competition as an OWASP activity, and applies to the CTF Discord,
-              the {eventConfig.githubOrg} GitHub organization, and any pull requests or reviews
-              you take part in.
+              governs this competition as an OWASP activity, and applies to the CTF Discord
+              {secureDev ? (
+                <>
+                  , the {eventConfig.githubOrg} GitHub organization, and any pull requests or
+                  reviews you take part in.
+                </>
+              ) : (
+                <> and to every space this event runs in, on the day and online.</>
+              )}
             </span>
           </li>
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
@@ -64,8 +80,8 @@ export default function CodeOfConductPage() {
       <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
         <h2 className="mb-2 text-lg font-semibold text-white">Reporting a problem</h2>
         <p className="mb-4 text-sm leading-relaxed text-zinc-400">
-          You do not need to be the target to report something, and you do not need proof. If
-          something feels wrong, say so. Every route below reaches a real person.
+          You do not need to have been harmed yourself to report something, and you do not need
+          proof. If something feels wrong, say so. Every route below reaches a real person.
         </p>
         <ul className="flex flex-col gap-3">
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
@@ -79,8 +95,8 @@ export default function CodeOfConductPage() {
                   <ExternalLink href={event.discordUrl}>CTF Discord</ExternalLink>
                 </>
               )}
-              . This is also the right route for scoring disputes and for reporting a bug in a
-              challenge or the scorer.
+              . This is also the right route for scoring disputes and for reporting a bug in the
+              competition or in the scoring pipeline.
             </span>
           </li>
           {event.contactEmail && (
