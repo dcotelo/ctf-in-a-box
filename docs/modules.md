@@ -505,14 +505,27 @@ of one module's shape.
    neither promise a per-challenge breakdown an event has no notion of, nor
    stay silent about the answers a quiz-only event does keep.
 
-8. **Pre-event gate.** The gate (`proxy.ts` + `/gate`) protects **every
-   enabled module's route**, not a hardcoded `/challenges`. `proxy.ts`
-   derives the gated set from the registry (`enabledModuleRoutes`), and
-   `/gate` sends an unlocked visitor to the first of them, falling back to
-   `/`. Next requires `config.matcher` to be a static literal, so it cannot
-   be computed — it lists every registry route by hand and
-   `src/__tests__/proxy.test.ts` asserts it covers `ALL_MODULE_ROUTES`, so a
-   newly registered module cannot end up silently un-gated.
+8. **Pre-event gate.** The gate (`proxy.ts` + `/gate`) covers **every enabled
+   module's own page route** — the exact `nav.href` each module registers —
+   rather than the hardcoded `/challenges` it used to. `proxy.ts` derives the
+   gated set from the registry (`enabledModuleRoutes`), and `/gate` sends an
+   unlocked visitor to the first of them, falling back to `/`. Next requires
+   `config.matcher` to be a static literal, so it cannot be computed — it
+   lists every registry route by hand and `src/__tests__/proxy.test.ts`
+   asserts it covers `ALL_MODULE_ROUTES`, so a newly registered module cannot
+   end up silently un-gated. `proxy-quiz-only.test.ts` and
+   `proxy-disabled-module.test.ts` pin what it then *does* with them.
+
+   Know what this is and is not. It is **page-only and exact-match**: it
+   protects the module's page, not any deeper path under it, and **not the
+   module's API routes** — `POST /api/quiz/answer` is reachable with the lock
+   screen up, so a signed-in contestant can be scored before the event opens.
+   The gate is a "the board opens at the keynote" curtain, not an
+   authorization boundary; every API route enforces its own rules
+   (authentication, the pause/schedule window, attempt caps) independently
+   and must keep doing so. A module MUST NOT treat "the gate is up" as a
+   reason to skip a check in its own API. See `docs/operations.md`'s
+   "Known limitations" for the operator-facing note.
 
 ## 6. Security requirements (non-negotiable)
 

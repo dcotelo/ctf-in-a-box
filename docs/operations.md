@@ -347,6 +347,29 @@ one. `dev-stack up` tells you exactly what to add (an OAuth app's client
 id/secret in `.env`, your login in `admins`) to unlock sign-in and `/admin` on
 top of the leaderboard/challenge-browsing experience it gives you immediately.
 
+## Known limitations
+
+**The pre-event gate is page-only.** With `CHALLENGES_GATE_ENABLED=true`,
+every enabled module's own page route (`/challenges`, `/quiz`) redirects a
+visitor without a valid unlock cookie to `/gate`. That list is exact-match and
+it is *pages*: the module **API routes are not behind it**. A signed-in
+contestant who knows the endpoint can `POST /api/quiz/answer` while the lock
+screen is up and be scored before the doors open — the answer is still graded,
+the points still post.
+
+What still holds while the gate is up: the API routes enforce their own rules
+regardless of it — a session is required, the admin **pause** and the
+**scheduled scoring window** are checked on every write, and per-question
+attempt caps and cooldowns apply. So the operator control that actually stops
+early scoring is the schedule/pause pair in the admin panel (see [Organizer
+admin panel](#organizer-admin-panel)), not the access password.
+
+Read the gate for what it is: a "the board opens at the keynote" curtain over
+the contestant-facing pages, and a way to keep the challenge list unpublished
+until the event starts. It is not an authorization boundary. If you need
+scoring genuinely shut until a moment in time, set the scoring window (or keep
+the event paused) as well as — or instead of — the password gate.
+
 ## Status and upstream dependencies
 
 The kit is complete and tested offline: `scripts/smoke.sh` exercises the whole
