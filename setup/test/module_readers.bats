@@ -144,6 +144,22 @@ got_targets() {
   printf '%s' "$output" | grep -qF 'no module keys'
 }
 
+@test "a duplicate module key fails CLOSED in org (the JS readers throw on it)" {
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run \
+    --config "$CORPUS/reject-duplicate-module-key-with-targets.yaml"
+  [ "$status" -ne 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F 'nothing to do')" ]
+  [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
+  printf '%s' "$output" | grep -qF 'duplicate key: secure-development'
+}
+
+@test "a second top-level modules: block is rejected, not read as the end of the first" {
+  run bash "$SCRIPT" render --config "$CORPUS/reject-duplicate-modules-block.yaml"
+  [ "$status" -ne 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F 'nothing to render')" ]
+  printf '%s' "$output" | grep -qF 'more than one top-level modules: key'
+}
+
 @test "the shipped event.yaml.example is accepted by the bash reader" {
   run bash "$SCRIPT" render --config "$BATS_TEST_DIRNAME/../../event.yaml.example"
   [ "$status" -eq 0 ]

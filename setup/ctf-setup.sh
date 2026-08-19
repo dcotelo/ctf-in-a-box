@@ -423,8 +423,16 @@ yaml_url() {
 # Rejected LOUDLY, never silently: tab indentation, a bare `modules:` with
 # nothing under it, a scalar or sequence value for `modules:`, sequence items
 # or merge keys (`<<:`) where module keys belong, an unterminated flow
-# mapping, an alias (`modules: *base`) this parser cannot resolve, and any
-# other shape it does not understand.
+# mapping, an alias (`modules: *base`) this parser cannot resolve, DUPLICATE
+# module keys and a duplicated top-level `modules:` block, and any other shape
+# it does not understand.
+#
+# The duplicates are there for the same reason as everything else on that
+# list: the YAML libraries behind the other two readers reject a repeated
+# mapping key outright ("Map keys must be unique"), so first-wins here meant
+# `ctf-setup.sh org` exiting 0 having provisioned whatever the first copy
+# said, with the same file blowing up much later at app build. Same shape as
+# the flow-style divergence this parser replaced, in miniature.
 #
 # want=keys    -> one module key per line
 # want=targets -> one target per line, scoped to modules.<mod> (a `targets:`
@@ -455,6 +463,11 @@ _yaml_modules() {
       return o
     }
     function fail(msg) { printf("event.yaml: %s\n", msg) > "/dev/stderr"; failed = 1; exit 2 }
+    # Duplicate module keys, tracked as a "\nkey\n..." string rather than an
+    # array so a partial flow scan can restore it by assignment (see
+    # flow_scan) without depending on `delete arr`.
+    function seen(key) { return index(seenbuf, "\n" key "\n") > 0 }
+    function see(key) { seenbuf = seenbuf key "\n" }
     function emit(v) { out = out v "\n" }
     function emit_list(inner,   n, a, i, t) {
       n = split(inner, a, ",")
@@ -474,8 +487,12 @@ _yaml_modules() {
     }
     # Quote-aware scan of a flow mapping. Returns 1 when the mapping closed
     # (keys/targets emitted), -1 when it needs more lines. Errors are fatal.
-    function flow_scan(s,   i, c, q, depth, tok, st, key, saved) {
+    function flow_scan(s,   i, c, q, depth, tok, st, key, saved, saved_seen) {
       saved = out                        # a partial scan must emit nothing
+      # ...and must remember no keys either: a multi-line flow mapping is
+      # re-scanned from the start on every added line, so keys carried over
+      # from the previous pass would read as duplicates of themselves.
+      saved_seen = seenbuf
       q = ""; depth = 0; tok = ""; st = "key"; key = ""
       for (i = 1; i <= length(s); i++) {
         c = substr(s, i, 1)
@@ -496,6 +513,8 @@ _yaml_modules() {
         if (depth == 1 && c == ":" && st == "key") {
           key = unquote(trim(tok))
           if (key == "") fail("modules: has an entry with an empty key")
+          if (seen(key)) fail("modules: has a duplicate key: " key)
+          see(key)
           tok = ""; st = "val"; continue
         }
         if (depth == 1 && c == ",") {
@@ -508,6 +527,7 @@ _yaml_modules() {
         tok = tok c
       }
       out = saved
+      seenbuf = saved_seen
       return -1
     }
     # Position of the colon that ends a (possibly quoted) mapping key, or 0.
@@ -556,11 +576,21 @@ _yaml_modules() {
       }
     }
 
-    BEGIN { state = "pre"; base = -1; out = ""; modbuf = ""; inmod = 0; found = 0 }
+    BEGIN { state = "pre"; base = -1; out = ""; modbuf = ""; inmod = 0; found = 0; seenbuf = "\n" }
 
     {
       line = $0
       sub(/\r$/, "", line)
+
+      # A SECOND top-level `modules:` key. YAML calls that a duplicate mapping
+      # key and the other two readers throw on it; reading it as "the block
+      # ended" (which is what an indent-0 line means in state block, and what
+      # state done ignores outright) would provision the first copy and drop
+      # the second in silence. Not checked in state flow: there, an indent-0
+      # line is either inside an unterminated flow mapping — already fatal at
+      # END — or a nested key of it.
+      if ((state == "block" || state == "done") && line ~ /^modules[ \t]*:/)
+        fail("more than one top-level modules: key (line " NR ")")
 
       if (state == "done") next
 
@@ -609,6 +639,8 @@ _yaml_modules() {
         fail("modules: entry is not a `key:` mapping (line " NR "): " body)
       key = unquote(trim(substr(body, 1, ci - 1)))
       if (key == "") fail("modules: has an entry with an empty key (line " NR ")")
+      if (seen(key)) fail("modules: has a duplicate key: " key " (line " NR ")")
+      see(key)
       val = trim(substr(body, ci + 1))
       sub(/^&[^ \t]+[ \t]*/, "", val)
       if (want == "keys") { emit(key); next }

@@ -822,7 +822,16 @@ through the bash reader and `sync/test/module-readers.differential.test.js`
 runs the same files through `sync`'s, so agreeing with the corpus is agreeing
 with each other. The corpus immediately found one live divergence — `modules:
 []` was accepted by `sync` (`typeof [] === "object"`) and rejected by bash —
-now closed with an `Array.isArray` guard.
+now closed with an `Array.isArray` guard. A second one turned up later, in
+the dangerous direction: YAML forbids repeated mapping keys, so both JS
+readers throw on `quiz: {}` twice over (or on a second top-level `modules:`
+block) while the bash reader took first-wins and provisioned whatever the
+first copy said — `ctf-setup.sh org` exiting 0 having forked nothing, with the
+failure surfacing at app build much later. The bash reader rejects both
+shapes now, with four fixtures pinning it. One asymmetry is left open
+deliberately: `modules: *alias` is rejected by bash (it resolves no anchors)
+and accepted by the JS readers. That points the safe way — the strict reader
+is the one that fails, loudly, at provisioning time.
 
 The third reader, `apps/web/scripts/generate-event-config.mjs`, is not in that
 corpus (it runs under the app's own vitest suite, at image-build time rather
