@@ -31,11 +31,19 @@ describe("Markdown", () => {
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<iframe");
     expect(html).not.toContain("<svg");
-    expect(html).not.toContain("onerror=");
-    expect(html).not.toContain("onload=");
-    expect(html).not.toContain("javascript:");
     // Proves the content was RENDERED (escaped), not silently dropped —
     // otherwise a component returning null would pass every assertion above.
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders organizer prose about dangerous patterns without corruption", () => {
+    // Regression test: ensures that when organizers write about dangerous
+    // patterns like "the onload= attribute", the text renders correctly without
+    // entity-substitution corruption (e.g., not becoming "onload&#61;").
+    // This is important for legitimate educational content.
+    const source = "the `onload=` attribute is dangerous";
+    const html = renderToStaticMarkup(<Markdown source={source} />);
+    expect(html).toContain("onload=");
+    expect(html).not.toContain("&#61;");
   });
 });

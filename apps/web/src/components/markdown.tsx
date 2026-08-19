@@ -14,17 +14,8 @@ function Inline({ nodes }: { nodes: MdInline[] }) {
     <>
       {nodes.map((node, i) => {
         switch (node.kind) {
-          case "text": {
-            // Further escape patterns that are dangerous even in escaped HTML text:
-            // onerror=, onload=, and javascript: can appear unescaped in our output,
-            // so we escape them character-by-character using HTML entities to ensure
-            // they never appear as substrings in the rendered HTML.
-            const safeText = node.text
-              .replace(/onerror=/g, "onerror&#61;")
-              .replace(/onload=/g, "onload&#61;")
-              .replace(/javascript:/g, "javascript&#58;");
-            return safeText;
-          }
+          case "text":
+            return node.text;
           case "strong":
             return (
               <strong key={i} className="font-semibold text-white">
