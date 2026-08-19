@@ -1,9 +1,9 @@
 "use client";
 
 // The Quiz module's admin section: the two retry-gate settings (max attempts,
-// retry cooldown) plus full question authoring (add/edit/delete), rendered in
-// place of admin-controls.tsx's old "No settings for this module yet."
-// placeholder for the quiz module.
+// retry cooldown) plus full question authoring (add/edit/reorder/delete),
+// rendered in place of admin-controls.tsx's old "No settings for this module
+// yet." placeholder for the quiz module.
 //
 // Settings: the numeric inputs reuse `commitNumber` from admin-controls.tsx
 // (passed down as a prop, already bound to that component's `settings`/`apply`
@@ -11,11 +11,32 @@
 // copy of the same plumbing.
 //
 // Questions: this component owns its own fetch of GET /api/admin/quiz and its
-// own add/edit/delete state, independent of the settings machinery above.
-// `initialQuestions` seeds the list synchronously (used by tests, which render
-// with `renderToStaticMarkup` and so never run the mount-time fetch below);
-// in the browser it's just the pre-hydration paint, immediately replaced by
-// a fresh fetch.
+// own add/edit/reorder/delete state, independent of the settings machinery
+// above. `initialQuestions` seeds the list synchronously (used by tests, which
+// render with `renderToStaticMarkup` and so never run the mount-time fetch
+// below); in the browser it's just the pre-hydration paint, immediately
+// replaced by a fresh fetch.
+//
+// Two authoring fields an organizer used to have to type are now derived, and
+// both for the same reason: they were storage plumbing wearing a text input.
+//
+//   - The question ID is generated from the prompt (`generateQuestionId`, in
+//     quiz-keys.ts) when a NEW question is saved. It is the field name in
+//     `ctf:quiz:questions` and `ctf:quiz:key` AND the reference every
+//     contestant's `ctf:quiz:answers:<login>` row is recorded against, so on an
+//     EXISTING question it is immutable: changing it would orphan every answer
+//     already banked against the old one, leaving the points on the
+//     leaderboard with no question to explain them. That immutability is
+//     structural here, not a disabled input: `QuestionDraft` — the thing the
+//     form edits — has NO id field at all. The id lives on `QuestionEditor`,
+//     which the form never writes to, so `onChange({ ...draft, id })` is not
+//     something a future edit to `QuestionForm` can even type.
+//   - The ORDER is written from list position. Organizers drag rows (or use
+//     the per-row Move up/Move down buttons, which is the keyboard-operable
+//     path — drag alone is not operable for everyone, and this is an
+//     organizer's control surface). `reorderQuestions` recomputes `order` from
+//     the resulting positions and the changed rows are POSTed back. Storage is
+//     unchanged: `listQuestions` still sorts by `order`.
 //
 // Secrecy: this component DOES hold the answer key, and that is deliberate.
 // `GET /api/admin/quiz` is behind `requireAdmin` and returns
@@ -40,7 +61,7 @@
 // from every contestant's board and can no longer be answered — so it is
 // gated behind the same `ConfirmModal` + `requireType` pattern the master
 // reset uses: Confirm stays disabled until the organizer types the
-// question's own id.
+// question's own PROMPT (see `questionDeleteConfirm`).
 //
 // What deletion does NOT do: it does not clear contestant history. Points
 // already banked for the question stay on the leaderboard, because
@@ -51,6 +72,7 @@
 
 import { useEffect, useState } from "react";
 import type { AdminQuestion, Choice, Question, QuestionType } from "@/lib/quiz-store";
+import { generateQuestionId } from "@/lib/quiz-keys";
 import ConfirmModal from "@/components/confirm-modal";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
@@ -80,9 +102,43 @@ export function describeQuizError(status: number, message?: string): string {
   return message ?? "That didn't work — check the question and try again.";
 }
 
-/** The exact copy + gating for the delete confirmation. Typing the
- *  question's own id (not a generic word) forces the organizer to read which
- *  question they're about to remove.
+/** Longest phrase the delete confirmation asks an organizer to retype. A
+ *  prompt can run to a paragraph; making someone transcribe one verbatim
+ *  turns a safety gate into a copy-paste ritual, which is the opposite of
+ *  making them read it. */
+export const DELETE_CONFIRM_PHRASE_MAX = 48;
+
+/** The exact string the delete confirmation makes the organizer type:
+ *  the question's prompt, whitespace-collapsed and — if long — cut at the
+ *  last word boundary inside `DELETE_CONFIRM_PHRASE_MAX`.
+ *
+ *  The truncation is applied ONCE and the result is used for BOTH the modal's
+ *  title and its `requireType`, so what the organizer reads is exactly what
+ *  they must type. Deriving the two separately (full prompt to type, short
+ *  prompt on screen) would be the ambiguous version. Exported for direct
+ *  testing. */
+export function confirmPhraseFromPrompt(prompt: string): string {
+  const clean = prompt.trim().replace(/\s+/g, " ");
+  if (clean.length <= DELETE_CONFIRM_PHRASE_MAX) return clean;
+  const cut = clean.slice(0, DELETE_CONFIRM_PHRASE_MAX);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
+/** The exact copy + gating for the delete confirmation.
+ *
+ *  The phrase is the question's PROMPT, not its id. The id used to be typed
+ *  here, back when an organizer chose it; now it is generated
+ *  (`generateQuestionId`), and asking someone to transcribe
+ *  "which-header-mitigates-cl-k3f9qa" proves only that they can copy a string
+ *  — it doesn't make them read WHICH question they are about to remove, which
+ *  is the entire job of this gate. The prompt does.
+ *
+ *  The id still appears in `body`, as a fact rather than a task: two questions
+ *  whose prompts share a first 48 characters would ask for the same phrase, and
+ *  the id is what tells them apart on screen. (Which one actually goes is never
+ *  in doubt — the delete is dispatched against the selected row's id, not
+ *  against anything typed.)
  *
  *  `body` states the real contract, which is narrower than it looks: the
  *  question goes away, banked points do not. Saying otherwise (an earlier
@@ -96,41 +152,76 @@ export function questionDeleteConfirm(question: Question): {
   requireType: string;
   confirmLabel: string;
 } {
+  const phrase = confirmPhraseFromPrompt(question.prompt);
   return {
-    title: `Delete "${question.prompt}"?`,
+    title: `Delete "${phrase}"?`,
     body:
-      "This removes the question from the quiz and hides it from contestants. " +
+      `This removes the question (id ${question.id}) from the quiz and hides it from contestants. ` +
       "Points already banked for it stay on the leaderboard — to clear those, use the master reset.",
-    requireType: question.id,
+    requireType: phrase,
     confirmLabel: "Delete question",
   };
 }
 
 export type ChoiceDraft = Choice;
 
+/** Everything about a question that the FORM may change.
+ *
+ *  Deliberately missing: `id` and `order`. Both are storage plumbing derived
+ *  elsewhere (`QuestionEditor` below holds them), and their absence here is
+ *  what makes "an edit cannot change a question's id" a property of the types
+ *  rather than of a `disabled` attribute somebody could remove. */
 export type QuestionDraft = {
-  id: string;
   prompt: string;
   type: QuestionType;
   points: string;
-  order: string;
   choices: ChoiceDraft[];
   correct: string[];
 };
 
-export function emptyDraft(nextOrder: number): QuestionDraft {
+/** The form's whole state: the editable draft plus the identity/position the
+ *  form does not own.
+ *
+ *  A discriminated union rather than `{ id?: string }`, so the id is reachable
+ *  only after establishing which case you are in — a NEW question genuinely
+ *  has no id yet (it is minted from the prompt at save time), and an EXISTING
+ *  one's is fixed. */
+export type QuestionEditor =
+  | { mode: "new"; order: number; draft: QuestionDraft }
+  | { mode: "edit"; id: string; order: number; draft: QuestionDraft };
+
+/** The POST body `/api/admin/quiz` parses. Mirrors that route's
+ *  `QuestionPayload` — the route re-validates every field, this type just
+ *  keeps the client from assembling something obviously wrong. */
+export type QuestionPayload = {
+  id: string;
+  prompt: string;
+  type: QuestionType;
+  choices: Choice[];
+  points: number;
+  order: number;
+  correct: string[];
+};
+
+export function emptyDraft(): QuestionDraft {
   return {
-    id: "",
     prompt: "",
     type: "single",
     points: "10",
-    order: String(nextOrder),
     choices: [
       { id: "a", label: "" },
       { id: "b", label: "" },
     ],
     correct: [],
   };
+}
+
+/** A brand-new question, positioned at the end of the list. No id: one is
+ *  generated from the finished prompt when the draft is submitted, so the
+ *  slug reflects what the organizer actually typed rather than whatever the
+ *  prompt field held at the moment they clicked "Add question". */
+export function newQuestionEditor(nextOrder: number): QuestionEditor {
+  return { mode: "new", order: nextOrder, draft: emptyDraft() };
 }
 
 /** Seeds an edit draft from an existing question — INCLUDING the choices
@@ -145,30 +236,35 @@ export function emptyDraft(nextOrder: number): QuestionDraft {
  *  a cancelled edit look saved. */
 export function draftFromQuestion({ question: q, correct }: AdminQuestion): QuestionDraft {
   return {
-    id: q.id,
     prompt: q.prompt,
     type: q.type,
     points: String(q.points),
-    order: String(q.order),
     choices: q.choices.map((c) => ({ ...c })),
     correct: [...correct],
   };
+}
+
+/** Opens an existing question for editing: its draft, plus the id and order
+ *  the form cannot touch. */
+export function editorFromQuestion(row: AdminQuestion): QuestionEditor {
+  return { mode: "edit", id: row.question.id, order: row.question.order, draft: draftFromQuestion(row) };
 }
 
 /** Whether `draft` could be submitted as-is. Mirrors the store's own rules
  *  (a `"single"` question needs exactly one correct choice) PLUS basic form
  *  hygiene (non-empty fields, at least two choices, unique choice ids) so an
  *  organizer can't build something the store would reject and only find out
- *  on submit (Requirement 4). Exported for direct testing. */
+ *  on submit (Requirement 4).
+ *
+ *  No id check any more, and that is not an oversight: a new question's id is
+ *  derived from the prompt (which IS checked non-empty) and an existing one's
+ *  is fixed, so there is no id for a draft to get wrong. Same for order, which
+ *  now comes from list position. Exported for direct testing. */
 export function isDraftValid(d: QuestionDraft): boolean {
-  if (d.id.trim().length === 0) return false;
   if (d.prompt.trim().length === 0) return false;
 
   const points = Number(d.points);
   if (d.points.trim() === "" || !Number.isInteger(points) || points < 0) return false;
-
-  const order = Number(d.order);
-  if (d.order.trim() === "" || !Number.isInteger(order)) return false;
 
   if (d.choices.length < 2) return false;
   const ids = new Set<string>();
@@ -185,6 +281,89 @@ export function isDraftValid(d: QuestionDraft): boolean {
   if (d.type === "multi" && correct.length < 1) return false;
 
   return true;
+}
+
+/** The POST body for an editor's current state.
+ *
+ *  The id rule is the whole reason this is a function and not an inline object
+ *  literal at the call site: on `mode: "edit"` it is `editor.id`, full stop —
+ *  no derivation from the (possibly just-rewritten) prompt, because changing
+ *  an id would orphan every answer already recorded against the old one. On
+ *  `mode: "new"` it is minted from the prompt.
+ *
+ *  `newId` is injectable so a test can pin the generated value; production
+ *  always uses `generateQuestionId`, whose output is checked against the
+ *  store's own `QUIZ_ID_RE` before it is returned. Exported for direct
+ *  testing. */
+export function payloadFromEditor(
+  editor: QuestionEditor,
+  newId: (prompt: string) => string = generateQuestionId,
+): QuestionPayload {
+  const d = editor.draft;
+  const prompt = d.prompt.trim();
+  return {
+    id: editor.mode === "edit" ? editor.id : newId(prompt),
+    prompt,
+    type: d.type,
+    choices: d.choices.map((c) => ({ id: c.id.trim(), label: c.label.trim() })),
+    points: Number(d.points),
+    order: editor.order,
+    correct: d.correct,
+  };
+}
+
+/** The POST body that re-saves an existing row unchanged apart from whatever
+ *  the caller already rewrote on it — used by the reorder path, which changes
+ *  `order` and nothing else. Goes through the same endpoint (and therefore
+ *  the same validation and audit line) as an edit. */
+export function payloadFromRow({ question: q, correct }: AdminQuestion): QuestionPayload {
+  return {
+    id: q.id,
+    prompt: q.prompt,
+    type: q.type,
+    choices: q.choices.map((c) => ({ ...c })),
+    points: q.points,
+    order: q.order,
+    correct: [...correct],
+  };
+}
+
+/** Moves the row at `from` to index `to` and rewrites EVERY row's `order`
+ *  from its new position (1-based, so the list reads `#1, #2, …`).
+ *
+ *  Pure, and exported, because it is the whole of the reordering logic: the
+ *  drag handlers and the Move up/down buttons only work out a pair of indices
+ *  and hand them here. That split is deliberate — this repo has no
+ *  testing-library and deliberately does not want one, so drag events cannot
+ *  be simulated in a unit test; keeping every decision about what the new
+ *  order values ARE inside a plain function means the untestable part is
+ *  reduced to "which two numbers get passed in".
+ *
+ *  Rows whose order is already correct for their new position are returned by
+ *  REFERENCE, unchanged. That is what lets the caller persist only the rows
+ *  that actually moved (see `changedOrderRows`) instead of re-POSTing the
+ *  whole list on every nudge.
+ *
+ *  An out-of-range index is a no-op: a copy of the list, not a renumbering.
+ *  A drag that lands nowhere must not quietly rewrite every row's order. */
+export function reorderQuestions(list: readonly AdminQuestion[], from: number, to: number): AdminQuestion[] {
+  const next = [...list];
+  if (from < 0 || from >= next.length || to < 0 || to >= next.length) return next;
+
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+
+  return next.map((row, i) =>
+    row.question.order === i + 1 ? row : { ...row, question: { ...row.question, order: i + 1 } },
+  );
+}
+
+/** The rows whose `order` differs between two versions of the list — i.e.
+ *  exactly the questions a reorder has to write back. Matched by question id,
+ *  never by position (position is the thing that changed). */
+export function changedOrderRows(before: readonly AdminQuestion[], after: readonly AdminQuestion[]): AdminQuestion[] {
+  const orderById = new Map(before.map((row) => [row.question.id, row.question.order]));
+  return after.filter((row) => orderById.get(row.question.id) !== row.question.order);
 }
 
 function sortQuestions(list: AdminQuestion[]): AdminQuestion[] {
@@ -211,9 +390,12 @@ export default function AdminQuizControls({
   const [questions, setQuestions] = useState<AdminQuestion[]>(() => sortQuestions(initialQuestions));
   const [listError, setListError] = useState<string | null>(null);
 
-  const [editing, setEditing] = useState<{ draft: QuestionDraft; isNew: boolean } | null>(null);
+  const [editing, setEditing] = useState<QuestionEditor | null>(null);
   const [formPending, setFormPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [reorderPending, setReorderPending] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null);
   const [deletePending, setDeletePending] = useState(false);
@@ -246,18 +428,7 @@ export default function AdminQuizControls({
 
   const nextOrder = questions.reduce((max, q) => Math.max(max, q.question.order), 0) + 1;
 
-  async function submitDraft(draft: QuestionDraft) {
-    setFormPending(true);
-    setFormError(null);
-    const payload = {
-      id: draft.id.trim(),
-      prompt: draft.prompt.trim(),
-      type: draft.type,
-      choices: draft.choices.map((c) => ({ id: c.id.trim(), label: c.label.trim() })),
-      points: Number(draft.points),
-      order: Number(draft.order),
-      correct: draft.correct,
-    };
+  async function postQuestion(payload: QuestionPayload): Promise<{ ok: true; row: AdminQuestion } | { ok: false; message: string }> {
     try {
       const res = await fetch("/api/admin/quiz", {
         method: "POST",
@@ -265,23 +436,52 @@ export default function AdminQuizControls({
         body: JSON.stringify(payload),
       });
       const data = await parseJson<{ error?: string; question?: Question; correct?: string[] }>(res);
-      const savedQuestion = data.question;
-      if (!res.ok || !savedQuestion) {
-        setFormError(describeQuizError(res.status, data.error));
+      if (!res.ok || !data.question) return { ok: false, message: describeQuizError(res.status, data.error) };
+      // The route echoes the STORED (deduped, sorted) correct set alongside
+      // the question; falling back to the payload's own set would leave the
+      // list holding something the store never wrote.
+      return { ok: true, row: { question: data.question, correct: data.correct ?? payload.correct } };
+    } catch {
+      return { ok: false, message: "Couldn't reach the server — try again." };
+    }
+  }
+
+  async function submitEditor(editor: QuestionEditor) {
+    setFormPending(true);
+    setFormError(null);
+    const result = await postQuestion(payloadFromEditor(editor));
+    setFormPending(false);
+    if (!result.ok) {
+      setFormError(result.message);
+      return;
+    }
+    setQuestions((prev) => upsertInList(prev, result.row));
+    setEditing(null);
+  }
+
+  /** Applies a move optimistically, then writes back only the rows whose
+   *  order actually changed. Any failure restores the pre-move list rather
+   *  than leaving the panel showing an arrangement the store doesn't have. */
+  async function moveQuestion(from: number, to: number) {
+    if (from === to || reorderPending) return;
+    const before = questions;
+    const after = reorderQuestions(before, from, to);
+    const changed = changedOrderRows(before, after);
+    if (changed.length === 0) return;
+
+    setQuestions(after);
+    setReorderPending(true);
+    setListError(null);
+    for (const row of changed) {
+      const result = await postQuestion(payloadFromRow(row));
+      if (!result.ok) {
+        setQuestions(before);
+        setListError(result.message);
+        setReorderPending(false);
         return;
       }
-      // The route echoes the STORED (deduped, sorted) correct set alongside
-      // the question; falling back to the draft's own set would leave the
-      // list holding something the store never wrote.
-      setQuestions((prev) =>
-        upsertInList(prev, { question: savedQuestion, correct: data.correct ?? draft.correct }),
-      );
-      setEditing(null);
-    } catch {
-      setFormError("Couldn't reach the server — try again.");
-    } finally {
-      setFormPending(false);
     }
+    setReorderPending(false);
   }
 
   async function doDelete(id: string) {
@@ -355,7 +555,7 @@ export default function AdminQuizControls({
           <button
             type="button"
             disabled={formPending}
-            onClick={() => setEditing({ draft: emptyDraft(nextOrder), isNew: true })}
+            onClick={() => setEditing(newQuestionEditor(nextOrder))}
             className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
           >
             Add question
@@ -367,60 +567,101 @@ export default function AdminQuizControls({
         {questions.length === 0 ? (
           <p className="text-xs text-muted">No questions yet.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {questions.map((row) => (
-              // The collapsed list shows the public half only — which choice
-              // is correct appears when the organizer opens the edit form,
-              // not on a panel that might be on a projector.
-              <li
-                key={row.question.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-white">{row.question.prompt}</p>
-                  <p className="text-xs text-muted">
-                    #{row.question.order} · {row.question.type} · {row.question.points} pt
-                    {row.question.points === 1 ? "" : "s"} · {row.question.choices.length} choices
-                  </p>
-                </div>
-                <div className="flex flex-none gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditing({ draft: draftFromQuestion(row), isNew: false })}
-                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeleteError(null);
-                      setDeleteTarget(row.question);
-                    }}
-                    className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            <p className="text-xs text-muted">
+              Drag a question to reorder it, or use Move up / Move down. Contestants see them in this order.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {questions.map((row, i) => (
+                // The collapsed list shows the public half only — which choice
+                // is correct appears when the organizer opens the edit form,
+                // not on a panel that might be on a projector.
+                <li
+                  key={row.question.id}
+                  draggable={!reorderPending}
+                  onDragStart={() => setDragIndex(i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragIndex !== null) void moveQuestion(dragIndex, i);
+                    setDragIndex(null);
+                  }}
+                  onDragEnd={() => setDragIndex(null)}
+                  className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span aria-hidden="true" className="flex-none cursor-grab text-zinc-500">
+                      ⠿
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-white">{row.question.prompt}</p>
+                      <p className="text-xs text-muted">
+                        #{row.question.order} · {row.question.type} · {row.question.points} pt
+                        {row.question.points === 1 ? "" : "s"} · {row.question.choices.length} choices
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-none gap-2">
+                    {/* The keyboard path. Dragging is a mouse gesture and
+                        cannot be the only way to reorder an organizer's own
+                        content, so every row carries real buttons that move
+                        it one place — same `reorderQuestions` call the drop
+                        handler makes. */}
+                    <button
+                      type="button"
+                      aria-label={`Move "${row.question.prompt}" up`}
+                      disabled={reorderPending || i === 0}
+                      onClick={() => void moveQuestion(i, i - 1)}
+                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
+                    >
+                      Move up
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move "${row.question.prompt}" down`}
+                      disabled={reorderPending || i === questions.length - 1}
+                      onClick={() => void moveQuestion(i, i + 1)}
+                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
+                    >
+                      Move down
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditing(editorFromQuestion(row))}
+                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleteTarget(row.question);
+                      }}
+                      className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
 
       {editing && (
         <QuestionForm
-          draft={editing.draft}
-          isNew={editing.isNew}
+          editor={editing}
           pending={formPending}
           error={formError}
-          onChange={(draft) => setEditing({ draft, isNew: editing.isNew })}
+          onChange={(draft) => setEditing({ ...editing, draft })}
           onCancel={() => {
             if (formPending) return;
             setEditing(null);
             setFormError(null);
           }}
-          onSubmit={() => void submitDraft(editing.draft)}
+          onSubmit={() => void submitEditor(editing)}
         />
       )}
 
@@ -450,22 +691,25 @@ export default function AdminQuizControls({
 }
 
 function QuestionForm({
-  draft,
-  isNew,
+  editor,
   pending,
   error,
   onChange,
   onCancel,
   onSubmit,
 }: {
-  draft: QuestionDraft;
-  isNew: boolean;
+  editor: QuestionEditor;
   pending: boolean;
   error: string | null;
+  // Takes a DRAFT, not an editor: this form cannot express a change to the
+  // question's id or its position, which is what keeps an existing question's
+  // id immutable no matter how this component is edited later.
   onChange: (draft: QuestionDraft) => void;
   onCancel: () => void;
   onSubmit: () => void;
 }) {
+  const draft = editor.draft;
+  const isNew = editor.mode === "new";
   const valid = isDraftValid(draft);
   const singleNeedsExactlyOne = draft.type === "single" && draft.correct.length !== 1;
   const multiNeedsAtLeastOne = draft.type === "multi" && draft.correct.length < 1;
@@ -499,17 +743,29 @@ function QuestionForm({
 
   return (
     <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
-      <h4 className="text-sm font-semibold text-white">{isNew ? "Add question" : `Edit "${draft.id}"`}</h4>
+      <h4 className="text-sm font-semibold text-white">
+        {editor.mode === "new" ? "Add question" : `Edit "${confirmPhraseFromPrompt(draft.prompt)}"`}
+      </h4>
 
-      <label className="flex flex-col gap-1">
+      {/* The id, shown and never editable. On an existing question it is the
+          reference every banked answer points at, so changing it would orphan
+          them; on a new one it does not exist yet. Either way there is no
+          input here — see the header comment. */}
+      <div className="flex flex-col gap-1">
         <span className="text-xs text-muted">Question id</span>
-        <input
-          value={draft.id}
-          disabled={!isNew || pending}
-          onChange={(e) => onChange({ ...draft, id: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none disabled:opacity-50"
-        />
-      </label>
+        {editor.mode === "edit" ? (
+          <>
+            <code className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
+              {editor.id}
+            </code>
+            <span className="text-xs text-muted">
+              Fixed for the life of the question — contestants&rsquo; answers are recorded against it.
+            </span>
+          </>
+        ) : (
+          <span className="text-xs text-muted">Generated from the prompt when you save.</span>
+        )}
+      </div>
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted">Prompt</span>
@@ -546,16 +802,15 @@ function QuestionForm({
             className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
           />
         </label>
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Order</span>
-          <input
-            type="number"
-            value={draft.order}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, order: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
-          />
-        </label>
+        {/* Position used to be a number input here. It is now set by dragging
+            (or Move up / Move down) in the list above, so the form states
+            where this question sits and offers nothing to type. */}
+        <div className="flex flex-1 flex-col gap-1">
+          <span className="text-xs text-muted">Position</span>
+          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
+            {isNew ? `#${editor.order} (last)` : `#${editor.order}`}
+          </span>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">

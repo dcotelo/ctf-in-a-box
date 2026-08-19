@@ -9,6 +9,7 @@ import {
   quizAnswersKey as answersKey,
   quizAttemptsKey as attemptsKey,
   canonicalizeChoices,
+  QUIZ_ID_RE,
 } from "@/lib/quiz-keys";
 
 /**
@@ -93,11 +94,16 @@ export const QUIZ_MAX_ATTEMPTS = 3;
  *  before it may try again. 0 would mean no cooldown (not the default). */
 export const QUIZ_RETRY_AFTER_MIN = 5;
 
-/** Question/choice ids look like "q1" or "sqli-basics" — reject anything
- *  weirder before it reaches Redis, mirroring hint-store's CHALLENGE_ID_RE.
- *  Exported so callers (e.g. the answer route) validate against this exact
- *  pattern instead of keeping their own copy that could silently desync. */
-export const QUIZ_ID_RE = /^[\w-]{1,64}$/;
+/** Question/choice id pattern, re-exported so callers (e.g. the answer route)
+ *  validate against this exact pattern instead of keeping their own copy that
+ *  could silently desync.
+ *
+ *  It is DEFINED in quiz-keys.ts rather than here: the admin panel's
+ *  id generator (`generateQuestionId`) runs in the browser and must check its
+ *  output against the same object this file validates with, and this file is
+ *  `server-only`. Moving it kept every existing
+ *  `import { QUIZ_ID_RE } from "@/lib/quiz-store"` working unchanged. */
+export { QUIZ_ID_RE };
 
 /** Upper bound on a question's point value, mirroring `HINT_COST_MAX` in
  *  admin-store.ts. This is not cosmetic: `upsertQuestion` writes `points`

@@ -9,13 +9,21 @@
 // `isDraftValid`, `draftFromQuestion`) that the component wires into its JSX.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QUIZ_ID_RE } from "@/lib/quiz-keys";
 import type { AdminQuestion, Question } from "@/lib/quiz-store";
 import AdminQuizControls, {
+  changedOrderRows,
+  confirmPhraseFromPrompt,
   describeQuizError,
   draftFromQuestion,
+  editorFromQuestion,
   emptyDraft,
   isDraftValid,
+  newQuestionEditor,
+  payloadFromEditor,
+  payloadFromRow,
   questionDeleteConfirm,
+  reorderQuestions,
   type QuestionDraft,
 } from "@/components/admin-quiz-controls";
 
@@ -75,6 +83,21 @@ describe("AdminQuizControls", () => {
     expect(html).not.toContain("No questions yet.");
   });
 
+  // Dragging is a mouse gesture. The reorder controls must also exist as real
+  // buttons, or an organizer who navigates by keyboard cannot order their own
+  // question set at all. The drag handlers themselves are NOT covered by this
+  // (no testing-library in this repo, so a drop cannot be simulated) — what is
+  // covered is that the keyboard path renders, and that the logic both paths
+  // call is `reorderQuestions`, tested directly below.
+  it("renders a keyboard-operable move control on every question", () => {
+    const second: AdminQuestion = { question: { ...question, id: "q2", prompt: "Second" }, correct: ["a"] };
+    const html = renderControls([row, second]);
+    expect(html).toContain(`Move &quot;${question.prompt}&quot; up`);
+    expect(html).toContain('Move &quot;Second&quot; down');
+    expect(html).toMatch(/Move up/);
+    expect(html).toMatch(/Move down/);
+  });
+
   // The component now HOLDS the answer key (that's the point — the edit form
   // prefills from it), but the collapsed list must not paint it: an organizer
   // browsing their questions may well be doing it on a projector. The key
@@ -107,7 +130,7 @@ describe("draftFromQuestion", () => {
   it("prefills the choices currently marked correct when editing an existing question", () => {
     const draft = draftFromQuestion(row);
     expect(draft.correct).toEqual([CORRECT_CHOICE_ID]);
-    expect(draft.id).toBe(question.id);
+    expect(draft.prompt).toBe(question.prompt);
     expect(draft.choices).toEqual(question.choices);
   });
 
@@ -140,67 +163,226 @@ describe("draftFromQuestion", () => {
     draft.correct.push("b");
     expect(source.correct).toEqual([CORRECT_CHOICE_ID]);
   });
+
+  // The draft is what the form edits. It must not carry the id at all — that
+  // is what makes an id change unexpressible rather than merely disabled.
+  it("carries no id or order field for the form to change", () => {
+    expect(Object.keys(draftFromQuestion(row))).not.toContain("id");
+    expect(Object.keys(draftFromQuestion(row))).not.toContain("order");
+    expect(Object.keys(emptyDraft())).not.toContain("id");
+    expect(Object.keys(emptyDraft())).not.toContain("order");
+  });
 });
 
-describe("isDraftValid", () => {
-  const base: QuestionDraft = emptyDraft(1);
-
-  it("rejects a single-choice question with zero correct answers", () => {
-    expect(isDraftValid({ ...base, id: "q", prompt: "p", correct: [] })).toBe(false);
-  });
-
-  it("rejects a single-choice question with more than one correct answer", () => {
-    expect(isDraftValid({ ...base, id: "q", prompt: "p", correct: ["a", "b"] })).toBe(false);
-  });
-
-  it("accepts a single-choice question with exactly one correct answer", () => {
+// A question's id is the field name in `ctf:quiz:questions` and `ctf:quiz:key`
+// AND the reference every contestant's `ctf:quiz:answers:<login>` row is
+// recorded against. Change it on an existing question and every banked answer
+// is orphaned: the points stay on the leaderboard with no question behind
+// them, and the "answered" count no longer lines up with anything.
+describe("payloadFromEditor — an edit can never change a question's id", () => {
+  it("submits the stored id even when every other field has been rewritten", () => {
+    const editor = editorFromQuestion(row);
+    // Everything the form CAN change, changed — including the prompt, which
+    // is what a new question's id would be derived from.
     const draft: QuestionDraft = {
-      ...base,
-      id: "q",
-      prompt: "p",
+      prompt: "A completely different question about CSRF tokens",
+      type: "multi",
+      points: "99",
       choices: [
-        { id: "a", label: "A" },
-        { id: "b", label: "B" },
+        { id: "x", label: "X" },
+        { id: "y", label: "Y" },
+      ],
+      correct: ["x", "y"],
+    };
+
+    const payload = payloadFromEditor({ ...editor, draft }, () => "generated-from-the-new-prompt");
+    expect(payload.id).toBe(question.id);
+    // Non-vacuity: the rewrite really did land, so `id` staying put is the
+    // property under test rather than a payload that never changed at all.
+    expect(payload.prompt).toBe("A completely different question about CSRF tokens");
+    expect(payload.points).toBe(99);
+  });
+
+  it("keeps the id across a prompt that would generate a different one", () => {
+    const editor = editorFromQuestion({ question: { ...question, id: "legacy-hand-typed-id" }, correct: ["a"] });
+    const payload = payloadFromEditor({ ...editor, draft: { ...editor.draft, prompt: "New wording entirely" } });
+    expect(payload.id).toBe("legacy-hand-typed-id");
+  });
+
+  it("keeps the question's existing position rather than re-deriving one", () => {
+    const editor = editorFromQuestion({ question: { ...question, order: 7 }, correct: ["a"] });
+    expect(payloadFromEditor(editor).order).toBe(7);
+  });
+
+  it("generates an id from the prompt for a NEW question", () => {
+    const editor = newQuestionEditor(4);
+    const draft: QuestionDraft = {
+      ...editor.draft,
+      prompt: "Which header mitigates clickjacking?",
+      choices: [
+        { id: "a", label: "X-Frame-Options" },
+        { id: "b", label: "Content-Length" },
       ],
       correct: ["a"],
     };
-    expect(isDraftValid(draft)).toBe(true);
+
+    const payload = payloadFromEditor({ ...editor, draft });
+    expect(payload.id).toMatch(QUIZ_ID_RE);
+    expect(payload.id).toContain("which-header-mitigates");
+    expect(payload.order).toBe(4);
+  });
+
+  it("mints a DIFFERENT id for each new question with the same prompt", () => {
+    const editor = newQuestionEditor(1);
+    const draft: QuestionDraft = { ...editor.draft, prompt: "Same wording twice" };
+    const first = payloadFromEditor({ ...editor, draft }).id;
+    const second = payloadFromEditor({ ...editor, draft }).id;
+    expect(first).not.toBe(second);
+  });
+});
+
+describe("payloadFromRow", () => {
+  it("round-trips a stored row unchanged, so a reorder re-saves only the order", () => {
+    const payload = payloadFromRow({ question: { ...question, order: 3 }, correct: [CORRECT_CHOICE_ID] });
+    expect(payload).toEqual({
+      id: question.id,
+      prompt: question.prompt,
+      type: question.type,
+      choices: question.choices,
+      points: question.points,
+      order: 3,
+      correct: [CORRECT_CHOICE_ID],
+    });
+  });
+});
+
+describe("reorderQuestions", () => {
+  const rows = (...ids: string[]): AdminQuestion[] =>
+    ids.map((id, i) => ({ question: { ...question, id, prompt: `Prompt ${id}`, order: i + 1 }, correct: ["a"] }));
+
+  const shape = (list: AdminQuestion[]) => list.map((r) => [r.question.id, r.question.order] as const);
+
+  it("moves a row down and renumbers every position from 1", () => {
+    expect(shape(reorderQuestions(rows("a", "b", "c", "d"), 0, 2))).toEqual([
+      ["b", 1],
+      ["c", 2],
+      ["a", 3],
+      ["d", 4],
+    ]);
+  });
+
+  it("moves a row up and renumbers every position from 1", () => {
+    expect(shape(reorderQuestions(rows("a", "b", "c", "d"), 3, 0))).toEqual([
+      ["d", 1],
+      ["a", 2],
+      ["b", 3],
+      ["c", 4],
+    ]);
+  });
+
+  it("renumbers a list whose stored orders were sparse or zero-based", () => {
+    const sparse: AdminQuestion[] = [
+      { question: { ...question, id: "a", order: 0 }, correct: ["a"] },
+      { question: { ...question, id: "b", order: 40 }, correct: ["a"] },
+      { question: { ...question, id: "c", order: 900 }, correct: ["a"] },
+    ];
+    expect(shape(reorderQuestions(sparse, 2, 0))).toEqual([
+      ["c", 1],
+      ["a", 2],
+      ["b", 3],
+    ]);
+  });
+
+  it("never mutates the list it was given", () => {
+    const before = rows("a", "b", "c");
+    reorderQuestions(before, 0, 2);
+    expect(shape(before)).toEqual([
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+    ]);
+  });
+
+  it("treats an out-of-range index as a no-op rather than a silent renumbering", () => {
+    const sparse: AdminQuestion[] = [
+      { question: { ...question, id: "a", order: 0 }, correct: ["a"] },
+      { question: { ...question, id: "b", order: 40 }, correct: ["a"] },
+    ];
+    expect(shape(reorderQuestions(sparse, 0, 5))).toEqual([
+      ["a", 0],
+      ["b", 40],
+    ]);
+    expect(shape(reorderQuestions(sparse, -1, 0))).toEqual([
+      ["a", 0],
+      ["b", 40],
+    ]);
+  });
+});
+
+describe("changedOrderRows", () => {
+  const rows = (...ids: string[]): AdminQuestion[] =>
+    ids.map((id, i) => ({ question: { ...question, id, order: i + 1 }, correct: ["a"] }));
+
+  it("names exactly the questions a move has to write back", () => {
+    const before = rows("a", "b", "c", "d");
+    const after = reorderQuestions(before, 0, 1);
+    // Only the swapped pair moved; "c" and "d" kept positions 3 and 4.
+    expect(changedOrderRows(before, after).map((r) => r.question.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("is empty when nothing moved, so a no-op drag writes nothing", () => {
+    const before = rows("a", "b", "c");
+    expect(changedOrderRows(before, reorderQuestions(before, 1, 1))).toEqual([]);
+  });
+});
+
+describe("isDraftValid", () => {
+  // Labelled choices, since an empty label is itself a rejection reason and
+  // would make every "accepts" case below pass or fail for the wrong reason.
+  const base: QuestionDraft = {
+    ...emptyDraft(),
+    choices: [
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+    ],
+  };
+
+  it("rejects a single-choice question with zero correct answers", () => {
+    expect(isDraftValid({ ...base, prompt: "p", correct: [] })).toBe(false);
+  });
+
+  it("rejects a single-choice question with more than one correct answer", () => {
+    expect(isDraftValid({ ...base, prompt: "p", correct: ["a", "b"] })).toBe(false);
+  });
+
+  it("accepts a single-choice question with exactly one correct answer", () => {
+    expect(isDraftValid({ ...base, prompt: "p", correct: ["a"] })).toBe(true);
   });
 
   it("rejects a multi-choice question with zero correct answers", () => {
-    const draft: QuestionDraft = { ...base, id: "q", prompt: "p", type: "multi", correct: [] };
-    expect(isDraftValid(draft)).toBe(false);
+    expect(isDraftValid({ ...base, prompt: "p", type: "multi", correct: [] })).toBe(false);
   });
 
   it("accepts a multi-choice question with two correct answers", () => {
-    const draft: QuestionDraft = {
-      ...base,
-      id: "q",
-      prompt: "p",
-      type: "multi",
-      choices: [
-        { id: "a", label: "A" },
-        { id: "b", label: "B" },
-      ],
-      correct: ["a", "b"],
-    };
-    expect(isDraftValid(draft)).toBe(true);
+    expect(isDraftValid({ ...base, prompt: "p", type: "multi", correct: ["a", "b"] })).toBe(true);
   });
 
-  it("rejects a missing id or prompt", () => {
-    expect(isDraftValid({ ...base, id: "", prompt: "p", correct: ["a"] })).toBe(false);
-    expect(isDraftValid({ ...base, id: "q", prompt: "", correct: ["a"] })).toBe(false);
+  // The prompt now carries the whole burden the id used to share: it is the
+  // only thing a new question's id can be derived from, so an empty one has
+  // to stay a rejection.
+  it("rejects a missing prompt", () => {
+    expect(isDraftValid({ ...base, prompt: "", correct: ["a"] })).toBe(false);
+    expect(isDraftValid({ ...base, prompt: "   ", correct: ["a"] })).toBe(false);
   });
 
   it("rejects fewer than two choices", () => {
-    const draft: QuestionDraft = { ...base, id: "q", prompt: "p", choices: [{ id: "a", label: "A" }], correct: ["a"] };
+    const draft: QuestionDraft = { ...base, prompt: "p", choices: [{ id: "a", label: "A" }], correct: ["a"] };
     expect(isDraftValid(draft)).toBe(false);
   });
 
   it("rejects duplicate choice ids", () => {
     const draft: QuestionDraft = {
       ...base,
-      id: "q",
       prompt: "p",
       choices: [
         { id: "a", label: "A" },
@@ -211,17 +393,63 @@ describe("isDraftValid", () => {
     expect(isDraftValid(draft)).toBe(false);
   });
 
-  it("rejects a non-integer points or order value", () => {
-    expect(isDraftValid({ ...base, id: "q", prompt: "p", correct: ["a"], points: "1.5" })).toBe(false);
-    expect(isDraftValid({ ...base, id: "q", prompt: "p", correct: ["a"], order: "abc" })).toBe(false);
+  it("rejects a non-integer points value", () => {
+    expect(isDraftValid({ ...base, prompt: "p", correct: ["a"], points: "1.5" })).toBe(false);
+    expect(isDraftValid({ ...base, prompt: "p", correct: ["a"], points: "" })).toBe(false);
+  });
+});
+
+describe("confirmPhraseFromPrompt", () => {
+  it("uses a short prompt verbatim", () => {
+    expect(confirmPhraseFromPrompt("Which header mitigates clickjacking?")).toBe(
+      "Which header mitigates clickjacking?",
+    );
+  });
+
+  it("collapses whitespace so what is shown is typeable as one line", () => {
+    expect(confirmPhraseFromPrompt("  Which   header\nmitigates it? ")).toBe("Which header mitigates it?");
+  });
+
+  it("truncates a long prompt at a word boundary rather than mid-word", () => {
+    const long =
+      "Which of the following HTTP response headers is the one that instructs a browser to refuse framing?";
+    const phrase = confirmPhraseFromPrompt(long);
+    expect(phrase.length).toBeLessThanOrEqual(48);
+    expect(long.startsWith(phrase)).toBe(true);
+    expect(phrase.endsWith(" ")).toBe(false);
+    // A word boundary, not a hard 48-character chop.
+    expect(long[phrase.length]).toBe(" ");
   });
 });
 
 describe("questionDeleteConfirm", () => {
-  it("requires typing the question's own id to confirm — not a generic phrase", () => {
+  // Was the question's ID. Ids are generated now, so typing one back proves
+  // only that the organizer can copy a string — it doesn't make them read
+  // WHICH question is about to disappear, which is this gate's whole job.
+  it("requires typing the question's own prompt to confirm — not a generic phrase, and not its id", () => {
     const copy = questionDeleteConfirm(question);
-    expect(copy.requireType).toBe(question.id);
+    expect(copy.requireType).toBe(question.prompt);
+    expect(copy.requireType).not.toBe(question.id);
     expect(copy.title).toContain(question.prompt);
+  });
+
+  it("asks for exactly the phrase it displays, even for a long prompt", () => {
+    const long: Question = {
+      ...question,
+      prompt: "Which of the following HTTP response headers is the one that instructs a browser to refuse framing?",
+    };
+    const copy = questionDeleteConfirm(long);
+    expect(copy.requireType.length).toBeLessThanOrEqual(48);
+    // The title is where the organizer READS the phrase; if the two ever
+    // diverge the gate becomes an unwinnable guessing game.
+    expect(copy.title).toContain(copy.requireType);
+    expect(long.prompt.startsWith(copy.requireType)).toBe(true);
+  });
+
+  // Two prompts can share a first 48 characters; the id on screen is what
+  // tells the organizer which of them they have selected.
+  it("still shows the id, so a shared prompt prefix is never ambiguous", () => {
+    expect(questionDeleteConfirm(question).body).toContain(question.id);
   });
 
   // The copy must match what `deleteQuestion` actually does: it drops the
