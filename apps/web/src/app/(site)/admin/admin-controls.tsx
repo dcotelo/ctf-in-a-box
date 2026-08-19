@@ -26,8 +26,9 @@
 // `tabIndex`, `aria-selected`/`aria-controls`/`aria-labelledby` wiring, and
 // ArrowLeft/ArrowRight/Home/End movement with wraparound.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { enabledModules, type ModuleId, type ResolvedModule } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
@@ -57,6 +58,33 @@ async function postSettings(patch: Record<string, unknown>): Promise<{ settings?
   const data = (await res.json().catch(() => ({}))) as { settings?: AdminSettings; error?: string };
   if (!res.ok) return { error: data.error ?? "Request failed" };
   return { settings: data.settings };
+}
+
+/** The audit line's timestamp, as "4m ago" rather than a raw ISO instant.
+ *
+ *  Renders nothing until mounted, for the same reason the countdowns do: this
+ *  is a Client Component that still server-renders, and relative time read
+ *  from a live clock during render disagrees with the server's render. So the
+ *  server paints "last changed by alice" and the time appears on hydration.
+ *
+ *  The exact instant stays available on hover via `title` — an organizer
+ *  reconciling an audit trail wants the precise value, just not in their face. */
+function ChangedAt({ iso }: { iso: string }) {
+  const [label, setLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tick = () => setLabel(formatRelativeTime(iso));
+    const timeout = setTimeout(tick, 0);
+    // 30s, not 1s: this line ages in minutes and nobody is watching it count.
+    const interval = setInterval(tick, 30_000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [iso]);
+
+  if (!label) return null;
+  return <time dateTime={iso} title={iso}>{label}</time>;
 }
 
 export default function AdminControls({
@@ -307,7 +335,7 @@ export default function AdminControls({
 
       {settings.updatedBy && settings.updatedAt && (
         <p className="text-xs text-muted">
-          last changed by {settings.updatedBy} at {settings.updatedAt}
+          last changed by {settings.updatedBy} <ChangedAt iso={settings.updatedAt} />
         </p>
       )}
       {error && <p className="text-xs text-[#e53e3e]">{error}</p>}

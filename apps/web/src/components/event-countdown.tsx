@@ -7,20 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { event } from "@/lib/site";
-
-type Remaining = { days: number; hours: number; minutes: number; seconds: number };
-
-function getRemaining(targetMs: number): Remaining | null {
-  const diff = targetMs - Date.now();
-  if (diff <= 0) return null;
-  const totalSeconds = Math.floor(diff / 1000);
-  return {
-    days: Math.floor(totalSeconds / 86400),
-    hours: Math.floor((totalSeconds % 86400) / 3600),
-    minutes: Math.floor((totalSeconds % 3600) / 60),
-    seconds: totalSeconds % 60,
-  };
-}
+import { getRemaining, type Remaining } from "@/lib/countdown";
 
 const UNITS: [keyof Remaining, string][] = [
   ["days", "days"],

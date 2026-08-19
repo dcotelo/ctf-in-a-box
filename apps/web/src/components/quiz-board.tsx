@@ -13,8 +13,9 @@
 // since this component instance isn't remounted.
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Choice, QuestionType } from "@/lib/quiz-store";
+import { formatCompact, getRemaining, type Remaining } from "@/lib/countdown";
 
 /** Per-question progress, mutually exclusive. Every branch carries only
  *  public-safe data — never the correct choice id(s). */
@@ -55,7 +56,7 @@ export function describeCorrect(points: number, already?: boolean): string {
   return `Correct — +${points} point${points === 1 ? "" : "s"}.`;
 }
 
-function describeRefusal(reason: string, retryAt?: string): string {
+function describeRefusal(reason: string): string {
   switch (reason) {
     case "paused":
       return "Scoring is paused right now. Try again later.";
@@ -64,12 +65,53 @@ function describeRefusal(reason: string, retryAt?: string): string {
     case "exhausted":
       return "No attempts remaining for this question.";
     case "cooldown":
-      return retryAt ? `On cooldown until ${retryAt}.` : "On cooldown right now. Try again soon.";
+      // Deliberately no instant here. The question's own cooldown line runs a
+      // live countdown; a second, frozen copy of the same deadline in the
+      // feedback area would be stale the moment it rendered.
+      return "On cooldown right now — the timer on the question shows when you can retry.";
     case "unavailable":
       return "Couldn't verify that right now. Try again in a moment.";
     default:
       return "That submission wasn't accepted.";
   }
+}
+
+/** Ticks a question's cooldown once a second.
+ *
+ *  `mounted` stays false for the server render AND the client's first paint,
+ *  so both produce identical markup and hydration can't mismatch — the same
+ *  shape `components/event-countdown.tsx` uses, and the reason neither reads
+ *  a clock during render. Callers show a time-free placeholder until it
+ *  flips. Returns `remaining: null` once the deadline passes.
+ *
+ *  Passing `undefined` (a question that isn't cooling down) parks the hook:
+ *  no timer, no state churn. It still has to be CALLED unconditionally. */
+function useCooldown(retryAt: string | undefined): { mounted: boolean; remaining: Remaining | null } {
+  const [state, setState] = useState<{ mounted: boolean; remaining: Remaining | null }>({
+    mounted: false,
+    remaining: null,
+  });
+
+  useEffect(() => {
+    // Parked: no timer, and deliberately no state reset either. Resetting here
+    // would be a synchronous setState in an effect body, and it would be
+    // unobservable anyway — every reader guards on `status === "cooldown"`,
+    // which is the only case that supplies a `retryAt` at all.
+    if (!retryAt) return;
+    const targetMs = new Date(retryAt).getTime();
+    const tick = () => setState({ mounted: true, remaining: getRemaining(targetMs) });
+    // Deferred rather than called in the effect body, matching event-countdown:
+    // it reads as subscribing to the clock instead of computing during render,
+    // and satisfies react-hooks/set-state-in-effect.
+    const timeout = setTimeout(tick, 0);
+    const interval = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [retryAt]);
+
+  return state;
 }
 
 export default function QuizBoard({
@@ -122,7 +164,7 @@ export default function QuizBoard({
       } else if ("error" in data && typeof data.error === "string") {
         setFeedback((prev) => ({
           ...prev,
-          [question.id]: { kind: "info", text: describeRefusal(data.error, data.retryAt) },
+          [question.id]: { kind: "info", text: describeRefusal(data.error) },
         }));
       } else {
         setFeedback((prev) => ({ ...prev, [question.id]: { kind: "error", text: "Something went wrong. Try again." } }));
@@ -174,11 +216,17 @@ function QuestionCard({
 }) {
   const inputType = question.type === "multi" ? "checkbox" : "radio";
   const inputName = `quiz-${question.id}`;
+  const cooldown = useCooldown(question.status === "cooldown" ? question.retryAt : undefined);
+  // Once the countdown reaches zero the form re-opens without a refresh. Safe
+  // to do optimistically: the grading script re-checks the cooldown inside the
+  // same atomic EVAL that records the attempt, so an early click is refused
+  // server-side rather than granted.
+  const cooledDown = cooldown.mounted && cooldown.remaining === null;
   // Choices stay visible in every state (including cooldown) so a contestant
   // can review the question; they're just non-interactive once the state
   // isn't "unanswered".
   const showChoices = question.status === "unanswered" || question.status === "cooldown";
-  const choicesDisabled = question.status === "cooldown";
+  const choicesDisabled = question.status === "cooldown" && !cooledDown;
 
   return (
     <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
@@ -200,7 +248,16 @@ function QuestionCard({
       )}
 
       {question.status === "cooldown" && (
-        <p className="mt-3 text-sm text-[#d4a017]">On cooldown — you can try again at {question.retryAt}.</p>
+        <p className={`mt-3 text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
+          {!cooldown.mounted
+            ? // Server render and the client's first paint. No clock is read
+              // here: a live Date.now() during render disagrees with the
+              // server's and trips a hydration mismatch.
+              "On cooldown — you can try again shortly."
+            : cooldown.remaining
+              ? `On cooldown — you can try again in ${formatCompact(cooldown.remaining)}.`
+              : "Cooldown's over — you can try again now."}
+        </p>
       )}
 
       {showChoices && (
