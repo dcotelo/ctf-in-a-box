@@ -99,6 +99,13 @@ describe("the secure-development term list", () => {
     expect('<a href="https://example.com" target="_blank" rel="noopener noreferrer">x</a>').not.toMatch(
       targets,
     );
+    // The second exclusion: the code of conduct's homonym, where "the target"
+    // is the person a behaviour is aimed at. Narrowed to that phrasing and no
+    // further — "the target's repo" and "the target app" still fire, so the
+    // exclusion cannot be widened into a hole without failing here.
+    expect("You do not need to be the target to report something.").not.toMatch(targets);
+    expect("Fork the target's repo, then patch the target app.").toMatch(targets);
+    expect("Point it at the target and read the source.").toMatch(targets);
   });
 
   // Same shape, for the two narrowings added with the app names: "repo" must

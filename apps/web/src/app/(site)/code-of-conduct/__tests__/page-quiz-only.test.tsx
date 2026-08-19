@@ -43,7 +43,10 @@ describe("/code-of-conduct in a quiz-only event", () => {
     expect(html).toContain("Harassment of any kind ends your event.");
     expect(html).toContain("Which code applies");
     expect(html).toContain("Reporting a problem");
-    expect(html).toContain("You do not need to have been harmed yourself to report something");
+    // "the target" is a homonym here — the person a behaviour is aimed at.
+    // The sentence stands as written on every event; the leak pattern is
+    // narrowed around it instead (see secure-dev-terms.ts).
+    expect(html).toContain("You do not need to be the target to report something");
     expect(html).toContain("organizers@example.com");
   });
 

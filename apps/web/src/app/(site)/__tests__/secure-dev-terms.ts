@@ -22,7 +22,13 @@
 //     word-boundary pattern instead, which does not fire inside "Report".
 //   - "target" matches every `target="_blank"` attribute — a word-boundary
 //     pattern with a `(?!=)` lookahead keeps the prose and drops the
-//     attribute.
+//     attribute. It also matches /code-of-conduct's "you do not need to be
+//     the target to report something", where the word means the person a
+//     behaviour is aimed at — a `be the` lookbehind drops that sense and
+//     keeps every other use. The alternative was rewriting the sentence,
+//     which is exactly what this file's own rule forbids: it is platform
+//     copy, it renders on secure-development events too, and the replacement
+//     ("to have been harmed yourself") also narrowed WHO is told to report.
 //   - "commit" matches the platform's own "what taking part commits you to"
 //     on /terms and /code-of-conduct — a `(?!\s+you)` lookahead keeps
 //     "the commit message" and drops the obligation sense.
@@ -112,8 +118,11 @@ export const SECURE_DEV_LIVE_PATTERNS = [
   /\bPRs?\b/,
   /\bCI\b/,
   // Prose about targets — "browse the targets", "point it at a target" —
-  // without the `target="..."` attribute that made this term look unusable.
-  /\btargets?\b(?!=)/i,
+  // without the `target="..."` attribute that made this term look unusable,
+  // and without the code of conduct's "be the target" (the person a behaviour
+  // is aimed at). Both exclusions are bounded: everything from "the target's
+  // repo" to "3 challenge targets" still fires.
+  /(?<!\bbe the )\btargets?\b(?!=)/i,
   // The bare noun, which "gh repo"/"repo's" above only catch in two fixed
   // phrasings. The word boundary is what keeps it off "Report it to an
   // organizer" — the false positive that got the whole term dropped once.

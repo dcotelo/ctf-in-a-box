@@ -79,9 +79,17 @@ export default function CodeOfConductPage() {
 
       <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
         <h2 className="mb-2 text-lg font-semibold text-white">Reporting a problem</h2>
+        {/* "the target" here is the person a behaviour is aimed at, not a
+            challenge target — a homonym, and this line is NOT rewritten to
+            dodge the leak check. The rule on this work is to narrow the
+            matching pattern, never to edit the copy (it is what got `target`
+            restored as a bounded pattern rather than dropped), and this
+            sentence renders on every event, secure-development ones
+            included. See the `be the` lookbehind in
+            `(site)/__tests__/secure-dev-terms.ts`. */}
         <p className="mb-4 text-sm leading-relaxed text-zinc-400">
-          You do not need to have been harmed yourself to report something, and you do not need
-          proof. If something feels wrong, say so. Every route below reaches a real person.
+          You do not need to be the target to report something, and you do not need proof. If
+          something feels wrong, say so. Every route below reaches a real person.
         </p>
         <ul className="flex flex-col gap-3">
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
