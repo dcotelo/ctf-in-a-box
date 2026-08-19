@@ -102,8 +102,15 @@ suggestions.
   arg unset) silently yields neutral defaults — an empty `admins` list (so
   `/admin` 403s for everyone) and generic branding. Always bring the box up as
   `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose
-  --profile poll --profile app up -d --build app`. `scripts/dev-stack` already
+  --profile poll --profile app up -d --build`. `scripts/dev-stack` already
   does this.
+- **Compose profiles follow the enabled MODULES.** `app` is always on; `poll`
+  and `push` carry `secure-development`'s two services (`sync` *and* the
+  `scorer`). A quiz-only event boots with `--profile app` alone — it has no
+  scorer image to pull, and the compose fallback is a private upstream one.
+  So: never give a secure-development service the default (profile-less)
+  treatment, and never add a `depends_on` from `app` to a profiled service —
+  that drags it into every `up` and re-breaks the quiz-only boot.
 - **The score-comment marker is trust-authoritative — it must only ever come
   from the judge's own output, never from the PR checkout.** The sync poller
   ingests any `<!-- ctf-score: {json} -->` marker in a `github-actions[bot]`

@@ -5,6 +5,9 @@
 # a single module must be enough to run an event alone.
 #
 # Asserts:
+#   - the compose line-up docs/hosting.md tells a quiz-only organizer to run
+#     (`--profile app`) contains no secure-development service — no scorer to
+#     pull, no poller — while the scored line-up still contains both
 #   - the app builds and comes up bound to a quiz-only config (remember
 #     EVENT_CONFIG_B64 is a BUILD-time arg — omitting it silently yields
 #     neutral defaults, so this script never calls `docker build` without it)
@@ -93,6 +96,49 @@ cleanup() {
   rm -rf "$TMP"
 }
 trap cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# The DOCUMENTED quiz-only bring-up must be runnable as printed.
+#
+# This is a structural check on docker-compose.yml itself, deliberately made
+# before anything heavy runs: the rest of this script builds and runs the app
+# by hand (and brings sync up with --no-deps), so it can pass with flying
+# colours while the command docs/hosting.md tells a quiz-only organizer to run
+# is unrunnable. That is exactly what happened — `scorer` had no `profiles:`
+# key and `app` depended on it, so the documented line-up tried to pull the
+# maintainers' PRIVATE scorer image on an event that has no scorer at all.
+#
+# Both directions are asserted: quiz-only must not drag in secure-development's
+# services, and the scored line-up must still contain them (a fix that merely
+# hid the scorer everywhere would break every real event instead).
+# ---------------------------------------------------------------------------
+echo "--- the documented quiz-only profile set pulls no secure-development services"
+compose_services() {
+  SRH_TOKEN=acceptance SCORER_TOKEN=acceptance BETTER_AUTH_SECRET=acceptance \
+    GITHUB_CLIENT_ID=acceptance GITHUB_CLIENT_SECRET=acceptance \
+    docker compose -f docker-compose.yml "$@" config --services 2>/dev/null | sort | tr '\n' ' '
+}
+QUIZ_SERVICES=$(compose_services --profile app)
+SCORED_SERVICES=$(compose_services --profile poll --profile app)
+echo "    quiz-only (--profile app):            $QUIZ_SERVICES"
+echo "    scored    (--profile poll + app):     $SCORED_SERVICES"
+for svc in scorer sync; do
+  case " $QUIZ_SERVICES " in
+    *" $svc "*) echo "FAIL: '$svc' is in the quiz-only line-up — a quiz-only event has no $svc"; exit 1 ;;
+  esac
+done
+for svc in app redis srh; do
+  case " $QUIZ_SERVICES " in
+    *" $svc "*) ;;
+    *) echo "FAIL: '$svc' is missing from the quiz-only line-up"; exit 1 ;;
+  esac
+done
+for svc in app redis srh scorer sync; do
+  case " $SCORED_SERVICES " in
+    *" $svc "*) ;;
+    *) echo "FAIL: '$svc' is missing from the scored (poll) line-up"; exit 1 ;;
+  esac
+done
 
 # ---------------------------------------------------------------------------
 # redis + srh (the exact images/config docker-compose.yml pins), on a private

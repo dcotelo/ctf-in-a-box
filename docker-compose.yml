@@ -30,9 +30,29 @@ services:
       # Runtime flag: exposes the /admin "Seed demo data" button + its route.
       # Set to "1" only for demos (dev-stack does). Never in a real event.
       DEMO_MODE: ${DEMO_MODE:-}
-    depends_on: [srh, scorer]
+    # NOT depends_on scorer: the app reads the scorer over HTTP lazily, per
+    # request, and depends_on does not wait for readiness anyway — so this
+    # only ever expressed a start ORDER. Keeping it would have forced the
+    # (profiled) scorer into every `up` that starts the app, including a
+    # quiz-only event that has no scorer image to pull. See scorer's profiles
+    # below.
+    depends_on: [srh]
 
   scorer:
+    # The scorer belongs to the secure-development module, exactly as `sync`
+    # does — it exists to score PRs against forked targets. A quiz-only event
+    # has nothing for it to serve, so it is PROFILED rather than left in the
+    # default set: with no profile, `docker compose --profile poll --profile
+    # app up -d` pulled it on every event, and a quiz-only organizer (who has
+    # no SCORE_IMAGE and no access to the private upstream fallback below)
+    # could not bring the documented stack up at all.
+    #
+    # Both score-ingest modes need it — poll (sync submits to it) and push
+    # (the fork's Action POSTs to it through caddy) — so it carries both, and
+    # the documented poll-mode command is unchanged. Quiz-only events simply
+    # pass neither. docs/hosting.md's "Which profiles do I need?" table is the
+    # organizer-facing version of this comment.
+    profiles: ["poll", "push"]
     # Set SCORE_IMAGE in .env to your own build from scorer/ (docs/scorer.md).
     # The fallback is the upstream image, which is private — it only pulls if
     # the OWASP-CTF maintainers granted you access. Kept as a fallback (not

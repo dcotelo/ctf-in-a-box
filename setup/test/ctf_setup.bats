@@ -627,6 +627,40 @@ YAML
   echo "$output" | grep -q "8/8  Bring the containers up"
 }
 
+@test "wizard prints the compose profiles the configured modules actually need" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+YAML
+  # A quiz-only event has no scorer image to pull and nothing to poll, so the
+  # bring-up it prints must NOT ask for the score-ingest profiles — those
+  # carry secure-development's sync + scorer (docker-compose.yml, ADR 26).
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F -- '--profile poll')" ]
+  [ -z "$(echo "$output" | grep -F -- '--profile push')" ]
+  echo "$output" | grep -qF 'docker compose --profile app up -d --build'
+}
+
+@test "wizard prints the poll profiles for a secure-development event" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
+}
+
 @test "wizard --dry-run does not build or push the scorer image" {
   _stub_prereqs
   rm -f .env event.yaml

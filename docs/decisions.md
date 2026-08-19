@@ -787,8 +787,9 @@ path would have been indistinguishable from a crash and looped forever.
 `on-failure` only restarts on a genuine nonzero exit.
 
 **Consequences.** A quiz-only `event.yaml` (`modules: { quiz: {} }`, no
-`secure-development` block at all) runs `sync` to a single clean exit under
-`docker compose --profile poll up`, and `ctf-setup.sh org`/`render`/`doctor`
+`secure-development` block at all) boots on `--profile app` alone (ADR 26)
+and runs `sync` to a single clean exit if `--profile poll` is passed anyway,
+and `ctf-setup.sh org`/`render`/`doctor`
 report "nothing to provision/check" instead of failing. An organizer who
 typos a module name, or omits `modules:` entirely, still gets a loud failure
 in both readers — and can still run `teardown` to recover already-forked
@@ -798,6 +799,30 @@ to end, including that the restart-policy change holds (it samples
 `RestartCount` after the exit, not just the exit code once). The two readers
 still share no code — a third module key is still a by-hand addition to both
 `KNOWN_MODULES` lists, same as before this decision.
+
+**Agreement is now tested, not asserted.** "Two readers must behave the
+same" broke twice on its own: first when `sync` threw on a missing module,
+then when `ctf-setup.sh`'s hand-rolled reader — which only understood
+2-space block indentation — returned zero keys for the flow style
+(`modules: { quiz: {} }`) these very docs print, so `org`/`render`/`doctor`
+exited 0 having provisioned nothing while `sync` was perfectly happy. Two
+rules fell out of that. First, the bash reader FAILS CLOSED: it parses block
+style at any indent, flow style, quoted keys, comments and CRLF, and it
+*errors* on anything it cannot confidently parse rather than reporting "no
+modules" — a silently empty result is indistinguishable from a legitimately
+quiz-only event, which is what made the bug invisible. `has_module` aborts
+rather than answering "absent" on a parse failure, because every caller
+spells it `if ! has_module …; then <skip everything>`. Second,
+`setup/test/corpus/` is a shared corpus of `event.yaml` shapes (block at 2/4/8
+spaces, flow on one line and across several, quoted keys, tabs, a bare
+`modules:`, an absent one, unknown keys, merge keys, sequences where mappings
+belong, targets as flow *and* block sequences). Each fixture records its
+verdict in its filename; `setup/test/module_readers.bats` runs the corpus
+through the bash reader and `sync/test/module-readers.differential.test.js`
+runs the same files through `sync`'s, so agreeing with the corpus is agreeing
+with each other. The corpus immediately found one live divergence — `modules:
+[]` was accepted by `sync` (`typeof [] === "object"`) and rejected by bash —
+now closed with an `Array.isArray` guard.
 
 ## 25. Building a leaderboard with no scoring backend
 
@@ -861,3 +886,47 @@ empty source's `getUser` also returns `null` unconditionally, which
 `/profile` already handles as "no scored profile" for any unscored login —
 so the page renders the module blocks it can build on its own rather than
 gaining a second code path for "no backend at all."
+
+## 26. Compose profiles follow the enabled modules
+
+**Context.** `docker-compose.yml` put `sync` behind `profiles: ["poll"]` but
+left `scorer` in the default (profile-less) set, and `app` carried
+`depends_on: [srh, scorer]`. Both of those quietly assume every event scores
+PRs. On a quiz-only event they are false, and expensively so: `docker compose
+--profile poll --profile app up -d` — the command docs/hosting.md called
+"safe to run as-is on a quiz-only event" — resolved to `redis srh scorer app
+caddy sync` and tried to pull `ghcr.io/owasp-ctf/score:latest`, the
+maintainers' PRIVATE image, which a quiz-only organizer has no access to and
+no reason to want. The documented boot command for the branch's headline
+feature could not be run.
+
+**Decision.** Profiles express MODULE membership. `app` (the contestant app)
+is always on. `poll` and `push` — the two `SCORE_INGEST` modes — carry
+everything `secure-development` needs, which is `sync` *and* the `scorer`; the
+scorer is as much a part of that module as the poller is, since it exists to
+judge PRs against forked targets. So `scorer` gains `profiles: ["poll",
+"push"]`, and `app` loses `scorer` from its `depends_on` (it reads the scorer
+lazily over HTTP per request, and `depends_on` never waited for readiness
+anyway — it only ever expressed start order, at the cost of dragging the
+scorer into every `up`).
+
+The alternative was a distinct `scored` profile. Rejected: it would have
+added a third flag to the primary, well-worn command in every doc, script and
+deploy module, and forgetting it fails SILENTLY at runtime (an app with no
+scorer behind it) rather than loudly at bring-up. Putting the scorer in the
+ingest profiles instead leaves the poll-mode command byte-identical — which is
+what almost every organizer runs — and confines the change to the new,
+documented quiz-only path.
+
+**Consequences.** `--profile poll --profile app` is unchanged (`redis srh
+scorer app caddy sync`); push mode now needs `--profile push` where the
+scorer used to arrive by default; a quiz-only event boots with `--profile app`
+alone. `ctf-setup.sh wizard` prints and runs the line-up that matches the
+`event.yaml` it just configured, so the organizer never picks by hand.
+`scripts/dev-stack` and `scripts/smoke.sh` name their services explicitly
+(and compose auto-enables a profile for an explicitly targeted service), so
+both are unaffected. `scripts/acceptance-quiz-only.sh` gained the structural
+assertion that catches this class of bug directly: the documented quiz-only
+line-up must contain no `scorer` and no `sync`, and the scored line-up must
+still contain both — a check the rest of that gate structurally could not
+make, since it builds the app by hand and brings `sync` up with `--no-deps`.

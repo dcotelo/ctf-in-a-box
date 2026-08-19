@@ -1333,13 +1333,29 @@ EOF
   echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
 
   # 8. Bring the containers up.
+  #
+  # Compose profiles follow the ENABLED MODULES: `app` always, plus the
+  # score-ingest profile (poll or push — both carry the scorer, which belongs
+  # to secure-development just as `sync` does) only when that module is
+  # configured. A quiz-only event needs neither: it has nothing to poll and no
+  # scorer image to pull, and asking for one would fail the bring-up outright.
+  # A missing config (only possible under --dry-run here) assumes the full
+  # poll stack, the historical default.
   wiz_step "8/8  Bring the containers up"
+  local profiles=(--profile app)
+  if [ ! -f "$CONFIG" ] || has_module secure-development; then
+    if [ "$(env_val SCORE_INGEST)" = "push" ]; then
+      profiles=(--profile push "${profiles[@]}")
+    else
+      profiles=(--profile poll "${profiles[@]}")
+    fi
+  fi
   cat <<EOF
   EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
-    docker compose --profile poll --profile app up -d --build app
+    docker compose ${profiles[*]} up -d --build
 EOF
   if ask_yn "  Bring the containers up now?" Y; then
-    EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose --profile poll --profile app up -d --build app
+    EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose "${profiles[@]}" up -d --build
   fi
 
   echo
