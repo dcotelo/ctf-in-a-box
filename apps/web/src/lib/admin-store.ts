@@ -31,6 +31,8 @@ export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
 /** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
 export const QUIZ_MAX_ATTEMPTS_MAX = 100;
 export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
+/** Cap for the classic-module submission cooldown (see below). */
+export const CLASSIC_COOLDOWN_SEC_MAX = 3600;
 // MODULE_TITLE_MAX / MODULE_BLURB_MAX (used below for validation) are
 // defined in @/lib/modules — client-safe, unlike this file — so the admin
 // panel's identity form can read them too. Not re-exported here: nothing in
@@ -64,6 +66,10 @@ export type AdminSettings = {
   /** Minutes a login must wait after its last attempt before it may retry the
    *  same quiz question. Null = no override; 0 = no cooldown. */
   quizRetryAfterMin: number | null;
+  /** Seconds a login must wait between flag submissions on the SAME classic
+   *  challenge. null = use the module default. Seconds, not minutes: its job
+   *  is blocking scripted brute force, not rationing tries. */
+  classicCooldownSec: number | null;
   teamRegistrationOpen: boolean;
   // Scheduled "auto dates" — nullable ISO instants. Absent = no bound.
   // scoring* gates the freeze (before start / after end = paused); registration*
@@ -124,6 +130,7 @@ export type SettingsPatch = {
   hintsUnlockAfterMin?: number;
   quizMaxAttempts?: number;
   quizRetryAfterMin?: number;
+  classicCooldownSec?: number;
   teamRegistrationOpen?: boolean;
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
@@ -180,6 +187,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     hintsUnlockAfterMin: h.hintsUnlockAfterMin === undefined ? null : Number(h.hintsUnlockAfterMin),
     quizMaxAttempts: h.quizMaxAttempts === undefined ? null : Number(h.quizMaxAttempts),
     quizRetryAfterMin: h.quizRetryAfterMin === undefined ? null : Number(h.quizRetryAfterMin),
+    classicCooldownSec: h.classicCooldownSec === undefined ? null : Number(h.classicCooldownSec),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     scoringStartsAt: h.scoringStartsAt ?? null,
     scoringEndsAt: h.scoringEndsAt ?? null,
@@ -278,6 +286,12 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     } else if (k === "quizRetryAfterMin") {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > QUIZ_RETRY_AFTER_MAX) {
         throw new AdminValidationError(k, `quizRetryAfterMin must be an integer in [0, ${QUIZ_RETRY_AFTER_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "classicCooldownSec") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > CLASSIC_COOLDOWN_SEC_MAX) {
+        throw new AdminValidationError(k, `classicCooldownSec must be an integer in [0, ${CLASSIC_COOLDOWN_SEC_MAX}]`);
       }
       fields.push(k, String(v));
       changed[k] = v;
