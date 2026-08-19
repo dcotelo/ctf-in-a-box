@@ -267,6 +267,88 @@ EOF
   printf '%s' "$output" | grep -qF 'gh repo fork digininja/DVWA'
 }
 
+@test "org: event.yaml with no modules: block at all fails (mirrors sync's requirement)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+EOF
+  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
+}
+
+@test "doctor: event.yaml with no modules: block at all fails" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+EOF
+  run bash "$SCRIPT" doctor --dry-run --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
+}
+
+@test "render: event.yaml with no modules: block at all fails" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+EOF
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -ne 0 ]
+  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
+}
+
+@test "org: a present modules: block that only lacks secure-development still succeeds" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" org --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'no provisioned content'
+}
+
+@test "teardown --dry-run still works with an unknown module key (no stranded organizer)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics:
+    targets: [dvwa]
+EOF
+  run bash "$SCRIPT" teardown --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  # teardown reads only the secure-development: block (yaml_targets is scoped
+  # to it), so an unrecognized module elsewhere is inert here — decisive part
+  # of this test is that it is NOT rejected by the module-key check at all.
+  [ -z "$(printf '%s' "$output" | grep -F 'unknown module')" ]
+}
+
+@test "app-manifest --dry-run still works with an unknown module key (no functional dependency on modules)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics: {}
+EOF
+  run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'organizations/test-event-org/settings/apps/new'
+}
+
+@test "oauth-app --dry-run still works with an unknown module key (no functional dependency on modules)" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  forensics: {}
+EOF
+  run bash "$SCRIPT" oauth-app --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF 'organizations/test-event-org/settings/applications/new'
+}
+
 @test "missing config file gives clean error" {
   run bash "$SCRIPT" org --dry-run --config nonexistent.yaml
   [ "$status" -ne 0 ]

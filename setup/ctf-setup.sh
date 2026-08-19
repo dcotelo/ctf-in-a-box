@@ -241,6 +241,7 @@ do_step() {
 # CI / the future admin wizard can gate on a clean provision.
 cmd_doctor() {
   require_config
+  check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
   local rc=0 t id cell name
@@ -331,10 +332,16 @@ if [ "$CMD" != "__selftest" ]; then
   done
 fi
 
-# Verify config file exists (only for subcommands that need it)
+# Verify config file exists (only for subcommands that need it). Module-key
+# validation (check_known_modules) is deliberately NOT run here — it is
+# called explicitly by the module-consuming commands (org/render/doctor)
+# only. Gating every require_config caller on it would also block teardown
+# (the recovery path for a botched event.yaml — an organizer who typo'd a
+# module name must still be able to tear down already-forked repos) and the
+# UI-flow openers app-manifest/oauth-app, which have no functional
+# dependency on module keys at all.
 require_config() {
   [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
-  check_known_modules || exit 1
 }
 
 # target key -> default APP_URL for the rendered workflow. Targets self-boot as
@@ -417,12 +424,26 @@ has_module() {
   yaml_module_keys | grep -qx "$1"
 }
 
-# Fail loudly on any module key event.yaml declares that this build doesn't
-# recognize. A missing secure-development block is fine (callers below
-# tolerate that); an unrecognized key never is — same check as
-# sync/src/config.js's KNOWN_MODULES guard, so an organizer's typo doesn't
+# Does event.yaml declare a top-level `modules:` key at all? A config with NO
+# modules: block has nothing enabled, ever — that's malformed config, not a
+# "nothing to provision" state. Mirrors sync/src/config.js:49
+# (`if (!modules || typeof modules !== "object") throw ...`): a config
+# missing `modules` entirely is rejected there too, distinct from a present
+# `modules:` block that merely lacks `secure-development` (which IS
+# tolerated — see has_module above / the callers that use it).
+yaml_has_modules_block() {
+  grep -qE '^modules:' "$CONFIG"
+}
+
+# Fail loudly on a malformed modules: section: either no modules: block at
+# all, or a module key event.yaml declares that this build doesn't
+# recognize. A PRESENT modules: block that simply lacks secure-development is
+# fine (callers below tolerate that via has_module); an ABSENT modules: block
+# or an unrecognized key never is — same two checks as sync/src/config.js's
+# loadConfig, so an organizer's typo (or an empty event.yaml) doesn't
 # silently no-op in one reader while crash-looping the other.
 check_known_modules() {
+  yaml_has_modules_block || { echo "event.yaml: modules.secure-development is required" >&2; return 1; }
   local k
   while IFS= read -r k; do
     [ -n "$k" ] || continue
@@ -545,6 +566,7 @@ cmd_secrets() {
 
 cmd_org() {
   require_config
+  check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
 
@@ -597,6 +619,7 @@ EOF
 # event.yaml edit without re-running forks or the image mirror.
 cmd_render() {
   require_config
+  check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
 
