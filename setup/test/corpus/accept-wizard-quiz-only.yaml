@@ -1,0 +1,11 @@
+# targets:
+event:
+  name: "OWASP Chapter Quiz Night"
+  url: http://192.168.1.10
+github:
+  org: my-event-org
+modules:
+  quiz: {}
+teams: { enabled: true, max_size: 4 }
+hints: { enabled: true }
+admins: [your-github-login]

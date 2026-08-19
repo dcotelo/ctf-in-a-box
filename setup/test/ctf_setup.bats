@@ -661,6 +661,154 @@ YAML
   echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
 }
 
+# --------------------------------------------------------------------------
+# Module-aware wizard: which questions get asked is a function of which
+# modules the organizer enables. The failure this guards against is an
+# organizer being made to pick vulnerable-app targets for an event that runs
+# only a quiz — and then getting an event.yaml with a secure-development block
+# they never asked for, which turns on nav, a challenge browser and
+# leaderboard columns for forks that do not exist.
+# --------------------------------------------------------------------------
+
+@test "wizard asks which modules to enable, offering the known module keys" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Modules to enable — subset of: secure-development quiz'
+}
+
+@test "wizard: a quiz-only event is NEVER asked for targets or score ingest" {
+  _stub_prereqs
+  rm -f .env
+  # A half-finished quiz-only config (no org yet): the modules question
+  # defaults to what the file already declares, so re-running must not switch
+  # the organizer back to secure-development — nor ask them to pick targets
+  # for a module they deliberately did not enable.
+  cat > event.yaml <<'YAML'
+modules:
+  quiz: {}
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Modules to enable — subset of: secure-development quiz [quiz]'
+  [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
+  [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
+}
+
+@test "wizard: a secure-development event IS asked for targets, from targets.tsv" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Score ingest (poll | push)'
+  # Every target the provisioner knows must be on offer — the prompt is
+  # generated from targets.tsv, not a second hand-maintained list.
+  local t fails=""
+  for t in $(grep -v '^[[:space:]]*#' "$BATS_TEST_DIRNAME/../targets.tsv" | cut -f1); do
+    if [ -z "$(echo "$output" | grep -F 'Targets — subset of' | grep -F "$t")" ]; then fails="$fails $t"; fi
+  done
+  echo "missing from the targets prompt:$fails"
+  [ -z "$fails" ]
+}
+
+@test "wizard: the modules answer defaults to what an existing config declares" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+modules:
+  secure-development:
+    targets: [dvwa]
+  quiz: {}
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Modules to enable — subset of: secure-development quiz [secure-development quiz]'
+}
+
+@test "wizard: a quiz-only event skips the scorer image and poll App steps" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'Build the scorer image')" ]
+  [ -z "$(echo "$output" | grep -F 'App-creation form')" ]
+  echo "$output" | grep -qF 'no secure-development module (nothing to poll)'
+}
+
+@test "wizard: a complete quiz-only config is not re-asked (no targets to demand)" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'Answer a few questions to write')" ]
+  echo "$output" | grep -qF "✅ event.yaml (org: test-event-org)"
+}
+
+@test "wizard: an enabled secure-development with no targets IS re-asked" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development: {}
+YAML
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Answer a few questions to write'
+}
+
+@test "wiz_modules rejects an unknown module and an empty selection" {
+  run bash -c 'CMD=__selftest source "$1"; wiz_modules "quiz nonsense"' _ "$SCRIPT"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'unknown module: nonsense'
+  run bash -c 'CMD=__selftest source "$1"; wiz_modules "  "' _ "$SCRIPT"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'at least one module must be enabled'
+}
+
+@test "wiz_modules normalizes to KNOWN_MODULES order, deduped, commas allowed" {
+  run bash -c 'CMD=__selftest source "$1"; wiz_modules "quiz, secure-development, quiz"' _ "$SCRIPT"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx 'secure-development quiz'
+}
+
+@test "wiz_event_yaml refuses to write a modules: block with nothing under it" {
+  # All three readers reject a keyless modules: block, so emitting one would
+  # hand the organizer a config that provisions nothing and crash-loops sync.
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org "" "" poll admin' _ "$SCRIPT"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'at least one module must be enabled'
+}
+
+@test "wiz_event_yaml refuses secure-development with no targets" {
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org secure-development "" poll admin' _ "$SCRIPT"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'secure-development needs at least one target'
+}
+
+@test "wiz_event_yaml emits hints enabled, matching the app's own default" {
+  # apps/web/src/lib/hint-store.ts: HINTS_ENABLED is `!== "false"` — hints are
+  # ON unless .env opts out. The wizard used to write `hints: { enabled: false }`,
+  # which contradicted the running app in the organizer's own config file.
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll admin' _ "$SCRIPT"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx 'hints: { enabled: true }'
+}
+
 @test "wizard --dry-run does not build or push the scorer image" {
   _stub_prereqs
   rm -f .env event.yaml
