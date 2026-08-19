@@ -234,7 +234,16 @@ question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's —
 so the generic "No settings for this module yet." fallback that a module
 tab renders when it defines no controls is, today, dead code for both
 shipped modules; it stays wired for whatever module ships next with no
-settings of its own. The existing challenge
+settings of its own. Every module tab opens with an identity editor
+(`admin-module-identity.tsx`) for that module's title/blurb override (item 1
+above); this is the same organizer-resolved name rendered in the tab label
+itself, the nav, the leaderboard block, and the module's own page header. The
+landing page (`app/page.tsx`) is composed the same way: the platform frame
+(logo, event name, dates, countdown, its own CTAs, Discord link, progress
+card) stays code, and each enabled module's `home` block (item 5 above)
+supplies the page's tagline, hero paragraph, "what to expect" section, and
+optional CTA/extra section — so a quiz-only event's landing page never
+mentions forks or patches. The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
 predate this work and satisfy those items for `secure-development`; `quiz`
 satisfies the same items with its own semantics (item 3 below covers the
@@ -288,6 +297,22 @@ of one module's shape.
    example: `secure-development` supplies "Secure Development" as its
    display name (not a string baked into `ctf-owasp-org`'s UI layer).
 
+   A module's registry display name/description MAY be overridden at
+   runtime by the organizer — a title (≤60 chars) and a blurb (≤200 chars)
+   per module, editable from that module's own `/admin` tab, plain text only
+   (control characters and Unicode bidi-override/isolate characters
+   rejected), stored on the same `ctf:admin:settings` hash the rest of the
+   runtime override layer uses (`moduleTitle:<id>`/`moduleBlurb:<id>` —
+   decision 19's override-else-default precedence applies here too: leaving
+   a field blank clears the override and restores the registry default,
+   never stores an empty string). The resolved name is what actually renders
+   everywhere a module names itself: the nav link, the leaderboard's
+   per-module block, the module's own page header, its admin tab label, and
+   its landing-page section heading (item 5 below). A module MUST NOT read
+   its own registry `displayName`/`description` directly in any of those
+   surfaces — it must go through the resolved name, or an organizer's
+   override silently does nothing there.
+
 2. **Challenge catalogue for UI.** A module MUST expose, per challenge: id,
    title, target/app grouping, and point value — built on the same
    catalogue and the same stable challenge IDs required for scoring (item
@@ -316,6 +341,27 @@ of one module's shape.
    `modules:` may leak into nav, leaderboard, or challenge listings; an
    organizer who omits a module from their event config gets an app with no
    trace of it, not a greyed-out or hidden-but-present surface.
+
+5. **Landing-page contribution (optional).** A module MAY contribute a
+   `home` block to its registry entry (`ModuleHome` in
+   `apps/web/src/lib/modules.ts`): an uppercase tagline, a hero `intro`
+   paragraph, a "what to expect" heading/lede, numbered `steps`, an optional
+   `cta` into the module's own route, and an optional full-width `extra`
+   section. The platform frame (`app/page.tsx`) owns the logo, event name,
+   dates, countdown, its own CTAs, the Discord link, and the
+   progress-tracking card; it composes each enabled module's `home` block in
+   registry order alongside that frame. A module with no `home` contributes
+   nothing to the landing page — valid, not an error — and an event whose
+   enabled modules all lack one still renders the frame on its own.
+
+   `intro` and `steps` are **functions**, not static strings — they take a
+   `HomeContext` (`appCount`, `appList`, `topAppsList`, `totalChallenges`,
+   built once per render so two modules can't disagree about how many
+   targets the event has) and must be called server-side, with only the
+   resulting strings ever handed further down the tree. A module's `home`
+   block MUST NOT be passed to a Client Component for this reason — see
+   `docs/decisions.md`'s ADR on why `ResolvedModule` omits `home` entirely
+   and server code reaches it through a dedicated accessor instead.
 
 ## 6. Security requirements (non-negotiable)
 

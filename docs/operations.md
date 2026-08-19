@@ -58,7 +58,26 @@ seed, master reset), then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all. The
 tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
-the ends).
+the ends). **Event is always the default tab** on load, regardless of how many
+modules are enabled.
+
+Hints moved from a flat settings list into the Secure Development tab as part
+of this reorganization. **This is a UI relocation only** — the underlying
+storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
+`hintsUnlockAfterMin`) and their validation are completely unchanged, so no
+deployed event's settings, or their meaning, changed by upgrading to this
+tabbed panel.
+
+**Module identity.** Every module's tab opens with a title/blurb editor for
+that module's display name. The title is capped at 60 characters, the blurb at
+200; both are plain text only — control characters and Unicode bidi-override
+characters are rejected, since there is no markup to sanitise, only rendered
+text to keep intact. **Leaving a field blank clears the override and restores
+the module's registry default** — the field's placeholder shows what that
+default is, so clearing it is discoverable rather than a guess. The resolved
+name is what actually renders everywhere the module names itself: this tab's
+own label, the nav link, the leaderboard's per-module block, the module's own
+page header, and its section on the landing page.
 
 The panel offers:
 

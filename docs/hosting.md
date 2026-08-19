@@ -325,6 +325,15 @@ leaderboard columns, and admin section from appearing at all. Writing
 `quiz: { enabled: false }` would *enable* `quiz`; the `enabled:` field is not
 read by anything.
 
+Enabling a module changes the **landing page**, not just the nav: the
+platform frame (event name, dates, countdown, CTAs, Discord link, progress
+card) stays the same, but each enabled module contributes its own tagline,
+hero paragraph, "what to expect" section and steps, so the home page always
+describes exactly the modules an event actually runs — a quiz-only event
+never advertises forking a target or opening a PR. See
+[docs/modules.md §5](modules.md#5-ui--presentation-contract) for the `home`
+block contract.
+
 `modules.secure-development.targets` is still the field that drives the
 app's target list, nav, challenge browser, and leaderboard columns for that
 module — nothing about that changed. A second module block is legal: both
