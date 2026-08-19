@@ -2,7 +2,7 @@
 // Keep route copy in one place so the header, footer, and metadata stay in sync.
 
 import { eventConfig } from "@/lib/event-config";
-import { enabledModules } from "@/lib/modules";
+import { enabledModules, SECURE_AGENT_PLAYBOOK_URL } from "@/lib/modules";
 
 export const event = {
   name: eventConfig.name,
@@ -21,7 +21,10 @@ export const event = {
   discordUrl: eventConfig.discordUrl,
   // OWASP's own project: OWASP-grounded procedures an AI agent follows to do
   // security engineering work. The recommended way to point an agent at a target.
-  secureAgentPlaybookUrl: "https://github.com/OWASP/secure-agent-playbook",
+  // Defined in `modules.ts` (secure-development's registry copy links to it,
+  // and that file cannot import this one without a cycle) and re-exported
+  // here so pages keep reading it off `event`, as they always have.
+  secureAgentPlaybookUrl: SECURE_AGENT_PLAYBOOK_URL,
 
   // Governing policies. This site publishes short, specific notices and defers
   // to these as the authoritative documents — we don't restate them.

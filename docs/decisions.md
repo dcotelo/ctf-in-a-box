@@ -663,28 +663,72 @@ organizer's title/blurb override) is handed to both server code and Client
 Components — the admin panel's tab shell, the leaderboard. Two fields on the
 underlying `ModuleDef` don't survive that trip safely: `displayName` and
 `description` are exactly the registry defaults that `title`/`blurb` exist to
-replace, and `home`'s `intro`/`steps` are **functions** — React's flight
-serializer throws "Functions cannot be passed directly to Client Components"
-the instant a function-valued prop crosses into one.
+replace, and the registry's copy blocks — `home`'s `intro`/`steps`,
+`guide`'s `steps`/`example`, and `rules` itself — are **functions** — React's
+flight serializer throws "Functions cannot be passed directly to Client
+Components" the instant a function-valued prop crosses into one.
 
 **Decision.** `ResolvedModule` (`src/lib/modules.ts`) is defined as
-`Omit<ModuleDef, "displayName" | "description" | "home"> & { title: string;
-blurb: string }` — both problem fields are dropped from the object as well as
-the type, not merely shadowed by their replacements. Server code that needs a
-module's landing-page content goes through a separate, server-only accessor,
-`getModuleHome(id)` (`src/lib/resolved-modules.ts`), which returns the raw
-`ModuleHome` — functions included — straight off the registry, never off a
+`Omit<ModuleDef, "displayName" | "description" | "home" | "guide" |
+"rules"> & { title: string; blurb: string }` — every problem field is dropped
+from the object as well as the type, not merely shadowed by its replacement.
+Server code that needs a module's page content goes through separate,
+server-only accessors — `getModuleHome(id)`, `getModuleGuide(id)` and
+`getModuleRules(id)` (`src/lib/resolved-modules.ts`) — which return the raw
+copy blocks, functions included, straight off the registry, never off a
 `ResolvedModule`; callers must be Server Components, calling `intro()`/
-`steps()` there and passing only the resulting strings downward.
+`steps()`/`example()` there and passing only the resulting plain data
+downward.
 
 **Consequences.** Reading `.displayName`/`.description` off a resolved
 module — silently rendering the registry default instead of the organizer's
 override — is a compile error, not a property access that quietly returns
 `undefined`. And no resolved module can ever carry a function value across
 the RSC boundary, so a future module defining `home` cannot accidentally 500
-`/admin` or `/leaderboard` by having its `ModuleHome` attached to the same
-object those pages already pass to Client Components. Both omissions are
+`/admin` or `/leaderboard` by having its copy blocks attached to the same
+object those pages already pass to Client Components. The omissions are
 guarded by tests (`modules-resolve.test.ts`), which assert a resolved module
-has no `displayName`/`description`/`home` key at all — including a
-compile-time assertion on the type itself — not just that today's consumers
-happen not to read them.
+has no `displayName`/`description`/`home`/`guide`/`rules` key at all, and
+scan it recursively for any function value — including a compile-time
+assertion on the type itself — not just that today's consumers happen not to
+read them.
+
+## 23. `/how-to-play` gets its own registry field, not a reuse of `home.steps`
+
+**Context.** Decision 20 composed the landing page from each module's `home`
+block. `/how-to-play` and `/rules` had the same defect and worse: ~29
+references to patching, forks and pull requests, with no module awareness at
+all, so a quiz-only event handed contestants a step-by-step guide to a game
+it was not running. The open question was where that page's copy should come
+from — reuse `ModuleHome.steps`, or give the guide its own registry field.
+
+**Decision.** Its own field, `guide` (`ModuleGuide`), plus a `rules` field
+for `/rules`. The two step lists are not the same copy at different lengths:
+`home.steps` is four short cards that *pitch* the event ("Patch it and open a
+PR. Fix the vulnerability in your fork…"), while the guide's five *instruct*
+a contestant through their first submission, and the guide additionally
+carries a loop callout, a callout above the steps, a seven-step worked
+example with code blocks, "good to know" caveats and a scoring paragraph that
+have no landing-page counterpart. Reusing `home.steps` would therefore have
+had to either change what the landing page says or change what the guide
+says. The constraint that *is* enforced is the one that matters: no string is
+written twice — a given sentence lives in `home` or in `guide`, never both,
+so there is exactly one place to edit it. Rejected: a single merged copy
+block for both pages (it would have to grow a "which page is this for?"
+discriminator on every field), and leaving the guide in the page behind
+`isModuleEnabled` gates (that keeps module copy in platform code, which is
+what decision 20 exists to stop).
+
+**Consequences.** A quiz-only event's `/how-to-play` and `/rules` describe
+the quiz, and a secure-development event's read exactly as they did before
+the split — verified by rendering both pages before and after the change and
+diffing the HTML byte for byte. The guarantee is held by suites that assert
+ABSENCE against a deliberately enumerated secure-development vocabulary
+(`app/(site)/__tests__/secure-dev-terms.ts`), narrowing a term rather than
+dropping it when it risks a false positive — the previous round's list
+checked "pull request", "fork" and "Browse targets" but not "patched", which
+was the one string that had actually leaked. Copy stays plain data rather
+than JSX (`Copy`/`CopySegment` covers the emphasis and links a sentence needs
+inline), so the registry remains importable either side of the server
+boundary, and the new fields are stripped from `ResolvedModule` for the
+reason decision 22 gives.

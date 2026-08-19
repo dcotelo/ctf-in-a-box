@@ -6,8 +6,10 @@ import { buildNavLinks, type NavLink } from "@/lib/site";
 import {
   enabledModules,
   resolveModules,
+  type ModuleGuide,
   type ModuleHome,
   type ModuleId,
+  type ModuleRules,
   type ResolvedModule,
 } from "@/lib/modules";
 
@@ -78,4 +80,17 @@ export async function getNavLinks(): Promise<NavLink[]> {
  *  `undefined` for a module that is disabled or has no home block. */
 export function getModuleHome(id: ModuleId): ModuleHome | undefined {
   return enabledModules.find((m) => m.id === id)?.home;
+}
+
+/** A module's `/how-to-play` contribution. Same contract as `getModuleHome`:
+ *  server-only, read straight from the registry, and its functions
+ *  (`steps`, `example`) must be CALLED here so only strings travel onward. */
+export function getModuleGuide(id: ModuleId): ModuleGuide | undefined {
+  return enabledModules.find((m) => m.id === id)?.guide;
+}
+
+/** A module's `/rules` bullets. Itself a function of `RulesContext`, so it
+ *  carries the same server-only contract as the other two accessors. */
+export function getModuleRules(id: ModuleId): ModuleRules | undefined {
+  return enabledModules.find((m) => m.id === id)?.rules;
 }

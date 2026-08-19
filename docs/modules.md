@@ -246,7 +246,10 @@ landing page (`app/page.tsx`) is composed the same way: the platform frame
 card) stays code, and each enabled module's `home` block (item 5 above)
 supplies the page's tagline, hero paragraph, "what to expect" section, and
 optional CTA/extra section — so a quiz-only event's landing page never
-mentions forks or patches. The existing challenge
+mentions forks or patches. `/how-to-play` and `/rules` are composed the same
+way from each module's `guide` and `rules` blocks (item 6 below), so the
+step-by-step guide and the fair-play rules describe the game the event is
+actually running. The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
 predate this work and satisfy those items for `secure-development`; `quiz`
 satisfies the same items with its own semantics (item 3 below covers the
@@ -396,6 +399,42 @@ of one module's shape.
    block MUST NOT be passed to a Client Component for this reason — see
    `docs/decisions.md`'s ADR on why `ResolvedModule` omits `home` entirely
    and server code reaches it through a dedicated accessor instead.
+
+6. **Guide and rules contributions (optional).** The same split applies to
+   `/how-to-play` and `/rules`, which used to be secure-development's
+   workflow written out longhand — patch, fork, pull request — on every
+   event, whether or not that module was enabled.
+
+   A module MAY contribute a `guide` block (`ModuleGuide`): the page lede
+   and meta description, an optional "the loop" callout, an optional callout
+   above the steps, the numbered `steps`, an optional end-to-end `example`
+   (with code blocks and a bonus note), "good to know" `notes`, a `scoring`
+   paragraph and a `cta`. The platform frame (`app/(site)/how-to-play`) owns
+   the page header, the "Good to know" and "How scoring works" cards, the
+   links to the rules and leaderboard, and the organizer/Discord line, and
+   composes each enabled module's block in registry order — with a per-module
+   heading only when more than one module is guided, and each module's own
+   lede promoted to the page lede when it is the only one.
+
+   A module MAY also contribute a `rules` block (`ModuleRules`), bucketed by
+   the `/rules` section it belongs in: `teams`, `fairPlay`, `conduct`,
+   `scoring`. The platform keeps the section headings and the genuinely
+   event-wide rules (team size, code of conduct, prizes, organizer
+   decisions); a module owns every rule that names its own artifacts —
+   targets, pull requests, patches, hints, questions. "Fair play" is entirely
+   module-contributed today and disappears with the modules; a section with
+   no rules is not rendered.
+
+   `guide.steps`/`guide.example` and `rules` itself are **functions** (of
+   `GuideContext`/`RulesContext` — the target count and list, the GitHub org,
+   the worked-example variant), so both fields carry the same server-only
+   contract as `home`: called server-side, never handed to a Client
+   Component, reached through `getModuleGuide`/`getModuleRules` and stripped
+   from `ResolvedModule`. Copy is authored as plain data, not JSX; where a
+   sentence needs inline markup it uses `Copy`/`CopySegment` (an emphasised
+   phrase, a bold lead-in, an external link), rendered by
+   `components/module-copy.tsx`. Nothing is written twice — a string lives in
+   `home` or in `guide`, never in both.
 
 ## 6. Security requirements (non-negotiable)
 

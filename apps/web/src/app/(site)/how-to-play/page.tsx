@@ -1,160 +1,48 @@
+// /how-to-play is a PLATFORM frame: the page header, the "good to know" and
+// "how scoring works" cards, the links out to the rules and the leaderboard,
+// and the organizer/Discord line. Everything that describes what a contestant
+// actually DOES — the loop, the numbered steps, the worked example, the
+// scoring paragraph — belongs to whichever modules the event enables and is
+// pulled from their registry `guide` blocks. This page used to hardcode
+// secure-development's whole workflow, so a quiz-only event handed contestants
+// a guide to a game it wasn't running.
+//
+// This is a Server Component and must stay one. `ModuleGuide.steps` and
+// `.example` are FUNCTIONS: they are called here, server-side, and only the
+// resulting plain data is rendered. Never pass a ModuleGuide (or anything
+// holding it) into a "use client" component — React's flight serializer
+// rejects function-valued props. That is why guides are reached through the
+// server-only `getModuleGuide` rather than off a ResolvedModule; see
+// lib/modules.ts.
+import { Fragment } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames, workedExampleVariant } from "@/lib/apps";
+import { enabledModules, type GuideContext } from "@/lib/modules";
+import { getModuleGuide, getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
-const appList = joinAppNames(enabledApps.map((a) => a.name));
-const exampleVariant = workedExampleVariant(enabledApps);
+// What the page is, in the enabled modules' own words. Read off the static
+// registry (guide copy is not organizer-overridable — only title/blurb are),
+// so this stays a static `metadata` export with no request-time read.
+const metaDescription = enabledModules
+  .map((m) => m.guide?.metaDescription)
+  .filter(Boolean)
+  .join(" ");
 
 export const metadata: Metadata = {
   title: "How to Play",
-  description: "Step-by-step guide to the OWASP secure development CTF: fork a target, patch a real vulnerability, open a PR, and get scored automatically.",
+  description: metaDescription || `How to play ${event.name}.`,
 };
 
-const steps = [
-  {
-    title: "Sign in with GitHub",
-    body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress. The scorer credits points to the account that authors the pull request, so play from the same account you sign in with.",
-  },
-  {
-    title: "Pick a target and a challenge",
-    body: `Browse the ${enabledApps.length} vulnerable ${enabledApps.length === 1 ? "app" : "apps"} on the Challenges page: ${appList}. Each has dozens of independent challenges at different difficulty levels; pick any one to start.`,
-  },
-  {
-    title: "Find the vulnerability",
-    body: "Work the target like a real audit: read the source, exercise the app, and identify the OWASP Top 10 flaw behind the challenge. Please use AI here. Point an agent at the codebase and have it do the analysis and draft the remediation. That's the intended workflow, not a shortcut around it.",
-  },
-  {
-    title: "Patch it and open a pull request",
-    body: `Fork the target's repo under the ${eventConfig.githubOrg} org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's main branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.`,
-  },
-  {
-    title: "Get scored automatically",
-    body: "A GitHub Action builds your patched app and runs the full regression suite against it. Every passing challenge test scores its points immediately: no manual grading, no waiting on an organizer. Pushing more fixes to the same PR re-scores it.",
-  },
-];
-
-type WalkthroughStep = { title: string; body: string; code?: string; lang?: "shell" | "ts" };
-
-// Worked example, Juice Shop variant: the Login Admin SQL injection in the
-// Juice Shop fork. The before/after mirrors routes/login.ts on the target's
-// default branch and the canonical parameterized-query fix, so a contestant
-// who follows this verbatim genuinely scores (and closes the two sibling
-// login challenges). Only rendered when juice-shop is an enabled target —
-// see the generic fallback below for events where it isn't.
-const juiceShopWalkthrough: WalkthroughStep[] = [
-  {
-    title: "Fork the target and clone your fork",
-    body: `Fork ${eventConfig.githubOrg}/juice-shop on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.`,
-    lang: "shell",
-    code: `gh repo fork ${eventConfig.githubOrg}/juice-shop --clone
-cd juice-shop`,
-  },
-  {
-    title: "Create a branch for your fix",
-    body: "One branch per fix keeps your PRs clean and easy to re-score.",
-    lang: "shell",
-    code: "git checkout -b fix/login-sql-injection",
-  },
-  {
-    title: "Find the flaw",
-    body: "The Login Admin challenge (A05: Injection) lives in routes/login.ts. User input is concatenated straight into the SQL string, so an email like ' OR 1=1-- logs in as the first user in the table: the admin.",
-    lang: "ts",
-    code: `// routes/login.ts: the vulnerable query
-models.sequelize.query(
-  \`SELECT * FROM Users WHERE email = '\${req.body.email || ''}'
-    AND password = '\${security.hash(req.body.password || '')}'
-    AND deletedAt IS NULL\`,
-  { model: UserModel, plain: true }
-)`,
-  },
-  {
-    title: "Patch it",
-    body: "Replace string interpolation with bind parameters. The database driver now treats the email and password strictly as data, so they can never rewrite the query itself.",
-    lang: "ts",
-    code: `// routes/login.ts: parameterized fix
-models.sequelize.query(
-  'SELECT * FROM Users WHERE email = $1 AND password = $2 AND deletedAt IS NULL',
-  {
-    model: UserModel,
-    plain: true,
-    bind: [req.body.email || '', security.hash(req.body.password || '')]
-  }
-)`,
-  },
-  {
-    title: "Commit and push to your fork",
-    body: "Write the commit message like you would on a real security fix: say what was vulnerable and how the patch closes it.",
-    lang: "shell",
-    code: `git add routes/login.ts
-git commit -m "Fix SQL injection in login route with bind parameters"
-git push -u origin fix/login-sql-injection`,
-  },
-  {
-    title: "Open the PR against main",
-    body: `The base repo is ${eventConfig.githubOrg}/juice-shop and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
-    lang: "shell",
-    code: `gh pr create --repo ${eventConfig.githubOrg}/juice-shop --base main \\
-  --title "Fix SQL injection in login route" \\
-  --body "Replaced string-interpolated SQL with bind parameters."`,
-  },
-  {
-    title: "Watch the scorer do its thing",
-    body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏁 Score recorded” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
-  },
-];
-
-// Worked example, generic variant: same loop as the Juice Shop walkthrough
-// (fork, branch, find the flaw, patch, push, PR, get scored), but with no
-// concrete app name or app-specific file path — for events where juice-shop
-// isn't an enabled target.
-const genericWalkthrough: WalkthroughStep[] = [
-  {
-    title: "Fork the target and clone your fork",
-    body: `Fork the target's repo under the ${eventConfig.githubOrg} org on GitHub (or with the gh CLI), then clone it. The default branch is the one the scorer watches.`,
-    lang: "shell",
-    code: `gh repo fork ${eventConfig.githubOrg}/<target> --clone
-cd <target>`,
-  },
-  {
-    title: "Create a branch for your fix",
-    body: "One branch per fix keeps your PRs clean and easy to re-score.",
-    lang: "shell",
-    code: "git checkout -b fix/<short-description>",
-  },
-  {
-    title: "Find the flaw",
-    body: "Read the challenge description on the Challenges page, then trace it back to the vulnerable code in the target's source. Point an AI agent at the codebase if you want a head start on the audit.",
-  },
-  {
-    title: "Patch it",
-    body: "Apply the fix that closes the vulnerability class the challenge is testing for, without breaking the app's behavior for legitimate use.",
-  },
-  {
-    title: "Commit and push to your fork",
-    body: "Write the commit message like you would on a real security fix: say what was vulnerable and how the patch closes it.",
-    lang: "shell",
-    code: `git add -A
-git commit -m "Fix <vulnerability> in <component>"
-git push -u origin fix/<short-description>`,
-  },
-  {
-    title: "Open the PR against main",
-    body: `The base repo is the target's fork under ${eventConfig.githubOrg} and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
-    lang: "shell",
-    code: `gh pr create --repo ${eventConfig.githubOrg}/<target> --base main \\
-  --title "Fix <vulnerability>" \\
-  --body "Describe the fix and the vulnerability it closes."`,
-  },
-  {
-    title: "Watch the scorer do its thing",
-    body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏁 Score recorded” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
-  },
-];
-
-const walkthrough = exampleVariant === "juice-shop" ? juiceShopWalkthrough : genericWalkthrough;
+// The page lede when the event runs more than one guided module (or none):
+// each module's own lede describes only its half, so the frame speaks for
+// itself instead. A single-module event reads that module's lede verbatim.
+const PLATFORM_LEDE =
+  "New to the competition? Here's everything you need to get from a GitHub sign-in to your first points.";
 
 function CodeBlock({ code }: { code: string }) {
   return (
@@ -164,179 +52,202 @@ function CodeBlock({ code }: { code: string }) {
   );
 }
 
-export default function HowToPlayPage() {
+export default async function HowToPlayPage() {
+  // Live facts handed to every module's copy, built once so two modules can't
+  // disagree about how many targets the event has.
+  const ctx: GuideContext = {
+    appCount: enabledApps.length,
+    appList: joinAppNames(enabledApps.map((a) => a.name)),
+    githubOrg: eventConfig.githubOrg,
+    exampleVariant: workedExampleVariant(enabledApps),
+  };
+
+  // Registry order, organizer-resolved titles, and — crucially — plain data:
+  // steps() and example() are invoked HERE, on the server. Nothing below this
+  // line holds a function.
+  const guides = (await getResolvedModules()).flatMap((module) => {
+    const guide = getModuleGuide(module.id);
+    if (!guide) return [];
+    return [
+      {
+        id: module.id,
+        title: module.title,
+        lede: guide.lede,
+        loop: guide.loop,
+        callout: guide.callout,
+        steps: guide.steps(ctx),
+        example: guide.example?.(ctx),
+        notes: guide.notes ?? [],
+        scoring: guide.scoring,
+        cta: guide.cta,
+      },
+    ];
+  });
+
+  // Zero modules with a guide is a valid event, not an error: the frame
+  // renders on its own.
+  const lede = guides.length === 1 ? guides[0].lede : PLATFORM_LEDE;
+  // "Good to know" and "How scoring works" are the platform's cards; the
+  // modules only supply their bullets and paragraphs, merged in registry
+  // order so a two-module event gets one of each rather than two.
+  const notes = guides.flatMap((g) => g.notes);
+  const scoring = guides.flatMap((g) => (g.scoring ? [{ id: g.id, body: g.scoring }] : []));
+
   return (
     <div className="flex flex-col gap-10">
-      <PageHeader
-        eyebrow="Getting Started"
-        title="How to Play"
-        description="New to the competition? Here's everything you need to go from a GitHub sign-in to your first patched challenge."
-      />
+      <PageHeader eyebrow="Getting Started" title="How to Play" description={lede} />
 
-      {/* Workflow callout */}
-      <div className="rounded-lg border border-[#2563eb]/30 bg-[#2563eb]/[0.06] p-5">
-        <p className="text-xs font-medium uppercase tracking-wider text-[var(--accent-blue-link)]">The loop</p>
-        <p className="mt-2 font-mono text-sm text-zinc-300">
-          find the flaw <span className="text-zinc-600">→</span> patch it{" "}
-          <span className="text-zinc-600">→</span> open a PR{" "}
-          <span className="text-zinc-600">→</span> CI scores it
-        </p>
-        <p className="mt-2 text-sm text-zinc-400">
-          There are no flags to submit. Every challenge is scored by an automated regression test
-          that only passes once the vulnerability is actually fixed.
-        </p>
-      </div>
+      {guides.map((guide) => (
+        <Fragment key={guide.id}>
+          {/* With one module the sections speak for themselves; with several,
+              each module's block is headed by its organizer-resolved title so
+              a contestant can tell which game a step belongs to. */}
+          {guides.length > 1 && (
+            <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+              {guide.title}
+            </h2>
+          )}
 
-      {/* AI callout. Sits above the steps because it changes how you do step 4,
-          and contestants who skim only the numbered list still see it. */}
-      <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
-        <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">
-          Please use AI
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-          Solving these with an AI agent is the intended path, not a loophole. Bring whatever you
-          already use and let it read the target. The fastest way to get a useful result is
-          OWASP&rsquo;s own{" "}
-          <a
-            href={event.secureAgentPlaybookUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ds-link"
-          >
-            Secure Agent Playbook
-          </a>
-          : structured, OWASP-grounded procedures for security code review, dependency and
-          secrets scanning, and API assessment, mapped to the same Top 10 categories these
-          challenges are graded against. Point it at your fork before you start reading files by
-          hand.
-        </p>
-      </div>
-
-      {/* Numbered steps */}
-      <ol className="flex flex-col gap-4">
-        {steps.map((step, i) => (
-          <li
-            key={step.title}
-            className="flex gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
-          >
-            <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
-              {i + 1}
-            </span>
-            <div>
-              <h2 className="font-semibold text-white">{step.title}</h2>
-              <p className="mt-1 text-sm leading-relaxed text-zinc-400">{step.body}</p>
+          {/* Workflow callout */}
+          {guide.loop && (
+            <div className="rounded-lg border border-[#2563eb]/30 bg-[#2563eb]/[0.06] p-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-[var(--accent-blue-link)]">
+                {guide.loop.kicker}
+              </p>
+              <p className="mt-2 font-mono text-sm text-zinc-300">
+                {guide.loop.cycle.map((step, i) => (
+                  <Fragment key={step}>
+                    {i > 0 && <> <span className="text-zinc-600">→</span> </>}
+                    {step}
+                  </Fragment>
+                ))}
+              </p>
+              <p className="mt-2 text-sm text-zinc-400">{guide.loop.note}</p>
             </div>
-          </li>
-        ))}
-      </ol>
+          )}
 
-      {/* Worked example */}
-      <section className="flex flex-col gap-5" aria-labelledby="first-patch">
-        <div className="flex flex-col gap-3">
-          <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
-            Worked example
-          </p>
-          <h2 id="first-patch" className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            Your first patch, end to end
-          </h2>
-          <p className="max-w-2xl text-sm leading-relaxed text-zinc-400">
-            {exampleVariant === "juice-shop" ? (
-              <>
-                Here&rsquo;s the whole loop on a real challenge:{" "}
-                <span className="text-zinc-200">Login Admin</span> in Juice Shop, a classic SQL
-                injection. Follow it verbatim to land your first points and see exactly what a
-                scoring run looks like, then repeat the pattern on every other challenge.
-              </>
-            ) : (
-              <>
-                Here&rsquo;s the whole loop, end to end, on whichever target and challenge you
-                pick: fork it, find the flaw, patch it, and open a PR. See exactly what a scoring
-                run looks like, then repeat the pattern on every other challenge.
-              </>
-            )}
-          </p>
-        </div>
+          {/* The module's own callout. For secure-development this is "Please
+              use AI", which sits above the steps because it changes how you do
+              step 4, and contestants who skim only the numbered list still
+              see it. */}
+          {guide.callout && (
+            <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">
+                {guide.callout.kicker}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                <ModuleCopy copy={guide.callout.body} />
+              </p>
+            </div>
+          )}
 
-        <ol className="flex flex-col gap-4">
-          {walkthrough.map((step, i) => (
-            <li
-              key={step.title}
-              className="rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
-            >
-              <div className="flex gap-4">
-                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#14b8a6]/40 bg-[#14b8a6]/10 font-mono text-sm font-bold tabular-nums text-[#14b8a6]">
+          {/* Numbered steps */}
+          <ol className="flex flex-col gap-4">
+            {guide.steps.map((step, i) => (
+              <li
+                key={step.title}
+                className="flex gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
+              >
+                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
                   {i + 1}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-white">{step.title}</h3>
+                <div>
+                  <h2 className="font-semibold text-white">{step.title}</h2>
                   <p className="mt-1 text-sm leading-relaxed text-zinc-400">{step.body}</p>
-                  {step.code && <CodeBlock code={step.code} />}
                 </div>
-              </div>
-            </li>
-          ))}
-        </ol>
+              </li>
+            ))}
+          </ol>
 
-        <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
-          <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">Bonus</p>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            {exampleVariant === "juice-shop" ? (
-              <>
-                That one-line fix doesn&rsquo;t just close Login Admin. The same injection powers
-                the <span className="text-zinc-200">Login Bender</span> and{" "}
-                <span className="text-zinc-200">Login Jim</span> challenges, so a single
-                parameterized query scores all three. Real fixes often cascade like this: patch
-                the root cause, not the symptom.
-              </>
-            ) : (
-              <>
-                A root-cause fix like this often closes more than one challenge at once, if
-                several exercise the same underlying flaw. Real fixes often cascade like that:
-                patch the root cause, not the symptom, and check whether your score picked up
-                more than the one challenge you were aiming at.
-              </>
-            )}
-          </p>
-        </div>
-      </section>
+          {/* Worked example */}
+          {guide.example && (
+            <section className="flex flex-col gap-5" aria-labelledby={guide.example.anchor}>
+              <div className="flex flex-col gap-3">
+                <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+                  {guide.example.kicker}
+                </p>
+                <h2
+                  id={guide.example.anchor}
+                  className="text-2xl font-bold tracking-tight text-white sm:text-3xl"
+                >
+                  {guide.example.heading}
+                </h2>
+                <p className="max-w-2xl text-sm leading-relaxed text-zinc-400">
+                  <ModuleCopy copy={guide.example.lede} />
+                </p>
+              </div>
+
+              <ol className="flex flex-col gap-4">
+                {guide.example.steps.map((step, i) => (
+                  <li
+                    key={step.title}
+                    className="rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
+                  >
+                    <div className="flex gap-4">
+                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#14b8a6]/40 bg-[#14b8a6]/10 font-mono text-sm font-bold tabular-nums text-[#14b8a6]">
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-white">{step.title}</h3>
+                        <p className="mt-1 text-sm leading-relaxed text-zinc-400">{step.body}</p>
+                        {step.code && <CodeBlock code={step.code} />}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+
+              {guide.example.bonus && (
+                <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">
+                    {guide.example.bonus.kicker}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                    <ModuleCopy copy={guide.example.bonus.body} />
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+        </Fragment>
+      ))}
 
       {/* Good-to-know */}
-      <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
-        <h2 className="font-semibold text-white">Good to know</h2>
-        <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-zinc-400">
-          <li>
-            Every push to an open PR re-runs the scorer, and the run evaluates your whole app, so
-            you can keep stacking fixes on one branch or open a fresh PR per fix, whichever you
-            prefer.
-          </li>
-          <li>
-            Your best-ever result per challenge is what counts. A later fix always replaces an
-            earlier miss; you can never lose points by trying.
-          </li>
-          <li>
-            Points are credited to the GitHub account that authored the PR. Team totals are the
-            sum of what each member lands individually.
-          </li>
-        </ul>
-      </div>
+      {notes.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+          <h2 className="font-semibold text-white">Good to know</h2>
+          <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-zinc-400">
+            {notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      {/* Scoring note */}
+      {/* Scoring note. The card is the platform's — it carries the links out
+          to the rules and the leaderboard, which exist on every event — and
+          each module contributes the paragraph that says how ITS points are
+          earned, plus its own entry-point button. */}
       <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
-        <h2 className="font-semibold text-white">How scoring works</h2>
-        <p className="text-sm leading-relaxed text-zinc-400">
-          Every challenge is worth a fixed number of points based on difficulty, and harder
-          vulnerabilities pay out more. Points are awarded the moment your PR&rsquo;s regression
-          test passes, and your best-ever result for each challenge is what counts, so a later
-          fix always replaces an earlier miss. Your live total, per-app breakdown, and
-          patched and non-patched counts are visible on your profile once you&rsquo;re signed in.
-        </p>
+        {scoring.length > 0 && <h2 className="font-semibold text-white">How scoring works</h2>}
+        {scoring.map((paragraph) => (
+          <p key={paragraph.id} className="text-sm leading-relaxed text-zinc-400">
+            {paragraph.body}
+          </p>
+        ))}
         <div className="flex flex-wrap gap-3 pt-1">
-          <Link
-            href="/challenges"
-            className="rounded-md border border-[#2563eb] bg-[#2563eb]/10 px-4 py-2 text-sm font-medium text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20"
-          >
-            Browse challenges
-          </Link>
+          {guides.map(
+            (guide) =>
+              guide.cta && (
+                <Link
+                  key={guide.id}
+                  href={guide.cta.href}
+                  className="rounded-md border border-[#2563eb] bg-[#2563eb]/10 px-4 py-2 text-sm font-medium text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20"
+                >
+                  {guide.cta.label}
+                </Link>
+              ),
+          )}
           <Link
             href="/rules"
             className="rounded-md border border-white/10 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-white/20 hover:text-white"

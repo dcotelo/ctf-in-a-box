@@ -51,7 +51,15 @@ vi.mock("@/lib/team-store", () => ({
   TEAM_WRITES_ENABLED: false,
 }));
 vi.mock("@/lib/hint-store", () => ({ getViewerHints, getHintPenalties, HINTS_ENABLED: true }));
-vi.mock("@/lib/modules", () => ({ isModuleEnabled, enabledModules: [] }));
+// `SECURE_AGENT_PLAYBOOK_URL` is stubbed too because `@/lib/site` reads it at
+// import time (the registry owns the constant; site.ts re-exports it as
+// `event.secureAgentPlaybookUrl` — see the comment there), and a whole-module
+// mock that omits it makes every importer of site.ts throw.
+vi.mock("@/lib/modules", () => ({
+  isModuleEnabled,
+  enabledModules: [],
+  SECURE_AGENT_PLAYBOOK_URL: "https://github.com/OWASP/secure-agent-playbook",
+}));
 vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 

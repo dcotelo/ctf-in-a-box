@@ -110,21 +110,33 @@ describe("resolveModules", () => {
   // Omit leaves the functions on the value, which is what actually throws).
   //
   // Two guards, because either alone has a hole. The runtime scan below is
-  // vacuous while no module defines a `home` yet, but bites the moment one
-  // does (Task 7) if the strip is ever removed; the compile-time check bites
-  // today, the moment `home` reappears in ResolvedModule's shape.
+  // DEEP — a function nested inside an object property (`home.intro`,
+  // `guide.steps`) breaks the boundary exactly as a top-level one does, and
+  // every copy block this registry has is shaped that way — and it bites the
+  // moment a module defines one if the strip is ever removed; the
+  // compile-time check bites today, the moment such a field reappears in
+  // ResolvedModule's shape.
   it("carries no function-valued property, so it is safe to pass to a Client Component", () => {
-    for (const m of resolveModules({ quiz: { title: "Trivia" } })) {
-      expect(m).not.toHaveProperty("home");
-      for (const [key, value] of Object.entries(m)) {
-        expect(typeof value, `resolved module ${m.id} exposes a function at .${key}`).not.toBe("function");
+    const findFunctions = (value: unknown, path: string): string[] => {
+      if (typeof value === "function") return [path];
+      if (Array.isArray(value)) return value.flatMap((v, i) => findFunctions(v, `${path}[${i}]`));
+      if (value && typeof value === "object") {
+        return Object.entries(value).flatMap(([k, v]) => findFunctions(v, `${path}.${k}`));
       }
+      return [];
+    };
+    for (const m of resolveModules({ quiz: { title: "Trivia" } })) {
+      for (const stripped of ["home", "guide", "rules"]) {
+        expect(m).not.toHaveProperty(stripped);
+      }
+      expect(findFunctions(m, `resolved module ${m.id}`)).toEqual([]);
     }
   });
 
-  it("keeps `home` off ResolvedModule's type as well as its value", () => {
-    // Fails to COMPILE (not just to run) if `home` — or any other key whose
-    // value type includes a function — is ever added back to ResolvedModule.
+  it("keeps the copy blocks off ResolvedModule's type as well as its value", () => {
+    // Fails to COMPILE (not just to run) if `home`/`guide`/`rules` — or any
+    // other key whose value type includes a function — is ever added back to
+    // ResolvedModule.
     type FunctionValuedKeys = {
       [K in keyof ResolvedModule]-?: NonNullable<ResolvedModule[K]> extends (...args: never[]) => unknown
         ? K
@@ -132,6 +144,13 @@ describe("resolveModules", () => {
     }[keyof ResolvedModule];
     const noFunctionValuedKeys: FunctionValuedKeys extends never ? true : false = true;
     const homeIsOmitted: "home" extends keyof ResolvedModule ? false : true = true;
-    expect([noFunctionValuedKeys, homeIsOmitted]).toEqual([true, true]);
+    const guideIsOmitted: "guide" extends keyof ResolvedModule ? false : true = true;
+    const rulesIsOmitted: "rules" extends keyof ResolvedModule ? false : true = true;
+    expect([noFunctionValuedKeys, homeIsOmitted, guideIsOmitted, rulesIsOmitted]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
   });
 });
