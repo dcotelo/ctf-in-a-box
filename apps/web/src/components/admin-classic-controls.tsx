@@ -966,10 +966,8 @@ export default function AdminClassicControls({
 
             {importResult && (
               <p className="text-xs text-[#7aa2ff]">
-                Imported: {importResult.created} challenge{importResult.created === 1 ? "" : "s"} created,{" "}
-                {importResult.updated} updated. The bundle you just imported listed {importResult.categories}{" "}
-                categor{importResult.categories === 1 ? "y" : "ies"} — that is a count of what was IN THE FILE, not
-                how many were newly added, and not your event&rsquo;s total category count.
+                Imported: {importResult.created} created, {importResult.updated} updated. ({importResult.categories}{" "}
+                categor{importResult.categories === 1 ? "y" : "ies"} listed in the file.)
               </p>
             )}
 

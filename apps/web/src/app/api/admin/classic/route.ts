@@ -50,7 +50,8 @@ import { upstashPipeline } from "@/lib/upstash";
  * a caller to get wrong. See the exported `*_KEYS` constants below and the
  * route test's "keeps every payload key set pairwise disjoint" case, which
  * checks every PAIR among them (not just one hand-picked pair) so a future
- * fourth shape is covered the moment it's added to that test's set list.
+ * fourth shape is covered by adding one line to that test's `sets` array,
+ * rather than a second bespoke assertion.
  *
  * The `import` shape carries the bundle as raw TEXT, never a pre-parsed
  * object: this route re-parses and re-validates it with `parseBundle` (the

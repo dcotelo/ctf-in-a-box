@@ -163,8 +163,9 @@ describe("GET /api/admin/classic", () => {
 // one hand-picked pair. This test derives all three sets from the actual
 // exported constants the route's parsers use (`CHALLENGE_KEYS` /
 // `CATEGORIES_KEYS` / `IMPORT_KEYS`) and checks every pair among them, so a
-// FOURTH shape added later is covered automatically just by being added to
-// the `sets` list below — a hardcoded pairwise copy would silently miss it.
+// FOURTH shape added later is covered by adding one line to the `sets` list
+// below, rather than a second bespoke assertion — a hardcoded pairwise copy
+// would silently miss it.
 describe("POST /api/admin/classic — dispatch key sets", () => {
   it("keeps every payload key set pairwise disjoint", () => {
     const sets = [
