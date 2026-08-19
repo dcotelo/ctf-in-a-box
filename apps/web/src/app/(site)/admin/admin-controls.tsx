@@ -169,12 +169,24 @@ export default function AdminControls({
     );
   };
 
-  const apply = async (patch: Record<string, unknown>) => {
+  /** Returns whether the patch was accepted, so a caller with its own local
+   *  draft state (AdminModuleIdentity) can snap back on rejection instead of
+   *  leaving rejected text sitting in the field. Every tab's `apply` prop
+   *  type was widened to `Promise<boolean>` to match (a `Promise<T>` is not
+   *  assignable to `Promise<void>` just because `T` goes unused — that's
+   *  only true for a bare `void`-returning function type, not one nested
+   *  inside a generic); callers that only need fire-and-forget keep calling
+   *  it exactly the same way (`void apply(...)`), just ignoring the result. */
+  const apply = async (patch: Record<string, unknown>): Promise<boolean> => {
     setPending(true);
     setError(null);
     const result = await postSettings(patch);
-    if (result.error) setError(result.error);
-    else if (result.settings) {
+    if (result.error) {
+      setError(result.error);
+      setPending(false);
+      return false;
+    }
+    if (result.settings) {
       const s = result.settings;
       setSettings(s);
       setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
@@ -184,6 +196,7 @@ export default function AdminControls({
       setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
     }
     setPending(false);
+    return true;
   };
 
   /** Shared commit for the numeric knobs (hint + quiz): junk snaps back to the
@@ -256,7 +269,6 @@ export default function AdminControls({
           ) : (
             <section className="flex flex-col gap-4">
               <AdminModuleIdentity
-                key={`identity-${tab.id}-${settings.moduleOverrides[tab.id as ModuleId]?.title ?? ""}-${settings.moduleOverrides[tab.id as ModuleId]?.blurb ?? ""}`}
                 moduleId={tab.id}
                 defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
                 override={settings.moduleOverrides[tab.id as ModuleId]}

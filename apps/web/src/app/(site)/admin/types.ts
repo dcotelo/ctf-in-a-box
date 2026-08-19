@@ -15,7 +15,7 @@ export type ConfirmState = {
   confirmLabel?: string;
   requireType?: string;
   danger?: boolean;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: () => void | Promise<unknown>;
 };
 
 /** Shared commit signature for every numeric settings knob. The shell owns the

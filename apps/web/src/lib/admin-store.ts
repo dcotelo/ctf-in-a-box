@@ -31,10 +31,12 @@ export const HINT_UNLOCK_AFTER_MAX = 100000; // minutes
 /** Caps for the two quiz retry-gate knobs (see quiz-store's `quizGate`). */
 export const QUIZ_MAX_ATTEMPTS_MAX = 100;
 export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
-// Caps for organizer-authored per-module naming overrides: re-exported so
-// this file stays the place server code looks for them, but DEFINED in
-// @/lib/modules (client-safe) — see the comment there for why.
-export { MODULE_TITLE_MAX, MODULE_BLURB_MAX };
+// MODULE_TITLE_MAX / MODULE_BLURB_MAX (used below for validation) are
+// defined in @/lib/modules — client-safe, unlike this file — so the admin
+// panel's identity form can read them too. Not re-exported here: nothing in
+// the repo imports them from this file, and a second import path to the same
+// two constants is exactly the kind of dead surface a later change could
+// silently drift out of sync with.
 const MODULE_FIELD_RE = /^module(Title|Blurb):(.+)$/;
 // Organizer-authored text rendered on pages every contestant loads. Plain text
 // only — reject C0 control characters (so nothing can smuggle a terminal

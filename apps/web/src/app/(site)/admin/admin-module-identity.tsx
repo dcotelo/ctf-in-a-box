@@ -5,9 +5,7 @@
 // module gets identity editing for free with no per-module special case.
 //
 // Presentational, like the other tab bodies: the shell owns `apply` and
-// posts through it. Commits on blur, same idiom as ScheduleField
-// (admin-event-tab.tsx) and commitNumber (admin-controls.tsx): an unchanged
-// value is a no-op, so blurring without editing never POSTs.
+// posts through it.
 //
 // An empty string CLEARS the override server-side (admin-store.ts HDELs the
 // field, restoring the registry default) — the placeholder shows that
@@ -15,6 +13,7 @@
 // spells it out.
 
 import { useState } from "react";
+import type { ChangeEvent } from "react";
 import { MODULE_TITLE_MAX, MODULE_BLURB_MAX } from "@/lib/modules";
 
 export type AdminModuleIdentityProps = {
@@ -25,11 +24,88 @@ export type AdminModuleIdentityProps = {
   /** The organizer's current override for this module, if any. */
   override: { title?: string; blurb?: string } | undefined;
   pending: boolean;
-  apply: (patch: Record<string, unknown>) => Promise<void>;
+  /** Resolves `true` iff the patch was accepted server-side, so a rejected
+   *  edit (control characters, an over-length paste past what `maxLength`
+   *  alone stops) can snap back instead of sitting there re-POSTing the same
+   *  rejected text on every later blur. */
+  apply: (patch: Record<string, unknown>) => Promise<boolean>;
 };
+
+/**
+ * The blur-commit decision for one identity field, factored out as a pure
+ * function (no hooks, no DOM) so it's unit-testable directly — including
+ * asserting on the exact patch object POSTed to `apply`, not just on
+ * rendered markup.
+ *
+ * - Compares TRIMMED input against `stored`: whitespace typed over an
+ *   already-empty override is treated as still-empty, so it's a no-op
+ *   instead of re-POSTing "  " (which would clear nothing, since the server
+ *   also trims) on every subsequent blur.
+ * - An unchanged (post-trim) value never calls `apply`.
+ * - A changed value POSTs `{ [patchKey]: trimmed }` — `patchKey` is the
+ *   caller's single source for both this and the rendered `name` attribute,
+ *   never a second hand-written string.
+ * - Returns the value the field should now display: the trimmed text on
+ *   success, or `stored` (snap back) if `apply` reports rejection.
+ */
+export async function commitIdentityField(opts: {
+  patchKey: string;
+  input: string;
+  stored: string;
+  apply: (patch: Record<string, unknown>) => Promise<boolean>;
+}): Promise<string> {
+  const { patchKey, input, stored, apply } = opts;
+  const trimmed = input.trim();
+  if (trimmed === stored) return trimmed;
+  const ok = await apply({ [patchKey]: trimmed });
+  return ok ? trimmed : stored;
+}
 
 const fieldClass =
   "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none";
+
+/** One editable field (title or blurb). `patchKey` is computed ONCE by the
+ *  caller (AdminModuleIdentity) and used for both the `name` attribute and
+ *  the `apply()` call via `commitIdentityField` — never written out twice —
+ *  so the rendered field and the POSTed patch key can't drift apart.
+ *
+ *  Keyed by the caller on its OWN `stored` value — the same
+ *  remount-on-server-value trick `ScheduleField` uses — so committing this
+ *  field never discards uncommitted text in the other. */
+function IdentityField({
+  patchKey,
+  stored,
+  placeholder,
+  maxLength,
+  disabled,
+  multiline,
+  apply,
+}: {
+  patchKey: string;
+  stored: string;
+  placeholder: string;
+  maxLength: number;
+  disabled: boolean;
+  multiline: boolean;
+  apply: (patch: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [input, setInput] = useState(stored);
+
+  const shared = {
+    name: patchKey,
+    value: input,
+    placeholder,
+    maxLength,
+    disabled,
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setInput(e.target.value),
+    onBlur: () => {
+      void commitIdentityField({ patchKey, input, stored, apply }).then(setInput);
+    },
+    className: fieldClass,
+  };
+
+  return multiline ? <textarea rows={2} {...shared} /> : <input type="text" {...shared} />;
+}
 
 export default function AdminModuleIdentity({ moduleId, defaults, override, pending, apply }: AdminModuleIdentityProps) {
   // The stored value is the override text itself (never the registry
@@ -37,8 +113,8 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
   // what clears it, so "unchanged" and "already cleared" agree.
   const storedTitle = override?.title ?? "";
   const storedBlurb = override?.blurb ?? "";
-  const [titleInput, setTitleInput] = useState(storedTitle);
-  const [blurbInput, setBlurbInput] = useState(storedBlurb);
+  const titleKey = `moduleTitle:${moduleId}`;
+  const blurbKey = `moduleBlurb:${moduleId}`;
 
   return (
     <div className="flex flex-col gap-3 border-b border-white/[0.06] pb-4">
@@ -51,37 +127,29 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted">Title</span>
-        <input
-          type="text"
-          name={`moduleTitle:${moduleId}`}
-          value={titleInput}
+        <IdentityField
+          key={`title-${storedTitle}`}
+          patchKey={titleKey}
+          stored={storedTitle}
           placeholder={defaults.title}
           maxLength={MODULE_TITLE_MAX}
           disabled={pending}
-          onChange={(e) => setTitleInput(e.target.value)}
-          onBlur={() => {
-            if (titleInput === storedTitle) return;
-            void apply({ [`moduleTitle:${moduleId}`]: titleInput });
-          }}
-          className={fieldClass}
+          multiline={false}
+          apply={apply}
         />
       </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted">Blurb</span>
-        <textarea
-          name={`moduleBlurb:${moduleId}`}
-          value={blurbInput}
+        <IdentityField
+          key={`blurb-${storedBlurb}`}
+          patchKey={blurbKey}
+          stored={storedBlurb}
           placeholder={defaults.blurb}
           maxLength={MODULE_BLURB_MAX}
           disabled={pending}
-          rows={2}
-          onChange={(e) => setBlurbInput(e.target.value)}
-          onBlur={() => {
-            if (blurbInput === storedBlurb) return;
-            void apply({ [`moduleBlurb:${moduleId}`]: blurbInput });
-          }}
-          className={fieldClass}
+          multiline
+          apply={apply}
         />
       </label>
     </div>

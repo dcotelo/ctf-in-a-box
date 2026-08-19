@@ -19,7 +19,7 @@ import type { CommitNumber } from "./types";
 export type AdminSecureDevTabProps = {
   settings: AdminSettings;
   pending: boolean;
-  apply: (patch: Record<string, unknown>) => Promise<void>;
+  apply: (patch: Record<string, unknown>) => Promise<boolean>;
   hintCostInput: string;
   setHintCostInput: (v: string) => void;
   minSolvesInput: string;

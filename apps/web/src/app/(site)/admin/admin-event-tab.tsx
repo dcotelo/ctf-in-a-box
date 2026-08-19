@@ -66,7 +66,7 @@ export type AdminEventTabProps = {
   pending: boolean;
   demoMode: boolean;
   resetInfo: string | null;
-  apply: (patch: Record<string, unknown>) => Promise<void>;
+  apply: (patch: Record<string, unknown>) => Promise<boolean>;
   setConfirm: (c: ConfirmState) => void;
   doReset: (confirmValue: string) => Promise<void>;
   doSeed: () => Promise<void>;
