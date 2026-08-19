@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { NavLink } from "@/lib/site";
+import { itemKeyAction, triggerKeyAction } from "@/lib/nav-menu-keys";
 
 export default function NavDropdown({
   label,
@@ -68,8 +69,7 @@ export default function NavDropdown({
   };
 
   const focusItem = (index: number) => {
-    const wrapped = (index + items.length) % items.length;
-    itemRefs.current[wrapped]?.focus();
+    itemRefs.current[index]?.focus();
   };
 
   const onTriggerClick = () => {
@@ -80,40 +80,32 @@ export default function NavDropdown({
     }
   };
 
+  // Both handlers below are a thin binding of the pure decision in
+  // `@/lib/nav-menu-keys` to real DOM effects (focus(), setOpen,
+  // preventDefault) — see that module for the actual keyboard contract and
+  // its tests, and nav-dropdown.test.tsx for why this file only covers the
+  // closed static render.
   const onTriggerKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-    // Enter/Space open via the button's native click activation, handled by
-    // onTriggerClick above — nothing extra to do here for those two.
-    if (e.key === "ArrowDown") {
+    const action = triggerKeyAction(e.key, items.length);
+    if (action.type === "open") {
       e.preventDefault();
-      openTo(0);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      openTo(items.length - 1);
-    } else if (e.key === "Escape") {
+      openTo(action.focusIndex);
+    } else if (action.type === "close") {
       setOpen(false);
     }
   };
 
   const onItemKeyDown = (e: KeyboardEvent<HTMLAnchorElement>, index: number) => {
-    if (e.key === "ArrowDown") {
+    const action = itemKeyAction(e.key, index, items.length);
+    if (action.type === "focus") {
       e.preventDefault();
-      focusItem(index + 1);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      focusItem(index - 1);
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      focusItem(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      focusItem(items.length - 1);
-    } else if (e.key === "Escape") {
+      focusItem(action.index);
+    } else if (action.type === "close-refocus-trigger") {
       e.preventDefault();
       setOpen(false);
       triggerRef.current?.focus();
-    } else if (e.key === "Tab") {
-      // Tab moves focus on to whatever's next in the document; just drop the
-      // open state so a re-open later doesn't inherit a stale one.
+    } else if (action.type === "close") {
+      // Tab: don't preventDefault — focus is about to move on natively.
       setOpen(false);
     }
   };

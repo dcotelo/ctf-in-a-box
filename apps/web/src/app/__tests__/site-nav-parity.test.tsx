@@ -60,8 +60,8 @@ vi.mock("@/components/visit-beacon", () => ({ default: () => null }));
 
 import RootLayout from "@/app/layout";
 import SiteLayout from "@/app/(site)/layout";
-import { getNavGroups, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
-import { buildNavGroups, buildNavLinks, isNavGroup } from "@/lib/site";
+import { getNavGroups, getNavLinks } from "@/lib/resolved-modules";
+import { isNavGroup } from "@/lib/site";
 
 /** Every `href` → the link texts rendered for it. A Map of sets because the
  *  header renders its nav twice (desktop + mobile menu). */
@@ -90,18 +90,29 @@ const footerLinks = linkLabels(footerHtml);
 // footer (which stays flat, per design) does.
 //
 // The header/footer split this file used to pin was "the same static list,
-// rendered two different ways." That drift is now impossible by construction
-// for a different reason: `getNavLinks` and `getNavGroups` both run their own
-// pure builder over the exact same `getResolvedModules()` result (memoized
-// per request), so there is only ever one resolved-modules read for an
-// organizer's rename to fail to reach. This file pins THAT property instead:
-// both accessors are provably pure functions of one shared resolved-modules
-// call, and the footer (the one surface whose links are actually visible in
-// a static render) shows an un-renamed module's `nav.label` and a renamed
-// one's override, exactly as before.
+// rendered two different ways." The two anti-drift assertions that actually
+// carry that guarantee now are: the footer-label check below (an un-renamed
+// module's `nav.label` survives, an override still wins — read straight off
+// the rendered `(site)` layout) and the closed-trigger check after it (the
+// header really did collapse into a dropdown, proven off the rendered root
+// layout, not off a hand-called builder). Both render the REAL layout
+// components, so a regression in either one's wiring — reverting the footer
+// to `site.ts`'s static list, or the header silently falling back to flat
+// links — fails a test here.
+//
+// A third assertion used to sit here comparing `getNavLinks()`/
+// `getNavGroups()` against `buildNavLinks(resolved)`/`buildNavGroups(resolved)`
+// called directly. That was a tautology, not a test: `getNavLinks` IS
+// `buildNavLinks(await getResolvedModules())` verbatim (see
+// resolved-modules.ts), so the assertion re-ran the exact same two lines of
+// code on both sides of `toEqual` and could not fail without also changing
+// what it was "checking" — it implied coverage of the shared-resolved-modules
+// property that the render-based assertions below already provide for real.
+// Removed rather than kept for looks. If you're tempted to re-add a
+// direct-call comparison like it, don't: prove the property by rendering,
+// the way the two assertions below do.
 describe("header groups module nav links; footer stays flat", () => {
   const navGroups = getNavGroups();
-  const navFlat = getNavLinks();
 
   it("collapses 2+ module links into one dropdown labelled the literal \"Challenges\", using each module's title", async () => {
     const group = (await navGroups).find(isNavGroup);
@@ -127,12 +138,6 @@ describe("header groups module nav links; footer stays flat", () => {
     expect(headerHtml).not.toContain('role="menu"');
     expect(headerLinks.has("/challenges"), "the collapsed dropdown must not leak its item hrefs into a closed render").toBe(false);
     expect(headerLinks.has("/quiz"), "the collapsed dropdown must not leak its item hrefs into a closed render").toBe(false);
-  });
-
-  it("getNavLinks and getNavGroups are both pure functions of the SAME resolved modules", async () => {
-    const resolved = await getResolvedModules();
-    expect(await navFlat).toEqual(buildNavLinks(resolved));
-    expect(await navGroups).toEqual(buildNavGroups(resolved));
   });
 });
 
