@@ -212,14 +212,21 @@ describe("withModuleContributions", () => {
     // Matching them exactly would split one contestant into two rows the moment
     // the two disagreed on case — the union is taken case-insensitively, like
     // admin-auth and hint-store do.
+    //
+    // NEITHER side of this fixture is lowercase by accident. The membership
+    // decision compares the quiz store's login against a `seen` set built from
+    // the SCORED logins; if the scored spelling here were already lowercase
+    // ("ada"), a case-sensitive `seen` would still match the lowercased lookup
+    // key and this test would pass against broken code. "Ada" vs "ADA" makes
+    // both sides differ, so only a genuinely case-insensitive union passes.
     it("matches logins case-insensitively, so one contestant never becomes two rows", async () => {
       mocks.getQuizTotals.mockResolvedValue(new Map([["ADA", { points: 30, answered: 3, lastAt: null }]]));
 
-      const out = await withModuleContributions(data([entry("ada", 10, 1)]));
+      const out = await withModuleContributions(data([entry("Ada", 10, 1)]));
 
       expect(out.entries).toHaveLength(1);
       // The scored row's own spelling wins — it is the row that already exists.
-      expect(out.entries[0].login).toBe("ada");
+      expect(out.entries[0].login).toBe("Ada");
       expect(out.entries[0].points).toBe(40);
     });
 

@@ -170,18 +170,14 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   if (data.capabilities.teams && data.teams.length > 0) {
     if (quizEnabled) {
       try {
-        teams = attributeTeams(teams, "quiz", quizContributions(await teamQuizTotals(teams), quizTotalQuestions));
+        teams = attributeTeams(teams, quizContributions(await teamQuizTotals(teams), quizTotalQuestions));
       } catch (err) {
         console.error("quiz team totals unavailable for leaderboard:", err);
       }
     }
     if (classicEnabled) {
       try {
-        teams = attributeTeams(
-          teams,
-          "classic",
-          classicContributions(await teamClassicTotals(teams), classicTotalChallenges),
-        );
+        teams = attributeTeams(teams, classicContributions(await teamClassicTotals(teams), classicTotalChallenges));
       } catch (err) {
         console.error("classic team totals unavailable for leaderboard:", err);
       }
@@ -245,7 +241,6 @@ export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamSta
 
   return attributeTeams(
     teams,
-    "quiz",
     quizContributions(totalsResult.value, questionsResult.status === "fulfilled" ? questionsResult.value.length : 0),
   );
 }
@@ -279,7 +274,6 @@ export async function withTeamClassicPoints(teams: TeamStanding[]): Promise<Team
 
   return attributeTeams(
     teams,
-    "classic",
     classicContributions(
       totalsResult.value,
       challengesResult.status === "fulfilled" ? challengesResult.value.length : 0,
@@ -473,12 +467,34 @@ function attributeEntry(entry: LeaderboardEntry, secureDev: boolean, overlay: Ov
  *  no block and no points) and `progress` the block to stamp. */
 type TeamContribution = { points: number; completed: number; progress: ModuleProgress };
 
-function quizContributions(totals: readonly QuizTotal[], totalQuestions: number): TeamContribution[] {
-  return totals.map((t) => ({ points: t.points, completed: t.answered, progress: quizModule(t, totalQuestions) }));
+/** A whole board's worth of one module's contributions, WITH the module id
+ *  they belong under. The id travels with the data rather than as a second
+ *  argument to `attributeTeams`, so it is not expressible to stamp one
+ *  module's key over another module's numbers — a mistake the previous
+ *  `(teams, moduleId, contributions)` signature type-checked happily. Only
+ *  the two builders below construct this, and each hard-codes its own id. */
+type TeamContributions = { moduleId: ModuleId; contributions: readonly TeamContribution[] };
+
+function quizContributions(totals: readonly QuizTotal[], totalQuestions: number): TeamContributions {
+  return {
+    moduleId: "quiz",
+    contributions: totals.map((t) => ({
+      points: t.points,
+      completed: t.answered,
+      progress: quizModule(t, totalQuestions),
+    })),
+  };
 }
 
-function classicContributions(totals: readonly ClassicTotal[], totalChallenges: number): TeamContribution[] {
-  return totals.map((t) => ({ points: t.points, completed: t.solved, progress: classicModule(t, totalChallenges) }));
+function classicContributions(totals: readonly ClassicTotal[], totalChallenges: number): TeamContributions {
+  return {
+    moduleId: "classic",
+    contributions: totals.map((t) => ({
+      points: t.points,
+      completed: t.solved,
+      progress: classicModule(t, totalChallenges),
+    })),
+  };
 }
 
 /** Adds each team's already-deduped module total (`contributions[i]` belongs
@@ -491,11 +507,7 @@ function classicContributions(totals: readonly ClassicTotal[], totalChallenges: 
  *  Applying it once per module is safe to chain: each pass adds only its own
  *  module's points and stamps only its own key, and the sort is stable on the
  *  positions the previous pass produced. */
-function attributeTeams(
-  teams: TeamStanding[],
-  moduleId: ModuleId,
-  contributions: readonly TeamContribution[],
-): TeamStanding[] {
+function attributeTeams(teams: TeamStanding[], { moduleId, contributions }: TeamContributions): TeamStanding[] {
   return teams
     .map((team, i) => {
       const contribution = contributions[i];
