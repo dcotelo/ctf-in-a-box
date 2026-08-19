@@ -66,7 +66,11 @@ services:
   sync:
     profiles: ["poll"]
     build: ./sync
-    restart: unless-stopped
+    # unless-stopped would restart even on a clean exit 0 (e.g. a quiz-only
+    # event.yaml with no polled module — see sync/src/index.js's main()),
+    # turning "nothing to do" into a silent restart-loop. on-failure only
+    # restarts on a genuine nonzero-exit crash.
+    restart: on-failure
     environment:
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}

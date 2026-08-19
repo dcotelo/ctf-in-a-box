@@ -50,7 +50,11 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
   const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
   if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
   const mod = modules[MODULE];
-  if (!mod) throw new Error(`event.yaml: modules.${MODULE} is required`);
+  // A module this build cannot serve is not an error — it just means there is
+  // nothing to poll. Returning null (rather than throwing) is what lets a
+  // quiz-only event run: throwing here crash-looped the poller and froze the
+  // leaderboard with no signal beyond a restart count.
+  if (!mod) return null;
   const targets = mod.targets;
   if (!Array.isArray(targets) || targets.length === 0) throw new Error("event.yaml: targets must be a non-empty list");
   const bad = targets.filter((t) => !TARGETS.includes(t));

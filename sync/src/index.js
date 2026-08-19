@@ -93,6 +93,10 @@ export async function tick(cfg, state, deps = {}) {
 
 async function main() {
   const cfg = loadConfig();
+  if (!cfg) {
+    console.log("ctf-sync: no polled module enabled, nothing to do");
+    return;
+  }
   const state = loadState(cfg.statePath);
   const redis = makeRedis();
   console.error(`ctf-sync: polling ${cfg.targets.length} repos in ${cfg.org} every ${cfg.pollIntervalMs}ms`);

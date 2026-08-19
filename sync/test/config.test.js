@@ -62,9 +62,9 @@ test("tolerates a registered module key it does not score (quiz)", () => {
   assert.deepEqual(cfg.targets, ["dvwa"]);
 });
 
-test("still requires secure-development even when another known module is present", () => {
+test("returns null when no polled module is enabled (quiz-only)", () => {
   const p = writeYaml(`github: { org: my-org }\nmodules:\n  quiz: {}\n`);
-  assert.throws(() => loadConfig(p, ENV), /modules\.secure-development/);
+  assert.equal(loadConfig(p, ENV), null);
 });
 
 test("a typo'd secure-development key is rejected, not treated as satisfied", () => {
@@ -76,9 +76,12 @@ test("KNOWN_MODULES lists the ids sync tolerates", () => {
   assert.deepEqual(KNOWN_MODULES, ["secure-development", "quiz"]);
 });
 
-test("rejects missing modules section or missing secure-development", () => {
+test("rejects a missing modules section entirely (not the same as an empty one)", () => {
   assert.throws(() => loadConfig(writeYaml(`github: { org: my-org }\n`), ENV), /modules.secure-development/);
-  assert.throws(() => loadConfig(writeYaml(`github: { org: my-org }\nmodules: {}\n`), ENV), /modules.secure-development/);
+});
+
+test("returns null when modules is present but empty", () => {
+  assert.equal(loadConfig(writeYaml(`github: { org: my-org }\nmodules: {}\n`), ENV), null);
 });
 
 const YAML = `github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`;
