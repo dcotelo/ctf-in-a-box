@@ -160,6 +160,52 @@ got_targets() {
   printf '%s' "$output" | grep -qF 'more than one top-level modules: key'
 }
 
+# --------------------------------------------------------------------------
+# The wizard emits event.yaml for people who never open one. Whatever it can
+# write therefore has to satisfy the same three readers as a hand-written file
+# — so its output IS corpus, kept honest by regenerating it here and diffing
+# against the committed fixtures (which both differential tests then run
+# through both readers). The `# targets:` header is corpus bookkeeping, not
+# something the wizard writes, so it is stripped before the comparison.
+# --------------------------------------------------------------------------
+
+wiz_emit() {
+  bash -c 'CMD=__selftest source "$1"; shift; wiz_event_yaml "$@"' _ "$SCRIPT" "$@"
+}
+
+WIZ_DATES='  start: 2026-10-01T09:00:00-03:00
+  end: 2026-10-01T18:00:00-03:00
+'
+
+@test "corpus: the wizard still emits exactly the secure-development-only fixture" {
+  wiz_emit "OWASP Chapter CTF" "http://192.168.1.10" "$WIZ_DATES" my-event-org \
+    "secure-development" "juice-shop dvwa" poll "your-github-login" > got.yaml
+  sed '/^# targets:/d' "$CORPUS/accept-wizard-secure-development-only.yaml" > want.yaml
+  diff -u want.yaml got.yaml
+}
+
+@test "corpus: the wizard still emits exactly the quiz-only fixture" {
+  wiz_emit "OWASP Chapter Quiz Night" "http://192.168.1.10" "" my-event-org \
+    "quiz" "" poll "your-github-login" > got.yaml
+  sed '/^# targets:/d' "$CORPUS/accept-wizard-quiz-only.yaml" > want.yaml
+  diff -u want.yaml got.yaml
+}
+
+@test "corpus: the wizard still emits exactly the both-modules fixture" {
+  wiz_emit "OWASP Chapter CTF" "http://192.168.1.10" "$WIZ_DATES" my-event-org \
+    "secure-development quiz" "juice-shop, dvwa" push "your-github-login alice" > got.yaml
+  sed '/^# targets:/d' "$CORPUS/accept-wizard-both-modules.yaml" > want.yaml
+  diff -u want.yaml got.yaml
+}
+
+@test "corpus: a quiz-only wizard config carries no secure-development block at all" {
+  # Not just "no targets": the module's key must be absent, because presence
+  # IS enablement — a `secure-development: {}` left behind would turn its nav,
+  # challenge browser and leaderboard columns back on for an event with no
+  # forks to score.
+  [ -z "$(grep -F secure-development "$CORPUS/accept-wizard-quiz-only.yaml")" ]
+}
+
 @test "the shipped event.yaml.example is accepted by the bash reader" {
   run bash "$SCRIPT" render --config "$BATS_TEST_DIRNAME/../../event.yaml.example"
   [ "$status" -eq 0 ]

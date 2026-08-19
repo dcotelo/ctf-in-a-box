@@ -941,8 +941,25 @@ cmd_teardown() {
 }
 
 # Open a URL/file in the default browser, degrading to a printed path.
+#
+# Only ever opens for an INTERACTIVE run. The --dry-run guards at each call
+# site are not enough on their own: they stop the documented rehearsal path,
+# but any other automated invocation — a test harness driving a real
+# subcommand, a CI step, an agent running the script against a fixture config
+# — would still pop real browser tabs on whoever's machine is running it.
+# That happened: a run against the bats fixture org opened GitHub's App and
+# OAuth creation pages for an org that does not exist.
+#
+# stdin is the right thing to test, not stdout: the prompts this accompanies
+# are unusable without a terminal to answer them, so no-TTY means no human,
+# means print the URL and let the caller decide. Set CTF_NO_BROWSER=1 to
+# suppress it even when interactive.
 open_url() {
   local target="$1"
+  if [ -n "${CTF_NO_BROWSER:-}" ] || [ ! -t 0 ]; then
+    echo "open this manually: $target"
+    return 0
+  fi
   if command -v open >/dev/null 2>&1; then
     open "$target"
   elif command -v xdg-open >/dev/null 2>&1; then
@@ -1184,12 +1201,131 @@ wiz_ask() {
 }
 
 # Join a whitespace-separated list into a "a, b, c" string for a YAML flow list.
+# Commas in the answer are treated as separators too: an organizer typing
+# "alice, bob" at a space-separated prompt otherwise emitted `[alice,, bob]` —
+# a flow sequence with a null item in it.
 csv_of() {
   local out="" x
-  for x in $1; do
+  for x in $(printf '%s' "$1" | tr ',' ' '); do
     if [ -n "$out" ]; then out="$out, $x"; else out="$x"; fi
   done
   printf '%s' "$out"
+}
+
+# Every target this build can provision, space-separated, read from
+# targets.tsv — the same file prov_field/prov_repo_name validate against.
+# Deliberately NOT a second hardcoded list: a target added to the TSV and not
+# to the wizard's prompt is a target no organizer is ever offered.
+all_targets() {
+  local out="" t
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    out="$out${out:+ }$t"
+  done < <(grep -v '^[[:space:]]*#' "$PROVENANCE_TSV" | cut -f1)
+  printf '%s' "$out"
+}
+
+# Validate an answer to the "which modules" question. Every token must be a
+# key from KNOWN_MODULES (the same list check_known_modules enforces on an
+# existing file, mirroring sync/src/config.js) and at least ONE must be given
+# — an event with no modules is not a thing, and all three readers reject a
+# `modules:` block with no keys under it. Commas are tolerated ("quiz, x").
+# Echoes the selection in KNOWN_MODULES order so the emitted file is
+# deterministic regardless of how the answer was typed, and deduped.
+wiz_modules() {
+  local want k m out=""
+  want="$(printf '%s' "$1" | tr ',' ' ')"
+  for m in $want; do
+    case " $KNOWN_MODULES " in
+      *" $m "*) ;;
+      *) echo "  unknown module: $m (known modules: $KNOWN_MODULES)" >&2; return 1 ;;
+    esac
+  done
+  for k in $KNOWN_MODULES; do
+    case " $want " in *" $k "*) out="$out${out:+ }$k" ;; esac
+  done
+  if [ -z "$out" ]; then
+    echo "  at least one module must be enabled (known modules: $KNOWN_MODULES)" >&2
+    return 1
+  fi
+  printf '%s' "$out"
+}
+
+# What to offer as the default answer to the modules question: whatever the
+# existing event.yaml already declares (filtered to keys this build knows),
+# otherwise secure-development. Re-running the wizard over a half-finished
+# quiz-only config must not silently switch the organizer back to a module
+# they deliberately did not pick. An unreadable file just falls back — the
+# wizard is the one place that REWRITES event.yaml, so refusing to guess here
+# would strand the organizer in the editor the wizard exists to replace.
+wiz_module_default() {
+  local keys k out=""
+  if [ -f "$CONFIG" ]; then
+    if keys="$(yaml_module_keys 2>/dev/null)"; then
+      for k in $KNOWN_MODULES; do
+        if printf '%s\n' "$keys" | grep -qx "$k"; then out="$out${out:+ }$k"; fi
+      done
+    fi
+  fi
+  if [ -z "$out" ]; then out="secure-development"; fi
+  printf '%s' "$out"
+}
+
+# Render the event.yaml the wizard's answers describe, to stdout (so it can be
+# diffed against setup/test/corpus/ in tests rather than only observed through
+# a file the wizard wrote).
+#
+# Emits a block ONLY for the modules that were enabled, and only the keys each
+# module actually has: secure-development carries targets + score_ingest; quiz
+# carries nothing — its attempt cap and retry cooldown are runtime /admin
+# settings in Redis, not build-time config, so there is nothing to ask for and
+# nothing to write. Fails closed on an empty or unknown selection instead of
+# emitting a `modules:` block with no keys under it, which every reader
+# rejects.
+#
+# Args: name url dates org modules targets ingest admins
+wiz_event_yaml() {
+  local name="$1" url="$2" dates="$3" org="$4" mods="$5" targets="$6" ingest="$7" admins="$8" m
+  if [ -z "$mods" ]; then
+    echo "event.yaml: at least one module must be enabled (known modules: $KNOWN_MODULES)" >&2
+    return 1
+  fi
+  printf 'event:\n  name: "%s"\n  url: %s\n%sgithub:\n  org: %s\nmodules:\n' \
+    "$name" "$url" "$dates" "$org"
+  for m in $mods; do
+    case "$m" in
+      secure-development)
+        if [ -z "$targets" ]; then
+          echo "event.yaml: secure-development needs at least one target" >&2
+          return 1
+        fi
+        printf '  secure-development:\n    targets: [%s]\n    score_ingest: %s\n' \
+          "$(csv_of "$targets")" "$ingest"
+        ;;
+      quiz) printf '  quiz: {}\n' ;;
+      *) echo "event.yaml: unknown module: $m" >&2; return 1 ;;
+    esac
+  done
+  # v1 placeholders — neither key is read at build time. Team play is always on
+  # with a fixed 4-member cap, and hints are ON by default
+  # (apps/web/src/lib/hint-store.ts: HINTS_ENABLED is `!== "false"`) and tuned
+  # at runtime in /admin. `true` is therefore what the running app actually
+  # does; emitting `false` here only ever misled an organizer reading back
+  # their own config. Turn hints off for real with HINTS_ENABLED=false in .env.
+  printf 'teams: { enabled: true, max_size: 4 }\nhints: { enabled: true }\nadmins: [%s]\n' \
+    "$(csv_of "$admins")"
+}
+
+# Is an existing event.yaml complete enough to skip the config questions? Org
+# (checked by the caller) plus, when secure-development is enabled, a
+# non-empty targets list. A quiz-only config HAS no targets by design —
+# demanding them here made the wizard re-ask every single run and offer to
+# overwrite a perfectly good quiz-only event.
+wiz_config_complete() {
+  local keys
+  keys="$(yaml_module_keys 2>/dev/null)" || return 1
+  printf '%s\n' "$keys" | grep -qx secure-development || return 0
+  yaml_targets | grep -q .
 }
 
 # The default front door: walk a brand-new organizer from zero to a running,
@@ -1201,6 +1337,9 @@ csv_of() {
 # (edit a file, click Create in GitHub's UI); complete it and re-run.
 cmd_wizard() {
   local out="${OUT:-.env}"
+  # The modules step 3 enabled, for the later steps to key off when there is no
+  # written config to read them back from (--dry-run). Empty = never asked.
+  WIZ_MODULES=""
   wiz_banner
   printf '%sCTF-in-a-box setup wizard%s — walks you to a running, scored event. Safe to re-run — it resumes.\n' "$C_BOLD" "$C_RESET"
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
@@ -1231,11 +1370,11 @@ cmd_wizard() {
 
   # 3. Event config.
   wiz_step "3/8  Event config ($CONFIG)"
-  if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && yaml_targets | grep -q .; then
+  if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && wiz_config_complete; then
     echo "  ✅ $CONFIG (org: $(yaml_org))"
   else
     echo "  Answer a few questions to write $CONFIG (Enter accepts the [default])."
-    local ev_name ev_org ev_admins ev_targets ev_url ev_ingest ev_start ev_end adm_default
+    local ev_name ev_org ev_admins ev_mods ev_reply ev_targets ev_url ev_ingest ev_start ev_end adm_default
     adm_default=""
     [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
     wiz_ask ev_name    "Event name" "OWASP Chapter CTF"
@@ -1245,9 +1384,35 @@ cmd_wizard() {
       wiz_ask ev_org   "GitHub org (disposable per-event org)" ""
     done
     wiz_ask ev_admins  "Admin GitHub login(s), space-separated" "$adm_default"
-    wiz_ask ev_targets "Targets — subset of: juice-shop dvwa webgoat securityshepherd vulnerableapp vampi" "juice-shop dvwa webgoat securityshepherd vulnerableapp vampi"
+    # WHICH modules the event runs decides what else there is to ask: a module
+    # is enabled by appearing under modules: (docs/modules.md §1), so this one
+    # answer is the whole shape of the file. Re-asked until it names at least
+    # one known module; under --dry-run the default always is one, so this
+    # cannot spin.
+    ev_mods=""
+    while [ -z "$ev_mods" ]; do
+      wiz_ask ev_reply "Modules to enable — subset of: $KNOWN_MODULES" "$(wiz_module_default)"
+      if ! ev_mods="$(wiz_modules "$ev_reply")"; then
+        ev_mods=""
+        if [ "$DRY_RUN" -eq 1 ]; then exit 1; fi
+      fi
+    done
+    WIZ_MODULES="$ev_mods"
+    # Only secure-development has anything else to configure. A quiz-only event
+    # is never asked for targets it will never fork, and quiz's own knobs (max
+    # attempts, retry cooldown) are runtime /admin settings, not event.yaml.
+    ev_targets=""; ev_ingest="poll"
+    case " $ev_mods " in
+      *" secure-development "*)
+        wiz_ask ev_targets "Targets — subset of: $(all_targets)" "$(all_targets)"
+        while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_targets" ]; do
+          echo "  secure-development needs at least one target."
+          wiz_ask ev_targets "Targets — subset of: $(all_targets)" "$(all_targets)"
+        done
+        wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
+        ;;
+    esac
     wiz_ask ev_url     "Event URL contestants reach" "$(env_val EVENT_URL)"
-    wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
     wiz_ask ev_start   "Event start (ISO 8601 e.g. 2026-10-01T09:00:00-03:00, blank to skip)" ""
     ev_end=""
     [ -z "$ev_start" ] || wiz_ask ev_end "Event end (ISO 8601, blank to skip)" ""
@@ -1261,30 +1426,44 @@ cmd_wizard() {
 "
     fi
     if [ "$DRY_RUN" -eq 1 ]; then
-      echo "  DRY-RUN: would write $CONFIG (org: $ev_org)"
+      echo "  DRY-RUN: would write $CONFIG (org: $ev_org, modules: $ev_mods)"
     else
-      cat > "$CONFIG" <<EOF
-event:
-  name: "$ev_name"
-  url: $ev_url
-${ev_dates}github:
-  org: $ev_org
-modules:
-  secure-development:
-    targets: [$(csv_of "$ev_targets")]
-    score_ingest: $ev_ingest
-teams: { enabled: true, max_size: 4 }
-hints: { enabled: false }
-admins: [$(csv_of "$ev_admins")]
-EOF
-      echo "  ✅ wrote $CONFIG (org: $ev_org)"
+      # Render to a temp file first: a redirect straight onto $CONFIG truncates
+      # it BEFORE the emitter can refuse, which would leave an organizer with
+      # an empty event.yaml where their old one used to be.
+      if wiz_event_yaml "$ev_name" "$ev_url" "$ev_dates" "$ev_org" \
+           "$ev_mods" "$ev_targets" "$ev_ingest" "$ev_admins" > "$CONFIG.tmp"; then
+        mv "$CONFIG.tmp" "$CONFIG"
+        echo "  ✅ wrote $CONFIG (org: $ev_org, modules: $ev_mods)"
+      else
+        rm -f "$CONFIG.tmp"
+        echo "  Could not write $CONFIG — re-run the wizard." >&2
+        exit 1
+      fi
     fi
   fi
   local org=""; [ -f "$CONFIG" ] && org="$(yaml_org)"
 
+  # Everything from here on that touches forks, the scorer image or the poll
+  # App belongs to ONE module, secure-development. A quiz-only event has no
+  # repos to fork, no image to build and nothing to poll, so those steps are
+  # reported as not-applicable rather than asking an organizer for credentials
+  # they will never use. Read from the config when there is one (the
+  # authoritative answer, including on a resumed run) and otherwise from what
+  # step 3 just collected; with neither — only reachable under --dry-run with
+  # no config at all — assume the full poll stack, the historical default.
+  local secdev=1
+  if [ -f "$CONFIG" ]; then
+    if ! has_module secure-development; then secdev=0; fi
+  elif [ -n "$WIZ_MODULES" ]; then
+    case " $WIZ_MODULES " in *" secure-development "*) ;; *) secdev=0 ;; esac
+  fi
+
   # 4. Scorer image.
   wiz_step "4/8  Scorer image (SCORE_IMAGE)"
-  if [ -n "$(env_val SCORE_IMAGE)" ]; then
+  if [ "$secdev" -eq 0 ]; then
+    echo "  ⏭  not needed — no secure-development module (nothing to score in a fork)"
+  elif [ -n "$(env_val SCORE_IMAGE)" ]; then
     echo "  ✅ SCORE_IMAGE=$(env_val SCORE_IMAGE)"
   else
     local img="ghcr.io/$org/score:latest"
@@ -1307,7 +1486,9 @@ EOF
 
   # 5. Sync GitHub App (poll auth).
   wiz_step "5/8  Sync GitHub App (poll auth)"
-  if [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
+  if [ "$secdev" -eq 0 ]; then
+    echo "  ⏭  not needed — no secure-development module (nothing to poll)"
+  elif [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
     echo "  ✅ GitHub App configured"
   elif [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would open the App-creation form, then prompt App ID + .pem path"
@@ -1352,7 +1533,9 @@ EOF
       exit 0
     fi
   fi
-  if [ -z "$(env_val SCORE_IMAGE)" ]; then
+  if [ "$secdev" -eq 0 ]; then
+    echo "  ⏭  nothing to provision — no secure-development module (no targets to fork)"
+  elif [ -z "$(env_val SCORE_IMAGE)" ]; then
     echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
   elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
     cmd_org
@@ -1371,11 +1554,11 @@ EOF
   # to secure-development just as `sync` does) only when that module is
   # configured. A quiz-only event needs neither: it has nothing to poll and no
   # scorer image to pull, and asking for one would fail the bring-up outright.
-  # A missing config (only possible under --dry-run here) assumes the full
-  # poll stack, the historical default.
+  # `secdev` above is that answer, config-derived when a config exists and
+  # answer-derived under --dry-run when one was never written.
   wiz_step "8/8  Bring the containers up"
   local profiles=(--profile app)
-  if [ ! -f "$CONFIG" ] || has_module secure-development; then
+  if [ "$secdev" -eq 1 ]; then
     if [ "$(env_val SCORE_INGEST)" = "push" ]; then
       profiles=(--profile push "${profiles[@]}")
     else

@@ -1,0 +1,15 @@
+# targets: juice-shop,dvwa
+event:
+  name: "OWASP Chapter CTF"
+  url: http://192.168.1.10
+  start: 2026-10-01T09:00:00-03:00
+  end: 2026-10-01T18:00:00-03:00
+github:
+  org: my-event-org
+modules:
+  secure-development:
+    targets: [juice-shop, dvwa]
+    score_ingest: poll
+teams: { enabled: true, max_size: 4 }
+hints: { enabled: true }
+admins: [your-github-login]

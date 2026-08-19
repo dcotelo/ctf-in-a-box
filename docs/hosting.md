@@ -14,15 +14,35 @@ running the event once it is up see [docs/operations.md](operations.md).
 
 **The fastest path is the wizard** — run `ctf-setup.sh` with no subcommand and
 it walks the whole sequence below. It **asks for each value inline** — your box
-URL, the `event.yaml` fields (org, admins, targets, dates), and the App/OAuth
-credentials — showing the instructions and GitHub URL for each, and writing
-`.env` and `event.yaml` for you as you answer. No editing config by hand between
-steps. It does every automatable step, guides + verifies each UI-only one, and
-resumes if you stop:
+URL, the `event.yaml` fields (org, admins, **which modules to enable**, dates),
+and the App/OAuth credentials — showing the instructions and GitHub URL for
+each, and writing `.env` and `event.yaml` for you as you answer. No editing
+config by hand between steps. It does every automatable step, guides + verifies
+each UI-only one, and resumes if you stop:
 
 ```sh
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
+
+**The modules question drives the rest of the wizard.** It offers the module
+ids this build knows (`secure-development quiz`) and then asks only what the
+ones you picked actually need:
+
+| You enable | The wizard asks | The wizard skips |
+|---|---|---|
+| `secure-development` | targets, `score_ingest` (poll/push) | — |
+| `quiz` only | nothing extra | targets, score ingest, the scorer image, the poll GitHub App, and org fork-provisioning |
+| both | targets, `score_ingest` | — |
+
+A quiz-only event is never asked to pick vulnerable apps it will never fork,
+and the `event.yaml` it writes has **no `secure-development` block at all** —
+because presence is what enables a module. The quiz's own knobs (max attempts,
+retry cooldown) are runtime `/admin` settings stored in Redis, not `event.yaml`
+fields, so the wizard does not ask for them either. Re-running the wizard over
+an existing config defaults the modules question to what that file already
+declares, so a resumed run never silently switches your event to a different
+shape. At least one module must be enabled — an answer naming none (or an id
+this build doesn't know) is re-asked rather than written.
 
 The rest of this section is the same sequence as explicit commands, for when
 you'd rather drive it yourself or script it. Each step is either a
@@ -404,10 +424,16 @@ service is `restart: on-failure` (changed from `unless-stopped`) so that
 clean exit isn't treated as a crash and restarted forever. You still need a
 `SCORE_IMAGE` for the scorer that profile also brings up.
 
-Copy `event.yaml.example` and fill in `github.org`,
-`modules.secure-development.targets`, `admins` (GitHub logins), and
-`event.url`. Team play is configured at the top level — `teams: { enabled:
-true, max_size: 4 }` in `event.yaml.example`. What a module must provide to
+Copy `event.yaml.example` and fill in `github.org`, the `modules:` you want,
+`admins` (GitHub logins), and `event.url` — or let
+[the wizard](#quickstart-zero-to-a-scored-event) write the file from your
+answers, which is the same schema with none of the YAML. Only the modules you
+enable need their own settings: `modules.secure-development.targets` and
+`score_ingest` for that one, nothing for `quiz`. Team play is configured at the
+top level — `teams: { enabled: true, max_size: 4 }` in `event.yaml.example`.
+`hints: { enabled: true }` matches the running default (hints are on unless you
+set `HINTS_ENABLED=false` in `.env`); neither key is read at build time. What a
+module must provide to
 plug in — config block, scoring contract, transports, security requirements,
 provisioning — is documented in [docs/modules.md](modules.md).
 

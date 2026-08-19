@@ -90,10 +90,11 @@ default — the event name, targets, and links are all event-config driven.</sup
 ## Quickstart
 
 **Just run the wizard.** It asks for each value as it goes — your box URL, the
-event details, the GitHub App + OAuth credentials — shows the instructions and
-GitHub link for each, writes `.env` and `event.yaml` for you, does every
-automatable step, guides you through the GitHub-UI ones, and resumes if you stop
-and come back:
+event details, which modules to run, the GitHub App + OAuth credentials — shows
+the instructions and GitHub link for each, writes `.env` and `event.yaml` for
+you, does every automatable step, guides you through the GitHub-UI ones, and
+resumes if you stop and come back. It asks only what the modules you enabled
+actually need, so a quiz-only event is never asked to pick vulnerable apps:
 
 ```sh
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
