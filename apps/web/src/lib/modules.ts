@@ -41,9 +41,11 @@ export type ModuleDef = {
   nav?: { href: string; label: string };
   /** Targets this module owns; empty for modules that have none (e.g. quiz). */
   targets: readonly AppId[];
-  /** Landing-page copy for this module. Undefined until a module opts in
-   *  (see Task 7); the type is declared here so later tasks never need to
-   *  retro-edit this file's type declarations. */
+  /** Landing-page copy for this module, composed into `app/page.tsx` by the
+   *  platform frame. Optional: a module with no `home` simply contributes
+   *  nothing to the landing page, which is valid, not an error. Server code
+   *  reaches it through `getModuleHome` — never off a ResolvedModule, which
+   *  strips it so the object stays safe to hand to a Client Component. */
   home?: ModuleHome;
 };
 
@@ -55,12 +57,80 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     displayName: "Secure Development",
     description: "Find the vulnerability, patch it for real, ship the fix as a PR.",
     nav: { href: "/challenges", label: "Challenges" },
+    // Moved VERBATIM off app/page.tsx, curly apostrophes included: the JSX
+    // spelled them `&rsquo;`, which React emits as a literal U+2019, so the
+    // rendered bytes are unchanged. Retyping them as ASCII "'" would be a
+    // silent copy change no test would notice.
+    home: {
+      tagline: "Secure Development CTF",
+      intro: (ctx) =>
+        `Break real vulnerabilities in ${ctx.appCount} OWASP training ${ctx.appCount === 1 ? "app" : "apps"}, patch them for real, and ship the fix as a GitHub pull request. CI validates your patch and scores it automatically. Practice the full secure development lifecycle, not just flag-hunting.`,
+      expect: {
+        heading: "This isn’t flag hunting. It’s the real fix workflow",
+        lede: "Every challenge maps to a real, disclosed vulnerability class from the OWASP Top 10. You find it, patch it, and prove the fix with a passing regression test, the same loop a security engineer runs against a live codebase.",
+      },
+      steps: (ctx) => [
+        {
+          title: "Pick a target",
+          body: `Choose from ${ctx.appCount} real, deliberately vulnerable OWASP ${ctx.appCount === 1 ? "app" : "apps"}: ${ctx.appList}.`,
+        },
+        {
+          title: "Find the vulnerability",
+          body: "Work through the OWASP Top 10 (Web and API) to identify a real flaw in the target's source. Please use AI. Point an agent at the codebase. That's the workflow this event is built to teach.",
+        },
+        {
+          title: "Patch it and open a PR",
+          body: "Fix the vulnerability in your fork, then submit a pull request against the repo's main branch. This is secure development, not flag hunting.",
+        },
+        {
+          title: "Get scored automatically",
+          body: "A GitHub Action runs that challenge's regression test against your patched app. A passing test scores points immediately, no manual grading.",
+        },
+      ],
+      cta: { href: "/challenges", label: "Browse targets" },
+      // "Please use AI" belongs to THIS module, not to the platform frame: it
+      // says writing the patch with an agent is the skill the event exists to
+      // build, which in a quiz-only event would read as an invitation to cheat.
+      extra: {
+        kicker: "Bring your agent",
+        heading: "Please use AI",
+        body: "This isn’t tolerated, it’s the point. Reviewing code, finding the flaw, and writing the patch with an AI agent is the skill this event exists to build. Bring whatever you already use (Claude Code, Copilot, Cursor, your own harness) and let it read the target.",
+      },
+    },
   },
   quiz: {
     id: "quiz",
     displayName: "Quiz",
     description: "Answer security questions for points.",
     nav: { href: "/quiz", label: "Quiz" },
+    // Deliberately plain and factual, and deliberately silent on AI: the
+    // secure-development module invites an agent because patching WITH one is
+    // the skill it teaches; on a graded question set the same invitation would
+    // read as permission to cheat.
+    home: {
+      tagline: "Quiz",
+      intro: () =>
+        "Answer security questions drawn from the OWASP Top 10. Every question carries its own point value, is graded the moment you submit it, and counts toward your place on the leaderboard.",
+      expect: {
+        heading: "Straight questions, scored on submit",
+        lede: "Each question is multiple choice and graded automatically against a stored answer key. The organizers set how many attempts a question allows and how long you wait between them; both are shown on the question itself.",
+      },
+      steps: () => [
+        {
+          title: "Sign in with GitHub",
+          body: "Sign in to claim your row on the leaderboard. Answers and points are recorded against your account, so you can leave and pick the set back up later.",
+        },
+        {
+          title: "Work through the questions",
+          body: "Take the set at your own pace. Each question shows what it is worth, how many attempts you have left, and whether it is still on cooldown from your last try.",
+        },
+        {
+          title: "Get scored on submit",
+          body: "Your answer is graded immediately against the answer key. Points land on your profile and the leaderboard with no manual review.",
+        },
+      ],
+      cta: { href: "/quiz", label: "Take the quiz" },
+    },
   },
 };
 
