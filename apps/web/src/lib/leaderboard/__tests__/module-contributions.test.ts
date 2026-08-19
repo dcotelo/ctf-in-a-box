@@ -131,6 +131,12 @@ describe("withModuleContributions", () => {
       expect(mocks.getQuizTotals).not.toHaveBeenCalled();
       expect(mocks.listQuestions).not.toHaveBeenCalled();
     });
+
+    it("creates no rows — a disabled module contributes no points to create one from", async () => {
+      const out = await withModuleContributions(data([]));
+      expect(out.entries).toEqual([]);
+      expect(mocks.getQuizTotals).not.toHaveBeenCalled();
+    });
   });
 
   describe("with the quiz module enabled", () => {
@@ -151,6 +157,63 @@ describe("withModuleContributions", () => {
       expect(quiz.detail).toEqual({ kind: "quiz", answered: 2, total: 3, points: 15 });
       // secure-development's own attribution is untouched by the addition.
       expect(out.entries[0].modules!["secure-development"]).toMatchObject({ points: 30, completed: 3 });
+    });
+
+    // The board's login set is the UNION of the source's logins and the
+    // logins holding module points. Before this, the overlay could only map
+    // over rows the scoring backend had already produced, so a contestant
+    // whose only points were quiz points had no row to overlay onto and never
+    // appeared at all.
+    it("creates a row for a contestant with quiz points and no scored submission", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["cyd", { points: 30, answered: 3, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      const cyd = out.entries.find((e) => e.login === "cyd")!;
+      expect(cyd.points).toBe(30);
+      // No scoring entry behind this row, so nothing that comes from the
+      // scorer may be non-zero on it.
+      expect(cyd).toMatchObject({ patched: 0, failed: 0, total: 0, apps: {}, team: null });
+      expect(cyd.modules!["secure-development"]).toBeUndefined();
+      expect(cyd.modules!["quiz"]).toMatchObject({ points: 30, completed: 3 });
+    });
+
+    // C3: secure-development's points are ATTRIBUTED (already inside
+    // `entry.points`), quiz points are ADDED. A login in BOTH sources must
+    // therefore end up as ONE row whose total is 10 + 30 — never two rows, and
+    // never 10 + 30 + 30.
+    it("counts a login present in both sources once", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 30, answered: 3, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 10, 1)]));
+
+      expect(out.entries).toHaveLength(1);
+      expect(out.entries[0].points).toBe(40);
+      expect(out.entries[0].modules!["secure-development"]!.points).toBe(10);
+      expect(out.entries[0].modules!["quiz"]!.points).toBe(30);
+    });
+
+    // The scorer records the PR author's login; the quiz records the session's.
+    // Matching them exactly would split one contestant into two rows the moment
+    // the two disagreed on case — the union is taken case-insensitively, like
+    // admin-auth and hint-store do.
+    it("matches logins case-insensitively, so one contestant never becomes two rows", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ADA", { points: 30, answered: 3, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 10, 1)]));
+
+      expect(out.entries).toHaveLength(1);
+      // The scored row's own spelling wins — it is the row that already exists.
+      expect(out.entries[0].login).toBe("ada");
+      expect(out.entries[0].points).toBe(40);
+    });
+
+    it("ranks created rows against scored rows", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["cyd", { points: 99, answered: 9, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("bob", 10, 1)]));
+
+      expect(out.entries.map((e) => [e.login, e.rank])).toEqual([["cyd", 1], ["bob", 2]]);
     });
 
     it("gives an entry with no quiz activity no quiz module block", async () => {
@@ -297,6 +360,10 @@ describe("withModuleContributions", () => {
 
       expect(out.entries[0].points).toBe(30);
       expect(out.entries[0].modules!["quiz"]).toBeUndefined();
+      // C4: the totals map is where created rows come from, so a failed read
+      // degrades to the quiz-less board — it must never invent rows, and
+      // certainly not zero-point ones.
+      expect(out.entries.map((e) => e.login)).toEqual(["ada"]);
     });
 
     // I1's display bug: `deleteQuestion` deliberately leaves banked points

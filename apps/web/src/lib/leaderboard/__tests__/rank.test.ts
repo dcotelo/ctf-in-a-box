@@ -143,6 +143,30 @@ describe("compareStanding across modules", () => {
     expect(rankByStanding([b, a]).map((e) => e.login)).toEqual(["a", "b"]);
   });
 
+  // The mirror image of the phase-2 ranking bug, which only ever got tested
+  // with the quiz DISABLED: on an event with secure-development disabled, no
+  // row carries a secure-development block at all, so `completedCount` falls
+  // back to `patched` on every row — and `patched` is 0 on every row, because
+  // there is no scorer feeding it. The board must still rank on breadth
+  // (answers) rather than collapsing to a points sort.
+  it("ranks a board with no secure-development module on module completions", () => {
+    const quiz = (login: string, points: number, answered: number) =>
+      withModules(login, 0, points, {
+        quiz: {
+          points,
+          completed: answered,
+          lastActivityAt: null,
+          detail: { kind: "quiz", answered, total: 10, points },
+        },
+      });
+    // hoarder holds one expensive question; grinder four cheap ones.
+    expect(rankByStanding([quiz("hoarder", 90, 1), quiz("grinder", 20, 4)]).map((e) => e.login))
+      .toEqual(["grinder", "hoarder"]);
+    // …and points still break an answer-count tie.
+    expect(rankByStanding([quiz("cheap", 20, 2), quiz("dear", 50, 2)]).map((e) => e.login))
+      .toEqual(["dear", "cheap"]);
+  });
+
   it("breaks ties on the earliest activity across modules", () => {
     const early = withModules("early", 1, 10, {
       quiz: { points: 10, completed: 1, lastActivityAt: "2026-08-01T10:00:00.000Z", detail: { kind: "quiz", answered: 1, total: 5, points: 10 } },
