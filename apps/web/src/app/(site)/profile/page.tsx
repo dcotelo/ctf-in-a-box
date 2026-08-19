@@ -47,7 +47,10 @@ async function getTeamMeta(slug: string): Promise<{ captain: string | null; join
 
 export const metadata: Metadata = {
   title: "Profile",
-  description: `Your personal progress across ${event.name} challenges.`,
+  // Generic on purpose — "challenges" is secure-development's own noun, and
+  // this page must read cleanly on a quiz-only event too. Mirrors
+  // leaderboard/page.tsx's equally module-agnostic description.
+  description: `Your personal progress in ${event.name}.`,
 };
 
 export default async function ProfilePage() {
@@ -122,7 +125,11 @@ export default async function ProfilePage() {
   const moduleProgress: Partial<Record<ModuleId, ModuleProgress>> = {};
   if (secureDevEnabled && Object.keys(appsRecord).length > 0) {
     moduleProgress["secure-development"] = {
-      points: profile?.points ?? 0,
+      // Hint-netted, same as the headline figure and the leaderboard's own
+      // row (withHintPenalties runs before withModuleContributions attributes
+      // this same number there) — raw scorer points here would let this
+      // block's total disagree with both.
+      points: Math.max(0, (profile?.points ?? 0) - viewerHints.spent),
       completed: profile?.patched ?? 0,
       lastActivityAt: profile?.updatedAt ?? null,
       detail: { kind: "secure-development", apps: appsRecord },
@@ -161,7 +168,10 @@ export default async function ProfilePage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow="Agent dossier" title={login} description="Your progress across every target this event." />
+      {/* "target" is secure-development's own noun (and trips the shared
+          secure-dev vocabulary guard on a quiz-only event) — kept generic so
+          this reads the same regardless of which modules are enabled. */}
+      <PageHeader eyebrow="Agent dossier" title={login} description="Your personal progress this event." />
 
       <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5 sm:flex-row sm:items-center">
         <Image
@@ -260,7 +270,12 @@ export default async function ProfilePage() {
                   <span className="font-mono text-sm text-zinc-300">{moduleProgress[m.id]!.points} pts</span>
                 </p>
               )}
-              <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} />
+              {/* showPoints is unconditional here, not a per-module branch:
+                  it only takes effect inside AppBreakdown (the
+                  secure-development render path), so quiz's block silently
+                  ignores it. It's what restores the per-app "30 / 60 pts"
+                  figure the pre-module custom grid used to show. */}
+              <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
             </div>
           ))}
         </div>

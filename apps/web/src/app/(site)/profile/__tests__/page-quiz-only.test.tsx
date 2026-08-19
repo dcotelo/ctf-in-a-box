@@ -1,6 +1,16 @@
 // /profile on a quiz-only event: secure-development's own vocabulary
-// (patched/total, the per-app breakdown) must not appear at all, and the
-// quiz module must contribute its own "answered / total" block.
+// (patched/total, the per-app breakdown, "target"/"challenge" in the page's
+// own copy) must not appear anywhere, and the quiz module must contribute
+// its own "answered / total" block.
+//
+// A hand-rolled `not.toContain("patched")` is exactly the kind of narrow
+// assertion that left the hole this page shipped with (the header
+// description read "...every target this event" and the metadata
+// description said "...challenges" — both secure-development's own
+// vocabulary, neither caught by a check for "patched" alone). Uses the
+// shared, deliberately-exhaustive list from ../../__tests__/secure-dev-terms
+// instead — the same one how-to-play's and rules' quiz-only suites use —
+// so a future leak anywhere on this page fails here too.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
 // event config (the shipped one enables secure-development only) — same
@@ -11,6 +21,7 @@
 // quiz-only event needs no per-module branch on this page.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { findSecureDevLeaks } from "../../__tests__/secure-dev-terms";
 
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
@@ -63,7 +74,7 @@ vi.mock("@/lib/hint-store", () => ({
 vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
-import ProfilePage from "@/app/(site)/profile/page";
+import ProfilePage, { metadata } from "@/app/(site)/profile/page";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -93,8 +104,17 @@ describe("/profile on a quiz-only event", () => {
     expect(html).toContain("3 / 5");
   });
 
-  it("renders no patched/total block in a quiz-only event", async () => {
+  // The list is enumerated, not sampled — see the file-level comment. This
+  // is what would have caught the header description ("...every target this
+  // event") and the metadata description ("...challenges"), neither of
+  // which contains the literal substring "patched" the old assertion
+  // checked for.
+  it("renders no secure-development copy anywhere on the page", async () => {
     const html = renderToStaticMarkup(await ProfilePage());
-    expect(html).not.toContain("patched");
+    expect(findSecureDevLeaks(html)).toEqual([]);
+  });
+
+  it("keeps the page metadata module-agnostic too", () => {
+    expect(findSecureDevLeaks(metadata.description as string)).toEqual([]);
   });
 });
