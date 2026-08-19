@@ -263,7 +263,8 @@ optional CTA/extra section — so a quiz-only event's landing page never
 mentions forks or patches. `/how-to-play` and `/rules` are composed the same
 way from each module's `guide` and `rules` blocks (item 6 below), so the
 step-by-step guide and the fair-play rules describe the game the event is
-actually running. The existing challenge
+actually running — as are `/faq`, `/terms` and the 404's route directory
+(item 7). The existing challenge
 catalogue (item 2) and per-target solved/total leaderboard columns (item 3)
 predate this work and satisfy those items for `secure-development`; `quiz`
 satisfies the same items with its own semantics (item 3 below covers the
@@ -455,6 +456,63 @@ of one module's shape.
    phrase, a bold lead-in, an external link), rendered by
    `components/module-copy.tsx`. Nothing is written twice — a string lives in
    `home` or in `guide`, never in both.
+
+7. **FAQ, terms and 404 contributions (optional).** The same split reaches
+   the last three contestant-facing pages that were written as though every
+   event ran `secure-development`.
+
+   A module MAY contribute an `faq` block (`ModuleFaq`), bucketed by where
+   its questions land in the platform's own running order:
+   `gettingStarted` (before "Can I compete solo?"), `prep` (after it) and
+   `playing` (the play loop). Buckets rather than one flat list because the
+   platform's own questions are not all at one end — the page reads wrong if
+   every module question is shunted to the top or the bottom. `/faq` matters
+   more than its traffic suggests: it is in the **header nav**, so a page
+   describing a game the event isn't running is linked from every page of
+   the site.
+
+   A module MAY contribute a `terms` block (`ModuleTerms`), bucketed by
+   `/terms` section: `eligibility`, `scope`, `submissions`, `scoring`. Every
+   participation term this kit has written names a module's own artifacts —
+   what you submit, where you may test, what a point is worth — so the
+   platform keeps only the two that hold on any event (prizes, organizer
+   decisions) plus a **fallback list per section**, rendered if and only if
+   no enabled module contributed to that section. The fallbacks are not
+   decoration: with none, an event whose modules ship no `terms` renders an
+   empty "Scope of authorized testing", and that section is the one that
+   tells contestants what they are permitted to attack. (Before this, the
+   scope statement was hardcoded secure-development copy and rendered as
+   *"your authorization to test covers the 0 challenge targets only: ,"* on
+   an event with no targets.)
+
+   A module MAY contribute a `routeCard`: the one line under its card in the
+   404's directory of routes. The card's label and href come from `nav`
+   (`titleOverride || nav.label`, per the naming rule above), so the 404
+   offers each enabled module's own route and never a route the event does
+   not have.
+
+   All three are **functions** (of `OrgContext`/`RulesContext`) and carry the
+   same server-only contract as `guide`/`rules`: called server-side, reached
+   through `getModuleFaq`/`getModuleTerms`/`getModuleRouteCard`, stripped
+   from `ResolvedModule`.
+
+   Two platform pages — `/privacy` and `/code-of-conduct` — are deliberately
+   **not** composed from the registry. They describe the platform's own code
+   and policies, not a module's game, so their module-specific claims (hint
+   purchases, quiz answers, the GitHub org the code of conduct reaches into)
+   are gated on `isModuleEnabled` instead. `/privacy` is an inventory of what
+   this codebase stores, and which stores are live is per-event: it must
+   neither promise a per-challenge breakdown an event has no notion of, nor
+   stay silent about the answers a quiz-only event does keep.
+
+8. **Pre-event gate.** The gate (`proxy.ts` + `/gate`) protects **every
+   enabled module's route**, not a hardcoded `/challenges`. `proxy.ts`
+   derives the gated set from the registry (`enabledModuleRoutes`), and
+   `/gate` sends an unlocked visitor to the first of them, falling back to
+   `/`. Next requires `config.matcher` to be a static literal, so it cannot
+   be computed — it lists every registry route by hand and
+   `src/__tests__/proxy.test.ts` asserts it covers `ALL_MODULE_ROUTES`, so a
+   newly registered module cannot end up silently un-gated.
 
 ## 6. Security requirements (non-negotiable)
 
