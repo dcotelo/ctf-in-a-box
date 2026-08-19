@@ -107,6 +107,22 @@ function LegacyBreakdown({ entry }: { entry: LeaderboardEntry }) {
 /** Exported (alongside the default `Leaderboard`) so tests can render an
  *  expanded row directly with `isOpen` — the toggle only flips client state a
  *  static render can't drive. */
+/** Does this event run secure-development?
+ *
+ *  "patched" / "non-patched" is that module's own vocabulary — a regression
+ *  test passing against a submitted patch — so the columns and the sort key
+ *  built on it are gated on it, exactly as /profile gates the identical trio
+ *  on `secureDevEnabled`. The two surfaces render the same three numbers and
+ *  must not disagree about whether the event has them.
+ *
+ *  Read off the `modules` prop rather than by importing `isModuleEnabled`, for
+ *  the reason spelled out on `multiModule` below: this is a Client Component
+ *  and keeps no registry import. Which modules are enabled is build-time truth
+ *  either way. */
+function hasSecureDev(modules: readonly ResolvedModule[]): boolean {
+  return modules.some((m) => m.id === "secure-development");
+}
+
 export function EntryRow({
   entry,
   topPoints,
@@ -134,6 +150,7 @@ export function EntryRow({
   // (`resolveModules` maps `enabledModules`, i.e. `eventConfig.modules`).
   // Only a module's NAME is runtime; enabling or disabling one is a rebuild.
   const multiModule = modules.length > 1;
+  const secureDev = hasSecureDev(modules);
   return (
     <li
       className={`ds-card group rounded-lg border bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] ${
@@ -184,16 +201,20 @@ export function EntryRow({
                 </p>
               ) : null}
             </div>
-            <div className="hidden sm:block">
-              <p className="font-mono text-base tabular-nums text-[#22c55e]">{entry.patched}</p>
-              <p className="text-[11px] uppercase tracking-wide text-muted">patched</p>
-            </div>
-            <div className="hidden sm:block">
-              <p className="font-mono text-base tabular-nums text-zinc-300">
-                {Math.max(0, entry.total - entry.patched)}
-              </p>
-              <p className="text-[11px] uppercase tracking-wide text-muted">non-patched</p>
-            </div>
+            {secureDev && (
+              <>
+                <div className="hidden sm:block">
+                  <p className="font-mono text-base tabular-nums text-[#22c55e]">{entry.patched}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted">patched</p>
+                </div>
+                <div className="hidden sm:block">
+                  <p className="font-mono text-base tabular-nums text-zinc-300">
+                    {Math.max(0, entry.total - entry.patched)}
+                  </p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted">non-patched</p>
+                </div>
+              </>
+            )}
             <svg
               className={`text-muted transition-transform ${isOpen ? "rotate-180" : ""}`}
               width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -394,6 +415,12 @@ export default function Leaderboard({
   // Teams are the primary competitive unit once they exist — default there
   // and let individual standings be the secondary, opt-in view.
   const showTeamsToggle = data.capabilities.teams && data.teams.length > 0;
+  // "patched" sorts on a column this event may not have — see hasSecureDev.
+  // Dropping the key rather than disabling the button also keeps `sort` from
+  // ever holding a value nothing on screen explains.
+  const sortKeys: SortKey[] = hasSecureDev(modules)
+    ? ["rank", "points", "patched"]
+    : ["rank", "points"];
 
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>(showTeamsToggle ? "teams" : "individual");
@@ -497,7 +524,7 @@ export default function Leaderboard({
       {view === "individual" && data.entries.length > 0 && (
         <div className="flex items-center gap-4 px-1 text-xs uppercase tracking-wider text-muted">
           <span>Sort:</span>
-          {(["rank", "points", "patched"] as SortKey[]).map((key) => (
+          {sortKeys.map((key) => (
             <button
               key={key}
               type="button"

@@ -13,6 +13,7 @@ import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { auth } from "@/lib/auth";
+import { isModuleEnabled } from "@/lib/modules";
 import { event } from "@/lib/site";
 import { getResolvedModules } from "@/lib/resolved-modules";
 
@@ -20,6 +21,16 @@ export const metadata: Metadata = {
   title: "Leaderboard",
   description: `Live contestant standings for ${event.name}.`,
 };
+
+// "patched PRs" is secure-development's own vocabulary — the same vocabulary
+// the patched/non-patched columns and the "patched" sort key are gated on
+// inside <Leaderboard> (see `hasSecureDev` there), and that /profile already
+// gated the identical trio on. The board and its lede have to agree about
+// whether this event has a patch count at all; an event without one gets the
+// plain statement, which is true on every event including this one.
+const description = isModuleEnabled("secure-development")
+  ? "Live contestant rankings from patched PRs. Sign in with GitHub to highlight your own row and unlock your profile."
+  : "Live contestant rankings. Sign in with GitHub to highlight your own row and unlock your profile.";
 
 export default async function LeaderboardPage() {
   const source = getLeaderboardSource();
@@ -53,7 +64,7 @@ export default async function LeaderboardPage() {
       <PageHeader
         eyebrow="Standings"
         title="Leaderboard"
-        description="Live contestant rankings from patched PRs. Sign in with GitHub to highlight your own row and unlock your profile."
+        description={description}
       />
       {getLeaderboardSourceMode() === "mock" && <MockDataNotice />}
       {/* data.series/teamSeries pass straight through this spread — the
