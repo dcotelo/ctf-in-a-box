@@ -941,8 +941,25 @@ cmd_teardown() {
 }
 
 # Open a URL/file in the default browser, degrading to a printed path.
+#
+# Only ever opens for an INTERACTIVE run. The --dry-run guards at each call
+# site are not enough on their own: they stop the documented rehearsal path,
+# but any other automated invocation — a test harness driving a real
+# subcommand, a CI step, an agent running the script against a fixture config
+# — would still pop real browser tabs on whoever's machine is running it.
+# That happened: a run against the bats fixture org opened GitHub's App and
+# OAuth creation pages for an org that does not exist.
+#
+# stdin is the right thing to test, not stdout: the prompts this accompanies
+# are unusable without a terminal to answer them, so no-TTY means no human,
+# means print the URL and let the caller decide. Set CTF_NO_BROWSER=1 to
+# suppress it even when interactive.
 open_url() {
   local target="$1"
+  if [ -n "${CTF_NO_BROWSER:-}" ] || [ ! -t 0 ]; then
+    echo "open this manually: $target"
+    return 0
+  fi
   if command -v open >/dev/null 2>&1; then
     open "$target"
   elif command -v xdg-open >/dev/null 2>&1; then

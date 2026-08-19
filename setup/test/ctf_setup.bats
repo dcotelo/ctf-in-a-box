@@ -873,3 +873,32 @@ EOF2
   local secs; secs="$(echo "$output" | sed -n 's/^ELAPSED://p')"
   [ "${secs:-99}" -lt 5 ]
 }
+
+# Regression: `app-manifest` and `oauth-app` open GitHub pages in a browser.
+# The --dry-run guards at each call site cover the documented rehearsal path,
+# but a REAL invocation from any automated context — a test harness, CI, an
+# agent driving the script against a fixture config — used to open actual tabs
+# on whoever's machine ran it. That happened, against this very fixture org.
+#
+# Stub every external tool (including the openers) so nothing can escape the
+# test, then assert the no-TTY branch was taken: bats runs with no controlling
+# terminal, so `open` must never be reached.
+@test "oauth-app does not launch a browser when no terminal is attached" {
+  mkdir -p stubs
+  printf '#!/bin/sh\necho "STUB-OPEN $*"\n' > stubs/open
+  printf '#!/bin/sh\necho "STUB-XDG $*"\n' > stubs/xdg-open
+  printf '#!/bin/sh\nexit 0\n' > stubs/gh
+  chmod +x stubs/open stubs/xdg-open stubs/gh
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" oauth-app --config event.yaml
+  [ -z "$(printf '%s' "$output" | grep -F 'STUB-OPEN')" ]
+  printf '%s' "$output" | grep -qF 'open this manually:'
+}
+
+@test "CTF_NO_BROWSER suppresses the launch outright" {
+  mkdir -p stubs
+  printf '#!/bin/sh\necho "STUB-OPEN $*"\n' > stubs/open
+  printf '#!/bin/sh\nexit 0\n' > stubs/gh
+  chmod +x stubs/open stubs/gh
+  PATH="$(pwd)/stubs:$PATH" CTF_NO_BROWSER=1 run bash "$SCRIPT" oauth-app --config event.yaml
+  printf '%s' "$output" | grep -qF 'open this manually:'
+}
