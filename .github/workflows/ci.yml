@@ -19,6 +19,7 @@ jobs:
       sync: ${{ steps.f.outputs.sync }}
       shell: ${{ steps.f.outputs.shell }}
       smoke: ${{ steps.f.outputs.smoke }}
+      quiz: ${{ steps.f.outputs.quiz }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != "pull_request" ]; then
-            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; } >> "$GITHUB_OUTPUT"
+            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
@@ -44,6 +45,11 @@ jobs:
             echo "sync=$(m "^sync/$CI")"
             echo "shell=$(m "^scripts/|^setup/|^scorer/entrypoint$CI")"
             echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow$CI")"
+            # Quiz-only spans BOTH areas it proves compose end to end: the app
+            # (module gating, /quiz, /leaderboard) and sync (the exits-0
+            # contract), plus docker-compose.yml itself (sync's restart
+            # policy the gate asserts on).
+            echo "quiz=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-quiz-only\.sh$CI")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
@@ -126,3 +132,11 @@ jobs:
           echo "OK: / is not statically prerendered"
         working-directory: apps/web
       - run: ./scripts/acceptance-app.sh
+
+  quiz-only:
+    needs: changes
+    if: needs.changes.outputs.quiz == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./scripts/acceptance-quiz-only.sh
