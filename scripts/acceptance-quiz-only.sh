@@ -240,19 +240,34 @@ CHALLENGES_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/challenges")
 
 echo "--- /leaderboard shows the seeded contestant by login, with their quiz points"
 LEADERBOARD_HTML=$(curl -sf "$APP_URL/leaderboard")
-echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_LOGIN"
-# Anchored, not a bare grep for the number: a Next.js page is full of digit
-# strings (chunk ids, hashes, asset query strings) an unanchored grep could
-# coincidentally match. Take a window of text around the login's occurrence
-# and require the comma-formatted TOTAL inside it — this is also what
-# distinguishes "the totals hash rendered" from "the question's own price
-# leaked in some unrelated context" (see the seeding comment above).
-# Two chained bounded quantifiers, not one — BSD grep (macOS) caps a single
-# interval expression at 255 repetitions ("maximum repetition exceeds 255"),
-# and the real distance between the login and the formatted total in the
-# rendered row (measured empirically) is ~350 chars, past a single {0,255}.
-LOGIN_WINDOW=$(echo "$LEADERBOARD_HTML" | grep -oE ".{0,200}.{0,200}$CONTESTANT_LOGIN.{0,200}.{0,200}")
-echo "$LOGIN_WINDOW" | grep -qF "$CONTESTANT_POINTS_FORMATTED"
+if ! echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_LOGIN"; then
+  echo "FAIL: /leaderboard has no row for $CONTESTANT_LOGIN — a contestant whose" >&2
+  echo "      only points are quiz points did not get a row created at all." >&2
+  exit 1
+fi
+
+# The formatted TOTAL, matched across the whole page rather than inside a
+# window around the login.
+#
+# This used to extract a fixed-width window (chained `.{0,200}` quantifiers,
+# sized from an empirically measured ~350-char gap between the login and the
+# total) and search inside it. That measurement is a property of one machine's
+# rendered markup, not of the app: it held locally and broke in CI, where the
+# gap falls outside the window and the assertion failed with no message at all
+# — the job printed the step banner and died under `set -e`.
+#
+# A whole-page match is safe here because the expected string carries a
+# thousands separator (`4,321`). The coincidence the window was defending
+# against is a digit run in a chunk id, hash or asset query — none of which
+# contain commas. And CONTESTANT_POINTS is deliberately chosen to differ from
+# every seeded question price, so this still cannot be satisfied by the
+# questions hash rendering instead of the totals hash.
+if ! echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_POINTS_FORMATTED"; then
+  echo "FAIL: /leaderboard shows $CONTESTANT_LOGIN but not their quiz total" >&2
+  echo "      ($CONTESTANT_POINTS_FORMATTED) — the row exists, so the module" >&2
+  echo "      overlay ran, but the points did not reach it." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # sync: through the real docker-compose.yml (see header comment for why),
