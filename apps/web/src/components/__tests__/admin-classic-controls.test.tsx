@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CLASSIC_ID_RE } from "@/lib/classic-keys";
+import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle } from "@/lib/classic-io";
 import type { AdminChallenge, Challenge } from "@/lib/classic-store";
 import AdminClassicControls, {
   CLASSIC_POINTS_MAX,
@@ -31,6 +32,7 @@ import AdminClassicControls, {
   draftFromChallenge,
   editorFromChallenge,
   emptyDraft,
+  exportBundleFrom,
   isDraftValid,
   newChallengeEditor,
   payloadFromEditor,
@@ -141,6 +143,37 @@ describe("AdminClassicControls", () => {
       // attribute; matched against the specific <button>...Add challenge
       // element rather than anywhere in the document.
       expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Add challenge</);
+    });
+  });
+
+  // The bulk panel is a <details>/<summary> pair, not a `useState` toggle —
+  // its content appears in a static render regardless of open/closed, which
+  // is what lets these controls be proven here at all (see this file's own
+  // header comment on why a `useState`-gated section cannot be).
+  describe("bulk import / export panel", () => {
+    it("renders the bulk panel with import and export controls", () => {
+      const html = renderControls([row1]);
+      expect(html).toMatch(/bulk import/i);
+      expect(html).toContain('type="file"');
+      expect(html).toMatch(/export/i);
+    });
+
+    it("states that import never deletes", () => {
+      const html = renderControls([row1]);
+      expect(html).toMatch(/never deletes|not delete|leaves .* untouched/i);
+    });
+
+    it("builds an export bundle from the loaded board, flags included", () => {
+      const bundle = exportBundleFrom([row1], ["Web"]);
+      expect(bundle.version).toBe(CLASSIC_BUNDLE_VERSION);
+      expect(bundle.categories).toEqual(["Web"]);
+      expect(bundle.challenges[0].flag).toBe(row1.flag);
+      expect(bundle.challenges[0].id).toBe(row1.challenge.id);
+    });
+
+    it("produces an export that its own parser accepts", () => {
+      const text = serializeBundle(exportBundleFrom([row1], ["Web"]));
+      expect(parseBundle(text).ok).toBe(true);
     });
   });
 });
