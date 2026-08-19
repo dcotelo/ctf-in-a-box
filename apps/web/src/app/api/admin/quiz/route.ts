@@ -3,9 +3,10 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
 import {
   deleteQuestion,
-  listQuestions,
+  listQuestionsForAdmin,
   QuizValidationError,
   upsertQuestion,
+  type AdminQuestion,
   type Choice,
   type Question,
 } from "@/lib/quiz-store";
@@ -16,6 +17,16 @@ import { upstashPipeline } from "@/lib/upstash";
  * update (POST), and delete (DELETE) questions. Gated by `requireAdmin`
  * throughout; every write appends a line to the same `ctf:admin:audit`
  * trail `admin-store`'s settings/reset/seed writers use.
+ *
+ * This is the one surface that may return the answer key. GET calls
+ * `listQuestionsForAdmin()`, so each row carries `{ question, correct }` and
+ * the edit form can prefill which choices are currently right — an organizer
+ * fixing a typo must not have to re-pick the answer from memory and risk
+ * silently redefining it for every contestant. That is sound precisely
+ * because `requireAdmin` runs FIRST, before any store read: anyone past it
+ * can already rewrite or delete the answer outright. The contestant path is
+ * untouched and stays keyless — `/quiz` calls `listQuestions()`, which never
+ * reads `ctf:quiz:key` at all.
  *
  * The POST payload is runtime-shape-checked field by field, rejecting any
  * key it doesn't explicitly allow, BEFORE it ever reaches `upsertQuestion`.
@@ -120,7 +131,11 @@ export async function GET(request: Request) {
   const gate = await requireAdmin(request.headers);
   if (!gate.ok) return NextResponse.json({ error: "forbidden" }, { status: gate.status });
 
-  const questions = await listQuestions();
+  // Admin-gated, so this may carry the key — see the header comment. The
+  // `requireAdmin` check above must stay the first statement in this
+  // handler: with the key in the payload, an early store read on an
+  // unauthenticated request is no longer merely wasted work.
+  const questions = await listQuestionsForAdmin();
   return NextResponse.json({ questions });
 }
 
@@ -134,14 +149,18 @@ export async function POST(request: Request) {
 
   const { correct, ...question } = parsed;
   const q: Question = question;
+  let saved: AdminQuestion;
   try {
-    await upsertQuestion(q, correct);
+    saved = await upsertQuestion(q, correct);
   } catch (err) {
     return errorResponse(err);
   }
 
   await writeAudit(gate.login, "quiz-upsert", { questionId: q.id });
-  return NextResponse.json({ question: q });
+  // Echoes the STORED correct set (deduped and sorted by `upsertQuestion`),
+  // not the raw payload, so the authoring client's list matches what a
+  // subsequent GET would return rather than drifting from it.
+  return NextResponse.json({ question: saved.question, correct: saved.correct });
 }
 
 export async function DELETE(request: Request) {

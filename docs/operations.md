@@ -210,10 +210,15 @@ entirely inside the app.
 "Quiz controls" above): add a question with a prompt, pick **single choice**
 or **multiple choice**, give it two or more labeled choices, mark which
 one(s) are correct, and set its point value and its `order` (position in the
-list). Editing an existing question never shows you its current correct
-answer(s) first — the answer key never reaches any client, admin session
-included — so every save requires re-selecting the correct choice(s), even
-when you're only fixing a typo in the prompt.
+list). **Editing an existing question prefills its current correct
+answer(s)**, so fixing a typo in a prompt doesn't mean re-picking the answer
+from memory — get that wrong and you'd silently change what counts as
+correct for every contestant, with no warning and no way to notice until the
+scores look off. The answer key is visible only inside the edit form and
+only to an admin (`/admin` is gated, and anyone through that gate can already
+rewrite or delete the answer outright); the question list itself doesn't show
+it, and it never reaches a contestant — `/quiz` is served from a separate,
+keyless read that never touches the answer hash at all.
 
 **Deleting a question removes it from the quiz and hides it from
 contestants — but points already banked for it remain on the leaderboard.**

@@ -17,14 +17,24 @@
 // in the browser it's just the pre-hydration paint, immediately replaced by
 // a fresh fetch.
 //
-// Secrecy: `GET /api/admin/quiz` returns `listQuestions()`'s output, which
-// NEVER carries the correct-answer set (see quiz-store.ts) — even here, on
-// the admin-gated surface. That means editing an existing question always
-// starts with no choice marked correct; the organizer must (re)select the
-// correct answer(s) on every save, the same as when authoring a new question.
-// This component only ever POSTs a correct set the organizer just chose in
-// this form — it never reads one back, so there is nothing for a shared
-// component or contestant-facing view model to ever leak.
+// Secrecy: this component DOES hold the answer key, and that is deliberate.
+// `GET /api/admin/quiz` is behind `requireAdmin` and returns
+// `listQuestionsForAdmin()`'s output — one `AdminQuestion` (`{ question,
+// correct }`) per question — so opening an existing question for editing
+// prefills the choices currently marked correct. The alternative, which this
+// component used to implement, was worse than the leak it avoided: an
+// organizer fixing a typo in a prompt had to re-pick the answer from memory,
+// and getting it wrong silently redefined what counts as correct for every
+// contestant, with no diff and no warning. Anyone through the admin gate can
+// already delete the question or rewrite its answer outright, so withholding
+// the key here bought nothing.
+//
+// What has NOT changed: the contestant path is keyless, absolutely. `/quiz`
+// calls `listQuestions()`, which never reads `ctf:quiz:key`, and builds its
+// view model field by field from the public `Question` shape. `AdminQuestion`
+// is deliberately NOT assignable to `Question` (see quiz-store.ts), so a
+// record from this component cannot be handed to a contestant-facing
+// component by mistake — it's a compile error, not a code-review catch.
 //
 // Deletion changes live event data mid-flight — the question disappears
 // from every contestant's board and can no longer be answered — so it is
@@ -40,7 +50,7 @@
 // in as many words; keep the two in step.
 
 import { useEffect, useState } from "react";
-import type { Choice, Question, QuestionType } from "@/lib/quiz-store";
+import type { AdminQuestion, Choice, Question, QuestionType } from "@/lib/quiz-store";
 import ConfirmModal from "@/components/confirm-modal";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
@@ -55,7 +65,7 @@ export type AdminQuizControlsProps = {
   setQuizRetryAfterInput: (v: string) => void;
   commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void) => void;
   /** Test/first-paint seed only — see header comment. */
-  initialQuestions?: Question[];
+  initialQuestions?: AdminQuestion[];
 };
 
 /** Maps a `/api/admin/quiz` response to a message that tells a validation
@@ -123,10 +133,17 @@ export function emptyDraft(nextOrder: number): QuestionDraft {
   };
 }
 
-/** Correct answers are never round-tripped from the store (see header
- *  comment) — an edit draft always starts with none marked correct, so the
- *  organizer explicitly re-confirms them on every save. */
-export function draftFromQuestion(q: Question): QuestionDraft {
+/** Seeds an edit draft from an existing question — INCLUDING the choices
+ *  currently marked correct, which is the whole point of taking an
+ *  `AdminQuestion` here rather than a bare `Question`. Starting a typo fix
+ *  with nothing selected made re-picking the answer from memory a required
+ *  step of every save, and a wrong guess there silently changed what counts
+ *  as correct for every contestant.
+ *
+ *  `correct` is copied, never aliased: the draft is edited in place as the
+ *  organizer toggles choices, and mutating the list row behind it would make
+ *  a cancelled edit look saved. */
+export function draftFromQuestion({ question: q, correct }: AdminQuestion): QuestionDraft {
   return {
     id: q.id,
     prompt: q.prompt,
@@ -134,7 +151,7 @@ export function draftFromQuestion(q: Question): QuestionDraft {
     points: String(q.points),
     order: String(q.order),
     choices: q.choices.map((c) => ({ ...c })),
-    correct: [],
+    correct: [...correct],
   };
 }
 
@@ -170,12 +187,12 @@ export function isDraftValid(d: QuestionDraft): boolean {
   return true;
 }
 
-function sortQuestions(list: Question[]): Question[] {
-  return [...list].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+function sortQuestions(list: AdminQuestion[]): AdminQuestion[] {
+  return [...list].sort((a, b) => a.question.order - b.question.order || a.question.id.localeCompare(b.question.id));
 }
 
-function upsertInList(list: Question[], q: Question): Question[] {
-  return sortQuestions([...list.filter((x) => x.id !== q.id), q]);
+function upsertInList(list: AdminQuestion[], row: AdminQuestion): AdminQuestion[] {
+  return sortQuestions([...list.filter((x) => x.question.id !== row.question.id), row]);
 }
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -191,7 +208,7 @@ export default function AdminQuizControls({
   commitNumber,
   initialQuestions = [],
 }: AdminQuizControlsProps) {
-  const [questions, setQuestions] = useState<Question[]>(() => sortQuestions(initialQuestions));
+  const [questions, setQuestions] = useState<AdminQuestion[]>(() => sortQuestions(initialQuestions));
   const [listError, setListError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<{ draft: QuestionDraft; isNew: boolean } | null>(null);
@@ -210,7 +227,7 @@ export default function AdminQuizControls({
     (async () => {
       try {
         const res = await fetch("/api/admin/quiz");
-        const data = await parseJson<{ error?: string; questions?: Question[] }>(res);
+        const data = await parseJson<{ error?: string; questions?: AdminQuestion[] }>(res);
         if (cancelled) return;
         if (!res.ok) {
           setListError(describeQuizError(res.status, data.error));
@@ -227,7 +244,7 @@ export default function AdminQuizControls({
     };
   }, []);
 
-  const nextOrder = questions.reduce((max, q) => Math.max(max, q.order), 0) + 1;
+  const nextOrder = questions.reduce((max, q) => Math.max(max, q.question.order), 0) + 1;
 
   async function submitDraft(draft: QuestionDraft) {
     setFormPending(true);
@@ -247,13 +264,18 @@ export default function AdminQuizControls({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await parseJson<{ error?: string; question?: Question }>(res);
+      const data = await parseJson<{ error?: string; question?: Question; correct?: string[] }>(res);
       const savedQuestion = data.question;
       if (!res.ok || !savedQuestion) {
         setFormError(describeQuizError(res.status, data.error));
         return;
       }
-      setQuestions((prev) => upsertInList(prev, savedQuestion));
+      // The route echoes the STORED (deduped, sorted) correct set alongside
+      // the question; falling back to the draft's own set would leave the
+      // list holding something the store never wrote.
+      setQuestions((prev) =>
+        upsertInList(prev, { question: savedQuestion, correct: data.correct ?? draft.correct }),
+      );
       setEditing(null);
     } catch {
       setFormError("Couldn't reach the server — try again.");
@@ -276,7 +298,7 @@ export default function AdminQuizControls({
         setDeleteError(describeQuizError(res.status, data.error));
         return;
       }
-      setQuestions((prev) => prev.filter((q) => q.id !== id));
+      setQuestions((prev) => prev.filter((q) => q.question.id !== id));
       setDeleteTarget(null);
     } catch {
       setDeleteError("Couldn't reach the server — try again.");
@@ -346,21 +368,25 @@ export default function AdminQuizControls({
           <p className="text-xs text-muted">No questions yet.</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {questions.map((q) => (
+            {questions.map((row) => (
+              // The collapsed list shows the public half only — which choice
+              // is correct appears when the organizer opens the edit form,
+              // not on a panel that might be on a projector.
               <li
-                key={q.id}
+                key={row.question.id}
                 className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm text-white">{q.prompt}</p>
+                  <p className="truncate text-sm text-white">{row.question.prompt}</p>
                   <p className="text-xs text-muted">
-                    #{q.order} · {q.type} · {q.points} pt{q.points === 1 ? "" : "s"} · {q.choices.length} choices
+                    #{row.question.order} · {row.question.type} · {row.question.points} pt
+                    {row.question.points === 1 ? "" : "s"} · {row.question.choices.length} choices
                   </p>
                 </div>
                 <div className="flex flex-none gap-2">
                   <button
                     type="button"
-                    onClick={() => setEditing({ draft: draftFromQuestion(q), isNew: false })}
+                    onClick={() => setEditing({ draft: draftFromQuestion(row), isNew: false })}
                     className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
                   >
                     Edit
@@ -369,7 +395,7 @@ export default function AdminQuizControls({
                     type="button"
                     onClick={() => {
                       setDeleteError(null);
-                      setDeleteTarget(q);
+                      setDeleteTarget(row.question);
                     }}
                     className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
                   >

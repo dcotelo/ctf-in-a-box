@@ -9,7 +9,7 @@
 // `isDraftValid`, `draftFromQuestion`) that the component wires into its JSX.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Question } from "@/lib/quiz-store";
+import type { AdminQuestion, Question } from "@/lib/quiz-store";
 import AdminQuizControls, {
   describeQuizError,
   draftFromQuestion,
@@ -33,7 +33,12 @@ const question: Question = {
   order: 1,
 };
 
-function renderControls(initialQuestions: Question[] = []) {
+// "a" (X-Frame-Options) is the correct choice. The admin GET route returns
+// this alongside the question now — see the component header comment.
+const CORRECT_CHOICE_ID = "a";
+const row: AdminQuestion = { question, correct: [CORRECT_CHOICE_ID] };
+
+function renderControls(initialQuestions: AdminQuestion[] = []) {
   return renderToStaticMarkup(
     <AdminQuizControls
       pending={false}
@@ -63,29 +68,77 @@ describe("AdminQuizControls", () => {
   });
 
   it("renders each question with edit and delete controls, never the placeholder", () => {
-    const html = renderControls([question]);
+    const html = renderControls([row]);
     expect(html).toContain(question.prompt);
     expect(html).toContain("Edit");
     expect(html).toContain("Delete");
     expect(html).not.toContain("No questions yet.");
   });
 
-  it("never renders correct-answer data — Question carries none to begin with", () => {
-    const html = renderControls([question]);
-    // The public Question type has no field that could carry a correct
-    // choice id, and the admin GET route's `listQuestions()` never reads
-    // `ctf:quiz:key` either — so there is nothing here for a shared
-    // component or contestant page to ever pick up.
-    expect(html).not.toContain("correct");
+  // The component now HOLDS the answer key (that's the point — the edit form
+  // prefills from it), but the collapsed list must not paint it: an organizer
+  // browsing their questions may well be doing it on a projector. The key
+  // surfaces only inside the edit form, which is behind a useState toggle and
+  // so never appears in this static render.
+  it("keeps the correct-answer ids out of the collapsed list markup", () => {
+    const distinctive: AdminQuestion = {
+      question: {
+        ...question,
+        choices: [
+          { id: "correct-choice-zz9", label: "X-Frame-Options" },
+          { id: "wrong-choice-zz9", label: "Content-Length" },
+        ],
+      },
+      correct: ["correct-choice-zz9"],
+    };
+    const html = renderControls([distinctive]);
+    // Proves the row actually rendered — otherwise the assertion below would
+    // pass on an empty list and prove nothing.
+    expect(html).toContain(distinctive.question.prompt);
+    expect(html).not.toContain("correct-choice-zz9");
   });
 });
 
 describe("draftFromQuestion", () => {
-  it("never pre-fills a correct answer, even when editing an existing question", () => {
-    const draft = draftFromQuestion(question);
-    expect(draft.correct).toEqual([]);
+  // The bug this fixes: an edit draft that started with nothing marked
+  // correct forced the organizer to re-pick the answer from memory on every
+  // save, so fixing a typo in a prompt could silently redefine what counts as
+  // correct for every contestant.
+  it("prefills the choices currently marked correct when editing an existing question", () => {
+    const draft = draftFromQuestion(row);
+    expect(draft.correct).toEqual([CORRECT_CHOICE_ID]);
     expect(draft.id).toBe(question.id);
     expect(draft.choices).toEqual(question.choices);
+  });
+
+  it("prefills every correct choice of a multi-choice question, not just the first", () => {
+    const multi: AdminQuestion = {
+      question: {
+        ...question,
+        type: "multi",
+        choices: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+          { id: "c", label: "C" },
+        ],
+      },
+      correct: ["a", "c"],
+    };
+    expect(draftFromQuestion(multi).correct).toEqual(["a", "c"]);
+  });
+
+  it("is immediately valid for re-submission — a typo fix needs no re-picking of the answer", () => {
+    // The real regression guard: with `correct: []` this returned a draft
+    // `isDraftValid` rejected, which is what forced the re-pick in the first
+    // place.
+    expect(isDraftValid(draftFromQuestion(row))).toBe(true);
+  });
+
+  it("copies the correct set instead of aliasing the list row, so a cancelled edit changes nothing", () => {
+    const source: AdminQuestion = { question, correct: [CORRECT_CHOICE_ID] };
+    const draft = draftFromQuestion(source);
+    draft.correct.push("b");
+    expect(source.correct).toEqual([CORRECT_CHOICE_ID]);
   });
 });
 

@@ -5,8 +5,15 @@
 //
 // login is ALWAYS derived from the session server-side for the contestant
 // route; the admin route is gated by requireAdmin and shape-checks its
-// payload before ever calling upsertQuestion. Neither route can leak the
-// correct-answer key: `answerQuestion`'s return type never carries it.
+// payload before ever calling upsertQuestion.
+//
+// The correct-answer key reaches exactly ONE of these routes, and only past
+// its gate. The contestant answer route can never carry it — `answerQuestion`
+// has no field for it — while `GET /api/admin/quiz` returns it deliberately,
+// so the organizer's edit form can prefill which choices are already correct.
+// Both halves are pinned below, and the refusal cases assert on the response
+// BODY, not just the status: a wrong status with a real payload attached
+// would still be the leak.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +22,7 @@ const {
   requireAdmin,
   answerQuestion,
   listQuestions,
+  listQuestionsForAdmin,
   upsertQuestion,
   deleteQuestion,
   upstashPipeline,
@@ -38,6 +46,7 @@ const {
     requireAdmin: vi.fn(),
     answerQuestion: vi.fn(),
     listQuestions: vi.fn(),
+    listQuestionsForAdmin: vi.fn(),
     upsertQuestion: vi.fn(),
     deleteQuestion: vi.fn(),
     upstashPipeline: vi.fn(),
@@ -52,6 +61,7 @@ vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/quiz-store", () => ({
   answerQuestion,
   listQuestions,
+  listQuestionsForAdmin,
   upsertQuestion,
   deleteQuestion,
   QUIZ_ID_RE,
@@ -88,11 +98,16 @@ const QUESTION = {
 
 const CREATE_PAYLOAD = { ...QUESTION, correct: ["opt-right"] };
 
+/** What `listQuestionsForAdmin`/`upsertQuestion` hand back: the public-safe
+ *  record and its correct set, in two separate fields. */
+const ADMIN_ROW = { question: QUESTION, correct: ["opt-right"] };
+
 beforeEach(() => {
   getSession.mockReset();
   requireAdmin.mockReset();
   answerQuestion.mockReset();
   listQuestions.mockReset();
+  listQuestionsForAdmin.mockReset();
   upsertQuestion.mockReset();
   deleteQuestion.mockReset();
   upstashPipeline.mockReset();
@@ -188,25 +203,52 @@ describe("POST /api/quiz/answer", () => {
 });
 
 describe("GET /api/admin/quiz", () => {
-  it("401 for no session", async () => {
+  // Every refusal case checks the response BODY for answer data, not just the
+  // status code. Asserting only the status would pass just as happily on a
+  // 403 that still shipped the key in its payload.
+  const assertNoAnswerData = async (res: Response) => {
+    const text = await res.text();
+    expect(text).not.toContain("opt-right");
+    expect(text).not.toMatch(/correct/i);
+    expect(text).not.toContain(QUESTION.prompt);
+  };
+
+  it("401 for no session, with no answer data in the response", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 401 });
+    listQuestionsForAdmin.mockResolvedValue([ADMIN_ROW]);
     const res = await adminGET(adminReq("GET"));
     expect(res.status).toBe(401);
-    expect(listQuestions).not.toHaveBeenCalled();
+    await assertNoAnswerData(res);
+    // The gate short-circuits before the store is even asked.
+    expect(listQuestionsForAdmin).not.toHaveBeenCalled();
   });
 
-  it("403 for a non-admin", async () => {
+  it("403 for a non-admin, with no answer data in the response", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 403 });
+    listQuestionsForAdmin.mockResolvedValue([ADMIN_ROW]);
     const res = await adminGET(adminReq("GET"));
     expect(res.status).toBe(403);
-    expect(listQuestions).not.toHaveBeenCalled();
+    await assertNoAnswerData(res);
+    expect(listQuestionsForAdmin).not.toHaveBeenCalled();
   });
 
-  it("returns the question list for an admin", async () => {
-    listQuestions.mockResolvedValue([QUESTION]);
+  it("returns each question WITH its correct set for an admin, so the edit form can prefill", async () => {
+    listQuestionsForAdmin.mockResolvedValue([ADMIN_ROW]);
     const res = await adminGET(adminReq("GET"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ questions: [QUESTION] });
+    const body = await res.json();
+    expect(body).toEqual({ questions: [{ question: QUESTION, correct: ["opt-right"] }] });
+    expect(body.questions[0].correct).toEqual(["opt-right"]);
+  });
+
+  it("reads the admin accessor, never the keyless contestant one", async () => {
+    // Which function this route calls IS the security decision — reverting to
+    // `listQuestions()` would silently take the prefill away again, and the
+    // response-shape assertion above would be the only thing to notice.
+    listQuestionsForAdmin.mockResolvedValue([ADMIN_ROW]);
+    await adminGET(adminReq("GET"));
+    expect(listQuestionsForAdmin).toHaveBeenCalledTimes(1);
+    expect(listQuestions).not.toHaveBeenCalled();
   });
 });
 
@@ -272,11 +314,11 @@ describe("POST /api/admin/quiz", () => {
   });
 
   it("creates/updates a question, echoes it back, and writes an audit line", async () => {
-    upsertQuestion.mockResolvedValue(undefined);
+    upsertQuestion.mockResolvedValue(ADMIN_ROW);
     const res = await adminPOST(adminReq("POST", CREATE_PAYLOAD));
     expect(res.status).toBe(200);
     expect(upsertQuestion).toHaveBeenCalledWith(QUESTION, ["opt-right"]);
-    expect(await res.json()).toEqual({ question: QUESTION });
+    expect(await res.json()).toEqual({ question: QUESTION, correct: ["opt-right"] });
 
     expect(upstashPipeline).toHaveBeenCalledTimes(1);
     const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
@@ -284,6 +326,19 @@ describe("POST /api/admin/quiz", () => {
     expect(commands[0][1]).toBe("ctf:admin:audit");
     expect(String(commands[0][2])).toContain('"by":"alice"');
     expect(String(commands[0][2])).toContain('"questionId":"q1"');
+  });
+
+  it("echoes the STORED correct set, not the caller's raw array", async () => {
+    // `upsertQuestion` dedupes and sorts before writing. Echoing the request's
+    // own array instead would leave the authoring panel's in-memory list
+    // holding a set the store never wrote — and a later reload disagreeing
+    // with what the organizer just saw saved.
+    upsertQuestion.mockResolvedValue({ question: QUESTION, correct: ["opt-right", "opt-wrong"] });
+    const res = await adminPOST(
+      adminReq("POST", { ...CREATE_PAYLOAD, type: "multi", correct: ["opt-wrong", "opt-right", "opt-wrong"] }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ correct: ["opt-right", "opt-wrong"] });
   });
 });
 
@@ -332,7 +387,7 @@ describe("DELETE /api/admin/quiz", () => {
 
 describe("admin create/delete round-trip", () => {
   it("creates then deletes the same question id", async () => {
-    upsertQuestion.mockResolvedValue(undefined);
+    upsertQuestion.mockResolvedValue(ADMIN_ROW);
     deleteQuestion.mockResolvedValue(undefined);
 
     const createRes = await adminPOST(adminReq("POST", CREATE_PAYLOAD));
