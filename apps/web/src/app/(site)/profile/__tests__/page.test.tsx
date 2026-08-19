@@ -23,6 +23,7 @@ const {
   getQuizTotals,
   listQuestions,
   getTeamQuizTotals,
+  getResolvedModules,
 } = vi.hoisted(() => ({
   getSession: vi.fn(),
   getUser: vi.fn(),
@@ -33,6 +34,7 @@ const {
   getQuizTotals: vi.fn(),
   listQuestions: vi.fn(),
   getTeamQuizTotals: vi.fn(),
+  getResolvedModules: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -51,15 +53,20 @@ vi.mock("@/lib/team-store", () => ({
   TEAM_WRITES_ENABLED: false,
 }));
 vi.mock("@/lib/hint-store", () => ({ getViewerHints, getHintPenalties, HINTS_ENABLED: true }));
-// `SECURE_AGENT_PLAYBOOK_URL` is stubbed too because `@/lib/site` reads it at
+// Partial mock: `isModuleEnabled` is what this page's gates call, but
+// `@/lib/site` reads `SECURE_AGENT_PLAYBOOK_URL` off this same module at
 // import time (the registry owns the constant; site.ts re-exports it as
-// `event.secureAgentPlaybookUrl` — see the comment there), and a whole-module
-// mock that omits it makes every importer of site.ts throw.
-vi.mock("@/lib/modules", () => ({
+// `event.secureAgentPlaybookUrl`), so a whole-module replacement that omits
+// it makes every importer of site.ts throw — same trap `challenges/
+// __tests__/page.test.tsx` documents for its own `@/lib/modules` mock.
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
   isModuleEnabled,
-  enabledModules: [],
-  SECURE_AGENT_PLAYBOOK_URL: "https://github.com/OWASP/secure-agent-playbook",
 }));
+// The per-module block list is driven off this, not off `@/lib/modules`
+// directly — these tests don't exercise the breakdown blocks, so an empty
+// list is enough to keep the page from rendering any.
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
@@ -73,6 +80,7 @@ beforeEach(() => {
   getViewerTeam.mockResolvedValue(null);
   listQuestions.mockResolvedValue([]);
   getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
+  getResolvedModules.mockResolvedValue([]);
 });
 
 const baseProfile = {
