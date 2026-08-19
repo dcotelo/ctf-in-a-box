@@ -308,11 +308,52 @@ describe("getViewerClassic", () => {
   it("returns the caller's solves and never reads a flag hash", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce([
       { result: ["chal-1", JSON.stringify({ points: 50, at: "2026-08-19T10:00:00.000Z" }), "bad", "not json"] },
+      { result: [] },
     ]);
     const viewer = await getViewerClassic("alice");
-    expect(viewer).toEqual({ solved: { "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } } });
+    expect(viewer).toEqual({ solved: { "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } }, attempts: {} });
     const keys = pipelineCalls().flat().map((c) => c[1]);
-    expect(keys).toEqual(["ctf:classic:solves:alice"]);
+    expect(keys).toEqual(["ctf:classic:solves:alice", "ctf:classic:attempts:alice"]);
+    expect(JSON.stringify(pipelineCalls())).not.toMatch(/ctf:classic:flag/);
+  });
+
+  // The gap this task closes: the board needs `attempts` (mirroring
+  // `ViewerQuiz.attempts`) to derive a server-side cooldown status, in the
+  // SAME pipeline call as the solves read — one extra HGETALL, no change to
+  // the existing solved-only behaviour, and still no flag hash touched.
+  it("also returns every attempt (right or wrong), keyed by challenge id, in the same pipeline", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: ["chal-1", JSON.stringify({ points: 50, at: "2026-08-19T10:00:00.000Z" })] },
+      {
+        result: [
+          "chal-1",
+          JSON.stringify({ attempts: 1, lastAt: "2026-08-19T09:59:00.000Z", lastAtMs: 1755597540000 }),
+          "chal-2",
+          JSON.stringify({ attempts: 3, lastAt: "2026-08-19T09:00:00.000Z", lastAtMs: 1755594000000 }),
+          "bad",
+          "not json",
+        ],
+      },
+    ]);
+
+    const viewer = await getViewerClassic("alice");
+
+    expect(viewer.solved).toEqual({ "chal-1": { points: 50, at: "2026-08-19T10:00:00.000Z" } });
+    expect(viewer.attempts).toEqual({
+      "chal-1": { attempts: 1, lastAt: "2026-08-19T09:59:00.000Z" },
+      "chal-2": { attempts: 3, lastAt: "2026-08-19T09:00:00.000Z" },
+    });
+    // ONE pipeline call carrying both HGETALLs, not two round trips.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(pipelineCalls()[0]).toEqual([
+      ["HGETALL", "ctf:classic:solves:alice"],
+      ["HGETALL", "ctf:classic:attempts:alice"],
+    ]);
+  });
+
+  it("returns empty solved/attempts when both hashes are empty", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }, { result: [] }]);
+    expect(await getViewerClassic("alice")).toEqual({ solved: {}, attempts: {} });
   });
 });
 

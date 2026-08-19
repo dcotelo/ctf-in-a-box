@@ -1,0 +1,160 @@
+// @testing-library/react is not a dependency of this repo and must not be
+// added just for this test. renderToStaticMarkup (ships with react-dom) is
+// enough to check the initial server render, since we only assert on markup
+// text — same pattern as quiz/__tests__/page.test.tsx.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+
+const { isModuleEnabled, getSession, listChallenges, listCategories, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules } =
+  vi.hoisted(() => ({
+    isModuleEnabled: vi.fn(),
+    getSession: vi.fn(),
+    listChallenges: vi.fn(),
+    listCategories: vi.fn(),
+    getSolveCounts: vi.fn(),
+    getViewerClassic: vi.fn(),
+    getAdminSettings: vi.fn(),
+    getResolvedModules: vi.fn(),
+  }));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+// ClassicBoard (the client component this page renders) calls useRouter for
+// its post-submit refresh — needs a mock the same way quiz-board.test.tsx
+// mocks it, since real next/navigation needs a router context.
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
+vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
+vi.mock("@/lib/classic-store", () => ({
+  listChallenges,
+  listCategories,
+  getSolveCounts,
+  getViewerClassic,
+  CLASSIC_COOLDOWN_SEC: 5,
+}));
+
+import FlagsPage, { generateMetadata } from "@/app/(site)/flags/page";
+
+const baseChallenges = [
+  { id: "c1", title: "Solved one", category: "Web", description: "d1", points: 10, order: 0 },
+  { id: "c2", title: "Still cooling down", category: "Web", description: "d2", points: 20, order: 1 },
+  { id: "c3", title: "Never attempted", category: "Crypto", description: "d3", points: 30, order: 2 },
+];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Registry-default fallback, same shape resolveModules would produce for an
+  // event with only the classic module enabled and no organizer overrides.
+  // Tests that care about an organizer-renamed title override this per-case.
+  getResolvedModules.mockResolvedValue([
+    { id: "classic", title: "Classic CTF", blurb: "Find the flag, submit the string, take the points." },
+  ]);
+  listCategories.mockResolvedValue(["Web", "Crypto"]);
+  getSolveCounts.mockResolvedValue(new Map());
+});
+
+describe("flags page gate", () => {
+  it("404s when the classic module is not enabled", async () => {
+    isModuleEnabled.mockReturnValue(false);
+    await expect(FlagsPage()).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
+  });
+});
+
+describe("flags page view model", () => {
+  it("derives solved/cooldown/unsolved per challenge from viewer progress and settings", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: 300 });
+    getViewerClassic.mockResolvedValue({
+      solved: { c1: { points: 10, at: "2026-08-18T00:00:00.000Z" } },
+      attempts: {
+        c2: { attempts: 1, lastAt: new Date().toISOString() }, // fresh — inside the 300s cooldown
+      },
+    });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    expect(html).toMatch(/solved.*earned 10 point/i);
+    expect(html).toMatch(/on cooldown/i);
+    expect(html).toMatch(/submit flag/i); // c3 (never attempted) still offers one
+    expect(html).toMatch(/solved 1 of 3 challenges/i);
+  });
+
+  it("treats a signed-out visitor as having no progress and prompts sign-in instead of a submit control", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listChallenges.mockResolvedValue([baseChallenges[2]]);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    expect(getViewerClassic).not.toHaveBeenCalled();
+    expect(html).toMatch(/sign in with github/i);
+    expect(html).not.toContain("<button");
+  });
+
+  it("shows an empty state with no challenges available", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listChallenges.mockResolvedValue([]);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+    expect(html).toMatch(/no challenges are available/i);
+  });
+
+  it("renders the organizer's module title instead of the default", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listChallenges.mockResolvedValue([]);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+    getResolvedModules.mockResolvedValue([{ id: "classic", title: "Flag Hunt", blurb: "Ten flags." }]);
+
+    const html = renderToStaticMarkup(await FlagsPage());
+    expect(html).toContain("Flag Hunt");
+  });
+
+  // The progress line and the sign-in prompt must both render even when the
+  // event has zero challenges — a real regression this kit has shipped by
+  // nesting them inside the populated branch.
+  it("still prompts a signed-out visitor to sign in when there are no challenges at all", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listChallenges.mockResolvedValue([]);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    // Non-vacuity: this really is the empty-state render, not a populated one.
+    expect(html).toMatch(/no challenges are available/i);
+    expect(html).toMatch(/sign in with github to submit flags/i);
+  });
+});
+
+describe("flags page metadata", () => {
+  it("falls back to the registry default title/description when there's no organizer override", async () => {
+    getResolvedModules.mockResolvedValue([
+      { id: "classic", title: "Classic CTF", blurb: "Find the flag, submit the string, take the points." },
+    ]);
+
+    await expect(generateMetadata()).resolves.toEqual({
+      title: "Classic CTF",
+      description: "Find the flag, submit the string, take the points.",
+    });
+  });
+
+  it("uses the organizer's resolved title/blurb when set", async () => {
+    getResolvedModules.mockResolvedValue([{ id: "classic", title: "Flag Hunt", blurb: "Ten flags." }]);
+
+    await expect(generateMetadata()).resolves.toEqual({
+      title: "Flag Hunt",
+      description: "Ten flags.",
+    });
+  });
+});

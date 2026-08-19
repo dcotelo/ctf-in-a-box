@@ -428,14 +428,31 @@ export type ViewerClassic = {
   /** Solves only, keyed by challenge id. Points are what the challenge was
    *  worth AT SOLVE TIME, not what it is worth now. */
   solved: Record<string, Solve>;
+  /** Every attempt (right or wrong), keyed by challenge id — mirrors
+   *  `ViewerQuiz.attempts`. The `/flags` board needs this to derive a
+   *  per-challenge cooldown status server-side (same reasoning as quiz's
+   *  `deriveStatus`): `classicCooldownSec` can be configured up to an hour,
+   *  and without a server-rendered cooldown a contestant would stare at an
+   *  enabled submit control that always 403s until they tried it. */
+  attempts: Record<string, Attempt>;
 };
 
-/** A single caller's classic progress: which challenges they have solved, and
- *  for how many points each. One HGETALL against that login's solve hash —
- *  neither flag hash is touched. */
+/** A single caller's classic progress: which challenges they have solved, for
+ *  how many points each, and every attempt made (right or wrong) — the latter
+ *  is what lets a caller derive a cooldown without an extra round trip.
+ *
+ *  ONE pipeline call, two HGETALLs against that login's own solve and attempt
+ *  hashes — neither flag hash is touched, additive over the original
+ *  solve-only shape. */
 export async function getViewerClassic(login: string): Promise<ViewerClassic> {
-  const [solvesRes] = await upstashPipeline([["HGETALL", solvesKey(login)]]);
-  return { solved: parseHashEntries(solvesRes.result, extractSolve) };
+  const [solvesRes, attemptsRes] = await upstashPipeline([
+    ["HGETALL", solvesKey(login)],
+    ["HGETALL", attemptsKey(login)],
+  ]);
+  return {
+    solved: parseHashEntries(solvesRes.result, extractSolve),
+    attempts: parseHashEntries(attemptsRes.result, extractAttempt),
+  };
 }
 
 function parseCounterHash(flat: unknown): Map<string, number> {
