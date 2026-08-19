@@ -93,7 +93,7 @@ import { useEffect, useState, type ChangeEvent } from "react";
 // is fully erased at compile time — no runtime import ever reaches the
 // client bundle. This is the same pattern admin-quiz-controls.tsx uses for
 // `@/lib/quiz-store`. Never change this to a value import.
-import type { AdminChallenge, Challenge } from "@/lib/classic-store";
+import type { AdminChallenge, Challenge, ImportSummary } from "@/lib/classic-store";
 import { generateChallengeId, CLASSIC_POINTS_MAX } from "@/lib/classic-keys";
 import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundle, type ImportError } from "@/lib/classic-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
@@ -384,6 +384,17 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
   };
 }
 
+/** Formats an `ImportSummary` into the panel's after-import message. Pure for
+ *  the same reason `exportBundleFrom` just above is: `importResult` is
+ *  `useState`, which `renderToStaticMarkup` can never reach, so the
+ *  pluralization branch (and the created/updated interpolation next to it)
+ *  has to live outside a render tree to be exercised by a test at all.
+ *  Exported for direct testing. */
+export function formatImportSummary({ created, updated, categories }: ImportSummary): string {
+  const categoryWord = categories === 1 ? "category" : "categories";
+  return `Imported: ${created} created, ${updated} updated. (${categories} ${categoryWord} listed in the file.)`;
+}
+
 export default function AdminClassicControls({
   pending,
   classicCooldownSecInput,
@@ -415,9 +426,7 @@ export default function AdminClassicControls({
   const [importText, setImportText] = useState("");
   const [importPending, setImportPending] = useState(false);
   const [importErrors, setImportErrors] = useState<ImportError[] | null>(null);
-  const [importResult, setImportResult] = useState<{ created: number; updated: number; categories: number } | null>(
-    null,
-  );
+  const [importResult, setImportResult] = useState<ImportSummary | null>(null);
 
   /** Re-fetches the challenge and category lists from the store, the same GET
    *  the mount-time effect below runs. Shared with the bulk-import success
@@ -964,12 +973,7 @@ export default function AdminClassicControls({
               </ul>
             )}
 
-            {importResult && (
-              <p className="text-xs text-[#7aa2ff]">
-                Imported: {importResult.created} created, {importResult.updated} updated. ({importResult.categories}{" "}
-                categor{importResult.categories === 1 ? "y" : "ies"} listed in the file.)
-              </p>
-            )}
+            {importResult && <p className="text-xs text-[#7aa2ff]">{formatImportSummary(importResult)}</p>}
 
             <button
               type="button"

@@ -33,6 +33,7 @@ import AdminClassicControls, {
   editorFromChallenge,
   emptyDraft,
   exportBundleFrom,
+  formatImportSummary,
   isDraftValid,
   newChallengeEditor,
   payloadFromEditor,
@@ -174,6 +175,29 @@ describe("AdminClassicControls", () => {
     it("produces an export that its own parser accepts", () => {
       const text = serializeBundle(exportBundleFrom([row1], ["Web"]));
       expect(parseBundle(text).ok).toBe(true);
+    });
+  });
+
+  // `formatImportSummary` is the pure function behind the after-import
+  // message — pulled out specifically because `importResult` is `useState`
+  // and this file's `renderControls` uses `renderToStaticMarkup`, which never
+  // runs a click handler or touches post-mount state. Without this extracted,
+  // the pluralization ternary (and the created/updated interpolation next to
+  // it) would ship untested.
+  describe("formatImportSummary", () => {
+    it("pluralizes categories for anything other than exactly one", () => {
+      expect(formatImportSummary({ created: 1, updated: 0, categories: 0 })).toBe(
+        "Imported: 1 created, 0 updated. (0 categories listed in the file.)",
+      );
+      expect(formatImportSummary({ created: 3, updated: 2, categories: 2 })).toBe(
+        "Imported: 3 created, 2 updated. (2 categories listed in the file.)",
+      );
+    });
+
+    it("uses the singular for exactly one category", () => {
+      expect(formatImportSummary({ created: 0, updated: 5, categories: 1 })).toBe(
+        "Imported: 0 created, 5 updated. (1 category listed in the file.)",
+      );
     });
   });
 });
