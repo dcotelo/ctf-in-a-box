@@ -824,6 +824,15 @@ with each other. The corpus immediately found one live divergence — `modules:
 []` was accepted by `sync` (`typeof [] === "object"`) and rejected by bash —
 now closed with an `Array.isArray` guard.
 
+The third reader, `apps/web/scripts/generate-event-config.mjs`, is not in that
+corpus (it runs under the app's own vitest suite, at image-build time rather
+than boot time) and it is deliberately one notch stricter: a *present but
+empty* `modules: {}` fails its build ("at least one module is required")
+while `sync` and `ctf-setup.sh` treat it as a valid config with nothing
+enabled. That asymmetry is safe in the direction it points — the strict
+reader fails loudly at build time, it does not silently provision less — but
+it is the known gap to close if the corpus is ever extended to all three.
+
 ## 25. Building a leaderboard with no scoring backend
 
 **Context.** `secure-development` disabled means there is no scorer, no

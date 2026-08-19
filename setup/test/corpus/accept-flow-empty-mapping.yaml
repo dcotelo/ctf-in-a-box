@@ -1,4 +1,8 @@
 # targets:
+# NOTE: a present-but-empty modules: is a valid config with nothing enabled
+# for BOTH readers in this corpus. The app's build-time reader
+# (apps/web/scripts/generate-event-config.mjs) is stricter and fails on it —
+# see docs/decisions.md ADR 24's "Agreement is now tested" note.
 github:
   org: test-event-org
 modules: {}
