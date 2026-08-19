@@ -55,7 +55,11 @@ export type CopySegment =
   /** A phrase that leads its bullet (`text-white`). */
   | { strong: string }
   /** An external link, opened in a new tab. */
-  | { link: { href: string; label: string } };
+  | { link: { href: string; label: string } }
+  /** A link to another page of this site, client-side routed. */
+  | { route: { href: string; label: string } }
+  /** An inline literal — a branch name, a command, a file path. */
+  | { code: string };
 
 /** Either a plain sentence or a segmented one — see `CopySegment`. */
 export type Copy = string | CopySegment[];
@@ -68,13 +72,16 @@ export type RulesContext = {
   appList: string;
 };
 
-/** Live facts handed to a module's `/how-to-play` copy: the rules context
- *  plus the org contestants push to and which worked-example variant applies
- *  (see `workedExampleVariant` in `@/lib/apps`). Passed IN rather than
- *  imported by the registry so a module's copy stays a pure function of its
- *  context. */
-export type GuideContext = RulesContext & {
-  githubOrg: string;
+/** Live facts for copy that also names the GitHub org contestants work in:
+ *  `/faq`'s submission answer and `/terms`' scope statement both interpolate
+ *  it. Passed IN rather than imported by the registry so a module's copy stays
+ *  a pure function of its context. */
+export type OrgContext = RulesContext & { githubOrg: string };
+
+/** Live facts handed to a module's `/how-to-play` copy: the org context plus
+ *  which worked-example variant applies (see `workedExampleVariant` in
+ *  `@/lib/apps`). */
+export type GuideContext = OrgContext & {
   exampleVariant: "juice-shop" | "generic";
 };
 
@@ -144,6 +151,48 @@ export type ModuleRules = (ctx: RulesContext) => {
   scoring?: Copy[];
 };
 
+/** A module's contribution to `/faq`, bucketed by where it lands in the
+ *  platform's own running order.
+ *
+ *  Buckets rather than one flat list because the platform's own questions —
+ *  can I compete solo, is there a prize, where do I get help — are not all at
+ *  one end: "Can I compete solo?" sits between a module's "do I need
+ *  experience" and its "what do I need to bring", and the answer file reads
+ *  wrong if the module's questions are all shunted to the top or the bottom.
+ *
+ *  Answers are `Copy`, not JSX, for the same reason every other block here is:
+ *  the registry must stay importable either side of the server boundary.
+ *  `/faq` renders them through `<ModuleCopy>`. */
+export type ModuleFaq = (ctx: OrgContext) => {
+  /** Opens the page, before the platform's "Can I compete solo?". */
+  gettingStarted?: { q: string; a: Copy; id?: string }[];
+  /** What a contestant needs on the day, after it. */
+  prep?: { q: string; a: Copy; id?: string }[];
+  /** The play loop: submitting, scoring, retrying, getting unstuck. */
+  playing?: { q: string; a: Copy; id?: string }[];
+};
+
+/** A module's contribution to `/terms`, bucketed by section.
+ *
+ *  Unlike `/rules`, EVERY section here is module-owned, because every
+ *  participation term this kit has ever written names the module's own
+ *  artifacts: what you submit, where you may test, what a point is worth. The
+ *  platform keeps only the two terms that hold on any event whatsoever (prizes
+ *  and disputes) plus a fallback list per section for an event whose modules
+ *  contribute none — a terms page with an empty "Scope of authorized testing"
+ *  is worse than a generic one, since that section is the one that tells
+ *  contestants what they are permitted to attack. */
+export type ModuleTerms = (ctx: OrgContext) => {
+  /** Who may take part and under which identity. */
+  eligibility?: Copy[];
+  /** What testing this event authorizes, and what it explicitly does not. */
+  scope?: Copy[];
+  /** What a contestant submits, and under what terms. */
+  submissions?: Copy[];
+  /** Prepended before the platform's prize and dispute terms. */
+  scoring?: Copy[];
+};
+
 export type ModuleDef = {
   id: ModuleId;
   displayName: string;
@@ -167,6 +216,15 @@ export type ModuleDef = {
   /** This module's `/rules` bullets. Same server-only contract as `guide`:
    *  it is a function, so it never rides on a ResolvedModule. */
   rules?: ModuleRules;
+  /** This module's `/faq` questions, and its `/terms` clauses. Same
+   *  server-only contract again — both are functions of live event facts. */
+  faq?: ModuleFaq;
+  terms?: ModuleTerms;
+  /** One line describing this module's own route, for the 404's directory of
+   *  routes. The card's label and href come from `nav`; this is the sentence
+   *  under them. A function, so it can name the live target list — and so it
+   *  is stripped from ResolvedModule like the rest. */
+  routeCard?: (ctx: RulesContext) => string;
   /** What `/leaderboard`'s empty state says, and where it points, while this
    *  module is the way onto the board. The platform frame owns the empty
    *  state's framing ("the board is wide open"); the module owns the sentence
@@ -450,6 +508,100 @@ git push -u origin fix/<short-description>`,
         "Revealing a hint deducts points from your total, and hint purchases are final.",
       ],
     }),
+    // Moved VERBATIM off app/(site)/faq/page.tsx, which was 100%
+    // secure-development — and is in the HEADER NAV, so a quiz-only event
+    // linked contestants straight to a page telling them to fork a target and
+    // open a pull request. The platform keeps only the questions that hold on
+    // any event (solo play, prizes, finding an organizer); everything that
+    // names a fork, a PR, a hint or a scoring run is here.
+    faq: (ctx) => ({
+      gettingStarted: [
+        {
+          q: "Do I need experience to compete?",
+          a: "No. Every target has challenges across a range of difficulty, and points scale with it. Start with a low-point challenge on any app and work up.",
+        },
+      ],
+      prep: [
+        {
+          q: "What do I need to bring?",
+          a: "Your own laptop with the dev tools you like to work in, a GitHub account, and a charger (outlets go fast). Everything else runs in your fork and in CI.",
+        },
+      ],
+      playing: [
+        {
+          q: "How do I submit a solution?",
+          a: [
+            `There's no flag to type in. Fork the target's repo under the ${ctx.githubOrg} org, fix the vulnerability on a branch in your fork, and open a pull request against the repo's `,
+            { code: "main" },
+            " branch. That's the only branch the scorer watches, and there is no per-challenge branch. A GitHub Action builds your app, runs the rubric, and posts your score on the PR, usually in two to five minutes. See ",
+            { route: { href: "/how-to-play", label: "How to Play" } },
+            " for a worked example.",
+          ],
+        },
+        {
+          q: "Do I need to run the target app locally?",
+          a: "No. The scoring pipeline builds and runs your patched app in CI, so a PR is enough. Running it locally is just faster to iterate against while you work out the fix.",
+        },
+        {
+          q: "Can I use AI tools to help?",
+          a: [
+            "Yes, ",
+            { em: "please do" },
+            ". Using AI to analyze and remediate these vulnerabilities is the skillset this event is built around, not something to hide or work around. Bring whatever you already use, and point it at your fork. OWASP's own ",
+            { link: { href: SECURE_AGENT_PLAYBOOK_URL, label: "Secure Agent Playbook" } },
+            " will get you further faster. It gives an agent structured, OWASP-grounded procedures for code review, dependency and secrets scanning, and API assessment, mapped to the same Top 10 categories these challenges are graded against.",
+          ],
+        },
+        {
+          q: "How is my progress tracked?",
+          a: "Sign in with GitHub to claim your row on the live leaderboard and see a full per-app, per-challenge breakdown on your profile. Points are credited to the account that authored the pull request, so open your PRs from the same account you sign in with. Otherwise your score lands on a row you can't see.",
+        },
+        {
+          q: "Are there hints?",
+          a: "Some challenges offer one on your profile. Revealing a hint costs 10 points off your total, applied as soon as you reveal it, so save them for a challenge you're genuinely stuck on.",
+        },
+        {
+          q: "My PR passed but I didn't get points. What happened?",
+          a: "Check the scoring comment on the PR. If it says the score wasn't recorded, that's on our side. Push another commit and the run will record it. If it shows zero challenges patched, the rubric still reproduced the vulnerability, so the fix didn't fully close it. Points also only count for the PR author's account.",
+        },
+        {
+          q: "Can I retry a challenge I didn't solve?",
+          a: "Yes, as many times as you like. Push another commit and it re-scores. Your best-ever result per challenge counts, so a later fix replaces an earlier miss and you can never lose points you've already banked, even if a later patch breaks a challenge you'd already solved.",
+        },
+      ],
+    }),
+    // Moved VERBATIM off app/(site)/terms/page.tsx. The scope statement is the
+    // reason this block exists: on an event with no targets it rendered as
+    // "your authorization to test covers the 0 challenge targets only: ," — a
+    // legal scope clause that authorized nothing and read as broken, on the
+    // page that tells contestants what they are permitted to attack.
+    terms: (ctx) => ({
+      eligibility: [
+        "You need a GitHub account. Your GitHub login is your identity for scoring, so open every pull request from the account you sign in with. Points are credited to the PR author and cannot be moved between accounts afterwards.",
+        "Organizers and anyone who worked on the challenge targets, the scorer, or the rubric may compete for fun but are not eligible for prizes.",
+      ],
+      scope: [
+        `Your authorization to test covers the ${ctx.appCount} challenge ${ctx.appCount === 1 ? "target" : "targets"} only: ${ctx.appList}, in your own fork under the ${ctx.githubOrg} organization.`,
+        "Explicitly out of scope: the CI scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts, forks, or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
+        "Found a real vulnerability in the scorer or this site? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
+        "Automated mass-submission, or spamming pull requests to farm scoring runs, will get your account rate-limited or disqualified.",
+      ],
+      submissions: [
+        "You submit work as a pull request against the target repository's main branch. Those repositories are OWASP projects under their own existing open-source licenses, and your contribution is offered under the license of the repository you are contributing to.",
+        "Submit your own work. Using AI tooling to find and fix vulnerabilities is expected and encouraged here (see the Rules), but passing off another contestant's patch as yours is not.",
+        "Don't publish full solutions or patches for others to copy while the event is running. Afterwards, write up whatever you like.",
+        "Organizers may reference or showcase submitted patches when talking about the event.",
+      ],
+      scoring: [
+        "Each challenge is worth a fixed point value based on difficulty, awarded automatically when that challenge's regression test passes against your patched app. Your best-ever result per challenge counts.",
+        "Revealing a hint deducts points from your leaderboard total. Hint purchases are final. There is no refund.",
+      ],
+    }),
+    // Moved VERBATIM off app/not-found.tsx, where it was hardcoded alongside
+    // a card linking to /challenges — a route that 404s on an event without
+    // this module, reached from the 404 page itself.
+    routeCard: (ctx) =>
+      `Every challenge across the ${ctx.appCount} ${ctx.appCount === 1 ? "target" : "targets"}.`,
   },
   quiz: {
     id: "quiz",
@@ -569,6 +721,70 @@ git push -u origin fix/<short-description>`,
         "A question can be capped to a limited number of attempts and can hold you on a cooldown between tries. Once you have answered it correctly, it is done.",
       ],
     }),
+    // The same questions a contestant actually asks, answered for a question
+    // set instead of a patch workflow. Same discipline as the copy above:
+    // every claim is checked against quiz-store.ts and quiz-board.tsx —
+    // grading is exact-match against a sorted key, attempts can be capped and
+    // put on a cooldown, the remaining count is never rendered, and nothing is
+    // graded for a signed-out visitor. Deliberately silent on AI.
+    faq: () => ({
+      gettingStarted: [
+        {
+          q: "Do I need experience to compete?",
+          a: "No. The question set spans a range of difficulty, and points scale with it. Start with whichever question looks approachable and work up.",
+        },
+      ],
+      prep: [
+        {
+          q: "What do I need to bring?",
+          a: "A GitHub account and something to read and click with. Everything runs in the browser, and nothing is installed or downloaded.",
+        },
+      ],
+      playing: [
+        {
+          q: "How do I submit an answer?",
+          a: [
+            "Sign in, open the ",
+            { route: { href: "/quiz", label: "Quiz" } },
+            " page, pick your answer and submit it. Some questions have a single right answer; others are select-all-that-apply and only score if your whole selection matches. Grading is immediate, against a stored answer key, so there is nothing to wait for and nothing for an organizer to review.",
+          ],
+        },
+        {
+          q: "How is my progress tracked?",
+          a: "Sign in with GitHub to claim your row on the live leaderboard and see how many questions you have answered, and what they were worth, on your profile. Points are credited to the account you signed in with, and nothing is graded for a signed-out visitor.",
+        },
+        {
+          q: "Can I retry a question I got wrong?",
+          a: "Sometimes. Organizers can cap how many times a question may be attempted and hold you on a cooldown between tries. The question says when it is on cooldown and when you have run out of attempts. Once you have answered one correctly, it is done.",
+        },
+        {
+          q: "I answered correctly but didn't get points. What happened?",
+          a: "Check that you were signed in when you submitted: nothing is graded for a signed-out visitor. On a select-all-that-apply question, a partly right selection scores nothing, so check whether you missed one of the correct options.",
+        },
+      ],
+    }),
+    terms: () => ({
+      eligibility: [
+        "You need a GitHub account. Your GitHub login is your identity for scoring, so answer from the account you sign in with. Points are credited to the account that submitted the answer and cannot be moved between accounts afterwards.",
+        "Organizers and anyone who wrote or reviewed the questions may compete for fun but are not eligible for prizes.",
+      ],
+      scope: [
+        "This event authorizes no testing of any system. The published questions are the whole game, and answering them is the whole of what you are invited to do here.",
+        "Explicitly out of scope: the scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts or machines. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
+        "Found a real security bug in this site or in the scoring pipeline? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
+        "Automated or scripted answering, to farm attempts or to enumerate the answer key, will get your account rate-limited or disqualified.",
+      ],
+      submissions: [
+        "You submit work by answering the published questions. Each answer is graded automatically against a stored answer key the moment you submit it.",
+        "Submit your own work. Passing off another contestant's answers as yours is not allowed.",
+        "Don't publish answers for others to copy while the event is running. Afterwards, write up whatever you like.",
+      ],
+      scoring: [
+        "Each question is worth a fixed point value, set by the organizers, awarded automatically the moment a correct answer is submitted. Your best-ever result per question counts.",
+        "A question can be capped to a limited number of attempts and can hold you on a cooldown between tries. Attempts are final: there is no refund and no reset.",
+      ],
+    }),
+    routeCard: () => "Every question the organizers have published.",
   },
 };
 
@@ -580,6 +796,32 @@ export const enabledModules: readonly ModuleDef[] = eventConfig.modules.map((cfg
 export function isModuleEnabled(id: ModuleId): boolean {
   return enabledModules.some((m) => m.id === id);
 }
+
+/** The enabled modules' own contestant routes, in registry order.
+ *
+ *  Two callers, both of which used to hardcode `/challenges`: the pre-event
+ *  gate (proxy.ts protects these, and /gate sends an unlocked visitor to the
+ *  first of them) and anything that needs somewhere real to send a contestant.
+ *  `/challenges` does not exist on an event without secure-development, so a
+ *  hardcoded redirect to it was a guaranteed 404 — the redirect has to be
+ *  derived from what the event actually runs. Empty is a valid event, so
+ *  callers must handle it. */
+export const enabledModuleRoutes: readonly string[] = enabledModules.flatMap((m) =>
+  m.nav ? [m.nav.href] : [],
+);
+
+/** EVERY route the registry knows about, enabled or not.
+ *
+ *  Exists because Next requires the proxy's `matcher` to be a static literal
+ *  ("matcher values need to be constants so they can be statically analyzed at
+ *  build-time. Dynamic values such as variables will be ignored" — the
+ *  vendored proxy docs), so that list CANNOT be computed from this one. It is
+ *  written out by hand there and asserted against this by proxy.test.ts, so
+ *  registering a module with a route the proxy never sees fails a test instead
+ *  of silently un-gating the new route. */
+export const ALL_MODULE_ROUTES: readonly string[] = (
+  Object.values(REGISTRY) as Omit<ModuleDef, "targets">[]
+).flatMap((m) => (m.nav ? [m.nav.href] : []));
 
 /** Organizer-authored, runtime overrides keyed by module id. Both fields are
  *  optional and an empty string means "no override" — see resolveModules. */
@@ -606,9 +848,10 @@ export const MODULE_BLURB_MAX = 200;
  *  property access with no type error. Dropping them turns that mistake into
  *  a compile failure.
  *
- *  The copy blocks — `home`, `guide` and `rules` — are OMITTED for a harder
- *  reason: `ModuleHome.intro`, `ModuleHome.steps`, `ModuleGuide.steps`,
- *  `ModuleGuide.example` and `ModuleRules` itself
+ *  The copy blocks — `home`, `guide`, `rules`, `faq`, `terms` and `routeCard`
+ *  — are OMITTED for a harder reason: `ModuleHome.intro`, `ModuleHome.steps`,
+ *  `ModuleGuide.steps`, `ModuleGuide.example`, `routeCard`, and
+ *  `ModuleRules`/`ModuleFaq`/`ModuleTerms` themselves
  *  are FUNCTIONS, and resolved modules are handed straight
  *  from Server Components to `"use client"` components (the admin panel, the
  *  leaderboard). React's flight serializer throws "Functions cannot be passed
@@ -620,7 +863,7 @@ export const MODULE_BLURB_MAX = 200;
  *  `getModuleHome` in `@/lib/resolved-modules`. */
 export type ResolvedModule = Omit<
   ModuleDef,
-  "displayName" | "description" | "home" | "guide" | "rules"
+  "displayName" | "description" | "home" | "guide" | "rules" | "faq" | "terms" | "routeCard"
 > & {
   /** What to render wherever the MODULE names itself: the organizer's
    *  override, or the registry `displayName`. Never empty. */
@@ -653,8 +896,8 @@ export type ResolvedModule = Omit<
 export function resolveModules(overrides: ModuleOverrides): readonly ResolvedModule[] {
   // Destructure the defaults OUT rather than spreading them through, so a
   // resolved module genuinely has no `displayName` to read by mistake — the
-  // type and the runtime object agree. The three copy blocks — `home`,
-  // `guide` and `rules` — go the same way, and there it
+  // type and the runtime object agree. Every copy block — `home`, `guide`,
+  // `rules`, `faq`, `terms`, `routeCard` — goes the same way, and there it
   // is load-bearing rather than merely tidy: a type-level Omit alone would
   // leave the functions on the object, still crossing the RSC boundary and
   // still throwing. Stripping them here is what makes the result client-safe.
@@ -662,7 +905,7 @@ export function resolveModules(overrides: ModuleOverrides): readonly ResolvedMod
   // point, so the lint warning is silenced deliberately rather than worked
   // around by re-spreading and deleting.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return enabledModules.map(({ displayName, description, home, guide, rules, ...rest }) => {
+  return enabledModules.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, ...rest }) => {
     const o = overrides[rest.id];
     // Computed once and carried through as `titleOverride`, so a consumer
     // with its own per-surface default (the nav label, /challenges' page

@@ -12,12 +12,22 @@
 // `/how-to-play` render it inside their own paragraph or list item, so this
 // emits a fragment and never a block element of its own.
 import { Fragment } from "react";
+import Link from "next/link";
 import type { Copy, CopySegment } from "@/lib/modules";
 
 function renderSegment(segment: CopySegment) {
   if (typeof segment === "string") return segment;
   if ("em" in segment) return <span className="text-zinc-200">{segment.em}</span>;
   if ("strong" in segment) return <span className="text-white">{segment.strong}</span>;
+  if ("code" in segment) return <code className="font-mono text-zinc-200">{segment.code}</code>;
+  // Internal, so `next/link` rather than a bare anchor: same client-side
+  // routing and prefetching the rest of the site's in-page links get.
+  if ("route" in segment)
+    return (
+      <Link href={segment.route.href} className="ds-link">
+        {segment.route.label}
+      </Link>
+    );
   return (
     <a
       href={segment.link.href}

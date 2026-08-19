@@ -9,16 +9,17 @@
 import Link from "next/link";
 import SiteFooter from "@/components/site-footer";
 import PageHeader from "@/components/page-header";
-import { enabledApps } from "@/lib/apps";
-import { getNavLinks } from "@/lib/resolved-modules";
+import { enabledApps, joinAppNames } from "@/lib/apps";
+import type { RulesContext } from "@/lib/modules";
+import { getModuleRouteCard, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 
-const routes = [
-  {
-    href: "/challenges",
-    label: "Challenges",
-    body: `Every challenge across the ${enabledApps.length} ${enabledApps.length === 1 ? "target" : "targets"}.`,
-  },
+// Where a lost visitor is offered to go next. Platform routes only — the
+// module ones are spliced in ahead of these, per module, so the 404 can never
+// again offer a card to /challenges on an event that has no such route (it
+// 404'd straight back, from the 404 page, while the footer directly beneath it
+// listed the module route that DID exist).
+const platformRoutes = [
   { href: "/how-to-play", label: "How to Play", body: "The full loop, with a worked example." },
   { href: "/leaderboard", label: "Leaderboard", body: "Live standings for contestants and teams." },
   { href: "/faq", label: "FAQ", body: "Answers to what contestants ask most." },
@@ -26,8 +27,31 @@ const routes = [
 
 // `async` because it re-creates the footer, whose links are resolved
 // per-request (`not-found.js` may be a Server Component and may be async —
-// see the vendored not-found docs' "Data Fetching" example).
+// see the vendored not-found docs' "Data Fetching" example), and because the
+// module cards are resolved the same way.
 export default async function NotFound() {
+  const ctx: RulesContext = {
+    appCount: enabledApps.length,
+    appList: joinAppNames(enabledApps.map((a) => a.name)),
+  };
+  // Label and href off the resolved module (so an organizer's rename shows up
+  // here exactly as it does in the nav — `titleOverride`, not `title`, for the
+  // reason spelled out on ResolvedModule); the body off the registry's
+  // server-only `routeCard`, which is a function and therefore never rides on
+  // the resolved object. A module with no route, or no card, contributes none.
+  const moduleRoutes = (await getResolvedModules()).flatMap((module) => {
+    const card = getModuleRouteCard(module.id);
+    if (!module.nav || !card) return [];
+    return [
+      {
+        href: module.nav.href,
+        label: module.titleOverride || module.nav.label,
+        body: card(ctx),
+      },
+    ];
+  });
+  const routes = [...moduleRoutes, ...platformRoutes];
+
   return (
     <>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">

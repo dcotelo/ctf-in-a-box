@@ -6,11 +6,14 @@ import { buildNavLinks, type NavLink } from "@/lib/site";
 import {
   enabledModules,
   resolveModules,
+  type ModuleFaq,
   type ModuleGuide,
   type ModuleHome,
   type ModuleId,
   type ModuleRules,
+  type ModuleTerms,
   type ResolvedModule,
+  type RulesContext,
 } from "@/lib/modules";
 
 /** Modules with their organizer-authored names applied.
@@ -93,4 +96,21 @@ export function getModuleGuide(id: ModuleId): ModuleGuide | undefined {
  *  carries the same server-only contract as the other two accessors. */
 export function getModuleRules(id: ModuleId): ModuleRules | undefined {
   return enabledModules.find((m) => m.id === id)?.rules;
+}
+
+/** A module's `/faq` questions and its `/terms` clauses. Functions of
+ *  `OrgContext`, so the same server-only contract holds: call them in a Server
+ *  Component and pass the resulting plain data down. */
+export function getModuleFaq(id: ModuleId): ModuleFaq | undefined {
+  return enabledModules.find((m) => m.id === id)?.faq;
+}
+
+export function getModuleTerms(id: ModuleId): ModuleTerms | undefined {
+  return enabledModules.find((m) => m.id === id)?.terms;
+}
+
+/** The line under a module's card in the 404's route directory. A function of
+ *  the live target list, hence server-only like the rest. */
+export function getModuleRouteCard(id: ModuleId): ((ctx: RulesContext) => string) | undefined {
+  return enabledModules.find((m) => m.id === id)?.routeCard;
 }
