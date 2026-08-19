@@ -55,8 +55,14 @@ the sections below are the enforceable contract behind it.
    startup failure (`sync/test/config.test.js`, "rejects unknown module
    key"), not a silently ignored block. Note what `KNOWN_MODULES` means:
    the ids `sync` *tolerates* in the file, not the ids it scores — it scores
-   exactly one, the separate `MODULE` literal, and still fails if
-   `modules.secure-development` is absent. The two lists MUST stay in step,
+   exactly one, the separate `MODULE` literal. **An unknown key and a
+   missing module are not the same failure.** `sync` rejects the former
+   (any key outside `KNOWN_MODULES`, or `modules:` absent entirely) but
+   tolerates the latter: `if (!mod) return null;` when
+   `modules.secure-development` itself is simply not configured, which is
+   what lets a quiz-only event run `sync` to a clean exit instead of a
+   crash loop (see [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+   for why the line is drawn there). The two lists MUST stay in step,
    because both services mount the same file: an id the app accepts and
    `sync` rejects crash-loops the poller and silently freezes the
    leaderboard.
@@ -67,8 +73,11 @@ the sections below are the enforceable contract behind it.
    `config.js`). `setup/ctf-setup.sh`'s `yaml_targets` needs no change: it is
    scoped to the `secure-development:` block by construction and provisions
    that module's forks only, so a module with its own provisioning adds its
-   own step instead. Registration is deliberate, not dynamic; this is a v1
-   constraint, not a permanent architectural stance.
+   own step instead. The script does carry its own `KNOWN_MODULES` mirror,
+   though (`check_known_modules`/`has_module`), for the same missing-vs-unknown
+   distinction `sync` draws — see §7 below for what it gates. Registration is
+   deliberate, not dynamic; this is a v1 constraint, not a permanent
+   architectural stance.
 
    A module is enabled by **being present** under `modules:` and disabled by
    being omitted. There is no `enabled:` key — a module MUST NOT invent one.
@@ -223,7 +232,12 @@ module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count — with the
 per-module heading suppressed while only one module is enabled, so a
-single-module event's row reads exactly as it did before; the admin panel
+single-module event's row reads exactly as it did before; `/profile` renders
+the same per-module blocks for the signed-in contestant's own progress,
+built off the same `ModuleDetail` renderer as the leaderboard rather than a
+second one — the page's headline total was already net and correct before
+this, what it was missing was the per-module breakdown behind it; the admin
+panel
 (`admin-controls.tsx`) is a tab shell — one **Event** tab for the
 control-plane settings that belong to the platform itself, then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
@@ -277,11 +291,6 @@ for a fully general n-module platform:
   the architecture doc). Per-module `score_ingest`/rubric plumbing was for a
   module that needs scorer-mediated scoring; `quiz` is proof one doesn't
   always need it, not evidence that plumbing is still missing.
-- **`sync` still requires `modules.secure-development` unconditionally**
-  (`sync/src/config.js`: `if (!mod) throw ...`), so a quiz-only event — no
-  `secure-development` block in `event.yaml` at all — is still not supported
-  end to end, even though the app itself would happily run quiz-only. This
-  was already true before this work and remains true after it.
 - **Quiz question authoring has no bulk import/export** — one question at a
   time through the admin form, no CSV/JSON upload path.
 - **No free-text questions, no partial credit, and no per-question
@@ -377,7 +386,14 @@ of one module's shape.
    loader validates (section 1). Nothing about a module absent from
    `modules:` may leak into nav, leaderboard, or challenge listings; an
    organizer who omits a module from their event config gets an app with no
-   trace of it, not a greyed-out or hidden-but-present surface.
+   trace of it, not a greyed-out or hidden-but-present surface. This reaches
+   the module's own dedicated route, not just its nav entry: a disabled
+   module's page MUST 404, not merely disappear from the header — worked
+   example, `/challenges` (`app/(site)/challenges/page.tsx`) calls
+   `notFound()` as its first statement when `secure-development` is
+   disabled, the same gate `/quiz` already ran for its own module.
+
+
 
 5. **Landing-page contribution (optional).** A module MAY contribute a
    `home` block to its registry entry (`ModuleHome` in
@@ -488,6 +504,24 @@ of one module's shape.
    app is a free point for every contestant and fails the build.
 
 ## 7. Provisioning & lifecycle hooks
+
+**A module that needs no forks and no scored transport is a first-class
+citizen, not a lesser one.** `quiz` is the worked example: it satisfies this
+section by having nothing to provision at all — no repo to fork, no
+workflow to install, no image to mirror, nothing to archive at teardown.
+That MUST be a legitimate, fully-supported shape for a module to have, not
+just a legitimate shape for a module to have *alongside* one that does need
+provisioning. Concretely, that means `ctf-setup.sh org`/`render`/`doctor`
+MUST tolerate `secure-development` being the *only* provisioning-needing
+module and simply absent — not merely tolerate it being present alongside
+`quiz` — and report "nothing to provision/check" rather than erroring
+(`has_module secure-development` gates each of the three; see the ADR
+referenced in §1.2). A module standing alone this way still owes the rest of
+the contract in full: display metadata (§5.1), a challenge catalogue if it
+has one (§4.2/§5.2), its own leaderboard progress semantics (§5.3), and the
+UI composition surfaces in §5.5/§5.6 — "first-class" means the platform
+never assumes a *different* module is also enabled, not that this module
+gets to skip sections that apply to it.
 
 `ctf-setup.sh` implements `secure-development`'s provisioning today
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):

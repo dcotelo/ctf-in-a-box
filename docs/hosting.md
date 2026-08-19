@@ -347,13 +347,35 @@ page for contestants, a Quiz section in `/admin` for authoring questions
 retry-gate knobs, and quiz points added on top of the combined leaderboard —
 see [docs/operations.md](operations.md)'s "Quiz" section for the organizer
 walkthrough and [docs/modules.md §5](modules.md#5-ui--presentation-contract)
-for the underlying contract. **`modules.secure-development` remains required
-by `sync` regardless of whether `quiz` is enabled** — `sync`'s config loader
-fails startup if that block is absent (`sync/src/config.js`), so a
-quiz-only event (no `secure-development` block in `event.yaml` at all) is
-still not supported end to end: `sync` only tolerates the `quiz` key (so an
-`event.yaml` the app builds from can't crash-loop the poller) and keeps
-scoring `secure-development` alone.
+for the underlying contract.
+
+**`secure-development` is not required — a single module is enough to run an
+event.** `sync`'s config loader tolerates its absence (`sync/src/config.js`'s
+`loadConfig` returns `null` when `modules.secure-development` is missing) and
+`ctf-setup.sh`'s `org`/`render`/`doctor` each skip fork-based provisioning and
+report "nothing to provision/check" instead of failing. What's still an error
+in both readers is a `modules:` block that's missing entirely, or a key
+neither recognizes at all — the tolerance is specifically for a *known*
+module simply not being configured, not for a malformed file. A quiz-only
+`event.yaml` (`modules: { quiz: {} }`, no `secure-development` block at all)
+is therefore a supported event on its own: `/challenges` 404s (that route
+doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
+the landing page, the leaderboard, and `/profile` all compose from whatever
+modules *are* enabled instead of assuming `secure-development` is one of
+them. See [docs/modules.md §5](modules.md#5-ui--presentation-contract) for
+the UI composition contract and [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+for why the missing-vs-unknown distinction is drawn where it is.
+
+**The `poll` profile still starts `sync` on a quiz-only event — it just exits
+immediately.** With no `secure-development` block to poll, `sync`'s `main()`
+logs `ctf-sync: no polled module enabled, nothing to do` and exits `0` rather
+than entering the poll loop. `docker-compose.yml`'s `sync` service is
+`restart: on-failure` (changed from `unless-stopped`) specifically so that
+clean exit doesn't get treated as a crash and restarted forever — `docker
+compose --profile poll --profile app up -d` is safe to run as-is on a
+quiz-only event; `sync` starts, logs the reason, and stays exited. There's
+nothing it would do if you omitted `--profile poll` either, so either form
+works.
 
 Copy `event.yaml.example` and fill in `github.org`,
 `modules.secure-development.targets`, `admins` (GitHub logins), and

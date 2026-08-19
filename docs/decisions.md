@@ -737,3 +737,127 @@ than JSX (`Copy`/`CopySegment` covers the emphasis and links a sentence needs
 inline), so the registry remains importable either side of the server
 boundary, and the new fields are stripped from `ResolvedModule` for the
 reason decision 22 gives.
+
+## 24. Tolerating a missing module vs rejecting an unknown one
+
+**Context.** Two independent readers parse the same `event.yaml` for module
+keys and share no code: `sync/src/config.js` (JS, the poller) and
+`setup/ctf-setup.sh` (bash, provisioning) — AGENTS.md's lockstep rule
+requires them to agree in behaviour anyway. Before this decision, `sync`'s
+`loadConfig` treated an absent `modules.secure-development` block exactly
+like an unknown module key: both threw, crash-looping the poller on a
+quiz-only `event.yaml` the app itself was happy to build and run. The two
+situations are not the same failure. A module this build knows about but
+that isn't configured for this event is a legitimate config choice — nothing
+for `sync` to poll. A module key this build has never heard of is a typo or
+a vertical that was never wired into this reader — the deliberate-
+registration model in [docs/modules.md §1.2](modules.md#1-module-identity--config-block)
+means a new vertical is always a code change, never config alone, so an
+unrecognized key can't mean "a module I haven't heard of, ignore it."
+
+**Decision.** Tolerate a missing `secure-development` block; keep rejecting
+an unknown key, in both readers, and keep an absent `modules:` block itself
+an error in both. In `sync/src/config.js`, `loadConfig` returns `null` when
+`modules.secure-development` is absent — `if (!mod) return null;` — while an
+unknown key or a missing `modules:` object still throws. `sync/src/index.js`'s
+`main()` treats `null` as "nothing to do": it logs `ctf-sync: no polled
+module enabled, nothing to do` and returns (exit 0) before touching
+`loadState`/`makeRedis`/the poll loop. `setup/ctf-setup.sh` mirrors the same
+split with its own `KNOWN_MODULES` list and `check_known_modules`/
+`has_module`/`yaml_has_modules_block` helpers: a present `modules:` block
+that simply lacks `secure-development` is fine (`cmd_org`/`cmd_render`/
+`cmd_doctor` each check `has_module secure-development` and skip their
+fork-based work with an informational message instead of erroring), while an
+absent `modules:` block or an unrecognized key is a hard error — the same
+two checks `sync/src/config.js`'s `loadConfig` makes.
+
+`check_known_modules` is called only by `org`, `render`, and `doctor` — the
+three commands that actually consume module keys — deliberately not by
+`teardown`, `app-manifest`, or `oauth-app`. `teardown` is the recovery path
+for an event whose config may now be wrong in some way; gating it on config
+validity would strand an organizer who typo'd a module name with already-
+forked repos they can no longer tear down through the tool. `app-manifest`/
+`oauth-app` open GitHub UI flows with no functional dependency on module keys
+at all.
+
+The compose `restart:` policy for `sync` changed from `unless-stopped` to
+`on-failure` alongside this, because `unless-stopped` restarts a container
+regardless of its exit code: a clean `exit 0` from the new "nothing to do"
+path would have been indistinguishable from a crash and looped forever.
+`on-failure` only restarts on a genuine nonzero exit.
+
+**Consequences.** A quiz-only `event.yaml` (`modules: { quiz: {} }`, no
+`secure-development` block at all) runs `sync` to a single clean exit under
+`docker compose --profile poll up`, and `ctf-setup.sh org`/`render`/`doctor`
+report "nothing to provision/check" instead of failing. An organizer who
+typos a module name, or omits `modules:` entirely, still gets a loud failure
+in both readers — and can still run `teardown` to recover already-forked
+repos regardless of what's currently wrong with `event.yaml`.
+`scripts/acceptance-quiz-only.sh` is the CI gate proving the `sync` half end
+to end, including that the restart-policy change holds (it samples
+`RestartCount` after the exit, not just the exit code once). The two readers
+still share no code — a third module key is still a by-hand addition to both
+`KNOWN_MODULES` lists, same as before this decision.
+
+## 25. Building a leaderboard with no scoring backend
+
+**Context.** `secure-development` disabled means there is no scorer, no
+lambda, and no Upstash scoring data for this event at all — every
+`LEADERBOARD_SOURCE` value names a backend that was never deployed. Before
+this decision, `getLeaderboardSource` still tried to honor that env var
+(falling back to the mock source on a bad value), and the board itself was
+built only from rows the source supplied — a contestant with quiz points but
+no scored submission had nothing to attach them to, because there was no
+"attach points to a row" step that could run before a row existed. A
+quiz-only event is exactly this case for every contestant, all the time: no
+row for anyone, ever, on the scored path.
+
+**Decision.** Two changes, working together. First,
+`getLeaderboardSourceMode` (`src/lib/leaderboard/source.ts`) checks
+`isModuleEnabled("secure-development")` *before* the env var and,
+deliberately not overridably by it, resolves straight to a new `"empty"`
+mode — `emptySource` (`src/lib/leaderboard/empty.ts`) returns no entries, no
+teams, and every capability `false`. This is deliberately not the mock
+source: placeholder data on a board that also carries real quiz points would
+be indistinguishable from a contestant's actual standing. Second,
+`withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
+now creates a row for any login that holds quiz points and has no entry from
+the source — the board's login set becomes the union of the source's logins
+and the logins holding module points, matched case-insensitively. A created
+row has every scorer-supplied field (`patched`/`failed`/`total`/`apps`)
+genuinely zero, because there is no scoring entry behind it to report. Team
+rows get the same treatment one step later: `withTeamStandings` synthesises
+membership-only rows (from live team records) when the source has no team
+concept, and now calls `withTeamQuizPoints` on them so a quiz-only event's
+default board — teams, whenever teams exist — doesn't open on every team
+tied at zero while the individual view shows real points.
+
+**Quiz points are ADDED, secure-development points are ATTRIBUTED, and that
+verb difference is preserved everywhere in this decision.** `entry.points`
+already holds `secure-development`'s score when that module is enabled (the
+scorer computed it), so attributing it into a `ModuleProgress` block reports
+an existing figure; adding it again would double-count. The quiz never
+submits through `scorer`'s `POST /score` — the app holds no writer token for
+that endpoint — so its points exist nowhere else, and must be added onto
+whatever total the row already has (`0` for a created row) rather than
+attributed from it. A created row therefore has nothing to double-count in
+the first place: its only points are the ones just added. Team quiz totals
+are deduped by *question*, not summed per member — `getTeamQuizTotalsBatch`
+reads every member's answer hash directly and unions the question ids, so a
+question three teammates all answered correctly still counts once, the same
+rule already used for shared secure-development flags.
+
+**Consequences.** A quiz-only event has a real, populated leaderboard from
+first launch: a contestant who has answered nothing has no row (same as
+today, on any event), and a contestant with quiz points has a row the moment
+they earn any, with no scored submission required. `LEADERBOARD_SOURCE` is
+inert while `secure-development` is disabled — pointing it at `lambda` or
+`upstash` on a quiz-only event does nothing, by design, because there is no
+backend there to point at. `scripts/acceptance-quiz-only.sh` proves the
+individual-row half of this against a real built app and a real Redis; the
+team half is covered at the unit level
+(`src/lib/leaderboard/__tests__/team-standings-quiz-only.test.ts`). The
+empty source's `getUser` also returns `null` unconditionally, which
+`/profile` already handles as "no scored profile" for any unscored login —
+so the page renders the module blocks it can build on its own rather than
+gaining a second code path for "no backend at all."

@@ -264,24 +264,20 @@ flags. Quiz points show up as an addition on top of a contestant's or
 team's other points, never folded silently into a single number with no
 breakdown — see the architecture doc for how that addition happens.
 
-**Quiz points reach the leaderboard only once a contestant has at least one
-scored submission.** The board is built from contestants who already have a
-scored PR, and the quiz overlay adds points to those rows — it never creates
-a row of its own. So someone who answers questions before opening their
-first PR sees their quiz points on their own `/profile`, correctly, but has
-no row on `/leaderboard` yet. Their first scored submission brings the row
-into existence with the quiz points already on it; nothing is lost in the
-meantime. In a normal event (where the quiz sits alongside the patch
-challenges) this resolves itself; it is most visible in the first hour, or
-if you run the quiz as a warm-up before the challenges open.
+**Quiz points get a contestant a leaderboard row on their own — a scored PR
+is no longer required.** The board's login set is the union of whoever the
+scoring backend reports and whoever holds quiz points, so someone who
+answers a question before ever opening a PR (or on an event that has no
+`secure-development` module at all) gets a row the moment they earn any quiz
+points, not on their first scored submission. A team gets the same
+treatment: a team with no per-flag data of its own (no members with a
+scored PR yet) still shows its members' combined quiz total, deduped by
+question. See [docs/architecture.md](architecture.md#leaderboard-with-no-scoring-backend)
+for how the board is built when there's no scoring backend behind it at all.
 
 **What the quiz doesn't do (yet):** free-text answers, partial credit, and
 per-question attempt/cooldown overrides are all out of scope — the two
-retry knobs are global settings, not per-question ones. A quiz-only event
-(no `secure-development` module at all) is also still not supported
-end-to-end: `sync` still requires the `secure-development` module to be
-configured, and (per the note above) a leaderboard with no scored
-submissions on it has no rows for quiz points to land on.
+retry knobs are global settings, not per-question ones.
 
 ## Verifying it works
 

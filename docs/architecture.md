@@ -104,7 +104,7 @@ state; everything else that touches scores goes through it.
 | `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the private rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:7-alpine`, `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
-| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). |
+| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). Tolerates `modules.secure-development` being absent from `event.yaml` (e.g. a quiz-only event): it logs `no polled module enabled, nothing to do` and exits `0` rather than polling anything — `restart: on-failure` (not `unless-stopped`) is what keeps that clean exit from being restarted as if it were a crash. |
 
 ## Data flow for a score
 
@@ -195,6 +195,39 @@ state; everything else that touches scores goes through it.
    `secure-development` row shows the existing per-target breakdown, and a
    module with a different progress shape defines its own).
 
+## Leaderboard with no scoring backend
+
+Steps 1–8 above assume `secure-development` is enabled — there is a scorer,
+and `LEADERBOARD_API_URL`/`LEADERBOARD_SOURCE` name a real backend to read.
+When it's disabled (a quiz-only event, or any event with no scored module),
+none of that pipeline runs at all: `getLeaderboardSourceMode`
+(`src/lib/leaderboard/source.ts`) checks `isModuleEnabled("secure-development")`
+*before* looking at `LEADERBOARD_SOURCE`, and — not overridably by that env
+var — resolves to `"empty"` instead, serving `emptySource`
+(`src/lib/leaderboard/empty.ts`): no entries, no teams, every capability
+`false`. This is deliberately not the mock source; placeholder data would be
+indistinguishable from real standings on a board that also carries real quiz
+points.
+
+Everything a contestant sees on such a board is then built by the overlay
+pipeline itself, on top of nothing. `withModuleContributions` creates a row
+for any login that holds module (quiz) points and has no entry from the
+source — the board's login set is the *union* of the source's logins and the
+logins holding module points, matched case-insensitively, so a contestant
+with quiz points but no scored PR gets a row instead of staying invisible
+until one exists. A created row has every scorer-supplied field
+(`patched`/`failed`/`total`/`apps`) genuinely zero — there is no scoring
+entry behind it — and its only points are the module's, added rather than
+attributed (see [Quiz data flow](#quiz-data-flow) below for why those are
+different verbs). `withTeamStandings` does the same one step later for
+teams: its membership-only rows (synthesised from live team records whenever
+the source has no team concept of its own) get quiz points added via
+`withTeamQuizPoints`, deduped by question across members, so a quiz-only
+event's default view — the teams board, whenever teams exist — doesn't open
+on every team tied at zero. See
+[decisions.md #25](decisions.md#25-building-a-leaderboard-with-no-scoring-backend)
+for why the board is built this way.
+
 ## Quiz data flow
 
 The `quiz` module never touches `scorer`, `sync`, or GitHub — it's the app's
@@ -265,9 +298,16 @@ aggregates — summing would double-count a question two teammates both
 answered, exactly like a shared flag would double-count under naive
 summation. Individual rows read the cheap per-login aggregate counters
 instead (`getQuizTotals`); only a team standing pays the per-member
-`HGETALL` cost, and only once team standings are already available on that
-leaderboard source. Those per-member reads for **every** team on the board
-go out in a single pipeline (one `HGETALL` per distinct member, not one
+`HGETALL` cost. That happens in one of two places: `withModuleContributions`
+attributes it directly when the source already provides deduped team rows
+with real per-flag points (mock/lambda, `capabilities.teams` already `true`);
+otherwise — upstash, and the empty source a quiz-only event uses — team rows
+don't exist yet when `withModuleContributions` runs, so the same attribution
+(`withTeamQuizPoints`, calling the identical `attributeTeams` helper) runs
+from `withTeamStandings` instead, against the membership-only rows it just
+synthesised. One dedupe rule, called from whichever of the two places the
+rows actually exist at. Those per-member reads for **every** team on the
+board go out in a single pipeline (one `HGETALL` per distinct member, not one
 round trip per team), because `/leaderboard` is dynamic and fetched
 `no-store` — a per-team round trip would bill an event one REST call per
 team on every page view.
@@ -497,15 +537,16 @@ config change").
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
+| Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Builds the real app image bound to a `modules: { quiz: {} }` config (no `secure-development` at all), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. Separately brings up `sync` through the real `docker-compose.yml` against the same config and asserts it exits `0`, logs the clean no-op reason, and — sampled over several seconds — stays exited rather than being restarted. |
 
-CI (`.github/workflows/ci.yml`) carries five jobs — `sync-tests`, `shell`
+CI (`.github/workflows/ci.yml`) carries six jobs — `sync-tests`, `shell`
 (shellcheck + bats), `smoke`, `app` (vitest + `next build` +
-`acceptance-app.sh`), and `scorer` (`node --test` + `acceptance-scorer.sh`). A
-`changes` gate (native `git diff`, no third-party action) runs only the jobs
-whose area a PR touches; a push to `main` runs all five. The heavier
-`stock-scores-zero` / `patched-scores-right` workflows are scoped to
-judge-relevant scorer inputs, so a leaderboard-only change doesn't spin up the
-per-target Maven/gradle builds.
+`acceptance-app.sh`), `scorer` (`node --test` + `acceptance-scorer.sh`), and
+`quiz-only` (`acceptance-quiz-only.sh`). A `changes` gate (native `git diff`,
+no third-party action) runs only the jobs whose area a PR touches; a push to
+`main` runs all six. The heavier `stock-scores-zero` / `patched-scores-right`
+workflows are scoped to judge-relevant scorer inputs, so a leaderboard-only
+change doesn't spin up the per-target Maven/gradle builds.
 
 ## Names
 
