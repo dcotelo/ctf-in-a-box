@@ -1,12 +1,14 @@
 // Unit tests for the pure blur-commit decision behind the module identity
-// fields (admin-module-identity.tsx). Plain function, no React/DOM — this is
-// deliberately NOT a rendered-markup test: it asserts on the exact patch
-// object POSTed to `apply`, which is the one thing a rendered `name=` string
-// can never catch drifting (the `name` attribute and the POSTed key are two
-// independent pieces of markup/logic that happen to be built from the same
-// `patchKey` value in the real component; this test would fail if a future
-// edit ever let them diverge, e.g. by hand-writing the POST key separately
-// from the `name`).
+// fields (admin-module-identity.tsx): trimming, no-op-when-unchanged, and
+// snap-back-on-rejection. Plain function, no React/DOM.
+//
+// What this file does NOT prove: `patchKey` is taken here as an
+// already-consistent input argument, so these tests would stay green even if
+// `IdentityField` posted a different key than it renders as `name` — a
+// previous version of this comment claimed otherwise, which was wrong (see
+// admin-module-identity.binding.test.tsx's header). That binding — the
+// posted key equals the rendered `name`, read off the SAME element — is
+// proved by `admin-module-identity.binding.test.tsx`, not by this file.
 import { describe, expect, it, vi } from "vitest";
 import { commitIdentityField } from "@/app/(site)/admin/admin-module-identity";
 

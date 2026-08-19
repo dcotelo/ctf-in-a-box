@@ -71,8 +71,21 @@ const fieldClass =
  *
  *  Keyed by the caller on its OWN `stored` value — the same
  *  remount-on-server-value trick `ScheduleField` uses — so committing this
- *  field never discards uncommitted text in the other. */
-function IdentityField({
+ *  field never discards uncommitted text in the other.
+ *
+ *  `onBlur` reads the value straight off the event's `currentTarget` rather
+ *  than closing over the `input` state — behaviourally identical in the
+ *  browser (a controlled input's DOM value always matches `input` at blur
+ *  time), but it also means the field's blur-commit can be exercised with a
+ *  bare stub event (`{ currentTarget: { value } }`) against the SAME
+ *  returned element `name` was read from, without needing to drive a real
+ *  `onChange` first. See `admin-module-identity.test.ts`'s
+ *  "name/onBlur binding" suite, which does exactly that to prove the two
+ *  can't drift apart.
+ *
+ *  Exported (not just `AdminModuleIdentity`) so that test can invoke it
+ *  directly and inspect the single element it returns. */
+export function IdentityField({
   patchKey,
   stored,
   placeholder,
@@ -98,8 +111,8 @@ function IdentityField({
     maxLength,
     disabled,
     onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setInput(e.target.value),
-    onBlur: () => {
-      void commitIdentityField({ patchKey, input, stored, apply }).then(setInput);
+    onBlur: (e: { currentTarget: { value: string } }) => {
+      void commitIdentityField({ patchKey, input: e.currentTarget.value, stored, apply }).then(setInput);
     },
     className: fieldClass,
   };
