@@ -321,8 +321,17 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { 
 /** Shown when the board holds no contestants at all (pre-event, or after a
  *  reset) — distinct from a search that simply matched nothing. The framing is
  *  deliberately an invitation rather than an error: the podium is drawn empty
- *  and the copy points at the challenges. */
-function EmptyBoard() {
+ *  and the copy points at the way onto the board.
+ *
+ *  WHICH way is the module's to say, not this component's: "patch your first
+ *  challenge", pointing at /challenges, is nonsense on a quiz-only event that
+ *  has no challenges page at all. The sentence and its destination come from
+ *  the first enabled module carrying `emptyBoard` (registry order decides on a
+ *  multi-module event, so a secure-development event keeps today's wording and
+ *  link verbatim). A module with none contributes nothing and the invitation
+ *  degrades to the heading alone rather than to a dead link. */
+export function EmptyBoard({ modules }: { modules: readonly ResolvedModule[] }) {
+  const copy = modules.find((m) => m.emptyBoard)?.emptyBoard;
   return (
     <div className="flex flex-col items-center gap-5 rounded-lg border border-white/[0.06] bg-[#16162a] px-6 py-10 text-center">
       <Image
@@ -338,17 +347,16 @@ function EmptyBoard() {
         <h2 className="text-2xl font-bold uppercase tracking-widest text-white">
           The board is wide open
         </h2>
-        <p className="mx-auto max-w-md text-sm text-zinc-400">
-          No flags captured yet. Every rank is unclaimed. Patch your first challenge and
-          you&rsquo;ll be the one everyone else is chasing.
-        </p>
+        {copy && <p className="mx-auto max-w-md text-sm text-zinc-400">{copy.line}</p>}
       </div>
-      <Link
-        href="/challenges"
-        className="rounded-md border border-[#2563eb]/60 bg-[#2563eb]/10 px-4 py-2 font-mono text-sm text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
-      >
-        $ pick a challenge
-      </Link>
+      {copy && (
+        <Link
+          href={copy.cta.href}
+          className="rounded-md border border-[#2563eb]/60 bg-[#2563eb]/10 px-4 py-2 font-mono text-sm text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        >
+          {copy.cta.label}
+        </Link>
+      )}
     </div>
   );
 }
@@ -506,7 +514,7 @@ export default function Leaderboard({
 
       {view === "individual" ? (
         data.entries.length === 0 ? (
-          <EmptyBoard />
+          <EmptyBoard modules={modules} />
         ) : visibleEntries.length === 0 ? (
           <NoMatch noun="contestants" query={query.trim()} onClear={() => setQuery("")} />
         ) : (

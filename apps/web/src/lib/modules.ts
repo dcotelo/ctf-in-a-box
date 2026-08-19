@@ -47,6 +47,17 @@ export type ModuleDef = {
    *  reaches it through `getModuleHome` — never off a ResolvedModule, which
    *  strips it so the object stays safe to hand to a Client Component. */
   home?: ModuleHome;
+  /** What `/leaderboard`'s empty state says, and where it points, while this
+   *  module is the way onto the board. The platform frame owns the empty
+   *  state's framing ("the board is wide open"); the module owns the sentence
+   *  that says how to get on it, because "patch your first challenge" is
+   *  nonsense on an event that has no challenges. The first enabled module
+   *  with one wins, so registry order decides on a multi-module event.
+   *
+   *  Plain data, deliberately — unlike `home` it survives onto ResolvedModule
+   *  (a Client Component renders it), which only holds because there is no
+   *  function here to break the RSC boundary. Keep it that way. */
+  emptyBoard?: { line: string; cta: { href: string; label: string } };
 };
 
 // Display metadata per registered module. Registration is deliberate: an entry
@@ -57,6 +68,13 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     displayName: "Secure Development",
     description: "Find the vulnerability, patch it for real, ship the fix as a PR.",
     nav: { href: "/challenges", label: "Challenges" },
+    // Moved VERBATIM off the leaderboard's EmptyBoard, curly apostrophe
+    // included (the JSX spelled it `&rsquo;`, which React emits as U+2019, so
+    // the rendered bytes are unchanged).
+    emptyBoard: {
+      line: "No flags captured yet. Every rank is unclaimed. Patch your first challenge and you’ll be the one everyone else is chasing.",
+      cta: { href: "/challenges", label: "$ pick a challenge" },
+    },
     // Moved VERBATIM off app/page.tsx, curly apostrophes included: the JSX
     // spelled them `&rsquo;`, which React emits as a literal U+2019, so the
     // rendered bytes are unchanged. Retyping them as ASCII "'" would be a
@@ -103,6 +121,12 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     displayName: "Quiz",
     description: "Answer security questions for points.",
     nav: { href: "/quiz", label: "Quiz" },
+    // The same shape as secure-development's, said in the quiz's own terms —
+    // an event with no challenges cannot be told to patch one.
+    emptyBoard: {
+      line: "No answers banked yet. Every rank is unclaimed. Answer your first question and you’ll be the one everyone else is chasing.",
+      cta: { href: "/quiz", label: "$ answer a question" },
+    },
     // Deliberately plain and factual, and deliberately silent on AI: the
     // secure-development module invites an agent because patching WITH one is
     // the skill it teaches; on a graded question set the same invitation would

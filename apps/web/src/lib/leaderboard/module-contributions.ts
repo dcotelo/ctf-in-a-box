@@ -47,22 +47,28 @@ import type { ModuleId } from "@/lib/modules";
  * degrades to the quiz-less board, never to invented or zero-point rows.
  *
  * Hint penalties are applied by `withHintPenalties`, which runs BEFORE this and
- * only ever sees the source's rows — so a hint bought by a contestant who has
- * no scored submission is not deducted from the row created here. That is a
- * narrow gap (hints are per-challenge, so it needs a two-module event and a
- * contestant who revealed a hint without ever landing a scored PR) and closing
- * it would mean teaching a third reader about hint pricing; the pipeline order
- * is load-bearing and stays as it is.
+ * so only ever sees the source's rows — a created row is never passed through
+ * it. This has NO NUMERIC EFFECT and is not a gap: the penalty is subtracted
+ * from SCORER points and floored at 0 (`Math.max(0, points - penalty)`), and a
+ * created row has 0 scorer points, so the deduction would be
+ * `max(0, 0 - penalty) === 0` either way — quiz points are ADDED after it in
+ * both paths, so the same login lands on the same total whether or not it has
+ * a scored row. The only difference is cosmetic: a created row shows no
+ * "−N hints" transparency chip. It is also all but unreachable, since
+ * `hintGate` requires solves that would have put the login on the scored
+ * source in the first place (unless an organizer sets `hintsMinSolves: 0`).
+ * The pipeline order is load-bearing and stays as it is.
  *
- * Team quiz points are only added when `data.capabilities.teams` is already
- * true, i.e. the source (mock/lambda) already provides deduped team rows with
- * real per-flag points — the same gate `secureDev` uses for
- * `capabilities.apps`. On the upstash path `capabilities.teams` is false here
- * (team membership hasn't been overlaid yet — `withTeamStandings` runs
- * AFTER this in the real pipeline and replaces `data.teams` wholesale with
- * membership-only, zero-point rows), so there is nothing yet to attach a
- * quiz total to; team quiz points on that path arrive whenever
- * `withTeamStandings` itself grows real per-flag dedup.
+ * Team quiz points are added HERE only when `data.capabilities.teams` is
+ * already true, i.e. the source (mock/lambda) already provides deduped team
+ * rows with real per-flag points — the same gate `secureDev` uses for
+ * `capabilities.apps`. On the upstash and empty paths `capabilities.teams` is
+ * false at this point (team membership hasn't been overlaid yet), so there is
+ * nothing here to attach a quiz total to: `withTeamStandings` runs AFTER this
+ * and SYNTHESISES the team rows from membership, then calls
+ * `withTeamQuizPoints` below on the rows it just created. Same fold, same
+ * dedupe, applied where the rows actually exist rather than by moving a
+ * pipeline stage.
  */
 export async function withModuleContributions(data: LeaderboardData): Promise<LeaderboardData> {
   const secureDev = isModuleEnabled("secure-development") && data.capabilities.apps;
@@ -111,13 +117,67 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   let teams = data.teams;
   if (quizEnabled && data.capabilities.teams && data.teams.length > 0) {
     try {
-      teams = await attributeTeams(data.teams, quizTotalQuestions);
+      teams = attributeTeams(data.teams, await teamQuizTotals(data.teams), quizTotalQuestions);
     } catch (err) {
       console.error("quiz team totals unavailable for leaderboard:", err);
     }
   }
 
   return { ...data, entries, teams };
+}
+
+/**
+ * The team half of this overlay, for team rows that did NOT exist when
+ * `withModuleContributions` ran: the membership-only rows `withTeamStandings`
+ * synthesises on a source with no team concept of its own (upstash, and the
+ * empty source a quiz-only event uses). Those rows arrive with `points: 0`
+ * because there is no per-flag data to dedupe secure-development points from
+ * — but their quiz points ARE dedupable, and leaving them at zero put every
+ * team on a quiz-only event's DEFAULT board (teams, whenever teams exist) on
+ * an all-zero scoreboard while the individual view showed real points.
+ *
+ * Lives here, and is CALLED by `withTeamStandings`, so that all quiz
+ * attribution keeps one owner and one dedupe rule — the union-by-question fold
+ * in `getTeamQuizTotalsBatch`, never a sum of member aggregates. Calling it
+ * from there rather than moving a pipeline stage is deliberate: the
+ * `withHintPenalties → withModuleContributions → withTeamStandings` order is
+ * load-bearing (see the page's pipeline comment), and these rows simply do not
+ * exist until the last of those runs.
+ *
+ * Degrades like every other overlay: a failed totals read returns the teams
+ * untouched (their quiz points are missing, never wrong), and a failed
+ * question list costs only the "answered / total" denominator — the same split
+ * that `withModuleContributions` keeps for individuals, and for the same
+ * reason.
+ */
+export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
+  if (!isModuleEnabled("quiz") || teams.length === 0) return teams;
+
+  // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
+  // totals carry POINTS (and with them the team board's order), the question
+  // list only the DENOMINATOR.
+  const [totalsResult, questionsResult] = await Promise.allSettled([teamQuizTotals(teams), listQuestions()]);
+
+  if (totalsResult.status !== "fulfilled") {
+    console.error("quiz team totals unavailable for leaderboard:", totalsResult.reason);
+    return teams;
+  }
+  if (questionsResult.status !== "fulfilled") {
+    console.error("quiz question list unavailable for leaderboard denominator:", questionsResult.reason);
+  }
+
+  return attributeTeams(
+    teams,
+    totalsResult.value,
+    questionsResult.status === "fulfilled" ? questionsResult.value.length : 0,
+  );
+}
+
+/** ONE pipeline for the whole board, never one call per team — see
+ *  `getTeamQuizTotalsBatch`'s doc comment (a per-team form billed a 25-team
+ *  event 25 Upstash round trips on every render of a `no-store` page). */
+function teamQuizTotals(teams: readonly TeamStanding[]): Promise<QuizTotal[]> {
+  return getTeamQuizTotalsBatch(teams.map((team) => team.members));
 }
 
 function secureDevelopmentModule(
@@ -229,19 +289,18 @@ function attributeEntry(
   return { ...entry, points, modules };
 }
 
-/** Adds each team's deduped quiz total to its points and stamps a `quiz`
- *  module block, then re-ranks the teams on the new totals — mirroring
- *  `withHintPenalties`'s team sort (points descending, original position
- *  breaking ties) since this is the last step to touch team points before
- *  `withTeamStandings`'s no-op pass-through on this path. */
-async function attributeTeams(teams: TeamStanding[], quizTotalQuestions: number): Promise<TeamStanding[]> {
-  // ONE pipeline for the whole board, not one per team: `/leaderboard` is
-  // dynamic and fetched `no-store`, so the per-team form billed a 25-team
-  // event 25 Upstash REST round trips on every page view. The dedupe rule is
-  // unchanged — `getTeamQuizTotalsBatch` runs the same union-by-question fold
-  // per team, it just fetches every member's answers in one go.
-  const totals = await getTeamQuizTotalsBatch(teams.map((team) => team.members));
-
+/** Adds each team's already-deduped quiz total (`totals[i]` belongs to
+ *  `teams[i]`) to its points and stamps a `quiz` module block, then re-ranks
+ *  the teams on the new totals — mirroring `withHintPenalties`'s team sort
+ *  (points descending, original position breaking ties). Shared verbatim by
+ *  both callers, so a source-provided team row and a synthesised one are
+ *  attributed by exactly the same rule; it is the last step to touch team
+ *  points either way. */
+function attributeTeams(
+  teams: TeamStanding[],
+  totals: readonly QuizTotal[],
+  quizTotalQuestions: number,
+): TeamStanding[] {
   return teams
     .map((team, i) => {
       const total = totals[i];
