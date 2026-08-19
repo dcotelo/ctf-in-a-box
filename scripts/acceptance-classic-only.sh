@@ -41,7 +41,7 @@
 # shape is the `Challenge` type in apps/web/src/lib/classic-store.ts
 # (id, title, category, description, points, order — no flag field, ever).
 #
-# classic-store.ts documents SEVEN `ctf:classic:*` keys; this script writes
+# classic-store.ts documents NINE `ctf:classic:*` keys; this script writes
 # the ones the assertions below actually exercise:
 #   - ctf:classic:challenges   hash, id -> JSON Challenge (read by /flags)
 #   - ctf:classic:flag         hash, id -> the flag AS AUTHORED (seeded for
@@ -256,6 +256,16 @@ echo "--- /flags shows the seeded challenge by title"
 FLAGS_HTML=$(curl -sf "$APP_URL/flags")
 if ! echo "$FLAGS_HTML" | grep -qF "$CHALLENGE_TITLE"; then
   echo "FAIL: /flags does not show '$CHALLENGE_TITLE'" >&2
+  exit 1
+fi
+
+# The single most important property of this module: a real, seeded flag must
+# never reach a contestant. Every unit test mocks @/lib/classic-store, so this
+# is the only place in the whole suite where a real stored flag meets a real
+# rendered /flags page — this assertion is the entire point of that setup.
+echo "--- /flags never leaks the seeded flag itself"
+if echo "$FLAGS_HTML" | grep -qF "$CHALLENGE_FLAG"; then
+  echo "FAIL: /flags leaked the seeded flag ('$CHALLENGE_FLAG') to the page" >&2
   exit 1
 fi
 
