@@ -24,9 +24,13 @@
 # ---------------------------------------------------------------------------
 # PLACEHOLDERS — edit these:
 #   <EVENT_ORG>  the GitHub org the scorer image was mirrored into
-#                (ghcr.io/<EVENT_ORG>/score:latest — kept PRIVATE during play)
-#   <TARGET>     this repo's rubric target id (must match a <target>.yaml in the
-#                baked rubric, e.g. juice-shop)
+#                (ghcr.io/<EVENT_ORG>/score:latest — keep the package private
+#                only if you baked a rubric you want hidden; the stock
+#                vendored rubric is public in the kit's own repo)
+#   <TARGET>     this repo's rubric target id (must match a target the baked
+#                rubric defines — a <target>/ directory with
+#                tests/challenges/catalogue.<target>.json for an exec rubric,
+#                or a <target>.yaml for a declarative one; e.g. juice-shop)
 #   <APP_URL>    where the app under test answers ON the ctf network, e.g.
 #                http://<TARGET>:3000 (no host ports are published)
 #   <LEADERBOARD_LINK>  event.url + /leaderboard — the score comment links here.
@@ -75,7 +79,7 @@ jobs:
       # (1) Re-run cooldown — the rate cap docs/modules.md §6.3 requires. WHY:
       # every scoring run hands the contestant a fresh per-challenge ✅/❌
       # verdict — a fast, free oracle. Rapid re-pushes let them iterate a
-      # check-gaming patch against the private rubric (tweak, push, read the
+      # check-gaming patch against the baked rubric (tweak, push, read the
       # ❌s, repeat); the cooldown bounds that feedback loop (and, secondarily,
       # Actions minutes). If the previous RESULT comment is younger than
       # COOLDOWN_MINUTES, this push is not scored; the comment gains a note

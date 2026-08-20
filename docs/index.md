@@ -17,8 +17,9 @@ expand a team for its roster and its flags, patched and still open.</sup>
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
-plug challenge content into that spine. The first module is the **OWASP Secure
-Development CTF**; the box is built to host further modules on the same spine.
+plug challenge content into that spine. Three modules ship today: the **OWASP
+Secure Development CTF** (the first), **Quiz**, and **Classic
+CTF**; the box is built to host further modules on the same spine.
 The [module contract](modules.md) is the boundary between platform and module.
 
 The OWASP Secure Development CTF teaches defence rather than attack: a
@@ -96,7 +97,9 @@ semester.
 
 Every target's rubric is vendored from the upstream event repo, pinned to a
 single commit, and gated: a test that passes against the *unpatched* app would
-be a free point for every contestant, so the build refuses to ship it.
+be a free point for every contestant, so CI scores every rubric against the
+stock upstream image and fails if anything scores above zero
+(`.github/workflows/stock-scores-zero.yml`, `scripts/acceptance-target.sh`).
 
 ## Quickstart
 

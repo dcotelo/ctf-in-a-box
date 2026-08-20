@@ -34,6 +34,17 @@ corepack pnpm test
 CI also runs a production build (`corepack pnpm build`, with dummy
 `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`) and `./scripts/acceptance-app.sh`
 after the test step — run those too if you touched build-affecting config.
+Between the two, CI asserts `apps/web/.next/server/app/index.html` does
+**not** exist: `/` must never be statically prerendered, or the module nav
+(resolved through a build-time-unreachable Redis read) freezes at build time.
+Check it after any build you run here.
+
+**quiz-only / classic-only** (single-module compose bring-ups):
+
+```sh
+./scripts/acceptance-quiz-only.sh
+./scripts/acceptance-classic-only.sh
+```
 
 **shell / setup** (provisioning and automation scripts):
 
@@ -104,13 +115,16 @@ suggestions.
   `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose
   --profile poll --profile app up -d --build`. `scripts/dev-stack` already
   does this.
-- **Compose profiles follow the enabled MODULES.** `app` is always on; `poll`
-  and `push` carry `secure-development`'s two services (`sync` *and* the
-  `scorer`). A quiz-only event boots with `--profile app` alone — it has no
-  scorer image to pull, and the compose fallback is a private upstream one.
-  So: never give a secure-development service the default (profile-less)
-  treatment, and never add a `depends_on` from `app` to a profiled service —
-  that drags it into every `up` and re-breaks the quiz-only boot.
+- **Compose profiles follow the enabled MODULES.** `app` is always on.
+  `secure-development`'s two services are profiled *differently*, and that is
+  deliberate: `scorer` carries `["poll", "push"]` (both ingest modes need it),
+  `sync` carries `["poll"]` only — in push mode the fork's Action POSTs to the
+  scorer directly, so there is no poller to run. A quiz-only event boots with
+  `--profile app` alone — it has no scorer image to pull, and the compose
+  fallback is a private upstream one. So: never give a secure-development
+  service the default (profile-less) treatment, and never add a `depends_on`
+  from `app` to a profiled service — that drags it into every `up` and
+  re-breaks the quiz-only boot.
 - **The score-comment marker is trust-authoritative — it must only ever come
   from the judge's own output, never from the PR checkout.** The sync poller
   ingests any `<!-- ctf-score: {json} -->` marker in a `github-actions[bot]`

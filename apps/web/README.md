@@ -2,7 +2,7 @@
 
 The contestant-facing web app for the OWASP Capture The Flag competition. Event name, dates, location, and theme are configured per-deployment via the kit's `event.yaml` (see below) rather than hardcoded here.
 
-Contestants patch real vulnerabilities in six deliberately-insecure OWASP training apps and submit the fix as a GitHub pull request. A CI scorer validates each patch and pushes results to the leaderboard — no flag submission, no manual grading.
+Contestants patch real vulnerabilities in six deliberately-insecure OWASP training apps and submit the fix as a GitHub pull request. A CI scorer validates each patch and pushes results to the leaderboard — no manual grading. (That is the `secure-development` module; the classic module scores flag submissions instead.)
 
 ## Status
 
@@ -14,7 +14,7 @@ Pre-event, backend wired up. Core site, GitHub sign-in, leaderboard, profile, an
 - **Leaderboard** (`/leaderboard`) — public standings; sign in to highlight your own row. Backed by a swappable data-source adapter (see below).
 - **Profile** (`/profile`) — gated per-app progress across all six target apps.
 - **Teams** — join, create, or leave a team of up to **4 players**. Writes go to Upstash Redis and are entirely server-side (see below); without `TEAM_WRITES_ENABLED` they fall back to a per-browser cookie mock (flagged with a "mock mode" badge).
-- **Paid hints** (`/challenges`) — signed-in contestants can reveal a hint for any challenge at a flat **−10 points**, deducted from their leaderboard score (see below). Signed-out visitors see a locked teaser. Off until `HINTS_ENABLED=true` — flip it when the event starts.
+- **Paid hints** (`/challenges`) — signed-in contestants can reveal a hint for any challenge at a fixed cost (**−10 points** by default, set per-event from the admin panel), deducted from their leaderboard score (see below). Signed-out visitors see a locked teaser. Hints are **on by default**; the switch that works on the composed stack is `/admin`'s hint controls, since `docker-compose.yml` does not forward `HINTS_ENABLED` to the `app` container.
 - **Six real targets** — Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI, covering the OWASP Web and API Top 10.
 
 ## Tech Stack
@@ -25,8 +25,8 @@ Pre-event, backend wired up. Core site, GitHub sign-in, leaderboard, profile, an
 - **Fonts**: Poppins (headings) + Barlow (body) per [OWASP brand guidelines](https://policy.owasp.org/operational/branding)
 - **Package manager**: [pnpm](https://pnpm.io/)
 - **Hosting**: self-hosted Docker, built and run by the kit — see the kit's
-  [`../../README.md` Quickstart](../../README.md#quickstart) and
-  [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)
+  [hosting Quickstart](../../docs/hosting.md#quickstart-zero-to-a-scored-event) and
+  [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)
   for how `event.yaml` is baked into the image via `EVENT_CONFIG_B64`
 
 ## Getting Started
@@ -54,11 +54,11 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `LEADERBOARD_API_URL` | Only if `LEADERBOARD_SOURCE=lambda` | Base URL of the scoring API — serves `/leaderboard` (used by the lambda source) and `/challenges` (live challenge catalogue on the challenges page; without it the page shows static fallback cards) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, `HINTS_ENABLED=true`, or `CHALLENGES_GATE_ENABLED=true` | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
 | `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
-| `HINTS_ENABLED` | No | `true` turns on paid hints on `/challenges` (needs the Upstash vars). Leave unset until the event so contestants can't buy hints early |
-| `CHALLENGES_GATE_ENABLED` | No | `true` locks every enabled module's page (`/challenges`, `/quiz`) behind the pre-event password gate — pages only, not the module APIs; see [Pre-event challenges gate](#pre-event-challenges-gate) |
+| `HINTS_ENABLED` | No | Paid hints on `/challenges` are **on** unless this is set to `false` (needs the Upstash vars). Note `docker-compose.yml` does not pass this through to the `app` service, so it has no effect on the composed stack — use `/admin`'s hint controls there |
+| `CHALLENGES_GATE_ENABLED` | No | `true` locks every enabled module's page (`/challenges`, `/quiz`, `/flags`) behind the pre-event password gate — the proxy covers pages, and the module APIs that bank points run their own check; see [Pre-event challenges gate](#pre-event-challenges-gate) |
 | `CHALLENGES_GATE_PASSWORD` | Only if `CHALLENGES_GATE_ENABLED=true` | The shared access password. Server-side only; the gate stays open if this is unset |
 
-> Env var changes only take effect on the **next build/restart** of the container — rebuild the image (see [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)) or restart the `app` service after adding or changing one.
+> Env var changes only take effect on the **next build/restart** of the container — rebuild the image (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)) or restart the `app` service after adding or changing one.
 
 ## Scripts
 
@@ -130,6 +130,8 @@ Three things to know before touching that config:
 - **`lambda`** — reads the deployed scoring Lambda's `/leaderboard` endpoint (per-app solved/total; unsolved challenges count as *remaining*, not *failed*).
 - **`upstash`** — reads directly from Upstash Redis via its REST API.
 
+A fourth mode, **`empty`**, is never configured: an event with `secure-development` disabled has no scorer to read, so `getLeaderboardSourceMode` (`src/lib/leaderboard/source.ts`) forces it regardless of what `LEADERBOARD_SOURCE` says, and the board is built entirely from the module overlays on top of it. On a quiz-only or classic-only event it is the only mode that runs.
+
 ## Teams
 
 Team membership lives in Upstash Redis when `TEAM_WRITES_ENABLED=true`. All writes are server-side only: the `/api/team*` route handlers derive the player's GitHub login from the better-auth session, and the only client input (team name/slug) is slugified and length-capped before touching Redis — nothing client-side can forge identity or bypass the rules.
@@ -143,33 +145,36 @@ Rules, enforced atomically (each mutation is a single Lua `EVAL`, so they can't 
 Schema:
 
 ```
-HSET ctf:team:<slug> name <name> captain <login> createdAt <iso>
+HSET ctf:team:<slug> name <name> captain <login> createdAt <iso> joinCode <code>
 SADD ctf:team:<slug>:members <login>     # capped at 4
 HSET ctf:user:<login> team <slug>
+SET ctf:joincode:<code> <slug>           # reverse index for join-by-code
 ```
 
 These rules are covered by `pnpm test` — unit tests with Upstash mocked, plus an integration suite that runs the real Lua scripts against live Upstash using throwaway keys.
 
 ## Hints
 
-Hint text lives in the scorer-owned Upstash hashes `hints:<app>` (field = challenge catalogue id, value = hint text). When `HINTS_ENABLED=true` (and the `UPSTASH_REDIS_REST_*` vars are set), each challenge row on `/challenges` with a hint gets a reveal control: signed-out visitors see a locked teaser, signed-in contestants confirm and pay a flat **10 points** per hint. Re-viewing a bought hint is always free — charging is idempotent inside a single Lua `EVAL` (a double-click or race can't charge twice), and it's keyed by the server-derived session login, so nothing client-side can spend someone else's points.
+Hint text lives in the scorer-owned Upstash hashes `hints:<app>` (field = challenge catalogue id, value = hint text). When `HINTS_ENABLED=true` (and the `UPSTASH_REDIS_REST_*` vars are set), each challenge row on `/challenges` with a hint gets a reveal control: signed-out visitors see a locked teaser, signed-in contestants confirm and pay the configured hint cost (`hintCost` in the admin settings, **10 points** if unset). Re-viewing a bought hint is always free — charging is idempotent inside a single Lua `EVAL` (a double-click or race can't charge twice), and it's keyed by the server-derived session login, so nothing client-side can spend someone else's points.
 
 Purchases are recorded under the site's `ctf:` namespace, which the scorer never rewrites — penalties survive re-scores:
 
 ```
 SADD ctf:user:<login>:hints "<app>/<challengeId>"   # what the user bought
-HINCRBY ctf:hints:spent <login> 10                  # running penalty total
+HINCRBY ctf:hints:spent <login> <cost>              # running penalty total
 ```
 
 The scorer's `leaderboard` ZSET is never decremented. Instead, displayed scores subtract the penalty as an overlay (`withHintPenalties`, floored at 0) applied **before** `withTeamStandings`, so leaderboard rows, team totals, and the profile all show the same net numbers. Penalized rows carry a small "−N hints" marker for transparency.
 
 ## Pre-event challenges gate
 
-Until the conference starts, each enabled module's own page — `/challenges`, `/quiz` — can be locked behind a shared password: set `CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` (both, plus the always-required `BETTER_AUTH_SECRET`, which signs the unlock cookie). A half-configured gate (flag without password) stays open rather than locking everyone out. Only those module pages are gated; the leaderboard, rules, and the rest of the site stay public, and the homepage keeps showing catalogue totals.
+Until the conference starts, each enabled module's own page — `/challenges`, `/quiz`, `/flags` — can be locked behind a shared password: set `CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` (both, plus the always-required `BETTER_AUTH_SECRET`, which signs the unlock cookie). A half-configured gate (flag without password) stays open rather than locking everyone out. Only those module pages are gated; the leaderboard, rules, and the rest of the site stay public, and the homepage keeps showing catalogue totals.
 
 How it works: the proxy (`src/proxy.ts`) redirects visitors without a valid signed cookie to `/gate`, which POSTs the password to `/api/gate`. Verification is entirely server-side (constant-time compare; the password never reaches the client bundle), and success sets an HMAC-signed, httpOnly cookie good for 30 days. The gated set is derived from the module registry (`enabledModuleRoutes`), so a module is gated by being enabled rather than by being remembered.
 
-**Scope, precisely:** page-only and exact-match. The module **API routes are not behind this gate** — a signed-in contestant can `POST /api/quiz/answer` with the lock screen up and be scored. Those routes enforce their own rules regardless (session, the admin pause and the scheduled scoring window, attempt caps), so the control that actually stops early scoring is the scoring window, not the password. See "Known limitations" in [docs/operations.md](../../docs/operations.md#known-limitations).
+**Scope, precisely:** enforcement is deliberately split in two. The proxy's block is exact-match and **pages only** — its matcher does not widen over `/api/*` on purpose, because that would put the gate in front of `/api/auth/*` and break the sign-in a contestant needs in order to pass the gate in the first place (and would answer API calls with a page redirect an API client can't act on). The module API routes that bank points or return challenge content — `POST /api/quiz/answer`, `POST /api/classic/submit`, `POST /api/hints/reveal` — therefore run **their own** server-side check instead: each calls `requireGatePassed()` (`src/lib/gate-request.ts`) after authentication and before any store call, and refuses with **403 `{ error: "gate" }`** while the lock screen is up.
+
+Read the gate for what it is even so: a "the board opens at the keynote" curtain, **not** an authorization boundary. Every API route still enforces its own rules independently of it — a session is required, the admin pause and the scheduled scoring window are checked on every write, and attempt caps and cooldowns apply — and the schedule/pause pair remains the control that actually shuts scoring until a moment in time. See "Known limitations" in [docs/operations.md](../../docs/operations.md#known-limitations).
 
 Brute-force throttle: five attempts from one IP, then that IP is locked for 24 hours (`gate:attempts:<ip>` in Upstash Redis). Locked attempts are rejected before the password is even compared, so the right password won't unlock a locked IP either. If Upstash is unreachable the gate fails closed.
 
@@ -190,7 +195,7 @@ Retention: each key holds a client IP, so it carries a 30-day `EXPIRE`, refreshe
 
 **Self-hosted note**: that header is only as trustworthy as whatever sits in front of the app. The kit's own Caddy config doesn't set, strip, or validate either header, so on a bare `docker compose` deployment a client can send one directly and the tally can be gamed — an accepted trade-off for an approximate, no-PII counter, not a security boundary. If you want the counter to reflect real geography instead, put a real edge/CDN in front (e.g. Cloudflare, which sets `cf-ipcountry` and strips client-supplied values) so the header can't be spoofed before it reaches the app.
 
-Rollout: set the two gate env vars and rebuild/restart the `app` service (see [Rebuilding the app after a config change](../../README.md#rebuilding-the-app-after-a-config-change)). At conference start, flip `CHALLENGES_GATE_ENABLED` to `false` (or remove it) and rebuild/restart — outstanding unlock cookies become inert. Rotating the password is the same edit + rebuild; cookies issued earlier stay valid because they are signed by `BETTER_AUTH_SECRET`, not the password.
+Rollout: set the two gate env vars and rebuild/restart the `app` service (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)). At conference start, flip `CHALLENGES_GATE_ENABLED` to `false` (or remove it) and rebuild/restart — outstanding unlock cookies become inert. Rotating the password is the same edit + rebuild; cookies issued earlier stay valid because they are signed by `BETTER_AUTH_SECRET`, not the password.
 
 ## Branding
 

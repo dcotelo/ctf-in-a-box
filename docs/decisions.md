@@ -221,9 +221,9 @@ dynamic/plugin-style loading in v1.
 
 **Consequences.** An organizer who writes `modules.forensics: {...}` today
 gets a loud startup failure (`event.yaml: unknown module: forensics (known
-modules: secure-development, quiz)`), not a silently ignored block. Adding a
-real second module is a code change, not a config-only addition, but the two
-enumerations play different roles and both must be extended:
+modules: secure-development, quiz, classic)`), not a silently ignored block.
+Adding a real second module is a code change, not a config-only addition, but
+the two enumerations play different roles and both must be extended:
 
 - `apps/web/scripts/generate-event-config.mjs`'s `MODULE_VALIDATORS` — the
   ids the app will *render*, each with its own config validator. Paired with
@@ -669,12 +669,13 @@ flight serializer throws "Functions cannot be passed directly to Client
 Components" the instant a function-valued prop crosses into one.
 
 **Decision.** `ResolvedModule` (`src/lib/modules.ts`) is defined as
-`Omit<ModuleDef, "displayName" | "description" | "home" | "guide" |
-"rules"> & { title: string; blurb: string }` — every problem field is dropped
-from the object as well as the type, not merely shadowed by its replacement.
-Server code that needs a module's page content goes through separate,
-server-only accessors — `getModuleHome(id)`, `getModuleGuide(id)` and
-`getModuleRules(id)` (`src/lib/resolved-modules.ts`) — which return the raw
+`Omit<ModuleDef, "displayName" | "description" | "home" | "guide" | "rules" |
+"faq" | "terms" | "routeCard"> & { title: string; blurb: string }` — every
+problem field is dropped from the object as well as the type, not merely
+shadowed by its replacement. Server code that needs a module's page content
+goes through separate, server-only accessors — one per dropped copy block,
+`getModuleHome(id)` through `getModuleRouteCard(id)`
+(`src/lib/resolved-modules.ts`) — which return the raw
 copy blocks, functions included, straight off the registry, never off a
 `ResolvedModule`; callers must be Server Components, calling `intro()`/
 `steps()`/`example()` there and passing only the resulting plain data
