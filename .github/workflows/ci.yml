@@ -109,6 +109,31 @@ jobs:
         working-directory: scorer
       - run: ./scripts/acceptance-scorer.sh
 
+  # The vacuous-pass gate (docs/scorer.md, #47). A pass-on-patch test asserts
+  # the exploit is BLOCKED, and a target that answers nothing blocks every
+  # exploit trivially — so a challenge can score points for a security
+  # property nobody verified. The sweep points each target's URL at a stub
+  # that is up but useless and fails if ANY challenge still passes.
+  #
+  # Wired in only now that the count is 0/321: a gate adopted while findings
+  # remain is a gate somebody has to disable. Its value is catching the NEXT
+  # one, on the PR that introduces it, rather than in an audit months later.
+  #
+  # No Docker: the stub is an in-process HTTP server, so this is minutes of
+  # plain Node, unlike the stock/patched gates that boot real containers.
+  vacuous:
+    needs: changes
+    if: needs.changes.outputs.scorer == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm, cache-dependency-path: scorer/package-lock.json }
+      - run: npm ci
+        working-directory: scorer
+      - run: node tools/vacuous-sweep.mjs
+        working-directory: scorer
+
   shell:
     needs: changes
     if: needs.changes.outputs.shell == 'true'

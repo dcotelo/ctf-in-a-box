@@ -222,6 +222,43 @@ separate them — one path repeated across every challenge means the rubric neve
 cleared a shared gate, while a path per challenge means it reached the app and
 was turned away on the merits.
 
+### It is a CI gate
+
+The `vacuous` job in `.github/workflows/ci.yml` runs the sweep on any change
+under `scorer/`, and fails if **any** challenge passes against a useless
+target. It needs no Docker, so it costs minutes of plain Node rather than a
+container bring-up.
+
+The gate was wired in only once the count reached **0 of 321**. A gate adopted
+while findings remain is a gate somebody has to disable, and its value was
+never the backlog it started with — it is catching the *next* vacuous
+challenge on the PR that introduces it, instead of in an audit months later.
+
+Where each target's precondition lives, and what it asserts:
+
+| target | oracle |
+| --- | --- |
+| `dvwa` | `assertDvwaRendered` — 200 **and** DVWA's page chrome; `assertDvwaApiRecord` for the JSON API challenge; `assertDvwaAlive` for flows whose verdict is not a page |
+| `juice-shop` | `assertShopAlive` — product search returns a non-empty catalogue |
+| `securityshepherd` | `assertShepherdAlive` — `/index.jsp` serves the authenticated dashboard |
+| `vampi` | `assertApiAlive` — a legitimate login succeeds |
+| `vulnerableapp` | `assertLevelResponded` / `assertAnswered` / `assertRedirected` — the level's own response envelope |
+| `webgoat` | `assertAttackResult` — WebGoat's AttackResult envelope; `assertLessonOverview` for server-side state reads |
+
+Every one holds on the **vulnerable and the patched** app. That is the line
+between a precondition and a second assertion: a guard that only holds while
+the app is still exploitable fails every correct submission.
+
+Two lessons from writing them, both learned the expensive way:
+
+- **The obvious oracle is often wrong, and only the running app will say so.**
+  Requiring Security Shepherd's `<h2 class='title'>` chrome looked safe until
+  the live app answered `<p>There were no results found in your search</p>` —
+  a legitimate response carrying no chrome at all.
+- **Placement is part of the fix.** A guard that returns *before* the exploit
+  request leaves the endpoint unexercised, and the sweep then reports a zero it
+  never measured. Put it after the request, before the assertion.
+
 The sweep reuses `runExec` deliberately rather than running tests its own way:
 a detector that disagreed with the judge would produce differences
 indistinguishable from findings.
