@@ -207,6 +207,14 @@ disables the forks' inherited workflows automatically.
 
 ## 10. `event.yaml`'s module namespace; deliberate, not dynamic, registration
 
+> **Amended by [#24](#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one).**
+> This decision describes **two** enumerations to extend for a new module. There
+> are now **three**: `setup/ctf-setup.sh`'s `KNOWN_MODULES` joined them when
+> provisioning learned to skip a module set with no `secure-development`. The
+> reasoning below is unchanged — only the count is. See
+> [#32](#32-scheduled-windows-evaluated-at-read-time-in-three-readers) for the
+> other place this kit duplicates a rule across independent readers on purpose.
+
 **Context.** The kit is meant to eventually support more than one CTF
 vertical (forensics, API security, cloud, …) alongside
 `secure-development`, which is still the only *scored* one.
@@ -1203,3 +1211,226 @@ Anyone running the app outside compose (bare `next start`) who set
 deployment, so the blast radius is narrow. Turning hints off does not forgive
 spend — `ctf:hints:spent` is untouched, so re-enabling restores the penalties
 rather than wiping them.
+
+## 32. Scheduled windows, evaluated at read time in three readers
+
+**Context.** [#19](#19-organizer-admin-panel-runtime-override-layer) gave
+organizers a manual freeze. Manual is not enough for a real event: an
+organizer should be able to say "scoring opens at the keynote and closes at
+17:00" and then stop watching the clock. The same is true of the team-forming
+window.
+
+The kit has no scheduler. There is no cron on the box, no job runner, and
+adding one would mean a new always-on component whose failure mode is silent —
+a missed tick leaves scoring open past its end.
+
+**Decision.** Windows are **instants stored in `ctf:admin:settings`**
+(`scoringStartsAt`/`scoringEndsAt`, `registrationStartsAt`/`registrationEndsAt`,
+normalised to ISO-UTC on write) and **evaluated at read time**, by whoever is
+about to act:
+
+```
+effectivePaused(s)          = s.paused || outsideWindow(now, scoringStartsAt, scoringEndsAt)
+effectiveRegistrationOpen(s)= s.teamRegistrationOpen && !outsideWindow(now, registrationStartsAt, registrationEndsAt)
+```
+
+Read-time evaluation means there is nothing to miss. A window that has closed
+is closed on the next request, whether or not anything ran at the boundary,
+and a box that was powered off over the window boundary behaves correctly the
+moment it comes back.
+
+The manual flag and the schedule are **ORed** for the freeze and **ANDed** for
+registration, which reads oddly until you say it aloud: the freeze is "stop
+if I said so *or* if we are outside the window", registration is "open only if
+I said so *and* we are inside the window". Both are the conservative reading
+of the organizer's two inputs.
+
+**Three readers, and they must change together.** `outsideWindow` is
+implemented independently in `apps/web/src/lib/admin-store.ts`,
+`scorer/src/store.js` and `sync/src/redis.js` — three languages-worth of
+runtime with no shared package between them — plus `team-store.ts` for the
+registration half. Each carries a comment saying so.
+
+Duplication was chosen over a shared package because the alternative is worse
+here: the scorer and sync are standalone Node services with their own
+`package.json`, so sharing would mean publishing a package or vendoring a
+build step into two services that currently have neither, to share about
+fifteen lines of date comparison. The cost is a real lockstep obligation,
+which is why it is written down in `AGENTS.md` as well as in each file.
+
+**Freeze reads fail OPEN.** If Redis is unreachable, `scorer/src/store.js` and
+`sync/src/redis.js` both return "not paused" rather than "paused". A Redis
+blip during an event must not silently discard real submissions; the failure
+mode of guessing wrong in the other direction is contestants losing work they
+have already done. This is deliberately the opposite of the hint gate and the
+quiz attempt lookup, which fail CLOSED — those guard a spend, and the safe
+answer when you cannot tell is to refuse.
+
+**Consequences.** Enforcement lands on writes rather than on a timer, so a
+"closed" window still lets contestants browse — it stops scoring, not reading,
+which matches what the freeze already did.
+
+Nothing reconciles the three implementations automatically. A change to one
+that misses the others produces an event where the app believes scoring is
+closed while the poller keeps ingesting, and the only signal is behavioural.
+The corpus tests that pin the `modules:` readers have no equivalent here.
+
+## 33. Classic CTF: static exact-match flags, stored recoverably
+
+**Context.** The `classic` module is the jeopardy format: a board of
+organizer-authored challenges, each hiding a string, graded the instant a
+contestant submits it. That is a different scoring shape from both existing
+modules — `secure-development` judges a patch through a rubric,
+`quiz` compares against an enumerable answer set.
+
+**Decision — the solve mechanic is a static, exact-match string.** No
+per-contestant flags, no regex, no scripted validators. Static means an
+organizer can write a challenge without writing code, and a flag can be
+verified by eye; exact-match means grading is a comparison rather than an
+evaluation, so there is nothing to sandbox and no way for authored content to
+become executable.
+
+**Matching is normalised on both sides** (`normalizeFlag`: trim, NFC, then
+lowercase). Copy-paste from a terminal picks up trailing whitespace,
+Unicode-normalisation differences are invisible on screen, and case is not the
+skill being tested. A contestant who found the flag should not lose it to any
+of those.
+
+**Flags are stored recoverably, in plaintext, not as a digest.** This is the
+decision most likely to look wrong at a glance, so the reasoning matters. A
+digest would let the organizer verify a submission without holding the
+original — but the organizer *authored* the flag, and needs to keep reading it
+back: to check it against the challenge text, to fix a typo, to export a board
+and reuse it next term, and to answer "is this contestant's near-miss actually
+correct?" A hash makes all of that impossible while defending against an
+attacker who, by construction, already has admin access to the box.
+
+The real exposure is a *contestant* reading flags, and that is handled by the
+read boundary rather than by the storage format: `listChallenges` issues a
+single `HGETALL` against the public hash and never touches the flag hash at
+all, while `listChallengesForAdmin` reads both behind `requireAdmin`. That
+split, and the second normalised hash it needs, is
+[#27](#27-two-flag-hashes-rather-than-one).
+
+**Categories and per-challenge points are first-class**, stored as their own
+ordered list (`ctf:classic:categories`) rather than derived from the
+challenges. An organizer sets board layout before authoring content, and an
+empty category must be able to exist while its challenges are being written.
+
+**Points are capped** (`CLASSIC_POINTS_MAX`), and the cap's real reason is not
+game balance: the challenge record is serialised with `JSON.stringify`, at
+`>= 1e21` JavaScript emits exponential form (`1e+21`), and `SUBMIT_SCRIPT`'s
+anchored Lua pattern `'"points":(%-?%d+)[,}]'` cannot read that. Without a cap
+an organizer could author a challenge that silently fails to grade. The cap is
+far below the breaking point, so the constraint never surfaces — but it is the
+constraint, and it lives in a source comment where a future refactor of the
+Lua would not think to look.
+
+**Consequences.** An organizer can put a flag in a screenshot, an email or a
+slide and it still matches. Flags are as secret as `/admin` is — the export
+bundle is the complete answer key in one file, which `docs/operations.md`
+states outright.
+
+The Lua-pattern coupling means the points cap and `SUBMIT_SCRIPT` are a pair:
+changing how the record is serialised, or how the script parses it, invalidates
+the other.
+
+## 34. Classic bulk import/export as a versioned, self-contained bundle
+
+**Context.** [#33](#33-classic-ctf-static-exact-match-flags-stored-recoverably)
+gives organizers a board to author one challenge at a time. A real board is
+twenty to forty challenges, often carried between terms or drafted offline by
+someone who is not the person running the box.
+
+**Decision.** The whole board round-trips as one JSON bundle — `version`,
+`categories`, `challenges` — imported by paste or upload and exported from the
+admin page.
+
+**Import is upsert-by-id and never deletes.** A challenge already on the board
+but absent from the file is left alone. A truncated or mistyped file therefore
+cannot destroy authored work mid-event, which is the failure that actually
+matters: the organizer is usually importing *during* setup, with contestants
+already registered. The cost, stated in the panel and the docs, is that you
+cannot prune a board by importing a shorter file — deletion stays an explicit
+per-challenge action.
+
+**Ids round-trip**, which is what makes an export a usable backup: re-importing
+updates the same challenges rather than duplicating them, and because solves
+reference ids, existing contestant progress stays attached.
+
+**Categories are unioned, never replaced.** Replacing would silently drop or
+reorder categories belonging to challenges the imported file never mentioned —
+breaking part of a board the organizer was not editing.
+
+**The parser is deliberately client-safe** (`classic-io.ts` imports nothing
+server-only, no Redis), so the admin page can validate before submitting and
+show every error at once. That creates an obligation the file states in its own
+header: it must mirror `upsertChallenge`'s rules field for field, or the two
+authoring paths disagree about what is valid. The asymmetry that is safe is
+import being *stricter* — it can only refuse a challenge the form would have
+taken, never admit one the form would reject.
+
+**The server re-parses the raw text** rather than trusting a client-parsed
+object, so a client bug cannot write something the single-challenge form would
+have rejected. The payload carries text, not a bundle.
+
+**Bundles are versioned** (`CLASSIC_BUNDLE_VERSION`), and a mismatch is a hard
+refusal rather than a best-effort read. A board is a term's work; silently
+misreading an old export is worse than refusing it.
+
+**Consequences.** Two bundle builders exist — one server-side, one in the admin
+page, which already holds the data and would otherwise re-fetch it. They can
+only drift through an *optional* added field; a new required field breaks both
+at compile time.
+
+Version 1 has no migration path yet. The first bump has to add one, and the
+refusal above is what makes that safe to defer.
+
+## 35. Module composition: the contract a fourth module must satisfy
+
+**Context.** [#25](#25-building-a-leaderboard-with-no-scoring-backend)
+introduced created rows and the ADDED-vs-ATTRIBUTED distinction, as a
+consequence of making a quiz-only board work at all.
+`classic` then needed the identical treatment, and the next module will too.
+What was missing was the *general* rule, stated once, in a place a module
+author reads before writing code.
+
+**Decision.** `withModuleContributions` is the single composition point, and
+every module joins the board through it under three rules.
+
+**Points are ADDED or ATTRIBUTED, never both, and the choice follows where
+grading happens.** `secure-development` is graded outside the app, so its
+points already sit inside the row the scorer produced — they are *attributed*
+to the module for display. `quiz` and `classic` are graded in the app, so the
+scorer has never seen them — they are *added* on top. The two verbs are not
+interchangeable in either direction: attributing an app-side module shows zero,
+adding `secure-development`'s double counts. Both failures are silent, and both
+look like a scoring dispute rather than a bug.
+
+**The board's population is a union, not the source's list.** A contestant who
+has only answered quiz questions exists in no scorer row, so the entry set is
+the union of source logins and module-point holders, matched
+case-insensitively because GitHub logins are while stored fields keep whatever
+casing the PR author used. A module that scores app-side *creates* leaderboard
+rows; it does not merely annotate them.
+
+**Progress detail is a closed union with a compile-time exhaustiveness check.**
+Each module contributes a `detail` variant, and `module-detail.tsx` closes the
+switch with an assignment to `never`. A fourth module that adds a variant
+without a render branch fails the build rather than rendering nothing — a
+deliberately loud failure, because a missing branch is invisible in a passing
+test suite and shows up as an empty expander at the event.
+
+**Consequences.** A new module touches more than its own files, and the set is
+knowable: the registry, the three `event.yaml` readers
+([#10](#10-eventyamls-module-namespace-deliberate-not-dynamic-registration), plus the third that
+[#24](#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one) added), the
+proxy's route matcher, the contribution overlay, and the detail renderer.
+`docs/modules.md` §9 is the checklist; this ADR is why the checklist has the
+entries it does.
+
+The exhaustiveness check is the only one of the three rules enforced by the
+compiler. Picking the wrong verb, or forgetting the union, both typecheck
+cleanly — they are caught by tests that assert a module-only contestant appears
+on the board at all, which is why those tests exist and why they assert on a
+named login rather than on a row count.
