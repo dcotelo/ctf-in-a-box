@@ -44,13 +44,14 @@ import Faq from "@/app/(site)/faq/page";
 
 const html = await Faq().then(renderToStaticMarkup);
 
-/** Every rendered question, in page order. The accordion puts each one in its
- *  own <button>, which is the only place the question text appears. */
+/** Every rendered question, in page order. The accordion puts each one in a
+ *  <span> that opens its <button> (faq-accordion.tsx), and `q` is a plain
+ *  string, so the capture needs no tag-stripping — `[^<]*` cannot cross into
+ *  markup. Deliberately not a strip-the-tags regex: that shape is an
+ *  incomplete sanitizer and CodeQL flags it, rightly, even in a test. */
 function questions(): string[] {
-  // `[\s\S]` rather than `.` with the `s` flag: this tsconfig targets below
-  // es2018, where dotAll is a compile error.
-  const re = /<button[^>]*>(?:(?!<\/button>)[\s\S])*?<span[^>]*>([\s\S]*?)<\/span>/g;
-  return [...html.matchAll(re)].map((m) => m[1].replace(/<[^>]*>/g, "").trim());
+  const re = /<button[^>]*>\s*<span[^>]*>([^<]*)<\/span>/g;
+  return [...html.matchAll(re)].map((m) => m[1].trim());
 }
 
 describe("/faq with every module enabled", () => {
