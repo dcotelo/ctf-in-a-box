@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVAmPI, vampiFetch, createDb } from '../helpers.js';
+import { waitForVAmPI, vampiFetch, createDb, assertApiAlive } from '../helpers.js';
 
 await createDb();
 await waitForVAmPI();
@@ -10,6 +10,10 @@ await waitForVAmPI();
 // + admin flag, so this FAILS; once the endpoint is removed/authorized or stops returning secrets
 // it PASSES.
 await test('Challenge-1-Excessive-Data-Exposure', async () => {
+  // Anti-vacuous: a legitimate login must work before any "blocked" assertion
+  // below can mean anything (docs/scorer.md, #47).
+  await assertApiAlive('challenge-1-excessive-data-exposure');
+
   const res = await vampiFetch('/users/v1/_debug');
   const leaks =
     res.status === 200 &&

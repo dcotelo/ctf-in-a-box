@@ -1,11 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, waitForServer } from '../helpers.js';
+import { api, waitForServer, assertShopAlive } from '../helpers.js';
 
 await waitForServer();
 
 // A UNION SELECT in the product search must not exfiltrate user credentials.
 test('unionSqlInjectionChallenge — UNION SELECT in search must not leak users', async () => {
+  // Anti-vacuous: the shop must actually be serving before any "blocked"
+  // assertion below can mean anything (docs/scorer.md, #47).
+  await assertShopAlive();
+
   const q = "qwert')) UNION SELECT id, email, password, '4','5','6','7','8','9' FROM Users--";
   const res = await api(`/rest/products/search?q=${encodeURIComponent(q)}`);
   const body = JSON.stringify(res.body ?? '');
