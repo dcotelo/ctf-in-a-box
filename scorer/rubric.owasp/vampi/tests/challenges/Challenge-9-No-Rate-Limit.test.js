@@ -20,8 +20,18 @@ await test('Challenge-9-No-Rate-Limit', async () => {
     ),
   );
 
-  // PATCHED: at least one attempt must be throttled (429) or otherwise not served a plain 200.
-  const throttled = results.some((r) => r.status === 429) || !results.every((r) => r.status === 200);
+  // PATCHED: the burst must be visibly throttled. Requires either an explicit
+  // 429, or a SUBSTANTIAL share of the burst refused.
+  //
+  // Deliberately not "any single response was not 200": twenty concurrent
+  // requests at a just-booted container produce the occasional transient
+  // error, and that phrasing let one blip award the point on a STOCK app —
+  // observed as a flaky stock-scores-zero failure. Stock serves all twenty
+  // with 200, so a real rate limiter is easy to distinguish; anything that
+  // refuses a quarter of a rapid burst passes, whatever status it uses.
+  const refused = results.filter((r) => r.status !== 200).length;
+  const throttled = results.some((r) => r.status === 429) || refused >= 5;
   assert.ok(throttled,
-    'rate limiting must be enforced: rapid brute-force login attempts must not all be served');
+    `rate limiting must be enforced: rapid brute-force login attempts must not all be served ` +
+    `(${refused}/${attempts} refused, none with 429)`);
 });
