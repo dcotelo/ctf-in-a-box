@@ -69,7 +69,7 @@ training day.
 | **Team scoring** | Per-team standings with self-registration, captains and join codes. A flag solved by several teammates counts once (dedupe). Solo players are teams of one. |
 | **Live leaderboard + score-over-time graph** | A ranked team leaderboard with a CTFd-style graph drawn from real per-solve timestamps. |
 | **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, toggle hints and their cost, open/close team registration. |
-| **Scoring pipeline** | A GitHub-Actions-fed pipeline (poll or push) with a single audited score writer — the transport a module submits scores through. |
+| **Scoring pipeline** | A GitHub-Actions-fed pipeline (poll or push) with a single audited score writer — the transport for modules scored outside the app. Modules that grade in-app (quiz, classic) bank points directly and never touch it. |
 | **Poll or push** | Poll mode (default) has zero inbound network surface — works behind NAT, on a laptop, on venue wifi. Push mode is near-instant if you have a public URL. |
 | **One box, no cloud** | Runs from Docker Compose on a machine you already have, plus one free GitHub org. Nothing is billed, nothing phones home. |
 
@@ -194,13 +194,17 @@ Once the stack is up at your `EVENT_URL`:
 
 - Contestants sign in with GitHub, form or join a team, pick a target, fork it,
   patch the vuln, and open a PR back to the org's copy. The scoring Action runs
-  and the score lands on the team leaderboard (~30 s in poll mode).
-- Watch the poller: `docker compose logs -f sync`. All state lives in named
-  Docker volumes, so a box reboot loses nothing.
+  and the score lands on the team leaderboard (~30 s in poll mode). That is the
+  secure-development flow; quiz and classic events are played entirely in the
+  app.
+- Watch the poller: `docker compose logs -f sync` — poll mode only, and only
+  with `secure-development` enabled (`sync` runs under the `poll` profile). All
+  state lives in named Docker volumes, so a box reboot loses nothing.
 - Manage the event from `/admin` (allowlisted): freeze the leaderboard, toggle
   hints, open/close team registration.
 - When it's over, `./setup/ctf-setup.sh teardown` archives the target repos —
   then uninstall the GitHub App and delete the org's Actions secrets yourself.
+  An event without `secure-development` has no forks to archive.
 
 Prerequisites, poll-vs-push, OAuth setup and config all live in
 [docs/hosting.md](docs/hosting.md); the admin panel, verifying the kit, the
@@ -228,7 +232,7 @@ in [docs/decisions.md](docs/decisions.md).
 |---|---|
 | [docs/hosting.md](docs/hosting.md) | Standing the kit up — prerequisites, poll vs push, the GitHub OAuth app, and event config |
 | [docs/aws.md](docs/aws.md) | Single-shot deploy on AWS — a Terraform module (`deploy/aws-terraform/`) for one ephemeral EC2 box: `apply` up, `destroy` down |
-| [docs/operations.md](docs/operations.md) | Running an event — teams, the admin panel, verifying the kit, the local dev-stack, teardown, and status |
+| [docs/operations.md](docs/operations.md) | Running an event — teams, the admin panel, the quiz and classic organizer guides, verifying the kit, the local dev-stack, teardown, and status |
 | [docs/architecture.md](docs/architecture.md) | How the stack fits together — diagram, score data flow, security model, testing strategy |
 | [docs/scorer.md](docs/scorer.md) | The scorer engine: serve + judge modes, both rubric grammars, authoring and building |
 | [docs/modules.md](docs/modules.md) | The module contract — the platform/module boundary, and what a new module must provide to plug into the control plane |

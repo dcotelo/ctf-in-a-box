@@ -43,11 +43,13 @@ the sections below are the enforceable contract behind it.
        score_ingest: poll             # poll | push
    ```
 
-2. MUST NOT expect dynamic/plugin-style registration in v1. **Two**
+2. MUST NOT expect dynamic/plugin-style registration in v1. **Three**
    independent readers parse the same `event.yaml`, and each enumerates the
    module keys it knows explicitly, failing on anything else: the poll
-   service's config loader (`sync/src/config.js`) and the app's build-time
-   generator (`apps/web/scripts/generate-event-config.mjs`). In `sync`:
+   service's config loader (`sync/src/config.js`), the app's build-time
+   generator (`apps/web/scripts/generate-event-config.mjs`), and the
+   provisioning script (`setup/ctf-setup.sh`, whose `KNOWN_MODULES` is
+   enforced by `check_known_modules`). In `sync`:
 
    ```js
    export const KNOWN_MODULES = ["secure-development", "quiz", "classic"];
@@ -66,22 +68,23 @@ the sections below are the enforceable contract behind it.
    `modules.secure-development` itself is simply not configured, which is
    what lets a quiz-only event run `sync` to a clean exit instead of a
    crash loop (see [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
-   for why the line is drawn there). The two lists MUST stay in step,
-   because both services mount the same file: an id the app accepts and
-   `sync` rejects crash-loops the poller and silently freezes the
-   leaderboard.
+   for why the line is drawn there). All three lists MUST stay in step,
+   because all three read the same file: an id the app accepts and `sync`
+   rejects crash-loops the poller and silently freezes the leaderboard, and
+   an id the app and `sync` accept but `ctf-setup.sh` does not aborts
+   provisioning outright.
 
-   Adding a module means extending both readers to recognize the new key and
-   validate its shape — the same way `secure-development`'s block requires a
-   non-empty `targets` array drawn from a known target enum (`TARGETS` in
-   `config.js`). `setup/ctf-setup.sh`'s `yaml_targets` needs no change: it is
-   scoped to the `secure-development:` block by construction and provisions
-   that module's forks only, so a module with its own provisioning adds its
-   own step instead. The script does carry its own `KNOWN_MODULES` mirror,
-   though (`check_known_modules`/`has_module`), for the same missing-vs-unknown
-   distinction `sync` draws — see §7 below for what it gates. Registration is
-   deliberate, not dynamic; this is a v1 constraint, not a permanent
-   architectural stance.
+   Adding a module means extending all three readers to recognize the new
+   key and validate its shape — the same way `secure-development`'s block
+   requires a non-empty `targets` array drawn from a known target enum
+   (`TARGETS` in `config.js`). What `setup/ctf-setup.sh` needs is the new key
+   in its `KNOWN_MODULES` mirror (`check_known_modules`/`has_module`), for the
+   same missing-vs-unknown distinction `sync` draws — see §7 below for what it
+   gates. Its `yaml_targets` needs no change: that one is scoped to the
+   `secure-development:` block by construction and provisions that module's
+   forks only, so a module with its own provisioning adds its own step
+   instead. Registration is deliberate, not dynamic; this is a v1 constraint,
+   not a permanent architectural stance.
 
    A module is enabled by **being present** under `modules:` and disabled by
    being omitted. There is no `enabled:` key — a module MUST NOT invent one.
@@ -602,8 +605,10 @@ of one module's shape.
    the entire point of a pre-event window), `/api/team/*` (team registration
    has its own separate window, `effectiveRegistrationOpen` — registering
    before kickoff is intended), `/api/stats/visit` (telemetry), and
-   `GET /api/hints` (returns only metadata — enabled, cost, purchased ids,
-   spent, count — never hint text).
+   `GET /api/hints` (it returns the texts of hints the caller has **already
+   purchased**, to a caller who must already be authenticated — it reveals
+   nothing the buyer has not already paid for and cannot be used to read an
+   unbought hint).
 
    This still is **not** an authorization boundary: it is a "the board opens
    at the keynote" curtain over a handful of scoring/content-leak paths, not
@@ -756,10 +761,10 @@ build-time vendoring step first). Until then, a new module `<name>` with target
 | `apps/web/scripts/generate-event-config.mjs` | mirror the module-key + target validation |
 | `apps/web/src/lib/modules.ts` | register the module's display name / description |
 | `apps/web/src/lib/apps.ts` | add `<t>` to `AppId` / `REPO_NAMES` / `apps[]` |
-| `scorer/src/targets.js` | add `<t>`'s scoring shape (byName / concurrency / urlEnv) |
+| `scorer/src/targets.js` | add `<t>`'s scoring shape (`name` / `catalogueFile` / `byName` / `defaultConcurrency` / `urlEnv`) |
 | `scorer/entrypoints/<t>.sh` | the target's bring-up |
-| `scorer/rubric.owasp/<t>/` | the vendored rubric + `catalogue.<t>.json` |
-| `setup/ctf-setup.sh` | the `yaml_targets` parser recognises the module block |
+| `scorer/rubric.owasp/<t>/` | the vendored rubric, with its catalogue at `tests/challenges/catalogue.<t>.json` |
+| `setup/ctf-setup.sh` | add `<name>` to `KNOWN_MODULES` |
 | `event.yaml.example` + README target table | document the target |
 
 Parity guards catch the most common drift: `scorer/test/targets.test.js`

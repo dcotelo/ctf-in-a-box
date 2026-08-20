@@ -36,6 +36,9 @@ that operates the event, not the practice targets it hosts:
 - `sync/` — the poll/push scoring transport
 - `apps/web/` — the contestant web app (auth, teams, admin panel)
 - `setup/` — `ctf-setup.sh` and event provisioning
+- `deploy/` — the optional cloud deploy modules (IAM roles, security groups,
+  secrets handling, cloud-init bring-up)
+- `patches/` — the reference patches shipped for the targets
 - `scripts/`, `.github/workflows/` — CI, smoke tests, and automation
 
 Examples of what's in scope: authentication or authorization bypass in the

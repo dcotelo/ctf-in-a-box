@@ -25,13 +25,14 @@ each UI-only one, and resumes if you stop:
 ```
 
 **The modules question drives the rest of the wizard.** It offers the module
-ids this build knows (`secure-development quiz`) and then asks only what the
-ones you picked actually need:
+ids this build knows (`secure-development quiz classic`) and then asks only
+what the ones you picked actually need:
 
 | You enable | The wizard asks | The wizard skips |
 |---|---|---|
 | `secure-development` | targets, `score_ingest` (poll/push) | — |
 | `quiz` only | nothing extra | targets, score ingest, the scorer image, the poll GitHub App, and org fork-provisioning |
+| `classic` only | nothing extra | the same set `quiz` only skips |
 | both | targets, `score_ingest` | — |
 
 A quiz-only event is never asked to pick vulnerable apps it will never fork,
@@ -269,8 +270,19 @@ Compose profiles follow your **enabled modules**, not your taste: `app` is
 always on, and the score-ingest profile — `poll` or `push`, whichever
 `SCORE_INGEST` you set — carries everything `secure-development` needs. The
 `scorer` is part of that module (it exists to score PRs against forked
-targets), so it is profiled exactly like `sync` is; a quiz-only event must
-not be asked to pull a scorer image it has no reason to own.
+targets), so it carries both ingest profiles — `["poll", "push"]` — while
+`sync` carries `["poll"]` alone, since push mode has the fork's Action POST
+to the scorer directly and needs no poller. A quiz-only event must not be
+asked to pull a scorer image it has no reason to own.
+
+**Every one of these is a `--build`, so every one needs `EVENT_CONFIG_B64`.**
+Export it once, in the same shell — without it the build silently bakes
+neutral defaults, including an empty `admins` list that 403s everyone out of
+`/admin`:
+
+```sh
+export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
+```
 
 | `modules:` in your `event.yaml` | Command |
 |---|---|
@@ -290,8 +302,9 @@ Terraform module for a single-shot EC2 deploy — `terraform apply` up,
 `sync` needs a token to read the event org's target repos, and a GitHub App
 is the only supported poll auth: org-scoped, auto-expiring, revocable, and not
 tied to a person. Each organizer creates their **own** App from
-[`sync/app-manifest.json`](../sync/app-manifest.json) and installs it on their
-event org — there is no shared, central App, so the private key stays yours.
+[`sync/app-manifest.json`](https://github.com/dcotelo/ctf-in-a-box/blob/main/sync/app-manifest.json)
+and installs it on their event org — there is no shared, central App, so the
+private key stays yours.
 
 `ctf-setup.sh` assists the two error-prone parts; you still click Create and
 Install in GitHub's UI (the script cannot mint credentials for you):
@@ -348,7 +361,7 @@ register the OAuth app on your personal account rather than the org.
 
 `event.yaml` uses a **modules** schema. Platform settings (`event`, `github`,
 `teams`, `hints`, `admins`) sit at the top level; challenge content is
-namespaced under `modules.<name>`, one block per registered module id. Two
+namespaced under `modules.<name>`, one block per registered module id. Three
 ids are registered today:
 
 ```yaml
@@ -358,6 +371,8 @@ modules:
     score_ingest: poll             # poll | push
   quiz: {}                        # single/multi-select question bank, scored
                                     # app-side — see docs/operations.md's "Quiz"
+  classic: {}                     # jeopardy-style flag board, scored app-side
+                                    # — see docs/operations.md's "Classic"
 ```
 
 **A module is enabled by being present.** There is no `enabled:` key: a
@@ -378,11 +393,13 @@ block contract.
 
 `modules.secure-development.targets` is still the field that drives the
 app's target list, nav, challenge browser, and leaderboard columns for that
-module — nothing about that changed. A second module block is legal: both
-readers of `event.yaml` — the app's generator
-(`apps/web/scripts/generate-event-config.mjs`) and the poll service's config
-loader (`sync/src/config.js`'s `KNOWN_MODULES`) — recognize
-`secure-development` and `quiz` as known ids and reject anything else loudly.
+module — nothing about that changed. A second module block is legal: all
+three readers of `event.yaml` — the app's generator
+(`apps/web/scripts/generate-event-config.mjs`), the poll service's config
+loader (`sync/src/config.js`'s `KNOWN_MODULES`), and the provisioning
+script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) — recognize
+`secure-development`, `quiz`, and `classic` as known ids and reject anything
+else loudly.
 Adding `quiz:` turns on a real second module: a "Quiz" nav link and a `/quiz`
 page for contestants, a Quiz section in `/admin` for authoring questions
 (prompt, choices, correct answer(s), points, order) and tuning its two
@@ -408,8 +425,9 @@ them. See [docs/modules.md §5](modules.md#5-ui--presentation-contract) for
 the UI composition contract and [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
 for why the missing-vs-unknown distinction is drawn where it is.
 
-**Boot a quiz-only event with `docker compose --profile app up -d --build`**
-— just the `app` profile. The score-ingest profiles (`poll` / `push`) carry
+**Boot a quiz-only event with `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose --profile app up -d --build`**
+— just the `app` profile, and the same `EVENT_CONFIG_B64` every `--build`
+needs. The score-ingest profiles (`poll` / `push`) carry
 `secure-development`'s two services, `sync` and the `scorer`, and a quiz-only
 event has no use for either: nothing to poll, and no scorer image to pull
 (the compose fallback is the maintainers' private image, so asking for it
@@ -431,8 +449,15 @@ answers, which is the same schema with none of the YAML. Only the modules you
 enable need their own settings: `modules.secure-development.targets` and
 `score_ingest` for that one, nothing for `quiz`. Team play is configured at the
 top level — `teams: { enabled: true, max_size: 4 }` in `event.yaml.example`.
-`hints: { enabled: true }` matches the running default (hints are on unless you
-set `HINTS_ENABLED=false` in `.env`); neither key is read at build time. What a
+`hints: { enabled: true }` matches the running default — hints are on; neither
+key is read at build time. **`HINTS_ENABLED=false` in `.env` will not turn them
+off on the composed stack**: `docker-compose.yml`'s `app` service does not
+forward that variable and `apps/web/Dockerfile` declares no build arg for it,
+so the container never sees it. The switch that does work is `/admin`'s hint
+controls, a runtime override stored in Redis — it decides whether a hint **can
+be bought**, though not the page furniture around it; see
+[docs/operations.md](operations.md#organizer-admin-panel) for exactly what it
+does and does not change. What a
 module must provide to
 plug in — config block, scoring contract, transports, security requirements,
 provisioning — is documented in [docs/modules.md](modules.md).

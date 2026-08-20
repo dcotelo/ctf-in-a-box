@@ -135,9 +135,13 @@ The panel offers:
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
 - **Hint controls** (Secure Development tab) — an override for whether hints are enabled and what
-  they cost, on top of the build-time default. Hints are **on by default**
-  (set `HINTS_ENABLED=false` to remove them entirely) and cost 10 points
-  each. This takes effect immediately for whether a hint **can be bought**.
+  they cost, on top of the build-time default. Hints are **on by default** and
+  cost 10 points each. This override is also the *only* switch that works on
+  the composed stack: `HINTS_ENABLED=false` in `.env` never reaches the app
+  container — `docker-compose.yml`'s `app` service does not forward that
+  variable and `apps/web/Dockerfile` declares no build arg for it — so it
+  cannot turn hints off. This takes effect immediately for whether a hint
+  **can be bought**.
   It does **not** currently change, live, whether the challenges page
   **offers** the hint button, the hint-notice banner, or the leaderboard's
   hint-penalty display — those still reflect whatever `HINTS_ENABLED` was
@@ -202,8 +206,10 @@ The panel offers:
   without running real PRs. When the `quiz` module is enabled, this also seeds
   a small demo question bank with some already answered, so the board shows a
   genuinely combined score (patch points plus quiz points) rather than just
-  one module. **It does not currently seed any classic demo data** — see
-  [Classic](#classic) below for that gap. The button and its route only exist when the app is
+  one module. When the `classic` module is enabled, it seeds a demo flag board
+  the same way — categories, challenges (flags included), and a spread of
+  solves — so a multi-module event previews as one combined board. See
+  [Classic](#classic) below. The button and its route only exist when the app is
   started with `DEMO_MODE=1` (the local `scripts/dev-stack up` sets it); they are
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
@@ -220,13 +226,13 @@ questions and their answer keys**, the same way it keeps `event.yaml`-derived
 admin settings. A reset event doesn't mean re-building the quiz from scratch.
 See [Quiz](#quiz) below.
 
-**The master reset does not currently touch `classic` at all.** Unlike quiz,
-none of `ctf:classic:*` (challenges, flags, solves, attempts, or the three
-aggregate counters) is cleared by a reset today — a stated gap, not a
-documented feature. If you run a test event on the `classic` module and then
-reset for the real thing, wipe those keys by hand (or plan to run the whole
-stack against a fresh Redis volume) rather than relying on the reset button.
-See [Classic](#classic) below.
+`classic` is scoped exactly the same way: the master reset clears every
+contestant's flag solves and attempts (and the three aggregate
+points/solved/solve-count hashes the leaderboard reads) but deliberately
+**keeps your authored challenges, their flags, and your categories** — the
+same organizer content/contestant progress line the quiz reset draws. A
+rehearsal on the `classic` module wipes back to the challenge set you wrote,
+ready to run for real. See [Classic](#classic) below.
 
 ## Quiz
 
@@ -432,10 +438,11 @@ board's login set is the union of whoever the scoring backend reports and
 whoever holds quiz or classic points, so a login with only classic points
 (or an event running the `classic` module alone) still gets a row.
 
-**The master reset does not currently clear classic progress or demo mode
-seed any**, unlike the quiz — see the note under "Organizer admin panel"
-above. Plan around this if you run a rehearsal on the `classic` module
-before the real event.
+**The master reset clears classic progress, and demo mode seeds a classic
+board** — both exactly as they do for the quiz; see the notes under
+"Organizer admin panel" above. A rehearsal on the `classic` module resets
+back to the challenges, flags, and categories you authored, which the reset
+keeps.
 
 **Bulk authoring: import and export the whole challenge set as one file.**
 Beyond the admin form's one-challenge-at-a-time editing, the Classic tab's

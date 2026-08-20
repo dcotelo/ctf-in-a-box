@@ -103,7 +103,7 @@ state; everything else that touches scores goes through it.
 |---|---|---|
 | `caddy` | `caddy:2-alpine` image; `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. |
 | `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. Event name/dates/targets are baked in at build time (see below). |
-| `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the private rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it is profiled like `sync` is (`profiles: ["poll", "push"]` — both ingest modes need it) and a quiz-only event never brings it up; see [ADR 26](decisions.md#26-compose-profiles-follow-the-enabled-modules). |
+| `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["poll", "push"]` — both ingest modes need it, unlike `sync`, which is `["poll"]` only — and a single-module event without `secure-development` never brings it up; see [ADR 26](decisions.md#26-compose-profiles-follow-the-enabled-modules). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:7-alpine`, `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
 | `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). Tolerates `modules.secure-development` being absent from `event.yaml` (e.g. a quiz-only event): it logs `no polled module enabled, nothing to do` and exits `0` rather than polling anything — `restart: on-failure` (not `unless-stopped`) is what keeps that clean exit from being restarted as if it were a crash. |
@@ -129,8 +129,8 @@ state; everything else that touches scores goes through it.
 
    `score-action`'s `leaderboard-url`/`leaderboard-token` inputs, which
    push mode needs to know where and how to POST, are still an unlanded
-   upstream change ([Status and upstream
-   dependencies](operations.md#status-and-upstream-dependencies), item 2).
+   upstream change
+   ([Status and upstream dependencies](operations.md#status-and-upstream-dependencies), item 2).
 4. In poll mode, `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
    `fetchNewScoreComments` (`sync/src/github.js`), which fetches issue
    comments since the last cursor and **filters by comment author
@@ -496,15 +496,6 @@ aggregate counters alone, mirroring `deleteQuestion`. Points already banked
 for a deleted challenge stay on the leaderboard; only the master reset
 clears them.
 
-**Known gap, stated plainly:** unlike `quiz`, `classic`'s Redis keys are
-currently **not** included in either the master reset's `RESET_PREFIXES`
-(`admin-store.ts`) or the `DEMO_MODE` seed (`seedDemoData`). A master reset
-today wipes secure-development solves, teams, users, join codes, hints, and
-every quiz key — but leaves every `ctf:classic:*` key untouched, and demo
-mode seeds fake secure-development solves and quiz answers but no demo
-classic challenges or solves. This is a known follow-up, not a documented
-feature of either mechanism.
-
 ## Organizer admin panel (runtime overrides)
 
 `event.yaml`'s `admins` allowlist (checked case-insensitively against the
@@ -564,13 +555,20 @@ returns `false`; `scorer/src/store.js` does the same).
 **Master reset + the reset epoch.** `resetEvent()` (`admin-store.ts`, behind
 `POST /api/admin/reset`, `requireAdmin` + server-side type-to-confirm) wipes
 all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,
-`ctf:joincode:*`, `ctf:hints:*`, and, when the `quiz` module is enabled,
+`ctf:joincode:*`, `ctf:hints:*`,
 `ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
-`ctf:quiz:answered` — keeps `ctf:admin:settings` and (deliberately)
-`ctf:quiz:questions`/`ctf:quiz:key`, and appends a
-reset audit line. On its own that isn't enough in **poll mode**: `sync` would
-re-ingest the same PR comments within a cycle and undo the wipe. So the reset
-also freezes scoring **and bumps a `resetAt` epoch field in the settings hash**.
+`ctf:quiz:answered`, and
+`ctf:classic:solves:*`/`ctf:classic:attempts:*`/`ctf:classic:points`/
+`ctf:classic:solved`/`ctf:classic:solvecount` — keeps `ctf:admin:settings`
+and (deliberately) the organizer's authored content,
+`ctf:quiz:questions`/`ctf:quiz:key` and `ctf:classic:challenges`/
+`ctf:classic:flag`/`ctf:classic:flagnorm`/`ctf:classic:categories`, and
+appends a reset audit line. The prefix list is walked unconditionally: the
+reset does not check which modules are enabled, so keys a since-disabled
+module left behind are cleared too. On its own that isn't enough in **poll
+mode**: `sync` would re-ingest the same PR comments within a cycle and undo
+the wipe. So the reset also freezes scoring **and bumps a `resetAt` epoch
+field in the settings hash**.
 `sync/src/index.js`'s `tick()` reads it (`redis.getResetAt()`) *before* the
 pause check and, when it advances, drops its per-repo cursor/seen state — so the
 wipe sticks even while frozen, and an unfreeze re-polls from scratch. This
@@ -628,10 +626,10 @@ config — it's baked into the `app` image at build time:
    (see
    [decisions.md #13](decisions.md#13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build)).
    It validates every key under `event.yaml`'s `modules:` map against a fixed
-   set of registered ids (today: `secure-development`, `quiz`) and emits a
-   structured `modules` array (one entry per registered, enabled id) plus a
-   derived back-compat `targets` array — `secure-development`'s `targets`
-   list, or `[]` if that module isn't enabled — so existing `targets`
+   set of registered ids (today: `secure-development`, `quiz`, `classic`) and
+   emits a structured `modules` array (one entry per registered, enabled id)
+   plus a derived back-compat `targets` array — `secure-development`'s
+   `targets` list, or `[]` if that module isn't enabled — so existing `targets`
    consumers don't need to know the config is now multi-module. It writes
    `apps/web/src/lib/event-config.generated.ts` (gitignored — a typed `const`
    module) and fails the build loudly (non-zero exit) on invalid input,
@@ -643,8 +641,9 @@ config — it's baked into the `app` image at build time:
    each id's registry entry (display name, description, nav) — enablement
    comes from config, display metadata lives in code — and `site.ts`'s
    `moduleNavLinks`/`buildNavLinks` splice a module's nav entry into the flat
-   list iff that module is enabled and defines one (a module with no
-   contestant route, like `quiz` today, contributes no link). The header and
+   list iff that module is enabled and defines one (`nav` is optional in the
+   registry type, so a future module with no contestant route would
+   contribute no link; all three registered today define one). The header and
    the footer diverge from there: the footer (`getNavLinks`) always renders
    that flat list, but the header (`getNavGroups`) collapses it further —
    exactly one module still renders as a plain link, but two or more collapse
@@ -702,8 +701,8 @@ config change").
   A replayed already-applied score is expected to be a no-op on the scorer
   side, not a double-count. The real (private) `scorer` image doesn't
   accept bearer-token auth on `POST /score` yet — that's an unlanded
-  upstream change (see [Status and upstream
-  dependencies](operations.md#status-and-upstream-dependencies), item 1); the
+  upstream change (see
+  [Status and upstream dependencies](operations.md#status-and-upstream-dependencies), item 1); the
   offline mock scorer in `scripts/smoke.sh` is today's end-to-end proof of
   this write path, not a live scorer.
 - **Per-event disposable orgs.** Each event gets its own GitHub org
@@ -726,12 +725,13 @@ config change").
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
 | Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Builds the real app image bound to a `modules: { quiz: {} }` config (no `secure-development` at all), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. Separately brings up `sync` through the real `docker-compose.yml` against the same config and asserts it exits `0`, logs the clean no-op reason, and — sampled over several seconds — stays exited rather than being restarted. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile poll --profile app` must still contain both. |
 
-CI (`.github/workflows/ci.yml`) carries six jobs — `sync-tests`, `shell`
+CI (`.github/workflows/ci.yml`) carries seven jobs — `sync-tests`, `shell`
 (shellcheck + bats), `smoke`, `app` (vitest + `next build` +
-`acceptance-app.sh`), `scorer` (`node --test` + `acceptance-scorer.sh`), and
-`quiz-only` (`acceptance-quiz-only.sh`). A `changes` gate (native `git diff`,
+`acceptance-app.sh`), `scorer` (`node --test` + `acceptance-scorer.sh`),
+`quiz-only` (`acceptance-quiz-only.sh`), and `classic-only`
+(`acceptance-classic-only.sh`). A `changes` gate (native `git diff`,
 no third-party action) runs only the jobs whose area a PR touches; a push to
-`main` runs all six. The heavier `stock-scores-zero` / `patched-scores-right`
+`main` runs all seven. The heavier `stock-scores-zero` / `patched-scores-right`
 workflows are scoped to judge-relevant scorer inputs, so a leaderboard-only
 change doesn't spin up the per-target Maven/gradle builds.
 

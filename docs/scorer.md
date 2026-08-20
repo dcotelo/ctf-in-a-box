@@ -5,12 +5,11 @@ title: Scorer
 # Scorer
 
 How to run scoring without any upstream access: author a rubric, build your
-own private scorer image from the engine in `scorer/`, and close the whole
+own scorer image from the engine in `scorer/`, and close the whole
 scoring loop with components in this repo. For where the scorer sits in the
 system, see [docs/architecture.md](architecture.md); for the contract it
-implements, see [docs/modules.md](modules.md) §2–3; for why the engine is
-public and the rubric is not, see
-[decisions.md #17](decisions.md#17-public-scorer-engine-private-rubric).
+implements, see [docs/modules.md](modules.md) §2–3; for why the rubric ships
+public, see [decisions.md #18](decisions.md#18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public).
 
 ## What the scorer is
 
@@ -50,26 +49,38 @@ and no upstream service anywhere:
 Push mode short-circuits steps 3–4: the judge POSTs directly to your box's
 public `/score` route and the comment is informational.
 
-## Threat model — why the rubric is private and the engine is not
+## Threat model — the rubric ships public
 
 The targets are open source and their vulnerabilities and solutions are
-already public (Juice Shop has an official solutions guide). This is an
-educational CTF: rubric privacy is **not** about hiding answers. What it
-prevents is check-gaming during the event — a patch crafted to satisfy the
-exact probe (special-casing the probe's payload string, hardcoding the
-expected status) without actually fixing the vulnerability. Two practical
+already public (Juice Shop has an official solutions guide), so rubric
+privacy was never about hiding answers. What a private rubric buys is
+protection from check-gaming during the event — a patch crafted to satisfy
+the exact probe (special-casing the probe's payload string, hardcoding the
+expected status) without actually fixing the vulnerability. The kit accepts
+that exposure as a trade-off rather than treating it as a blocker: the
+vendored `rubric.owasp/` is public in this repo and is what a stock build
+bakes ([decisions.md #18](decisions.md#18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public),
+reversing the earlier posture in
+[#17](decisions.md#17-public-scorer-engine-private-rubric)). Two practical
 consequences:
 
-- Keep the **built image** private while the event runs (the mirror steps
-  below). Access control is the defense; the image contents are assumed
-  readable by anyone who can pull it.
-- After the event, **publishing your rubric is encouraged** — a
-  well-written rubric is teaching material for the next cohort, and the
+- **Stock default:** the checks a contestant is scored against are readable
+  in this repo. Check-gaming is mitigated by rubric *shape* rather than by
+  secrecy — the exec probes assert timing and response structure, which a
+  patch cannot satisfy without changing the real behaviour the way a
+  `bodyMissing` substring can be. That is a weaker guarantee than a hidden
+  rubric, not an equivalent one.
+- **Optional private path:** an organizer who wants the checks hidden
+  authors their own rubric, bakes it with `RUBRIC_DIR`, and keeps the built
+  image private while the event runs (the mirror steps below). Access
+  control is the defense there; the image contents are assumed readable by
+  anyone who can pull it. Publishing that rubric afterwards is encouraged —
+  a well-written rubric is teaching material for the next cohort, and the
   solutions were public all along.
 
-The judge enforces the same discipline at runtime: the PR comment shows
-challenge name, points, and ✅/❌ only — never probe paths, payloads, or
-expected values.
+Either way the judge enforces its own discipline at runtime: the PR comment
+shows challenge name, points, and ✅/❌ only — never probe paths, payloads,
+or expected values.
 
 ## Authoring a rubric
 
@@ -115,10 +126,13 @@ gates the positive one — it stages the pinned upstream source, applies a
 **reference patch** from `patches/<target>/`, builds the fork, and asserts that
 *exactly* the patched challenge is solved for its catalogue-difficulty points
 while the other `N-1` still fail. Both gates share their staging/build/judge
-machinery via `scripts/lib/acceptance-lib.sh`. VAmPI is the first target with
-reference patches (2 of 9 challenges, proving the mechanism, not full coverage);
-see [patches/vampi/README.md](../patches/vampi/README.md) for the convention and
-the anti-vacuous discipline that keeps a broken-app "pass" from counting.
+machinery via `scripts/lib/acceptance-lib.sh`. All six targets have a reference
+patch under `patches/<target>/` — one challenge each (VAmPI has two), enough to
+prove the mechanism and, across VAmPI's pair, that the assertion discriminates.
+That is **not** full per-challenge coverage; see
+[patches/README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/patches/README.md) for the per-target status table, the
+convention, and the anti-vacuous discipline that keeps a broken-app "pass" from
+counting.
 
 `scorer/rubric.example/` is the living documentation: `juice-shop.yaml`
 is commented as a tutorial and its README covers the authoring workflow.
@@ -126,7 +140,11 @@ It is no longer what a default build bakes (that's the vendored
 `scorer/rubric.owasp/`), but it is still what `scripts/acceptance-scorer.sh`
 scores against, via `--build-arg RUBRIC_DIR=rubric.example`.
 
-## Building and mirroring your private image
+## Building and mirroring your own image
+
+A stock event needs none of this: omit `RUBRIC_DIR` and the build bakes the
+vendored `rubric.owasp/`. This section is the optional path — baking a rubric
+of your own, private or not.
 
 Docker `COPY` can only read paths inside the build context (`scorer/`), so
 a rubric outside the repo cannot be referenced with `../my-rubric`. The
@@ -139,18 +157,19 @@ docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 ```
 
 Pass `--build-arg RUBRIC_DIR=rubric.example` to bake the example rubric
-instead (useful for rehearsals, useless for a real event — contestants can
-read it here). Omit `--build-arg` entirely to bake the vendored
+instead (useful for rehearsals, useless for a real event — three tutorial
+probes on one target). Omit `--build-arg` entirely to bake the vendored
 `rubric.owasp/` rubric — the stock default.
 
 Then let the kit distribute it: set `SCORE_IMAGE` in `.env` to your image
 and run `./setup/ctf-setup.sh org` — the mirror step pushes whatever
 `SCORE_IMAGE` names into the event org's own GHCR
 (`ghcr.io/<org>/score:latest`) so forked repos' Actions can pull it with
-their own `GITHUB_TOKEN`. Keep the package **private**: after the first
-push, check the package's settings in the event org (GHCR packages
-inherit visibility from linked repos or default per org settings — verify,
-don't assume) and leave it private until the event ends.
+their own `GITHUB_TOKEN`. If the image carries a rubric you want hidden, keep
+the package **private**: after the first push, check the package's settings in
+the event org (GHCR packages inherit visibility from linked repos or default
+per org settings — verify, don't assume) and leave it private until the event
+ends.
 
 ## Installing the consumer workflow
 
@@ -170,7 +189,7 @@ placeholders are:
 | Placeholder | Meaning |
 |---|---|
 | `<EVENT_ORG>` | The GitHub org the scorer image was mirrored into (`ghcr.io/<EVENT_ORG>/score:latest`) |
-| `<TARGET>` | The repo's rubric target id — must match a `<target>.yaml` in the baked rubric, e.g. `juice-shop` |
+| `<TARGET>` | The repo's rubric target id — must match a target the baked rubric defines: a `<target>/` directory holding `tests/challenges/catalogue.<target>.json` for an exec rubric (what `rubric.owasp/` ships), or a `<target>.yaml` for a declarative one (what `rubric.example/` ships). E.g. `juice-shop` |
 | `<APP_URL>` | Where the app under test answers **on the ctf network**, e.g. `http://<TARGET>:3000` — no host ports are published |
 
 The renderer fills `<APP_URL>` with each target's **stock** port
