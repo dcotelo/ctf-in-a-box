@@ -115,6 +115,20 @@ export async function resolveHintConfig(): Promise<{
   };
 }
 
+/** What the challenges page's hint banner needs: whether to show it, and the
+ *  organizer's configured price.
+ *
+ *  Exists so the page never calls `resolveHintConfig` directly. That reads
+ *  admin settings, and `upstashPipeline` THROWS when the Upstash credentials
+ *  are absent — which would 500 `/challenges` on any deployment without
+ *  Redis. Capability first, same as every other read path here: no
+ *  credentials means hints are off and there is nothing to ask Redis. */
+export async function getHintNotice(): Promise<{ active: boolean; cost: number }> {
+  if (!HINTS_AVAILABLE) return { active: false, cost: HINT_COST };
+  const { enabled, cost } = await resolveHintConfig();
+  return { active: enabled, cost };
+}
+
 /** Solves `login` has recorded for `app`, counted straight off the scorer's
  *  `ctf:solves:<target>` hash (fields are `<author>:<challengeId>`). Compared
  *  case-insensitively because GitHub logins are, while the stored field keeps

@@ -5,7 +5,7 @@ import ChallengeGrid from "@/components/challenge-grid";
 import HintNotice from "@/components/hint-notice";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
-import { getHintAvailability, resolveHintConfig } from "@/lib/hint-store";
+import { getHintAvailability, getHintNotice } from "@/lib/hint-store";
 import { isModuleEnabled } from "@/lib/modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
@@ -54,9 +54,9 @@ export default async function ChallengesPage() {
     getChallengeCatalog(),
     getHintAvailability(),
     pageTitle(),
-    // The banner must agree with the /admin toggle and show the organizer's
-    // configured price, not the hardcoded default the grid already ignores.
-    resolveHintConfig(),
+    // Must agree with the /admin toggle and show the organizer's configured
+    // price, not the hardcoded default the grid beside it already ignores.
+    getHintNotice(),
   ]);
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -68,7 +68,7 @@ export default async function ChallengesPage() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Targets" title={title} description={description} />
-      <HintNotice active={hints.enabled} cost={hints.cost} />
+      <HintNotice active={hints.active} cost={hints.cost} />
       <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={hintAvailability} />
     </div>
   );

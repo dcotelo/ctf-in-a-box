@@ -187,6 +187,17 @@ describe("revealHint", () => {
     }
   });
 
+  // Regression: /challenges called resolveHintConfig directly, which reads
+  // admin settings, and upstashPipeline THROWS with no Upstash credentials —
+  // so the page 500'd on any deployment without Redis. The unit tests missed
+  // it because they mock getAdminSettings; the acceptance run caught it.
+  it("getHintNotice never reads settings without Upstash creds — /challenges must not 500", async () => {
+    const store = await loadStore(true, { creds: false });
+    mocks.getAdminSettings.mockRejectedValue(new Error("UPSTASH_REDIS_REST_URL/TOKEN are not set"));
+    await expect(store.getHintNotice()).resolves.toEqual({ active: false, cost: 10 });
+    expect(mocks.getAdminSettings).not.toHaveBeenCalled();
+  });
+
   it("keeps every read path ON when the organizer has set no override", async () => {
     const on = await loadStore();
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: null }]);

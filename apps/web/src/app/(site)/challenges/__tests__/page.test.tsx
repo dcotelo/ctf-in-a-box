@@ -22,15 +22,9 @@ vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog }));
 vi.mock("@/lib/hint-store", () => ({
   getHintAvailability,
-  // The page asks resolveHintConfig once and uses BOTH fields — hints off
-  // here, so the notice must not render.
-  resolveHintConfig: async () => ({
-    enabled: false,
-    cost: 0,
-    minSolves: 0,
-    unlockAfterMin: 0,
-    scoringStartsAt: null,
-  }),
+  // The page asks getHintNotice once and uses BOTH fields — hints off here,
+  // so the notice must not render.
+  getHintNotice: async () => ({ active: false, cost: 0 }),
 }));
 // Partial mock: `isModuleEnabled` is what this page's gate calls, but
 // `site.ts` (imported transitively through HintNotice -> EventCountdown)
