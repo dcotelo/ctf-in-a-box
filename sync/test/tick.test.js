@@ -130,3 +130,36 @@ test("2-comment batch: first fails 5xx, second succeeds 202; cursor stops at fir
   assert.equal(state.repos.DVWA.since, "2026-08-13T11:01:00Z");
   assert.equal(state.repos.DVWA.etag, 'W/"batch2"');
 });
+
+// ── issue #63: a malformed state file must not take ingestion down ───────────
+//
+// The unit tests in state.test.js pin the repair. This pins the SYMPTOM, at the
+// level where it actually bit: `repoState` threw inside tick, outside the
+// per-repo try that catches poll failures, so the rejection reached main's
+// fatal handler and exited 1 — which compose restarted, into the same file.
+//
+// Written against `tick` rather than `loadState` on purpose: a state object
+// can reach tick from somewhere other than a freshly-loaded file (a master
+// reset reassigns `state.repos` mid-tick), and this is the boundary that has
+// to hold regardless of how the object got here.
+
+test("a bare {} state polls normally instead of throwing", async () => {
+  const posts = [];
+  const f = routes(() => new Response(JSON.stringify([ghComment(11)]), { status: 200 }), 202, posts);
+  const state = {}; // no `repos` at all — what `{}` on disk deserializes to
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 1, "the poll must still ingest, not merely survive");
+  assert.deepEqual(Object.keys(state.repos), ["DVWA"]);
+});
+
+test("a per-repo entry with a junk seen list still dedupes", async () => {
+  const posts = [];
+  const f = routes(() => new Response(JSON.stringify([ghComment(12)]), { status: 200 }), 202, posts);
+  // `seen` as a string is the crash one level down: markSeen calls
+  // rs.seen.includes(id) immediately.
+  const state = { repos: { DVWA: { since: null, etag: null, seen: "corrupt" } } };
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 1);
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 1, "the repaired seen-set must still suppress a repost");
+});
