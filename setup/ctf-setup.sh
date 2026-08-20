@@ -1307,13 +1307,19 @@ wiz_event_yaml() {
       *) echo "event.yaml: unknown module: $m" >&2; return 1 ;;
     esac
   done
-  # v1 placeholders — neither key is read at build time. Team play is always on
-  # with a fixed 4-member cap, and hints are ON by default
-  # (apps/web/src/lib/hint-defaults.ts: HINT_DEFAULT_ENABLED) and tuned at
-  # runtime in /admin. `true` is therefore what the running app actually does;
-  # emitting `false` here only ever misled an organizer reading back their own
-  # config. Turn hints off for real with /admin's hint controls.
-  printf 'teams: { enabled: true, max_size: 4 }\nhints: { enabled: true }\nadmins: [%s]\n' \
+  # No `hints:` key. ADR 31 made /admin the only hint switch, and nothing reads
+  # this file's hints block — `apps/web/scripts/generate-event-config.mjs` does
+  # not mention the word. Emitting `enabled: true` was an earlier attempt to
+  # stop the key from lying (it had said `false` while hints ran), but a key
+  # that cannot change the answer misleads whichever value it carries: an
+  # organizer who edits it to `false` still gets hints, and nothing tells them.
+  # Hints are on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED) and turned
+  # off in /admin. A config left over from before this change still parses —
+  # the generator warns rather than failing on it.
+  #
+  # `teams:` is still emitted and still a v1 placeholder: team play is always
+  # on with a fixed 4-member cap.
+  printf 'teams: { enabled: true, max_size: 4 }\nadmins: [%s]\n' \
     "$(csv_of "$admins")"
 }
 

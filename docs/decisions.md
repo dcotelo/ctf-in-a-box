@@ -220,7 +220,9 @@ vertical (forensics, API security, cloud, …) alongside
 `secure-development`, which is still the only *scored* one.
 
 **Decision.** Platform-level config (`event`, `github`, `teams`, `hints`,
-`admins`) sits at the top level of `event.yaml`; everything vertical-specific
+`admins`) sits at the top level of `event.yaml`
+(**amended** — `hints` is gone; see [#31](#31-one-hint-switch-capability-split-from-policy));
+everything vertical-specific
 lives under a kebab-case key in `modules:` (`modules.secure-development`).
 Enablement is presence — a module is on because its key is there, off because
 it isn't; there is no `enabled:` flag. The config loader
@@ -1211,6 +1213,22 @@ Anyone running the app outside compose (bare `next start`) who set
 deployment, so the blast radius is narrow. Turning hints off does not forgive
 spend — `ctf:hints:spent` is untouched, so re-enabling restores the penalties
 rather than wiping them.
+
+**Amendment.** The decision retired `HINTS_ENABLED` but left `event.yaml`'s
+`hints:` block in place, and the wizard kept writing it. That was the third
+switch surviving the cull: a UI/UX pass on 2026-08-20 found an event whose
+config read `hints: { enabled: false }` while `/challenges` advertised "HINTS
+ARE LIVE" and `/admin` showed the toggle on. An earlier fix had changed the
+emitted value from `false` to `true` so the key would at least agree with the
+running app, but a key that cannot change the answer misleads whichever value
+it carries.
+
+So the key is now gone rather than merely truthful: `setup/ctf-setup.sh` no
+longer emits it, and `generate-event-config.mjs` warns (never fails) when a
+config still carries one, naming `/admin` as where the setting lives. This
+also removes `hints` from the platform-level list in
+[#10](#10-eventyamls-module-namespace-deliberate-not-dynamic-registration),
+which had it as top-level schema. Existing configs keep building.
 
 ## 32. Scheduled windows, evaluated at read time in three readers
 

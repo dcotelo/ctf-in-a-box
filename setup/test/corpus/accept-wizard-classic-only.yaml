@@ -7,5 +7,4 @@ github:
 modules:
   classic: {}
 teams: { enabled: true, max_size: 4 }
-hints: { enabled: true }
 admins: [your-github-login]

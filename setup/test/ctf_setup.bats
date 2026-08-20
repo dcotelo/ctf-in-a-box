@@ -800,14 +800,14 @@ YAML
   echo "$output" | grep -qF 'secure-development needs at least one target'
 }
 
-@test "wiz_event_yaml emits hints enabled, matching the app's own default" {
-  # apps/web/src/lib/hint-defaults.ts: HINT_DEFAULT_ENABLED is true — hints are
-  # ON unless /admin turns them off. The wizard used to write
-  # `hints: { enabled: false }`, which contradicted the running app in the
-  # organizer's own config file.
+@test "wiz_event_yaml emits no hints key, because nothing reads one" {
+  # ADR 31: /admin is the only hint switch. This file's hints block is read by
+  # nobody (generate-event-config.mjs does not mention the word), so whatever
+  # value it carried misled the organizer — writing `false` there left hints
+  # running with no warning. Hints are on by default and turned off in /admin.
   run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qx 'hints: { enabled: true }'
+  [ -z "$(echo "$output" | grep -F 'hints')" ]
 }
 
 @test "wizard --dry-run does not build or push the scorer image" {

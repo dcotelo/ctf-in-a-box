@@ -11,5 +11,4 @@ modules:
     targets: [juice-shop, dvwa]
     score_ingest: poll
 teams: { enabled: true, max_size: 4 }
-hints: { enabled: true }
 admins: [your-github-login]
