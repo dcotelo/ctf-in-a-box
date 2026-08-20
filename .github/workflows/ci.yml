@@ -243,6 +243,12 @@ jobs:
           set -euo pipefail
           cd docs/_site
           bad="$(mktemp)"
+          # This is a PROJECT page, so Jekyll prefixes every root-absolute href
+          # with the baseurl (/<repo>). `_site` is the site root, so that prefix
+          # has to come off before resolving. Derived from the repo name rather
+          # than hardcoded, and stripped only when it actually matches — under a
+          # custom domain baseurl is empty and hrefs are bare, which still works.
+          base="/${GITHUB_REPOSITORY##*/}"
           find . -name '*.html' -print0 | while IFS= read -r -d '' page; do
             dir="$(dirname "$page")"
             # `|| true` matters: a page with no links at all is perfectly
@@ -260,8 +266,9 @@ jobs:
               href="${href%%[?]*}"
               [ -n "$href" ] || continue
               case "$href" in
-                /*) target=".$href" ;;
-                *)  target="$dir/$href" ;;
+                "$base"/*) target=".${href#"$base"}" ;;
+                /*)        target=".$href" ;;
+                *)         target="$dir/$href" ;;
               esac
               if [ -d "$target" ]; then
                 target="${target%/}/index.html"
