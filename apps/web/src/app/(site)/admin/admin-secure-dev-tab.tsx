@@ -14,6 +14,7 @@
 // Redis directly.
 
 import type { AdminSettings } from "@/lib/admin-store";
+import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
 import type { CommitNumber } from "./types";
 
 export type AdminSecureDevTabProps = {
@@ -46,11 +47,11 @@ export default function AdminSecureDevTab({
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className="text-white">Hints enabled</span>
-          <span className="block text-xs text-muted">Overrides the environment default when set.</span>
+          <span className="block text-xs text-muted">Hints are on unless you turn them off.</span>
         </span>
         <input
           type="checkbox"
-          checked={settings.hintsEnabled ?? false}
+          checked={settings.hintsEnabled ?? HINT_DEFAULT_ENABLED}
           disabled={pending}
           onChange={(e) => void apply({ hintsEnabled: e.target.checked })}
           className="h-5 w-5 flex-none accent-[#2563eb]"

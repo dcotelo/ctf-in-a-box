@@ -511,7 +511,7 @@ without a rebuild:
   default"), plus `updatedBy`/`updatedAt` and
   `resetAt` (the master-reset epoch `sync` honours — see below). Every
   reader applies **override-else-default** precedence (`s.hintsEnabled ??
-  HINTS_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
+  HINT_DEFAULT_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
 
   Two field *families* live on the same hash, keyed by module id rather than
   fixed-name, so a third module needs no storage change:
@@ -592,18 +592,24 @@ behavior. The route and its
 leaderboard can't be polluted by accident.
 
 **Known limitation: the hint toggle is only live at the reveal boundary.**
-`resolveHintConfig()` (and therefore `revealHint`, which the `/api/hints`
-reveal route calls) resolves the admin override live, so flipping
-`hintsEnabled` mid-event immediately changes whether a hint **can be
-bought**. But `getViewerHints`, `getHintPenalties`, and
-`getHintAvailability` — which drive the challenges-page hint button, the
-hint-notice banner, and the read-time leaderboard penalty — all gate on
-the module-level `HINTS_ENABLED` constant, resolved once from the
-build-time env var, not the live override. An organizer toggling hints
-mid-event changes purchasability instantly; the UI's offer and the
-leaderboard's penalty display still reflect whatever `HINTS_ENABLED` was
-baked in at build time. This is a deliberate v1 cut, not an oversight —
-see [docs/decisions.md #19](decisions.md#19-organizer-admin-panel-runtime-override-layer).
+`resolveHintConfig()` is the single answer to "are hints on right now",
+and every hint read path goes through it: `revealHint`/`hintGate` (the
+purchase boundary), `getHintAvailability` (the challenges-page button and
+its notice banner), `getViewerHints` (the profile tile and `/api/hints`),
+and `getHintPenalties` (the read-time leaderboard penalty). Flipping
+`hintsEnabled` in `/admin` therefore changes all of them on the next
+request, with no rebuild and no restart.
+
+Two things stay separate from that override on purpose. `HINTS_AVAILABLE`
+is a **capability** check — Upstash credentials present — since hint text
+lives only there and no organizer setting can conjure it; the read paths
+test it first because a credential-less deployment need not read settings
+to learn hints are off. And turning hints off does not rewrite history:
+`ctf:hints:spent` keeps its rows, so the penalties return intact when
+hints come back on. See
+[docs/decisions.md #31](decisions.md#31-one-hint-switch-capability-split-from-policy),
+which supersedes the v1 limitation recorded in
+[#19](decisions.md#19-organizer-admin-panel-runtime-override-layer).
 
 ## Build-time config flow
 

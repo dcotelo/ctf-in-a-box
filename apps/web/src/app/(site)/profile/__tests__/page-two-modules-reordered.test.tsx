@@ -68,7 +68,7 @@ vi.mock("@/lib/team-store", () => ({
 vi.mock("@/lib/hint-store", () => ({
   getViewerHints,
   getHintPenalties: vi.fn(),
-  HINTS_ENABLED: false,
+  HINTS_AVAILABLE: false,
 }));
 vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));

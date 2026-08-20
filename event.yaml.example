@@ -72,9 +72,10 @@ modules:
 # enabled. See
 # docs/hosting.md's "Configuration" section and docs/modules.md §7.
 # v1 placeholders — not read at build time: team play is always on with a
-# fixed 4-member cap, and hints (ON by default, 10 points each) are tuned at
-# runtime in /admin — enabled, cost, and the two gating knobs. Remove hints
-# entirely with HINTS_ENABLED=false in .env.
+# fixed 4-member cap, and hints (ON by default, 10 points each) are tuned
+# entirely at runtime in /admin — enabled, cost, and the two gating knobs.
+# /admin is the only hint switch; there is no env var and this block is not
+# read.
 teams: { enabled: true, max_size: 4 }
 hints: { enabled: true }
 admins: [your-github-login]     # allowlist for /admin (status, freeze, hint controls) — case-insensitive

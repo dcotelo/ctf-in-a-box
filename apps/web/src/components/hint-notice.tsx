@@ -1,5 +1,5 @@
 // Banner making the hint layer visible on the challenges page before it's on:
-// until HINTS_ENABLED flips at the event, the per-challenge 💡 buttons don't
+// until hints are switched on at the event, the per-challenge 💡 buttons don't
 // render at all, so this is what tells contestants hints will exist here. Once
 // hints are live it switches to a short "how it works" so the buttons below
 // need no explanation. Static-safe Server Component (flag is baked at build).
