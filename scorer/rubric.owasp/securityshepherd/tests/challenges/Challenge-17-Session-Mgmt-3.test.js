@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   waitForShepherd, loginShepherd, loginAs, ssPost, ssGet, ssPostJson, ssPostRaw,
-  extractSolutionKey, hasSolvedMessage, ensureSecondUser, ensureMongoConfig, getUserId,
+  extractSolutionKey, hasSolvedMessage, ensureSecondUser, ensureMongoConfig, getUserId, assertShepherdAlive,
   openModule, caesarDecode, vigenereDecode, extractCipherText, SECOND_USER, SECOND_PASS,
 } from '../helpers.js';
 
@@ -17,5 +17,9 @@ test("Challenge-17-Session-Mgmt-3", async () => {
     { ...cookies, current: cur }, { newPassword: 'hax12345' });
   const body = await ssPost('/challenges/t193c6634f049bcf65cdcac72269eeac25dbb2a6887bdb38873e57d0ef447bc3', cookies, { subUserName: 'admin', subUserPassword: 'hax12345' });
   const key = extractSolutionKey(body);
+  // Anti-vacuous: the assertion below is satisfied by an empty body, a 404 or a
+  // 500. Placed AFTER the exploit request so the challenge endpoint is still
+  // exercised — a guard that returns first leaves nothing to measure (#106).
+  await assertShepherdAlive(cookies);
   assert.ok(!(hasSolvedMessage(body) || key), 'patched: the exploit must not solve the challenge / yield a result key');
 });

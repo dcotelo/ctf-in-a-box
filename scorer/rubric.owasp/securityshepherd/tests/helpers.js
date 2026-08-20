@@ -308,3 +308,53 @@ export function extractCipherText(html, minLen = 30) {
   candidates.sort((a, b) => b.length - a.length);
   return candidates[0] ?? null;
 }
+
+// ── anti-vacuous precondition ────────────────────────────────────────────────
+//
+// 39 of the 40 challenges pass against a target that answers nothing (issue
+// #106). They assert one of three things — no solved message and no key, no
+// "Challenge Completed", or no key — and every one of those is satisfied by an
+// empty body, a 404 or a 500.
+//
+// The obvious guard, "the challenge response must look like a challenge
+// response", does NOT work here, and the live app says why. Challenge output
+// has no single shape:
+//
+//   <h2 class='title'>Hidden User's Message</h2><p>Result Key is <a>…</a></p>
+//   <h2 class='title'>User: 404 - User Not Found</h2><p>User 'zzz' could not…
+//   <p>There were no results found in your search</p>
+//   ERROR: User 'null' could not be logged in
+//
+// The last two are legitimate responses with no title chrome at all, so
+// requiring it would fail a patched app — turning the precondition into a
+// second assertion, which is exactly the mistake this guard exists to avoid.
+//
+// So the oracle is deliberately NOT the challenge response. `/index.jsp` is
+// Shepherd's authenticated dashboard: 36 KB of real page on the live app,
+// unaffected by patching any individual challenge, and served only to a
+// genuine session. A degraded target cannot produce it.
+//
+// `/getModule` was tried first and rejected: it returns an empty body even on
+// a healthy app, so it can prove nothing.
+
+/** Title of the authenticated dashboard, on both the vulnerable and patched app. */
+const SHEPHERD_DASHBOARD_TITLE = 'OWASP Security Shepherd';
+
+export async function assertShepherdAlive(cookies, what = 'securityshepherd') {
+  let body;
+  try {
+    body = await ssGet('/index.jsp', cookies);
+  } catch (err) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} could not load the dashboard (${err.message}). ` +
+        `"the exploit did not solve the challenge" below would pass for the wrong reason.`,
+    );
+  }
+  if (!body.includes(SHEPHERD_DASHBOARD_TITLE)) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} served no dashboard from /index.jsp ` +
+        `(${body.length} bytes, no "${SHEPHERD_DASHBOARD_TITLE}"). The app is degraded, so a ` +
+        `challenge that "was not solved" proves nothing about the patch.`,
+    );
+  }
+}
