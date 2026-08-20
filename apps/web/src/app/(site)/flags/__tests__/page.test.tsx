@@ -5,9 +5,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { isModuleEnabled, getSession, listChallenges, listCategories, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules } =
+const { isModuleEnabled, isAdminLogin, getSession, listChallenges, listCategories, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules } =
   vi.hoisted(() => ({
     isModuleEnabled: vi.fn(),
+    isAdminLogin: vi.fn(),
     getSession: vi.fn(),
     listChallenges: vi.fn(),
     listCategories: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("next/navigation", async (importOriginal) => ({
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
+vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 vi.mock("@/lib/classic-store", () => ({
   listChallenges,
@@ -48,6 +50,7 @@ const baseChallenges = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  isAdminLogin.mockReturnValue(false);
   // Registry-default fallback, same shape resolveModules would produce for an
   // event with only the classic module enabled and no organizer overrides.
   // Tests that care about an organizer-renamed title override this per-case.
@@ -125,6 +128,38 @@ describe("flags page view model", () => {
 
     const html = renderToStaticMarkup(await FlagsPage());
     expect(html).toMatch(/no challenges are available/i);
+  });
+
+  // The state every new event starts in, and the first thing an organizer
+  // sees after provisioning. A contestant's "check back soon" is a correct
+  // dead end for them and a useless one for whoever has to author the board.
+  it("routes an organizer to the authoring tab from the empty state", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    isAdminLogin.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listChallenges.mockResolvedValue([]);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+    getViewerClassic.mockResolvedValue({ solved: {}, attempts: {} });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    expect(html).toContain('href="/admin?tab=classic"');
+    expect(html).toMatch(/author challenges/i);
+    expect(html).not.toMatch(/check back soon/i);
+  });
+
+  it("shows a signed-in contestant the plain empty state, with no admin link", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    isAdminLogin.mockReturnValue(false);
+    getSession.mockResolvedValue({ user: { login: "bob" } });
+    listChallenges.mockResolvedValue([]);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+    getViewerClassic.mockResolvedValue({ solved: {}, attempts: {} });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    expect(html).toMatch(/check back soon/i);
+    expect(html).not.toContain("/admin");
   });
 
   it("renders the organizer's module title instead of the default", async () => {

@@ -33,7 +33,7 @@ import AdminPage from "@/app/(site)/admin/page";
 describe("admin page gate", () => {
   it("renders a forbidden view for a non-admin", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 403 });
-    const ui = await AdminPage();
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/organizer/i);
   });
@@ -55,7 +55,7 @@ describe("admin page gate", () => {
       reposPolled: 2,
       paused: false,
     });
-    const ui = await AdminPage();
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/freeze|pause/i);
     expect(html).toMatch(/last poll|ingested/i);
@@ -72,7 +72,7 @@ describe("admin page gate", () => {
       moduleOverrides: {},
     });
     getSyncStatus.mockResolvedValue(null);
-    const ui = await AdminPage();
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/sync not running/i);
   });
@@ -81,8 +81,57 @@ describe("admin page gate", () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     getAdminSettings.mockRejectedValue(new Error("redis down"));
     getSyncStatus.mockResolvedValue(null);
-    const ui = await AdminPage();
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/unavailable/i);
+  });
+});
+
+// `/quiz` and `/flags` route an organizer here from their empty states, and a
+// link that lands on the Event tab has not actually delivered them to the
+// authoring controls.
+describe("?tab= deep link", () => {
+  const settings = {
+    paused: false,
+    hintsEnabled: null,
+    hintCost: null,
+    updatedBy: null,
+    updatedAt: null,
+    moduleOverrides: {},
+  };
+
+  async function render(searchParams: Record<string, string | string[] | undefined>) {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue(settings);
+    getSyncStatus.mockResolvedValue(null);
+    getResolvedModules.mockResolvedValue([
+      { id: "secure-development", title: "Secure Development", blurb: "b", targets: ["juice-shop"] },
+      { id: "quiz", title: "Quiz", blurb: "b", targets: [] },
+    ]);
+    return renderToStaticMarkup(await AdminPage({ searchParams: Promise.resolve(searchParams) }));
+  }
+
+  /** Which tab the ARIA tablist reports as selected — the only assertion that
+   *  survives every panel being mounted at once (they are, deliberately, so a
+   *  half-typed form isn't lost on a tab switch). */
+  function selectedTab(html: string): string | null {
+    const match = html.match(/id="tab-([a-z-]+)"[^>]*aria-selected="true"/);
+    return match ? match[1] : null;
+  }
+
+  it("opens the Event tab with no parameter", async () => {
+    expect(selectedTab(await render({}))).toBe("event");
+  });
+
+  it("opens the named module's tab", async () => {
+    expect(selectedTab(await render({ tab: "quiz" }))).toBe("quiz");
+  });
+
+  // A stale bookmark, a typo, or a link to a module this event did not enable
+  // must land somewhere real rather than on an empty shell.
+  it("falls back to Event for a tab this event does not have", async () => {
+    expect(selectedTab(await render({ tab: "classic" }))).toBe("event");
+    expect(selectedTab(await render({ tab: "nonsense" }))).toBe("event");
+    expect(selectedTab(await render({ tab: ["quiz", "event"] }))).toBe("event");
   });
 });

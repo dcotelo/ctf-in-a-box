@@ -60,8 +60,9 @@ seed, master reset), then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all. The
 tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
-the ends). **Event is always the default tab** on load, regardless of how many
-modules are enabled.
+the ends). **Event is the default tab** on load, regardless of how many
+modules are enabled — unless the URL names another one (see the deep links
+below).
 
 Hints moved from a flat settings list into the Secure Development tab as part
 of this reorganization. **This is a UI relocation only** — the underlying
@@ -211,6 +212,13 @@ The panel offers:
   started with `DEMO_MODE=1` (the local `scripts/dev-stack up` sets it); they are
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
+
+Tabs are deep-linkable: `/admin?tab=quiz` (or `?tab=classic`,
+`?tab=secure-development`) opens straight into that module's panel. This is
+what `/quiz` and `/flags` link an organizer to when the module has no content
+yet — an empty board shows them **Author questions** / **Author challenges**
+instead of the contestant's "check back soon". An unknown or not-enabled tab
+name falls back to **Event**.
 
 Every settings change is recorded in a capped audit log (who, when, what
 changed) alongside the setting itself. **Disruptive controls prompt for

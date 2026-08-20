@@ -14,8 +14,10 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import ModuleEmptyState from "@/components/module-empty-state";
 import PageHeader from "@/components/page-header";
 import QuizBoard, { type QuizQuestionView, type QuizStatus } from "@/components/quiz-board";
+import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
 import { isModuleEnabled } from "@/lib/modules";
@@ -75,6 +77,10 @@ export default async function QuizPage() {
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
+  // Drives the empty state's authoring route only. Deliberately the SAME
+  // check `/admin` and every `/api/admin/*` route gate on, so this can never
+  // offer a link to someone the admin page would then 403 at.
+  const viewerIsAdmin = isAdminLogin(login);
 
   const [questions, viewerQuiz, settings, modules] = await Promise.all([
     listQuestions(),
@@ -127,9 +133,14 @@ export default async function QuizPage() {
       <div className="flex flex-col gap-4">
         <p className="text-sm text-zinc-400">{progress}</p>
         {questions.length === 0 ? (
-          <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
-            <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
-          </div>
+          <ModuleEmptyState
+            message={
+              viewerIsAdmin
+                ? "No quiz questions yet. Add the first one from the admin panel."
+                : "No quiz questions are available yet. Check back soon."
+            }
+            authoring={viewerIsAdmin ? { href: "/admin?tab=quiz", label: "Author questions" } : null}
+          />
         ) : (
           <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} />
         )}

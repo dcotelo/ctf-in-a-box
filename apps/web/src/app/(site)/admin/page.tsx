@@ -18,7 +18,28 @@ export const metadata: Metadata = {
   description: "Organizer controls and sync status.",
 };
 
-export default async function AdminPage() {
+/** Which tab to open on arrival, from `?tab=<module id>`.
+ *
+ *  Read here rather than from `location.hash` in the tab shell: a hash is
+ *  invisible to the server, so selecting from it means a post-hydration
+ *  `setState` — a render the organizer sees flip, and a lint rule this repo
+ *  takes seriously. A query param is on the request, so the very first
+ *  server render already has the right panel open.
+ *
+ *  Unvalidated here on purpose: `AdminControls` owns the tab list, so it is
+ *  the only thing that can say whether an id is real, and it falls back to
+ *  the Event tab for anything it doesn't recognise. A link to a module that
+ *  this event didn't enable lands on Event rather than on nothing. */
+function tabParam(searchParams: Record<string, string | string[] | undefined>): string | undefined {
+  const tab = searchParams.tab;
+  return typeof tab === "string" ? tab : undefined;
+}
+
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const gate = await requireAdmin(await headers());
 
   if (!gate.ok) {
@@ -45,10 +66,11 @@ export default async function AdminPage() {
   // fails open to the registry defaults internally (see
   // src/lib/resolved-modules.ts), and it is `cache()`d per request, so this
   // call rides along with whatever the root layout's nav already paid for.
-  const [settings, sync, modules] = await Promise.all([
+  const [settings, sync, modules, params] = await Promise.all([
     getAdminSettings().catch(() => null),
     getSyncStatus().catch(() => null),
     getResolvedModules(),
+    searchParams,
   ]);
 
   return (
@@ -90,7 +112,12 @@ export default async function AdminPage() {
       </div>
 
       {settings ? (
-        <AdminControls initial={settings} demoMode={process.env.DEMO_MODE === "1"} modules={modules} />
+        <AdminControls
+          initial={settings}
+          demoMode={process.env.DEMO_MODE === "1"}
+          modules={modules}
+          initialTab={tabParam(params)}
+        />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
