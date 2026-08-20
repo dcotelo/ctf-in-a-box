@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   getSession,
   requireAdmin,
+  requireGatePassed,
   answerQuestion,
   listQuestions,
   listQuestionsForAdmin,
@@ -44,6 +45,7 @@ const {
   return {
     getSession: vi.fn(),
     requireAdmin: vi.fn(),
+    requireGatePassed: vi.fn(),
     answerQuestion: vi.fn(),
     listQuestions: vi.fn(),
     listQuestionsForAdmin: vi.fn(),
@@ -58,6 +60,7 @@ const {
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
+vi.mock("@/lib/gate", () => ({ requireGatePassed }));
 vi.mock("@/lib/quiz-store", () => ({
   answerQuestion,
   listQuestions,
@@ -105,6 +108,7 @@ const ADMIN_ROW = { question: QUESTION, correct: ["opt-right"] };
 beforeEach(() => {
   getSession.mockReset();
   requireAdmin.mockReset();
+  requireGatePassed.mockReset();
   answerQuestion.mockReset();
   listQuestions.mockReset();
   listQuestionsForAdmin.mockReset();
@@ -113,6 +117,7 @@ beforeEach(() => {
   upstashPipeline.mockReset();
   getSession.mockResolvedValue(SESSION);
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+  requireGatePassed.mockResolvedValue(true);
   upstashPipeline.mockResolvedValue([{ result: 1 }, { result: "OK" }]);
 });
 
@@ -129,6 +134,30 @@ describe("POST /api/quiz/answer", () => {
     const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
     expect(res.status).toBe(400);
     expect(answerQuestion).not.toHaveBeenCalled();
+  });
+
+  it("403s with { error: \"gate\" } while the pre-event gate is active, without touching the store", async () => {
+    requireGatePassed.mockResolvedValue(false);
+    const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "gate" });
+    expect(answerQuestion).not.toHaveBeenCalled();
+  });
+
+  it("proceeds normally with a gate cookie that verifies (gate active, valid unlock)", async () => {
+    requireGatePassed.mockResolvedValue(true);
+    answerQuestion.mockResolvedValue({ ok: true, correct: true, points: 10 });
+    const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
+    expect(res.status).toBe(200);
+    expect(answerQuestion).toHaveBeenCalledWith("alice", "q1", ["b"]);
+  });
+
+  it("proceeds normally when the gate is inactive (requireGatePassed short-circuits true) — the common case", async () => {
+    requireGatePassed.mockResolvedValue(true);
+    answerQuestion.mockResolvedValue({ ok: true, correct: false });
+    const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
+    expect(res.status).toBe(200);
+    expect(answerQuestion).toHaveBeenCalled();
   });
 
   it("400 for malformed input (missing choices)", async () => {

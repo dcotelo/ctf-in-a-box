@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireGatePassed } from "@/lib/gate";
 import { answerQuestion, QUIZ_ID_RE } from "@/lib/quiz-store";
 
 /** Validating against `quiz-store`'s own exported `QUIZ_ID_RE` (rather than
@@ -26,11 +27,18 @@ function isChoiceList(v: unknown): v is string[] {
  * result to a status code:
  *   - unauthenticated -> 401
  *   - session with no GitHub login -> 400
+ *   - pre-event gate active, no valid unlock cookie -> 403 { error: "gate" }
  *   - malformed questionId/choices -> 400
  *   - unknown/missing question -> 404
  *   - gate refusal (paused/answered/exhausted/cooldown/unavailable) -> 403
  *   - grading script failure -> 503
  *   - success -> 200
+ *
+ * The pre-event gate check runs after authentication (so an unauthenticated
+ * caller still gets the more specific 401) and before `answerQuestion` is
+ * ever called — a refusal here can never follow a write that already
+ * happened. See `requireGatePassed` (apps/web/src/lib/gate.ts) and
+ * docs/modules.md §5.8.
  *
  * No response from this route can ever reveal the correct choice ids:
  * `AnswerResult` (quiz-store's return type) never carries them, by
@@ -42,6 +50,10 @@ export async function POST(request: Request) {
 
   const login = (session.user as { login?: string }).login;
   if (!login) return NextResponse.json({ error: "session has no GitHub login" }, { status: 400 });
+
+  if (!(await requireGatePassed())) {
+    return NextResponse.json({ error: "gate" }, { status: 403 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const questionId = typeof body.questionId === "string" ? body.questionId : "";

@@ -10,14 +10,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { vi } from "vitest";
 
-const { getSession, submitFlag, CLASSIC_ID_RE } = vi.hoisted(() => ({
+const { getSession, submitFlag, requireGatePassed, CLASSIC_ID_RE } = vi.hoisted(() => ({
   getSession: vi.fn(),
   submitFlag: vi.fn(),
+  requireGatePassed: vi.fn(),
   CLASSIC_ID_RE: /^[\w-]{1,64}$/,
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
+vi.mock("@/lib/gate", () => ({ requireGatePassed }));
 vi.mock("@/lib/classic-store", () => ({ submitFlag, CLASSIC_ID_RE }));
 
 import { POST } from "@/app/api/classic/submit/route";
@@ -42,7 +44,9 @@ function storeReturns(result: unknown) {
 beforeEach(() => {
   getSession.mockReset();
   submitFlag.mockReset();
+  requireGatePassed.mockReset();
   getSession.mockResolvedValue(SESSION);
+  requireGatePassed.mockResolvedValue(true);
 });
 
 describe("POST /api/classic/submit", () => {
@@ -58,6 +62,33 @@ describe("POST /api/classic/submit", () => {
     const res = await POST(req({ challengeId: "c-1", flag: "x" }));
     expect(res.status).toBe(400);
     expect(submitFlag).not.toHaveBeenCalled();
+  });
+
+  it("403s with { error: \"gate\" } while the pre-event gate is active, without touching the store", async () => {
+    session("alice");
+    requireGatePassed.mockResolvedValue(false);
+    const res = await POST(req({ challengeId: "c-1", flag: "x" }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "gate" });
+    expect(submitFlag).not.toHaveBeenCalled();
+  });
+
+  it("proceeds normally with a gate cookie that verifies (gate active, valid unlock)", async () => {
+    session("alice");
+    requireGatePassed.mockResolvedValue(true);
+    storeReturns({ ok: true, correct: true, points: 50 });
+    const res = await POST(req({ challengeId: "c-1", flag: "CTF{x}" }));
+    expect(res.status).toBe(200);
+    expect(submitFlag).toHaveBeenCalledWith("alice", "c-1", "CTF{x}");
+  });
+
+  it("proceeds normally when the gate is inactive (requireGatePassed short-circuits true) — the common case", async () => {
+    session("alice");
+    requireGatePassed.mockResolvedValue(true);
+    storeReturns({ ok: true, correct: false });
+    const res = await POST(req({ challengeId: "c-1", flag: "x" }));
+    expect(res.status).toBe(200);
+    expect(submitFlag).toHaveBeenCalled();
   });
 
   it("derives login from the session and IGNORES any login in the body", async () => {

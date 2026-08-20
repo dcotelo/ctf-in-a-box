@@ -3,10 +3,14 @@
 // /api/gate) so there is nothing client-side to brute-force offline; the
 // cookie is HMAC-signed with BETTER_AUTH_SECRET so it can't be forged.
 //
-// Deliberately imports ONLY node:crypto — this module is bundled into the
-// proxy (Node runtime), so no "server-only" marker and no Upstash client here.
+// Deliberately imports ONLY node:crypto at the top level — this module is
+// bundled into the proxy (Node runtime), so no "server-only" marker and no
+// Upstash client here. `requireGatePassed()` below imports "next/headers",
+// but only route handlers (never proxy.ts) call it, so the proxy bundle
+// never exercises that path.
 
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
 
 export const GATE_COOKIE = "ctf-challenges-gate";
 /** Unlock lifetime; the gate itself is expected to be switched off at the
@@ -56,4 +60,31 @@ export function verifyGatePassword(candidate: string): boolean {
   const a = createHash("sha256").update(candidate).digest();
   const b = createHash("sha256").update(GATE_PASSWORD).digest();
   return timingSafeEqual(a, b);
+}
+
+/**
+ * Server-side pre-event gate check for a module API route (as opposed to
+ * `proxy.ts`, which only covers page routes — see docs/modules.md §5.8).
+ * A route calls this beside the gates it already runs (`effectivePaused`,
+ * attempt caps, cooldowns): after authentication (so an unauthenticated
+ * caller still gets the more specific 401) and before any store read or
+ * write, so a refusal here can never follow a write that already happened.
+ *
+ * Route handlers get a plain `Request`, not a `NextRequest`, so there is no
+ * `request.cookies` the way `proxy.ts` reads it. `cookies()` from
+ * "next/headers" is the documented way to read an incoming cookie inside a
+ * Route Handler in this Next version — and it is async here (cookies() was
+ * synchronous through Next 14; Next 15+ made it a Promise, back-compat
+ * notwithstanding) per node_modules/next/dist/docs/01-app/03-api-reference/
+ * 04-functions/cookies.md.
+ *
+ * `isGateActive()` is a module-load env read and `verifyGateCookie` is pure
+ * crypto — neither one does I/O, so unlike the store-backed gates this sits
+ * beside, there is no fail-open/fail-closed question to make here: nothing
+ * in this check can error mid-request.
+ */
+export async function requireGatePassed(): Promise<boolean> {
+  if (!isGateActive()) return true;
+  const store = await cookies();
+  return verifyGateCookie(store.get(GATE_COOKIE)?.value);
 }

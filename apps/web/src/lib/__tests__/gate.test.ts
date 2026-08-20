@@ -4,6 +4,15 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const cookieMocks = vi.hoisted(() => ({ cookieJar: new Map<string, string>() }));
+
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      cookieMocks.cookieJar.has(name) ? { name, value: cookieMocks.cookieJar.get(name) } : undefined,
+  }),
+}));
+
 type Gate = typeof import("@/lib/gate");
 
 /** Everything is read at module load, so each test re-imports with the env it
@@ -18,6 +27,7 @@ async function loadGate(env: Record<string, string> = {}): Promise<Gate> {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  cookieMocks.cookieJar.clear();
 });
 
 describe("isGateActive", () => {
@@ -77,5 +87,40 @@ describe("verifyGatePassword", () => {
   it("never accepts when no password is configured", async () => {
     const gate = await loadGate({ CHALLENGES_GATE_PASSWORD: "" });
     expect(gate.verifyGatePassword("")).toBe(false);
+  });
+});
+
+// The module-API gate check (see docs/modules.md §5.8): a route calls this
+// beside its other gates (effectivePaused, attempt caps, cooldowns). Neither
+// isGateActive() nor verifyGateCookie does I/O, so this can never error
+// mid-check — there is no fail-open/fail-closed case to test here, unlike
+// the store-backed gates.
+describe("requireGatePassed", () => {
+  it("passes when the gate is inactive, regardless of any cookie", async () => {
+    const gate = await loadGate({ CHALLENGES_GATE_ENABLED: "" });
+    expect(await gate.requireGatePassed()).toBe(true);
+  });
+
+  it("refuses when the gate is active and no cookie is present", async () => {
+    const gate = await loadGate();
+    expect(await gate.requireGatePassed()).toBe(false);
+  });
+
+  it("refuses when the gate is active and the cookie is malformed/invalid", async () => {
+    const gate = await loadGate();
+    cookieMocks.cookieJar.set(gate.GATE_COOKIE, "v1.123.deadbeef");
+    expect(await gate.requireGatePassed()).toBe(false);
+  });
+
+  it("refuses when the gate is active and the cookie is expired", async () => {
+    const gate = await loadGate();
+    cookieMocks.cookieJar.set(gate.GATE_COOKIE, gate.signGateCookie(Date.now() - 1));
+    expect(await gate.requireGatePassed()).toBe(false);
+  });
+
+  it("passes when the gate is active and the cookie is a valid unlock", async () => {
+    const gate = await loadGate();
+    cookieMocks.cookieJar.set(gate.GATE_COOKIE, gate.signGateCookie(Date.now() + 60_000));
+    expect(await gate.requireGatePassed()).toBe(true);
   });
 });
