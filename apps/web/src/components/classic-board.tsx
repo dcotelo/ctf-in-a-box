@@ -44,7 +44,7 @@ type SubmitResponse =
   | { correct: false }
   | { error: string; retryAt?: string };
 
-type Feedback = { kind: "success" | "error" | "info"; text: string };
+export type Feedback = { kind: "success" | "error" | "info"; text: string };
 
 /** Feedback for an accepted (correct) submission. The `already` branch is NOT
  *  cosmetic — mirrors `describeCorrect` in quiz-board.tsx: `/api/classic/
@@ -55,6 +55,26 @@ type Feedback = { kind: "success" | "error" | "info"; text: string };
 export function describeCorrect(points: number, already?: boolean): string {
   if (already) return "You already solved this one — those points are already yours.";
   return `Correct — +${points} point${points === 1 ? "" : "s"}.`;
+}
+
+/** The ONE result line a challenge card prints, and the precedence between the
+ *  two things that used to print their own.
+ *
+ *  A solved challenge carries a durable "Solved — earned 50 points." from its
+ *  server-derived status, and a just-submitted flag sets a transient "Correct
+ *  — +50 points." feedback. Both were rendered, stacked, so a contestant read
+ *  the same points twice and reasonably wondered whether they had been scored
+ *  twice. Fresh feedback wins: it is the more specific statement of the same
+ *  fact, and it is the only thing that can say "you already had these points"
+ *  or why a submission was refused. On the next page load the feedback is gone
+ *  and the durable line says it instead. */
+export function resultLine(challenge: ClassicChallengeView, feedback: Feedback | undefined): Feedback | null {
+  if (feedback) return feedback;
+  if (challenge.status === "solved") {
+    const p = challenge.earnedPoints;
+    return { kind: "success", text: `Solved — earned ${p} point${p === 1 ? "" : "s"}.` };
+  }
+  return null;
 }
 
 function describeRefusal(reason: string): string {
@@ -122,12 +142,11 @@ export default function ClassicBoard({
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState<Record<string, Feedback | undefined>>({});
 
-  // Rendered unconditionally — NOT nested inside a `challenges.length > 0`
-  // branch, and not conditioned on `authenticated` either. A signed-out
-  // visitor and an event with zero challenges are both real states this kit
-  // has shipped regressions for by nesting this line; "0 of 0" and "0 of 1"
-  // must both still show it.
-  const solvedCount = challenges.filter((c) => c.status === "solved").length;
+  // No progress line here. `flags/page.tsx` renders exactly one ("You've
+  // solved 1 of 3 challenges." / the sign-in prompt for a signed-out visitor),
+  // outside its empty-state branch so it survives a board with no challenges
+  // — the regression this component's own copy was originally added to guard.
+  // A second count here just said the same thing again in a second phrasing.
 
   async function submit(challenge: ClassicChallengeView) {
     const flag = (inputs[challenge.id] ?? "").trim();
@@ -169,9 +188,6 @@ export default function ClassicBoard({
 
   return (
     <div className="flex flex-col gap-8">
-      <p className="text-sm text-zinc-400">
-        {solvedCount} of {challenges.length} solved.
-      </p>
       {categories.map((category) => {
         const inCategory = challenges.filter((c) => c.category === category);
         if (inCategory.length === 0) return null; // A category with no challenges is hidden.
@@ -223,6 +239,7 @@ function ChallengeCard({
   // refused server-side rather than granted.
   const cooledDown = cooldown.mounted && cooldown.remaining === null;
   const inputLocked = pending || (challenge.status === "cooldown" && !cooledDown);
+  const result = resultLine(challenge, feedback);
 
   return (
     <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
@@ -239,12 +256,6 @@ function ChallengeCard({
       </div>
 
       <Markdown source={challenge.description} />
-
-      {challenge.status === "solved" && (
-        <p className="mt-3 text-sm text-[#22c55e]">
-          Solved — earned {challenge.earnedPoints} point{challenge.earnedPoints === 1 ? "" : "s"}.
-        </p>
-      )}
 
       {challenge.status === "cooldown" && (
         <p className={`mt-3 text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
@@ -283,14 +294,14 @@ function ChallengeCard({
           <p className="mt-3 text-xs text-muted">Sign in with GitHub to submit a flag.</p>
         ))}
 
-      {feedback && (
+      {result && (
         <p
           role="status"
           className={`mt-2 text-sm ${
-            feedback.kind === "success" ? "text-[#22c55e]" : feedback.kind === "error" ? "text-[#e53e3e]" : "text-zinc-400"
+            result.kind === "success" ? "text-[#22c55e]" : result.kind === "error" ? "text-[#e53e3e]" : "text-zinc-400"
           }`}
         >
-          {feedback.text}
+          {result.text}
         </p>
       )}
     </div>

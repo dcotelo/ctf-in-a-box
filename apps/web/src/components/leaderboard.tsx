@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
+import { nonPatchedCount } from "@/lib/leaderboard/non-patched";
 import type { ResolvedModule } from "@/lib/modules";
 import ScoreTimeChart from "@/components/score-time-chart";
 import AppChallengeList from "@/components/app-challenge-list";
@@ -209,7 +210,7 @@ export function EntryRow({
                 </div>
                 <div className="hidden sm:block">
                   <p className="font-mono text-base tabular-nums text-zinc-300">
-                    {Math.max(0, entry.total - entry.patched)}
+                    {nonPatchedCount(entry.patched, entry.total)}
                   </p>
                   <p className="text-[11px] uppercase tracking-wide text-muted">non-patched</p>
                 </div>

@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import ClassicBoard, { type ClassicChallengeView } from "@/components/classic-board";
+import ClassicBoard, { resultLine, type ClassicChallengeView, type Feedback } from "@/components/classic-board";
 
 const web: ClassicChallengeView = {
   id: "web-sqli-101",
@@ -98,14 +98,40 @@ describe("ClassicBoard", () => {
     expect(html).not.toContain("<button");
   });
 
-  it("shows the progress line for a signed-out visitor and for an empty board", () => {
-    // Both are real regressions this kit has shipped by nesting the progress
-    // line inside a `challenges.length > 0` branch.
-    expect(
-      renderToStaticMarkup(<ClassicBoard categories={[]} challenges={[]} authenticated={false} />),
-    ).toMatch(/0 of 0/);
-    expect(
-      renderToStaticMarkup(<ClassicBoard categories={["Web"]} challenges={[web]} authenticated={false} />),
-    ).toMatch(/0 of 1/);
+  // The board used to carry its own "0 of 1 solved." on top of the page's
+  // "You've solved 0 of 1 challenge." — the same fact, twice, in two
+  // phrasings. The page owns that line now (flags/page.test.tsx asserts it
+  // renders exactly once, including on an empty board and for a signed-out
+  // visitor, which is the regression the board's copy was guarding).
+  it("prints no progress count of its own", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated={false} />,
+    );
+    expect(html).not.toMatch(/\d+ of \d+/);
+  });
+});
+
+describe("resultLine", () => {
+  const solved: ClassicChallengeView = { ...web, status: "solved", earnedPoints: 50 };
+
+  it("states a solved challenge's award once, from the durable status", () => {
+    expect(resultLine(solved, undefined)).toEqual({ kind: "success", text: "Solved — earned 50 points." });
+    expect(resultLine({ ...solved, earnedPoints: 1 }, undefined)?.text).toBe("Solved — earned 1 point.");
+  });
+
+  // The duplicate this exists to prevent: a fresh submission's feedback and
+  // the refreshed solved status both announcing the same points.
+  it("returns the fresh feedback INSTEAD of the status line, never both", () => {
+    const fresh: Feedback = { kind: "success", text: "Correct — +50 points." };
+    expect(resultLine(solved, fresh)).toEqual(fresh);
+  });
+
+  it("has nothing to say about an unsolved challenge with no feedback", () => {
+    expect(resultLine(web, undefined)).toBeNull();
+  });
+
+  it("passes a refusal or a wrong answer straight through", () => {
+    const wrong: Feedback = { kind: "error", text: "Not quite. Try again." };
+    expect(resultLine(web, wrong)).toEqual(wrong);
   });
 });

@@ -12,7 +12,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import QuizBoard, { describeCorrect, type QuizQuestionView } from "@/components/quiz-board";
+import QuizBoard, {
+  describeCorrect,
+  resultLine,
+  type Feedback,
+  type QuizQuestionView,
+} from "@/components/quiz-board";
 
 const singleChoiceQuestion: QuizQuestionView = {
   id: "q1",
@@ -132,6 +137,36 @@ describe("QuizBoard", () => {
 
     const html = renderToStaticMarkup(<QuizBoard questions={[leaked]} authenticated />);
     expect(html).not.toContain(leakedCorrectId);
+  });
+});
+
+describe("resultLine", () => {
+  const answered: QuizQuestionView = { ...singleChoiceQuestion, status: "answered", earnedPoints: 10 };
+
+  it("states an answered question's award once, from the durable status", () => {
+    expect(resultLine(answered, undefined)).toEqual({ kind: "success", text: "Answered — earned 10 points." });
+    expect(resultLine({ ...answered, earnedPoints: 1 }, undefined)?.text).toBe("Answered — earned 1 point.");
+  });
+
+  // The duplicate this exists to prevent: a fresh submission's feedback and
+  // the refreshed answered status both announcing the same points.
+  it("returns the fresh feedback INSTEAD of the status line, never both", () => {
+    const fresh: Feedback = { kind: "success", text: "Correct — +10 points." };
+    expect(resultLine(answered, fresh)).toEqual(fresh);
+  });
+
+  it("reports an exhausted question's attempt budget when there's no feedback", () => {
+    const exhausted: QuizQuestionView = { ...singleChoiceQuestion, status: "exhausted" };
+    expect(resultLine(exhausted, undefined)?.text).toMatch(/no attempts remaining/i);
+  });
+
+  it("has nothing to say about an unanswered question with no feedback", () => {
+    expect(resultLine(singleChoiceQuestion, undefined)).toBeNull();
+  });
+
+  it("passes a refusal or a wrong answer straight through", () => {
+    const wrong: Feedback = { kind: "error", text: "Not quite. Try again." };
+    expect(resultLine(singleChoiceQuestion, wrong)).toEqual(wrong);
   });
 });
 
