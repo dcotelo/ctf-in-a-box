@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -19,6 +19,7 @@ await test('Challenge-32-XSS-DOM-Sink', async () => {
     field1: '<script>alert(1);</script>', field2: '111',
   });
   const res = await wgFetch(`/CrossSiteScripting/attack5a?${qs.toString()}`, { cookies, method: 'GET' });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
   assert.ok(!/<script>alert\(1\);<\/script>/.test(res.text), 'patched: the reflected payload must be absent/encoded');
 });
@@ -30,6 +31,7 @@ await test('Challenge-34-XSS-Phone-Home', async () => {
     headers: { 'webgoat-requested-by': 'dom-xss-vuln' },
     body: new URLSearchParams({ param1: '42', param2: '24' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -45,6 +47,7 @@ await test('Challenge-33-XSS-DOM-Followup', async () => {
   const res = await wgFetch('/CrossSiteScripting/dom-follow-up', {
     cookies, method: 'POST', body: new URLSearchParams({ successMessage: m ? m[1] : '' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -54,6 +57,7 @@ await test('Challenge-35-XSS-Stored', async () => {
     cookies, method: 'POST',
     body: { text: '<script>webgoat.customjs.phoneHome()</script>' },
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -69,6 +73,7 @@ await test('Challenge-36-XSS-Stored-Followup', async () => {
   const res = await wgFetch('/CrossSiteScriptingStored/stored-xss-follow-up', {
     cookies, method: 'POST', body: new URLSearchParams({ successMessage: m ? m[1] : '' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 

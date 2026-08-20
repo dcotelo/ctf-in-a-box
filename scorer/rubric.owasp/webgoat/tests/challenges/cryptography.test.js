@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -25,5 +25,6 @@ await test('Challenge-63-Crypto-Signing', async () => {
   const res = await wgFetch('/crypto/signing/verify', {
     cookies, method: 'POST', body: new URLSearchParams({ modulus: modHex, signature: sig }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });

@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, BASE } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, BASE , assertAttackResult, assertLessonOverview } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -24,6 +24,7 @@ await test('Challenge-78-XSS-Stego-Challenge', async () => {
   const res = await wgFetch('/challenge/1', {
     cookies, method: 'POST', body: new URLSearchParams({ username: 'admin', password }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
   const flag = UUID.exec(res.json?.feedback ?? '')?.[0];
   assert.ok(!flag, 'patched: no flag must be leaked by the exploit');
@@ -35,6 +36,7 @@ await test('Challenge-79-SQL-Injection-Challenge', async () => {
     cookies, method: 'POST',
     body: new URLSearchParams({ username_login: 'Larry', password_login: "' OR '1'='1" }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
   const flag = UUID.exec(res.json?.feedback ?? '')?.[0];
   assert.ok(!flag, 'patched: no flag must be leaked by the SQL-injection exploit');
@@ -52,12 +54,18 @@ await test('Challenge-80-Password-Reset-Git-Challenge', async () => {
   const send = await wgFetch('/challenge/7', {
     cookies, method: 'POST', body: new URLSearchParams({ email: 'admin@webgoat-cloud.org' }),
   });
+  assertAttackResult(send);
   assert.ok(!lessonCompleted(send), 'patched: the exploit must not solve the lesson');
 });
 
 await test('Challenge-81-JWT-Voting-Challenge', async () => {
   // VERB-based auth bypass: GET is rejected and only GET is mapped — send HEAD, which Spring
   // routes to the GET handler but request.getMethod() != "GET", so the flag header is returned.
+  // Anti-vacuous: a HEAD response carries no body to inspect, so the absence of
+  // the flag header proves nothing unless the challenge is actually being served.
+  // Its lesson overview is a real, non-empty array on the live app (#107).
+  assertLessonOverview(await wgFetch('/service/lessonoverview.mvc/Challenge8', { cookies }), 'challenge 8 overview');
+
   const vote = await fetch(`${BASE}/challenge/8/vote/5`, {
     method: 'HEAD', headers: { Cookie: cookies.cookieHeader },
   });

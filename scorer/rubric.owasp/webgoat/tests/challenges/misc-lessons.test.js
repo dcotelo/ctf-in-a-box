@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, BASE } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, BASE , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -17,6 +17,7 @@ await test('Challenge-73-Log-Injection-Spoofing', async () => {
     cookies, method: 'POST',
     body: new URLSearchParams({ username: '5\nLogin Succeeded for username admin', password: 'x' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -53,6 +54,7 @@ await test('Challenge-72-Log-Injection-Bleeding', async () => {
   const res = await wgFetch('/LogSpoofing/log-bleeding', {
     cookies, method: 'POST', body: new URLSearchParams({ username: 'Admin', password }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -66,6 +68,7 @@ await test('Challenge-75-Vulnerable-Components', async () => {
   const res = await wgFetch('/VulnerableComponents/attack1', {
     cookies, method: 'POST', body: new URLSearchParams({ payload }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -123,5 +126,6 @@ await test('Challenge-74-Insecure-Deserialization', async () => {
   const res = await wgFetch('/InsecureDeserialization/task', {
     cookies, method: 'POST', body: new URLSearchParams({ token }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });

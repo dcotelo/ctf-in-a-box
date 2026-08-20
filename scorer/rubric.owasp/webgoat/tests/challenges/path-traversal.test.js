@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -28,6 +28,7 @@ await test('Challenge-46-Path-Traversal-Upload', async () => {
     cookies, method: 'POST',
     body: multipart([['uploadedFile', pic, 'pic.png'], ['fullName', '../guess']]),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -37,6 +38,7 @@ await test('Challenge-48-Path-Traversal-Secure-Upload', async () => {
     cookies, method: 'POST',
     body: multipart([['uploadedFileFix', pic, 'pic.png'], ['fullNameFix', '..././guess']]),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -46,6 +48,7 @@ await test('Challenge-47-Path-Traversal-Partial-Fix', async () => {
     cookies, method: 'POST',
     body: multipart([['uploadedFileRemoveUserInput', pic, '../guess.png']]),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -55,6 +58,7 @@ await test('Challenge-49-Path-Traversal-Directory', async () => {
   const res = await wgFetch('/PathTraversal/random', {
     cookies, method: 'POST', body: new URLSearchParams({ secret }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 

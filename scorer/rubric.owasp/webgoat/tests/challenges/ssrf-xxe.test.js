@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, WEBWOLF } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, WEBWOLF , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -15,6 +15,7 @@ await test('Challenge-52-SSRF-Basic', async () => {
   const res = await wgFetch('/SSRF/task1', {
     cookies, method: 'POST', body: new URLSearchParams({ url: 'images/jerry.png' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -23,6 +24,7 @@ await test('Challenge-53-SSRF-External', async () => {
   const res = await wgFetch('/SSRF/task2', {
     cookies, method: 'POST', body: new URLSearchParams({ url: 'http://ifconfig.pro' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -36,6 +38,7 @@ await test('Challenge-50-XXE-Simple', async () => {
   const res = await wgFetch('/xxe/simple', {
     cookies, method: 'POST', headers: { 'Content-Type': 'application/xml' }, body: XXE_FILE,
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -44,6 +47,7 @@ await test('Challenge-51-XXE-Content-Type', async () => {
   const res = await wgFetch('/xxe/content-type', {
     cookies, method: 'POST', headers: { 'Content-Type': 'application/xml' }, body: XXE_FILE,
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
