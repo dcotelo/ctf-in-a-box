@@ -53,7 +53,19 @@ jobs:
             # goes unchecked on the PR that breaks it.
             echo "sync=$(m "^event\.yaml\.example|^sync/|^setup/test/corpus/$CI")"
             echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^scorer/entrypoint$CI")"
-            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow$CI")"
+            # `^sync/` is here because smoke runs the REAL sync service —
+            # docker-compose.smoke.yml overrides only its env and the mounted
+            # event.yaml. It is the one end-to-end proof the poll pipeline
+            # works, so the area most able to break it has to trigger it.
+            # Without this a change to the poller's own state handling merged
+            # with the poll-pipeline test skipped, which is how it shipped the
+            # crash-loop in #63.
+            #
+            # `^scorer/` is deliberately NOT here: the same override file
+            # replaces the scorer with test/fixtures/mock-scorer.mjs
+            # (`image: !reset null`), so no scorer source change can affect
+            # this job. It has its own suites.
+            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^sync/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow$CI")"
             # Quiz-only spans BOTH areas it proves compose end to end: the app
             # (module gating, /quiz, /leaderboard) and sync (the exits-0
             # contract), plus docker-compose.yml itself (sync's restart

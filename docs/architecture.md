@@ -554,6 +554,24 @@ Both sides **fail open** on a Redis error — a Redis blip must never freeze
 ingestion by accident (`sync/src/redis.js`'s `isPaused()` catches and
 returns `false`; `scorer/src/store.js` does the same).
 
+**The state file is repaired, never trusted.** Poll mode's cursor, seen-cache
+and counters live in `/state/state.json` on the `sync-state` volume
+(`sync/src/state.js`). It is JSON this service wrote, which makes its *shape*
+tempting to assume once it parses — and that was a real outage: a bare `{}` is
+valid JSON, so a partial write or a hand edit during a reset produced a file
+that loaded fine and then threw on `state.repos[repo]` for every repo, on every
+tick. Nothing contains that throw — `tick()`'s per-repo `try` wraps only the
+fetch — so it reached the fatal handler, exited 1, and compose restarted
+straight back into the same file. Ingestion stayed down for the whole event.
+
+`loadState` now validates the shape it parsed and repairs what is unusable,
+field by field rather than all-or-nothing: a damaged `repos` is reset while
+`ingested` and `resetAt` survive, because re-zeroing them would misreport the
+event's totals and re-apply a master reset already performed. `repoState` does
+the same one level down, since a per-repo entry can be damaged on its own and
+`markSeen` dereferences `seen` immediately. Every repair is logged; a **missing**
+file is not, because that is every event's first boot.
+
 **Master reset + the reset epoch.** `resetEvent()` (`admin-store.ts`, behind
 `POST /api/admin/reset`, `requireAdmin` + server-side type-to-confirm) wipes
 all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,

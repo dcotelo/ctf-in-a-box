@@ -118,7 +118,10 @@ export async function main(deps = {}) {
     return;
   }
 
-  const state = readState(cfg.statePath);
+  // `logErr` so a state repair lands in the same stream as the poller's other
+  // operational lines — a warning nobody sees is the silent repair this guards
+  // against (#63).
+  const state = readState(cfg.statePath, { log: logErr });
   const redis = makeRedisImpl();
   logErr(`ctf-sync: polling ${cfg.targets.length} repos in ${cfg.org} every ${cfg.pollIntervalMs}ms`);
   for (;;) {
