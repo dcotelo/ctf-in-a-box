@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertAnswered } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -11,5 +11,8 @@ test('Challenge-10-Cache-Poisoning-Level-2', async () => {
   const marker = 'CPX2MARKER<img src=x onerror=alert(1)>';
   await vaFetch('/CachePoisoning/LEVEL_2', { params: { banner: marker } });
   const hit = await vaFetch('/CachePoisoning/LEVEL_2', { params: { banner: 'clean' } });
+  // Anti-vacuous: prove the level actually answered before trusting the
+  // absence assertion below (docs/scorer.md, #47).
+  assertAnswered(hit, 'challenge-10-cache-poisoning-level-2');
   assert.ok(!hit.text.includes('CPX2MARKER<img src=x onerror=alert(1)>'), 'poisoned payload served from cache — patch must key/sanitize cache');
 });

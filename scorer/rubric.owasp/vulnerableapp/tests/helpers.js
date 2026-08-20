@@ -134,3 +134,30 @@ export function assertRedirected(res, what = 'endpoint') {
     );
   }
 }
+
+/**
+ * The weaker sibling of `assertLevelResponded`, for levels that do NOT answer
+ * with the {content, isValid} envelope — the SQL-injection levels return
+ * `{isCarPresent, carInformation}`, the img-attribute and persistent-XSS levels
+ * return raw HTML fragments.
+ *
+ * There is no single oracle field to check on those, so this asserts the weaker
+ * but still decisive property: the app returned a real answer rather than
+ * nothing. An empty body, or the empty JSON object a degraded service hands
+ * back, is not an answer — and an assertion of the form "the exploit's output
+ * is absent" is satisfied for free by both.
+ *
+ * Verified against the real stock image: every level in scope returns either a
+ * populated JSON object or a non-empty HTML fragment.
+ */
+export function assertAnswered(res, what = 'endpoint') {
+  const emptyJson =
+    res?.json && typeof res.json === 'object' && Object.keys(res.json).length === 0;
+  if (res?.status !== 200 || !res?.text?.trim() || emptyJson) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} did not return a real answer ` +
+        `(status ${res?.status}, body ${JSON.stringify(res?.text)?.slice(0, 200)}). ` +
+        `An empty response trivially satisfies "the exploit output is absent".`,
+    );
+  }
+}
