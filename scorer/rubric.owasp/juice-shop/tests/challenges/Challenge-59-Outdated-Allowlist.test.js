@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, waitForServer } from '../helpers.js';
+import { api, waitForServer, assertShopAlive } from '../helpers.js';
 
 await waitForServer();
 
@@ -13,6 +13,11 @@ const deprecated = [
 
 for (const url of deprecated) {
   test(`redirectCryptoCurrencyChallenge — deprecated address rejected: ${url}`, async () => {
+    // Anti-vacuous: this asserts `status >= 400`, which every 404 and 500 from
+    // a dead app satisfies for free. The shop has to be serving before a 4xx
+    // can mean the redirector rejected the address (docs/scorer.md, #47).
+    await assertShopAlive();
+
     const res = await api(`/redirect?to=${encodeURIComponent(url)}`, { redirect: 'manual' });
     assert.ok(res.status >= 400, `deprecated crypto redirect should be rejected, got ${res.status}`);
   });
