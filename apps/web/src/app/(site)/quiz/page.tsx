@@ -102,6 +102,9 @@ export default async function QuizPage() {
     type: q.type,
     choices: q.choices,
     points: q.points,
+    // Read from the SAME attempts row `deriveStatus` gates on, so the
+    // "2 of 3 attempts left" chip and the exhausted state can never disagree.
+    attemptsUsed: viewerQuiz.attempts[q.id]?.attempts ?? 0,
     ...deriveStatus(viewerQuiz.answered[q.id], viewerQuiz.attempts[q.id], maxAttempts, cooldownMs),
   }));
 
@@ -131,7 +134,7 @@ export default async function QuizPage() {
             <p className="text-sm text-zinc-400">No quiz questions are available yet. Check back soon.</p>
           </div>
         ) : (
-          <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} />
+          <QuizBoard questions={viewQuestions} authenticated={Boolean(login)} maxAttempts={maxAttempts} />
         )}
       </div>
     </div>

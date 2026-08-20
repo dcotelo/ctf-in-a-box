@@ -13,8 +13,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 import QuizBoard, {
+  describeAttempts,
   describeCorrect,
   resultLine,
+  submitDisabled,
   type Feedback,
   type QuizQuestionView,
 } from "@/components/quiz-board";
@@ -28,6 +30,7 @@ const singleChoiceQuestion: QuizQuestionView = {
     { id: "opt-b", label: "Content-Length" },
   ],
   points: 10,
+  attemptsUsed: 0,
   status: "unanswered",
 };
 
@@ -41,12 +44,13 @@ const multiChoiceQuestion: QuizQuestionView = {
     { id: "opt-e", label: "eval() on user input" },
   ],
   points: 15,
+  attemptsUsed: 0,
   status: "unanswered",
 };
 
 describe("QuizBoard", () => {
   it("renders each question's prompt, points, and choices", () => {
-    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} maxAttempts={3} authenticated />);
     expect(html).toMatch(/Which HTTP header mitigates clickjacking\?/);
     expect(html).toMatch(/10 pts/);
     expect(html).toContain("X-Frame-Options");
@@ -54,19 +58,19 @@ describe("QuizBoard", () => {
   });
 
   it("uses radio inputs for a single-choice question", () => {
-    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} maxAttempts={3} authenticated />);
     expect(html).toContain('type="radio"');
     expect(html).not.toContain('type="checkbox"');
   });
 
   it("uses checkbox inputs for a multi-choice question", () => {
-    const html = renderToStaticMarkup(<QuizBoard questions={[multiChoiceQuestion]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[multiChoiceQuestion]} maxAttempts={3} authenticated />);
     expect(html).toContain('type="checkbox"');
     expect(html).not.toContain('type="radio"');
   });
 
   it("shows an unanswered question with a submit control and selectable, non-disabled choices", () => {
-    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} maxAttempts={3} authenticated />);
     expect(html).toMatch(/submit answer/i);
     // The submit button itself starts disabled (nothing selected yet), but
     // the choice inputs must not be — that's what distinguishes this from
@@ -76,7 +80,7 @@ describe("QuizBoard", () => {
 
   it("shows an answered question as answered and offers no inputs", () => {
     const answered: QuizQuestionView = { ...singleChoiceQuestion, status: "answered", earnedPoints: 10 };
-    const html = renderToStaticMarkup(<QuizBoard questions={[answered]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[answered]} maxAttempts={3} authenticated />);
     expect(html).toMatch(/answered/i);
     expect(html).toMatch(/10 point/i);
     expect(html).not.toContain("<input");
@@ -97,7 +101,7 @@ describe("QuizBoard", () => {
   it("shows a cooldown question without leaking the raw instant, and disables submission", () => {
     const retryAt = "2026-08-18T12:34:56.000Z";
     const cooling: QuizQuestionView = { ...singleChoiceQuestion, status: "cooldown", retryAt };
-    const html = renderToStaticMarkup(<QuizBoard questions={[cooling]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[cooling]} maxAttempts={3} authenticated />);
     expect(html).not.toContain(retryAt);
     expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(html).toMatch(/on cooldown/i);
@@ -110,14 +114,14 @@ describe("QuizBoard", () => {
 
   it("shows an exhausted question with no submit control", () => {
     const exhausted: QuizQuestionView = { ...singleChoiceQuestion, status: "exhausted" };
-    const html = renderToStaticMarkup(<QuizBoard questions={[exhausted]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[exhausted]} maxAttempts={3} authenticated />);
     expect(html).toMatch(/no attempts remaining/i);
     expect(html).not.toContain("<input");
     expect(html).not.toContain("<button");
   });
 
   it("prompts a signed-out visitor to sign in instead of offering a submit control", () => {
-    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} authenticated={false} />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[singleChoiceQuestion]} maxAttempts={3} authenticated={false} />);
     expect(html).toMatch(/sign in with github/i);
     expect(html).not.toContain("<button");
   });
@@ -135,8 +139,80 @@ describe("QuizBoard", () => {
       answerKey: leakedCorrectId,
     } as unknown as QuizQuestionView;
 
-    const html = renderToStaticMarkup(<QuizBoard questions={[leaked]} authenticated />);
+    const html = renderToStaticMarkup(<QuizBoard questions={[leaked]} maxAttempts={3} authenticated />);
     expect(html).not.toContain(leakedCorrectId);
+  });
+});
+
+describe("the attempts budget", () => {
+  it("tells a contestant how many graded attempts are left", () => {
+    const html = renderToStaticMarkup(
+      <QuizBoard questions={[{ ...singleChoiceQuestion, attemptsUsed: 1 }]} maxAttempts={3} authenticated />,
+    );
+    expect(html).toMatch(/2 of 3 attempts left/i);
+  });
+
+  it("says nothing when the organizer has uncapped attempts", () => {
+    const html = renderToStaticMarkup(
+      <QuizBoard questions={[singleChoiceQuestion]} maxAttempts={0} authenticated />,
+    );
+    expect(html).not.toMatch(/attempts left/i);
+  });
+
+  // The budget is spent and the question is banked — how many tries the
+  // contestant didn't need is not a fact worth printing at them.
+  it("drops the chip once the question is answered", () => {
+    const answered: QuizQuestionView = {
+      ...singleChoiceQuestion,
+      status: "answered",
+      earnedPoints: 10,
+      attemptsUsed: 1,
+    };
+    const html = renderToStaticMarkup(<QuizBoard questions={[answered]} maxAttempts={3} authenticated />);
+    expect(html).not.toMatch(/attempts left/i);
+  });
+});
+
+describe("submitDisabled", () => {
+  const live = { onCooldown: false, cooledDown: false, pending: false, selectedCount: 1 };
+
+  it("opens once something is selected", () => {
+    expect(submitDisabled(live)).toBe(false);
+  });
+
+  it("stays shut with nothing selected, or while a submission is in flight", () => {
+    expect(submitDisabled({ ...live, selectedCount: 0 })).toBe(true);
+    expect(submitDisabled({ ...live, pending: true })).toBe(true);
+  });
+
+  it("stays shut for the whole cooldown", () => {
+    expect(submitDisabled({ ...live, onCooldown: true, cooledDown: false })).toBe(true);
+  });
+
+  // The regression this exists for: the cooldown branch hardcoded `disabled`,
+  // so a card announcing "Cooldown's over — you can try again now." above
+  // re-enabled radios still had a permanently dead button under them.
+  it("re-opens the moment the countdown reaches zero", () => {
+    expect(submitDisabled({ ...live, onCooldown: true, cooledDown: true })).toBe(false);
+  });
+});
+
+describe("describeAttempts", () => {
+  it("counts down from the cap", () => {
+    expect(describeAttempts(0, 3)).toBe("3 of 3 attempts left");
+    expect(describeAttempts(2, 3)).toBe("1 of 3 attempts left");
+    expect(describeAttempts(3, 3)).toBe("0 of 3 attempts left");
+    expect(describeAttempts(0, 1)).toBe("1 of 1 attempt left");
+  });
+
+  it("has nothing to report when attempts are uncapped", () => {
+    expect(describeAttempts(4, 0)).toBeNull();
+  });
+
+  // The cap is live from /admin. An organizer who lowers it mid-event leaves
+  // contestants holding more spent attempts than the new cap allows.
+  it("never reports a negative budget after the cap is lowered mid-event", () => {
+    expect(describeAttempts(5, 3)).toBe("0 of 3 attempts left");
   });
 });
 

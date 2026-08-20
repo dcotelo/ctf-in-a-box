@@ -166,7 +166,10 @@ export default function ClassicBoard({
           ...prev,
           [challenge.id]: data.correct
             ? { kind: "success", text: describeCorrect(data.points, data.already) }
-            : { kind: "error", text: "Not quite. Try again." },
+            // No "Try again." — same reasoning as quiz-board.tsx: a wrong
+            // flag starts the classic cooldown, and the card's own countdown
+            // is what says when the form re-opens.
+            : { kind: "error", text: "Not quite." },
         }));
       } else if ("error" in data && typeof data.error === "string") {
         setFeedback((prev) => ({
