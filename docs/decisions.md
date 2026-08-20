@@ -221,7 +221,8 @@ vertical (forensics, API security, cloud, …) alongside
 
 **Decision.** Platform-level config (`event`, `github`, `teams`, `hints`,
 `admins`) sits at the top level of `event.yaml`
-(**amended** — `hints` is gone; see [#31](#31-one-hint-switch-capability-split-from-policy));
+(**amended** — `hints` and `teams` are gone; both were declared here and never
+read, see [#31](#31-one-hint-switch-capability-split-from-policy));
 everything vertical-specific
 lives under a kebab-case key in `modules:` (`modules.secure-development`).
 Enablement is presence — a module is on because its key is there, off because
@@ -1229,6 +1230,22 @@ config still carries one, naming `/admin` as where the setting lives. This
 also removes `hints` from the platform-level list in
 [#10](#10-eventyamls-module-namespace-deliberate-not-dynamic-registration),
 which had it as top-level schema. Existing configs keep building.
+
+`teams:` went the same way in the same change, for the same reason and with
+the same mechanism. It too was declared platform-level in #10 and read by
+nobody, so `teams: { enabled: false, max_size: 6 }` got team play anyway,
+capped at 4. It is arguably the worse of the two: `max_size` is a *number*,
+which reads even more like configuration than a boolean does. Teams are always
+available; `/admin` opens and closes registration, and the cap is
+`TEAM_MAX_MEMBERS` in `team-store.ts`.
+
+Deliberately not replaced by a build-time capability. Solo play already works
+and is the default — teams are opt-in per contestant — so a `teams.enabled`
+flag would only hide a UI that costs nothing to leave up, at the price of the
+second switch this ADR exists to remove. Making the *cap* organizer-settable
+is a real request and is tracked separately; if it lands it belongs in
+`/admin` on the `HINT_COST` pattern named above — a constant default with an
+override and no config key — not back in `event.yaml`.
 
 ## 32. Scheduled windows, evaluated at read time in three readers
 

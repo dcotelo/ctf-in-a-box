@@ -1307,20 +1307,24 @@ wiz_event_yaml() {
       *) echo "event.yaml: unknown module: $m" >&2; return 1 ;;
     esac
   done
-  # No `hints:` key. ADR 31 made /admin the only hint switch, and nothing reads
-  # this file's hints block — `apps/web/scripts/generate-event-config.mjs` does
-  # not mention the word. Emitting `enabled: true` was an earlier attempt to
-  # stop the key from lying (it had said `false` while hints ran), but a key
-  # that cannot change the answer misleads whichever value it carries: an
-  # organizer who edits it to `false` still gets hints, and nothing tells them.
-  # Hints are on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED) and turned
-  # off in /admin. A config left over from before this change still parses —
-  # the generator warns rather than failing on it.
+  # `admins:` only. Neither `hints:` nor `teams:` is emitted any more, because
+  # nothing has ever read either one — `generate-event-config.mjs` mentions
+  # neither word — and a key that cannot change the answer misleads whichever
+  # value it carries. An organizer who wrote `hints: { enabled: false }` still
+  # got hints; one who wrote `teams: { max_size: 6 }` still got a cap of 4.
+  # Emitting `hints: { enabled: true }` had been an earlier attempt to stop the
+  # key lying by agreeing with the app, which fixed the value and not the
+  # problem.
   #
-  # `teams:` is still emitted and still a v1 placeholder: team play is always
-  # on with a fixed 4-member cap.
-  printf 'teams: { enabled: true, max_size: 4 }\nadmins: [%s]\n' \
-    "$(csv_of "$admins")"
+  # Where each setting actually lives:
+  #   hints    on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED), turned
+  #            off in /admin — ADR 31.
+  #   teams    always available; /admin opens and closes registration. The
+  #            4-member cap is TEAM_MAX_MEMBERS in team-store.ts.
+  #
+  # A config written before this change still parses: the generator warns on
+  # both keys rather than failing.
+  printf 'admins: [%s]\n' "$(csv_of "$admins")"
 }
 
 # Is an existing event.yaml complete enough to skip the config questions? Org

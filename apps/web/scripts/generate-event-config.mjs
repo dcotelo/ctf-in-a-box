@@ -119,8 +119,14 @@ function derivedTargets(mods) {
 // `hints: { enabled: false }` while the running event served hints — with
 // nothing anywhere saying so. Silence is what made it a trap; this is the
 // noise that replaces it.
+//
+// `teams` is the same defect and arguably worse: `max_size` is a NUMBER, so it
+// reads even more like it configures something than a boolean does. A config
+// asking for teams of 6 got the hardcoded cap of 4, silently.
 const IGNORED_TOP_LEVEL_KEYS = {
   hints: "hints are on by default and turned off in /admin (ADR 31)",
+  teams:
+    "teams are always available; /admin opens and closes registration, and the member cap is TEAM_MAX_MEMBERS in team-store.ts",
 };
 
 function warnIgnoredKeys(doc) {

@@ -11,5 +11,4 @@ modules:
     targets: [juice-shop, dvwa]
     score_ingest: push
   quiz: {}
-teams: { enabled: true, max_size: 4 }
 admins: [your-github-login, alice]

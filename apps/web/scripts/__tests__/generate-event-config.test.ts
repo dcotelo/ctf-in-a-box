@@ -314,8 +314,34 @@ describe("ignored top-level keys", () => {
     expect(err).toMatch(/"hints" is not read/);
   });
 
-  it("stays quiet for a config that carries no hints key", () => {
+  it("warns that a teams block has no effect, and names where the cap lives", () => {
+    // `max_size` is worse than the hints boolean: a number reads even more like
+    // it configures something. A config asking for 6 silently got 4.
+    const err = stderrFor([...QUIZ_EVENT, "teams: { enabled: false, max_size: 6 }"].join("\n"));
+    expect(err).toMatch(/"teams" is not read/);
+    expect(err).toMatch(/TEAM_MAX_MEMBERS/);
+  });
+
+  it("warns once per ignored key when a config carries both", () => {
+    const err = stderrFor(
+      [...QUIZ_EVENT, "hints: { enabled: false }", "teams: { enabled: true, max_size: 4 }"].join("\n"),
+    );
+    expect(err.match(/WARNING/g) ?? []).toHaveLength(2);
+  });
+
+  it("stays quiet for a config that carries neither key", () => {
     const err = stderrFor(QUIZ_EVENT.join("\n"));
     expect(err).not.toMatch(/WARNING/);
+  });
+
+  it("an old config carrying both keys still builds", () => {
+    // The whole point of warning rather than failing: an organizer's existing
+    // event.yaml must not stop building because two dead keys were retired.
+    const out = generate(
+      {},
+      [...QUIZ_EVENT, "hints: { enabled: false }", "teams: { enabled: true, max_size: 4 }"].join("\n"),
+    );
+    expect(out).toContain(`"name": "Quiz Night"`);
+    expect(out).toContain(`"githubOrg": "evt"`);
   });
 });
