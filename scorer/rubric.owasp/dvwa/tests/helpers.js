@@ -238,3 +238,88 @@ export async function initDvwaDb({ url = BASE } = {}) {
     throw new Error(`DVWA DB init may have failed — setup.php response did not confirm success`);
   }
 }
+
+// ── anti-vacuous preconditions ────────────────────────────────────────────────
+//
+// Nearly every DVWA challenge asserts the same pair: the endpoint still returns
+// 200, and the exploit payload does not appear in the response. A target that
+// answers `200 {}` to everything satisfies both for free — 38 of the 55
+// challenges passed that way (issue #105). The status check was meant to catch
+// "break the page instead of fixing it", but a status alone cannot tell a
+// rendered page from an empty one.
+//
+// The oracle is DVWA's own page chrome. Every vulnerability page carries it
+// (measured: ~4.6-4.8 KB each), it is unaffected by patching the vulnerability
+// — fixing an XSS does not remove the site furniture — and no degraded stub
+// reproduces it.
+
+/** Marker present in every DVWA page's own template, on both the vulnerable
+ *  and the patched app. */
+const DVWA_PAGE_MARKER = 'Damn Vulnerable Web Application';
+
+/**
+ * The response the caller is about to assert on must be a real DVWA page.
+ *
+ * Deliberately takes the ALREADY-FETCHED response rather than making its own
+ * request: a guard that probes some other URL proves that other URL was alive,
+ * which is not the same claim. This is the response the payload assertion
+ * reads.
+ */
+export function assertDvwaRendered({ status, text }, what) {
+  if (status !== 200) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned ${status}, not a rendered page. ` +
+        `"the payload is absent" below would pass for the wrong reason.`,
+    );
+  }
+  if (!text.includes(DVWA_PAGE_MARKER)) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned 200 but not a DVWA page ` +
+        `(${text.length} bytes, no "${DVWA_PAGE_MARKER}"). An app answering an empty 200 ` +
+        `blocks every payload trivially.`,
+    );
+  }
+}
+
+/**
+ * For flows whose verdict is not a page — the CAPTCHA password-change bypass,
+ * the crypto token check — prove the app is serving before trusting the
+ * outcome. `path` should be the challenge's OWN page, so this stays as close
+ * to the endpoint under test as the flow allows.
+ */
+export async function assertDvwaAlive(cookies, path, what) {
+  const res = await dvwaFetch(path, { cookies });
+  assertDvwaRendered(res, `${what} (${path})`);
+}
+
+/**
+ * The API-security challenge's oracle. Its endpoints return JSON, not pages,
+ * so `assertDvwaRendered` does not apply — and its "safe request still works"
+ * check was `status === 200`, which an empty 200 satisfies.
+ *
+ * Measured on the live app: `/v2/user/` lists `[{id,name,level},…]` and
+ * `/v2/user/2` returns one such record. Patching excessive data exposure or
+ * mass assignment removes the `password` field and ignores `level` on write —
+ * it does not stop the API listing users, so this holds on both sides.
+ */
+export function assertDvwaApiRecord({ status, text }, what) {
+  if (status !== 200) {
+    throw new Error(`anti-vacuous precondition failed: ${what} returned ${status}, not a user record.`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned 200 but not JSON (${text.slice(0, 80)}).`,
+    );
+  }
+  const records = Array.isArray(parsed) ? parsed : [parsed];
+  const ok = records.length > 0 && records.every((r) => r && typeof r === 'object' && 'id' in r && 'name' in r);
+  if (!ok) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned no user records ` +
+        `(${text.slice(0, 120)}). "the password field is absent" would pass for the wrong reason.`,
+    );
+  }
+}

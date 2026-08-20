@@ -47,7 +47,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const XSS_D = '/vulnerabilities/xss_d/';
 
@@ -63,7 +63,7 @@ await test('Challenge-10-XSS-DOM-Low', async () => {
   await setSecurityLevel(cookies, 'low');
 
   const { status, text } = await dvwaFetch(XSS_D, { cookies });
-  assert.equal(status, 200, 'patched XSS DOM low endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched XSS DOM low endpoint must still return 200');
   assert.ok(
     !text.includes(VULN_SIGNAL),
     'xss_d-low: page must not ship decodeURI(lang) — the client-side XSS sink must be removed from xss_d/index.php'
@@ -76,7 +76,7 @@ await test('Challenge-10-XSS-DOM-Medium', async () => {
   await setSecurityLevel(cookies, 'medium');
 
   const { status, text } = await dvwaFetch(XSS_D, { cookies });
-  assert.equal(status, 200, 'patched XSS DOM medium endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched XSS DOM medium endpoint must still return 200');
   assert.ok(
     !text.includes(VULN_SIGNAL),
     'xss_d-medium: page must not ship decodeURI(lang) — the client-side XSS sink must be removed from xss_d/index.php'
@@ -89,7 +89,7 @@ await test('Challenge-10-XSS-DOM-High', async () => {
   await setSecurityLevel(cookies, 'high');
 
   const { status, text } = await dvwaFetch(XSS_D, { cookies });
-  assert.equal(status, 200, 'patched XSS DOM high endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched XSS DOM high endpoint must still return 200');
   assert.ok(
     !text.includes(VULN_SIGNAL),
     'xss_d-high: page must not ship decodeURI(lang) — the client-side XSS sink must be removed from xss_d/index.php'

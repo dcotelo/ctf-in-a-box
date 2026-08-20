@@ -19,7 +19,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel , assertDvwaAlive } from '../helpers.js';
 
 const BASE = process.env.DVWA_URL ?? 'http://localhost:4280';
 const OR = '/vulnerabilities/open_redirect/source';
@@ -80,6 +80,10 @@ await test('Challenge-15-Open-Redirect-Low', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'low');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, '/vulnerabilities/open_redirect/', 'open redirect low');
 
   // Health check: endpoint must still be alive for a legitimate same-site redirect target.
   const sameSite = await redirectTo(cookies.cookieHeader, 'low', '/vulnerabilities/open_redirect/');
@@ -99,6 +103,10 @@ await test('Challenge-15-Open-Redirect-Medium', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'medium');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, '/vulnerabilities/open_redirect/', 'open redirect medium');
 
   // Health check: endpoint must still be alive for a legitimate same-site redirect target.
   const sameSite = await redirectTo(cookies.cookieHeader, 'medium', '/vulnerabilities/open_redirect/');
@@ -118,6 +126,10 @@ await test('Challenge-15-Open-Redirect-High', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'high');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, '/vulnerabilities/open_redirect/', 'open redirect high');
 
   // Health check: endpoint must still be alive for a legitimate same-site redirect target.
   // High level only allows targets containing "info.php" — use a same-site target satisfying that.

@@ -16,7 +16,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const SQLI_BLIND_URL = '/vulnerabilities/sqli_blind/';
 // Oracle signal: a TRUE condition produces this string; a patched app must not.
@@ -35,7 +35,7 @@ await test('Challenge-8-SQL-Injection-Blind-Low', async () => {
     { cookies }
   );
 
-  assert.equal(status, 200, 'patched sqli_blind endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched sqli_blind endpoint should still serve a normal 200');
   assert.ok(!ORACLE(text), 'sqli_blind-low must be blocked: TRUE boolean payload must not produce the oracle response');
 });
 
@@ -53,7 +53,7 @@ await test('Challenge-8-SQL-Injection-Blind-Medium', async () => {
     body: new URLSearchParams({ id: '1 AND 1=1', Submit: 'Submit' }),
   });
 
-  assert.equal(status, 200, 'patched sqli_blind endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched sqli_blind endpoint should still serve a normal 200');
   assert.ok(!ORACLE(text), 'sqli_blind-medium must be blocked: unquoted numeric TRUE condition must not leak oracle response');
 });
 
@@ -70,6 +70,6 @@ await test('Challenge-8-SQL-Injection-Blind-High', async () => {
   // Clean up the injected cookie so it does not affect other tests.
   cookies.jar.erase('id');
 
-  assert.equal(status, 200, 'patched sqli_blind endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched sqli_blind endpoint should still serve a normal 200');
   assert.ok(!ORACLE(text), 'sqli_blind-high must be blocked: cookie-based TRUE condition must not produce oracle response');
 });

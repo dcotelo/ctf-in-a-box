@@ -13,7 +13,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const EXEC_URL = '/vulnerabilities/exec/';
 const EXECUTED = (t) => /uid=/.test(t); // `id` output signal
@@ -32,7 +32,7 @@ await test('Challenge-2-Command-Injection-Low', async () => {
     body: 'ip=127.0.0.1;id&Submit=Submit',
   });
 
-  assert.equal(status, 200, 'patched exec endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched exec endpoint should still serve a normal 200');
   assert.ok(!EXECUTED(text), 'exec-low must be blocked: semicolon chaining must not leak uid=');
 });
 
@@ -50,7 +50,7 @@ await test('Challenge-2-Command-Injection-Medium', async () => {
     body: 'ip=127.0.0.1|id&Submit=Submit',
   });
 
-  assert.equal(status, 200, 'patched exec endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched exec endpoint should still serve a normal 200');
   assert.ok(!EXECUTED(text), 'exec-medium must be blocked: pipe injection must not leak uid=');
 });
 
@@ -69,6 +69,6 @@ await test('Challenge-2-Command-Injection-High', async () => {
     body: 'ip=127.0.0.1|id&Submit=Submit',
   });
 
-  assert.equal(status, 200, 'patched exec endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched exec endpoint should still serve a normal 200');
   assert.ok(!EXECUTED(text), 'exec-high must be blocked: bare-pipe injection must not leak uid=');
 });
