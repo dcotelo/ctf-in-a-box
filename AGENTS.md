@@ -20,6 +20,7 @@ cd sync && npm ci && npm test
 ```sh
 cd scorer && npm ci && npm test
 ./scripts/acceptance-scorer.sh
+node tools/vacuous-sweep.mjs      # the vacuous-pass gate — must report 0
 ```
 
 **app** (contestant web app):
@@ -71,6 +72,13 @@ job's output — a job for an untouched area is *skipped* (which still
 satisfies a required check), not run needlessly. A push to `main` (i.e.
 post-merge) always sets every area `true`, so `main` gets the full run as a
 safety net regardless of what the merged PR touched.
+
+The `vacuous` job runs `scorer/tools/vacuous-sweep.mjs`, which points every
+target at a stub that is UP but USELESS and fails if any challenge still
+passes. It needs no Docker — the stub is an in-process HTTP server — so it is
+minutes of plain Node rather than a container bring-up. It was wired in only
+once the count reached 0/321: a gate adopted while findings remain is a gate
+somebody has to disable.
 
 Two heavier workflows, `stock-scores-zero.yml` and `patched-scores-right.yml`,
 are scoped with their own `paths:` filters to judge-relevant scorer inputs
