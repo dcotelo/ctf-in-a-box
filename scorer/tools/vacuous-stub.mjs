@@ -53,6 +53,73 @@ export const HEALTH_PATHS_BY_TARGET = {
 };
 
 /**
+ * The minimum handshake each target's helpers need to consider themselves
+ * logged in, read off the same `helpers.js` as the probes above.
+ *
+ * Fixing the health paths got dvwa, webgoat and securityshepherd past their
+ * `waitFor…()` — and straight into a second wall one stage later, at LOGIN:
+ *
+ *   dvwa              "No PHPSESSID after login"
+ *   webgoat           "No JSESSIONID after WebGoat login"
+ *   securityshepherd  "Login failed — no JSESSIONID in Set-Cookie"
+ *
+ * Every challenge in those three files logs in before it asserts anything, so
+ * all 164 of them died before touching the endpoint under test and the sweep
+ * reported a zero it had never measured.
+ *
+ * Answering the handshake does NOT make the stub useful, which is the property
+ * that has to survive. "Session store works, application logic does not" is a
+ * perfectly ordinary way for a real app to be broken — arguably the most
+ * ordinary. The stub still serves nothing a challenge could assert on: past
+ * the login flow, every path degrades exactly as before. A challenge that
+ * passes against a target that authenticated you and then answered nothing is
+ * asserting nothing, which is the whole point.
+ *
+ * Kept to the MINIMUM each helper checks, for the same reason the probe map is
+ * scoped per target: every path here is answered 200 under the degraded
+ * personalities, so each one is a real-looking response handed to the rubric
+ * for free. Nothing is listed that the login path does not demand.
+ *
+ * Token VALUES are deliberately unmistakable for challenge data. They are not
+ * hex, so they cannot be mistaken for a securityshepherd result key — whose
+ * matcher accepts a bare 64-hex run (see #42) — and a rubric that echoed one
+ * back could never be read as a solve.
+ */
+export const AUTH_BY_TARGET = {
+  dvwa: {
+    // `user_token` is parsed out of the login form by loginDvwa; the value is
+    // free-form, so it says what it is. `/index.php` is the authentication
+    // CHECK: it must be 200 and must not look like the login page, or the
+    // helper concludes the session never authenticated.
+    cookies: ["PHPSESSID=stub-session-not-a-real-id; Path=/"],
+    routes: {
+      "/login.php":
+        "<html><body><form action='login.php' method='post'>" +
+        "<input type='hidden' name='user_token' value='stub-csrf-token-not-hex'>" +
+        "</form></body></html>",
+      "/index.php": "<html><body>stub: authenticated, and deliberately useless</body></html>",
+    },
+  },
+  webgoat: {
+    // loginWebGoat verifies the session by asking reportcard for JSON.
+    cookies: ["JSESSIONID=stub-session-not-a-real-id; Path=/"],
+    routes: {
+      "/login": "<html><body>stub login</body></html>",
+      "/service/reportcard.mvc": "{}",
+    },
+  },
+  securityshepherd: {
+    // loginShepherd reads BOTH cookies straight off the POST response and
+    // never fetches anything else to confirm.
+    cookies: [
+      "JSESSIONID=stub-session-not-a-real-id; Path=/",
+      "token=stub-csrf-token-not-hex; Path=/",
+    ],
+    routes: { "/login": "<html><body>stub login</body></html>" },
+  },
+};
+
+/**
  * Personalities. Each answers the health probe 200 so the target reads as UP,
  * then degrades everything else a different way — because "useless" has more
  * than one shape and a rubric can be accidentally satisfied by any of them.
@@ -100,13 +167,15 @@ export const PERSONALITY_NAMES = Object.keys(PERSONALITIES);
  * those requests GO — one path repeated forever versus a different endpoint
  * per challenge.
  */
-export async function startStub(personality = "empty-200", { healthPaths } = {}) {
+export async function startStub(personality = "empty-200", { healthPaths, auth = null } = {}) {
   const respond = PERSONALITIES[personality];
   if (!respond) throw new Error(`unknown personality: ${personality}`);
   if (!Array.isArray(healthPaths) || healthPaths.length === 0) {
     throw new Error("startStub: healthPaths is required (see HEALTH_PATHS_BY_TARGET)");
   }
   const health = new Set(healthPaths);
+  const authRoutes = auth?.routes ?? {};
+  const authCookies = auth?.cookies ?? [];
 
   let requests = 0;
   const paths = new Set();
@@ -114,10 +183,32 @@ export async function startStub(personality = "empty-200", { healthPaths } = {})
     let pathname = req.url ?? "/";
     const q = pathname.indexOf("?");
     if (q !== -1) pathname = pathname.slice(0, q);
-    const probe = health.has(pathname);
+
+    // Plumbing, not a rubric request: the health probe and the login handshake
+    // are what the target needs in order to START asking questions. Counting
+    // them would put every target back above the "reached one distinct path"
+    // threshold and retire the warning that catches a target which never got
+    // anywhere — the failure this whole tool exists to make visible.
+    const isAuth = Object.hasOwn(authRoutes, pathname);
+    const probe = health.has(pathname) || isAuth;
     if (!probe) {
       requests += 1;
       paths.add(pathname);
+    }
+
+    // The handshake answers the same way under every personality. Degrading it
+    // is what left dvwa, webgoat and securityshepherd stuck at login under two
+    // personalities out of three, reporting an unmeasured zero.
+    if (isAuth) {
+      res.writeHead(200, {
+        "content-type": "text/html",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+        ...(authCookies.length ? { "set-cookie": authCookies } : {}),
+      });
+      req.resume();
+      res.end(authRoutes[pathname]);
+      return;
     }
 
     const { status, body, type } = respond(probe);

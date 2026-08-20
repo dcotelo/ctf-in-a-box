@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
+  AUTH_BY_TARGET,
   HEALTH_PATHS_BY_TARGET,
   PERSONALITY_NAMES,
   PERSONALITIES,
@@ -155,4 +156,95 @@ test("each mapped health path is the path that target's helpers actually poll", 
         `target will report a zero it never measured`,
     );
   }
+});
+
+// ── the login handshake (#47) ────────────────────────────────────────────────
+//
+// Fixing the health paths got dvwa, webgoat and securityshepherd past their
+// waitFor…() and into a second wall at LOGIN, where all 164 of their challenges
+// died before asserting anything. These pin the handshake that clears it — and,
+// just as importantly, that clearing it did not make the stub useful.
+
+test("every target whose helpers log in has a handshake", () => {
+  // The three are named explicitly rather than derived: a target that starts
+  // requiring a login should fail here and be added deliberately, not be
+  // silently blind again.
+  for (const name of ["dvwa", "webgoat", "securityshepherd"]) {
+    assert.ok(AUTH_BY_TARGET[name], `${name} needs an AUTH_BY_TARGET entry`);
+    assert.ok(AUTH_BY_TARGET[name].cookies.length > 0, `${name} must set a session cookie`);
+  }
+});
+
+test("the handshake answers identically under every personality", async () => {
+  // Degrading it is exactly what left these three stuck at login under two
+  // personalities out of three, reporting a zero nobody had measured.
+  for (const name of PERSONALITY_NAMES) {
+    const stub = await startStub(name, {
+      healthPaths: HEALTH_PATHS_BY_TARGET.securityshepherd,
+      auth: AUTH_BY_TARGET.securityshepherd,
+    });
+    try {
+      const res = await fetch(`${stub.url}/login`, { method: "POST", redirect: "manual" });
+      assert.equal(res.status, 200, `${name}: login must succeed`);
+      const cookies = res.headers.getSetCookie();
+      assert.ok(
+        cookies.some((c) => c.startsWith("JSESSIONID=")),
+        `${name}: loginShepherd throws without JSESSIONID`,
+      );
+      assert.ok(
+        cookies.some((c) => c.startsWith("token=")),
+        `${name}: loginShepherd throws without the CSRF token`,
+      );
+    } finally {
+      await stub.close();
+    }
+  }
+});
+
+test("authenticating does not make the stub useful", async () => {
+  // The property the whole detector rests on. "Session store works,
+  // application logic does not" is an ordinary way for a real app to be broken;
+  // past the handshake every path must degrade exactly as before.
+  const stub = await startStub("not-found", {
+    healthPaths: HEALTH_PATHS_BY_TARGET.dvwa,
+    auth: AUTH_BY_TARGET.dvwa,
+  });
+  try {
+    assert.equal((await fetch(`${stub.url}/login.php`)).status, 200, "handshake");
+    assert.equal((await fetch(`${stub.url}/index.php`)).status, 200, "auth check");
+    assert.equal((await fetch(`${stub.url}/vulnerabilities/sqli/`)).status, 404, "still useless");
+    assert.equal((await fetch(`${stub.url}/vulnerabilities/xss_r/`)).status, 404, "still useless");
+  } finally {
+    await stub.close();
+  }
+});
+
+test("handshake traffic is not counted as rubric requests", async () => {
+  // Counting it would push every target past the "reached one distinct path"
+  // threshold and retire the warning that catches a target which never got
+  // anywhere — the failure this tool exists to surface.
+  const stub = await startStub("empty-200", {
+    healthPaths: HEALTH_PATHS_BY_TARGET.webgoat,
+    auth: AUTH_BY_TARGET.webgoat,
+  });
+  try {
+    await fetch(`${stub.url}/login`, { method: "POST" });
+    await fetch(`${stub.url}/service/reportcard.mvc`);
+    assert.equal(stub.requests, 0, "logging in is plumbing, not a measurement");
+    assert.deepEqual(stub.paths, []);
+    await fetch(`${stub.url}/WebGoat/SqlInjection/attack`);
+    assert.equal(stub.requests, 1, "a real endpoint IS a measurement");
+  } finally {
+    await stub.close();
+  }
+});
+
+test("no handshake token can be mistaken for a securityshepherd result key", async () => {
+  // extractSolutionKey accepts a bare 64-hex run (#42). A stub token shaped
+  // like one, echoed back by a rubric, would read as a solve — a vacuous pass
+  // manufactured by the detector itself.
+  const values = Object.values(AUTH_BY_TARGET)
+    .flatMap((a) => [...a.cookies, ...Object.values(a.routes)])
+    .join(" ");
+  assert.equal(/\b[0-9a-f]{32,}\b/i.test(values), false, "no long hex run in any handshake value");
 });

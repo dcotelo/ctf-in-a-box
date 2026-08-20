@@ -260,6 +260,42 @@ Scoping also runs the other way. Every listed path is answered `200` by the
 degraded personalities, so a path that is *not* a probe hands that target's
 rubric a real-looking response for free.
 
+### …and, if its helpers log in, a handshake
+
+Getting the probe right moved `dvwa`, `webgoat` and `securityshepherd` past
+`waitFor…()` and straight into a second wall one stage later:
+
+```
+dvwa              No PHPSESSID after login
+webgoat           No JSESSIONID after WebGoat login
+securityshepherd  Login failed — no JSESSIONID in Set-Cookie
+```
+
+Every challenge in those three targets logs in before it asserts anything, so
+all 164 died before touching the endpoint under test — and the sweep reported a
+zero it had never measured. `AUTH_BY_TARGET` in `tools/vacuous-stub.mjs`
+answers the minimum each helper checks:
+
+| target | handshake |
+| --- | --- |
+| `dvwa` | `PHPSESSID` cookie, a `user_token` in the login form, and `/index.php` returning 200 that does not look like the login page |
+| `webgoat` | `JSESSIONID` cookie, and `/service/reportcard.mvc` returning 200 |
+| `securityshepherd` | `JSESSIONID` **and** `token` cookies straight off `POST /login` |
+
+**Answering a login does not make the stub useful**, and that is the property
+to protect when extending this. "The session store works, the application logic
+does not" is an ordinary way for a real app to be broken — arguably the most
+ordinary one. Past the handshake every path degrades exactly as before, so a
+challenge that passes against a target which authenticated you and then
+answered nothing is still asserting nothing.
+
+Two rules keep it honest. Handshake traffic is **not counted** as a rubric
+request, or every target would clear the "reached one distinct path" warning
+without having gone anywhere. And handshake values are deliberately not hex:
+`securityshepherd`'s `extractSolutionKey` accepts a bare 64-hex run, so a
+token shaped like one could be echoed back and read as a solve — the detector
+manufacturing the very thing it exists to find.
+
 ## Building and mirroring your own image
 
 A stock event needs none of this: omit `RUBRIC_DIR` and the build bakes the

@@ -19,7 +19,7 @@ import { writeFileSync } from "node:fs";
 import { loadRubric } from "../src/rubric.js";
 import { getTarget } from "../src/targets.js";
 import { runExec } from "../src/exec.js";
-import { HEALTH_PATHS_BY_TARGET, PERSONALITY_NAMES, startStub } from "./vacuous-stub.mjs";
+import { AUTH_BY_TARGET, HEALTH_PATHS_BY_TARGET, PERSONALITY_NAMES, startStub } from "./vacuous-stub.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -70,7 +70,9 @@ async function sweepTarget(targetName, challenges, personality, opts) {
     return { targetName, personality, error: "no health path in HEALTH_PATHS_BY_TARGET" };
   }
 
-  const stub = await startStub(personality, { healthPaths });
+  // `auth` is optional: only the three targets whose helpers log in before
+  // asserting need one. A target without an entry behaves exactly as before.
+  const stub = await startStub(personality, { healthPaths, auth: AUTH_BY_TARGET[targetName] ?? null });
   try {
     const env = {
       ...process.env,
