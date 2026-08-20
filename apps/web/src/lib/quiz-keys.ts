@@ -43,6 +43,23 @@ export function canonicalizeChoices(ids: readonly string[]): string[] {
  *  module exists to prevent. */
 export const QUIZ_ID_RE = /^[\w-]{1,64}$/;
 
+/** Upper bound on a question's point value, mirroring `HINT_COST_MAX` in
+ *  admin-store.ts. This is not cosmetic: `upsertQuestion` writes `points`
+ *  verbatim into the question hash via `JSON.stringify`, and at >=1e21
+ *  JavaScript serialises a number in exponential form (`1e+21`), which
+ *  GRADE_SCRIPT's anchored `'"points":(%-?%d+)[,}]'` match cannot read — the
+ *  script would fall back to 0 and silently award nothing for a correct
+ *  answer. A sane cap keeps every storable value inside the plain-integer
+ *  form the script can actually parse.
+ *
+ *  It lives HERE, alongside `QUIZ_ID_RE` and for the same reason
+ *  (`CLASSIC_POINTS_MAX` sits in classic-keys.ts on the same argument):
+ *  `quiz-io.ts` validates a pasted bundle IN THE BROWSER against the very
+ *  bound the store enforces, and quiz-store.ts is `server-only`. It is
+ *  re-exported from quiz-store.ts, so every existing import still resolves
+ *  to this one value. */
+export const QUIZ_POINTS_MAX = 100000;
+
 /** Characters an auto-generated id's random suffix is drawn from. Lowercase
  *  alphanumerics only: every one of them is inside `QUIZ_ID_RE`, and the set
  *  has no visually ambiguous pairing worth caring about here because nobody

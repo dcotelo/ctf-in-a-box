@@ -1469,3 +1469,61 @@ compiler. Picking the wrong verb, or forgetting the union, both typecheck
 cleanly — they are caught by tests that assert a module-only contestant appears
 on the board at all, which is why those tests exist and why they assert on a
 named login rather than on a row count.
+
+## 36. Quiz adopts classic's bundle format rather than inventing a second one
+
+**Context.** [#34](#34-classic-bulk-importexport-as-a-versioned-self-contained-bundle)
+gave classic a bulk path. Quiz — the older module — never got one, so seeding a
+50-question bank meant 50 round trips through a form while an equivalent flag
+board pasted in as one file. That asymmetry existed for no reason beyond
+arrival order.
+
+**Decision.** Quiz gets the identical shape, deliberately: a versioned,
+self-contained JSON bundle, imported by paste or upload and exported from the
+Quiz tab; `quiz-io.ts` mirrors `classic-io.ts` structurally, and every rule ADR
+34 settled carries over unchanged — upsert-by-id and never delete, ids
+round-trip so an export is a usable backup, a client-safe parser that must
+mirror the single-question form field for field, the server re-parsing raw text
+rather than trusting a client-parsed object, and a hard refusal on a version
+mismatch.
+
+Copying the format was the point. An organizer running both modules should
+learn one file shape and one set of guarantees, and a reviewer comparing the
+two validators should be able to read them side by side. The alternative — a
+quiz-shaped format justified by quiz's own field list — would have bought
+nothing and cost a second thing to keep honest.
+
+**Two rules are quiz-specific**, because the quiz's content differs from
+classic's in exactly two ways:
+
+- **No categories.** The quiz has no such concept, so there is no union rule
+  and no category-membership check, and `QuizImportSummary` carries only
+  `created`/`updated`.
+- **Duplicate choice ids within one question are rejected.** This has no
+  single-question equivalent, and does not need one: the admin form *generates*
+  choice ids and so cannot produce a collision. Only a hand-written file can.
+  Two choices sharing an id make the radio group ambiguous and leave `correct`
+  unable to name one of them — an unanswerable question that nothing
+  downstream reports. This is the same class of bundle-only rule as classic's
+  duplicate-category rejection: stricter than the form, which is the safe
+  direction (see ADR 34).
+
+**The retry-gate settings are NOT in the bundle.** `quizMaxAttempts` and
+`quizRetryAfterMin` are event policy, not content; they are live-editable in
+`/admin` and shared by every question. Folding them in would mean importing a
+question set mid-event could silently re-open or shut a retry gate an organizer
+had already tuned, with no undo and no visible cause. Classic excludes
+`classicCooldownSec` on the same argument, so this is the format's rule rather
+than a quiz exception. The admin panel states it beside the import control, so
+an organizer is not left to infer it.
+
+**Consequences.** `QUIZ_POINTS_MAX` moved from `quiz-store.ts` (`server-only`)
+to `quiz-keys.ts`, re-exported so every existing import still resolves to the
+same value — the browser-side validator has to check a pasted bundle against
+the very bound the store enforces. `QUIZ_ID_RE` moved for that same reason
+earlier; `classic-keys.ts` already holds `CLASSIC_POINTS_MAX` for it.
+
+The same two-builders caveat ADR 34 records applies here: one bundle builder
+server-side (`exportBundle`), one in the admin page (`exportBundleFrom`, which
+already holds the data). They can only drift through an *optional* added
+field — a new required field breaks both at compile time.

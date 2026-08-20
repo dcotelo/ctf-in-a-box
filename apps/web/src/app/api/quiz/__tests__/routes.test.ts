@@ -26,6 +26,7 @@ const {
   listQuestionsForAdmin,
   upsertQuestion,
   deleteQuestion,
+  importBundle,
   upstashPipeline,
   QUIZ_ID_RE,
   QuizValidationError,
@@ -51,6 +52,7 @@ const {
     listQuestionsForAdmin: vi.fn(),
     upsertQuestion: vi.fn(),
     deleteQuestion: vi.fn(),
+    importBundle: vi.fn(),
     upstashPipeline: vi.fn(),
     QUIZ_ID_RE: /^[\w-]{1,64}$/,
     QuizValidationError,
@@ -67,6 +69,7 @@ vi.mock("@/lib/quiz-store", () => ({
   listQuestionsForAdmin,
   upsertQuestion,
   deleteQuestion,
+  importBundle,
   QUIZ_ID_RE,
   QuizValidationError,
 }));
@@ -74,7 +77,13 @@ vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_
 vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
 
 import { POST as answerPOST } from "@/app/api/quiz/answer/route";
-import { GET as adminGET, POST as adminPOST, DELETE as adminDELETE } from "@/app/api/admin/quiz/route";
+import {
+  GET as adminGET,
+  POST as adminPOST,
+  DELETE as adminDELETE,
+  QUESTION_KEYS,
+  IMPORT_KEYS,
+} from "@/app/api/admin/quiz/route";
 
 const answerReq = (body?: unknown) =>
   new Request("http://x/api/quiz/answer", { method: "POST", body: JSON.stringify(body ?? {}) });
@@ -447,5 +456,109 @@ describe("admin create/delete round-trip", () => {
     const deleteRes = await adminDELETE(adminReq("DELETE", { id: "q1" }));
     expect(deleteRes.status).toBe(200);
     expect(deleteQuestion).toHaveBeenCalledWith("q1");
+  });
+});
+
+// The bulk-import shape on POST /api/admin/quiz. The route accepts RAW TEXT
+// and re-validates it with the same `parseBundle` the admin panel runs
+// client-side — `importBundle` re-checks nothing, so this boundary is the
+// only thing standing between a hand-crafted request and the store.
+describe("POST /api/admin/quiz (bulk import)", () => {
+  const VALID_BUNDLE = {
+    version: 1,
+    questions: [
+      {
+        id: "q1",
+        prompt: "2+2?",
+        type: "single",
+        choices: [
+          { id: "a", label: "4" },
+          { id: "b", label: "5" },
+        ],
+        points: 10,
+        order: 0,
+        correct: ["a"],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    importBundle.mockClear();
+    importBundle.mockResolvedValue({ created: 1, updated: 0 });
+    upstashPipeline.mockResolvedValue([{ result: 1 }, { result: 1 }]);
+  });
+
+  it("imports a valid bundle and returns the summary", async () => {
+    const res = await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE) }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ created: 1, updated: 0 });
+    expect(importBundle).toHaveBeenCalledTimes(1);
+  });
+
+  it("401s a request with no session before importing anything", async () => {
+    requireAdmin.mockResolvedValue({ ok: false, status: 401 });
+    const res = await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE) }));
+    expect(res.status).toBe(401);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  it("403s a non-admin before importing anything", async () => {
+    requireAdmin.mockResolvedValue({ ok: false, status: 403 });
+    const res = await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE) }));
+    expect(res.status).toBe(403);
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  // The whole reason the route re-validates: a client can skip, weaken, or
+  // simply not run the browser-side check.
+  it("re-validates server-side and never reaches the store with a bad bundle", async () => {
+    const bad = { version: 1, questions: [{ ...VALID_BUNDLE.questions[0], correct: ["nope"] }] };
+    const res = await adminPOST(adminReq("POST", { import: JSON.stringify(bad) }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toHaveProperty("errors");
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  it("400s malformed JSON without echoing any of it back", async () => {
+    const res = await adminPOST(adminReq("POST", { import: '{"questions":[{"correct":["the-secret-id"' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(JSON.stringify(body)).not.toContain("the-secret-id");
+    expect(importBundle).not.toHaveBeenCalled();
+  });
+
+  // Shape-only dispatch: a body carrying `import` AND a question key must
+  // match NEITHER shape rather than being silently read as either.
+  it("rejects a body mixing the import key with question keys", async () => {
+    const res = await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE), id: "q1" }));
+    expect(res.status).toBe(400);
+    expect(importBundle).not.toHaveBeenCalled();
+    expect(upsertQuestion).not.toHaveBeenCalled();
+  });
+
+  it("audits the import with its counts", async () => {
+    importBundle.mockResolvedValue({ created: 3, updated: 2 });
+    await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE) }));
+    const audit = JSON.stringify(upstashPipeline.mock.calls.at(-1)?.[0]);
+    expect(audit).toContain("quiz-import");
+    expect(audit).toContain('\\"created\\":3');
+    expect(audit).toContain('\\"updated\\":2');
+  });
+
+  it("503s a store failure rather than blaming the organizer's file", async () => {
+    importBundle.mockRejectedValue(new Error("upstash down"));
+    const res = await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE) }));
+    expect(res.status).toBe(503);
+  });
+});
+
+// Structural, not behavioural: the shape-only dispatch above is only
+// unambiguous while the two key sets stay disjoint. A future question field
+// literally named `import` would break it silently.
+describe("POST payload key sets", () => {
+  it("never overlap", () => {
+    const overlap = [...QUESTION_KEYS].filter((k) => IMPORT_KEYS.has(k));
+    expect(overlap).toEqual([]);
   });
 });

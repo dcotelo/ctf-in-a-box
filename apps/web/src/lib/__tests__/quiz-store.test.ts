@@ -23,7 +23,10 @@ import {
   listQuestionsForAdmin,
   QUIZ_POINTS_MAX,
   upsertQuestion,
+  importBundle,
+  exportBundle,
 } from "@/lib/quiz-store";
+import { parseBundle, serializeBundle } from "@/lib/quiz-io";
 
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
@@ -626,5 +629,122 @@ describe("getTeamQuizTotalsBatch", () => {
     const totals = await getTeamQuizTotalsBatch([[], ["ada"]]);
     expect(totals[0]).toEqual({ points: 0, answered: 0, lastAt: null });
     expect(totals[1].points).toBe(10);
+  });
+});
+
+// --- Bulk import / export ------------------------------------------------
+//
+// `importBundle` trusts its input completely (validation lives in
+// quiz-io.ts's `parseBundle`, in one place, so the form path and the bulk
+// path cannot grow different rules), so these tests are about what it
+// WRITES, not what it rejects.
+
+const bundleQuestion = {
+  id: "q1",
+  prompt: "  Which header?  ",
+  type: "single" as const,
+  choices: [
+    { id: "b", label: "B" },
+    { id: "a", label: "A" },
+  ],
+  points: 10,
+  order: 0,
+  correct: ["b", "a", "b"],
+};
+
+/** Queues the reply for `importBundle`'s leading membership read (HKEYS),
+ *  then the write pipeline's own all-clear. */
+function queueImport(existingIds: string[]) {
+  mocks.upstashPipeline
+    .mockResolvedValueOnce([{ result: existingIds }])
+    .mockResolvedValueOnce([{ result: 1 }, { result: 1 }]);
+}
+
+describe("importBundle", () => {
+  it("writes each question and its key, and reports created vs updated", async () => {
+    queueImport(["q1"]);
+    const summary = await importBundle({
+      version: 1,
+      questions: [bundleQuestion, { ...bundleQuestion, id: "q2", correct: ["a"] }],
+    });
+    expect(summary).toEqual({ created: 1, updated: 1 });
+  });
+
+  // A question stored without its key is exactly the state that makes a
+  // question permanently unanswerable, so the two hashes must never be
+  // observably out of step partway through a bulk write.
+  it("writes every question and every key in ONE pipeline call", async () => {
+    queueImport([]);
+    await importBundle({ version: 1, questions: [bundleQuestion, { ...bundleQuestion, id: "q2" }] });
+    const writeCommands = mocks.upstashPipeline.mock.calls[1][0];
+    expect(writeCommands).toHaveLength(4); // 2 questions x (question + key)
+    expect(writeCommands.filter((c: string[]) => c[1] === "ctf:quiz:key")).toHaveLength(2);
+  });
+
+  // Both mirror `upsertQuestion`, so a bundle-authored row lands
+  // byte-identical to a form-authored one — and the canonicalization is load
+  // bearing: GRADE_SCRIPT's string-compare stands in for a set-compare only
+  // while both sides canonicalize the same way.
+  it("trims the prompt and canonicalizes the correct set, exactly as upsertQuestion does", async () => {
+    queueImport([]);
+    await importBundle({ version: 1, questions: [bundleQuestion] });
+    const [questionCmd, keyCmd] = mocks.upstashPipeline.mock.calls[1][0];
+    expect(JSON.parse(questionCmd[3]).prompt).toBe("Which header?");
+    expect(JSON.parse(keyCmd[3])).toEqual(["a", "b"]); // deduped and sorted
+  });
+
+  // The reason import is safe to run against a live quiz mid-event.
+  it("never issues a delete, even for questions the bundle omits", async () => {
+    queueImport(["q1", "q2", "q3"]);
+    await importBundle({ version: 1, questions: [bundleQuestion] });
+    expect(JSON.stringify(mocks.upstashPipeline.mock.calls)).not.toContain("HDEL");
+  });
+
+  it("surfaces a failed write rather than reporting a successful import", async () => {
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: [] }])
+      .mockResolvedValueOnce([{ result: 1 }, { error: "WRONGTYPE" }]);
+    await expect(importBundle({ version: 1, questions: [bundleQuestion] })).rejects.toThrow(/WRONGTYPE/);
+  });
+});
+
+describe("exportBundle", () => {
+  it("emits the bank with each question's correct set alongside it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      {
+        result: [
+          "q1",
+          JSON.stringify({ id: "q1", prompt: "A?", type: "single", choices: [{ id: "a", label: "A" }], points: 5, order: 1 }),
+        ],
+      },
+      { result: ["q1", JSON.stringify(["a"])] },
+    ]);
+    const bundle = await exportBundle();
+    expect(bundle.version).toBe(1);
+    expect(bundle.questions).toEqual([
+      { id: "q1", prompt: "A?", type: "single", choices: [{ id: "a", label: "A" }], points: 5, order: 1, correct: ["a"] },
+    ]);
+  });
+
+  // What makes an export usable as a backup: feeding it straight back in
+  // must parse, and must report every row as an update rather than a
+  // duplicate creation.
+  it("round-trips: an export parses and re-imports as pure updates", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      {
+        result: [
+          "q1",
+          JSON.stringify({ id: "q1", prompt: "A?", type: "single", choices: [{ id: "a", label: "A" }], points: 5, order: 1 }),
+        ],
+      },
+      { result: ["q1", JSON.stringify(["a"])] },
+    ]);
+    const bundle = await exportBundle();
+
+    const reparsed = parseBundle(serializeBundle(bundle));
+    if (!reparsed.ok) throw new Error(`export failed its own validator: ${JSON.stringify(reparsed.errors)}`);
+
+    queueImport(["q1"]);
+    expect(await importBundle(reparsed.bundle)).toEqual({ created: 0, updated: 1 });
   });
 });

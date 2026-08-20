@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { parseBundle } from "@/lib/quiz-io";
 import {
   deleteQuestion,
+  importBundle,
   listQuestionsForAdmin,
   QuizValidationError,
   upsertQuestion,
@@ -38,6 +40,24 @@ import { upstashPipeline } from "@/lib/upstash";
  * and `parseQuestionPayload` below are the guard: unknown keys, wrong
  * types, or missing fields on the question OR any of its choices all fail
  * closed with a 400, never a partially-trusted write.
+ *
+ * POST carries TWO distinct payload shapes on the SAME route rather than a
+ * second endpoint, mirroring the classic admin route: a body whose only key
+ * is `import` (a string) bulk-imports a question bundle; anything else is
+ * treated as a single question. The two are kept mutually exclusive by
+ * `hasOnlyKeys` on both sides — a body carrying `import` AND any question key
+ * matches neither shape and falls through to the 400 catch-all, rather than
+ * being silently read as either.
+ *
+ * The `import` shape carries the bundle as raw TEXT, never a pre-parsed
+ * object. The route re-parses and re-validates it server-side with
+ * `parseBundle` (the same validator the admin bulk-import UI runs
+ * client-side) before ever calling `importBundle`, so a client that skipped
+ * or weakened its own validation cannot write anything the single-question
+ * path above would have rejected. `importBundle` itself trusts its input
+ * completely — see its own doc comment in quiz-store.ts — which is exactly
+ * why this route must never call it with anything that hasn't been through
+ * `parseBundle` first.
  */
 
 type ChoicePayload = Choice;
@@ -51,7 +71,15 @@ type QuestionPayload = {
   correct: string[];
 };
 
-const QUESTION_KEYS = new Set(["id", "prompt", "type", "choices", "points", "order", "correct"]);
+/** The two POST shapes' allowed key sets. Exported (not just module-private)
+ *  so a test can assert, structurally, that they stay disjoint — mirroring
+ *  the classic route's equivalent case. Asserting this in code rather than
+ *  trusting the two parsers to agree by construction is what catches a future
+ *  optional question field literally named `import` before it reintroduces
+ *  the ambiguity this route's shape-only dispatch depends on there being none
+ *  of. */
+export const QUESTION_KEYS = new Set(["id", "prompt", "type", "choices", "points", "order", "correct"]);
+export const IMPORT_KEYS = new Set(["import"]);
 const CHOICE_KEYS = new Set(["id", "label"]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -105,6 +133,17 @@ function parseQuestionPayload(body: unknown): QuestionPayload | null {
   };
 }
 
+/** Recognizes the OTHER POST shape: a body carrying exactly one key,
+ *  `import`, a string — the raw text of an uploaded/pasted bundle file. Only
+ *  extracts the string here; parsing and validating it is `parseBundle`'s
+ *  job (called from `POST` below), never this function's, so there is
+ *  exactly one place that decides whether a bundle is valid. */
+function parseImportPayload(body: unknown): string | null {
+  if (!isPlainObject(body) || !hasOnlyKeys(body, IMPORT_KEYS)) return null;
+  if (typeof body.import !== "string") return null;
+  return body.import;
+}
+
 /** Maps an error thrown by `upsertQuestion`/`deleteQuestion` to a response:
  *  a `QuizValidationError` means the caller's payload was genuinely bad
  *  (bad id/choice format, non-integer points, a `correct` id not among the
@@ -153,6 +192,28 @@ export async function POST(request: Request) {
   if (!gate.ok) return NextResponse.json({ error: "forbidden" }, { status: gate.status });
 
   const body = await request.json().catch(() => null);
+
+  const importPayload = parseImportPayload(body);
+  if (importPayload !== null) {
+    // Re-parse and re-validate the raw text server-side with the SAME
+    // validator the client ran (or should have run) — this is what makes it
+    // safe to accept raw text from a client that skipped or weakened its own
+    // validation. `importBundle` itself does not re-check any of this; see
+    // its doc comment.
+    const parsedBundle = parseBundle(importPayload);
+    if (!parsedBundle.ok) return NextResponse.json({ errors: parsedBundle.errors }, { status: 400 });
+
+    let summary;
+    try {
+      summary = await importBundle(parsedBundle.bundle);
+    } catch (err) {
+      return errorResponse(err);
+    }
+
+    await writeAudit(gate.login, "quiz-import", { created: summary.created, updated: summary.updated });
+    return NextResponse.json(summary);
+  }
+
   const parsed = parseQuestionPayload(body);
   if (!parsed) return NextResponse.json({ error: "invalid question payload" }, { status: 400 });
 

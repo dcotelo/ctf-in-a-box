@@ -65,6 +65,7 @@ scoring code to write.
 |---|---|
 | **Instant grading, no GitHub** | Single/multi-select questions marked on submit, all-or-nothing on multi-select. No forks, no org, no pipeline. |
 | **Authored from `/admin`** | Prompt, choices, answers, points, order — plus an attempt cap and retry cooldown. Live on the next request. |
+| **Bulk authoring** | Author one at a time, or import and export the whole bank as one JSON bundle — the same format the classic board uses. |
 
 **The Classic CTF module** (graded in the app):
 

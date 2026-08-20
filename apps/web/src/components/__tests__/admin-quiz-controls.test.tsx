@@ -11,8 +11,11 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QUIZ_ID_RE } from "@/lib/quiz-keys";
 import type { AdminQuestion, Question } from "@/lib/quiz-store";
+import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle } from "@/lib/quiz-io";
 import AdminQuizControls, {
   changedOrderRows,
+  exportBundleFrom,
+  formatImportSummary,
   confirmPhraseFromPrompt,
   describeQuizError,
   draftFromQuestion,
@@ -484,5 +487,63 @@ describe("describeQuizError", () => {
   it("never claims the payload was bad when the store itself failed", () => {
     const msg = describeQuizError(503, "quiz store write failed");
     expect(msg.toLowerCase()).not.toContain("invalid");
+  });
+});
+
+describe("bulk import / export", () => {
+  // `<details>` renders its children into the markup whether open or not, so
+  // the whole panel is statically assertable even though an organizer sees it
+  // collapsed.
+  it("renders the bulk panel with import and export controls", () => {
+    const html = renderControls([row]);
+    expect(html).toMatch(/bulk import/i);
+    expect(html).toContain('type="file"');
+    expect(html).toMatch(/export questions/i);
+  });
+
+  it("states that import never deletes", () => {
+    const html = renderControls([row]);
+    expect(html).toMatch(/never deletes|not delete|left untouched/i);
+  });
+
+  // The one thing an organizer could reasonably assume a bundle carries, and
+  // the one thing it deliberately does not — silently re-opening or shutting
+  // a retry gate mid-event has no undo and no obvious cause.
+  it("says the retry-gate settings are not part of a bundle", () => {
+    expect(renderControls([row])).toMatch(/not part of a bundle|never changes the retry gate/i);
+  });
+
+  it("builds an export bundle from the loaded bank, correct answers included", () => {
+    const bundle = exportBundleFrom([row]);
+    expect(bundle.version).toBe(QUIZ_BUNDLE_VERSION);
+    expect(bundle.questions).toHaveLength(1);
+    expect(bundle.questions[0].id).toBe(question.id);
+    expect(bundle.questions[0].correct).toEqual([CORRECT_CHOICE_ID]);
+  });
+
+  // What makes the round trip real rather than nominal: the client-side
+  // export must satisfy the very validator the import path runs.
+  it("produces an export that its own parser accepts", () => {
+    expect(parseBundle(serializeBundle(exportBundleFrom([row]))).ok).toBe(true);
+  });
+
+  it("exports an empty bank as a valid, empty bundle", () => {
+    expect(parseBundle(serializeBundle(exportBundleFrom([]))).ok).toBe(true);
+  });
+});
+
+// `formatImportSummary` is the pure function behind the after-import message
+// — extracted specifically because `importResult` is `useState` and
+// `renderToStaticMarkup` never runs a click handler or reaches post-mount
+// state, so the pluralization branch would otherwise ship untested.
+describe("formatImportSummary", () => {
+  it("uses the singular for exactly one question", () => {
+    expect(formatImportSummary({ created: 1, updated: 0 })).toBe("Imported 1 question: 1 created, 0 updated.");
+    expect(formatImportSummary({ created: 0, updated: 1 })).toBe("Imported 1 question: 0 created, 1 updated.");
+  });
+
+  it("pluralizes for anything else, including nothing at all", () => {
+    expect(formatImportSummary({ created: 3, updated: 2 })).toBe("Imported 5 questions: 3 created, 2 updated.");
+    expect(formatImportSummary({ created: 0, updated: 0 })).toBe("Imported 0 questions: 0 created, 0 updated.");
   });
 });
