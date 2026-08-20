@@ -191,10 +191,29 @@ jobs:
       - name: No unrewritten .md links survived the build
         run: |
           set -euo pipefail
-          if grep -rEn 'href="[^"]+\.md(#[^"]*)?"' docs/_site --include='*.html'; then
-            echo "::error::literal .md href(s) in the built site — the link text almost certainly wraps across a newline, which jekyll-relative-links cannot rewrite. Put the link text on one line."
+          bad="$(mktemp)"
+          find docs/_site -name '*.html' -print0 | while IFS= read -r -d '' page; do
+            links="$(grep -oE 'href="[^"]*"' "$page" | sed -e 's/^href="//' -e 's/"$//' || true)"
+            [ -n "$links" ] || continue
+            printf '%s\n' "$links" | while IFS= read -r href; do
+              # An ABSOLUTE .md URL is the repo's own convention for linking to
+              # a file outside docs/ (the Jekyll source root), so it is correct
+              # and must not be flagged. Only a RELATIVE .md href means the
+              # rewrite was skipped.
+              case "$href" in
+                http:*|https:*|//*|mailto:*|data:*|javascript:*) continue ;;
+              esac
+              case "${href%%[#?]*}" in
+                *.md) printf '%s -> %s\n' "$page" "$href" >> "$bad" ;;
+              esac
+            done
+          done
+          if [ -s "$bad" ]; then
+            echo "::error::relative .md href(s) in the built site — the link text almost certainly wraps across a newline, which jekyll-relative-links cannot rewrite. Put the link text on one line."
+            cat "$bad"
             exit 1
           fi
+          echo "no unrewritten .md links"
       # Catches the other silent failure: a relative link that escapes the
       # Jekyll source root (docs/). `../sync/foo.json` resolves in the repo
       # blob view but points outside the published site, so it 404s there
