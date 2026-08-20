@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -30,5 +30,8 @@ test('Challenge-60-JWT-Level-13', async () => {
   const sig = cryptoSign('RSA-SHA256', Buffer.from(h + '.' + p), privateKey).toString('base64url');
   const token = `${h}.${p}.${sig}`;
   const res = await vaFetch('/JWTVulnerability/LEVEL_13', { headers: { Cookie: 'JWT=' + token } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-60-jwt-level-13');
   assert.notEqual(res.json?.isValid, true, 'patched: self-signed token with embedded attacker JWK must be rejected');
 });

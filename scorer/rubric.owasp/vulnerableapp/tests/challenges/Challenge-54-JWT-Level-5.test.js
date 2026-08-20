@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -23,5 +23,8 @@ const LOW_KEY = 'password';
 test('Challenge-54-JWT-Level-5', async () => {
   const token = hs256({ alg: 'HS256', typ: 'JWT' }, PAYLOAD, HIGH_KEY) + '%00ATTACKERJUNK';
   const res = await vaFetch('/JWTVulnerability/LEVEL_5', { headers: { Cookie: 'JWT=' + token } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-54-jwt-level-5');
   assert.notEqual(res.json?.isValid, true, 'null-byte signature truncation must not bypass validation when patched');
 });

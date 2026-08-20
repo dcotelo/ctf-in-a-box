@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -8,5 +8,8 @@ await waitForVulnerableApp();
 
 test('Challenge-72-Path-Traversal-Level-4', async () => {
   const res = await vaFetch('/PathTraversal/LEVEL_4', { params: { fileName: 'secret.json' } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-72-path-traversal-level-4');
   assert.doesNotMatch(res.text, /Dummy|password|LEVEL_5/, 'patched: hidden secret.json must not be readable (allowlist enforced)');
 });

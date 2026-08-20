@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -22,5 +22,8 @@ const LOW_KEY = 'password';
 
 test('Challenge-62-JWT-Level-15', async () => {
   const res = await vaFetch('/JWTVulnerability/LEVEL_15', { headers: { Cookie: 'JWT=aaa.bbb.ccc' } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-62-jwt-level-15');
   assert.notEqual(res.json?.isValid, true, 'patched: unsigned/garbage token must fail signature verification');
 });
