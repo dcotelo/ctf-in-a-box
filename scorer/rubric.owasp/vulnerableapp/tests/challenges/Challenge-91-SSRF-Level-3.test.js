@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertAnswered } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -8,5 +8,8 @@ await waitForVulnerableApp();
 
 test('Challenge-91-SSRF-Level-3', async () => {
   const res = await vaFetch('/SSRFVulnerability/LEVEL_3', { params: { fileurl: 'http://[::ffff:169.254.169.254]/latest/meta-data' } });
+  // Anti-vacuous: prove the level actually answered before trusting the
+  // absence assertion below (docs/scorer.md, #47).
+  assertAnswered(res, 'challenge-91-ssrf-level-3');
   assert.doesNotMatch(res.text, /ami-id|instance-id|meta-data/, 'cloud metadata must not be reachable via IPv6-mapped bypass after patch');
 });

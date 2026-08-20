@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertAnswered } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -9,5 +9,8 @@ await waitForVulnerableApp();
 test('Challenge-34-Error-SQLi-Level-2', async () => {
   const res = await vaFetch('/ErrorBasedSQLInjectionVulnerability/LEVEL_2', { params: { id: "1 OR id=2" } });
   // Database error message / SQL statement must NOT leak into the response once patched.
+  // Anti-vacuous: prove the level actually answered before trusting the
+  // absence assertion below (docs/scorer.md, #47).
+  assertAnswered(res, 'challenge-34-error-sqli-level-2');
   assert.doesNotMatch(res.text, /(JdbcSQL|SQL statement|bad SQL grammar|conversion error|moreInfo)/i, 'patched: raw DB error / SQL statement must not leak');
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -8,5 +8,8 @@ await waitForVulnerableApp();
 
 test('Challenge-68-LDAP-Injection-Level-5', async () => {
   const res = await vaFetch('/LDAPInjectionVulnerability/LEVEL_5', { params: { username: '*', password: 'alicePass123' } });
+  // Anti-vacuous: prove the level actually answered before trusting the
+  // absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-68-ldap-injection-level-5');
   assert.notEqual(res.json?.isValid, true, 'patched: wildcard username must not bypass authentication');
 });
