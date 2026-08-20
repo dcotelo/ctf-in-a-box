@@ -2,6 +2,8 @@
 title: Operations
 ---
 
+[← Docs home](index.md)
+
 # Operations
 
 Running the event once it is up: what organizers do during and after, the

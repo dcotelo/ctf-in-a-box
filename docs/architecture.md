@@ -2,6 +2,8 @@
 title: Architecture
 ---
 
+[← Docs home](index.md)
+
 # Architecture
 
 What runs where, how a score gets from a contestant's PR to the leaderboard,

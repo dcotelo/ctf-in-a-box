@@ -2,7 +2,7 @@
 
 <p align="center">
   <em>A self-hosted control plane for security-learning events — one box, one free GitHub org.<br>
-  Its first module runs the OWASP Secure Development CTF: for a university, a high school, an OWASP chapter, a meetup.</em>
+  Three modules ship today: patch-to-score, quiz, and classic flags. Run one, or all three: for a university, a high school, an OWASP chapter, a meetup.</em>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
 plug challenge content into that spine. Three modules ship today: the
-**OWASP Secure Development CTF** (the first and deepest, fork-patch-PR
+**OWASP Secure Development CTF** (the most involved: fork-patch-PR
 scored by GitHub Actions), **Quiz** (a self-paced single/multi-select
 question bank, scored entirely inside the app), and **Classic CTF** (a
 jeopardy-style flag board — organizer-authored challenges, each hiding a
@@ -33,7 +33,7 @@ to host further modules (forensics, API-security, cloud, …) on the same
 spine as they land. The
 [module contract](docs/modules.md) is the boundary between the two. What
 follows describes the platform in depth and the Secure Development module,
-its first and most involved one — see docs/operations.md's
+the most involved of the three — see docs/operations.md's
 [Quiz](docs/operations.md#quiz) and [Classic](docs/operations.md#classic)
 sections for those two modules' organizer guides.
 
@@ -68,17 +68,31 @@ training day.
 |---|---|
 | **Team scoring** | Per-team standings with self-registration, captains and join codes. A flag solved by several teammates counts once (dedupe). Solo players are teams of one. |
 | **Live leaderboard + score-over-time graph** | A ranked team leaderboard with a CTFd-style graph drawn from real per-solve timestamps. |
-| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, toggle hints and their cost, open/close team registration. |
+| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule the scoring and registration windows, toggle hints and their cost, author each module's content, and reset the event between rehearsals. |
 | **Scoring pipeline** | A GitHub-Actions-fed pipeline (poll or push) with a single audited score writer — the transport for modules scored outside the app. Modules that grade in-app (quiz, classic) bank points directly and never touch it. |
 | **Poll or push** | Poll mode (default) has zero inbound network surface — works behind NAT, on a laptop, on venue wifi. Push mode is near-instant if you have a public URL. |
 | **One box, no cloud** | Runs from Docker Compose on a machine you already have, plus one free GitHub org. Nothing is billed, nothing phones home. |
 
-**The Secure Development module** — the first challenge pack on that platform:
+**The Secure Development module** — graded through GitHub, not in the app:
 
 | Feature | What it means for you |
 |---|---|
 | **Patch-to-score scoring** | Contestants patch the vulnerability and open a PR; the pipeline scores the patch. Stock scores 0, a correct patch earns its points — gated both ways. |
 | **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp and VAmPI. Rubrics ship in the box — no private image to request, no scoring code to write. |
+
+**The Quiz module** — a self-paced question bank, graded in the app:
+
+| Feature | What it means for you |
+|---|---|
+| **Instant grading, no GitHub** | Single- or multi-select questions marked the moment they are answered, all-or-nothing on multi-select. Needs no forks, no org provisioning and no scoring pipeline. |
+| **Authored from `/admin`** | Prompt, choices, correct answers, points and order — with a global attempt cap and retry cooldown. Changes are live on the next request; no rebuild. |
+
+**The Classic CTF module** — a jeopardy-style flag board, graded in the app:
+
+| Feature | What it means for you |
+|---|---|
+| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge point values. Submissions are normalised before comparison, so casing and stray whitespace never cost someone a solve. |
+| **Rich descriptions, bulk authoring** | Descriptions take a sanitised Markdown subset — links, formatting, code. Author one at a time in `/admin`, or import and export the whole board as a single JSON bundle. |
 
 <p align="center">
   <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
@@ -128,7 +142,7 @@ ships a Terraform module for a single-shot AWS deploy — `terraform apply` up,
 
 ## The Secure Development module: targets and rubrics
 
-The first module's content is a set of vulnerable **targets** and their
+The Secure Development module's content is a set of vulnerable **targets** and their
 scoring **rubrics**. Contestants pick a target, fork the org's copy, patch it,
 and open a PR. Each target's challenges are executable `node:test` suites,
 priced by difficulty.

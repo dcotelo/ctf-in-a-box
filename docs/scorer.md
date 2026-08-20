@@ -2,6 +2,8 @@
 title: Scorer
 ---
 
+[← Docs home](index.md)
+
 # Scorer
 
 How to run scoring without any upstream access: author a rubric, build your
