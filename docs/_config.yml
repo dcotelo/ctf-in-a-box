@@ -5,9 +5,18 @@ description: >-
 theme: jekyll-theme-cayman
 
 # Social card image. jekyll-seo-tag ships with the Cayman theme and is
-# active, but with no `image` it emits `twitter:card: summary` and NO
-# og:image at all — so every share of these docs was a bare text card.
-image: /assets/hero.jpg
+# active, but with no image it emits `twitter:card: summary` and NO og:image
+# at all — so every share of these docs was a bare text card.
+#
+# This has to go through Front Matter defaults, not a top-level `image:` key.
+# seo-tag reads `page.image`; a site-level `image:` is silently ignored, which
+# is a failure with no symptom other than the missing tag. The empty `path`
+# scope applies it to every page, and any page may still override it.
+defaults:
+  - scope:
+      path: ""
+    values:
+      image: /assets/hero.jpg
 
 # Declaring `exclude` REPLACES Jekyll's default exclude list rather than
 # extending it, so the defaults have to be restated here or they are lost.
