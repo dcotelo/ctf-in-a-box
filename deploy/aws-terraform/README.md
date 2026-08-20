@@ -75,6 +75,9 @@ terraform destroy
   instance has the SSM core policy). Set `ssh_ingress_cidrs` only if you must.
 - **State is reconstructible:** poll mode re-reads scores from the GitHub PR
   comments, so a replaced box repopulates its leaderboard from GitHub.
-- **CI-validated:** `.github/workflows/terraform.yml` runs `fmt -check` +
-  `validate` on any change here (never `apply`).
+- **CI-validated:** `.github/workflows/terraform.yml` runs `fmt -check`,
+  `validate` and `test` on any change here (never `apply`). `userdata.tftest.hcl`
+  renders `user-data.sh.tftpl` at plan time and asserts on the result —
+  `validate` alone never inspects rendered template output, which is how a
+  fundamentally broken bring-up script survived in this module unnoticed.
 

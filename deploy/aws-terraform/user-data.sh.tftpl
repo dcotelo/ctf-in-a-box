@@ -26,19 +26,48 @@ git checkout ${git_ref}
 echo '${event_yaml_b64}' | base64 -d > event.yaml
 
 # Secrets from SSM Parameter Store (SecureString). The instance role grants
-# read on ${ssm_prefix}/* only. $$1 is the bash arg; $${...} escapes Terraform.
-ssm() { aws ssm get-parameter --with-decryption --region ${region} --name "${ssm_prefix}/$$1" --query Parameter.Value --output text; }
+# read on ${ssm_prefix}/* only.
+#
+# TEMPLATE ESCAPING — read before editing. Terraform interpolates only a
+# dollar followed by an opening brace. The ONLY escape is doubling the dollar
+# in front of that brace, which renders a single literal one. A lone dollar is
+# already literal, so bash positional args and command substitutions are
+# written plainly here.
+#
+# Doubling the dollar anywhere else escapes NOTHING: it renders as two literal
+# dollars, which bash then reads as the shell PID. This file did exactly that
+# on every line below, so each lookup resolved to a parameter named after the
+# PID and .env was filled with garbage. `terraform test` now guards it.
+ssm() { aws ssm get-parameter --with-decryption --region ${region} --name "${ssm_prefix}/$1" --query Parameter.Value --output text; }
+
+# FAIL CLOSED on a missing secret. `echo "K=$(ssm K)"` swallows the failure:
+# the command substitution's exit status is discarded and echo itself returns
+# 0, so `set -e` never fires and the box boots half-configured. Assign first,
+# then check.
+req() {
+  if ! v="$(ssm "$1")"; then
+    echo "FATAL: required SSM parameter ${ssm_prefix}/$1 is missing or unreadable" >&2
+    exit 1
+  fi
+  printf '%s=%s\n' "$1" "$v"
+}
+# Optional: absent is fine, emit nothing.
+opt() {
+  if v="$(ssm "$1" 2>/dev/null)"; then
+    printf '%s=%s\n' "$1" "$v"
+  fi
+}
 
 umask 077
 {
-  echo "BETTER_AUTH_SECRET=$$(ssm BETTER_AUTH_SECRET)"
-  echo "SRH_TOKEN=$$(ssm SRH_TOKEN)"
-  echo "SCORER_TOKEN=$$(ssm SCORER_TOKEN)"
-  echo "GITHUB_CLIENT_ID=$$(ssm GITHUB_CLIENT_ID)"
-  echo "GITHUB_CLIENT_SECRET=$$(ssm GITHUB_CLIENT_SECRET)"
-  echo "GITHUB_APP_ID=$$(ssm GITHUB_APP_ID)"
-  echo "GITHUB_APP_PRIVATE_KEY=$$(ssm GITHUB_APP_PRIVATE_KEY)"
-  echo "GITHUB_APP_INSTALLATION_ID=$$(ssm GITHUB_APP_INSTALLATION_ID 2>/dev/null || true)"
+  req BETTER_AUTH_SECRET
+  req SRH_TOKEN
+  req SCORER_TOKEN
+  req GITHUB_CLIENT_ID
+  req GITHUB_CLIENT_SECRET
+  req GITHUB_APP_ID
+  req GITHUB_APP_PRIVATE_KEY
+  opt GITHUB_APP_INSTALLATION_ID
   echo "EVENT_URL=${event_url}"
   echo "SCORE_INGEST=poll"
   echo "SCORE_IMAGE=score:local"
@@ -50,7 +79,7 @@ docker build -t score:local scorer/
 
 # Bring up poll + app. EVENT_CONFIG_B64 bakes event.yaml into the app image at
 # build time — without it the app falls back to neutral defaults (empty admins).
-EVENT_CONFIG_B64="$$(base64 -w0 event.yaml)" \
+EVENT_CONFIG_B64="$(base64 -w0 event.yaml)" \
   docker compose --profile poll --profile app up -d --build
 
 echo "== bring-up complete $(date -u +%FT%TZ)"

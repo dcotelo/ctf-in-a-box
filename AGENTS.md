@@ -153,7 +153,10 @@ suggestions.
 - `setup/` — `ctf-setup.sh` and event provisioning. Bash, `bats`.
 - `deploy/` — optional cloud deploy modules (e.g. `aws-terraform/`, a
   single-shot EC2 box). CI-validated by `.github/workflows/terraform.yml`
-  (fmt + validate, never apply).
+  (fmt + validate + test, never apply). **`terraform validate` does NOT
+  inspect rendered template output** — `deploy/aws-terraform/userdata.tftest.hcl`
+  is what reads the rendered `user-data.sh.tftpl`, so bring-up script changes
+  need a test there, not just a passing validate.
 - `docs/` — documentation site, published via GitHub Pages.
 
 ## Where to look
