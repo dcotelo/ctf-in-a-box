@@ -142,6 +142,81 @@ It is no longer what a default build bakes (that's the vendored
 `scorer/rubric.owasp/`), but it is still what `scripts/acceptance-scorer.sh`
 scores against, via `--build-arg RUBRIC_DIR=rubric.example`.
 
+## The vacuous pass, and how it is detected
+
+The stock-scores-zero rule catches a rubric that awards points against a
+genuinely unpatched app. It cannot catch the failure underneath it: a rubric
+that awards points against an app that **never did anything**.
+
+Almost every exec check is phrased as *pass-on-patch* — it drives the exploit
+and asserts it was BLOCKED. An app that answers nothing blocks every exploit
+trivially, so such a check reports a solve for a security property nobody
+verified. A fully **down** target is the easy case and is already handled:
+every target's helpers open with a `waitFor…()` that polls until the app
+answers, so an unreachable target throws at import and fails the file loudly.
+The dangerous state is the one in between — health check green, but the
+endpoint under test degraded or its fixture data missing.
+
+That is not hypothetical. It is what
+`rubric.owasp/vampi/tests/challenges/Challenge-7-Weak-JWT.test.js` hit: the app
+was up, a seeding race left the admin account missing, `/me` could not report
+admin for *anyone*, and "the forged token is not admin" passed for entirely
+the wrong reason — handing out a free point on a **stock** target.
+
+Its fix is the pattern to copy, an **anti-vacuous precondition**: before
+trusting the block assertion, prove the oracle is alive by driving the
+legitimate path.
+
+```js
+// A real admin login must reach /me and report admin — otherwise the
+// forged-token assertion below passes for the wrong reason.
+const legit = await vampiFetch('/me', { token: await getToken('admin', 'pass1') });
+assert.equal(legit.status, 200, 'precondition: app seeded and reachable');
+assert.equal(legit.json?.data?.admin, true, 'precondition: /me reports admin');
+
+// Only now is this meaningful.
+const forged = await vampiFetch('/me', { token: forgeJwt('admin', { secret: 'random' }) });
+assert.ok(!(forged.status === 200 && forged.json?.data?.admin === true));
+```
+
+The precondition has to hold on both the vulnerable and the patched app —
+otherwise it is not a precondition, it is a second assertion — and it must fail
+loudly when the oracle itself is dead.
+
+### Finding them mechanically
+
+Auditing 200-plus challenge files by eye does not scale, and "does this assert
+for the right reason" is exactly the judgement a reviewer cannot re-check
+cheaply. `scorer/tools/vacuous-sweep.mjs` decides it mechanically instead:
+
+```sh
+cd scorer
+node tools/vacuous-sweep.mjs                      # every target, every personality
+node tools/vacuous-sweep.mjs --target vampi       # one target
+node tools/vacuous-sweep.mjs --json findings.json # machine-readable
+```
+
+It points each target's URL env var at a stub that is **up but useless**
+(`tools/vacuous-stub.mjs`) and runs the judge's own `runExec` over the real
+catalogue. **Any challenge that reports a PASS is asserting nothing** — it
+would score that point on an app that did nothing.
+
+Three stub personalities run, because uselessness has more than one shape:
+`empty-200` answers everything `{}` (the Weak-JWT shape); `not-found` catches
+checks phrased as "the vulnerable endpoint must not return 200"; `server-error`
+catches checks that read any non-200 as "fixed". A challenge only has to pass
+under one of them to be suspect, so the report unions them.
+
+Two results are **not** findings and are reported separately. A run marked
+`ABORTED` means the exec runner gave up partway and skipped challenges — those
+were never measured, and a clean result on an aborted run proves nothing. And
+the stub counts the requests a rubric actually made, so "passed without issuing
+a single request" is visible as its own, worse, bug.
+
+The sweep reuses `runExec` deliberately rather than running tests its own way:
+a detector that disagreed with the judge would produce differences
+indistinguishable from findings.
+
 ## Building and mirroring your own image
 
 A stock event needs none of this: omit `RUBRIC_DIR` and the build bakes the
