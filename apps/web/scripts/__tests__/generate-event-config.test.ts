@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -264,5 +264,84 @@ describe("generate-event-config corpus differential", () => {
 
   it("the one documented divergence stays a divergence: this reader rejects an empty modules: {} (ADR 24)", () => {
     expect(verdict(KNOWN_DIVERGENCE).verdict).toBe("reject");
+  });
+});
+
+// Keys this generator does not read.
+//
+// `hints` was a silent trap: ADR 31 made /admin the only hint switch, but the
+// wizard kept writing the key, so a config could say `hints: { enabled: false }`
+// while the event served hints and nothing anywhere said so. The build now says
+// so — and must keep saying so, hence this suite.
+describe("ignored top-level keys", () => {
+  const QUIZ_EVENT = [
+    'event: { name: "Quiz Night", url: "http://box" }',
+    "github: { org: evt }",
+    "modules:",
+    "  quiz: {}",
+    "admins: [dcotelo]",
+  ];
+
+  /** Runs the generator and returns its stderr. The `generate` helper above
+   *  lets stderr through to the parent instead of capturing it, which is fine
+   *  for the value assertions but useless for warnings. */
+  function stderrFor(yaml: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "evcfg-warn-"));
+    const cfg = join(dir, "event.yaml");
+    writeFileSync(cfg, yaml);
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      OUT_PATH: join(dir, "generated.ts"),
+      EVENT_CONFIG: cfg,
+    };
+    for (const k of Object.keys(env)) if (k.startsWith("EVENT_") && k !== "EVENT_CONFIG") delete env[k];
+    const res = spawnSync("node", [SCRIPT], { env, encoding: "utf8" });
+    expect(res.status).toBe(0);
+    return res.stderr;
+  }
+
+  it("warns that a hints block has no effect, and still builds", () => {
+    const err = stderrFor([...QUIZ_EVENT, "hints: { enabled: false }"].join("\n"));
+    expect(err).toMatch(/WARNING/);
+    expect(err).toMatch(/"hints" is not read/);
+    // Names where the setting really lives — a warning that only says "ignored"
+    // leaves the organizer with no next step.
+    expect(err).toMatch(/\/admin/);
+  });
+
+  it("warns on hints: { enabled: true } too — the value was never the problem", () => {
+    const err = stderrFor([...QUIZ_EVENT, "hints: { enabled: true }"].join("\n"));
+    expect(err).toMatch(/"hints" is not read/);
+  });
+
+  it("warns that a teams block has no effect, and names where the cap lives", () => {
+    // `max_size` is worse than the hints boolean: a number reads even more like
+    // it configures something. A config asking for 6 silently got 4.
+    const err = stderrFor([...QUIZ_EVENT, "teams: { enabled: false, max_size: 6 }"].join("\n"));
+    expect(err).toMatch(/"teams" is not read/);
+    expect(err).toMatch(/TEAM_MAX_MEMBERS/);
+  });
+
+  it("warns once per ignored key when a config carries both", () => {
+    const err = stderrFor(
+      [...QUIZ_EVENT, "hints: { enabled: false }", "teams: { enabled: true, max_size: 4 }"].join("\n"),
+    );
+    expect(err.match(/WARNING/g) ?? []).toHaveLength(2);
+  });
+
+  it("stays quiet for a config that carries neither key", () => {
+    const err = stderrFor(QUIZ_EVENT.join("\n"));
+    expect(err).not.toMatch(/WARNING/);
+  });
+
+  it("an old config carrying both keys still builds", () => {
+    // The whole point of warning rather than failing: an organizer's existing
+    // event.yaml must not stop building because two dead keys were retired.
+    const out = generate(
+      {},
+      [...QUIZ_EVENT, "hints: { enabled: false }", "teams: { enabled: true, max_size: 4 }"].join("\n"),
+    );
+    expect(out).toContain(`"name": "Quiz Night"`);
+    expect(out).toContain(`"githubOrg": "evt"`);
   });
 });

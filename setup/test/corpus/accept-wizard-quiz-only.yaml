@@ -6,6 +6,4 @@ github:
   org: my-event-org
 modules:
   quiz: {}
-teams: { enabled: true, max_size: 4 }
-hints: { enabled: true }
 admins: [your-github-login]

@@ -800,14 +800,25 @@ YAML
   echo "$output" | grep -qF 'secure-development needs at least one target'
 }
 
-@test "wiz_event_yaml emits hints enabled, matching the app's own default" {
-  # apps/web/src/lib/hint-defaults.ts: HINT_DEFAULT_ENABLED is true — hints are
-  # ON unless /admin turns them off. The wizard used to write
-  # `hints: { enabled: false }`, which contradicted the running app in the
-  # organizer's own config file.
+@test "wiz_event_yaml emits no hints or teams key, because nothing reads either" {
+  # Neither key has ever been read — generate-event-config.mjs mentions neither
+  # word — so whatever value they carried misled the organizer. `hints:
+  # { enabled: false }` still served hints (ADR 31: /admin is the only hint
+  # switch); `teams: { max_size: 6 }` still capped teams at 4
+  # (TEAM_MAX_MEMBERS in team-store.ts). Both are gone rather than corrected,
+  # because a key that cannot change the answer misleads at any value.
   run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qx 'hints: { enabled: true }'
+  [ -z "$(echo "$output" | grep -E 'hints|teams')" ]
+}
+
+@test "wiz_event_yaml still emits the admins list it dropped those keys beside" {
+  # The three keys were emitted by one printf. Guard against the removal having
+  # taken admins with it — an empty admins list means /admin 403s for everyone,
+  # which is silent until an organizer tries to open the panel.
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll dcotelo' _ "$SCRIPT"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx 'admins: \[dcotelo\]'
 }
 
 @test "wizard --dry-run does not build or push the scorer image" {

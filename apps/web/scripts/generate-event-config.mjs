@@ -109,8 +109,39 @@ function derivedTargets(mods) {
   return mods.find((m) => m.id === "secure-development")?.targets ?? [];
 }
 
+// Keys an older event.yaml may carry that this generator does not read, mapped
+// to where the setting actually lives now. Warn, never fail: an organizer's
+// existing config must keep building, and a hard error at build time would be
+// a worse outcome than the setting they wrote being ignored.
+//
+// `hints` is the one that bit someone. ADR 31 made /admin the only hint
+// switch, but the wizard kept emitting the key, so a config could say
+// `hints: { enabled: false }` while the running event served hints — with
+// nothing anywhere saying so. Silence is what made it a trap; this is the
+// noise that replaces it.
+//
+// `teams` is the same defect and arguably worse: `max_size` is a NUMBER, so it
+// reads even more like it configures something than a boolean does. A config
+// asking for teams of 6 got the hardcoded cap of 4, silently.
+const IGNORED_TOP_LEVEL_KEYS = {
+  hints: "hints are on by default and turned off in /admin (ADR 31)",
+  teams:
+    "teams are always available; /admin opens and closes registration, and the member cap is TEAM_MAX_MEMBERS in team-store.ts",
+};
+
+function warnIgnoredKeys(doc) {
+  for (const [key, where] of Object.entries(IGNORED_TOP_LEVEL_KEYS)) {
+    if (doc && Object.hasOwn(doc, key)) {
+      console.error(
+        `event-config: WARNING: event.yaml's "${key}" is not read and has no effect — ${where}. Remove the key to silence this.`,
+      );
+    }
+  }
+}
+
 function fromYaml(path) {
   const doc = parseYaml(readFileSync(path, "utf8"));
+  warnIgnoredKeys(doc);
   const mods = validateModules(doc?.modules);
   const ev = doc?.event ?? {};
   const startIso = ev.start ? String(ev.start) : null;

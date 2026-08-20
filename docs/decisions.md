@@ -220,7 +220,10 @@ vertical (forensics, API security, cloud, …) alongside
 `secure-development`, which is still the only *scored* one.
 
 **Decision.** Platform-level config (`event`, `github`, `teams`, `hints`,
-`admins`) sits at the top level of `event.yaml`; everything vertical-specific
+`admins`) sits at the top level of `event.yaml`
+(**amended** — `hints` and `teams` are gone; both were declared here and never
+read, see [#31](#31-one-hint-switch-capability-split-from-policy));
+everything vertical-specific
 lives under a kebab-case key in `modules:` (`modules.secure-development`).
 Enablement is presence — a module is on because its key is there, off because
 it isn't; there is no `enabled:` flag. The config loader
@@ -1211,6 +1214,38 @@ Anyone running the app outside compose (bare `next start`) who set
 deployment, so the blast radius is narrow. Turning hints off does not forgive
 spend — `ctf:hints:spent` is untouched, so re-enabling restores the penalties
 rather than wiping them.
+
+**Amendment.** The decision retired `HINTS_ENABLED` but left `event.yaml`'s
+`hints:` block in place, and the wizard kept writing it. That was the third
+switch surviving the cull: a UI/UX pass on 2026-08-20 found an event whose
+config read `hints: { enabled: false }` while `/challenges` advertised "HINTS
+ARE LIVE" and `/admin` showed the toggle on. An earlier fix had changed the
+emitted value from `false` to `true` so the key would at least agree with the
+running app, but a key that cannot change the answer misleads whichever value
+it carries.
+
+So the key is now gone rather than merely truthful: `setup/ctf-setup.sh` no
+longer emits it, and `generate-event-config.mjs` warns (never fails) when a
+config still carries one, naming `/admin` as where the setting lives. This
+also removes `hints` from the platform-level list in
+[#10](#10-eventyamls-module-namespace-deliberate-not-dynamic-registration),
+which had it as top-level schema. Existing configs keep building.
+
+`teams:` went the same way in the same change, for the same reason and with
+the same mechanism. It too was declared platform-level in #10 and read by
+nobody, so `teams: { enabled: false, max_size: 6 }` got team play anyway,
+capped at 4. It is arguably the worse of the two: `max_size` is a *number*,
+which reads even more like configuration than a boolean does. Teams are always
+available; `/admin` opens and closes registration, and the cap is
+`TEAM_MAX_MEMBERS` in `team-store.ts`.
+
+Deliberately not replaced by a build-time capability. Solo play already works
+and is the default — teams are opt-in per contestant — so a `teams.enabled`
+flag would only hide a UI that costs nothing to leave up, at the price of the
+second switch this ADR exists to remove. Making the *cap* organizer-settable
+is a real request and is tracked separately; if it lands it belongs in
+`/admin` on the `HINT_COST` pattern named above — a constant default with an
+override and no config key — not back in `event.yaml`.
 
 ## 32. Scheduled windows, evaluated at read time in three readers
 

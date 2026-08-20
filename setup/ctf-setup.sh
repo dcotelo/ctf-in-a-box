@@ -1307,14 +1307,24 @@ wiz_event_yaml() {
       *) echo "event.yaml: unknown module: $m" >&2; return 1 ;;
     esac
   done
-  # v1 placeholders — neither key is read at build time. Team play is always on
-  # with a fixed 4-member cap, and hints are ON by default
-  # (apps/web/src/lib/hint-defaults.ts: HINT_DEFAULT_ENABLED) and tuned at
-  # runtime in /admin. `true` is therefore what the running app actually does;
-  # emitting `false` here only ever misled an organizer reading back their own
-  # config. Turn hints off for real with /admin's hint controls.
-  printf 'teams: { enabled: true, max_size: 4 }\nhints: { enabled: true }\nadmins: [%s]\n' \
-    "$(csv_of "$admins")"
+  # `admins:` only. Neither `hints:` nor `teams:` is emitted any more, because
+  # nothing has ever read either one — `generate-event-config.mjs` mentions
+  # neither word — and a key that cannot change the answer misleads whichever
+  # value it carries. An organizer who wrote `hints: { enabled: false }` still
+  # got hints; one who wrote `teams: { max_size: 6 }` still got a cap of 4.
+  # Emitting `hints: { enabled: true }` had been an earlier attempt to stop the
+  # key lying by agreeing with the app, which fixed the value and not the
+  # problem.
+  #
+  # Where each setting actually lives:
+  #   hints    on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED), turned
+  #            off in /admin — ADR 31.
+  #   teams    always available; /admin opens and closes registration. The
+  #            4-member cap is TEAM_MAX_MEMBERS in team-store.ts.
+  #
+  # A config written before this change still parses: the generator warns on
+  # both keys rather than failing.
+  printf 'admins: [%s]\n' "$(csv_of "$admins")"
 }
 
 # Is an existing event.yaml complete enough to skip the config questions? Org
