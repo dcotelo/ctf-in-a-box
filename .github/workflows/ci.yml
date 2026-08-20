@@ -21,6 +21,7 @@ jobs:
       smoke: ${{ steps.f.outputs.smoke }}
       quiz: ${{ steps.f.outputs.quiz }}
       classic: ${{ steps.f.outputs.classic }}
+      docs: ${{ steps.f.outputs.docs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != "pull_request" ]; then
-            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; echo "classic=true"; } >> "$GITHUB_OUTPUT"
+            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; echo "classic=true"; echo "docs=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
@@ -62,6 +63,11 @@ jobs:
             # (module gating, /flags, /challenges 404, /leaderboard) and sync
             # (the exits-0 contract), plus docker-compose.yml itself.
             echo "classic=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-classic-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
+            # The Pages site is built from docs/ ALONE (pages.yml sets
+            # `source: docs`), so only docs/ and the publishing workflow can
+            # change what ships. README.md is in pages.yml's trigger paths but
+            # is not part of the site, so it is deliberately absent here.
+            echo "docs=$(m "^docs/|^\.github/workflows/pages\.yml$CI")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
@@ -160,3 +166,95 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./scripts/acceptance-classic-only.sh
+
+  # Builds the docs site with the SAME action pages.yml publishes with, so a
+  # docs change that breaks the site fails the PR instead of landing on main
+  # and taking the site down. Before this job existed, pages.yml ran only on
+  # push to main — the first sign of a bad build was a broken published site.
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the Pages site
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: docs
+          destination: docs/_site
+      # `jekyll-relative-links` rewrites cross-page `.md` hrefs to `.html`. It
+      # matches with a regex that CANNOT span a newline, so a link whose TEXT
+      # wraps across two source lines is silently skipped and ships a literal
+      # `.md` href into a site that contains no `.md` files. That renders fine
+      # in the GitHub repo view and 404s for every site visitor, and the build
+      # itself reports zero warnings. Two of these shipped before this check.
+      - name: No unrewritten .md links survived the build
+        run: |
+          set -euo pipefail
+          if grep -rEn 'href="[^"]+\.md(#[^"]*)?"' docs/_site --include='*.html'; then
+            echo "::error::literal .md href(s) in the built site — the link text almost certainly wraps across a newline, which jekyll-relative-links cannot rewrite. Put the link text on one line."
+            exit 1
+          fi
+      # Catches the other silent failure: a relative link that escapes the
+      # Jekyll source root (docs/). `../sync/foo.json` resolves in the repo
+      # blob view but points outside the published site, so it 404s there
+      # only. Absolute https:// URLs are the repo's convention for those.
+      # Both of these are one-line config/include changes whose whole effect is
+      # in generated <head> markup, so nothing else would notice if they
+      # silently stopped working — a theme bump that drops the head-custom.html
+      # include, or a baseurl change that makes og:image site-root-relative
+      # (which resolves to the WRONG host on a project page like this one).
+      - name: Social card and favicon are present and absolute
+        run: |
+          set -euo pipefail
+          page=docs/_site/index.html
+          if ! grep -q 'property="og:image" content="https://' "$page"; then
+            echo "::error::og:image missing or not an absolute URL in $page — jekyll-seo-tag needs site.url+baseurl to absolutize docs/_config.yml's \`image\`, and a relative one breaks every social card."
+            grep -o '<meta property="og:image"[^>]*>' "$page" || echo "  (no og:image tag at all)"
+            exit 1
+          fi
+          if ! grep -q 'rel="icon"' "$page"; then
+            echo "::error::favicon missing from $page — the theme may have stopped including docs/_includes/head-custom.html."
+            exit 1
+          fi
+          echo "og:image and favicon present"
+
+      - name: Every internal link resolves in the built site
+        run: |
+          set -euo pipefail
+          cd docs/_site
+          bad="$(mktemp)"
+          find . -name '*.html' -print0 | while IFS= read -r -d '' page; do
+            dir="$(dirname "$page")"
+            # `|| true` matters: a page with no links at all is perfectly
+            # normal, and a non-matching grep under `pipefail` would abort
+            # the whole sweep — exiting nonzero while printing nothing, which
+            # reads as "broken links" but names none.
+            links="$(grep -oE 'href="[^"]*"' "$page" | sed -e 's/^href="//' -e 's/"$//' || true)"
+            [ -n "$links" ] || continue
+            printf '%s\n' "$links" | while IFS= read -r href; do
+              # Filtered with `case`, not `grep`, for the same reason.
+              case "$href" in
+                ''|'#'*|http:*|https:*|mailto:*|data:*|javascript:*|//*) continue ;;
+              esac
+              href="${href%%[#]*}"
+              href="${href%%[?]*}"
+              [ -n "$href" ] || continue
+              case "$href" in
+                /*) target=".$href" ;;
+                *)  target="$dir/$href" ;;
+              esac
+              if [ -d "$target" ]; then
+                target="${target%/}/index.html"
+              fi
+              if [ ! -e "$target" ]; then
+                printf '%s -> %s\n' "$page" "$href" >> "$bad"
+              fi
+            done
+          done
+          if [ -s "$bad" ]; then
+            echo "::error::broken internal link(s) in the built site:"
+            cat "$bad"
+            exit 1
+          fi
+          echo "all internal links resolve"
