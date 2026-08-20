@@ -213,9 +213,52 @@ were never measured, and a clean result on an aborted run proves nothing. And
 the stub counts the requests a rubric actually made, so "passed without issuing
 a single request" is visible as its own, worse, bug.
 
+A zero also has to be earned, so the sweep flags targets whose requests all
+went to the **same path**. A rubric stuck at a login gate and a rubric whose
+anti-vacuous preconditions are correctly firing both issue about one request
+per challenge; the count cannot separate them, and reading it as a bailout
+libels exactly the targets that have been hardened. Where the requests go does
+separate them — one path repeated across every challenge means the rubric never
+cleared a shared gate, while a path per challenge means it reached the app and
+was turned away on the merits.
+
 The sweep reuses `runExec` deliberately rather than running tests its own way:
 a detector that disagreed with the judge would produce differences
 indistinguishable from findings.
+
+### Adding a target: give the stub its health path
+
+Every target's helpers open with a `waitFor…()` that polls one specific path
+until it answers, and the stub must answer *that* path or the target never
+boots. `HEALTH_PATHS_BY_TARGET` in `tools/vacuous-stub.mjs` records it, read
+off each target's own `helpers.js`:
+
+| target | probe |
+| --- | --- |
+| `dvwa` | `/login.php` |
+| `juice-shop` | `/rest/admin/application-version` |
+| `securityshepherd` | `/login.jsp` |
+| `vampi` | `/` |
+| `vulnerableapp` | `/allEndPointJson` |
+| `webgoat` | `/login` |
+
+These are URL **suffixes**. Each target reads its base straight from the env
+var the sweep overrides, so a path prefix carried by a default base URL is gone
+— webgoat defaults to `…:8080/WebGoat`, but under the sweep its probe is plain
+`/login`.
+
+Get this wrong and the failure is silent in the worst direction. The probe
+never goes green, every file in that target throws at module load, every
+challenge reports a fail, and the sweep prints a confident **zero for a target
+it never measured**. A guessed list did exactly that to `dvwa` and `webgoat`.
+So the map is scoped per target and has no default: the stub refuses to start
+without one, the sweep exits `2` rather than skipping a target quietly, and two
+tests in `test/vacuous-stub.test.js` fail if a mapped path drifts out of sync
+with the `helpers.js` it was copied from.
+
+Scoping also runs the other way. Every listed path is answered `200` by the
+degraded personalities, so a path that is *not* a probe hands that target's
+rubric a real-looking response for free.
 
 ## Building and mirroring your own image
 

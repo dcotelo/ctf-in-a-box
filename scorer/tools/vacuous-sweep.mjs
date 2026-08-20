@@ -19,7 +19,7 @@ import { writeFileSync } from "node:fs";
 import { loadRubric } from "../src/rubric.js";
 import { getTarget } from "../src/targets.js";
 import { runExec } from "../src/exec.js";
-import { PERSONALITY_NAMES, startStub } from "./vacuous-stub.mjs";
+import { HEALTH_PATHS_BY_TARGET, PERSONALITY_NAMES, startStub } from "./vacuous-stub.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -62,7 +62,15 @@ async function sweepTarget(targetName, challenges, personality, opts) {
   const target = getTarget(targetName);
   if (!target?.urlEnv) return { targetName, personality, error: "no urlEnv in targets.js" };
 
-  const stub = await startStub(personality);
+  // Fail closed. Without the target's real probe path the stub never goes
+  // green, every file dies at import, and the sweep reports a confident zero
+  // for a target it never measured — worse than reporting nothing at all.
+  const healthPaths = HEALTH_PATHS_BY_TARGET[targetName];
+  if (!healthPaths) {
+    return { targetName, personality, error: "no health path in HEALTH_PATHS_BY_TARGET" };
+  }
+
+  const stub = await startStub(personality, { healthPaths });
   try {
     const env = {
       ...process.env,
@@ -76,6 +84,7 @@ async function sweepTarget(targetName, challenges, personality, opts) {
       total: challenges.length,
       vacuous: solved,
       requests: stub.requests,
+      paths: stub.paths,
       // `aborted` means the runner gave up partway and SKIPPED challenges. Those
       // were never measured, so a clean result on an aborted run proves nothing
       // — reported rather than folded into the pass count.
@@ -111,8 +120,14 @@ async function main() {
       process.stderr.write(`  ${name} / ${personality} … `);
       const r = await sweepTarget(name, entry.challenges, personality, opts);
       results.push(r);
-      if (r.error) process.stderr.write(`skipped (${r.error})\n`);
-      else process.stderr.write(`${r.vacuous.length}/${r.total} vacuous${r.aborted ? " (ABORTED)" : ""}\n`);
+      if (r.error) {
+        // A skipped target is dropped from the report below, so it must not
+        // also exit clean — an unmeasured target reads as a passing sweep.
+        process.exitCode = 2;
+        process.stderr.write(`skipped (${r.error})\n`);
+      } else {
+        process.stderr.write(`${r.vacuous.length}/${r.total} vacuous${r.aborted ? " (ABORTED)" : ""}\n`);
+      }
     }
   }
 
@@ -121,10 +136,15 @@ async function main() {
   const byTarget = new Map();
   for (const r of results) {
     if (r.error) continue;
-    const acc = byTarget.get(r.targetName) ?? { total: r.total, ids: new Set(), aborted: false, maxRequests: 0 };
+    const acc = byTarget.get(r.targetName) ?? {
+      total: r.total,
+      ids: new Set(),
+      aborted: false,
+      paths: new Set(),
+    };
     r.vacuous.forEach((id) => acc.ids.add(id));
     acc.aborted ||= r.aborted;
-    acc.maxRequests = Math.max(acc.maxRequests, r.requests);
+    (r.paths ?? []).forEach((p) => acc.paths.add(p));
     byTarget.set(r.targetName, acc);
   }
 
@@ -136,13 +156,25 @@ async function main() {
     grandVacuous += acc.ids.size;
     // A zero is only meaningful if the rubric actually exercised the stub.
     // Two ways it silently does not: the runner aborts and skips challenges,
-    // or the target's helpers bail at import (docker, a login, a fixture) and
-    // every file dies after about one request. Both look like a clean bill.
-    const perChallenge = acc.total > 0 ? acc.maxRequests / acc.total : 0;
+    // or the target's helpers get stuck on a gate every file has to clear
+    // first (a login, a fixture, docker) and die before touching the endpoint
+    // under test. Both look exactly like a clean bill.
+    //
+    // Distinct paths is the discriminator, not request count. A target stuck
+    // at a login and a target whose anti-vacuous preconditions are correctly
+    // firing BOTH issue roughly one request per challenge — the count cannot
+    // tell them apart, and reading it as a bailout libels the targets that
+    // have been hardened. Where those requests GO does tell them apart: one
+    // path repeated for every challenge means the rubric never got past the
+    // gate, while a path per challenge means it reached the app's surface and
+    // was turned away on the merits.
+    const distinct = acc.paths.size;
+    const stuck = acc.total > 1 && distinct <= 1;
     const warn = acc.aborted
       ? "  ** run aborted — challenges skipped, a clean result here proves nothing **"
-      : acc.ids.size === 0 && perChallenge < 2
-        ? `  ** only ~${perChallenge.toFixed(1)} requests per challenge — helpers likely bailed at import; NOT a clean bill **`
+      : acc.ids.size === 0 && stuck
+        ? `  ** reached ${distinct} distinct path${distinct === 1 ? "" : "s"} across ${acc.total} challenges` +
+          " — the rubric never got past a shared gate; NOT a clean bill **"
         : "";
     console.log(`${name}: ${acc.ids.size} of ${acc.total} pass against a useless target${warn}`);
     for (const id of [...acc.ids].sort()) console.log(`    ${id}`);

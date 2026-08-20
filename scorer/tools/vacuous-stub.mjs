@@ -20,14 +20,37 @@
 
 import { createServer } from "node:http";
 
-/** Paths a target's `waitFor…()` health probe is likely to poll. Kept generous
- *  on purpose: if the probe never goes green the file dies at import and the
- *  challenge reports a fail, which is a MISSED detection rather than a false
- *  one — the sweep would simply learn nothing about that challenge. */
-const HEALTH_PATHS = new Set(["/", "/index.php", "/login.jsp", "/WebGoat", "/VulnerableApp"]);
-
-const isHealth = (pathname) =>
-  HEALTH_PATHS.has(pathname) || pathname === "" || /^\/(health|healthz|ping|status)$/.test(pathname);
+/**
+ * The path each target's `waitFor…()` polls, read off its own `helpers.js`
+ * rather than guessed. The sweep hands the stub only the entry for the target
+ * it is running, and both halves of that are load-bearing.
+ *
+ * A probe path MISSING from this map never goes green under the degraded
+ * personalities, so every file in that target throws at module load and every
+ * challenge reports a fail — which the sweep cannot distinguish from a
+ * challenge that asserted something real. That is a silent zero, the exact
+ * false all-clear this tool exists to catch, and it is what an earlier guessed
+ * list produced for dvwa and webgoat.
+ *
+ * In the other direction, every path listed here is answered 200 by the
+ * degraded personalities. A path that is NOT a probe therefore hands a rubric
+ * a real-looking response for free. Scoping the map per target keeps one
+ * target's probe from becoming another target's blind spot, and keeps the set
+ * to exactly what each target needs to boot.
+ *
+ * These are URL SUFFIXES. Every target reads its base straight from the env
+ * var the sweep overrides, so any path prefix carried by a default base URL is
+ * gone: webgoat's default is `…:8080/WebGoat`, but under the sweep its probe
+ * is plain `/login`.
+ */
+export const HEALTH_PATHS_BY_TARGET = {
+  dvwa: ["/login.php"],
+  "juice-shop": ["/rest/admin/application-version"],
+  securityshepherd: ["/login.jsp"],
+  vampi: ["/"],
+  vulnerableapp: ["/allEndPointJson"],
+  webgoat: ["/login"],
+};
 
 /**
  * Personalities. Each answers the health probe 200 so the target reads as UP,
@@ -60,22 +83,42 @@ export const PERSONALITY_NAMES = Object.keys(PERSONALITIES);
 /**
  * Starts a stub on an ephemeral port. Returns `{ url, requests, close }`.
  *
+ * `healthPaths` is the set of paths answered 200 by every personality — pass
+ * the target's entry from `HEALTH_PATHS_BY_TARGET`. It is required, and
+ * deliberately has no default: a stub that guessed would go back to silently
+ * failing to boot the target it was pointed at.
+ *
  * `requests` counts what the rubric actually asked for. It is the difference
  * between "this challenge passed because the assertion is weak" and "this
  * challenge passed without issuing a single request", and the sweep reports
  * the two separately — the second is a worse bug wearing the same result.
+ *
+ * `paths` is the distinct set of those requests, and it answers a question the
+ * count cannot: did the rubric ever reach the app's surface? A target whose
+ * helpers are stuck at a login gate and one whose preconditions are correctly
+ * firing both issue about one request per challenge. They differ in where
+ * those requests GO — one path repeated forever versus a different endpoint
+ * per challenge.
  */
-export async function startStub(personality = "empty-200") {
+export async function startStub(personality = "empty-200", { healthPaths } = {}) {
   const respond = PERSONALITIES[personality];
   if (!respond) throw new Error(`unknown personality: ${personality}`);
+  if (!Array.isArray(healthPaths) || healthPaths.length === 0) {
+    throw new Error("startStub: healthPaths is required (see HEALTH_PATHS_BY_TARGET)");
+  }
+  const health = new Set(healthPaths);
 
   let requests = 0;
+  const paths = new Set();
   const server = createServer((req, res) => {
     let pathname = req.url ?? "/";
     const q = pathname.indexOf("?");
     if (q !== -1) pathname = pathname.slice(0, q);
-    const probe = isHealth(pathname);
-    if (!probe) requests += 1;
+    const probe = health.has(pathname);
+    if (!probe) {
+      requests += 1;
+      paths.add(pathname);
+    }
 
     const { status, body, type } = respond(probe);
     // Permissive CORS and no-cache so nothing is refused or served stale for a
@@ -106,6 +149,9 @@ export async function startStub(personality = "empty-200") {
     url: `http://127.0.0.1:${port}`,
     get requests() {
       return requests;
+    },
+    get paths() {
+      return [...paths];
     },
     close: () =>
       new Promise((resolve) => {
