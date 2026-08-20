@@ -30,6 +30,14 @@ services:
       # Runtime flag: exposes the /admin "Seed demo data" button + its route.
       # Set to "1" only for demos (dev-stack does). Never in a real event.
       DEMO_MODE: ${DEMO_MODE:-}
+      # Boot-time default for paid hints. Read once per server process, so a
+      # change here takes effect on `docker compose up -d` (container
+      # recreate) — no image rebuild needed, unlike EVENT_CONFIG_B64 above,
+      # which is a build ARG because a prebuild step turns it into a source
+      # file. Unset expands to "" and hints stay ON, which is the documented
+      # default; only the literal "false" disables them. /admin's hint
+      # controls are the live override on top of this.
+      HINTS_ENABLED: ${HINTS_ENABLED:-}
     # NOT depends_on scorer: the app reads the scorer over HTTP lazily, per
     # request, and depends_on does not wait for readiness anyway — so this
     # only ever expressed a start ORDER. Keeping it would have forced the

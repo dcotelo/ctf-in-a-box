@@ -598,11 +598,12 @@ reveal route calls) resolves the admin override live, so flipping
 bought**. But `getViewerHints`, `getHintPenalties`, and
 `getHintAvailability` — which drive the challenges-page hint button, the
 hint-notice banner, and the read-time leaderboard penalty — all gate on
-the module-level `HINTS_ENABLED` constant, resolved once from the
-build-time env var, not the live override. An organizer toggling hints
-mid-event changes purchasability instantly; the UI's offer and the
+the module-level `HINTS_ENABLED` constant, resolved once per server
+process from the env var, not the live override. An organizer toggling
+hints mid-event changes purchasability instantly; the UI's offer and the
 leaderboard's penalty display still reflect whatever `HINTS_ENABLED` was
-baked in at build time. This is a deliberate v1 cut, not an oversight —
+set to when the app process started, and follow only on a container
+restart. This is a deliberate v1 cut, not an oversight —
 see [docs/decisions.md #19](decisions.md#19-organizer-admin-panel-runtime-override-layer).
 
 ## Build-time config flow

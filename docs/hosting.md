@@ -450,12 +450,13 @@ enable need their own settings: `modules.secure-development.targets` and
 `score_ingest` for that one, nothing for `quiz`. Team play is configured at the
 top level — `teams: { enabled: true, max_size: 4 }` in `event.yaml.example`.
 `hints: { enabled: true }` matches the running default — hints are on; neither
-key is read at build time. **`HINTS_ENABLED=false` in `.env` will not turn them
-off on the composed stack**: `docker-compose.yml`'s `app` service does not
-forward that variable and `apps/web/Dockerfile` declares no build arg for it,
-so the container never sees it. The switch that does work is `/admin`'s hint
-controls, a runtime override stored in Redis — it decides whether a hint **can
-be bought**, though not the page furniture around it; see
+key is read at build time. To ship an event with hints off from first boot, set
+`HINTS_ENABLED=false` in `.env`; compose forwards it to the app. It is read
+once per server process, so changing it takes effect on the next
+`docker compose up -d` (a container recreate) — not on a live container, and
+not requiring a rebuild. On top of that boot default, `/admin`'s hint controls
+are the live override stored in Redis: they decide whether a hint **can be
+bought**, though not the page furniture around it; see
 [docs/operations.md](operations.md#organizer-admin-panel) for exactly what it
 does and does not change. What a
 module must provide to

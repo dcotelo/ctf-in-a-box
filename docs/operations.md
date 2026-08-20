@@ -135,17 +135,15 @@ The panel offers:
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
 - **Hint controls** (Secure Development tab) — an override for whether hints are enabled and what
-  they cost, on top of the build-time default. Hints are **on by default** and
-  cost 10 points each. This override is also the *only* switch that works on
-  the composed stack: `HINTS_ENABLED=false` in `.env` never reaches the app
-  container — `docker-compose.yml`'s `app` service does not forward that
-  variable and `apps/web/Dockerfile` declares no build arg for it — so it
-  cannot turn hints off. This takes effect immediately for whether a hint
-  **can be bought**.
+  they cost, on top of the boot default. Hints are **on by default** and
+  cost 10 points each; `HINTS_ENABLED=false` in `.env` ships an event with
+  them off from first boot, and this override sits on top of that. It takes
+  effect immediately for whether a hint **can be bought**.
   It does **not** currently change, live, whether the challenges page
   **offers** the hint button, the hint-notice banner, or the leaderboard's
-  hint-penalty display — those still reflect whatever `HINTS_ENABLED` was
-  baked in at build time. See
+  hint-penalty display — those read the env default as it stood when the app
+  process started, not the live override, so they only follow a container
+  restart. See
   [docs/architecture.md](architecture.md#organizer-admin-panel-runtime-overrides)
   for the full breakdown of this limitation.
 - **Hint gating** — two knobs that decide *who* may buy a hint and *when*,
