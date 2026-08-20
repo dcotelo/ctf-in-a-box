@@ -319,16 +319,18 @@ third module isn't mistaken for a fully general n-module platform:
   attempt/cooldown overrides** — single- and multi-select only, all-or-nothing
   grading, and the two retry-gate settings (`quizMaxAttempts`,
   `quizRetryAfterMin`) are global, not settable per question.
-- **`classic` in *this* PR has no bulk import/export, no file attachments,
-  and no hints — plainly, not by omission.** Challenges are authored one at a
-  time through the admin form exactly like quiz questions (no CSV/JSON
-  upload path); a challenge's `description` is Markdown text only, with
-  nowhere to attach a downloadable file (an image, a pcap, a binary) for a
-  contestant to pull down; and the hint system (`hintsEnabled`/`hintCost`/the
-  two gating knobs) is wired to `secure-development` targets alone — a
-  classic challenge has no hint of its own to buy, at any price. All three
-  are scoped to later PRs in this same series (bulk import/export, then
-  attachments, then hints), not to this one, and none of the three exists
+- **`classic` now has bulk import/export, but still no file attachments and
+  no hints — plainly, not by omission.** The admin panel can export the
+  whole board as one JSON bundle and import one back (upsert by id, never
+  deletes; categories unioned, never replaced) — see
+  [docs/operations.md](operations.md#classic) for the organizer-facing
+  contract. What's still missing: a challenge's `description` is Markdown
+  text only, with nowhere to attach a downloadable file (an image, a pcap, a
+  binary) for a contestant to pull down; and the hint system
+  (`hintsEnabled`/`hintCost`/the two gating knobs) is wired to
+  `secure-development` targets alone — a classic challenge has no hint of
+  its own to buy, at any price. Both are scoped to later PRs in this same
+  series (attachments, then hints), not this one, and neither exists
   anywhere in `classic-store.ts` or `admin-classic-controls.tsx` today for a
   reader to find by trial and error.
 

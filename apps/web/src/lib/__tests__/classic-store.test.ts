@@ -26,10 +26,12 @@ import {
   CLASSIC_POINTS_MAX,
   ClassicValidationError,
   deleteChallenge,
+  exportBundle,
   getClassicTotals,
   getSolveCounts,
   getTeamClassicTotalsBatch,
   getViewerClassic,
+  importBundle,
   listCategories,
   listChallenges,
   listChallengesForAdmin,
@@ -38,6 +40,7 @@ import {
   type AdminChallenge,
   type Challenge,
 } from "@/lib/classic-store";
+import { CLASSIC_BUNDLE_VERSION, type ClassicBundle } from "@/lib/classic-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 
 /** Every `upstashPipeline` call's command list, oldest first. */
@@ -66,6 +69,95 @@ const challenge = (over: Partial<Challenge> = {}): Challenge => ({
 });
 
 const row = (c: Challenge) => [c.id, JSON.stringify(c)];
+
+/** Every command (across every pipeline call so far) targeting `key`. */
+const commandsFor = (key: string) => pipelineCalls().flat().filter((c) => c[1] === key);
+
+/** Every argument (from index 2 on) of commands targeting `key`, across
+ *  every pipeline call made so far — used to assert a value was written
+ *  SOMEWHERE without caring which row carried it. */
+const flatArgsFor = (key: string): (string | number)[] => commandsFor(key).flatMap((c) => c.slice(2));
+
+/** The stored value for `key` — for a hash write (`HSET key id value`) pass
+ *  `id` to pick that row's value; for a plain key write (`SET key value`)
+ *  omit it. Reads back out of whichever pipeline call actually wrote it. */
+function valueFor(key: string, id?: string): string {
+  const commands = commandsFor(key);
+  const match = id === undefined ? commands[commands.length - 1] : commands.find((c) => c[2] === id);
+  if (!match) throw new Error(`no command found for ${key}${id ? `/${id}` : ""}`);
+  return String(id === undefined ? match[2] : match[3]);
+}
+
+/** Queues the reply for `importBundle`'s leading membership read (HKEYS
+ *  challenges, GET categories): the board already has these challenge ids,
+ *  and no categories yet. */
+function seedChallenges(ids: string[]) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: ids }, { result: null }]);
+}
+
+/** Queues the reply for `importBundle`'s leading read, with these
+ *  categories already on the board and no challenges yet. */
+function seedCategories(names: string[]) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }, { result: JSON.stringify(names) }]);
+}
+
+const FULL_BOARD_ID = "web-one-ab12cd";
+
+/** Queues replies for `exportBundle`'s two reads (`listChallengesForAdmin`,
+ *  then `listCategories`) describing a one-challenge, two-category board. */
+function seedFullBoard() {
+  mocks.upstashPipeline.mockResolvedValueOnce([
+    {
+      result: row(
+        challenge({ id: FULL_BOARD_ID, title: "One", category: "Web", description: "**find it**", points: 50, order: 0 }),
+      ),
+    },
+    { result: [FULL_BOARD_ID, "ctfbox{One}"] },
+  ]);
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web", "Crypto"]) }]);
+}
+
+/** Clears recorded pipeline calls (so a following assertion only sees what
+ *  happens NEXT) while re-seeding the board `seedFullBoard` established, so
+ *  a subsequent `importBundle` still sees it as already on the store — the
+ *  property a round-trip test depends on. */
+function resetPipelineCalls() {
+  mocks.upstashPipeline.mockClear();
+  seedChallenges([FULL_BOARD_ID]);
+}
+
+const twoRowBundle: ClassicBundle = {
+  version: CLASSIC_BUNDLE_VERSION,
+  categories: ["Web", "Crypto"],
+  challenges: [
+    {
+      id: "web-one-ab12cd",
+      title: "One",
+      category: "Web",
+      description: "**find it**",
+      points: 50,
+      order: 0,
+      flag: "ctfbox{One}",
+    },
+    {
+      id: "crypto-two-cd34ef",
+      title: "Two",
+      category: "Crypto",
+      description: "harder",
+      points: 100,
+      order: 1,
+      flag: "ctfbox{Two}",
+    },
+  ],
+};
+
+const bundleWithFlag = (flag: string): ClassicBundle => ({
+  version: CLASSIC_BUNDLE_VERSION,
+  categories: ["Web"],
+  challenges: [
+    { id: "web-one-ab12cd", title: "One", category: "Web", description: "find it", points: 50, order: 0, flag },
+  ],
+});
 
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
@@ -436,5 +528,114 @@ describe("getTeamClassicTotalsBatch", () => {
       { points: 0, solved: 0, lastAt: null },
     ]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
+describe("importBundle", () => {
+  it("writes challenge, flag and flagnorm for every row in ONE pipeline", async () => {
+    await importBundle(twoRowBundle);
+    // The membership/union read is its OWN earlier call (mirroring
+    // upsertChallenge's `listCategories()` read before its own write) — this
+    // checks the WRITE call specifically, the same idiom `upsertChallenge`'s
+    // own "ONE pipeline" test uses above.
+    const [call] = pipelineCalls().slice(-1);
+    const keys = call.map((c) => c[1]);
+    expect(keys).toContain("ctf:classic:challenges");
+    expect(keys).toContain("ctf:classic:flag");
+    expect(keys).toContain("ctf:classic:flagnorm");
+    expect(keys).toContain("ctf:classic:categories");
+  });
+
+  it("stores the normalized flag via normalizeFlag, not a raw lowercase", async () => {
+    await importBundle(bundleWithFlag("  CTF{Mixed}  "));
+    const written = flatArgsFor("ctf:classic:flagnorm");
+    expect(written).toContain("ctf{mixed}");
+  });
+
+  it("never writes a flag into the public challenge record", async () => {
+    await importBundle(bundleWithFlag("ctfbox{Secret}"));
+    const record = JSON.parse(valueFor("ctf:classic:challenges", "web-one-ab12cd"));
+    expect(Object.keys(record)).toEqual(["id", "title", "category", "description", "points", "order"]);
+    expect(JSON.stringify(record)).not.toContain("Secret");
+  });
+
+  it("reports created vs updated against what already exists", async () => {
+    seedChallenges(["web-one-ab12cd"]);
+    const summary = await importBundle(twoRowBundle);
+    expect(summary).toEqual({ created: 1, updated: 1, categories: 2 });
+  });
+
+  // The whole reason import is upsert: an organizer must never lose authored
+  // work by importing a partial file.
+  it("leaves an existing challenge that the bundle does not mention untouched", async () => {
+    seedChallenges(["legacy-zz99zz"]);
+    await importBundle(twoRowBundle);
+    const deletedKeys = pipelineCalls().flat().filter((c) => c[0] === "HDEL");
+    expect(deletedKeys).toHaveLength(0);
+  });
+
+  it("UNIONS categories, preserving existing order and appending new ones", async () => {
+    seedCategories(["Forensics", "Web"]);
+    await importBundle({ ...twoRowBundle, categories: ["Web", "Crypto"] });
+    expect(JSON.parse(valueFor("ctf:classic:categories"))).toEqual(["Forensics", "Web", "Crypto"]);
+  });
+
+  // The invariant the rest of the module assumes (`setCategories`'
+  // first-spelling-wins rule depends on it, and the board's exact-equality
+  // filter in classic-board.tsx depends on it too): every stored challenge's
+  // `category` must appear, verbatim, in the stored category list. The union
+  // above folds case-insensitively and keeps the EXISTING spelling ("Web"),
+  // so a bundle that spells the same category "web" must have its challenge
+  // canonicalized to "Web" — otherwise it is written under a spelling the
+  // category list doesn't contain and disappears from the board.
+  it("canonicalizes a stored challenge's category to the surviving (existing) spelling", async () => {
+    seedCategories(["Web"]);
+    const bundle: ClassicBundle = {
+      version: CLASSIC_BUNDLE_VERSION,
+      categories: ["web"],
+      challenges: [
+        {
+          id: "web-one-ab12cd",
+          title: "One",
+          category: "web",
+          description: "find it",
+          points: 50,
+          order: 0,
+          flag: "ctfbox{One}",
+        },
+      ],
+    };
+    await importBundle(bundle);
+    const record = JSON.parse(valueFor("ctf:classic:challenges", "web-one-ab12cd"));
+    const categories = JSON.parse(valueFor("ctf:classic:categories"));
+    expect(categories).toContain(record.category);
+  });
+});
+
+describe("exportBundle", () => {
+  it("returns the current board in the importable shape", async () => {
+    seedFullBoard();
+    const bundle = await exportBundle();
+    expect(bundle.version).toBe(1);
+    expect(bundle.categories).toEqual(["Web", "Crypto"]);
+    expect(bundle.challenges[0]).toEqual({
+      id: "web-one-ab12cd",
+      title: "One",
+      category: "Web",
+      description: "**find it**",
+      points: 50,
+      order: 0,
+      flag: "ctfbox{One}",
+    });
+  });
+
+  it("round-trips: exporting then importing writes the same ids back", async () => {
+    seedFullBoard();
+    const bundle = await exportBundle();
+    resetPipelineCalls();
+    const summary = await importBundle(bundle);
+    // Every challenge already exists, so nothing is created — this is the
+    // property that makes export usable as a backup.
+    expect(summary.created).toBe(0);
   });
 });

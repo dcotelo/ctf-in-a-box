@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { parseBundle } from "@/lib/classic-io";
 import {
   ClassicValidationError,
   deleteChallenge,
+  importBundle,
   listCategories,
   listChallengesForAdmin,
   setCategories,
@@ -39,12 +41,26 @@ import { upstashPipeline } from "@/lib/upstash";
  * guard: unknown keys, wrong types, or a missing field all fail closed with a
  * 400, never a partially-trusted write.
  *
- * POST carries two distinct payload shapes on the SAME route rather than a
+ * POST carries THREE distinct payload shapes on the SAME route rather than a
  * separate endpoint per resource: a body with exactly one key, `categories`
- * (an array), replaces the category list; anything else is parsed as a
- * challenge-plus-flag upsert. The two key sets never overlap, so the shape
- * alone is enough to dispatch — no extra discriminator field for a caller to
- * get wrong.
+ * (an array), replaces the category list; a body with exactly one key,
+ * `import` (a string), bulk-imports a challenge bundle; anything else is
+ * parsed as a challenge-plus-flag upsert. The three key sets never overlap,
+ * so the shape alone is enough to dispatch — no extra discriminator field for
+ * a caller to get wrong. See the exported `*_KEYS` constants below and the
+ * route test's "keeps every payload key set pairwise disjoint" case, which
+ * checks every PAIR among them (not just one hand-picked pair) so a future
+ * fourth shape is covered by adding one line to that test's `sets` array,
+ * rather than a second bespoke assertion.
+ *
+ * The `import` shape carries the bundle as raw TEXT, never a pre-parsed
+ * object: this route re-parses and re-validates it with `parseBundle` (the
+ * same validator the admin bulk-import UI runs client-side) before ever
+ * calling `importBundle`, so a client that skipped or weakened its own
+ * validation cannot write anything the single-challenge path above would
+ * have rejected. `importBundle` itself trusts its input completely — see its
+ * own doc comment in classic-store.ts — which is exactly why this route must
+ * never call it with anything that hasn't been through `parseBundle` first.
  */
 
 type ChallengePayload = Challenge & { flag: string };
@@ -59,6 +75,7 @@ type ChallengePayload = Challenge & { flag: string };
  *  of. */
 export const CHALLENGE_KEYS = new Set(["id", "title", "category", "description", "points", "order", "flag"]);
 export const CATEGORIES_KEYS = new Set(["categories"]);
+export const IMPORT_KEYS = new Set(["import"]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -105,6 +122,17 @@ function parseCategoriesPayload(body: unknown): string[] | null {
   if (!Array.isArray(body.categories)) return null;
   if (!body.categories.every((c) => typeof c === "string")) return null;
   return body.categories as string[];
+}
+
+/** Recognizes the THIRD POST shape: a body carrying exactly one key,
+ *  `import`, a string — the raw text of an uploaded/pasted bundle file. Only
+ *  extracts the string here; parsing and validating it is `parseBundle`'s
+ *  job (called from `POST` below), never this function's, so there is
+ *  exactly one place that decides whether a bundle is valid. */
+function parseImportPayload(body: unknown): string | null {
+  if (!isPlainObject(body) || !hasOnlyKeys(body, IMPORT_KEYS)) return null;
+  if (typeof body.import !== "string") return null;
+  return body.import;
 }
 
 /** Maps an error thrown by `upsertChallenge`/`deleteChallenge`/`setCategories`
@@ -171,6 +199,31 @@ export async function POST(request: Request) {
     }
     await writeAudit(gate.login, "classic-categories", { count: categories.length });
     return NextResponse.json({ categories });
+  }
+
+  const importPayload = parseImportPayload(body);
+  if (importPayload !== null) {
+    // Re-parse and re-validate the raw text server-side with the SAME
+    // validator the client ran (or should have run) — this is what makes it
+    // safe to accept raw text from a client that skipped or weakened its own
+    // validation. `importBundle` itself does not re-check any of this; see
+    // its doc comment.
+    const parsedBundle = parseBundle(importPayload);
+    if (!parsedBundle.ok) return NextResponse.json({ errors: parsedBundle.errors }, { status: 400 });
+
+    let summary;
+    try {
+      summary = await importBundle(parsedBundle.bundle);
+    } catch (err) {
+      return errorResponse(err);
+    }
+
+    await writeAudit(gate.login, "classic-import", {
+      created: summary.created,
+      updated: summary.updated,
+      categories: summary.categories,
+    });
+    return NextResponse.json(summary);
   }
 
   const parsed = parseChallengePayload(body);

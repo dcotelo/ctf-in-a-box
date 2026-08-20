@@ -11,14 +11,17 @@
 //   - No choices/correct answer. A challenge has a category (drawn from an
 //     organizer-managed list), a Markdown description, a point value, and a
 //     flag.
-//   - The wire contract is TWO payload shapes on ONE endpoint
+//   - The wire contract is THREE payload shapes on ONE endpoint
 //     (`POST /api/admin/classic`), dispatched by the server on exact key set:
 //     `{categories: string[]}` (exactly one key) replaces the category list;
-//     anything else is parsed as a challenge-plus-flag upsert against
-//     `CHALLENGE_KEYS` (see that route's header comment). This component's
-//     `postCategories` and `postChallenge` helpers exist specifically so
-//     every categories POST carries exactly `{categories}` and nothing else —
-//     a stray extra key would fall through to the challenge parser and 400.
+//     `{import: <raw text>}` (exactly one key) bulk-imports a pasted/uploaded
+//     bundle, parsed and validated by `parseBundle` before anything is
+//     written; anything else is parsed as a challenge-plus-flag upsert
+//     against `CHALLENGE_KEYS` (see that route's header comment). This
+//     component's `postCategories` and `postChallenge` helpers exist
+//     specifically so every categories POST carries exactly `{categories}`
+//     and nothing else — a stray extra key would fall through to the next
+//     parser in line and 400.
 //   - Categories can be removed only while nothing references them. The
 //     store itself does not enforce this (`setCategories` just validates and
 //     dedupes the list), so the refusal lives here, client-side, computed
@@ -88,22 +91,22 @@
 // comment in classic-store.ts). Clearing banked points is the master reset's
 // job. The confirm copy below says so in as many words; keep the two in step.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 // Type-only import: `classic-store.ts` is `server-only`, but a `import type`
 // is fully erased at compile time — no runtime import ever reaches the
 // client bundle. This is the same pattern admin-quiz-controls.tsx uses for
 // `@/lib/quiz-store`. Never change this to a value import.
-import type { AdminChallenge, Challenge } from "@/lib/classic-store";
-import { generateChallengeId } from "@/lib/classic-keys";
+import type { AdminChallenge, Challenge, ImportSummary } from "@/lib/classic-store";
+import { generateChallengeId, CLASSIC_POINTS_MAX } from "@/lib/classic-keys";
+import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundle, type ImportError } from "@/lib/classic-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
 import ConfirmModal from "@/components/confirm-modal";
 
-/** Mirrors `classic-store.ts`'s `CLASSIC_POINTS_MAX`. Duplicated rather than
- *  imported: that constant lives in a `server-only` module, and pulling any
- *  VALUE (as opposed to a type) out of it into a client component drags the
- *  whole module — and its `server-only` guard — into the client bundle. */
-export const CLASSIC_POINTS_MAX = 100000;
+// `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
+// component's OWN test file imports it from here, mirroring how the rest of
+// this module's helpers are exported for direct testing.
+export { CLASSIC_POINTS_MAX };
 
 type NumericSettingKey = "classicCooldownSec";
 
@@ -358,6 +361,43 @@ async function parseJson<T>(res: Response): Promise<T> {
   return (await res.json().catch(() => ({}))) as T;
 }
 
+/** Builds a bundle from the board this component already holds — `rows`
+ *  (each carrying its flag, same as `payloadFromRow`'s input) and the current
+ *  category list — so the export button's download handler is a thin
+ *  binding around a pure function, the same shape `payloadFromEditor`/
+ *  `reorderChallenges` are pure for the same reason: `renderToStaticMarkup`
+ *  cannot exercise a click handler, so the logic worth testing has to live
+ *  outside one. Mirrors `exportBundle` in classic-store.ts field for field —
+ *  that one reads the store server-side; this one reads client state — so an
+ *  export built here round-trips through `parseBundle` exactly like a
+ *  server-side export would. Exported for direct testing. */
+export function exportBundleFrom(rows: readonly AdminChallenge[], categories: readonly string[]): ClassicBundle {
+  return {
+    version: CLASSIC_BUNDLE_VERSION,
+    categories: [...categories],
+    challenges: rows.map(({ challenge: c, flag }) => ({
+      id: c.id,
+      title: c.title,
+      category: c.category,
+      description: c.description,
+      points: c.points,
+      order: c.order,
+      flag,
+    })),
+  };
+}
+
+/** Formats an `ImportSummary` into the panel's after-import message. Pure for
+ *  the same reason `exportBundleFrom` just above is: `importResult` is
+ *  `useState`, which `renderToStaticMarkup` can never reach, so the
+ *  pluralization branch (and the created/updated interpolation next to it)
+ *  has to live outside a render tree to be exercised by a test at all.
+ *  Exported for direct testing. */
+export function formatImportSummary({ created, updated, categories }: ImportSummary): string {
+  const categoryWord = categories === 1 ? "category" : "categories";
+  return `Imported: ${created} created, ${updated} updated. (${categories} ${categoryWord} listed in the file.)`;
+}
+
 export default function AdminClassicControls({
   pending,
   classicCooldownSecInput,
@@ -386,27 +426,41 @@ export default function AdminClassicControls({
   const [categoryPending, setCategoryPending] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
 
+  const [importText, setImportText] = useState("");
+  const [importPending, setImportPending] = useState(false);
+  const [importErrors, setImportErrors] = useState<ImportError[] | null>(null);
+  const [importResult, setImportResult] = useState<ImportSummary | null>(null);
+
+  /** Re-fetches the challenge and category lists from the store, the same GET
+   *  the mount-time effect below runs. Shared with the bulk-import success
+   *  path so a successful import refreshes from the server rather than
+   *  hand-mutating local state — the store, not this component's memory of
+   *  what it just sent, is the source of truth for what actually landed.
+   *  `isCancelled` lets the mount effect skip its own setState calls after
+   *  unmount, mirroring that effect's original guard. */
+  async function refreshLists(isCancelled: () => boolean = () => false): Promise<void> {
+    try {
+      const res = await fetch("/api/admin/classic");
+      const data = await parseJson<{ error?: string; challenges?: AdminChallenge[]; categories?: string[] }>(res);
+      if (isCancelled()) return;
+      if (!res.ok) {
+        setListError(describeClassicError(res.status, data.error));
+        return;
+      }
+      setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
+      setCategories(Array.isArray(data.categories) ? data.categories : []);
+      setListError(null);
+    } catch {
+      if (!isCancelled()) setListError("Couldn't load challenges — check your connection and try again.");
+    }
+  }
+
   // First-paint data comes from `initialChallenges`/`initialCategories` (or,
   // in production, is simply empty); this replaces it with the live data
   // once mounted in the browser. Never runs under `renderToStaticMarkup`.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/admin/classic");
-        const data = await parseJson<{ error?: string; challenges?: AdminChallenge[]; categories?: string[] }>(res);
-        if (cancelled) return;
-        if (!res.ok) {
-          setListError(describeClassicError(res.status, data.error));
-          return;
-        }
-        setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
-        setCategories(Array.isArray(data.categories) ? data.categories : []);
-        setListError(null);
-      } catch {
-        if (!cancelled) setListError("Couldn't load challenges — check your connection and try again.");
-      }
-    })();
+    void refreshLists(() => cancelled);
     return () => {
       cancelled = true;
     };
@@ -562,6 +616,92 @@ export default function AdminClassicControls({
     setCategoryError(null);
     void applyCategories(next);
   }
+
+  /** The export button's whole handler: build the bundle from the board this
+   *  component already holds (`exportBundleFrom`), serialize it, and hand it
+   *  to the browser as a download. Entirely client-side — no endpoint round
+   *  trip, so an organizer's own flags never cross the network a second time
+   *  just to be downloaded again. The object URL is revoked right after
+   *  triggering the download (deferred one tick so the browser has actually
+   *  started the download first): an un-revoked URL keeps the whole Blob
+   *  pinned in memory for the rest of the page's life. */
+  function handleExport() {
+    const text = serializeBundle(exportBundleFrom(challenges, categories));
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "classic-challenges.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  /** Reads a chosen `.json` file client-side and drops its text straight into
+   *  the same textarea the paste path uses, so both paths share one
+   *  validation/submit flow below. Clears the input's value afterward so
+   *  choosing the SAME file again (e.g. after editing it on disk) still
+   *  fires a change event. */
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const text = await file.text();
+    setImportText(text);
+    setImportResult(null);
+    setImportErrors(null);
+  }
+
+  /** Sends the raw pasted/uploaded text to the server exactly as the wire
+   *  contract requires — `{ import: <raw text> }`, the ONLY key in the body
+   *  — never a pre-parsed object; the route re-validates with the same
+   *  `parseBundle` this component already ran client-side (see
+   *  `clientValidation` below), which is what makes it safe to accept text
+   *  from a client whose own validation could in principle be skipped or
+   *  stale. On success, the lists are refreshed from the server rather than
+   *  hand-mutated, so this panel can never drift from the store. */
+  async function submitImport() {
+    setImportPending(true);
+    setImportErrors(null);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/admin/classic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ import: importText }),
+      });
+      const data = await parseJson<{
+        errors?: ImportError[];
+        error?: string;
+        created?: number;
+        updated?: number;
+        categories?: number;
+      }>(res);
+      if (res.ok) {
+        setImportResult({ created: data.created ?? 0, updated: data.updated ?? 0, categories: data.categories ?? 0 });
+        setImportText("");
+        await refreshLists();
+        return;
+      }
+      if (Array.isArray(data.errors)) {
+        setImportErrors(data.errors);
+        return;
+      }
+      setImportErrors([{ where: "(request)", message: describeClassicError(res.status, data.error) }]);
+    } catch {
+      setImportErrors([{ where: "(request)", message: "Couldn't reach the server — try again." }]);
+    } finally {
+      setImportPending(false);
+    }
+  }
+
+  // Convenience only, run client-side before the button is even enabled — the
+  // server re-validates the raw text regardless (see `submitImport`'s
+  // comment), so this can never be the only gate. Skipped entirely on an
+  // empty textarea so the panel doesn't greet an organizer who hasn't typed
+  // anything yet with a wall of "must be an array" errors.
+  const clientValidation = importText.trim().length > 0 ? parseBundle(importText) : null;
+  const clientImportErrors = clientValidation && !clientValidation.ok ? clientValidation.errors : null;
+  const canImport = clientValidation !== null && clientValidation.ok;
 
   const confirmCopy = deleteTarget ? challengeDeleteConfirm(deleteTarget) : null;
 
@@ -757,6 +897,98 @@ export default function AdminClassicControls({
           </>
         )}
       </div>
+
+      {/* Collapsible via the native <details>/<summary> pair rather than a
+          `useState` toggle: a `useState`-gated section never appears in a
+          `renderToStaticMarkup` render (see the test file's header comment),
+          but the controls here need to be provable statically. `<details>`
+          renders its children into the markup regardless of whether it is
+          open — the collapse is native browser behavior, not conditional
+          React rendering — so this stays collapsible for an organizer AND
+          fully present for the test. */}
+      <details className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
+        <summary className="cursor-pointer text-sm font-medium text-white">Bulk import / export</summary>
+
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted">
+              Downloads every challenge currently on the board as one JSON file, flags included.
+            </span>
+            <button
+              type="button"
+              disabled={challenges.length === 0}
+              onClick={handleExport}
+              className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
+            >
+              Export challenges
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-3">
+            <span className="text-sm text-white">Import a bundle</span>
+            {/* THE notice a shorter file could otherwise be misread against:
+                see the header comment on `importBundle` in classic-store.ts —
+                this is the client-side statement of the same guarantee. */}
+            <p className="text-xs text-muted">
+              Import never deletes existing challenges — anything already on the board that isn&rsquo;t in the file
+              is left untouched. Categories the bundle mentions are added to the existing list, never used to
+              replace it.
+            </p>
+
+            <textarea
+              value={importText}
+              disabled={importPending}
+              onChange={(e) => {
+                setImportText(e.target.value);
+                setImportResult(null);
+                setImportErrors(null);
+              }}
+              rows={6}
+              placeholder="Paste a bundle's JSON here, or choose a file below."
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            />
+
+            <input
+              type="file"
+              accept=".json"
+              disabled={importPending}
+              onChange={(e) => void handleFileChange(e)}
+              className="text-xs text-zinc-300"
+            />
+
+            {clientImportErrors && clientImportErrors.length > 0 && (
+              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+                {clientImportErrors.map((err, i) => (
+                  <li key={i}>
+                    {err.where}: {err.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {importErrors && importErrors.length > 0 && (
+              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+                {importErrors.map((err, i) => (
+                  <li key={i}>
+                    {err.where}: {err.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {importResult && <p className="text-xs text-[#7aa2ff]">{formatImportSummary(importResult)}</p>}
+
+            <button
+              type="button"
+              disabled={importPending || !canImport}
+              onClick={() => void submitImport()}
+              className="self-start rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {importPending ? "Importing…" : "Import bundle"}
+            </button>
+          </div>
+        </div>
+      </details>
 
       {editing && (
         <ChallengeForm
