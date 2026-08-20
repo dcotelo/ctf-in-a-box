@@ -19,7 +19,7 @@ const { getSession, submitFlag, requireGatePassed, CLASSIC_ID_RE } = vi.hoisted(
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/gate", () => ({ requireGatePassed }));
+vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/classic-store", () => ({ submitFlag, CLASSIC_ID_RE }));
 
 import { POST } from "@/app/api/classic/submit/route";
@@ -73,22 +73,17 @@ describe("POST /api/classic/submit", () => {
     expect(submitFlag).not.toHaveBeenCalled();
   });
 
-  it("proceeds normally with a gate cookie that verifies (gate active, valid unlock)", async () => {
+  // Covers both "gate active, valid unlock cookie" and "gate inactive" —
+  // at this boundary they're the same case (requireGatePassed resolves
+  // true either way); the active-vs-inactive distinction is exercised
+  // directly against the real cookie/crypto logic in gate.test.ts.
+  it("proceeds normally when the gate check passes", async () => {
     session("alice");
     requireGatePassed.mockResolvedValue(true);
     storeReturns({ ok: true, correct: true, points: 50 });
     const res = await POST(req({ challengeId: "c-1", flag: "CTF{x}" }));
     expect(res.status).toBe(200);
     expect(submitFlag).toHaveBeenCalledWith("alice", "c-1", "CTF{x}");
-  });
-
-  it("proceeds normally when the gate is inactive (requireGatePassed short-circuits true) — the common case", async () => {
-    session("alice");
-    requireGatePassed.mockResolvedValue(true);
-    storeReturns({ ok: true, correct: false });
-    const res = await POST(req({ challengeId: "c-1", flag: "x" }));
-    expect(res.status).toBe(200);
-    expect(submitFlag).toHaveBeenCalled();
   });
 
   it("derives login from the session and IGNORES any login in the body", async () => {

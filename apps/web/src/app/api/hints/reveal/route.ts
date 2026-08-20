@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireGatePassed } from "@/lib/gate";
+import { requireGatePassed } from "@/lib/gate-request";
 import { resolveHintConfig, revealHint } from "@/lib/hint-store";
 
 /** Buys (or re-views) one hint. Charging is atomic and idempotent in Redis —

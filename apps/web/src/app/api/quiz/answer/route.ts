@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireGatePassed } from "@/lib/gate";
+import { requireGatePassed } from "@/lib/gate-request";
 import { answerQuestion, QUIZ_ID_RE } from "@/lib/quiz-store";
 
 /** Validating against `quiz-store`'s own exported `QUIZ_ID_RE` (rather than
@@ -37,7 +37,7 @@ function isChoiceList(v: unknown): v is string[] {
  * The pre-event gate check runs after authentication (so an unauthenticated
  * caller still gets the more specific 401) and before `answerQuestion` is
  * ever called — a refusal here can never follow a write that already
- * happened. See `requireGatePassed` (apps/web/src/lib/gate.ts) and
+ * happened. See `requireGatePassed` (apps/web/src/lib/gate-request.ts) and
  * docs/modules.md §5.8.
  *
  * No response from this route can ever reveal the correct choice ids:

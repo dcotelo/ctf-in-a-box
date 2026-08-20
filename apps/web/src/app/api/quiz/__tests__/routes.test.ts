@@ -60,7 +60,7 @@ const {
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
-vi.mock("@/lib/gate", () => ({ requireGatePassed }));
+vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/quiz-store", () => ({
   answerQuestion,
   listQuestions,
@@ -144,20 +144,16 @@ describe("POST /api/quiz/answer", () => {
     expect(answerQuestion).not.toHaveBeenCalled();
   });
 
-  it("proceeds normally with a gate cookie that verifies (gate active, valid unlock)", async () => {
+  // Covers both "gate active, valid unlock cookie" and "gate inactive" —
+  // at this boundary they're the same case (requireGatePassed resolves
+  // true either way); the active-vs-inactive distinction is exercised
+  // directly against the real cookie/crypto logic in gate.test.ts.
+  it("proceeds normally when the gate check passes", async () => {
     requireGatePassed.mockResolvedValue(true);
     answerQuestion.mockResolvedValue({ ok: true, correct: true, points: 10 });
     const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
     expect(res.status).toBe(200);
     expect(answerQuestion).toHaveBeenCalledWith("alice", "q1", ["b"]);
-  });
-
-  it("proceeds normally when the gate is inactive (requireGatePassed short-circuits true) — the common case", async () => {
-    requireGatePassed.mockResolvedValue(true);
-    answerQuestion.mockResolvedValue({ ok: true, correct: false });
-    const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
-    expect(res.status).toBe(200);
-    expect(answerQuestion).toHaveBeenCalled();
   });
 
   it("400 for malformed input (missing choices)", async () => {

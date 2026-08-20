@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { requireGatePassed } from "@/lib/gate";
+import { requireGatePassed } from "@/lib/gate-request";
 import { CLASSIC_ID_RE, submitFlag } from "@/lib/classic-store";
 
 /** Hard cap on a submitted flag's length, checked BEFORE the store ever sees
@@ -29,7 +29,7 @@ const FLAG_MAX_LEN = 512;
  * The pre-event gate check runs after authentication (so an unauthenticated
  * caller still gets the more specific 401) and before `submitFlag` is ever
  * called — a refusal here can never follow a write that already happened.
- * See `requireGatePassed` (apps/web/src/lib/gate.ts) and docs/modules.md
+ * See `requireGatePassed` (apps/web/src/lib/gate-request.ts) and docs/modules.md
  * §5.8.
  *
  * Validating `challengeId` against `CLASSIC_ID_RE` here, before the store

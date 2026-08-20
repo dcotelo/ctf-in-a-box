@@ -17,7 +17,7 @@ const { getSession, revealHint, resolveHintConfig, requireGatePassed } = vi.hois
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/gate", () => ({ requireGatePassed }));
+vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/hint-store", () => ({ revealHint, resolveHintConfig }));
 
 import { POST } from "@/app/api/hints/reveal/route";
@@ -60,21 +60,17 @@ describe("POST /api/hints/reveal", () => {
     expect(revealHint).not.toHaveBeenCalled();
   });
 
-  it("proceeds normally with a gate cookie that verifies (gate active, valid unlock)", async () => {
+  // Covers both "gate active, valid unlock cookie" and "gate inactive" —
+  // at this boundary they're the same case (requireGatePassed resolves
+  // true either way); the active-vs-inactive distinction is exercised
+  // directly against the real cookie/crypto logic in gate.test.ts.
+  it("proceeds normally when the gate check passes", async () => {
     requireGatePassed.mockResolvedValue(true);
     revealHint.mockResolvedValue({ ok: true, hint: "look under the rug", alreadyOwned: false, spent: 10 });
     const res = await POST(req({ app: "quiz", id: "q1" }));
     expect(res.status).toBe(200);
     expect(revealHint).toHaveBeenCalledWith("alice", "quiz", "q1");
     expect(await res.json()).toEqual({ hint: "look under the rug", alreadyOwned: false, spent: 10, cost: 10 });
-  });
-
-  it("proceeds normally when the gate is inactive (requireGatePassed short-circuits true) — the common case", async () => {
-    requireGatePassed.mockResolvedValue(true);
-    revealHint.mockResolvedValue({ ok: true, hint: "look under the rug", alreadyOwned: false, spent: 10 });
-    const res = await POST(req({ app: "quiz", id: "q1" }));
-    expect(res.status).toBe(200);
-    expect(revealHint).toHaveBeenCalled();
   });
 
   it("404s when the hint is missing", async () => {

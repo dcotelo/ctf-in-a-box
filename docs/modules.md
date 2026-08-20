@@ -581,7 +581,7 @@ of one module's shape.
 
    Instead, the three module routes that bank points or leak challenge
    content call a small server-side check of their own,
-   `requireGatePassed()` (`src/lib/gate.ts`) — beside the gates they already
+   `requireGatePassed()` (`src/lib/gate-request.ts`) — beside the gates they already
    run (`effectivePaused`, attempt caps, cooldowns), after authentication (so
    an unauthenticated caller still gets the more specific 401) and before any
    store read or write:
