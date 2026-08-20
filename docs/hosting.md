@@ -2,6 +2,8 @@
 title: Hosting
 ---
 
+[← Docs home](index.md)
+
 # Hosting
 
 Everything you need to stand the kit up: prerequisites, the poll-vs-push

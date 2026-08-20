@@ -2,6 +2,8 @@
 title: Decisions
 ---
 
+[← Docs home](index.md)
+
 # Decisions
 
 Numbered architecture decision records for CTF-in-a-box. Each entry is

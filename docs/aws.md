@@ -2,6 +2,8 @@
 title: Deploy on AWS
 ---
 
+[← Docs home](index.md)
+
 # Deploy on AWS (single-shot, Terraform)
 
 The kit is Docker Compose, so the simplest cloud deploy is **one x86_64 EC2

@@ -17,15 +17,20 @@ expand a team for its roster and its flags, patched and still open.</sup>
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
-plug challenge content into that spine. Three modules ship today: the **OWASP
-Secure Development CTF** (the first), **Quiz**, and **Classic
-CTF**; the box is built to host further modules on the same spine.
-The [module contract](modules.md) is the boundary between platform and module.
+plug challenge content into that spine. Three modules ship today — **OWASP
+Secure Development CTF**, **Quiz** and **Classic CTF** — and any subset can
+run alone or together; the box is built to host further modules on the same
+spine. The [module contract](modules.md) is the boundary between platform and
+module.
 
-The OWASP Secure Development CTF teaches defence rather than attack: a
+The **Secure Development** module teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
 and opens a pull request. The pipeline scores the patch and the score lands
-on a **team** leaderboard.
+on a **team** leaderboard. **Quiz** and **Classic** need none of that
+machinery — no forks, no GitHub org, no scoring pipeline. They are graded
+inside the app, so an event running only those boots with a single compose
+profile. Their organizer guides are
+[Quiz](operations.md#quiz) and [Classic](operations.md#classic).
 
 Until now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB,
 holding the cloud bill, and having access to a private scoring image. This kit
@@ -42,17 +47,31 @@ scoring code to write.
 |---|---|
 | **Team scoring** | Per-team standings, self-registration, captains and join codes; shared flags dedupe so they count once. |
 | **Live leaderboard + graph** | A ranked team leaderboard with a CTFd-style score-over-time graph from real per-solve timestamps. |
-| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, toggle hints, open/close team registration. |
-| **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport a module submits scores through. |
+| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, author each module's content, reset between rehearsals. |
+| **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport for modules graded outside the app. Quiz and Classic bank points directly and never touch it. |
 | **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
 
-**The Secure Development module** (first challenge pack):
+**The Secure Development module** (graded through GitHub):
 
 | Feature | What it means for you |
 |---|---|
 | **Patch-to-score scoring** | Contestants patch the vuln and open a PR; the pipeline scores it. Stock scores 0, a correct patch earns its points. |
 | **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI — rubrics ship in the box. |
+
+**The Quiz module** (graded in the app):
+
+| Feature | What it means for you |
+|---|---|
+| **Instant grading, no GitHub** | Single/multi-select questions marked on submit, all-or-nothing on multi-select. No forks, no org, no pipeline. |
+| **Authored from `/admin`** | Prompt, choices, answers, points, order — plus an attempt cap and retry cooldown. Live on the next request. |
+
+**The Classic CTF module** (graded in the app):
+
+| Feature | What it means for you |
+|---|---|
+| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge points. Submissions are normalised, so casing and stray whitespace never cost a solve. |
+| **Rich descriptions, bulk authoring** | A sanitised Markdown subset for descriptions; author in `/admin` or import/export the whole board as one JSON bundle. |
 
 ## A closer look
 
@@ -142,7 +161,9 @@ including a known v1 limitation on the hint toggle's reach.
 - [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
   box (`apply` up, `destroy` down).
 - [Operations](operations.md) — teams, the admin panel, verifying the kit,
-  the local dev-stack, teardown, and live-scoring status.
+  the local dev-stack, teardown, and live-scoring status. It also carries the
+  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
+  [Classic](operations.md#classic).
 - [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
 - [Architecture](architecture.md) — what runs where, how a score gets from a
   contestant's PR to the leaderboard.

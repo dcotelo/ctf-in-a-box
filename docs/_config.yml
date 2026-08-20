@@ -1,7 +1,7 @@
 title: CTF-in-a-box
 description: >-
-  Self-hosted OWASP CTF: fork the target app, patch the vuln, PR it back,
-  GitHub Actions scores it — one box, one free GitHub org, no cloud.
+  Self-hosted control plane for security-learning events. Three modules:
+  patch-to-score, quiz, classic flags — one box, one free GitHub org, no cloud.
 theme: jekyll-theme-cayman
 
 # Social card image. jekyll-seo-tag ships with the Cayman theme and is
