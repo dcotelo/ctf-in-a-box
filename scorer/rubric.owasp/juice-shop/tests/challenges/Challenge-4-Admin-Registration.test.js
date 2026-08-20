@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, waitForServer } from '../helpers.js';
+import { api, waitForServer, assertShopAlive } from '../helpers.js';
 
 await waitForServer();
 
 test('Challenge 4 — Admin Registration: registering with role=admin must create a customer account', async () => {
+  // Anti-vacuous: the shop must actually be serving before any "blocked"
+  // assertion below can mean anything (docs/scorer.md, #47).
+  await assertShopAlive();
+
   const email = `ctf-c04-${Date.now()}@local.test`;
   const password = 'CtfTester!23';
 

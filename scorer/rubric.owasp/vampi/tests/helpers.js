@@ -154,3 +154,37 @@ export function forgeJwt(sub, { secret = 'random', ttlSeconds = 3600 } = {}) {
   const sig = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url');
   return `${signingInput}.${sig}`;
 }
+
+// ── anti-vacuous precondition ─────────────────────────────────────────────────
+
+/**
+ * Proves the API is genuinely up AND seeded before an "the exploit was blocked"
+ * assertion is trusted — see docs/scorer.md, "The vacuous pass", and issue #47.
+ *
+ * This is the generalisation of the guard already written by hand into
+ * Challenge-7-Weak-JWT, which is where the failure was first found: the app was
+ * up, a seeding race had left the account missing, and the block assertion
+ * passed for entirely the wrong reason on a STOCK target.
+ *
+ * A legitimate login is the right oracle for this target. It exercises the
+ * database and the auth path in one call, and none of the vulnerabilities
+ * scored here is "logging in works" — so it holds on the vulnerable app and on
+ * a patched one alike. Patching enumeration changes the failure MESSAGE, and
+ * patching rate limiting throttles repeated FAILED attempts; neither stops a
+ * single valid credential from authenticating.
+ */
+export async function assertApiAlive(what = 'vampi') {
+  let token;
+  try {
+    token = await getToken('name1', 'pass1');
+  } catch (err) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} could not complete a legitimate login ` +
+        `(${err.message}). The app is unreachable, unseeded or degraded, so "the exploit ` +
+        `was blocked" below would pass for the wrong reason.`,
+    );
+  }
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new Error(`anti-vacuous precondition failed: ${what} returned no auth token for a valid login.`);
+  }
+}

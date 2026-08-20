@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForServer } from '../helpers.js';
+import { waitForServer, api, assertShopAlive } from '../helpers.js';
 
 await waitForServer();
 
@@ -17,6 +17,10 @@ const PAYLOAD = '<iframe src="javascript:alert(`xss`)">';
 // for that reason. The unescaped HTML markers (`<iframe`, `javascript:`) survive JSON
 // serialization untouched, so we look for those in the raw body instead.
 test('reflectedXssChallenge — track-order id must be stripped of HTML', async () => {
+  // Anti-vacuous: the shop must actually be serving before any "blocked"
+  // assertion below can mean anything (docs/scorer.md, #47).
+  await assertShopAlive();
+
   const res = await fetch(`${BASE}/rest/track-order/${encodeURIComponent(PAYLOAD)}`);
   const raw = await res.text();
 

@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, waitForServer } from '../helpers.js';
+import { api, waitForServer, assertShopAlive } from '../helpers.js';
 
 await waitForServer();
 
 // The product-reviews lookup must coerce the id to a number and use a structured
 // equality query, so a server-side-JS sleep/DoS payload cannot be injected via $where.
 test('noSqlCommandChallenge — review lookup must reject non-numeric/JS ids quickly', async () => {
+  // Anti-vacuous: the shop must actually be serving before any "blocked"
+  // assertion below can mean anything (docs/scorer.md, #47).
+  await assertShopAlive();
+
   const start = Date.now();
   const res = await api(`/rest/products/${encodeURIComponent('sleep(2000)')}/reviews`);
   const elapsed = Date.now() - start;
