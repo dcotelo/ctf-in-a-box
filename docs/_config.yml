@@ -4,9 +4,35 @@ description: >-
   GitHub Actions scores it — one box, one free GitHub org, no cloud.
 theme: jekyll-theme-cayman
 
-# docs/superpowers is a gitignored local planning scratch dir that should
-# never end up in the repo, but exclude it here too as a second layer of
-# safety in case it's ever present when Jekyll builds.
+# Social card image. jekyll-seo-tag ships with the Cayman theme and is
+# active, but with no image it emits `twitter:card: summary` and NO og:image
+# at all — so every share of these docs was a bare text card.
+#
+# This has to go through Front Matter defaults, not a top-level `image:` key.
+# seo-tag reads `page.image`; a site-level `image:` is silently ignored, which
+# is a failure with no symptom other than the missing tag. The empty `path`
+# scope applies it to every page, and any page may still override it.
+defaults:
+  - scope:
+      path: ""
+    values:
+      image: /assets/hero.jpg
+
+# Declaring `exclude` REPLACES Jekyll's default exclude list rather than
+# extending it, so the defaults have to be restated here or they are lost.
+# Nothing under docs/ matches them today; the risk is the first person to
+# add a docs/Gemfile and silently publish it.
 exclude:
+  # docs/superpowers is a gitignored local planning scratch dir that should
+  # never end up in the repo, but exclude it here too as a second layer of
+  # safety in case it's ever present when Jekyll builds.
   - superpowers
   - _site
+  # Jekyll's defaults, restored:
+  - Gemfile
+  - Gemfile.lock
+  - gemfiles
+  - vendor
+  - node_modules
+  - .sass-cache
+  - .jekyll-cache
