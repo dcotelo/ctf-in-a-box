@@ -16,7 +16,7 @@ change merged.
   tested with `bats`.
 - **`deploy/`** — optional cloud deploy modules (e.g. `aws-terraform/`, a
   single-shot EC2 box). CI-validated by its own Terraform workflow (fmt +
-  validate, never apply).
+  validate + test, never apply).
 - **`patches/`** — reference patches for the target apps, with their own
   [`README.md`](patches/README.md).
 - **`scripts/`** — the acceptance, smoke and dev-stack scripts. Bash; the

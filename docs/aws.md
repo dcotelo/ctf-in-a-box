@@ -86,8 +86,12 @@ terraform destroy
   in that account, pointing at the module's `public_ip` output. Terraform only
   manages the record when the zone is in the same account.
 - **Changes to the module are CI-validated** —
-  `.github/workflows/terraform.yml` runs `terraform fmt -check` + `validate` on
-  any change under `deploy/aws-terraform/`. It never applies infrastructure;
-  real applies are run by an operator locally.
+  `.github/workflows/terraform.yml` runs `terraform fmt -check`, `validate` and
+  `test` on any change under `deploy/aws-terraform/`. It never applies
+  infrastructure; real applies are run by an operator locally.
+  `terraform test` is the one that reads the **rendered** bring-up script:
+  `validate` never looks at template output, so it cannot see a broken
+  `user-data.sh.tftpl`. The tests render it at plan time behind
+  `mock_provider`, needing no AWS credentials and no network.
 - Kubernetes is tracked separately (Helm chart,
   [issue #54](https://github.com/dcotelo/ctf-in-a-box/issues/54)).

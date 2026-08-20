@@ -1,6 +1,7 @@
 # Validates the AWS Terraform module on any change to it. Never applies infra —
-# fmt + init(-backend=false) + validate only. Real applies are run by an
-# operator locally (see docs/aws.md); this just keeps the module well-formed.
+# fmt + init(-backend=false) + validate + test only. Real applies are run by an
+# operator locally (see docs/aws.md); this just keeps the module well-formed
+# and its rendered bring-up script correct.
 name: Terraform
 
 on:
@@ -30,3 +31,9 @@ jobs:
         run: terraform init -backend=false -input=false
       - name: validate
         run: terraform validate -no-color
+      # validate never inspects RENDERED template output, so it passed this
+      # module for its entire life while the bring-up script was broken. These
+      # tests render user-data at plan time via mock_provider — no AWS
+      # credentials, no network, no apply.
+      - name: test
+        run: terraform test -no-color
