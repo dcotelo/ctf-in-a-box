@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -25,5 +25,8 @@ test('Challenge-56-JWT-Level-7', async () => {
   const p = b64u(PAYLOAD);
   const token = `${h}.${p}.`;
   const res = await vaFetch('/JWTVulnerability/LEVEL_7', { headers: { Authorization: token } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-56-jwt-level-7');
   assert.notEqual(res.json?.isValid, true, 'alg:none via Authorization header must be rejected when patched');
 });

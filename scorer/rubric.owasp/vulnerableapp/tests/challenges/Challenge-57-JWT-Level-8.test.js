@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -32,5 +32,8 @@ test('Challenge-57-JWT-Level-8', async () => {
   const sig = createHmac('sha256', der).update(h + '.' + p).digest('base64url');
   const token = `${h}.${p}.${sig}`;
   const res = await vaFetch('/JWTVulnerability/LEVEL_8', { headers: { Cookie: 'JWT=' + token } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-57-jwt-level-8');
   assert.notEqual(res.json?.isValid, true, 'RS256->HS256 algorithm confusion must be rejected when patched');
 });

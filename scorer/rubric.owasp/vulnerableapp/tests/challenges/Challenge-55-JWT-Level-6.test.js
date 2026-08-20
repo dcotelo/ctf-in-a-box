@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -25,5 +25,8 @@ test('Challenge-55-JWT-Level-6', async () => {
   const p = b64u(PAYLOAD);
   const token = `${h}.${p}.`;
   const res = await vaFetch('/JWTVulnerability/LEVEL_6', { headers: { Cookie: 'JWT=' + token } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-55-jwt-level-6');
   assert.notEqual(res.json?.isValid, true, 'alg:none signature stripping must be rejected when patched');
 });

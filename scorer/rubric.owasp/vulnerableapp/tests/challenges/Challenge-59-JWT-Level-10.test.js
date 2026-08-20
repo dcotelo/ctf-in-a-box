@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForVulnerableApp, vaFetch } from '../helpers.js';
+import { waitForVulnerableApp, vaFetch, assertLevelResponded } from '../helpers.js';
 
 await waitForVulnerableApp();
 
@@ -23,5 +23,8 @@ const LOW_KEY = 'password';
 test('Challenge-59-JWT-Level-10', async () => {
   const token = hs256({ alg: 'HS256', typ: 'JWT' }, PAYLOAD, HIGH_KEY);
   const res = await vaFetch('/JWTVulnerability/LEVEL_10', { headers: { Cookie: 'JWT=' + token } });
+  // Anti-vacuous: prove the level actually evaluated the request before
+  // trusting the absence assertion below (docs/scorer.md, #47).
+  assertLevelResponded(res, 'challenge-59-jwt-level-10');
   assert.notEqual(res.json?.isValid, true, 'patched: forged HS256 token must be rejected, not validated');
 });
