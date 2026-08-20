@@ -71,6 +71,7 @@
 // in as many words; keep the two in step.
 
 import { useEffect, useState } from "react";
+import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Choice, Question, QuestionType } from "@/lib/quiz-store";
 import { generateQuestionId } from "@/lib/quiz-keys";
 import ConfirmModal from "@/components/confirm-modal";
@@ -523,6 +524,7 @@ export default function AdminQuizControls({
           type="number"
           min={0}
           value={quizMaxAttemptsInput}
+          placeholder={String(QUIZ_MAX_ATTEMPTS)}
           disabled={pending}
           onChange={(e) => setQuizMaxAttemptsInput(e.target.value)}
           onBlur={() => commitNumber("quizMaxAttempts", quizMaxAttemptsInput, setQuizMaxAttemptsInput)}
@@ -542,6 +544,7 @@ export default function AdminQuizControls({
           type="number"
           min={0}
           value={quizRetryAfterInput}
+          placeholder={String(QUIZ_RETRY_AFTER_MIN)}
           disabled={pending}
           onChange={(e) => setQuizRetryAfterInput(e.target.value)}
           onBlur={() => commitNumber("quizRetryAfterMin", quizRetryAfterInput, setQuizRetryAfterInput)}

@@ -92,6 +92,7 @@
 // job. The confirm copy below says so in as many words; keep the two in step.
 
 import { useEffect, useState, type ChangeEvent } from "react";
+import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 // Type-only import: `classic-store.ts` is `server-only`, but a `import type`
 // is fully erased at compile time — no runtime import ever reaches the
 // client bundle. This is the same pattern admin-quiz-controls.tsx uses for
@@ -718,6 +719,7 @@ export default function AdminClassicControls({
           type="number"
           min={0}
           value={classicCooldownSecInput}
+          placeholder={String(CLASSIC_COOLDOWN_SEC)}
           disabled={pending}
           onChange={(e) => setClassicCooldownSecInput(e.target.value)}
           onBlur={() => commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput)}

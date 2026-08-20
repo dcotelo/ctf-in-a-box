@@ -14,7 +14,12 @@
 // Redis directly.
 
 import type { AdminSettings } from "@/lib/admin-store";
-import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
+import {
+  HINT_COST,
+  HINT_DEFAULT_ENABLED,
+  HINT_MIN_SOLVES,
+  HINT_UNLOCK_AFTER_MIN,
+} from "@/lib/hint-defaults";
 import type { CommitNumber } from "./types";
 
 export type AdminSecureDevTabProps = {
@@ -64,6 +69,7 @@ export default function AdminSecureDevTab({
           type="number"
           min={0}
           value={hintCostInput}
+          placeholder={String(HINT_COST)}
           disabled={pending}
           onChange={(e) => setHintCostInput(e.target.value)}
           onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput)}
@@ -83,6 +89,7 @@ export default function AdminSecureDevTab({
           type="number"
           min={0}
           value={minSolvesInput}
+          placeholder={String(HINT_MIN_SOLVES)}
           disabled={pending}
           onChange={(e) => setMinSolvesInput(e.target.value)}
           onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput)}
@@ -102,6 +109,7 @@ export default function AdminSecureDevTab({
           type="number"
           min={0}
           value={unlockAfterInput}
+          placeholder={String(HINT_UNLOCK_AFTER_MIN)}
           disabled={pending}
           onChange={(e) => setUnlockAfterInput(e.target.value)}
           onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}

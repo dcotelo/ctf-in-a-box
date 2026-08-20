@@ -1,4 +1,9 @@
 import "server-only";
+// Re-exported, not redeclared: the admin UI is a Client Component and cannot
+// import from this server-only module, so the values live in the
+// dependency-free defaults file and both sides read the same constant.
+export { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "./hint-defaults";
+import { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "./hint-defaults";
 import { getAdminSettings } from "@/lib/admin-store";
 import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
 import { apps, appsById, type AppId } from "@/lib/apps";
@@ -21,9 +26,7 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
  * client-supplied identity.
  */
 
-/** Points deducted per revealed hint. The stored penalty is points (not a
- *  count), so purchases made before a price change keep their old price. */
-export const HINT_COST = 10;
+
 
 /** CAPABILITY, not policy: whether hints *can* work at all here. Hint text
  *  lives only in Upstash, so without credentials there is nothing to read and
@@ -50,12 +53,12 @@ export const HINTS_AVAILABLE = Boolean(
  *  alone cannot stop that. Requiring earned progress can: a fresh account has
  *  no solves, so it can never reveal anything, and farming hints costs the
  *  same real work the event is scored on. 0 disables the gate. */
-export const HINT_MIN_SOLVES = 1;
+
 
 /** Default minutes after `scoringStartsAt` before ANY hint may be bought.
  *  0 = no time phase (the schedule is opt-in per event). Inert when no
  *  `scoringStartsAt` is configured — there is no phase without a start. */
-export const HINT_UNLOCK_AFTER_MIN = 0;
+
 
 const SPENT_KEY = "ctf:hints:spent";
 const userHintsKey = (login: string) => `ctf:user:${login}:hints`;

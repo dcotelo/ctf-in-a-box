@@ -19,3 +19,15 @@
  *  whereas an env var needs a container recreate to change. `HINT_COST` has
  *  always worked this way; hints-enabled was the odd one out. */
 export const HINT_DEFAULT_ENABLED = true;
+
+/** Points deducted per revealed hint. The stored penalty is points (not a
+ *  count), so purchases made before a price change keep their old price. */
+export const HINT_COST = 10;
+
+/** Solves required on a target before its hints can be bought. 0 disables the
+ *  gate. */
+export const HINT_MIN_SOLVES = 1;
+
+/** Minutes after `scoringStartsAt` before ANY hint may be bought. 0 = no time
+ *  phase. */
+export const HINT_UNLOCK_AFTER_MIN = 0;
