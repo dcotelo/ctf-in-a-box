@@ -153,20 +153,48 @@ export async function ssPostXml(path, cookies, xml, extraHeaders = {}) {
   return res.text();
 }
 
-// Security Shepherd returns a per-user "result key" / solution key on success. The most
-// reliable signal across challenge classes is the resultKey JSON field or a long hex
-// string in the body. Some challenges return shorter keys, so we accept >= 32 hex chars.
+// Security Shepherd returns a per-user "result key" on success. These matchers decide
+// whether a response proves the exploit worked, so an over-broad one does not merely
+// mis-read a page — it fails a contestant who patched correctly (issue #42).
+//
+// Captured from the live app, on Challenge-10-IDOR-2:
+//
+//   solve    <h2 class='title'>Hidden User's Message</h2>
+//            <p>Result Key is <a>1f746b87…64 hex…</a></p>
+//   refusal  <h2 class='title'>User: 404 - User Not Found</h2>
+//            <p>User 'c51ce410c124a10e0db5e4b97fc2af39' could not be found…</p>
+//
+// The refusal ECHOES the submitted id. That id is an MD5 — 32 hex — and the old
+// contextless `[0-9a-f]{32,128}` fallback read the test's own payload back out of the
+// error page and called it a result key. A correct patch therefore scored ❌ on 29 of
+// the 40 challenges, all of which assert `!(hasSolvedMessage(body) || key)`.
+//
+// A real key is 64 hex and arrives with "Result Key is" in front of it, so the two
+// CONTEXTUAL matchers already cover the real thing. The bare fallback survives only for
+// a key that appears with no wording at all, and is raised to 64 so it can no longer
+// collide with an echoed 32-hex user id. Anything shorter must carry context to count.
 export function extractSolutionKey(html) {
   const json = html.match(/"resultKey"\s*:\s*"([^"]+)"/i);
   if (json) return json[1];
   const result = html.match(/result key is\s*<[^>]*>\s*([0-9a-f]{16,})/i);
   if (result) return result[1];
-  const hex = html.match(/[0-9a-f]{32,128}/i);
+  const hex = html.match(/\b[0-9a-f]{64,128}\b/i);
   return hex ? hex[0] : null;
 }
 
+// The `correct` alternative was unbounded, so it matched the "correct" inside
+// "incorrect" — any challenge whose refusal says "Incorrect …" read as a solve. It now
+// requires a word boundary (none exists between "in" and "correct", so "incorrect" is
+// excluded) and rejects a preceding negation, which covers the other way an app says
+// no with the same word: "that was not correct".
+//
+// Residual limit, stated rather than papered over: only the "not " form of negation is
+// handled. A refusal phrased "isn't correct" or "never correct" would still read as a
+// solve. Chasing every negation with a regex is how this matcher got over-broad in the
+// first place; if another phrasing turns up in a real response, add it here with the
+// captured body, the way #42's fixtures were added.
 export function hasSolvedMessage(html) {
-  return /well\s*done|you\s*did\s*it|result\s*key|key\s*is|correct|congratulations|congrats/i.test(html);
+  return /well\s*done|you\s*did\s*it|result\s*key|key\s*is|(?<!\bnot\s)\bcorrect\b|congratulations|congrats/i.test(html);
 }
 
 // ── Infrastructure / multi-user helpers ─────────────────────────────────────────
