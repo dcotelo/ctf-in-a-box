@@ -12,7 +12,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const FI_URL = '/vulnerabilities/fi/';
 const LEAKED = (t) => /root:/.test(t); // /etc/passwd signal
@@ -29,7 +29,7 @@ await test('Challenge-4-File-Inclusion-Low', async () => {
     { cookies }
   );
 
-  assert.equal(status, 200, 'patched fi endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched fi endpoint should still serve a normal 200');
   assert.ok(!LEAKED(text), 'fi-low must be blocked: path traversal must not expose /etc/passwd');
 });
 
@@ -46,7 +46,7 @@ await test('Challenge-4-File-Inclusion-Medium', async () => {
     { cookies }
   );
 
-  assert.equal(status, 200, 'patched fi endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched fi endpoint should still serve a normal 200');
   assert.ok(!LEAKED(text), 'fi-medium must be blocked: double-dot bypass must not expose /etc/passwd');
 });
 
@@ -63,6 +63,6 @@ await test('Challenge-4-File-Inclusion-High', async () => {
     { cookies }
   );
 
-  assert.equal(status, 200, 'patched fi endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched fi endpoint should still serve a normal 200');
   assert.ok(!LEAKED(text), 'fi-high must be blocked: file:// wrapper must not expose /etc/passwd');
 });

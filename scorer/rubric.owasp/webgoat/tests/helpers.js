@@ -189,3 +189,69 @@ export async function isAssignmentSolved(cookies, lessonClass, assignmentPath) {
 export function lessonCompleted(res) {
   return res?.json?.lessonCompleted === true;
 }
+
+// ── anti-vacuous preconditions ────────────────────────────────────────────────
+//
+// Every WebGoat exploit subtest asserts the same thing: the lesson was NOT
+// completed. `lessonCompleted(res)` reads `res.json.lessonCompleted === true`,
+// so ANY response without that field — an empty body, a 404, a 500 — reads as
+// "not solved" and the challenge passes. 62 of the 69 scored that way against
+// a target that answered nothing (issue #107).
+//
+// The oracle is WebGoat's own AttackResult envelope. Captured from the live
+// app, the shape is identical whether the attack worked or not:
+//
+//   solved      {lessonCompleted: true,  feedback: "You have succeeded!", …}
+//   not solved  {lessonCompleted: false, feedback: "Something went wrong! …", …}
+//
+// Both carry lessonCompleted, feedback, assignment and attemptWasMade. So
+// requiring the ENVELOPE — while asserting nothing about its value — holds on
+// the vulnerable app and on a patched one alike, which is what separates a
+// precondition from a second assertion.
+
+/**
+ * The response must be a real AttackResult before "the lesson was not
+ * completed" means the exploit was blocked.
+ *
+ * Deliberately says nothing about `lessonCompleted`'s VALUE: that is the
+ * caller's assertion, and duplicating it here would fail every patched
+ * submission.
+ */
+export function assertAttackResult(res, what = 'webgoat assignment') {
+  if (res?.status !== 200) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned ${res?.status}, not an AttackResult. ` +
+        `"the lesson was not completed" below would pass for the wrong reason.`,
+    );
+  }
+  const body = res.json;
+  if (!body || typeof body !== 'object' || typeof body.lessonCompleted !== 'boolean') {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned 200 but no AttackResult envelope ` +
+        `(got ${JSON.stringify(body)?.slice(0, 120)}). An app answering an empty body is ` +
+        `"not completed" for free.`,
+    );
+  }
+  if (!('assignment' in body) && typeof body.attemptWasMade !== 'boolean') {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned a lessonCompleted flag with no ` +
+        `assignment or attemptWasMade — not WebGoat's own result shape.`,
+    );
+  }
+}
+
+/**
+ * The per-lesson overview a few subtests read to confirm server-side state.
+ * `(ov.json ?? []).some(…)` is false for an empty or absent list, so the
+ * "assignment is not solved" check needs the list to have actually arrived.
+ */
+export function assertLessonOverview(ov, what = 'webgoat lesson overview') {
+  const entries = ov?.json;
+  if (ov?.status !== 200 || !Array.isArray(entries) || entries.length === 0) {
+    throw new Error(
+      `anti-vacuous precondition failed: ${what} returned no assignments ` +
+        `(status ${ov?.status}, ${Array.isArray(entries) ? entries.length : 'not an array'}). ` +
+        `"no assignment is solved" would hold vacuously over an empty list.`,
+    );
+  }
+}

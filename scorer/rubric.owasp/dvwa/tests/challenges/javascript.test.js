@@ -17,7 +17,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const JS_URL = '/vulnerabilities/javascript/';
 
@@ -45,7 +45,7 @@ await test('Challenge-14-JavaScript-Low', async () => {
 
   const token = md5(rot13('success'));
   const { status, text } = await submit(cookies, token);
-  assert.equal(status, 200, 'patched JS low endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched JS low endpoint must still return 200');
   assert.ok(
     !text.includes('Well done!'),
     'javascript-low: pre-computed md5(rot13("success")) token must not be accepted by a patched server'
@@ -59,7 +59,7 @@ await test('Challenge-14-JavaScript-Medium', async () => {
 
   const token = strrev('XXsuccessXX');
   const { status, text } = await submit(cookies, token);
-  assert.equal(status, 200, 'patched JS medium endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched JS medium endpoint must still return 200');
   assert.ok(
     !text.includes('Well done!'),
     'javascript-medium: pre-computed strrev("XXsuccessXX") token must not be accepted by a patched server'
@@ -73,7 +73,7 @@ await test('Challenge-14-JavaScript-High', async () => {
 
   const token = sha256(sha256('XX' + strrev('success')) + 'ZZ');
   const { status, text } = await submit(cookies, token);
-  assert.equal(status, 200, 'patched JS high endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched JS high endpoint must still return 200');
   assert.ok(
     !text.includes('Well done!'),
     'javascript-high: pre-computed sha256 token must not be accepted by a patched server'

@@ -14,7 +14,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const UPLOAD_URL = '/vulnerabilities/upload/';
 const UPLOADED = (t) => /succesfully uploaded/i.test(t); // DVWA's (mis-spelled) success marker
@@ -49,7 +49,7 @@ await test('Challenge-5-File-Upload-Low', async () => {
     bytes: Buffer.from(PHP_SHELL),
   });
 
-  assert.equal(status, 200, 'patched upload endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched upload endpoint should still serve a normal 200');
   assert.ok(!UPLOADED(text), 'upload-low must be blocked: a raw .php file must not be accepted');
 });
 
@@ -67,7 +67,7 @@ await test('Challenge-5-File-Upload-Medium', async () => {
     bytes: Buffer.from(PHP_SHELL),
   });
 
-  assert.equal(status, 200, 'patched upload endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched upload endpoint should still serve a normal 200');
   assert.ok(!UPLOADED(text), 'upload-medium must be blocked: spoofed MIME must not bypass extension check');
 });
 
@@ -86,6 +86,6 @@ await test('Challenge-5-File-Upload-High', async () => {
     bytes: polyglot,
   });
 
-  assert.equal(status, 200, 'patched upload endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched upload endpoint should still serve a normal 200');
   assert.ok(!UPLOADED(text), 'upload-high must be blocked: GIF/PHP polyglot with .jpg extension must not be accepted');
 });

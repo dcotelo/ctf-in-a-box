@@ -20,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCipheriv } from 'node:crypto';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaAlive } from '../helpers.js';
 
 const BASE = process.env.DVWA_URL ?? 'http://localhost:4280';
 const CRYPTO = '/vulnerabilities/cryptography/';
@@ -45,6 +45,10 @@ await test('Challenge-19-Cryptography-Low', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'low');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, CRYPTO, 'cryptography low');
 
   // Exploit: XOR-decode the intercepted ciphertext to recover the hardcoded password.
   const intercepted = 'Lg4WGlQZChhSFBYSEB8bBQtPGxdNQSwEHREOAQY=';
@@ -75,6 +79,10 @@ await test('Challenge-19-Cryptography-Medium', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'medium');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, CRYPTO, 'cryptography medium');
 
   // Exploit: forge an AES-128-ECB admin token using the hardcoded key.
   const key = aes128Key('ik ben een aardbei');
@@ -108,6 +116,10 @@ await test('Challenge-19-Cryptography-High', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'high');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, CRYPTO, 'cryptography high');
 
   // Exploit: forge an AES-128-CBC token for userid:1 (admin) using the leaked key + IV.
   const key = aes128Key('rainbowclimbinghigh');

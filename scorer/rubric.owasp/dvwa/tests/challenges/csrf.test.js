@@ -19,7 +19,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const BASE = process.env.DVWA_URL ?? 'http://localhost:4280';
 const CSRF_URL = '/vulnerabilities/csrf/';
@@ -58,7 +58,7 @@ await test('Challenge-3-CSRF-Low', async () => {
     const url = `${CSRF_URL}?password_new=hacked&password_conf=hacked&Change=Change`;
     const { status, text } = await dvwaFetch(url, { cookies });
 
-    assert.equal(status, 200, 'patched CSRF endpoint should still serve a normal 200');
+    assertDvwaRendered({ status, text }, 'patched CSRF endpoint should still serve a normal 200');
     assert.ok(
       !text.includes('Password Changed'),
       'CSRF low must be blocked: cross-site GET with no token must not change the password'
@@ -88,7 +88,7 @@ await test('Challenge-3-CSRF-Medium', async () => {
       headers: { Referer: `${BASE}${CSRF_URL}` },
     });
 
-    assert.equal(status, 200, 'patched CSRF endpoint should still serve a normal 200');
+    assertDvwaRendered({ status, text }, 'patched CSRF endpoint should still serve a normal 200');
     assert.ok(
       !text.includes('Password Changed'),
       'CSRF medium must be blocked: spoofed Referer must not be sufficient to change the password'
@@ -119,7 +119,7 @@ await test('Challenge-3-CSRF-High', async () => {
     const url = `${CSRF_URL}?password_new=hacked&password_conf=hacked&Change=Change&user_token=${token}`;
     const { status, text } = await dvwaFetch(url, { cookies });
 
-    assert.equal(status, 200, 'patched CSRF endpoint should still serve a normal 200');
+    assertDvwaRendered({ status, text }, 'patched CSRF endpoint should still serve a normal 200');
     assert.ok(
       !text.includes('Password Changed'),
       'CSRF high must be blocked: replaying a harvested per-session token must not change the password'

@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, BASE } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, BASE , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -17,6 +17,7 @@ await test('Challenge-38-CSRF-Review', async () => {
     headers: { Referer: 'http://evil.attacker.com/csrf.html' },
     body: new URLSearchParams({ reviewText: 'great', stars: '5', validateReq: '2aa14227b9a13d0bede0388a7fba9aa9' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -31,6 +32,7 @@ await test('Challenge-40-CSRF-Flag', async () => {
   const res = await wgFetch('/csrf/confirm-flag-1', {
     cookies, method: 'POST', body: new URLSearchParams({ confirmFlagVal: String(flag) }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -47,6 +49,7 @@ await test('Challenge-39-CSRF-Feedback', async () => {
   const res = await wgFetch('/csrf/feedback', {
     cookies, method: 'POST', body: new URLSearchParams({ confirmFlagVal: m ? m[1] : '' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -77,5 +80,15 @@ await test('Challenge-37-CSRF-Login', async () => {
     method: 'POST', headers: { Cookie: `JSESSIONID=${sid}` }, redirect: 'manual',
   });
   const body = await res.text();
-  assert.ok(JSON.parse(body).lessonCompleted !== true, `patched: the exploit must not solve the lesson: ${body.slice(0, 200)}`);
+  // Anti-vacuous: `JSON.parse(body).lessonCompleted !== true` is satisfied by any
+  // body without the field at all — including `{}` (#107).
+  let parsed;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  if (res.status !== 200 || !parsed || typeof parsed.lessonCompleted !== 'boolean') {
+    throw new Error(
+      `anti-vacuous precondition failed: /csrf/login returned ${res.status} with no ` +
+      `AttackResult envelope (${body.slice(0, 120)}).`,
+    );
+  }
+  assert.ok(parsed.lessonCompleted !== true, `patched: the exploit must not solve the lesson: ${body.slice(0, 200)}`);
 });

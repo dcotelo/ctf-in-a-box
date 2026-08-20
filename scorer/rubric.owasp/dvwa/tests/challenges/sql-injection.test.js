@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const SQLI = '/vulnerabilities/sqli/';
 const LEAKED = (t) => /dvwa@|mariadb/i.test(t); // user()@host / @@version markers
@@ -20,7 +20,7 @@ await test('Challenge-7-SQL-Injection-Low', async () => {
   await setSecurityLevel(c, 'low');
   const { status, text } = await dvwaFetch(
     `${SQLI}?id=-1' UNION SELECT user(),@@version-- -&Submit=Submit`, { cookies: c });
-  assert.equal(status, 200, 'patched sqli endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched sqli endpoint should still serve a normal 200');
   assert.ok(!LEAKED(text), 'SQLi low must be blocked: UNION payload must not leak DB identity');
 });
 
@@ -32,7 +32,7 @@ await test('Challenge-7-SQL-Injection-Medium', async () => {
     cookies: c, method: 'POST',
     body: new URLSearchParams({ id: '-1 UNION SELECT user(),@@version#', Submit: 'Submit' }),
   });
-  assert.equal(status, 200, 'patched sqli endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched sqli endpoint should still serve a normal 200');
   assert.ok(!LEAKED(text), 'SQLi medium must be blocked: unquoted numeric UNION must not leak');
 });
 
@@ -45,6 +45,6 @@ await test('Challenge-7-SQL-Injection-High', async () => {
     body: new URLSearchParams({ id: "0' UNION SELECT user(),@@version#", Submit: 'Submit' }),
   });
   const { status, text } = await dvwaFetch(SQLI, { cookies: c });
-  assert.equal(status, 200, 'patched sqli endpoint should still serve a normal 200');
+  assertDvwaRendered({ status, text }, 'patched sqli endpoint should still serve a normal 200');
   assert.ok(!LEAKED(text), 'SQLi high must be blocked: session-seeded UNION must not leak');
 });

@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -16,6 +16,7 @@ await test('Challenge-41-IDOR-Login', async () => {
   const res = await wgFetch('/IDOR/login', {
     cookies, method: 'POST', body: new URLSearchParams({ username: 'tom', password: 'cat' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -25,6 +26,7 @@ await test('Challenge-43-IDOR-Attribute-Discovery', async () => {
   const res = await wgFetch('/IDOR/diff-attributes', {
     cookies, method: 'POST', body: new URLSearchParams({ attributes: 'userId,role' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -33,6 +35,7 @@ await test('Challenge-44-IDOR-View-Other-Profile', async () => {
   await wgFetch('/IDOR/profile', { cookies });
   // tom is 2342384; bump the id to view bill (2342388).
   const res = await wgFetch('/IDOR/profile/2342388', { cookies });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -42,6 +45,7 @@ await test('Challenge-42-IDOR-Own-Profile', async () => {
   const res = await wgFetch('/IDOR/profile/alt-path', {
     cookies, method: 'POST', body: new URLSearchParams({ url: 'WebGoat/IDOR/profile/2342384' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -52,6 +56,7 @@ await test('Challenge-45-IDOR-Edit-Other-Profile', async () => {
     cookies, method: 'PUT',
     body: { userId: '2342388', role: 0, color: 'red', size: 'large', name: 'Buffalo Bill' },
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -63,6 +68,7 @@ await test('Challenge-64-Broken-Access-Control-Hidden-Menu', async () => {
   const res = await wgFetch('/access-control/hidden-menu', {
     cookies, method: 'POST', body: new URLSearchParams({ hiddenMenu1: 'Users', hiddenMenu2: 'Config' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -72,6 +78,7 @@ await test('Challenge-65-Broken-Access-Control-User-Hash', async () => {
   const res = await wgFetch('/access-control/user-hash', {
     cookies, method: 'POST', body: new URLSearchParams({ userHash: hash }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -81,6 +88,7 @@ await test('Challenge-66-Broken-Access-Control-Fix', async () => {
   const res = await wgFetch('/access-control/user-hash-fix', {
     cookies, method: 'POST', body: new URLSearchParams({ userHash: hash }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -108,6 +116,7 @@ await test('Challenge-14-Cookie-Spoofing', async () => {
     headers: { Cookie: `JSESSIONID=${cookies.jsessionid}; spoof_auth=${tomCookie}` },
     body: new URLSearchParams({ username: 'tom', password: 'x' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -129,6 +138,18 @@ await test('Challenge-13-Session-Hijacking', async () => {
     try { completed = JSON.parse(body).lessonCompleted === true; } catch { /* */ }
     return { hc, completed };
   };
+  // Anti-vacuous: the exploit works by collecting hijack_cookie samples and
+  // guessing into the gaps. With no cookie there are no samples, the attack
+  // never runs, and `solved` stays false for free (#107). A patched app still
+  // issues the cookie — it just makes the id unpredictable.
+  const probe = await post(null);
+  if (!probe.hc && !probe.completed) {
+    throw new Error(
+      'anti-vacuous precondition failed: /HijackSession/login issued no hijack_cookie, ' +
+      'so the session-id attack below never ran.',
+    );
+  }
+
   let solved = false;
   // Auto-login sessions land in the server queue ~25% of credential logins, leaving an id gap.
   // IMPORTANT: the id is a 19-digit Java long that exceeds Number.MAX_SAFE_INTEGER, so parse it
@@ -168,5 +189,6 @@ await test('Challenge-15-Authorization-Bypass', async () => {
   const res = await wgFetch('/auth-bypass/verify-account?userId=1223445&verifyMethod=SEC_QUESTIONS', {
     cookies, method: 'POST', body: new URLSearchParams({ secQuestion2: 'any', secQuestion3: 'any' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });

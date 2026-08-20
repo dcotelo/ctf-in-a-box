@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForServer } from '../helpers.js';
+import { waitForServer, assertShopAlive } from '../helpers.js';
 
 await waitForServer();
 
@@ -51,9 +51,35 @@ function buildTraversalZip(entryName, content) {
 // version read ../../upstream/ftp/legal.md on the test runner's disk, which lives in a
 // different container than the app — so it could never see the write and always passed.)
 test('Challenge 6 — Arbitrary File Write: ZIP path traversal must not overwrite ftp/legal.md', async () => {
+  // Anti-vacuous, part one: the shop has to be serving at all. This test's
+  // status assertion accepts 500, so a server-error target satisfied it for
+  // free (docs/scorer.md, #47).
+  await assertShopAlive();
+
   // Baseline: the file the app serves before the exploit.
   const before = await fetch(`${BASE}/ftp/legal.md`);
-  const originalContent = before.ok ? await before.text() : null;
+
+  // Anti-vacuous, part two, and the reason this file needs more than the
+  // standard guard. The whole test is "did ftp/legal.md change?", so an app
+  // that does not serve ftp/legal.md cannot answer the question — yet the
+  // original code read that case as a pass twice over: `originalContent`
+  // became null, which SKIPPED the content comparison entirely, and the
+  // `after` fetch then yielded '' so the sentinel check succeeded against an
+  // empty string. Both halves of the verdict came from the file being absent.
+  if (!before.ok) {
+    throw new Error(
+      `anti-vacuous precondition failed: /ftp/legal.md returned ${before.status}. This test ` +
+        `decides by comparing that file before and after the upload, so without it "the file ` +
+        `was not overwritten" proves nothing.`,
+    );
+  }
+  const originalContent = await before.text();
+  if (originalContent.length === 0) {
+    throw new Error(
+      'anti-vacuous precondition failed: /ftp/legal.md served an empty body, so a traversal ' +
+        'write could not be distinguished from the file simply being empty.',
+    );
+  }
 
   const sentinel = `PWNED-${Date.now()}-${Math.round(performance.now())}`;
   const maliciousZip = buildTraversalZip('../../ftp/legal.md', sentinel);
@@ -71,7 +97,17 @@ test('Challenge 6 — Arbitrary File Write: ZIP path traversal must not overwrit
   await new Promise(r => setTimeout(r, 1000));
 
   const after = await fetch(`${BASE}/ftp/legal.md`);
-  const currentContent = after.ok ? await after.text() : '';
+  // The same reasoning as the baseline: `after.ok ? … : ''` turned "the app
+  // stopped serving the file" into an empty string that passes the sentinel
+  // check. If the file is unreadable now, the exploit's effect is unknown, not
+  // absent — and an upload that took the app down must not read as containment.
+  if (!after.ok) {
+    throw new Error(
+      `anti-vacuous precondition failed: /ftp/legal.md returned ${after.status} AFTER the ` +
+        `upload, so whether the traversal overwrote it cannot be determined.`,
+    );
+  }
+  const currentContent = await after.text();
 
   // The sentinel is unique, so it can only appear if the traversal write succeeded AND the
   // app served the overwritten file — an unambiguous signal of an un-contained zip-slip.
@@ -81,7 +117,7 @@ test('Challenge 6 — Arbitrary File Write: ZIP path traversal must not overwrit
     `routes/fileUpload.ts (resolved entry path must startsWith uploads/complaints/, not just ` +
     `include the project root).`
   );
-  if (originalContent !== null) {
-    assert.equal(currentContent, originalContent, 'ftp/legal.md content must be unchanged by the upload');
-  }
+  // Unconditional now: both sides are known to have been served, so the
+  // comparison can no longer be skipped by the file being missing.
+  assert.equal(currentContent, originalContent, 'ftp/legal.md content must be unchanged by the upload');
 });

@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -15,6 +15,7 @@ await test('Challenge-7-HTML-Tampering', async () => {
   const res = await wgFetch('/HtmlTampering/task', {
     cookies, method: 'POST', body: new URLSearchParams({ QTY: '1', Total: '0' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -22,6 +23,7 @@ await test('Challenge-9-Hidden-Data-Exposure', async () => {
   const res = await wgFetch('/clientSideFiltering/getItForFree', {
     cookies, method: 'POST', body: new URLSearchParams({ checkoutCode: 'get_it_for_free' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -34,6 +36,7 @@ await test('Challenge-11-Frontend-Validation-Bypass', async () => {
       field5: '1', field6: '1', field7: '1', error: '0',
     }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -45,6 +48,7 @@ await test('Challenge-10-Field-Restriction-Bypass', async () => {
       shortInput: 'thisIsAVeryLongInputString', readOnlyInput: 'hacked',
     }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -54,6 +58,7 @@ await test('Challenge-12-Insecure-Login', async () => {
     cookies, method: 'POST',
     body: new URLSearchParams({ username: 'CaptainJack', password: 'BlackPearl' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 

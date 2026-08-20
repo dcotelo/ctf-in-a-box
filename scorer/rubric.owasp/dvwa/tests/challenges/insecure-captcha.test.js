@@ -25,7 +25,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaAlive } from '../helpers.js';
 
 const CAPTCHA_URL = '/vulnerabilities/captcha/';
 
@@ -70,6 +70,10 @@ await test('Challenge-6-Insecure-CAPTCHA-Low', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'low');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, CAPTCHA_URL, 'insecure captcha low');
 
   // Stock exploit: jump straight to step=2, bypassing the CAPTCHA-gated step 1 entirely.
   await dvwaFetch(CAPTCHA_URL, {
@@ -106,6 +110,10 @@ await test('Challenge-6-Insecure-CAPTCHA-Medium', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'medium');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, CAPTCHA_URL, 'insecure captcha medium');
 
   // Stock exploit: submit step=2 with the client-controlled passed_captcha=true flag.
   await dvwaFetch(CAPTCHA_URL, {
@@ -147,6 +155,10 @@ await test('Challenge-6-Insecure-CAPTCHA-High', async () => {
   await waitForDvwa();
   const cookies = await loginDvwa();
   await setSecurityLevel(cookies, 'high');
+  // Anti-vacuous: this challenge's verdict is not a page, so prove the app is
+  // actually serving its own challenge page before trusting the outcome
+  // (docs/scorer.md, #105).
+  await assertDvwaAlive(cookies, CAPTCHA_URL, 'insecure captcha high');
 
   // Stock exploit: hardcoded back-door — hidd3n_valu3 + User-Agent: reCAPTCHA.
   await dvwaFetch(CAPTCHA_URL, {

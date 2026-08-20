@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel , assertDvwaApiRecord } from '../helpers.js';
 
 const BASE = process.env.DVWA_URL ?? 'http://localhost:4280';
 const API = '/vulnerabilities/api';
@@ -43,7 +43,7 @@ await test('Challenge-16-API-Security-Low', async () => {
 
   // Safe request (v2) must still work — catches "break the API" non-fixes.
   const v2 = await apiFetch(cookies.cookieHeader, 'low', '/v2/user/');
-  assert.equal(v2.status, 200, 'v2 user list must return 200 after patching');
+  assertDvwaApiRecord(v2, 'v2 user list must return 200 after patching');
   assert.ok(!v2.text.includes('password'), 'v2 must not expose password hashes');
 
   // Exploit: v1 leaks password hashes. Patched = v1 no longer exposes `password`.
@@ -63,7 +63,7 @@ await test('Challenge-16-API-Security-Medium', async () => {
 
   // Safe request: GET a user record to confirm the API still works.
   const get = await apiFetch(cookies.cookieHeader, 'medium', '/v2/user/2');
-  assert.equal(get.status, 200, 'GET /v2/user/2 must return 200 after patching');
+  assertDvwaApiRecord(get, 'GET /v2/user/2 must return 200 after patching');
 
   // Exploit: mass assignment — send `level:0` to elevate user to admin.
   // Patched = `level` is ignored; the response should not reflect level:0.

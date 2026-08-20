@@ -14,7 +14,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const XSS_R = '/vulnerabilities/xss_r/';
 
@@ -26,7 +26,7 @@ await test('Challenge-11-XSS-Reflected-Low', async () => {
   const payload = '<script>alert(1)</script>';
   const { status, text } = await dvwaFetch(`${XSS_R}?name=${encodeURIComponent(payload)}`, { cookies });
 
-  assert.equal(status, 200, 'patched endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched endpoint must still return 200');
   assert.ok(!text.includes(payload), 'xss_r-low: raw <script> payload must not appear unescaped');
 });
 
@@ -39,7 +39,7 @@ await test('Challenge-11-XSS-Reflected-Medium', async () => {
   const payload = '<ScRiPt>alert(1)</ScRiPt>';
   const { status, text } = await dvwaFetch(`${XSS_R}?name=${encodeURIComponent(payload)}`, { cookies });
 
-  assert.equal(status, 200, 'patched endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched endpoint must still return 200');
   assert.ok(!text.includes(payload), 'xss_r-medium: mixed-case script payload must not appear unescaped');
 });
 
@@ -52,6 +52,6 @@ await test('Challenge-11-XSS-Reflected-High', async () => {
   const payload = '<img src=x onerror=alert(1)>';
   const { status, text } = await dvwaFetch(`${XSS_R}?name=${encodeURIComponent(payload)}`, { cookies });
 
-  assert.equal(status, 200, 'patched endpoint must still return 200');
+  assertDvwaRendered({ status, text }, 'patched endpoint must still return 200');
   assert.ok(!text.includes(payload), 'xss_r-high: <img onerror> payload must not appear unescaped');
 });

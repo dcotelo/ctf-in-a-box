@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch } from '../helpers.js';
+import { waitForDvwa, loginDvwa, setSecurityLevel, dvwaFetch , assertDvwaRendered } from '../helpers.js';
 
 const XSS_S = '/vulnerabilities/xss_s/';
 
@@ -39,7 +39,7 @@ await test('Challenge-12-XSS-Stored-Low', async () => {
   await sign(cookies, { name: 'tester', message: payload });
 
   const { status, text } = await dvwaFetch(XSS_S, { cookies });
-  assert.equal(status, 200, 'patched guestbook must still return 200');
+  assertDvwaRendered({ status, text }, 'patched guestbook must still return 200');
   assert.ok(!text.includes(payload), 'xss_s-low: raw <script> payload must not persist unescaped in the guestbook');
 });
 
@@ -56,7 +56,7 @@ await test('Challenge-12-XSS-Stored-Medium', async () => {
   await sign(cookies, { name: namePayload, message: 'hello' });
 
   const { status, text } = await dvwaFetch(XSS_S, { cookies });
-  assert.equal(status, 200, 'patched guestbook must still return 200');
+  assertDvwaRendered({ status, text }, 'patched guestbook must still return 200');
   assert.ok(
     !text.includes(`onerror=alert("${tag}")`),
     'xss_s-medium: <img onerror> name payload must not persist unescaped in the guestbook'
@@ -74,7 +74,7 @@ await test('Challenge-12-XSS-Stored-High', async () => {
   await sign(cookies, { name: namePayload, message: 'hi' });
 
   const { status, text } = await dvwaFetch(XSS_S, { cookies });
-  assert.equal(status, 200, 'patched guestbook must still return 200');
+  assertDvwaRendered({ status, text }, 'patched guestbook must still return 200');
   assert.ok(
     !text.includes(`onerror=alert("${tag}")`),
     'xss_s-high: <img onerror> name payload must not persist unescaped in the guestbook'

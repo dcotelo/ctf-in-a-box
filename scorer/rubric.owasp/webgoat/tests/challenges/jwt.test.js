@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, WEBWOLF } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, WEBWOLF , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -36,6 +36,7 @@ await test('Challenge-54-JWT-Secret-Cracking', async () => {
   payload.username = 'WebGoat';
   const forged = signHS({ alg: 'HS256' }, payload, Buffer.from(key), 'sha256');
   const res = await wgFetch('/JWT/secret', { cookies, method: 'POST', body: new URLSearchParams({ token: forged }) });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -47,6 +48,7 @@ await test('Challenge-55-JWT-Algorithm-Bypass', async () => {
     cookies, method: 'POST',
     headers: { Cookie: `JSESSIONID=${cookies.jsessionid}; access_token=${token}` },
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -56,6 +58,7 @@ await test('Challenge-56-JWT-Refresh-Token', async () => {
   const res = await wgFetch('/JWT/refresh/checkout', {
     cookies, method: 'POST', headers: { Authorization: `Bearer ${token}` },
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -65,6 +68,7 @@ await test('Challenge-58-JWT-KID-Injection', async () => {
   const key = Buffer.from('qwertyqwerty1234', 'base64'); // TextCodec.BASE64.decode of the DB value
   const token = signHS({ alg: 'HS256', kid: 'webgoat_key' }, { username: 'Tom' }, key, 'sha256');
   const res = await wgFetch('/JWT/kid/delete', { cookies, method: 'POST', body: new URLSearchParams({ token }) });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -98,5 +102,6 @@ await test('Challenge-57-JWT-JKU-Injection', async () => {
   const sig = b64u(crypto.sign('sha256', Buffer.from(si), privateKey));
   const token = `${si}.${sig}`;
   const res = await wgFetch('/JWT/jku/delete', { cookies, method: 'POST', body: new URLSearchParams({ token }) });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });

@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, WEBWOLF } from '../helpers.js';
+import { waitForWebGoat, loginWebGoat, wgFetch, lessonCompleted, WEBWOLF , assertAttackResult } from '../helpers.js';
 
 await waitForWebGoat();
 const cookies = await loginWebGoat();
@@ -29,6 +29,7 @@ await test('Challenge-77-WebWolf-Mail', async () => {
   const res = await wgFetch('/WebWolf/mail', {
     cookies, method: 'POST', body: new URLSearchParams({ uniqueCode: reverse('webgoat') }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -36,6 +37,7 @@ await test('Challenge-76-WebWolf-Landing', async () => {
   const res = await wgFetch('/WebWolf/landing', {
     cookies, method: 'POST', body: new URLSearchParams({ uniqueCode: reverse('webgoat') }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -45,6 +47,7 @@ await test('Challenge-67-Password-Reset-Questions', async () => {
   const res = await wgFetch('/PasswordReset/questions', {
     cookies, method: 'POST', body: new URLSearchParams({ username: 'admin', securityQuestion: 'green' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -56,6 +59,7 @@ await test('Challenge-68-Password-Reset-Weak-Questions', async () => {
   const res = await wgFetch('/PasswordReset/SecurityQuestions', {
     cookies, method: 'POST', body: new URLSearchParams({ question: 'What was your childhood nickname?' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -65,6 +69,7 @@ await test('Challenge-71-Password-Reset-Email', async () => {
     cookies, method: 'POST',
     body: new URLSearchParams({ email: 'webgoat@webgoat.org', password: reverse('webgoat') }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -75,6 +80,7 @@ await test('Challenge-70-Password-Reset-Token-Prediction', async () => {
     headers: { Host: '127.0.0.1:9090' },
     body: new URLSearchParams({ email: 'tom@webgoat-cloud.org' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
 
@@ -102,5 +108,6 @@ await test('Challenge-69-Password-Reset-Login', async () => {
     cookies, method: 'POST',
     body: new URLSearchParams({ email: 'tom@webgoat-cloud.org', password: 'hacked123' }),
   });
+  assertAttackResult(res);
   assert.ok(!lessonCompleted(res), 'patched: the exploit must not solve the lesson');
 });
