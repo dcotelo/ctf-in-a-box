@@ -5,6 +5,9 @@
 //
 // Deliberately imports ONLY node:crypto — this module is bundled into the
 // proxy (Node runtime), so no "server-only" marker and no Upstash client here.
+// The route-only gate check (`requireGatePassed`, which needs `next/headers`)
+// lives in `@/lib/gate-request` instead, precisely so it never ends up in
+// this module's graph — see that file's header comment.
 
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 

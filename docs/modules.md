@@ -572,15 +572,45 @@ of one module's shape.
    end up silently un-gated. `proxy-quiz-only.test.ts` and
    `proxy-disabled-module.test.ts` pin what it then *does* with them.
 
-   Know what this is and is not. It is **page-only and exact-match**: it
-   protects the module's page, not any deeper path under it, and **not the
-   module's API routes** — `POST /api/quiz/answer` is reachable with the lock
-   screen up, so a signed-in contestant can be scored before the event opens.
-   The gate is a "the board opens at the keynote" curtain, not an
-   authorization boundary; every API route enforces its own rules
-   (authentication, the pause/schedule window, attempt caps) independently
-   and must keep doing so. A module MUST NOT treat "the gate is up" as a
-   reason to skip a check in its own API. See `docs/operations.md`'s
+   Know what this is and is not. `proxy.ts`'s matcher is **page-only and
+   exact-match**: it protects the module's page, not any deeper path under
+   it, and it deliberately does **not** widen over `/api/*` — that would put
+   the gate in front of `/api/auth/*` (breaking the sign-in a contestant
+   needs in order to pass the gate) and `/api/gate` itself, and would answer
+   API calls with a page *redirect*, which an API client can't act on.
+
+   Instead, the three module routes that bank points or leak challenge
+   content call a small server-side check of their own,
+   `requireGatePassed()` (`src/lib/gate-request.ts`) — beside the gates they already
+   run (`effectivePaused`, attempt caps, cooldowns), after authentication (so
+   an unauthenticated caller still gets the more specific 401) and before any
+   store read or write:
+   - `POST /api/quiz/answer` and `POST /api/classic/submit` — bank points.
+   - `POST /api/hints/reveal` — deducts points **and** returns hint text, so
+     an ungated call would leak challenge content early, not just score
+     early.
+
+   A refused call gets **403 `{ error: "gate" }`**, never a redirect.
+   `isGateActive()` is a module-load env read and `verifyGateCookie` is pure
+   crypto — neither does I/O, so `requireGatePassed()` can never error
+   mid-check; there is no fail-open/fail-closed case to make here, unlike the
+   store-backed gates it sits beside.
+
+   Deliberately **not** gated, on purpose: `/api/auth/*` (signing in is how a
+   contestant passes the gate), `/api/gate` (the gate itself), `/api/admin/*`
+   (organizers must be able to configure the event before kickoff — that's
+   the entire point of a pre-event window), `/api/team/*` (team registration
+   has its own separate window, `effectiveRegistrationOpen` — registering
+   before kickoff is intended), `/api/stats/visit` (telemetry), and
+   `GET /api/hints` (returns only metadata — enabled, cost, purchased ids,
+   spent, count — never hint text).
+
+   This still is **not** an authorization boundary: it is a "the board opens
+   at the keynote" curtain over a handful of scoring/content-leak paths, not
+   a replacement for every API route enforcing its own rules
+   (authentication, the pause/schedule window, attempt caps) independently —
+   they must keep doing so, and a module MUST NOT treat "the gate is up" as
+   a reason to skip a check in its own API. See `docs/operations.md`'s
    "Known limitations" for the operator-facing note.
 
 ## 6. Security requirements (non-negotiable)

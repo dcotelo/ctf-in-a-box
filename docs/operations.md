@@ -587,30 +587,39 @@ top of the leaderboard/challenge-browsing experience it gives you immediately.
 
 ## Known limitations
 
-**The pre-event gate is page-only.** With `CHALLENGES_GATE_ENABLED=true`,
-every enabled module's own page route (`/challenges`, `/quiz`, `/flags`)
-redirects a
-visitor without a valid unlock cookie to `/gate`. That list is exact-match and
-it is *pages*: the module **API routes are not behind it**. A signed-in
-contestant who knows the endpoint can `POST /api/quiz/answer` or
-`POST /api/classic/submit` while the lock
-screen is up and be scored before the doors open — the answer or flag is
-still graded,
-the points still post.
+**The pre-event gate's page block (`proxy.ts`) is page-only.** With
+`CHALLENGES_GATE_ENABLED=true`, every enabled module's own page route
+(`/challenges`, `/quiz`, `/flags`) redirects a visitor without a valid unlock
+cookie to `/gate`. That list is exact-match and it is *pages* — the proxy
+matcher deliberately does not widen over `/api/*` (doing so would put the
+gate in front of `/api/auth/*`, breaking the sign-in a contestant needs in
+order to pass the gate, and in front of `/api/gate` itself, and would answer
+API calls with a page redirect an API client can't act on).
 
-What still holds while the gate is up: the API routes enforce their own rules
-regardless of it — a session is required, the admin **pause** and the
-**scheduled scoring window** are checked on every write, and per-question
-attempt caps and cooldowns (or classic's own submission cooldown) apply. So
-the operator control that actually stops
-early scoring is the schedule/pause pair in the admin panel (see [Organizer
-admin panel](#organizer-admin-panel)), not the access password.
+Instead, the three module routes that bank points or leak challenge content
+— `POST /api/quiz/answer`, `POST /api/classic/submit`, and
+`POST /api/hints/reveal` — run their own server-side gate check
+(`requireGatePassed()`) beside their other rules, and refuse with
+**403 `{ error: "gate" }`** while the lock screen is up. Everything else the
+API routes already enforced independently still holds regardless: a session
+is required, the admin **pause** and the **scheduled scoring window** are
+checked on every write, and per-question attempt caps and cooldowns (or
+classic's own submission cooldown) apply. So an organizer who additionally
+sets the scoring window (or keeps the event paused) is not exposed even if
+they somehow rely on the password gate alone — the schedule/pause pair in
+the admin panel (see [Organizer admin panel](#organizer-admin-panel)) is
+still the control that actually stops early scoring.
 
 Read the gate for what it is: a "the board opens at the keynote" curtain over
-the contestant-facing pages, and a way to keep the challenge list unpublished
-until the event starts. It is not an authorization boundary. If you need
-scoring genuinely shut until a moment in time, set the scoring window (or keep
-the event paused) as well as — or instead of — the password gate.
+the contestant-facing pages and the handful of API routes that bank points or
+leak content, and a way to keep the challenge list unpublished until the
+event starts. It is **not** an authorization boundary — every API route
+(gated or not) still enforces its own rules independently, including
+`/api/admin/*` (organizers must be able to configure the event before
+kickoff) and `/api/team/*` (registration has its own separate window and is
+meant to be open pre-event). If you need scoring genuinely shut until a
+moment in time, set the scoring window (or keep the event paused) as well as
+— or instead of — the password gate.
 
 ## Status and upstream dependencies
 

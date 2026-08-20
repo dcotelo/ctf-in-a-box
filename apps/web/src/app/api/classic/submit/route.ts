@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireGatePassed } from "@/lib/gate-request";
 import { CLASSIC_ID_RE, submitFlag } from "@/lib/classic-store";
 
 /** Hard cap on a submitted flag's length, checked BEFORE the store ever sees
@@ -18,11 +19,18 @@ const FLAG_MAX_LEN = 512;
  * impersonation hole) and maps the store's result to a status code:
  *   - unauthenticated -> 401
  *   - session with no GitHub login -> 400
+ *   - pre-event gate active, no valid unlock cookie -> 403 { error: "gate" }
  *   - malformed challengeId/flag -> 400
  *   - unknown/deleted challenge -> 404
  *   - gate refusal (paused/solved/cooldown/unavailable) -> 403
  *   - grading script failure -> 503
  *   - success -> 200
+ *
+ * The pre-event gate check runs after authentication (so an unauthenticated
+ * caller still gets the more specific 401) and before `submitFlag` is ever
+ * called — a refusal here can never follow a write that already happened.
+ * See `requireGatePassed` (apps/web/src/lib/gate-request.ts) and docs/modules.md
+ * §5.8.
  *
  * Validating `challengeId` against `CLASSIC_ID_RE` here, before the store
  * call, is what lets a store-reported `"invalid"` mean "unknown challenge"
@@ -39,6 +47,10 @@ export async function POST(request: Request) {
 
   const login = (session.user as { login?: string }).login;
   if (!login) return NextResponse.json({ error: "session has no GitHub login" }, { status: 400 });
+
+  if (!(await requireGatePassed())) {
+    return NextResponse.json({ error: "gate" }, { status: 403 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const challengeId = typeof body.challengeId === "string" ? body.challengeId : "";
