@@ -1,4 +1,8 @@
 import "server-only";
+// Re-exported, not redeclared — the admin UI cannot import a server-only
+// module, so the value lives in the dependency-free defaults file.
+export { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "./quiz-defaults";
+import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "./quiz-defaults";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
@@ -89,11 +93,11 @@ import {
 
 /** Default cap on graded attempts per question before the retry gate
  *  refuses further submissions. 0 would mean unlimited (not the default). */
-export const QUIZ_MAX_ATTEMPTS = 3;
+
 
 /** Default cooldown, in minutes, after a login's last attempt on a question
  *  before it may try again. 0 would mean no cooldown (not the default). */
-export const QUIZ_RETRY_AFTER_MIN = 5;
+
 
 /** Question/choice id pattern, re-exported so callers (e.g. the answer route)
  *  validate against this exact pattern instead of keeping their own copy that

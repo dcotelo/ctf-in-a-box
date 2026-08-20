@@ -14,6 +14,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AdminSettings } from "@/lib/admin-store";
 import type { ResolvedModule } from "@/lib/modules";
 import { panelFor } from "./panel-for";
+import { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "@/lib/hint-defaults";
+import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
+import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 
 // AdminControls now takes its modules as a prop (already resolved
 // server-side), so it no longer reads the registry itself. The mock stays so
@@ -226,5 +229,46 @@ describe("AdminControls module identity fields", () => {
     expect(identityAt).toBeGreaterThan(-1);
     expect(questionsAt).toBeGreaterThan(-1);
     expect(identityAt).toBeLessThan(questionsAt);
+  });
+});
+
+// Every numeric admin input must SHOW the default it falls back to.
+//
+// The stored value is the organizer's OVERRIDE, which is null until they touch
+// it — so `value={…}` alone renders an empty box. Beside help text reading
+// "0 = unlimited" and "0 = no cooldown", an empty box states the opposite of
+// the truth: the real defaults are 3 attempts, 5 minutes and 5 seconds.
+//
+// hint-defaults.ts already exists for exactly this bug on the hints TOGGLE
+// (#89): "the admin toggle has to render the same default the server resolves,
+// or it misreports the effective state". The number inputs were never brought
+// along. This pins that they were.
+describe("numeric inputs advertise their default", () => {
+  const allModules = [
+    { id: "secure-development", title: "Secure Development", blurb: "" },
+    { id: "quiz", title: "Quiz", blurb: "" },
+    { id: "classic", title: "Classic CTF", blurb: "" },
+  ] as unknown as ResolvedModule[];
+
+  it("renders a placeholder equal to the server-side fallback", () => {
+    // `settings` here has no overrides, which is the state every fresh event
+    // starts in — and the state in which these boxes rendered blank.
+    const html = renderToStaticMarkup(<AdminControls initial={settings} modules={allModules} />);
+    for (const def of [
+      HINT_COST,
+      HINT_MIN_SOLVES,
+      HINT_UNLOCK_AFTER_MIN,
+      QUIZ_MAX_ATTEMPTS,
+      QUIZ_RETRY_AFTER_MIN,
+      CLASSIC_COOLDOWN_SEC,
+    ]) {
+      expect(html).toContain(`placeholder="${def}"`);
+    }
+  });
+
+  it("still shows the override, not the default, once one is set", () => {
+    const overridden = { ...settings, hintCost: 42 } as AdminSettings;
+    const html = renderToStaticMarkup(<AdminControls initial={overridden} modules={allModules} />);
+    expect(html).toContain('value="42"');
   });
 });

@@ -1,4 +1,8 @@
 import "server-only";
+// Re-exported, not redeclared — the admin UI cannot import a server-only
+// module, so the value lives in the dependency-free defaults file.
+export { CLASSIC_COOLDOWN_SEC } from "./classic-defaults";
+import { CLASSIC_COOLDOWN_SEC } from "./classic-defaults";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
 import { CLASSIC_BUNDLE_VERSION, type ClassicBundle, type ClassicBundleChallenge } from "@/lib/classic-io";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
@@ -103,7 +107,7 @@ import {
 /** Default seconds a login must wait between submissions on the SAME
  *  challenge. Seconds, not minutes: the job is blocking scripted brute force,
  *  not rationing tries. 0 (an admin override) means no cooldown. */
-export const CLASSIC_COOLDOWN_SEC = 5;
+
 
 /** Challenge id pattern, re-exported so callers (e.g. the submit route)
  *  validate against this exact pattern instead of keeping their own copy that
