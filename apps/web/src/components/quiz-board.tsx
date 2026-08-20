@@ -42,7 +42,7 @@ type AnswerResponse =
   | { correct: false }
   | { error: string; retryAt?: string };
 
-type Feedback = { kind: "success" | "error" | "info"; text: string };
+export type Feedback = { kind: "success" | "error" | "info"; text: string };
 
 /** Feedback for an accepted (correct) submission. The `already` branch is
  *  NOT cosmetic: `/api/quiz/answer` reports an idempotent re-submission of a
@@ -54,6 +54,30 @@ type Feedback = { kind: "success" | "error" | "info"; text: string };
 export function describeCorrect(points: number, already?: boolean): string {
   if (already) return "You already answered this one — those points are already yours.";
   return `Correct — +${points} point${points === 1 ? "" : "s"}.`;
+}
+
+/** The ONE result line a question card prints, and the precedence between the
+ *  two things that used to print their own.
+ *
+ *  An answered question carries a durable "Answered — earned 50 points." from
+ *  its server-derived status, and a just-submitted answer sets a transient
+ *  "Correct — +50 points." feedback. Both were rendered, stacked, so a
+ *  contestant read the same points twice and reasonably wondered whether they
+ *  had been scored twice. Fresh feedback wins: it is the more specific
+ *  statement of the same fact, and it is the only thing that can say "you
+ *  already had these points" or why a submission was refused. On the next page
+ *  load the feedback is gone and the durable line says it instead. Mirrors
+ *  `resultLine` in classic-board.tsx. */
+export function resultLine(question: QuizQuestionView, feedback: Feedback | undefined): Feedback | null {
+  if (feedback) return feedback;
+  if (question.status === "answered") {
+    const p = question.earnedPoints;
+    return { kind: "success", text: `Answered — earned ${p} point${p === 1 ? "" : "s"}.` };
+  }
+  if (question.status === "exhausted") {
+    return { kind: "info", text: "No attempts remaining for this question." };
+  }
+  return null;
 }
 
 function describeRefusal(reason: string): string {
@@ -227,6 +251,7 @@ function QuestionCard({
   // isn't "unanswered".
   const showChoices = question.status === "unanswered" || question.status === "cooldown";
   const choicesDisabled = question.status === "cooldown" && !cooledDown;
+  const result = resultLine(question, feedback);
 
   return (
     <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
@@ -236,16 +261,6 @@ function QuestionCard({
           {question.points} pts
         </span>
       </div>
-
-      {question.status === "answered" && (
-        <p className="mt-3 text-sm text-[#22c55e]">
-          Answered — earned {question.earnedPoints} point{question.earnedPoints === 1 ? "" : "s"}.
-        </p>
-      )}
-
-      {question.status === "exhausted" && (
-        <p className="mt-3 text-sm text-zinc-400">No attempts remaining for this question.</p>
-      )}
 
       {question.status === "cooldown" && (
         <p className={`mt-3 text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
@@ -304,14 +319,14 @@ function QuestionCard({
         </button>
       )}
 
-      {feedback && (
+      {result && (
         <p
           role="status"
           className={`mt-2 text-sm ${
-            feedback.kind === "success" ? "text-[#22c55e]" : feedback.kind === "error" ? "text-[#e53e3e]" : "text-zinc-400"
+            result.kind === "success" ? "text-[#22c55e]" : result.kind === "error" ? "text-[#e53e3e]" : "text-zinc-400"
           }`}
         >
-          {feedback.text}
+          {result.text}
         </p>
       )}
     </div>

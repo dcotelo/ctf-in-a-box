@@ -23,6 +23,7 @@ import {
 import { getViewerHints } from "@/lib/hint-store";
 import type { AppProgress, LeaderboardEntry, ModuleProgress } from "@/lib/leaderboard/types";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
+import { challengeTotal, nonPatchedCount } from "@/lib/leaderboard/non-patched";
 import { isModuleEnabled, type ModuleId } from "@/lib/modules";
 import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
@@ -97,10 +98,15 @@ export default async function ProfilePage() {
   const effectiveTeam = team?.slug ?? null;
   const teamMeta = team ? await getTeamMeta(team.slug) : { captain: null, joinCode: null };
   const isCaptain = teamMeta.captain !== null && teamMeta.captain === login;
-  // "Non-patched" = everything not yet fixed (failed runs + untouched
-  // challenges) — deliberately not called "failed" so contestants who
-  // haven't gotten to a challenge yet don't read it as losing.
-  const nonPatched = profile ? Math.max(0, profile.total - profile.patched) : 0;
+  // Both derived through the SAME helper the public leaderboard row uses, so
+  // a contestant's own dossier and their board row can't disagree about what
+  // "non-patched" counts. This page used to compute it off `profile.total` —
+  // the number of challenges with a scored result — which made a contestant
+  // with nothing submitted read `0 non-patched / 0 total` on an event with a
+  // full catalogue to work through.
+  const patchedCount = profile?.patched ?? 0;
+  const challengeCount = challengeTotal(profile?.total ?? 0);
+  const nonPatched = nonPatchedCount(patchedCount, profile?.total ?? 0);
   // Hint spend is deducted and the app-side modules' points are added, in that
   // order, as overlays — the exact same math (and order) as the leaderboard's
   // withHintPenalties (subtract, floor at 0) followed by
@@ -117,8 +123,8 @@ export default async function ProfilePage() {
     ? 0
     : profile.maxPoints > 0
       ? (netPoints / profile.maxPoints) * 100
-      : profile.total > 0
-        ? (profile.patched / profile.total) * 100
+      : challengeCount > 0
+        ? (patchedCount / challengeCount) * 100
         : 0;
 
   // Only the apps the event actually enabled — same filter the per-app grid
@@ -248,7 +254,7 @@ export default async function ProfilePage() {
           {secureDevEnabled && (
             <>
               <div>
-                <p className="font-mono text-xl tabular-nums text-[#22c55e]">{profile?.patched ?? 0}</p>
+                <p className="font-mono text-xl tabular-nums text-[#22c55e]">{patchedCount}</p>
                 <p className="text-[11px] uppercase tracking-wide text-muted">patched</p>
               </div>
               <div>
@@ -256,7 +262,7 @@ export default async function ProfilePage() {
                 <p className="text-[11px] uppercase tracking-wide text-muted">non-patched</p>
               </div>
               <div>
-                <p className="font-mono text-xl tabular-nums text-zinc-400">{profile?.total ?? 0}</p>
+                <p className="font-mono text-xl tabular-nums text-zinc-400">{challengeCount}</p>
                 <p className="text-[11px] uppercase tracking-wide text-muted">total</p>
               </div>
             </>

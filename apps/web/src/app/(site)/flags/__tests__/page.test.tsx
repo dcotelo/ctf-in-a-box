@@ -86,6 +86,24 @@ describe("flags page view model", () => {
     expect(html).toMatch(/solved 1 of 3 challenges/i);
   });
 
+  // The page and <ClassicBoard> each used to print their own count ("You've
+  // solved 1 of 3 challenges." above "1 of 3 solved."), which reads as a
+  // rendering bug. One statement of progress, from one place.
+  it("states progress exactly once", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockResolvedValue({ classicCooldownSec: null });
+    getViewerClassic.mockResolvedValue({
+      solved: { c1: { points: 10, at: "2026-08-18T00:00:00.000Z" } },
+      attempts: {},
+    });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    expect(html.match(/\b\d+ of \d+\b/g)).toEqual(["1 of 3"]);
+  });
+
   it("treats a signed-out visitor as having no progress and prompts sign-in instead of a submit control", async () => {
     isModuleEnabled.mockReturnValue(true);
     getSession.mockResolvedValue(null);
