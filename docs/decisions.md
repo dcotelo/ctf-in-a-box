@@ -518,8 +518,8 @@ the rest of the kit already uses: `ctf:admin:settings` (a hash: `paused`,
 the change via one Lua script — a setting can never land without its
 audit line). Every reader applies **override-else-default** precedence:
 an explicit value in `ctf:admin:settings` wins, an absent field falls
-through to the build-time default (`hint-store.ts`'s `resolveHintConfig`:
-`s.hintsEnabled ?? HINTS_ENABLED`) — `??`, not `||`, so an explicit
+through to the default (`hint-store.ts`'s `resolveHintConfig`:
+`s.hintsEnabled ?? HINT_DEFAULT_ENABLED`) — `??`, not `||`, so an explicit
 `false`/`0` override is honored rather than treated as "unset." Access is
 gated by `event.yaml`'s existing `admins` allowlist (case-insensitive
 GitHub login match, `apps/web/src/lib/admin-auth.ts`), the same list
@@ -553,8 +553,11 @@ Actions from the panel — that is GitHub's surface, not this kit's, and
 reaching into it would mean the panel holding GitHub credentials with
 write scope beyond what anything else in the kit needs).
 
-**Known limitation, accepted rather than fixed in v1: the hint toggle is
-only live at the reveal boundary.** `resolveHintConfig()` (and therefore
+**Known limitation, accepted rather than fixed in v1 — since RESOLVED by
+[#31](#31-one-hint-switch-capability-split-from-policy), which routed the
+three read paths below through `resolveHintConfig` and retired the env var
+entirely. The paragraph is kept as the record of what v1 shipped: the hint
+toggle was only live at the reveal boundary.** `resolveHintConfig()` (and therefore
 `revealHint`, called by the `/api/hints` reveal route) resolves the
 `hintsEnabled`/`hintCost` override live, so a flip takes effect on the very
 next reveal attempt. But `getViewerHints`, `getHintPenalties`, and
@@ -1128,3 +1131,73 @@ The shared function's vocabulary (`completed`, `Earned`) is intentionally
 generic — each caller still translates it into its own domain language
 (`ClassicTotal`/`QuizTotal`) at the boundary, so nothing downstream of
 either store has to know the fold is shared.
+
+## 31. One hint switch: capability split from policy
+
+**Context.** Hints had three things that looked like a switch, and none of
+them worked the way an organizer would expect.
+
+`event.yaml`'s `hints: { enabled: true }` was read by nobody — its own
+comment called it a v1 placeholder. `HINTS_ENABLED` was documented in
+`.env.example`, in the app README and in the hosting guide as the way to ship
+an event with hints off, but `docker-compose.yml` never forwarded it to the
+`app` service and the Dockerfile declared no build arg for it, so on the
+composed stack the container never saw it. And `/admin`'s toggle — the one
+switch that did reach the running app — governed only whether a hint could be
+**bought**: `getViewerHints`, `getHintPenalties` and `getHintAvailability`
+read a module-level env constant instead, so turning hints off left the hint
+buttons on the challenges page and the penalty column on the leaderboard.
+That last split is the limitation [#19](#19-organizer-admin-panel-runtime-override-layer)
+recorded and deferred.
+
+The obvious repair — forward the env var through compose — would have made a
+documented knob work while leaving three switches for one concept, and left
+the split-brain untouched.
+
+**Decision.** `/admin` is the only hint switch. `HINTS_ENABLED` is retired.
+
+The env read splits into two things that were always distinct:
+
+- **Capability** — `HINTS_AVAILABLE`, true when `UPSTASH_REDIS_REST_*` are
+  set. Hint text lives only in Upstash, so without credentials there is
+  nothing to reveal and no organizer setting can change that. Read paths test
+  it first purely to skip a settings read they already know the answer to.
+- **Policy** — `hintsEnabled` in `ctf:admin:settings`, falling back to
+  `HINT_DEFAULT_ENABLED` (a constant in `hint-defaults.ts`, not an env var)
+  when the organizer has never touched the toggle.
+
+`resolveHintConfig()` combines them, and **every** hint read path now goes
+through it, so the toggle cannot be true for one surface and false for
+another. `HINT_COST` already worked exactly this way — a hardcoded default
+with an admin override and no env var; hints-enabled was the odd one out.
+
+`HINT_DEFAULT_ENABLED` lives in its own dependency-free module because
+`hint-store.ts` is `server-only` and the admin toggle is a Client Component.
+It has to render the same default the server resolves or it misreports the
+state — which was a real bug: the toggle rendered `?? false`, showing "off"
+on a fresh event while hints were live.
+
+**Alternatives rejected.** *Forward the env var through compose* — makes a
+vestigial knob work rather than asking whether it should exist, and needs a
+container recreate to change something an organizer flips at event time.
+*Keep the env var as a boot default under the admin override* — this was the
+shipped intent (`hintsEnabled` is deliberately three-state, absent meaning
+"use the env default"), but it never functioned: the override always writes
+`"1"` or `"0"` and never `HDEL`s, so after one toggle there was no route back
+to the default and the third state was unreachable in practice.
+
+**Consequences.** One switch, one place to look, and the three-state encoding
+collapses to a plain override with a code default — absent still means
+"organizer has not chosen", now falling back to a constant rather than an
+env var, so no stored data changes and no migration is needed.
+
+The env var's only unique capability is gone: an organizer can no longer ship
+an event with hints off without opening `/admin`. That window is pre-event,
+with no contestants on the box, and the trade buys a switch that cannot
+disagree with itself.
+
+Anyone running the app outside compose (bare `next start`) who set
+`HINTS_ENABLED=false` loses that; it never worked under the supported
+deployment, so the blast radius is narrow. Turning hints off does not forgive
+spend — `ctf:hints:spent` is untouched, so re-enabling restores the penalties
+rather than wiping them.

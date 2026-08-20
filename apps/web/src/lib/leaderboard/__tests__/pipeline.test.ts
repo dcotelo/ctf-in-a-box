@@ -15,10 +15,10 @@ vi.mock("@/lib/modules", () => ({
 // pipelines (vi.mock is hoisted and applies for the whole file).
 const hints = { enabled: false, penalties: new Map<string, number>() };
 vi.mock("@/lib/hint-store", () => ({
-  getHintPenalties: async () => hints.penalties,
-  get HINTS_ENABLED() {
-    return hints.enabled;
-  },
+  // Policy now lives inside getHintPenalties (it consults resolveHintConfig),
+  // so an "off" event yields an empty map rather than a false capability flag.
+  getHintPenalties: async () => (hints.enabled ? hints.penalties : new Map<string, number>()),
+  HINTS_AVAILABLE: true,
 }));
 
 import { withModuleContributions } from "../module-contributions";
@@ -38,7 +38,7 @@ const pipeline = (data: LeaderboardData) => withHintPenalties(data).then(withMod
 
 describe("leaderboard pipeline", () => {
   it("orders by combined standing even with hints disabled", async () => {
-    // withHintPenalties returns early when HINTS_ENABLED is false, so the
+    // getHintPenalties yields an empty map when hints are off, so the
     // final order has to be withModuleContributions' doing — which is exactly
     // why it runs LAST and re-ranks unconditionally.
     hints.enabled = false;

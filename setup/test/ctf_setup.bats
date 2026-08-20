@@ -801,9 +801,10 @@ YAML
 }
 
 @test "wiz_event_yaml emits hints enabled, matching the app's own default" {
-  # apps/web/src/lib/hint-store.ts: HINTS_ENABLED is `!== "false"` — hints are
-  # ON unless .env opts out. The wizard used to write `hints: { enabled: false }`,
-  # which contradicted the running app in the organizer's own config file.
+  # apps/web/src/lib/hint-defaults.ts: HINT_DEFAULT_ENABLED is true — hints are
+  # ON unless /admin turns them off. The wizard used to write
+  # `hints: { enabled: false }`, which contradicted the running app in the
+  # organizer's own config file.
   run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qx 'hints: { enabled: true }'

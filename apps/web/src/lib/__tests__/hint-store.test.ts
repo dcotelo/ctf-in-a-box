@@ -26,14 +26,34 @@ vi.mock("@/lib/modules", () => ({
 
 type HintStore = typeof import("@/lib/hint-store");
 
-/** HINTS_ENABLED is read at module load, so each test re-imports the store
- *  with the env it needs. Hints are ON by default now — disabling takes an
- *  explicit HINTS_ENABLED=false — and Upstash creds are still required. */
+/** No admin override set — `hintsEnabled: null` is the "organizer has never
+ *  touched the toggle" state, which resolves to HINT_DEFAULT_ENABLED. */
+const BASE_SETTINGS = {
+  paused: false,
+  hintsEnabled: null,
+  hintCost: null,
+  // Gate off by default here so the purchase-path tests below stay focused
+  // on charging; the gate has its own describe block.
+  hintsMinSolves: 0,
+  hintsUnlockAfterMin: 0,
+  scoringStartsAt: null,
+  updatedBy: null,
+  updatedAt: null,
+};
+
+/** `HINTS_AVAILABLE` (Upstash credentials present) is read at module load, so
+ *  each test re-imports the store with the env it needs.
+ *
+ *  `enabled` is NOT an env var any more — hints are switched from /admin, so
+ *  it maps to the stored `hintsEnabled` override and these tests exercise the
+ *  same path an organizer does. Absent means ON (HINT_DEFAULT_ENABLED). */
 async function loadStore(enabled = true, { creds = true }: { creds?: boolean } = {}): Promise<HintStore> {
   vi.resetModules();
-  vi.stubEnv("HINTS_ENABLED", enabled ? "true" : "false");
   vi.stubEnv("UPSTASH_REDIS_REST_URL", creds ? "https://fake.upstash.io" : "");
   vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", creds ? "fake-token" : "");
+  if (!enabled) {
+    mocks.getAdminSettings.mockResolvedValue({ ...BASE_SETTINGS, hintsEnabled: false });
+  }
   return import("@/lib/hint-store");
 }
 
@@ -44,18 +64,7 @@ beforeEach(() => {
   mocks.isModuleEnabled.mockReturnValue(true);
   // Default: no admin override present, so every test not exercising the
   // override sees only the baked env default (as before this override existed).
-  mocks.getAdminSettings.mockResolvedValue({
-    paused: false,
-    hintsEnabled: null,
-    hintCost: null,
-    // Gate off by default here so the purchase-path tests below stay focused
-    // on charging; the gate has its own describe block.
-    hintsMinSolves: 0,
-    hintsUnlockAfterMin: 0,
-    scoringStartsAt: null,
-    updatedBy: null,
-    updatedAt: null,
-  });
+  mocks.getAdminSettings.mockResolvedValue({ ...BASE_SETTINGS });
 });
 
 afterEach(() => {
@@ -133,24 +142,56 @@ describe("revealHint", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
-  it("is ON by default once Upstash creds exist — opting out takes HINTS_ENABLED=false", async () => {
-    vi.resetModules();
-    vi.stubEnv("HINTS_ENABLED", ""); // unset
-    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://fake.upstash.io");
-    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "fake-token");
-    const onByDefault = await import("@/lib/hint-store");
-    expect(onByDefault.HINTS_ENABLED).toBe(true);
+  it("is ON when the organizer has never touched the toggle — absent means default", async () => {
+    const store = await loadStore();
+    expect((await store.resolveHintConfig()).enabled).toBe(true);
 
     const off = await loadStore(false, { creds: true });
-    expect(off.HINTS_ENABLED).toBe(false);
+    expect((await off.resolveHintConfig()).enabled).toBe(false);
     const result = await off.revealHint("octocat", "juice-shop", "Challenge-1");
     expect(result).toEqual({ ok: false, error: "Hints are not enabled" });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
-  it("stays off with the flag but no Upstash creds — the hint text lives only in Upstash", async () => {
+  it("stays off without Upstash creds even when the organizer switches hints ON — capability beats policy", async () => {
     const store = await loadStore(true, { creds: false });
-    expect(store.HINTS_ENABLED).toBe(false);
+    expect(store.HINTS_AVAILABLE).toBe(false);
+    mocks.getAdminSettings.mockResolvedValue({ ...BASE_SETTINGS, hintsEnabled: true });
+    expect((await store.resolveHintConfig()).enabled).toBe(false);
+  });
+
+  // The regression this whole change exists for: the /admin toggle used to
+  // govern PURCHASING only, while these three read the env constant directly —
+  // so switching hints off blocked buying but left the hint buttons on the
+  // challenges page and the penalty column on the leaderboard.
+  it("turns OFF every read path, not just purchasing, when the organizer switches hints off", async () => {
+    // `getHintAvailability` swallows ANY error into `return {}`, and it reads
+    // through `fetch` rather than the mocked pipeline — so asserting only on
+    // its {} result passes even when the gate is missing and the un-mocked
+    // fetch blows up. Spy on fetch and on console.error so the assertions
+    // distinguish "refused because hints are off" from "tried and failed".
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not be called"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const off = await loadStore(false, { creds: true });
+      expect(await off.getViewerHints("octocat")).toEqual({ purchased: {}, spent: 0, count: 0 });
+      expect(await off.getHintPenalties()).toEqual(new Map());
+      expect(await off.getHintAvailability()).toEqual({});
+      // The decisive assertions: no read was even attempted, by either client.
+      expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      consoleError.mockRestore();
+    }
+  });
+
+  it("keeps every read path ON when the organizer has set no override", async () => {
+    const on = await loadStore();
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: null }]);
+    await on.getViewerHints("octocat");
+    expect(mocks.upstashPipeline).toHaveBeenCalled();
   });
 
   it("degrades to a friendly error when Upstash fails", async () => {

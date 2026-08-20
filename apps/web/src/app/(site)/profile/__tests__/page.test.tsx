@@ -52,7 +52,7 @@ vi.mock("@/lib/team-store", () => ({
   TEAM_MAX_MEMBERS: 4,
   TEAM_WRITES_ENABLED: false,
 }));
-vi.mock("@/lib/hint-store", () => ({ getViewerHints, getHintPenalties, HINTS_ENABLED: true }));
+vi.mock("@/lib/hint-store", () => ({ getViewerHints, getHintPenalties, HINTS_AVAILABLE: true }));
 // Partial mock: `isModuleEnabled` is what this page's gates call, but
 // `@/lib/site` reads `SECURE_AGENT_PLAYBOOK_URL` off this same module at
 // import time (the registry owns the constant; site.ts re-exports it as

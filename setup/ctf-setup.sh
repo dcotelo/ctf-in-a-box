@@ -1309,10 +1309,10 @@ wiz_event_yaml() {
   done
   # v1 placeholders — neither key is read at build time. Team play is always on
   # with a fixed 4-member cap, and hints are ON by default
-  # (apps/web/src/lib/hint-store.ts: HINTS_ENABLED is `!== "false"`) and tuned
-  # at runtime in /admin. `true` is therefore what the running app actually
-  # does; emitting `false` here only ever misled an organizer reading back
-  # their own config. Turn hints off for real with HINTS_ENABLED=false in .env.
+  # (apps/web/src/lib/hint-defaults.ts: HINT_DEFAULT_ENABLED) and tuned at
+  # runtime in /admin. `true` is therefore what the running app actually does;
+  # emitting `false` here only ever misled an organizer reading back their own
+  # config. Turn hints off for real with /admin's hint controls.
   printf 'teams: { enabled: true, max_size: 4 }\nhints: { enabled: true }\nadmins: [%s]\n' \
     "$(csv_of "$admins")"
 }

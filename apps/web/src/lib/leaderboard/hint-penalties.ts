@@ -1,5 +1,5 @@
 import "server-only";
-import { getHintPenalties, HINTS_ENABLED } from "@/lib/hint-store";
+import { getHintPenalties, HINTS_AVAILABLE } from "@/lib/hint-store";
 import { compareStanding } from "./rank";
 import type { LeaderboardData } from "./types";
 
@@ -27,7 +27,11 @@ import type { LeaderboardData } from "./types";
  * whole leaderboard.
  */
 export async function withHintPenalties(data: LeaderboardData): Promise<LeaderboardData> {
-  if (!HINTS_ENABLED) return data;
+  // Capability only — a deployment with no Upstash credentials skips the call
+  // entirely. Whether the organizer has hints ON is decided inside
+  // getHintPenalties (via resolveHintConfig), so this cannot disagree with the
+  // /admin toggle the way a second env read would.
+  if (!HINTS_AVAILABLE) return data;
 
   let penalties: Map<string, number>;
   try {

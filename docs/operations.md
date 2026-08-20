@@ -134,20 +134,16 @@ The panel offers:
 - **Team registration** — an open/close switch for the team-forming window.
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
-- **Hint controls** (Secure Development tab) — an override for whether hints are enabled and what
-  they cost, on top of the build-time default. Hints are **on by default** and
-  cost 10 points each. This override is also the *only* switch that works on
-  the composed stack: `HINTS_ENABLED=false` in `.env` never reaches the app
-  container — `docker-compose.yml`'s `app` service does not forward that
-  variable and `apps/web/Dockerfile` declares no build arg for it — so it
-  cannot turn hints off. This takes effect immediately for whether a hint
-  **can be bought**.
-  It does **not** currently change, live, whether the challenges page
-  **offers** the hint button, the hint-notice banner, or the leaderboard's
-  hint-penalty display — those still reflect whatever `HINTS_ENABLED` was
-  baked in at build time. See
-  [docs/architecture.md](architecture.md#organizer-admin-panel-runtime-overrides)
-  for the full breakdown of this limitation.
+- **Hint controls** (Secure Development tab) — whether hints are enabled and
+  what they cost. Hints are **on by default** and cost 10 points each. This is
+  the **only** hint switch: there is no environment variable, and the toggle
+  takes effect immediately across every surface — whether a hint **can be
+  bought**, whether the challenges page **offers** the button and its notice
+  banner, and whether the leaderboard shows the **hint-penalty** column.
+  Turning hints off does not forgive points already spent: the spend stays
+  recorded, so switching back on restores the penalties rather than wiping
+  them. The one thing the toggle cannot do is turn hints on without
+  `UPSTASH_REDIS_REST_*` credentials — the hint text lives only there.
 - **Hint gating** — two knobs that decide *who* may buy a hint and *when*,
   enforced server-side in `revealHint` (the API is the boundary; the UI only
   hides things):

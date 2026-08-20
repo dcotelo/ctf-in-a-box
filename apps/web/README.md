@@ -14,7 +14,7 @@ Pre-event, backend wired up. Core site, GitHub sign-in, leaderboard, profile, an
 - **Leaderboard** (`/leaderboard`) — public standings; sign in to highlight your own row. Backed by a swappable data-source adapter (see below).
 - **Profile** (`/profile`) — gated per-app progress across all six target apps.
 - **Teams** — join, create, or leave a team of up to **4 players**. Writes go to Upstash Redis and are entirely server-side (see below); without `TEAM_WRITES_ENABLED` they fall back to a per-browser cookie mock (flagged with a "mock mode" badge).
-- **Paid hints** (`/challenges`) — signed-in contestants can reveal a hint for any challenge at a fixed cost (**−10 points** by default, set per-event from the admin panel), deducted from their leaderboard score (see below). Signed-out visitors see a locked teaser. Hints are **on by default**; the switch that works on the composed stack is `/admin`'s hint controls, since `docker-compose.yml` does not forward `HINTS_ENABLED` to the `app` container.
+- **Paid hints** (`/challenges`) — signed-in contestants can reveal a hint for any challenge at a fixed cost (**−10 points** by default, set per-event from the admin panel), deducted from their leaderboard score (see below). Signed-out visitors see a locked teaser. Hints are **on by default** and are switched from `/admin`'s hint controls — one switch, live and persisted in Redis. There is no environment variable for it.
 - **Six real targets** — Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI, covering the OWASP Web and API Top 10.
 
 ## Tech Stack
@@ -52,9 +52,8 @@ Copy `.env.example` to `.env.local` and fill in real values — none of these sh
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth app credentials — create one under the org's GitHub settings with callback `<BETTER_AUTH_URL>/api/auth/callback/github` |
 | `LEADERBOARD_SOURCE` | No | `mock` (default) \| `lambda` \| `upstash` — selects the leaderboard data adapter |
 | `LEADERBOARD_API_URL` | Only if `LEADERBOARD_SOURCE=lambda` | Base URL of the scoring API — serves `/leaderboard` (used by the lambda source) and `/challenges` (live challenge catalogue on the challenges page; without it the page shows static fallback cards) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, `HINTS_ENABLED=true`, or `CHALLENGES_GATE_ENABLED=true` | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, `CHALLENGES_GATE_ENABLED=true`, or you want paid hints (hint text lives only in Upstash, so without these hints cannot work at all) | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
 | `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
-| `HINTS_ENABLED` | No | Paid hints on `/challenges` are **on** unless this is set to `false` (needs the Upstash vars). Note `docker-compose.yml` does not pass this through to the `app` service, so it has no effect on the composed stack — use `/admin`'s hint controls there |
 | `CHALLENGES_GATE_ENABLED` | No | `true` locks every enabled module's page (`/challenges`, `/quiz`, `/flags`) behind the pre-event password gate — the proxy covers pages, and the module APIs that bank points run their own check; see [Pre-event challenges gate](#pre-event-challenges-gate) |
 | `CHALLENGES_GATE_PASSWORD` | Only if `CHALLENGES_GATE_ENABLED=true` | The shared access password. Server-side only; the gate stays open if this is unset |
 
@@ -155,7 +154,7 @@ These rules are covered by `pnpm test` — unit tests with Upstash mocked, plus 
 
 ## Hints
 
-Hint text lives in the scorer-owned Upstash hashes `hints:<app>` (field = challenge catalogue id, value = hint text). When `HINTS_ENABLED=true` (and the `UPSTASH_REDIS_REST_*` vars are set), each challenge row on `/challenges` with a hint gets a reveal control: signed-out visitors see a locked teaser, signed-in contestants confirm and pay the configured hint cost (`hintCost` in the admin settings, **10 points** if unset). Re-viewing a bought hint is always free — charging is idempotent inside a single Lua `EVAL` (a double-click or race can't charge twice), and it's keyed by the server-derived session login, so nothing client-side can spend someone else's points.
+Hint text lives in the scorer-owned Upstash hashes `hints:<app>` (field = challenge catalogue id, value = hint text). When hints are enabled in `/admin` (and the `UPSTASH_REDIS_REST_*` vars are set), each challenge row on `/challenges` with a hint gets a reveal control: signed-out visitors see a locked teaser, signed-in contestants confirm and pay the configured hint cost (`hintCost` in the admin settings, **10 points** if unset). Re-viewing a bought hint is always free — charging is idempotent inside a single Lua `EVAL` (a double-click or race can't charge twice), and it's keyed by the server-derived session login, so nothing client-side can spend someone else's points.
 
 Purchases are recorded under the site's `ctf:` namespace, which the scorer never rewrites — penalties survive re-scores:
 

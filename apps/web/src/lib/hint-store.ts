@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminSettings } from "@/lib/admin-store";
+import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
 import { apps, appsById, type AppId } from "@/lib/apps";
 import { isModuleEnabled } from "@/lib/modules";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
@@ -24,14 +25,21 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
  *  count), so purchases made before a price change keep their old price. */
 export const HINT_COST = 10;
 
-/** Master switch for paid hints: ON by default — set HINTS_ENABLED=false to
- *  opt out entirely. (Organizers who want hints dark until mid-event should
- *  use the gate below rather than this switch; see `hintGate`.) The hint text
- *  lives only in Upstash, so credentials must also be present (read/write —
- *  revealing writes to Redis, already required for TEAM_WRITES_ENABLED). */
-export const HINTS_ENABLED =
-  process.env.HINTS_ENABLED !== "false" &&
-  Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+/** CAPABILITY, not policy: whether hints *can* work at all here. Hint text
+ *  lives only in Upstash, so without credentials there is nothing to read and
+ *  nothing to charge for — no organizer setting can make hints function.
+ *  (Read/write is needed, since revealing writes to Redis; that is already
+ *  required for TEAM_WRITES_ENABLED.)
+ *
+ *  Policy — whether an organizer WANTS hints on — is a separate question,
+ *  answered by `/admin` on top of `HINT_DEFAULT_ENABLED`. Keeping the two
+ *  apart is what lets every read path below ask one question and get the same
+ *  answer. Check this first where it saves a Redis round-trip: a deployment
+ *  with no credentials can never have hints, so there is no point reading
+ *  settings to find that out. */
+export const HINTS_AVAILABLE = Boolean(
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN,
+);
 
 /** Default anti-burner gate: you must have solved at least this many
  *  challenges ON THE TARGET before you may buy that target's hints.
@@ -80,7 +88,14 @@ export type RevealResult =
 
 /** Resolves the effective hint config for this request: an admin override
  *  (Task 1's `getAdminSettings`) wins when set, else the baked default.
- *  `??` (not `||`) so an explicit `false`/`0` override beats an "on" default. */
+ *  `??` (not `||`) so an explicit `false`/`0` override beats an "on" default.
+ *
+ *  This is the SINGLE answer to "are hints on right now". Every read path
+ *  goes through it — purchase, page furniture, and leaderboard penalties
+ *  alike — so the /admin toggle cannot be true for one and false for another.
+ *  It previously governed purchasing only, while three other paths consulted
+ *  a module-level env constant, so turning hints off blocked buying but left
+ *  the buttons and the penalty column on screen. */
 export async function resolveHintConfig(): Promise<{
   enabled: boolean;
   cost: number;
@@ -90,7 +105,9 @@ export async function resolveHintConfig(): Promise<{
 }> {
   const s = await getAdminSettings();
   return {
-    enabled: s.hintsEnabled ?? HINTS_ENABLED,
+    // Capability AND policy. An organizer can turn hints off; no organizer
+    // setting can turn them on without the credentials that store the text.
+    enabled: HINTS_AVAILABLE && (s.hintsEnabled ?? HINT_DEFAULT_ENABLED),
     cost: s.hintCost ?? HINT_COST,
     minSolves: s.hintsMinSolves ?? HINT_MIN_SOLVES,
     unlockAfterMin: s.hintsUnlockAfterMin ?? HINT_UNLOCK_AFTER_MIN,
@@ -214,7 +231,9 @@ export type ViewerHints = {
 const NO_HINTS: ViewerHints = { purchased: {}, spent: 0, count: 0 };
 
 export async function getViewerHints(login: string): Promise<ViewerHints> {
-  if (!HINTS_ENABLED) return NO_HINTS;
+  // Cheap capability check first — no credentials means no settings read.
+  if (!HINTS_AVAILABLE) return NO_HINTS;
+  if (!(await resolveHintConfig()).enabled) return NO_HINTS;
 
   const [members, spentRes] = await upstashPipeline([
     ["SMEMBERS", userHintsKey(login)],
@@ -249,7 +268,10 @@ export async function getViewerHints(login: string): Promise<ViewerHints> {
 
 /** Penalty points per login — one HGETALL serves the whole leaderboard. */
 export async function getHintPenalties(): Promise<Map<string, number>> {
-  if (!HINTS_ENABLED) return new Map();
+  if (!HINTS_AVAILABLE) return new Map();
+  // Hints off => no penalty column. Already-spent points stay recorded in
+  // Redis, so re-enabling restores them rather than forgiving them.
+  if (!(await resolveHintConfig()).enabled) return new Map();
 
   const [res] = await upstashPipeline([["HGETALL", SPENT_KEY]]);
   const flat = Array.isArray(res.result) ? (res.result as string[]) : [];
@@ -281,7 +303,8 @@ async function cachedHkeys(key: string): Promise<string[]> {
  *  safe to bake into the static challenges page. Degrades to {} on any
  *  failure so the page renders without the hint layer. */
 export async function getHintAvailability(): Promise<Partial<Record<AppId, string[]>>> {
-  if (!HINTS_ENABLED) return {};
+  if (!HINTS_AVAILABLE) return {};
+  if (!(await resolveHintConfig()).enabled) return {};
   try {
     const ids = await Promise.all(apps.map((app) => cachedHkeys(hintHashKey(app.id))));
     const availability: Partial<Record<AppId, string[]>> = {};

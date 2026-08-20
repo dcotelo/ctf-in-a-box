@@ -5,7 +5,7 @@ import ChallengeGrid from "@/components/challenge-grid";
 import HintNotice from "@/components/hint-notice";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
-import { getHintAvailability, HINTS_ENABLED, HINT_COST } from "@/lib/hint-store";
+import { getHintAvailability, resolveHintConfig } from "@/lib/hint-store";
 import { isModuleEnabled } from "@/lib/modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
@@ -50,10 +50,13 @@ export default async function ChallengesPage() {
   // the root layout resolves module names per request, so every route under it
   // does (see resolved-modules.ts) — the caching just keeps these two reads
   // off Redis/GitHub on each of those renders.
-  const [catalog, hintAvailability, title] = await Promise.all([
+  const [catalog, hintAvailability, title, hints] = await Promise.all([
     getChallengeCatalog(),
     getHintAvailability(),
     pageTitle(),
+    // The banner must agree with the /admin toggle and show the organizer's
+    // configured price, not the hardcoded default the grid already ignores.
+    resolveHintConfig(),
   ]);
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -65,7 +68,7 @@ export default async function ChallengesPage() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Targets" title={title} description={description} />
-      <HintNotice active={HINTS_ENABLED} cost={HINT_COST} />
+      <HintNotice active={hints.enabled} cost={hints.cost} />
       <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={hintAvailability} />
     </div>
   );

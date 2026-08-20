@@ -23,9 +23,9 @@ for (const file of [path.resolve(process.cwd(), ".env.local")]) {
   }
 }
 const configured = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-// The suite exercises the reveal Lua script, not the HINTS_ENABLED gate — the
+// The suite exercises the reveal Lua script, not the enabled gate — the
 // gate has its own unit tests. Opt in explicitly so the store loads enabled.
-if (configured) process.env.HINTS_ENABLED = "true";
+
 
 const RUN = Date.now().toString(36);
 const PLAYER = `vt-${RUN}-hints-p1`;
