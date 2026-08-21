@@ -313,5 +313,13 @@ ENV
   printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
     --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
   # It holds every secret the event has; 644 would be a leak on a shared box.
-  [ "$(stat -f '%Lp' "$BATS_TEST_TMPDIR/generated" 2>/dev/null || stat -c '%a' "$BATS_TEST_TMPDIR/generated")" = "600" ]
+  #
+  # GNU `stat -c` FIRST, BSD `stat -f` as the fallback, and the order is the
+  # whole point: `-c` is an invalid option on BSD and exits nonzero, so the
+  # fallback fires cleanly on macOS. The reverse order silently breaks on
+  # Linux — there `-f` is valid but means "filesystem status", so it SUCCEEDS
+  # with unrelated output and the fallback never runs. That is how this test
+  # passed locally and failed in CI.
+  mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/generated" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/generated")"
+  [ "$mode" = "600" ]
 }
