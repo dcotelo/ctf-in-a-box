@@ -84,7 +84,7 @@ export default async function FlagsPage() {
   // Drives the empty state's authoring route only — same check `/admin` and
   // every `/api/admin/*` route gate on, so a link is never offered to someone
   // the admin page would then 403 at. Mirrors quiz/page.tsx.
-  const viewerIsAdmin = isAdminLogin(login);
+  const viewerIsAdmin = await isAdminLogin(login);
 
   const [challenges, categories, solveCounts, viewerClassic, settings, modules] = await Promise.all([
     listChallenges(),

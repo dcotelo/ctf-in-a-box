@@ -54,9 +54,13 @@ Anyone listed in `event.yaml`'s `admins` (checked case-insensitively against
 their GitHub login) can sign in and reach `/admin` — everyone else gets a
 403, on both the page and its API routes.
 
+Those are the **bootstrap** admins: baked into the image, so changing them
+needs a rebuild. Everyone else is granted from the panel itself, on the
+**Admins** tab, and takes effect immediately (see below).
+
 The controls are grouped into **tabs**: an **Event** tab for the settings that
 belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), then **one tab per enabled module**, labelled with that
+seed, master reset), an **Admins** tab, then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all. The
 tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
@@ -258,6 +262,37 @@ points/solved/solve-count hashes the leaderboard reads) but deliberately
 same organizer content/contestant progress line the quiz reset draws. A
 rehearsal on the `classic` module wipes back to the challenge set you wrote,
 ready to run for real. See [Classic](#classic) below.
+
+### Adding and removing admins
+
+The **Admins** tab grants organizer access at runtime. Type a GitHub login,
+press *Add admin*, and they can reach `/admin` immediately — no rebuild, no
+redeploy, no `event.yaml` edit.
+
+Two kinds of admin appear in the list:
+
+| Source | Where it lives | Removable from the panel? |
+| --- | --- | --- |
+| `event.yaml`'s `admins` | baked into the image at build time | **no** — marked `event.yaml` |
+| Added on this tab | `ctf:admin:admins` in Redis | yes |
+
+**A baked admin cannot be revoked here, and that is the point.** It is the
+recovery path: no sequence of clicks, and no compromised admin session, can
+lock every organizer out of the panel. If you genuinely need to remove one,
+edit `event.yaml` and rebuild — the same cost as adding one used to be.
+
+You *can* remove yourself, and the panel asks first. It is safe because a
+baked admin always remains.
+
+Only an admin can create an admin; there is no self-service path in. Every
+grant and revocation is written to the same audit log as the rest of the
+panel's changes, recording who did it and when.
+
+**If Redis is unavailable**, runtime grants stop resolving and those admins
+get a 403 — the access check fails **closed**, deliberately, and deliberately
+unlike the freeze read, which fails *open* so a Redis blip cannot drop live
+submissions. A baked admin still gets in, because that check never touches
+Redis at all — which is exactly when you most need the panel.
 
 ## Quiz
 

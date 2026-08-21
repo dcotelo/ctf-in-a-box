@@ -17,14 +17,46 @@ import { eventConfig } from "@/lib/event-config";
 // server-side in requireAdmin(), so showing the item to a non-admin — or
 // hiding it from an admin — never grants or denies access, it only affects
 // the menu. Mirrors admin-auth.ts's case-insensitive compare.
+//
+// BAKED ONLY, and that is why the effect below exists: admins granted at
+// runtime (issue #147) live in Redis, which a Client Component cannot read.
+// The baked check answers instantly and covers the organizer; anyone else
+// needs the round-trip.
 const adminSet = new Set(eventConfig.admins.map((a) => a.toLowerCase()));
-const isAdminLogin = (login: string | undefined) =>
+const isBakedAdmin = (login: string | undefined) =>
   typeof login === "string" && adminSet.has(login.toLowerCase());
 
 export default function AuthNav() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Keyed by login so switching accounts cannot carry the previous viewer's
+  // answer over. `null` = not asked yet.
+  const [granted, setGranted] = useState<{ login: string; admin: boolean } | null>(null);
+
+  const login = (session?.user as { login?: string } | undefined)?.login;
+  const baked = isBakedAdmin(login);
+
+  // Asked WHEN THE MENU OPENS, not on mount, and only when the baked list has
+  // not already answered yes. A baked admin — the common case, and the only
+  // one on a fresh event — never makes the request at all, and nobody makes it
+  // just by loading a page. `/api/me/admin` returns one boolean about the
+  // caller and nothing else; see that route for why it is not admin-gated.
+  //
+  // In a handler rather than an effect deliberately: this is a response to a
+  // user action, not synchronisation with an external system.
+  async function ensureAdminChecked() {
+    if (!login || baked || granted?.login === login) return;
+    try {
+      const res = await fetch("/api/me/admin");
+      const data = (res.ok ? await res.json().catch(() => ({})) : {}) as { admin?: boolean };
+      setGranted({ login, admin: data.admin === true });
+    } catch {
+      // Menu visibility only: a failed check hides the link, which is the safe
+      // direction and costs a runtime admin one extra navigation.
+      setGranted({ login, admin: false });
+    }
+  }
 
   if (isPending) {
     return <div className="h-8 w-8 flex-none animate-pulse rounded-full bg-white/[0.06]" aria-hidden="true" />;
@@ -42,28 +74,31 @@ export default function AuthNav() {
     );
   }
 
-  const login = (session.user as { login?: string }).login ?? session.user.name;
-  const showAdmin = isAdminLogin((session.user as { login?: string }).login);
+  const displayName = login ?? session.user.name;
+  const showAdmin = baked || (granted !== null && granted.login === login && granted.admin);
 
   return (
     <div className="relative flex-none">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => !v);
+          void ensureAdminChecked();
+        }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-expanded={open}
         aria-haspopup="menu"
         className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
       >
         <Image
-          src={session.user.image ?? `https://avatars.githubusercontent.com/${login}`}
+          src={session.user.image ?? `https://avatars.githubusercontent.com/${displayName}`}
           alt=""
           width={26}
           height={26}
           className="rounded-full border border-white/10"
           unoptimized
         />
-        <span className="hidden font-mono text-xs text-zinc-300 sm:inline">{login}</span>
+        <span className="hidden font-mono text-xs text-zinc-300 sm:inline">{displayName}</span>
       </button>
 
       {open && (

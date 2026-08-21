@@ -134,6 +134,7 @@ export default async function AdminPage({
           demoMode={process.env.DEMO_MODE === "1"}
           modules={modules}
           initialTab={tabParam(params)}
+          viewerLogin={gate.login}
         />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">

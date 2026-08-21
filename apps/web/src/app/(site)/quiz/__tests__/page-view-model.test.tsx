@@ -34,6 +34,12 @@ const { isModuleEnabled, getSession, listQuestions, getViewerQuiz, getAdminSetti
 const captured: { questions: Record<string, unknown>[] } = { questions: [] };
 
 vi.mock("server-only", () => ({}));
+// Runtime admin grants (issue #147) put a Redis read behind the page's
+// admin-link check for any signed-in viewer. Mocked to empty here: this suite
+// is about the view model's fields, and an unmocked SMEMBERS turns it into a
+// test of the datastore.
+vi.mock("@/lib/admin-admins", () => ({ listStoredAdmins: async () => [] }));
+
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));

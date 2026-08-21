@@ -2050,3 +2050,58 @@ structured contract shared by three readers (the app's generator,
 `sync/src/config.js`, `ctf-setup.sh`) with nested per-module configuration, and
 the generator's env-only path already demonstrates what flattening it costs:
 one module, no per-module settings, targets as a comma-separated string.
+
+## 44. Runtime admin grants, with the baked list as the recovery path
+
+**Status.** Accepted. Implements issue #147.
+
+**Context.** `admins` was baked into the app image at build time from
+`event.yaml`. Adding a co-organizer meant editing that file, rebuilding the
+image and redeploying — minutes on a hosted deployment, and a full
+`docker compose build app` on a box. That is the wrong cost for a routine act
+during an event, and it made one baked login a single point of failure: if it
+could not sign in, nobody could reach `/admin` at all.
+
+**Decision.** `event.yaml`'s `admins` becomes the **bootstrap** set. Further
+admins are granted from `/admin` itself, stored in a Redis set
+(`ctf:admin:admins`), and effective immediately. An admin is baked ∪ stored.
+
+**A baked admin cannot be revoked through the panel.** That single rule is what
+makes the feature safe to hand to a co-organizer: no sequence of clicks, and no
+compromised admin session, can lock every organizer out. Recovery is always
+"the login in `event.yaml` still works". Revoking one is a rebuild, on purpose.
+
+**The access check fails CLOSED, and that is the opposite of the freeze read.**
+`requireAdmin` catches a store failure and returns 403 rather than letting an
+empty list read as "not an admin" for the wrong reason. `effectivePaused` in
+`admin-store.ts` deliberately fails **open**, so a Redis blip cannot drop live
+submissions. Both are correct: one is a safety switch whose failure must not
+stop an event, the other an access check whose failure must not grant access.
+The two behaviours now carry comments pointing at each other.
+
+The baked check runs **before** Redis is touched, so an organizer listed in
+`event.yaml` can still reach the panel while the datastore is down — which is
+when they are most likely to need it.
+
+**Consequences.**
+
+The read lives in its own module, `lib/admin-admins.ts`. Putting it in
+`admin-store.ts` made `admin-auth.ts` — which is on the authorization path for
+every gated route and Server Component — pull in the whole admin surface and,
+through it, the module registry. That surfaced first as an unrelated test
+blowing up on a mock; the expensive version is an import cycle found later.
+
+`isAdminLogin` is now async, which makes `/flags` and `/quiz` do one extra
+Redis read per **signed-in** render to decide whether to offer admin authoring
+links. Signed-out renders short-circuit before it, and both pages already batch
+several Redis reads, so the marginal cost is one `SMEMBERS` on pages that were
+never static for a signed-in viewer.
+
+The header's admin link is rendered by a Client Component, which cannot read
+Redis. It keeps the baked check — instant, and correct for the organizer — and
+asks `/api/me/admin` only when the baked list says no, and only when the menu
+is actually opened. That route discloses one boolean about the caller and no
+list at all, which is why it is not itself admin-gated: `requireAdmin` on it
+would make it useless for the only question it answers. Menu visibility has
+never been the gate (`requireAdmin` is), so a failed check hides a link rather
+than granting one.
