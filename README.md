@@ -2,16 +2,16 @@
 
 <p align="center">
   <em>A self-hosted control plane for security-learning events — one box, one free GitHub org.<br>
-  Three modules ship today: patch-to-score, quiz, and classic flags. Run one, or all three: for a university, a high school, an OWASP chapter, a meetup.</em>
+  Run it for a university, a high school, an OWASP chapter, a meetup.</em>
 </p>
 
 <p align="center">
   <a href="https://github.com/dcotelo/ctf-in-a-box/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/dcotelo/ctf-in-a-box/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://dcotelo.github.io/ctf-in-a-box/"><img alt="docs" src="https://img.shields.io/badge/docs-github%20pages-blue"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-green"></a>
-  <img alt="6 targets" src="https://img.shields.io/badge/targets-6-brightgreen">
-  <img alt="321 challenges" src="https://img.shields.io/badge/challenges-321-brightgreen">
-  <img alt="requires docker compose v2" src="https://img.shields.io/badge/requires-docker%20compose%20v2-lightgrey">
+  <a href="LICENSE"><img alt="license MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
+  <img alt="3 modules" src="https://img.shields.io/badge/modules-3-blue">
+  <img alt="secure development module: 6 targets, 321 challenges" src="https://img.shields.io/badge/secure%20dev-6%20targets%20%C2%B7%20321%20challenges-brightgreen">
+  <img alt="requires docker compose v2 and the gh CLI" src="https://img.shields.io/badge/requires-docker%20compose%20v2%20%2B%20gh-lightgrey">
   <img alt="no cloud" src="https://img.shields.io/badge/cloud-none-informational">
 </p>
 
@@ -19,46 +19,80 @@
   <strong>This CTF was built for a conference. This kit is for everyone else.</strong>
 </p>
 
-**CTF-in-a-box is a control plane, not a single game.** It gives an event its
-shared spine — a GitHub org, team registration, a live leaderboard, an
-organizer admin panel, and the scoring pipeline that feeds it — and **modules**
-plug challenge content into that spine. Three modules ship today: the
-**OWASP Secure Development CTF** (the most involved: fork-patch-PR
-scored by GitHub Actions), **Quiz** (a self-paced single/multi-select
-question bank, scored entirely inside the app), and **Classic CTF** (a
-jeopardy-style flag board — organizer-authored challenges, each hiding a
-flag, graded the instant a contestant submits it, also scored entirely
-inside the app). Any subset can run alone or together, and the box is built
-to host further modules (forensics, API-security, cloud, …) on the same
-spine as they land. The
-[module contract](docs/modules.md) is the boundary between the two. What
-follows describes the platform in depth and the Secure Development module,
-the most involved of the three — see docs/operations.md's
-[Quiz](docs/operations.md#quiz) and [Classic](docs/operations.md#classic)
-sections for those two modules' organizer guides.
+## What this is
 
-The OWASP Secure Development CTF teaches defence rather than attack: a
-contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
-and opens a pull request. A GitHub Action scores the patch and the score lands
-on a leaderboard. It is a genuinely good way to teach secure coding — and until
-now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB, holding
-the cloud bill, and having access to a private scoring image.
+**A control plane, not a single game.** The box gives an event its shared
+spine — a GitHub org, team registration, a live leaderboard, an organizer
+admin panel, and the scoring pipeline that feeds it. **Modules** plug
+challenge content into that spine, and any subset can run alone or together:
 
-That is a reasonable ask for a conference with a budget. It is an unreasonable
-ask for a university security course, a high-school club, an OWASP chapter
-night, or a weekend workshop.
+| Module | How it's played | How it's scored |
+|---|---|---|
+| **Secure Development** | Fork a deliberately vulnerable app, find the flaw, **patch** it, open a PR | A GitHub Action runs the rubric against the patch |
+| **Quiz** | Answer single- and multi-select security questions | Graded in the app, instantly — no GitHub needed |
+| **Classic CTF** | Find the flag on a jeopardy-style board, submit the string | Graded in the app, instantly — no GitHub needed |
+
+The [module contract](docs/modules.md) is the boundary between spine and
+content, so the box is built to host further modules — forensics,
+API-security, cloud — as they land.
+
+**Why it exists.** The Secure Development CTF teaches defence rather than
+attack, and it is a genuinely good way to teach secure coding. Until now,
+running one meant standing up Vercel, Upstash, Lambda and DynamoDB, holding
+the cloud bill, and having access to a private scoring image. That is a
+reasonable ask for a conference with a budget. It is an unreasonable ask for
+a university security course, a high-school club, an OWASP chapter night, or
+a weekend workshop.
 
 This kit removes it. Everything runs from Docker Compose on one machine you
 already have — a laptop, a spare desktop, a small VPS — plus one free GitHub
-org for the forks. The rubrics for all six targets ship inside the box, so there
-is no private image to request and no scoring code to write. Nothing is billed,
-nothing phones home, and when the event ends you archive the repos and stop the
-stack.
+org for the forks. The rubrics for all six targets ship inside the box, so
+there is no private image to request and no scoring code to write. Nothing is
+billed, nothing phones home, and when the event ends you archive the repos
+and stop the stack.
 
-**Who this is for:** anyone who wants to run this event and does not want to
+**Who it's for:** anyone who wants to run this event and does not want to
 become a cloud operator to do it — course instructors, club organizers, OWASP
 chapter leads, workshop facilitators, security teams running an internal
 training day.
+
+<p align="center">
+  <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
+</p>
+
+## Quickstart
+
+You need **Docker with Compose v2**, the **[`gh` CLI](https://cli.github.com)**
+(authenticated), **`openssl`**, and **one free GitHub org** for the event.
+`./setup/ctf-setup.sh check` verifies all of it before you start.
+
+**Then just run the wizard.** It asks for each value as it goes — your box
+URL, the event details, which modules to run, the GitHub App + OAuth
+credentials — shows the instructions and GitHub link for each, writes `.env`
+and `event.yaml` for you, does every automatable step, guides you through the
+GitHub-UI ones, and resumes if you stop and come back. It asks only what the
+modules you enabled actually need, so a quiz-only event is never asked to
+pick vulnerable apps:
+
+```sh
+./setup/ctf-setup.sh            # guided, prompts for values, resumable
+```
+
+<p align="center">
+  <img alt="The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts" src="docs/assets/wizard.jpg" width="820">
+</p>
+
+That takes you from an empty checkout to a running, scored event. Preview any
+mutating step first with `--dry-run`. Once provisioned,
+`./setup/ctf-setup.sh doctor` shows a per-fork status matrix so you can see
+the whole org at a glance.
+
+**Want the details?** Every discrete subcommand, each UI-only step, and how
+the two GitHub apps differ:
+[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event).
+
+**On a cloud VM instead?** [docs/aws.md](docs/aws.md) ships a Terraform module
+for a single-shot AWS deploy — `terraform apply` up, `terraform destroy` down.
 
 ## What you get
 
@@ -73,30 +107,27 @@ training day.
 | **Poll or push** | Poll mode (default) has zero inbound network surface — works behind NAT, on a laptop, on venue wifi. Push mode is near-instant if you have a public URL. |
 | **One box, no cloud** | Runs from Docker Compose on a machine you already have, plus one free GitHub org. Nothing is billed, nothing phones home. |
 
-**The Secure Development module** — graded through GitHub, not in the app:
+**Secure Development** — graded through GitHub, not in the app:
 
 | Feature | What it means for you |
 |---|---|
 | **Patch-to-score scoring** | Contestants patch the vulnerability and open a PR; the pipeline scores the patch. Stock scores 0, a correct patch earns its points — gated both ways. |
 | **6 targets, 321 challenges** | Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp and VAmPI. Rubrics ship in the box — no private image to request, no scoring code to write. |
 
-**The Quiz module** — a self-paced question bank, graded in the app:
+**Quiz** — a self-paced question bank, graded in the app:
 
 | Feature | What it means for you |
 |---|---|
 | **Instant grading, no GitHub** | Single- or multi-select questions marked the moment they are answered, all-or-nothing on multi-select. Needs no forks, no org provisioning and no scoring pipeline. |
 | **Authored from `/admin`** | Prompt, choices, correct answers, points and order — with a global attempt cap and retry cooldown. Changes are live on the next request; no rebuild. |
+| **Bulk authoring** | Author one question at a time, or import and export the whole bank as one JSON bundle — the same versioned format the classic board uses. |
 
-**The Classic CTF module** — a jeopardy-style flag board, graded in the app:
+**Classic CTF** — a jeopardy-style flag board, graded in the app:
 
 | Feature | What it means for you |
 |---|---|
 | **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge point values. Submissions are normalised before comparison, so casing and stray whitespace never cost someone a solve. |
 | **Rich descriptions, bulk authoring** | Descriptions take a sanitised Markdown subset — links, formatting, code. Author one at a time in `/admin`, or import and export the whole board as a single JSON bundle. |
-
-<p align="center">
-  <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
-</p>
 
 | Contestant breakdown | Challenge browser |
 |---|---|
@@ -110,42 +141,12 @@ solved by more than one teammate counts <strong>once</strong>, so a team's total
 less than its members' individual scores added up. Branding is the neutral "OWASP CTF"
 default — the event name, targets, and links are all event-config driven.</sup>
 
-## Quickstart
+## Secure Development: targets and rubrics
 
-**Just run the wizard.** It asks for each value as it goes — your box URL, the
-event details, which modules to run, the GitHub App + OAuth credentials — shows
-the instructions and GitHub link for each, writes `.env` and `event.yaml` for
-you, does every automatable step, guides you through the GitHub-UI ones, and
-resumes if you stop and come back. It asks only what the modules you enabled
-actually need, so a quiz-only event is never asked to pick vulnerable apps:
-
-```sh
-./setup/ctf-setup.sh            # guided, prompts for values, resumable
-```
-
-<p align="center">
-  <img alt="The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts" src="docs/assets/wizard.jpg" width="820">
-</p>
-
-That takes you from an empty checkout to a running, scored event. Preview any
-mutating step first by adding `--dry-run`. When it's provisioned,
-`ctf-setup.sh doctor` shows a per-fork status matrix so you can see the whole
-org at a glance.
-
-**Want the details?** The full walkthrough — every discrete subcommand, each
-UI-only step, and how the two GitHub apps differ — lives in
-[docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event).
-
-Running on a cloud VM instead of your own machine? [docs/aws.md](docs/aws.md)
-ships a Terraform module for a single-shot AWS deploy — `terraform apply` up,
-`terraform destroy` down.
-
-## The Secure Development module: targets and rubrics
-
-The Secure Development module's content is a set of vulnerable **targets** and their
-scoring **rubrics**. Contestants pick a target, fork the org's copy, patch it,
-and open a PR. Each target's challenges are executable `node:test` suites,
-priced by difficulty.
+This module's content is a set of vulnerable **targets** and their scoring
+**rubrics**. Contestants pick a target, fork the org's copy, patch it, and
+open a PR. Each target's challenges are executable `node:test` suites, priced
+by difficulty.
 
 | Target | Challenges | Points | Notes |
 |---|---:|---:|---|
@@ -155,13 +156,15 @@ priced by difficulty.
 | `securityshepherd` | 40 | 79 | HTTPS, three-container stack, strictly serial |
 | `juice-shop` | 38 | 141 | The only target whose difficulty runs to 6 stars |
 | `vampi` | 9 | 16 | Self-contained; the quickest end-to-end proof |
+| **Total** | **321** | **668** | Enable any subset in `modules.secure-development.targets` |
 
-<sup>Challenge/points counts are maintained by hand — re-check them after a
-`vendor-rubric.sh` bump. Reference **patches** that prove a correct fix scores
-(the positive-direction gate) live separately under [`patches/`](patches/README.md).</sup>
+<sup>Counts are maintained by hand and pinned to the vendored rubric by
+<code>apps/web/src/lib/__tests__/apps-catalogue.test.ts</code> — re-check them
+after a <code>vendor-rubric.sh</code> bump. Reference <strong>patches</strong>
+that prove a correct fix scores (the positive-direction gate) live separately
+under <a href="patches/README.md"><code>patches/</code></a>.</sup>
 
-Enable any subset in `modules.secure-development.targets`. The rubrics live in
-`scorer/rubric.owasp/`, vendored from
+The rubrics live in `scorer/rubric.owasp/`, vendored from
 [OWASP-CTF/dc34-owasp-secure-development-ctf](https://github.com/OWASP-CTF/dc34-owasp-secure-development-ctf)
 and pinned to a single upstream commit recorded in
 `scorer/rubric.owasp/PROVENANCE.md`. Re-vendor against a newer commit with:
@@ -176,8 +179,8 @@ grammar, and `<target>/tests/challenges/` directories use executable tests
 priced by `catalogue.<target>.json`. Authoring guide:
 [docs/scorer.md](docs/scorer.md).
 
-**On rubric secrecy.** These rubrics are public. The targets are open source and
-their solutions are already published, so the kit treats rubric privacy as
+**On rubric secrecy.** These rubrics are public. The targets are open source
+and their solutions are already published, so the kit treats rubric privacy as
 protection against check-gaming rather than against knowing the answers — an
 accepted trade-off for a self-hosted event. Override with your own private
 rubric at any time:
@@ -189,40 +192,31 @@ docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 
 `scorer/rubric/` is gitignored and reserved for exactly this.
 
-## Teams
-
-Scoring is per team. Contestants self-register in the app — create a team to
-become its captain and get a join code, or join an existing team by code.
-Everyone ends up on a team; a solo player is simply a team of one. Captains
-manage the roster from the app (rename, remove a member, transfer the
-captaincy, regenerate the join code, or disband), and team size is capped at
-four members. The leaderboard ranks **teams**, each row
-expanding to its members and their individual points — and a flag solved by
-several teammates counts **once**, so a team's total can be lower than its
-members' scores added up. Organizers open or close registration from the admin
-panel. Full details: [docs/operations.md](docs/operations.md#teams).
-
 ## Running an event
 
 Once the stack is up at your `EVENT_URL`:
 
-- Contestants sign in with GitHub, form or join a team, pick a target, fork it,
-  patch the vuln, and open a PR back to the org's copy. The scoring Action runs
-  and the score lands on the team leaderboard (~30 s in poll mode). That is the
-  secure-development flow; quiz and classic events are played entirely in the
-  app.
-- Watch the poller: `docker compose logs -f sync` — poll mode only, and only
-  with `secure-development` enabled (`sync` runs under the `poll` profile). All
-  state lives in named Docker volumes, so a box reboot loses nothing.
-- Manage the event from `/admin` (allowlisted): freeze the leaderboard, toggle
-  hints, open/close team registration.
-- When it's over, `./setup/ctf-setup.sh teardown` archives the target repos —
-  then uninstall the GitHub App and delete the org's Actions secrets yourself.
-  An event without `secure-development` has no forks to archive.
+- **Contestants** sign in with GitHub and form or join a team — create one to
+  become its captain and get a join code, or join an existing team by code.
+  Everyone ends up on a team; a solo player is a team of one, and teams cap at
+  four members. Then they play whichever modules you enabled: patch-and-PR for
+  secure development (the score lands ~30 s later in poll mode), or answer and
+  submit in the app for quiz and classic.
+- **Organizers** drive `/admin`: freeze the leaderboard, open and close team
+  registration, set the schedule, toggle hints, and author quiz questions and
+  classic challenges.
+- **Watch the poller** with `docker compose logs -f sync` — poll mode only, and
+  only with `secure-development` enabled (`sync` runs under the `poll`
+  profile). All state lives in named Docker volumes, so a box reboot loses
+  nothing.
+- **When it's over**, `./setup/ctf-setup.sh teardown` archives the target
+  repos — then uninstall the GitHub App and delete the org's Actions secrets
+  yourself. An event without `secure-development` has no forks to archive.
 
-Prerequisites, poll-vs-push, OAuth setup and config all live in
-[docs/hosting.md](docs/hosting.md); the admin panel, verifying the kit, the
-local dev-stack and event teardown in [docs/operations.md](docs/operations.md).
+Teams, the admin panel, verifying the kit before the day, and the local
+dev-stack are all covered in
+[docs/operations.md](docs/operations.md); prerequisites, poll-vs-push, OAuth
+setup and event config in [docs/hosting.md](docs/hosting.md).
 
 ## Why it is built this way
 
