@@ -131,7 +131,10 @@ package_private() { [ "$(gh api "orgs/$1/packages/container/score" --jq '.visibi
 #   granted  a run got a successful pull — the grant is in place, observed
 #   MISSING  the most recent run that reached the pull step was refused
 #   unknown  no run has reached that step yet (a fresh fork, or a workflow
-#            rendered before the pull step existed)
+#            rendered before the pull step existed — i.e. still on v1, where
+#            the pull happened inside "Run scorer" and cannot be observed
+#            separately). `unknown` therefore does NOT mean the grant is
+#            missing, and the doctor line must not say it does.
 #
 # FAILS CLOSED, like every check_step: an API error, an unreadable reply, or
 # anything unrecognized reports `unknown`, never `granted`. Reporting a grant
@@ -466,7 +469,15 @@ cmd_doctor() {
           "$t" "$C_RED" "$C_RESET"
         rc=1 ;;
       *)
-        printf '  %-18s %s⚠️  unverified%s — no scoring run has pulled yet; confirm by hand, or open a test PR\n' \
+        # NOT "no run has pulled yet" — that reads as a factual claim about
+        # the fork and is routinely false. `pull_grant_status` looks for a
+        # step named "Pull scorer image", which only exists from workflow v2
+        # onward; under v1 the pull happened inside "Run scorer", so a fork
+        # that has scored successfully many times still lands here. Observed
+        # on the test org: juice-shop scored 2/141 under v1 and read
+        # "no scoring run has pulled yet", which sends an organizer chasing a
+        # grant that was never missing. Say what is actually unknown.
+        printf '  %-18s %s⚠️  unverified%s — no run has reached the named pull step (needs a scoring run on workflow v2+); confirm by hand, or re-trigger a PR\n' \
           "$t" "$C_YELLOW" "$C_RESET" ;;
     esac
   done < <(yaml_targets)
