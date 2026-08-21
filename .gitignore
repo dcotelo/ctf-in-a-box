@@ -1,6 +1,11 @@
 node_modules/
-.env
-.env.dev-stack
+# Every env file, present and future. Listing them one by one is what let
+# `.env.fly` — written by deploy/fly/deploy.sh init and holding the OAuth
+# client secret, the GitHub App private key and the session signing key — get
+# committed to a PUBLIC repo: a new tool invented a new filename, and no rule
+# covered it. A glob cannot be outrun by the next one.
+.env*
+!.env.example
 event.yaml
 .smoke-event.yaml
 state/

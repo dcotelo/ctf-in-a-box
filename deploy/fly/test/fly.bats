@@ -464,3 +464,43 @@ hostname_run() { # $1 = EVENT_URL
   hostname_run "https://ctf.example.org"
   [[ "$output" == *"fly certs add ctf.example.org --app ctf-in-a-box-app"* ]]
 }
+
+# --- the env file must never be committable -------------------------------
+#
+# `.env.fly` — which init writes, and which holds the OAuth client secret, the
+# GitHub App private key and the session signing key — was committed to this
+# PUBLIC repo, because .gitignore listed env files individually and a new tool
+# invented a new name. Every secret in it had to be rotated.
+
+@test "the env file init writes is git-ignored" {
+  # `git` is not present in every runner this suite is executed in (the
+  # bats/bats image has none). Skip rather than fail — and rather than pass:
+  # the tracked-file check below returned EMPTY without git, so it passed
+  # vacuously and would have kept passing with a real secret file committed.
+  command -v git >/dev/null || skip "git not available"
+  cd "$REPO"
+  run git check-ignore -q .env.fly
+  [ "$status" -eq 0 ]
+}
+
+@test "a future env filename is ignored too, without editing .gitignore" {
+  # The specific fix is a glob rather than another entry: the failure mode was
+  # a NEW name nobody had listed, so enumerating one more name repeats it.
+  command -v git >/dev/null || skip "git not available"
+  cd "$REPO"
+  run git check-ignore -q .env.some-tool-not-invented-yet
+  [ "$status" -eq 0 ]
+}
+
+@test ".env.example is still tracked" {
+  # The glob must not swallow the committed template organizers copy from.
+  command -v git >/dev/null || skip "git not available"
+  cd "$REPO"
+  [ -n "$(git ls-files .env.example)" ]
+}
+
+@test "no env file with real secrets is tracked" {
+  command -v git >/dev/null || skip "git not available"
+  cd "$REPO"
+  [ -z "$(git ls-files | grep -E '^\.env' | grep -v '^\.env\.example$')" ]
+}
