@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import HintButton from "@/components/hint-button";
+import OwaspBadge from "@/components/owasp-badge";
 import type { AppId, AppMeta } from "@/lib/apps";
 import type { CatalogChallenge, ChallengeCatalog } from "@/lib/challenges";
 import { authClient } from "@/lib/auth-client";
@@ -256,26 +257,10 @@ function CatalogList({
                       all (`owasp: null`), and a code outside both Top 10s.
                       The first renders no badge; the second renders the code
                       as plain text. Neither may become an anchor pointing
-                      nowhere. */}
-                  {c.owasp &&
-                    (c.owasp.url ? (
-                      <a
-                        href={c.owasp.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={c.owasp.label}
-                        className="ds-tap-24 flex-none rounded border border-white/10 px-1 text-[10px] text-muted transition-colors hover:border-[#2563eb]/60 hover:text-white"
-                      >
-                        {c.owasp.code}
-                      </a>
-                    ) : (
-                      <span
-                        title={c.owasp.label}
-                        className="flex-none rounded border border-white/10 px-1 text-[10px] text-muted"
-                      >
-                        {c.owasp.code}
-                      </span>
-                    ))}
+                      nowhere. OwaspBadge decides which of those it is from
+                      the code alone — this file used to inline its own copy
+                      of that decision, and the two drifted. */}
+                  {c.owasp && <OwaspBadge code={c.owasp.code} />}
                 </div>
                 {ownedText && (
                   <p className="rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">
