@@ -1,0 +1,48 @@
+# Upstash-REST proxy in front of Fly's managed Redis.
+#
+# THIS APP EXISTS BECAUSE FLY'S MANAGED REDIS SPEAKS ONLY THE REDIS PROTOCOL.
+#
+# The first version of this module did not deploy srh, on the reasoning that
+# srh only fakes the Upstash REST API in front of local Redis and that "against
+# real Upstash there is nothing to fake". That was wrong. `fly redis create`
+# provisions Upstash-managed Redis on Fly and hands back a `redis://` private
+# URL — and nothing else. The HTTP REST API (`UPSTASH_REDIS_REST_URL` /
+# `_TOKEN`) is an Upstash *cloud* feature, not part of the Fly integration.
+#
+# The app, scorer and sync speak REST and only REST (`@upstash/redis` in the
+# app, the same wire format hand-rolled in scorer/src/store.js and
+# sync/src/redis.js). Point them at a `redis://` URL and nothing connects. So
+# srh is not optional here — it is the translator that makes the managed Redis
+# usable at all, exactly as it is on the compose path.
+#
+# If you already have an Upstash CLOUD database, which does expose REST, you
+# can skip this app and point the three services straight at it. See the
+# README.
+
+app = "ctf-in-a-box-srh"
+primary_region = "iad"
+
+[build]
+  # Pinned by digest, same as docker-compose.yml. This third-party image sits
+  # in the score read/write path, so a mutable :latest tag must not silently
+  # swap it out on a redeploy.
+  image = "hiett/serverless-redis-http:latest@sha256:5b0bb9239fce53abf87b2018a7a0deb9ec7bd900c5360738fe5fbeeb426f9150"
+
+[env]
+  SRH_MODE = "env"
+
+# SRH_TOKEN and SRH_CONNECTION_STRING are set with `fly secrets set` — the
+# connection string carries the Redis password, so it never appears here.
+
+# Private only: reachable as ctf-in-a-box-srh.internal:80 over 6PN and nowhere
+# else. A public service here would expose the whole datastore behind nothing
+# but the bearer token, which is the exposure the compose path's network split
+# exists to prevent (ADR 41).
+[[services]]
+  internal_port = 80
+  protocol = "tcp"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
