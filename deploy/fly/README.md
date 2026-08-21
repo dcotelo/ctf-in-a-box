@@ -55,6 +55,17 @@ fit on Firecracker.
 ./deploy/fly/deploy.sh
 ```
 
+`--dry-run` **redacts secret values** — it prints
+`BETTER_AUTH_SECRET=<redacted>`, not the secret. Variable names and
+non-secret values (app ids, the Upstash URL) still show, so the preview tells
+you which secrets land on which app without putting any of them in your
+scrollback.
+
+**Running a local compose stack too?** Keep a separate env file for Fly and
+pass it with `--env-file`. The two need different `EVENT_URL`s — `http://localhost`
+for compose, the `https://` Fly hostname here — and `deploy.sh` refuses the
+localhost one rather than deploying an app that would 500 on every request.
+
 Order is scorer → sync → app, so the app never comes up pointing at a scorer
 that does not exist yet. Every step checks before it acts, so re-running after
 a failure resumes instead of duplicating.

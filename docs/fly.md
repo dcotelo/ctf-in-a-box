@@ -86,7 +86,16 @@ failure resumes rather than duplicating — the same idempotence rule
 `ctf-setup.sh` follows.
 
 Secrets go in through `fly secrets set`, never into a committed file. `.env`
-stays on your machine.
+stays on your machine — and `--dry-run` **redacts secret values** rather than
+echoing them, so previewing the deploy does not put your GitHub App private
+key in a scrollback buffer or a screen share. Variable names and non-secret
+values still print, which is what makes the preview worth reading.
+
+If you also run a local compose stack, keep a **separate env file for Fly**
+and pass it with `--env-file`. The two need different `EVENT_URL`s
+(`http://localhost` for compose, the `https://` Fly hostname here), and
+`deploy.sh` refuses the localhost one rather than deploying an app that would
+answer `500` to every request.
 
 ## What runs where
 
