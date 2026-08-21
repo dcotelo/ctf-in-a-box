@@ -15,11 +15,19 @@ CONFIG="event.yaml"
 FROM_ENV=".env"
 CMD="deploy"
 REGION_ARG=""
+REFRESH=""
 
 usage() {
   cat <<'EOF'
 usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
                             [--config event.yaml] [--from .env] [--region gru]
+
+  init --refresh
+          Re-copy the credentials that must match an EXTERNAL system (GitHub
+          OAuth, the sync App, the scorer image) from --from into the env
+          file, overwriting what is there. Run this after rotating anything.
+          Fly-specific values (EVENT_URL, FLY_REGION, SRH_TOKEN,
+          REDIS_PASSWORD) are left alone — they belong to this deployment.
 
   init    Prepare an env file for Fly: copies --from (default .env), rewrites
           EVENT_URL to the app's Fly hostname, and fills in SRH_TOKEN and
@@ -44,6 +52,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY_RUN=1; shift ;;
     --from) FROM_ENV="$2"; shift 2 ;;
     --region) REGION_ARG="$2"; shift 2 ;;
+    --refresh) REFRESH=1; shift ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -162,6 +171,50 @@ if [ "$CMD" = "init" ]; then
     else
       echo "DRY-RUN: would write $ENV_FILE (mode 600) with EVENT_URL=https://$APP_APP.fly.dev"
     fi
+  fi
+
+  # ---- --refresh ---------------------------------------------------------
+  #
+  # init deliberately never overwrites an existing env file, which means a
+  # rotated credential in .env never reaches .env.fly. That cost a live
+  # debugging session: the OAuth client secret was rotated after a leak, the
+  # Fly file kept the OLD one, and GitHub rejected the code exchange as
+  # `?error=invalid_code` — an error that names nothing and points nowhere.
+  #
+  # The split is by OWNERSHIP, not convenience. These values must match an
+  # external system (GitHub's OAuth app, GitHub's sync App, the registry), so
+  # a stale copy is always wrong and refreshing is always right. EVENT_URL,
+  # FLY_REGION, SRH_TOKEN and REDIS_PASSWORD belong to THIS deployment and
+  # must never be pulled from a compose stack's file — sharing them is how
+  # two environments end up fighting over one datastore.
+  if [ -n "$REFRESH" ]; then
+    [ -f "$FROM_ENV" ] || { echo "no $FROM_ENV to refresh from" >&2; exit 1; }
+    echo "== refreshing external credentials from $FROM_ENV"
+    for key in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID \
+               GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID SCORE_IMAGE; do
+      src="$(sed -n "s/^$key=//p" "$FROM_ENV" | tail -1)"
+      [ -n "$src" ] || continue
+      cur="$(sed -n "s/^$key=//p" "$ENV_FILE" | tail -1)"
+      if [ "$src" = "$cur" ]; then
+        echo "   $key unchanged"
+        continue
+      fi
+      if [ -n "$DRY_RUN" ]; then
+        echo "DRY-RUN: would update $key"
+        continue
+      fi
+      # Rewritten in place with awk rather than sed -i, because these values
+      # contain / and + (base64) and would need escaping in a sed pattern.
+      awk -v k="$key" -v v="$src" \
+        'BEGIN{FS=OFS="="} $1==k {print k "=" v; next} {print}' \
+        "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
+      chmod 600 "$ENV_FILE"
+      echo "   $key updated"
+    done
+    echo
+    echo "  Now redeploy so the apps pick them up:"
+    echo "      ./deploy/fly/deploy.sh --env-file $ENV_FILE"
+    exit 0
   fi
 
   # SRH bearer token. Generated here rather than reused from $FROM_ENV so a

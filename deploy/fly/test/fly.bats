@@ -531,6 +531,8 @@ hostname_run() { # $1 = EVENT_URL
   command -v git >/dev/null || skip "git not available"
   cd "$REPO"
   [ -z "$(git ls-files | grep -E '^\.env' | grep -v '^\.env\.example$')" ]
+}
+
 # --- what a real `fly deploy` rejected -------------------------------------
 #
 # The first live run failed validation on every private service:
