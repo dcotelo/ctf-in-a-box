@@ -487,6 +487,15 @@ export default function AdminClassicControls({
     }
   }
 
+  /** Retires a bulk-import summary once anything else writes to the bank.
+   *  Mirrors `retireImportSummary` in admin-quiz-controls.tsx — the two
+   *  panels mirror each other deliberately, and #127 was present in both.
+   *  A summary of a write must not outlive the next write. */
+  function retireImportSummary() {
+    setImportResult(null);
+    setImportErrors(null);
+  }
+
   async function submitEditor(editor: ChallengeEditor) {
     setFormPending(true);
     setFormError(null);
@@ -497,6 +506,7 @@ export default function AdminClassicControls({
       return;
     }
     setChallenges((prev) => upsertInList(prev, result.row));
+    retireImportSummary();
     setEditing(null);
   }
 
@@ -511,6 +521,7 @@ export default function AdminClassicControls({
     if (changed.length === 0) return;
 
     setChallenges(after);
+    retireImportSummary();
     setReorderPending(true);
     setListError(null);
     for (const row of changed) {
@@ -540,6 +551,7 @@ export default function AdminClassicControls({
         return;
       }
       setChallenges((prev) => prev.filter((c) => c.challenge.id !== id));
+      retireImportSummary();
       setDeleteTarget(null);
     } catch {
       setDeleteError("Couldn't reach the server — try again.");
