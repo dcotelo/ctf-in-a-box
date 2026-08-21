@@ -559,7 +559,7 @@ fi
 # The flip side is that scoping is impossible — the app container also
 # receives REDIS_PASSWORD, and the redis container also receives
 # GITHUB_CLIENT_SECRET. That is a Fly platform limit, not a choice here, and
-# it is recorded in ADR 44 alongside the loss of the frontend/backend split.
+# it is recorded in ADR 42 alongside the loss of the frontend/backend split.
 #
 # NOTE: no `--stage`. `--stage` means "hold these, apply on the next deploy",
 # and on a real run it left six secrets permanently staged — better-auth with

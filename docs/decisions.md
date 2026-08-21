@@ -1838,3 +1838,122 @@ compose override must name its network.**
 The password is not defence against an organizer with shell on the box — they
 can read `.env`. It is defence against a compromised *service*, which is the
 threat that motivated it.
+
+## 42. One Fly machine running the real compose file, not five Fly apps
+
+**Status.** Accepted. Supersedes the five-app arrangement introduced with
+`deploy/fly/`.
+
+**Context.** The Fly module first mirrored `docker-compose.yml` service by
+service: one Fly app each for `app`, `scorer`, `sync`, `srh` and `redis`, with
+the services reaching each other over Fly's private network. That arrangement
+cannot work, and no configuration fixes it.
+
+**Fly's private network (6PN, `<app>.internal`) is IPv6-only. srh's Redis
+client is IPv4-only.** srh is a prebuilt third-party image
+(`hiett/serverless-redis-http`) whose Elixir release bundles redix 1.1.5.
+redix does support `socket_opts` — where `:inet6` would go — but srh builds
+its connection options from the connection string alone and exposes no
+environment variable for it. Inspecting the release confirms there is no knob.
+
+The symptom is expensive to read: `nc` from srh's machine to
+`redis.internal:6379` succeeds, redis logs look perfectly healthy, and srh
+repeats `SRH was unable to connect to the Redis server` forever. Flycast (a
+private anycast address) fixes *clients reaching srh*; it does nothing for
+*srh reaching redis*.
+
+This was chased across live deploys for a day before anyone tried to
+reproduce it locally. It takes about a minute: create an IPv6 docker network,
+run redis and srh on it, and point srh at the address. With the identical
+image, redis and password, an IPv4 literal returns `{"result":"OK"}` and an
+IPv6 literal fails. **Reproduce before designing.**
+
+**Decision.** Deploy the event as **one Fly app running one machine with every
+container in it**, from a compose file rendered out of the repo's real
+`docker-compose.yml`.
+
+Containers inside a machine share a network namespace and reach each other
+over `localhost`, on IPv4. That removes the failure rather than working around
+it. Fly deploys a compose file directly through `[build.compose]`, so the same
+five services run, wired the same way.
+
+**Alternatives rejected.**
+
+*Upstash cloud* (real REST over HTTPS) would drop both `redis` and `srh` and
+end the whole IPv6 question. Rejected because it swaps the datastore for a
+different implementation, adds a third-party account and a bill to a kit whose
+premise is "one box, no cloud bill", and breaks the local-equals-production
+story the rest of this document keeps insisting on.
+
+*Co-locating redis inside the srh image* (a two-stage build putting
+`redis-server` beside srh, talking over loopback) was built and verified to
+work. Rejected because it is a bespoke image that exists nowhere else: the
+cloud deployment would run something the organizer never runs locally.
+
+*One Fly app with several process groups* is impossible — every process group
+in an app shares ONE image, and five different ones are needed. It would not
+have helped anyway, since process groups still talk over 6PN.
+
+**Why the compose file is RENDERED, not written.** flyctl's compose parser is
+not Docker's: it is a hand-rolled `yaml.v3` unmarshal
+(`internal/containerconfig/compose.go`). As of flyctl 0.4.87 it implements
+neither `profiles:`, nor `${VAR}` interpolation, nor build `args:`, and it
+rejects a file where more than one service declares `build:` — which
+`docker-compose.yml` does twice. `docker compose config` implements all of
+them correctly, because it is Docker's own parser, so the real file goes
+through Docker first and Fly receives the result.
+
+A hand-maintained second compose file would have avoided the render, at the
+cost of two files to keep in step and a CI check to prove they were. Deriving
+one from the other makes the drift structurally impossible instead.
+
+`deploy/fly/render-compose.sh` then removes what must not ship:
+
+- **Secret values.** `config` interpolates every `${VAR}`, so its unfiltered
+  output is a file containing the whole event's credentials. They are set with
+  `fly secrets` instead — which is also what makes stripping them safe, since
+  Fly injects secrets into *every* container and the variable names already
+  match across services. A fail-closed check greps the result for the values
+  themselves, out of the env file, and refuses to leave the file on disk if
+  any survived: a strip list keyed on variable *names* is exactly the sort of
+  thing that goes stale when a service gains a credential.
+- **Compose-only `$$` escaping.** To compose, `$$` means a literal `$`, and
+  `config` faithfully re-emits it. Fly is not compose and passes it through,
+  so `sh -c` would expand `$$` as the shell's PID and redis would start with a
+  password like `12345REDIS_PASSWORD` — healthy, and impossible to
+  authenticate against.
+- **Service hostnames**, which resolve nowhere in a shared namespace.
+- **Bind mounts, named volumes, networks and profiles**, none of which mean
+  anything on a Fly machine.
+
+**Consequences.**
+
+**The `frontend`/`backend` split of ADR 41 does not exist on Fly, and cannot.**
+One machine has one network namespace, so every container can reach
+`redis:6379`. This is not a regression introduced here — 6PN is flat, so the
+five-app deployment had already lost it, and `--bind 127.0.0.1` would not help
+because containers share loopback too. On Fly, `requirepass` is the whole
+control, which is why `REDIS_PASSWORD` is mandatory rather than optional.
+Organizers who need the network split have it locally, on compose, where it
+is real.
+
+**Secrets cannot be scoped per service.** Fly's secrets are global to the
+machine, so the `app` container also receives `REDIS_PASSWORD` and the `redis`
+container also receives `GITHUB_CLIENT_SECRET`. That is a platform limit, not
+a choice.
+
+**caddy is absent**, as before: Fly terminates TLS and issues certificates. It
+is excluded by naming the deployed services explicitly in the render — *not*
+by giving caddy a compose profile. Profiling it would have made the edge
+opt-in for every local bring-up, turning one forgotten flag into an event with
+no ingress, and would have rippled through `ctf-setup.sh`, the acceptance
+scripts and eight documents to serve a case only Fly has.
+
+**Two changes reach the local stack**, both improvements on their own terms.
+`redis` now reads its password from the environment through `sh -c` rather
+than taking it as an argument, so the credential is no longer in the
+container's command line, in `docker inspect`, or in `docker compose config`
+output. And `sync` accepts `EVENT_CONFIG_B64` — the same variable, in the same
+encoding, that the app already takes as a build arg — falling back to the
+mounted file when it is absent or empty, because a Fly machine has no repo
+checkout to bind-mount `./event.yaml` from.

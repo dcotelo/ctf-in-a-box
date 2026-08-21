@@ -105,7 +105,7 @@ services:
     # them. Without `sh -c` there is no expansion at all and redis would take
     # the literal string "$REDIS_PASSWORD" as its password — an error that
     # starts cleanly and reports healthy (this exact bug shipped once on Fly,
-    # where `[processes]` also runs no shell; see ADR 43).
+    # where `[processes]` also runs no shell; see ADR 42).
     command:
       - sh
       - -c
@@ -158,7 +158,7 @@ services:
       # It exists for deployments with no host to bind-mount FROM: the
       # single-machine Fly deployment runs every container on one machine with
       # no repo checkout on it, so `./event.yaml` names nothing there. See
-      # docs/fly.md and ADR 44.
+      # docs/fly.md and ADR 42.
       EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
     volumes:
       - ./event.yaml:/config/event.yaml:ro

@@ -30,7 +30,7 @@
 #     network namespace, so every container can reach redis:6379. Fly's flat
 #     6PN meant the five-app deployment had already lost that split — this does
 #     not make it worse, but it does mean `requirepass` is the whole control
-#     there, and it is why REDIS_PASSWORD is mandatory. See ADR 44.
+#     there, and it is why REDIS_PASSWORD is mandatory. See ADR 42.
 #
 # The compose file below is GENERATED from the repo's real docker-compose.yml
 # by deploy/fly/render-compose.sh, so the deployed wiring cannot drift from the
