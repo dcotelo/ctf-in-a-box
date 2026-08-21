@@ -181,8 +181,8 @@ EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must pair correctly: dvwa's workflow into DVWA, vampi's into VAmPI
-  [[ "$output" == *"render ctf-score.yml (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"* ]]
-  [[ "$output" == *"render ctf-score.yml (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
+  [[ "$output" == *"render ctf-score.yml v1 (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"* ]]
+  [[ "$output" == *"render ctf-score.yml v1 (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
 }
 
 @test "org ignores decoy targets line outside modules.secure-development (MEDIUM fix #5)" {
@@ -1013,4 +1013,115 @@ EOF
   run_line="$(grep -n 'name: Run scorer' dist/workflows/dvwa.ctf-score.yml | head -1 | cut -d: -f1)"
   [ -n "$pull_line" ]
   [ "$pull_line" -lt "$run_line" ]
+}
+
+# --- scoring-workflow versioning (issue #43) --------------------------------
+#
+# The stamp is what makes a fix to ctf-score.yml reachable on an event that is
+# already provisioned. Before it, `org` skipped the workflow step as soon as
+# the file existed — at any version — so a security fix could only be
+# delivered by hand, one fork at a time.
+
+@test "the template carries a version stamp and rendering preserves it" {
+  grep -qE '^# ctf-workflow-version: [0-9]+$' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  grep -qE '^# ctf-workflow-version: [0-9]+$' dist/workflows/dvwa.ctf-score.yml
+}
+
+@test "upgrade --dry-run plans only the workflow step, never forks or the mirror" {
+  run bash "$SCRIPT" upgrade --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"render ctf-score.yml v1 (TARGET=dvwa)"* ]]
+  [[ "$output" == *"render ctf-score.yml v1 (TARGET=vampi)"* ]]
+  # The whole reason this is its own subcommand rather than "re-run org".
+  [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
+  [ -z "$(printf '%s' "$output" | grep -F 'docker push')" ]
+  [ -z "$(printf '%s' "$output" | grep -F 'branch protection')" ]
+}
+
+@test "upgrade on a quiz-only event is a no-op, not an error" {
+  cat > event.yaml <<'EOF'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+EOF
+  run bash "$SCRIPT" upgrade --dry-run --config event.yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no secure-development module"* ]]
+}
+
+# Writes a `gh` stub serving a committed ctf-score.yml whose version marker is
+# $1 (or, for the literal string "none", no file at all).
+write_gh_workflow_stub() {
+  mkdir -p stubs
+  cat > stubs/gh <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"contents/.github/workflows/ctf-score.yml"*)
+    [ "$1" = none ] && exit 1
+    echo "# CTF scoring workflow"
+    [ "$1" = unstamped ] || echo "# ctf-workflow-version: $1"
+    echo "name: CTF Patch Score"
+    ;;
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+}
+
+@test "doctor reports a fork on the template's version as current" {
+  write_gh_workflow_stub 1
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  [[ "$output" == *"scoring workflow version (template is v1)"* ]]
+  printf '%s' "$output" | grep -qE '^  dvwa +✅ v1'
+}
+
+# The state this whole feature exists for: a live event still running an old
+# workflow, with no way to find out.
+@test "doctor reports an older fork as stale and names the fix" {
+  write_gh_workflow_stub 0
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +❌ pre-versioning'
+  [[ "$output" == *"ctf-setup.sh upgrade"* ]]
+  [ "$status" -ne 0 ]
+}
+
+# Every fork provisioned before this change is in exactly this state: the file
+# is there and correct-looking, with no marker at all.
+@test "doctor treats a workflow with no marker as stale, not as current" {
+  write_gh_workflow_stub unstamped
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +❌ pre-versioning'
+  [ -z "$(printf '%s' "$output" | grep -F '✅ v')" ]
+}
+
+@test "doctor distinguishes an absent workflow from a stale one" {
+  write_gh_workflow_stub none
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +❌ absent'
+  [[ "$output" == *"ctf-setup.sh org"* ]]
+}
+
+# A fork ahead of this checkout means the kit is behind, not the fork. Never
+# clobber it backwards — that would silently REVERT a fix on a live event.
+@test "doctor flags a fork ahead of the template without calling it stale" {
+  write_gh_workflow_stub 99
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +⚠️  v99'
+  [[ "$output" == *"AHEAD"* ]]
+  [ -z "$(printf '%s' "$output" | grep -F 'stale')" ]
+}
+
+# Fails closed: an unreadable reply must never read as "up to date", or a
+# security fix silently skips that fork.
+@test "doctor treats an unreadable workflow read as absent, never as current" {
+  mkdir -p stubs
+  printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +❌ absent'
+  [ -z "$(printf '%s' "$output" | grep -F '✅ v')" ]
 }

@@ -182,8 +182,10 @@ without committing.) It automates the whole per-fork setup, is idempotent (safe 
 re-run — each step is skipped once already satisfied), and leaves only three
 GitHub-UI-only steps for you to finish by hand. Run `ctf-setup.sh doctor`
 afterward: it prints a **status matrix** (one row per target, one column per
-step) so the whole org's provisioning is scannable at a glance, and flags the
-UI-only steps it can't perform — confirming the two it *can* verify by API.
+step) so the whole org's provisioning is scannable at a glance, then reports
+each fork's **scoring-workflow version** (see
+[Upgrading the scoring workflow](#upgrading-the-scoring-workflow)) and each
+fork's **package Read grant**, the one step with no API in either direction.
 
 ![ctf-setup.sh doctor status matrix: one row per fork, one column per step](assets/doctor.jpg)
 
@@ -250,13 +252,57 @@ queryable) and shows ✅ once done — only the third is a blind reminder:
    comment, and says plainly that it is a setup problem rather than a verdict
    on the submission.
 
-   **Already-provisioned forks keep the old workflow** until it is re-rendered
-   — `ctf-setup.sh org` re-PUTs `ctf-score.yml` idempotently, so re-running it
-   is how an existing event picks this up (see
-   [#43](https://github.com/dcotelo/ctf-in-a-box/issues/43) for the general
-   upgrade path). A fork still on the old workflow has no `Pull scorer image`
-   step, so `doctor` reports it as ⚠️ unverified — correctly: it has not been
-   observed either way.
+   **Already-provisioned forks keep the old workflow** until it is re-applied
+   — see [Upgrading the scoring workflow](#upgrading-the-scoring-workflow)
+   below. A fork still on the old one has no `Pull scorer image` step, so
+   `doctor` reports it as ⚠️ unverified — correctly: it has not been observed
+   either way.
+
+### Upgrading the scoring workflow
+
+The scoring workflow lives in each fork as a committed file, so a change to
+the kit's template does **not** reach an event that is already provisioned.
+That matters most for the changes you least want stranded — a security fix to
+`ctf-score.yml` would otherwise only reach forks by hand, one at a time.
+
+The rendered workflow carries a version stamp copied from the template:
+
+```
+# ctf-workflow-version: 1
+```
+
+`doctor` reports every fork's version against the kit's, and names the fix:
+
+```
+scoring workflow version (template is v2):
+  juice-shop         ✅ v2
+  dvwa               ❌ v1 — stale (template v2); run: ./setup/ctf-setup.sh upgrade
+  webgoat            ❌ pre-versioning — provisioned before workflow stamping; run: ./setup/ctf-setup.sh upgrade
+```
+
+Then re-apply it to exactly the forks that are behind:
+
+```sh
+./setup/ctf-setup.sh upgrade --dry-run   # see which forks would be touched
+./setup/ctf-setup.sh upgrade
+```
+
+`upgrade` does the workflow step and nothing else. `org` does it too — its
+workflow step compares versions rather than just checking the file exists —
+but `org` also re-mirrors the scorer image, which is a multi-minute push you
+do not want between you and a security fix.
+
+Two things worth knowing:
+
+- **Open PRs keep their current run.** The new workflow applies from each PR's
+  next push (or a manual re-run), so a mid-event upgrade rolls out as
+  contestants push rather than all at once.
+- **A fork ahead of your checkout is left alone.** `doctor` flags it ⚠️ and
+  `upgrade` skips it — that means your kit is behind, not the fork, and
+  overwriting would silently revert whatever it is running.
+
+Pre-versioning forks (anything provisioned before the stamp existed) read as
+stale and are upgraded the same way.
 
 **The contest flow:** a contestant **forks your event-org repo** into their own
 account, patches the vulnerability, and opens a **pull request against
