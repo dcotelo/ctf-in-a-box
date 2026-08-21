@@ -161,6 +161,8 @@ including a known v1 limitation on the hint toggle's reach.
   app, and event config.
 - [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
   box (`apply` up, `destroy` down).
+- [Deploy on fly.io](fly.md) — three Fly apps plus managed Redis, no box to
+  administer (`deploy.sh` up, `fly apps destroy` down).
 - [Operations](operations.md) — teams, the admin panel, verifying the kit,
   the local dev-stack, teardown, and live-scoring status. It also carries the
   two app-side modules' organizer guides: [Quiz](operations.md#quiz) and

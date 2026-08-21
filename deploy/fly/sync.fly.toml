@@ -1,0 +1,39 @@
+# Poll-mode ingest: reads score comments from the event org's forks and
+# submits them to the scorer. No public service — it only ever makes outbound
+# requests.
+
+app = "ctf-in-a-box-sync"
+primary_region = "iad"
+
+[build]
+  # NOT sync/Dockerfile: that one's build context is `sync/`, which cannot see
+  # event.yaml. This wrapper builds from the repo root and bakes the config in,
+  # because Fly has no bind mounts and sync's EVENT_CONFIG takes a path, not
+  # content. See the header of sync.Dockerfile.
+  dockerfile = "deploy/fly/sync.Dockerfile"
+
+[env]
+  SCORER_URL = "http://ctf-in-a-box-scorer.internal:4000"
+  # Where the poll cursor lives. MUST sit on the mount below.
+  STATE_PATH = "/state/state.json"
+
+# THE CURSOR NEEDS A DISK, and this is the one thing a naive Fly port gets
+# wrong. Fly machines are ephemeral: without this volume the poller starts
+# from an empty state file on every restart and re-reads every comment in
+# every fork from the beginning.
+#
+# That is not a correctness bug — `recordSolves` is monotonic, so replaying a
+# solve changes neither points nor `lastSolveAt` — but it is a thundering
+# re-submit of the event's entire history on every deploy, and it makes the
+# `dropped`/`ingested` counters on /admin meaningless.
+[mounts]
+  source = "ctf_sync_state"
+  destination = "/state"
+
+# One machine, deliberately. Two pollers would both hold their own cursor and
+# both submit the same comments; the writes are idempotent, so nothing breaks,
+# but it doubles the GitHub API spend for no benefit.
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
