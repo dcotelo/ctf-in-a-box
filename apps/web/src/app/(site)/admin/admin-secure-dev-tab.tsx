@@ -20,6 +20,7 @@ import {
   HINT_MIN_SOLVES,
   HINT_UNLOCK_AFTER_MIN,
 } from "@/lib/hint-defaults";
+import { SCORE_COOLDOWN_MIN, SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import type { CommitNumber } from "./types";
 
 export type AdminSecureDevTabProps = {
@@ -33,6 +34,8 @@ export type AdminSecureDevTabProps = {
   unlockAfterInput: string;
   setUnlockAfterInput: (v: string) => void;
   commitNumber: CommitNumber;
+  cooldownInput: string;
+  setCooldownInput: (v: string) => void;
 };
 
 export default function AdminSecureDevTab({
@@ -46,6 +49,8 @@ export default function AdminSecureDevTab({
   unlockAfterInput,
   setUnlockAfterInput,
   commitNumber,
+  cooldownInput,
+  setCooldownInput,
 }: AdminSecureDevTabProps) {
   return (
     <>
@@ -113,6 +118,29 @@ export default function AdminSecureDevTab({
           disabled={pending}
           onChange={(e) => setUnlockAfterInput(e.target.value)}
           onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          <span className="text-white">Re-run cooldown (min)</span>
+          <span className="block text-xs text-muted">
+            Minimum minutes between SCORED runs on the same PR. Every run hands back a
+            per-challenge pass/fail, so a short cooldown lets a contestant iterate a
+            check-gaming patch against the rubric. 0 disables it. Takes effect on the
+            next push — each fork&apos;s Action reads this value when it runs.
+          </span>
+        </span>
+        <input
+          type="number"
+          min={0}
+          max={SCORE_COOLDOWN_MIN_MAX}
+          value={cooldownInput}
+          placeholder={String(SCORE_COOLDOWN_MIN)}
+          disabled={pending}
+          onChange={(e) => setCooldownInput(e.target.value)}
+          onBlur={() => commitNumber("scoreCooldownMin", cooldownInput, setCooldownInput)}
           className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
         />
       </label>

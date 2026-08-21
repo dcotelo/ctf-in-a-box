@@ -2154,3 +2154,60 @@ placeholder and the ceiling as the field's `max`; importing either store from
 it fails the build outright. The stores re-export them, so server callers are
 unaffected. Same reasoning as `lib/admin-admins.ts` in ADR 44: what a module
 imports is part of its contract.
+
+## 46. The fork's Action pulls the scoring cooldown; the box does not push it
+
+**Status.** Accepted. Implements issue #46.
+
+**Context.** The re-run cooldown was baked into each fork's rendered
+`ctf-score.yml` as `COOLDOWN_MINUTES`. Changing it for a running event meant
+re-rendering and re-committing every fork's workflow. But the gate is evaluated
+by a GitHub Action running **inside a contestant's fork**, which cannot reach
+the box's Redis — so a live admin control needs the value to travel there
+somehow.
+
+**Alternatives.**
+
+*Write an Actions variable through the GitHub API.* The admin panel would set
+`vars.CTF_COOLDOWN_MINUTES` on each fork. Rejected: it requires the sync App to
+gain **Actions/Variables write** on every fork — today it holds `Issues: read`
+and `Pull requests: read` — and it requires the web tier to hold the App
+private key. A compromised app would then have org-wide write. That is exactly
+the blast radius ADR 41 exists to keep small, traded for one integer.
+
+*Leave it provision-time.* Honest, but it fails the issue's only real
+requirement: changing the cooldown during a running event.
+
+**Decision.** Invert the direction. The box exposes
+`GET /api/public/scoring` — unauthenticated, returning `{ cooldownMinutes }` —
+and each fork's Action fetches it at the start of a run.
+
+**Why unauthenticated is right here.** Authenticating it would mean putting a
+credential into every fork, which is a far larger surface than the thing being
+protected. The payload is a number that is already visible in every rendered
+workflow file and implied by the score comments themselves. The rule that keeps
+it safe is a scoping one: **scoring POLICY belongs in this payload, scoring
+MECHANISM does not.** Tokens, rubric internals and who-solved-what stay out,
+and a test asserts the response has exactly one key.
+
+**Every failure falls back rather than failing.** The endpoint answers with the
+baked default when Redis is unreachable — not a 5xx — so a blip cannot read as
+"no cooldown". The Action wraps the fetch in a try/catch with a 5-second
+timeout and ignores any non-numeric or negative reply. A scoring run must never
+fail because a config lookup did.
+
+**Consequences.**
+
+Forks gain a soft network dependency on the box. It is soft by construction:
+unreachable means "use the baked value", which is the behaviour that existed
+before this change.
+
+The Action derives the base URL from `LEADERBOARD_LINK` rather than taking a
+second placeholder. They are always the same host, and one rendered value
+cannot drift from itself.
+
+**The workflow version stamp was bumped to 3.** `ctf-setup upgrade` re-renders
+a fork only when the template's stamp is newer than the fork's, so changing the
+template without bumping it leaves existing forks on the old workflow —
+silently keeping a cooldown the organizer can no longer change. A test now
+pins that the stamp is at least 3.

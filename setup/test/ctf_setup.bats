@@ -1169,3 +1169,45 @@ EOF
   [ -z "$(echo "$output" | grep -F 'EVENT_URL is not set')" ]
   grep -qF 'https://ctf.example.org/leaderboard' dist/workflows/dvwa.ctf-score.yml
 }
+
+# The re-run cooldown became an admin setting (issue #46, ADR 46). The Action
+# runs inside a contestant's fork and cannot read the event's Redis, so it
+# fetches the live value over plain HTTPS and falls back to the baked one.
+# These pin the fallback chain: a scoring run must never fail because a config
+# lookup did.
+
+@test "the workflow fetches the live cooldown from the event" {
+  grep -qF '/api/public/scoring' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}
+
+@test "the workflow still carries a baked cooldown to fall back to" {
+  grep -qE '^      COOLDOWN_MINUTES: "[0-9]+"$' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}
+
+@test "the cooldown fetch is wrapped so a failure cannot fail the run" {
+  # try/catch AND a timeout: an event that is down or slow must not hold a
+  # scoring run open or abort it.
+  wf="$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+  grep -qF 'AbortSignal.timeout' "$wf"
+  grep -qF 'using the baked default' "$wf"
+}
+
+@test "the cooldown fetch derives its host from LEADERBOARD_LINK, not a new placeholder" {
+  # One rendered value cannot drift from itself; a second placeholder could be
+  # rendered inconsistently with the first.
+  grep -qF "process.env.LEADERBOARD_LINK || ''" "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}
+
+@test "a non-numeric or negative reply is ignored in favour of the default" {
+  grep -qF 'Number.isFinite(live) && live >= 0' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}
+
+@test "the workflow version was bumped for the live-cooldown change" {
+  # `ctf-setup upgrade` re-renders a fork only when the stamp is newer than
+  # what the fork carries. Changing the template without bumping it means
+  # existing forks silently keep the old workflow — here, keeping a cooldown
+  # the organizer can no longer change.
+  v="$(sed -n 's/^# ctf-workflow-version: *\([0-9][0-9]*\).*/\1/p' \
+      "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml" | head -1)"
+  [ "$v" -ge 3 ]
+}

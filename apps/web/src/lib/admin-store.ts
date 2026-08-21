@@ -2,6 +2,7 @@ import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
+import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
   enabledModules,
   isModuleEnabled,
@@ -57,6 +58,11 @@ export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
 /** Cap for the classic-module submission cooldown (see below). */
 export const CLASSIC_COOLDOWN_SEC_MAX = 3600;
 
+// Defined in scoring-defaults.ts (no `server-only`) so the admin panel, a
+// Client Component, can use it as the field's `max`. Re-exported for server
+// callers.
+export { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
+
 // Defined in team-limits.ts (no `server-only`) because the admin panel is a
 // Client Component and needs it for the field's `max`. Re-exported so server
 // callers keep one import.
@@ -98,6 +104,11 @@ export type AdminSettings = {
    *  challenge. null = use the module default. Seconds, not minutes: its job
    *  is blocking scripted brute force, not rationing tries. */
   classicCooldownSec: number | null;
+  /** Minutes a contestant must wait between SCORED runs on the same PR.
+   *  Null = no override; the fork workflow's baked default applies. 0 disables
+   *  the cooldown. Enforced by the Action inside each fork, which reads it
+   *  from /api/public/scoring — see ADR 46. */
+  scoreCooldownMin: number | null;
   /** Players allowed on one team. Null = no override, use the default in
    *  team-store. Enforced on JOIN only: lowering it never evicts anyone from a
    *  team that is already over the new cap. */
@@ -170,6 +181,7 @@ export type SettingsPatch = {
   quizMaxAttempts?: number;
   quizRetryAfterMin?: number;
   classicCooldownSec?: number;
+  scoreCooldownMin?: number;
   teamMaxMembers?: number;
   teamRegistrationOpen?: boolean;
   // ISO instant to set the bound, or null/"" to clear it.
@@ -229,6 +241,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     quizRetryAfterMin: h.quizRetryAfterMin === undefined ? null : Number(h.quizRetryAfterMin),
     classicCooldownSec: h.classicCooldownSec === undefined ? null : Number(h.classicCooldownSec),
     teamMaxMembers: h.teamMaxMembers === undefined ? null : Number(h.teamMaxMembers),
+    scoreCooldownMin: h.scoreCooldownMin === undefined ? null : Number(h.scoreCooldownMin),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
     scoringStartsAt: h.scoringStartsAt ?? null,
     scoringEndsAt: h.scoringEndsAt ?? null,
@@ -335,6 +348,15 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     } else if (k === "classicCooldownSec") {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > CLASSIC_COOLDOWN_SEC_MAX) {
         throw new AdminValidationError(k, `classicCooldownSec must be an integer in [0, ${CLASSIC_COOLDOWN_SEC_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "scoreCooldownMin") {
+      // 0 is VALID here, unlike teamMaxMembers: it means "no cooldown", which
+      // is a reasonable choice for a short workshop where the feedback loop
+      // matters more than the anti-gaming cap.
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > SCORE_COOLDOWN_MIN_MAX) {
+        throw new AdminValidationError(k, `scoreCooldownMin must be an integer in [0, ${SCORE_COOLDOWN_MIN_MAX}]`);
       }
       fields.push(k, String(v));
       changed[k] = v;
