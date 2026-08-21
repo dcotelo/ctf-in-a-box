@@ -558,6 +558,31 @@ else
     docker tag "$SCORE_IMAGE" "$SCORER_IMAGE"
     docker push "$SCORER_IMAGE" || { echo "FAIL: cannot push to $SCORER_IMAGE" >&2; exit 1; }
   fi
+
+  # ---- the mirrored image must actually run on a Fly machine ---------------
+  #
+  # `buildx imagetools create` MIRRORS: it faithfully copies whatever the
+  # source is, including a single-arch arm64 image built on an Apple Silicon
+  # laptop. Fly machines are amd64, and the failure surfaces at the very END of
+  # the deploy — after both images are rebuilt, pushed and the secrets set:
+  #
+  #   failed to resolve image for container "scorer":
+  #   platform not found: linux/amd64
+  #
+  # The app and sync images cannot hit this because THIS script builds them
+  # with --platform linux/amd64. The scorer is the one image built elsewhere,
+  # by hand, following docs/scorer.md — so it is the one that needs checking.
+  if docker buildx imagetools inspect "$SCORER_IMAGE" >/dev/null 2>&1; then
+    if ! docker buildx imagetools inspect "$SCORER_IMAGE" 2>/dev/null | grep -q "linux/amd64"; then
+      echo "FAIL: $SCORE_IMAGE has no linux/amd64 build, so Fly cannot run it." >&2
+      echo "      Fly machines are amd64. An image built on Apple Silicon without" >&2
+      echo "      an explicit platform is arm64 only, and this mirrors it faithfully." >&2
+      echo "      Rebuild it and push again:" >&2
+      echo "        docker build --platform linux/amd64 -t $SCORE_IMAGE scorer/" >&2
+      echo "        docker push $SCORE_IMAGE" >&2
+      exit 1
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------

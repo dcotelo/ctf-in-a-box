@@ -610,3 +610,24 @@ ENV
   # stale event.url left sign-in working while contestants got a dead link.
   grep -qF "sed -n 's/^EVENT_URL=//p'" "$REPO/setup/ctf-setup.sh"
 }
+
+@test "the scorer mirror is checked for a linux/amd64 build" {
+  # `buildx imagetools create` mirrors faithfully, including a single-arch
+  # arm64 image built on an Apple Silicon laptop. Fly machines are amd64, and
+  # without this the failure lands at the very END of the deploy, after both
+  # images are rebuilt and pushed and the secrets set:
+  #
+  #   failed to resolve image for container "scorer":
+  #   platform not found: linux/amd64
+  #
+  # app and sync cannot hit it — deploy.sh builds those with an explicit
+  # --platform. The scorer is the one image built by hand, elsewhere.
+  grep -qF 'linux/amd64' "$FLY/deploy.sh"
+  grep -qF 'has no linux/amd64 build' "$FLY/deploy.sh"
+}
+
+@test "the scorer rebuild instruction carries the platform flag" {
+  # The message has to include the flag, because the command WITHOUT it is the
+  # one people naturally type — and is exactly what produced the arm64 image.
+  grep -qF 'docker build --platform linux/amd64 -t $SCORE_IMAGE scorer/' "$FLY/deploy.sh"
+}
