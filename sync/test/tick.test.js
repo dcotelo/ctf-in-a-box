@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tick } from "../src/index.js";
+import { seenKey } from "../src/state.js";
 
 const CFG = {
   org: "evt", targets: ["dvwa"], getToken: async () => "ghp_test", apiUrl: "https://api.example",
@@ -53,7 +54,7 @@ test("scorer 4xx logs a rejection and permanently drops the comment", async () =
   assert.equal(logs.length, 1);
   assert.match(logs[0], /rejected \(4xx\), dropped/);
   // comment stays marked seen (permanent drop) — unlike the 5xx retry case
-  assert.equal(state.repos.DVWA.seen.includes(1), true);
+  assert.equal(state.repos.DVWA.seen.includes(seenKey(1, "2026-08-13T11:00:00Z")), true);
 });
 
 test("scorer 5xx un-marks the comment so it retries next tick", async () => {
@@ -95,8 +96,8 @@ test("2-comment batch: first fails 5xx, second succeeds 202; cursor stops at fir
   assert.equal(posts[1].author, "mona");
 
   // seen: 1 was un-marked (failed), 2 was kept (succeeded)
-  assert.equal(state.repos.DVWA.seen.includes(1), false);
-  assert.equal(state.repos.DVWA.seen.includes(2), true);
+  assert.equal(state.repos.DVWA.seen.includes(seenKey(1, "2026-08-13T11:00:00Z")), false);
+  assert.equal(state.repos.DVWA.seen.includes(seenKey(2, "2026-08-13T11:01:00Z")), true);
 
   // cursor stops at first failure's updated_at
   assert.equal(state.repos.DVWA.since, "2026-08-13T11:00:00Z");
@@ -125,8 +126,8 @@ test("2-comment batch: first fails 5xx, second succeeds 202; cursor stops at fir
   assert.equal(posts2[0].author, "octocat");
 
   // both in seen now, cursor advanced fully
-  assert.equal(state.repos.DVWA.seen.includes(1), true);
-  assert.equal(state.repos.DVWA.seen.includes(2), true);
+  assert.equal(state.repos.DVWA.seen.includes(seenKey(1, "2026-08-13T11:00:00Z")), true);
+  assert.equal(state.repos.DVWA.seen.includes(seenKey(2, "2026-08-13T11:01:00Z")), true);
   assert.equal(state.repos.DVWA.since, "2026-08-13T11:01:00Z");
   assert.equal(state.repos.DVWA.etag, 'W/"batch2"');
 });
@@ -162,4 +163,62 @@ test("a per-repo entry with a junk seen list still dedupes", async () => {
   assert.equal(posts.length, 1);
   await tick(CFG, state, { fetchImpl: f, log: () => {} });
   assert.equal(posts.length, 1, "the repaired seen-set must still suppress a repost");
+});
+
+// ── the upserted score comment (silent scoring loss) ─────────────────────────
+//
+// The scoring workflow posts ONE comment per target and edits it: "⏳ Scoring
+// in progress…" first, the result second. So a PR whose first run produces no
+// score — a transient failure, a missing package grant, an infrastructure
+// break — has its comment id consumed by the placeholder. Dedupe on the id
+// alone then made the re-run's real score unreachable forever, and silently:
+// the loop `continue`s before it reaches any logged branch.
+//
+// Observed live: DVWA comment 5364196433, created 01:47 reading "Scoring did
+// not complete", updated 02:06 carrying a real marker, never ingested. The
+// PR showed a correct score; the leaderboard showed nothing.
+test("ingests the real score when a placeholder comment is later edited into one", async () => {
+  const posts = [];
+  const placeholder = {
+    id: 99,
+    body: "<!-- ctf-score:dvwa -->\n## 🏆 CTF Patch Score\n\n❌ Scoring did not complete.",
+    user: { login: "github-actions[bot]" },
+    updated_at: "2026-08-13T11:00:00Z",
+  };
+  const scored = {
+    id: 99, // SAME comment — the workflow upserts it
+    body: `<!-- ctf-score:dvwa -->\n${scoreBody}`,
+    user: { login: "github-actions[bot]" },
+    updated_at: "2026-08-13T11:20:00Z",
+  };
+
+  let current = placeholder;
+  const f = routes(() => new Response(JSON.stringify([current]), { status: 200, headers: {} }), 202, posts);
+  const state = { repos: {} };
+
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 0, "the placeholder carries no marker, so nothing is submitted");
+
+  current = scored;
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 1, "the edit carrying the real score MUST be ingested");
+  assert.equal(posts[0].author, "octocat");
+  assert.deepEqual(posts[0].solved, ["sqli-low"]);
+
+  // …and still exactly once: a third tick with no further edit re-submits nothing.
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 1);
+});
+
+// The repair path for events already carrying the damage: state written by an
+// older build holds bare ids, which cannot match a revision key, so the first
+// tick after upgrading re-presents the comment and the lost score lands.
+test("recovers a score dropped by an older build's id-only seen entry", async () => {
+  const posts = [];
+  const c = ghComment(1234);
+  const f = routes(() => new Response(JSON.stringify([c]), { status: 200, headers: {} }), 202, posts);
+  const state = { repos: { DVWA: { since: "2026-08-13T10:00:00Z", etag: null, seen: [1234] } } };
+
+  await tick(CFG, state, { fetchImpl: f, log: () => {} });
+  assert.equal(posts.length, 1, "a bare id from an older build must not suppress the comment forever");
 });

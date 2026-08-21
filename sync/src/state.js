@@ -97,9 +97,46 @@ export function repoState(state, repo) {
   return existing;
 }
 
-export function markSeen(rs, id) {
-  if (rs.seen.includes(id)) return false;
-  rs.seen.push(id);
+/** The dedupe key for one comment REVISION: its id AND the moment it last
+ *  changed.
+ *
+ *  Keying on the id alone silently lost scores. The scoring workflow UPSERTS
+ *  one comment per target — it posts "⏳ Scoring in progress…", then edits
+ *  that same comment with the result — so a PR whose first run does not
+ *  produce a score (a transient failure, a missing package grant, an
+ *  infrastructure break) burns its id on the placeholder. The re-run then
+ *  edits the SAME comment id with the real score, `markSeen` reports it as
+ *  already handled, and the poller skips it and advances its cursor past it.
+ *  Forever, and without a log line: the caller `continue`s before it reaches
+ *  any of the logged branches.
+ *
+ *  Observed exactly that way on a live event: DVWA comment 5364196433 was
+ *  created 01:47 reading "Scoring did not complete", updated 02:06 carrying a
+ *  real `ctf-score:` marker, and never ingested — the contestant's PR showed
+ *  a correct score while the leaderboard showed nothing.
+ *
+ *  Re-ingesting is safe, which is what makes this the right fix rather than a
+ *  risk: `recordSolves` is monotonic (see the scorer's "replaying a solve
+ *  changes neither points nor lastSolveAt" test), so the worst case of a key
+ *  that changes without the payload changing is one redundant, inert POST. */
+export function seenKey(id, updatedAt) {
+  return `${id}@${updatedAt ?? ""}`;
+}
+
+/** Records a comment revision as handled. Returns false if this exact
+ *  revision was already handled.
+ *
+ *  `updatedAt` is optional only so a caller that genuinely has no timestamp
+ *  still dedupes by id; every real caller passes `comment.updated_at`.
+ *
+ *  State written by an older build holds BARE ids. Those never match a
+ *  revision key, so upgrading re-presents each still-cursored comment exactly
+ *  once — which is the desired repair, not a regression: it is what recovers
+ *  the scores this bug dropped. */
+export function markSeen(rs, id, updatedAt) {
+  const key = seenKey(id, updatedAt);
+  if (rs.seen.includes(key)) return false;
+  rs.seen.push(key);
   if (rs.seen.length > SEEN_CAP) rs.seen.splice(0, rs.seen.length - SEEN_CAP);
   return true;
 }

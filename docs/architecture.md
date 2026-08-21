@@ -143,6 +143,14 @@ state; everything else that touches scores goes through it.
    validates `author` against the GitHub-login grammar
    (`GITHUB_LOGIN`), `target` against the configured target list, and
    `solved` as a string array, before returning a payload.
+   The poller's `seen` set is keyed by comment **revision** — its id AND its
+   `updated_at` — not by id alone. The scoring workflow posts ONE comment per
+   target and EDITS it (a "scoring in progress" placeholder, then the result),
+   so an id-only key meant a PR whose first run produced no score burned its
+   id on the placeholder and could never be scored afterwards: the edit
+   carrying the real result was skipped, silently, and the cursor advanced
+   past it. Re-presenting a revision is safe because the scorer's write is
+   monotonic and idempotent on replay (step 7).
 6. `submitScore` (`sync/src/submit.js`) POSTs the validated payload to
    `POST /score` on `scorer` with a bearer token
    (`Authorization: Bearer ${cfg.scorerToken}`). A `2xx` is success; a
