@@ -43,9 +43,9 @@ WORKFLOW_TEMPLATE="$SCRIPT_DIR/../scorer/consumer-workflow.example.yml"
 # NO_COLOR convention + non-interactive/piped output stays plain for logs/CI).
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'
-  C_CYAN=$'\033[36m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+  C_CYAN=$'\033[36m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_RED=$'\033[31m'
 else
-  C_RESET=; C_BOLD=; C_CYAN=; C_GREEN=; C_YELLOW=
+  C_RESET=; C_BOLD=; C_CYAN=; C_GREEN=; C_YELLOW=; C_RED=
 fi
 
 PROVENANCE_TSV="$SCRIPT_DIR/targets.tsv"
@@ -107,13 +107,56 @@ put_contents_ctf() {
 
 STEPS="fork ctf-branch drop-old protect workflow disable-inherited pr-template vapp-dockerfile"
 
-# Read-only verifiers for the two UI-only steps. GitHub exposes no API to
-# PERFORM them (leaving a fork network / setting package visibility are
-# UI-only), but their RESULT is queryable — so doctor confirms instead of
-# blindly reminding. (The third UI-only step, the per-fork package Read grant,
-# genuinely has no read endpoint — that one stays a reminder.)
+# Read-only verifiers for the three UI-only steps. GitHub exposes no API to
+# PERFORM any of them (leaving a fork network, setting package visibility, and
+# granting a fork Read on the package are all UI-only), but each has a
+# queryable RESULT — so doctor confirms instead of blindly reminding. The
+# third has no read endpoint of its own and is verified by observation
+# instead; see `pull_grant_status`.
 fork_detached() { [ "$(gh api "repos/$1" --jq '.fork' 2>/dev/null)" = "false" ]; }
 package_private() { [ "$(gh api "orgs/$1/packages/container/score" --jq '.visibility' 2>/dev/null)" = "private" ]; }
+
+# The per-fork package Read grant has no API to read back — but it has an
+# OBSERVABLE consequence, which is nearly as good and a great deal better than
+# the bare reminder this replaced: the fork's own scoring workflow either
+# pulled the image or was refused. `ctf-score.yml` runs that pull in a step
+# named "Pull scorer image" for exactly this reason.
+#
+# Echoes one of:
+#   granted  a run got a successful pull — the grant is in place, observed
+#   MISSING  the most recent run that reached the pull step was refused
+#   unknown  no run has reached that step yet (a fresh fork, or a workflow
+#            rendered before the pull step existed)
+#
+# FAILS CLOSED, like every check_step: an API error, an unreadable reply, or
+# anything unrecognized reports `unknown`, never `granted`. Reporting a grant
+# that was never observed is the one answer that would make this worse than
+# the reminder.
+#
+# Only the newest few runs are inspected: a grant, once given, is not taken
+# back, so an old refusal under a recent success is history rather than news —
+# hence first-success-wins over first-failure-wins in the loop below.
+pull_grant_status() {
+  slug="$1"; runs=""; jobs=""; step=""
+
+  runs="$(gh api "repos/$slug/actions/workflows/ctf-score.yml/runs?per_page=5" \
+    --jq '.workflow_runs[].id' 2>/dev/null)" || { echo unknown; return 0; }
+  [ -n "$runs" ] || { echo unknown; return 0; }
+
+  for run in $runs; do
+    jobs="$(gh api "repos/$slug/actions/runs/$run/jobs" \
+      --jq '.jobs[].steps[] | select(.name == "Pull scorer image") | .conclusion' 2>/dev/null)" || continue
+    for step in $jobs; do
+      case "$step" in
+        success) echo granted; return 0 ;;
+        failure) echo MISSING; return 0 ;;
+        *) ;; # skipped/cancelled/null — the step never actually ran
+      esac
+    done
+  done
+
+  echo unknown
+}
 
 # jq selecting the IDs of a fork's inherited (to-be-disabled) workflows: real
 # .github/workflows/ files only, minus our own ctf-score.yml, that are active.
@@ -303,8 +346,30 @@ cmd_doctor() {
   else
     printf '%s⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
-  # No API exposes the per-fork "Manage Actions access" grants — reminder only.
-  printf '%s⚠️  per-fork package Read grant — no API to verify; confirm each fork under "Manage Actions access": https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
+  # No API exposes the per-fork "Manage Actions access" grants directly, so
+  # this is verified by OBSERVATION instead — see `pull_grant_status`. It is
+  # the one provisioning step with no API and the one whose failure looks like
+  # something else entirely (a scoring failure on a contestant's PR), so
+  # leaving it as a bare "confirm this by hand" reminder meant it stayed
+  # unverified until an event was already running.
+  echo
+  echo "per-fork package Read grant (no API — read back from each fork's own scoring runs):"
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    name="$(prov_repo_name "$t")"
+    case "$(pull_grant_status "$org/$name")" in
+      granted)
+        printf '  %-18s %s✅ granted%s (a scoring run pulled the image)\n' "$t" "$C_GREEN" "$C_RESET" ;;
+      MISSING)
+        printf '  %-18s %s❌ MISSING%s — a run was refused the image; grant this fork Read under "Manage Actions access"\n' \
+          "$t" "$C_RED" "$C_RESET"
+        rc=1 ;;
+      *)
+        printf '  %-18s %s⚠️  unverified%s — no scoring run has pulled yet; confirm by hand, or open a test PR\n' \
+          "$t" "$C_YELLOW" "$C_RESET" ;;
+    esac
+  done < <(yaml_targets)
+  printf '  package settings: https://github.com/orgs/%s/packages\n' "$org"
   return $rc
 }
 
@@ -899,7 +964,10 @@ cmd_org() {
 == manual steps (GitHub UI, no API) — run 'ctf-setup doctor' to re-check:
    1. Detach each fork from its fork network (repo Settings -> Leave fork network).
    2. Keep package ghcr.io/$org/score PRIVATE; grant each fork Read under
-      the package's "Manage Actions access".
+      the package's "Manage Actions access" — https://github.com/orgs/$org/packages
+      Do this for EVERY fork. A fork without it cannot pull the scorer, and
+      doctor reports it as unverified until one of its scoring runs proves
+      otherwise.
    3. Push mode only: org Actions secrets LEADERBOARD_URL + LEADERBOARD_TOKEN.
 EOF
 }

@@ -231,8 +231,32 @@ queryable) and shows ✅ once done — only the third is a blind reminder:
    Read** under the package's *Manage Actions access* (container visibility is
    UI-only). The rendered workflow logs in to GHCR with the runner
    `GITHUB_TOKEN`, which the Read grant makes sufficient. `doctor` verifies the
-   package is private via its `.visibility`; the per-fork grant has no read
-   endpoint, so that part stays a ⚠️ reminder to confirm by hand.
+   package is private via its `.visibility`.
+
+   The per-fork grant has no read endpoint, so `doctor` verifies it **by
+   observation** instead: the rendered workflow pulls the scorer image in its
+   own step (`Pull scorer image`), and `doctor` reads each fork's recent
+   scoring runs for that step's outcome — ✅ *granted* (a run pulled it),
+   ❌ *MISSING* (a run was refused), or ⚠️ *unverified* (no run has reached
+   the pull yet). It fails closed: an API error, or anything it cannot read,
+   reports unverified, never granted.
+
+   This is the only provisioning step with no API, and it used to be the only
+   one whose failure looked like something else — an unpulled image failed
+   inside the scorer step and posted "Scoring did not complete" to the
+   contestant's PR, so the contestant re-pushed a patch that was never judged
+   while the organizer had no reason to look at the package settings. The
+   workflow now names the cause in the run's step summary and in the PR
+   comment, and says plainly that it is a setup problem rather than a verdict
+   on the submission.
+
+   **Already-provisioned forks keep the old workflow** until it is re-rendered
+   — `ctf-setup.sh org` re-PUTs `ctf-score.yml` idempotently, so re-running it
+   is how an existing event picks this up (see
+   [#43](https://github.com/dcotelo/ctf-in-a-box/issues/43) for the general
+   upgrade path). A fork still on the old workflow has no `Pull scorer image`
+   step, so `doctor` reports it as ⚠️ unverified — correctly: it has not been
+   observed either way.
 
 **The contest flow:** a contestant **forks your event-org repo** into their own
 account, patches the vulnerability, and opens a **pull request against
