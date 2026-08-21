@@ -6,7 +6,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getSession, joinTeam, removeMember, renameTeam, transferCaptain, disbandTeam, regenerateCode } = vi.hoisted(
+const {
+  getSession, joinTeam, removeMember, renameTeam, transferCaptain, disbandTeam, regenerateCode, consumeRateLimit,
+} = vi.hoisted(
   () => ({
     getSession: vi.fn(),
     joinTeam: vi.fn(),
@@ -15,6 +17,7 @@ const { getSession, joinTeam, removeMember, renameTeam, transferCaptain, disband
     transferCaptain: vi.fn(),
     disbandTeam: vi.fn(),
     regenerateCode: vi.fn(),
+    consumeRateLimit: vi.fn(),
   }),
 );
 
@@ -27,6 +30,13 @@ vi.mock("@/lib/team-store", () => ({
   transferCaptain,
   disbandTeam,
   regenerateCode,
+}));
+// Mocked EXPLICITLY: the real module fails open on any Upstash error, so an
+// unmocked import would make every test here silently exercise that error
+// branch and still pass.
+vi.mock("@/lib/rate-limit-store", () => ({
+  consumeRateLimit,
+  RATE_LIMITS: { teamJoin: { bucket: "team-join", limit: 10, windowSeconds: 600 } },
 }));
 
 import { POST as joinPOST } from "@/app/api/team/join/route";
@@ -48,7 +58,41 @@ beforeEach(() => {
   transferCaptain.mockReset();
   disbandTeam.mockReset();
   regenerateCode.mockReset();
+  consumeRateLimit.mockReset();
   getSession.mockResolvedValue(SESSION);
+  consumeRateLimit.mockResolvedValue({ allowed: true });
+});
+
+describe("POST /api/team/join rate limiting", () => {
+  it("429s without testing the code once the budget is spent", async () => {
+    consumeRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 300 });
+    const res = await joinPOST(req({ code: "abc123" }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("300");
+    expect(joinTeam).not.toHaveBeenCalled();
+  });
+
+  it("charges the session login, not an IP header a caller controls", async () => {
+    // lib/gate-store keys on the IP because the gate runs before anyone has
+    // an identity, and documents that the key is spoofable (Caddy APPENDS to
+    // x-forwarded-for). This route runs after getSession, so it keys on
+    // something a caller cannot forge without forging the session.
+    joinTeam.mockResolvedValue({ ok: true, team: { slug: "t" } });
+    await joinPOST(req({ code: "abc123" }));
+    expect(consumeRateLimit).toHaveBeenCalledWith("team-join", "alice", 10, 600);
+  });
+
+  it("does not charge a request that never had a code to test", async () => {
+    const res = await joinPOST(req({}));
+    expect(res.status).toBe(400);
+    expect(consumeRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("does not charge an unauthenticated caller", async () => {
+    getSession.mockResolvedValue(null);
+    await joinPOST(req({ code: "abc123" }));
+    expect(consumeRateLimit).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/team/join", () => {

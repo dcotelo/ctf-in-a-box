@@ -8,17 +8,26 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getSession, revealHint, resolveHintConfig, requireGatePassed } = vi.hoisted(() => ({
+const { getSession, revealHint, resolveHintConfig, requireGatePassed, consumeRateLimit } = vi.hoisted(() => ({
   getSession: vi.fn(),
   revealHint: vi.fn(),
   resolveHintConfig: vi.fn(),
   requireGatePassed: vi.fn(),
+  consumeRateLimit: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/hint-store", () => ({ revealHint, resolveHintConfig }));
+// Mocked EXPLICITLY rather than left to load for real. The real module fails
+// open on any Upstash error, so an unmocked import would quietly make every
+// test in this file exercise the error branch and pass — coverage of the one
+// path we are not trying to test here.
+vi.mock("@/lib/rate-limit-store", () => ({
+  consumeRateLimit,
+  RATE_LIMITS: { hintReveal: { bucket: "hint-reveal", limit: 30, windowSeconds: 60 } },
+}));
 
 import { POST } from "@/app/api/hints/reveal/route";
 
@@ -32,9 +41,42 @@ beforeEach(() => {
   revealHint.mockReset();
   resolveHintConfig.mockReset();
   requireGatePassed.mockReset();
+  consumeRateLimit.mockReset();
   getSession.mockResolvedValue(SESSION);
   requireGatePassed.mockResolvedValue(true);
+  consumeRateLimit.mockResolvedValue({ allowed: true });
   resolveHintConfig.mockResolvedValue({ enabled: true, cost: 10 });
+});
+
+describe("POST /api/hints/reveal rate limiting", () => {
+  it("429s without revealing anything once the budget is spent", async () => {
+    consumeRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 42 });
+    const res = await POST(req({ app: "quiz", id: "q1" }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("42");
+    // The whole point: the refusal must come BEFORE the store is touched, so
+    // it can never follow a charge that already landed.
+    expect(revealHint).not.toHaveBeenCalled();
+  });
+
+  it("charges the budget against the session login, not anything client-supplied", async () => {
+    revealHint.mockResolvedValue({ ok: true, hint: "look at the query", alreadyOwned: false, spent: 10 });
+    await POST(req({ app: "quiz", id: "q1", login: "someone-else" }));
+    expect(consumeRateLimit).toHaveBeenCalledWith("hint-reveal", "alice", 30, 60);
+  });
+
+  it("does not charge an unauthenticated caller", async () => {
+    getSession.mockResolvedValue(null);
+    await POST(req({ app: "quiz", id: "q1" }));
+    expect(consumeRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("stays behind the pre-event gate — a gated call is refused before it is charged", async () => {
+    requireGatePassed.mockResolvedValue(false);
+    const res = await POST(req({ app: "quiz", id: "q1" }));
+    expect(res.status).toBe(403);
+    expect(consumeRateLimit).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/hints/reveal", () => {

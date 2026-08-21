@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireGatePassed } from "@/lib/gate-request";
 import { resolveHintConfig, revealHint } from "@/lib/hint-store";
+import { consumeRateLimit, RATE_LIMITS } from "@/lib/rate-limit-store";
 
 /** Buys (or re-views) one hint. Charging is atomic and idempotent in Redis —
  *  repeat calls for an owned hint return it for free. Purchases are final;
@@ -21,6 +22,21 @@ export async function POST(request: Request) {
 
   if (!(await requireGatePassed())) {
     return NextResponse.json({ error: "gate" }, { status: 403 });
+  }
+
+  // After the gate, before any store write — a refusal here can never follow
+  // a charge that already happened.
+  const limit = await consumeRateLimit(
+    RATE_LIMITS.hintReveal.bucket,
+    login,
+    RATE_LIMITS.hintReveal.limit,
+    RATE_LIMITS.hintReveal.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many hint requests. Slow down." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
   }
 
   const body = await request.json().catch(() => ({}));

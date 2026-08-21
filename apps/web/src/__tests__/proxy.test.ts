@@ -33,7 +33,19 @@ describe("the proxy matcher", () => {
   });
 
   it("carries nothing the registry and the platform don't own", () => {
-    const known = new Set<string>([...ALL_MODULE_ROUTES, "/profile"]);
+    // "/api/:path*" is the platform's, not a module's: it is what puts the
+    // mutating-route origin assertion in front of every API route at once.
+    // Named explicitly so this stays a real guard against an unknown page
+    // route sneaking in, rather than being relaxed into one that permits
+    // anything.
+    const known = new Set<string>([...ALL_MODULE_ROUTES, "/profile", "/api/:path*"]);
     expect(config.matcher.filter((route) => !known.has(route))).toEqual([]);
+  });
+
+  // The origin assertion is only reachable on routes the matcher covers. A
+  // matcher that lost this entry would leave every route handler running
+  // exactly as before, with no test failing anywhere near the check itself.
+  it("covers the API routes the origin assertion defends", () => {
+    expect(config.matcher).toContain("/api/:path*");
   });
 });
