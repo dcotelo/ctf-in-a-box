@@ -38,9 +38,14 @@ Scoring is per team. Contestants self-register in the app: create a team to
 become its captain and get a join code, or join an existing team by code.
 Everyone ends up on a team — a solo player is simply a team of one. Captains
 manage the roster from the app: rename the team, remove a member, transfer the
-captaincy, regenerate the join code, or disband. Team size is capped at four
-members by default; an organizer changes that from the admin panel's **Event**
-tab ("Players per team") without a rebuild.
+captaincy, regenerate the join code, or disband. The join code doubles as a
+shareable link — **Copy invite link** on the team card yields
+`https://<your-event>/join/<code>`, which a teammate opens and joins in one
+click. Signing in mid-way keeps the invite: the code lives in the URL, so the
+GitHub round-trip returns to the same page. Regenerating the code invalidates
+any link that carried the old one. Team size is capped at four members by
+default; an organizer changes that from the admin panel's **Event** tab
+("Players per team") without a rebuild.
 
 The leaderboard ranks **teams**, and each row expands to show its members with
 each member's individual points. A flag solved by several teammates counts

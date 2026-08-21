@@ -70,6 +70,7 @@ export default function TeamCard({
   };
 
   const displayCode = latestCode ?? joinCode;
+  const [copied, setCopied] = useState(false);
   const otherMembers = (team?.members ?? []).filter((member) => member !== captain);
 
   return (
@@ -103,9 +104,29 @@ export default function TeamCard({
           </div>
 
           {displayCode && (
-            <div className="rounded-md border border-[#2563eb]/30 bg-[#2563eb]/10 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-muted">Share this join code</p>
-              <p className="font-mono text-lg tracking-widest text-white">{displayCode}</p>
+            <div className="flex flex-col gap-2 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/10 px-3 py-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted">Share this join code</p>
+                <p className="font-mono text-lg tracking-widest text-white">{displayCode}</p>
+              </div>
+              {/* The same code as a link (issue #45), so a captain can paste
+                  one thing into chat instead of spelling six characters across
+                  a noisy room. Built from window.location.origin rather than a
+                  configured URL: whatever host the captain is actually using
+                  is the host their teammates can reach. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const url = `${window.location.origin}/join/${encodeURIComponent(displayCode)}`;
+                  void navigator.clipboard?.writeText(url).then(
+                    () => setCopied(true),
+                    () => setCopied(false),
+                  );
+                }}
+                className="self-start rounded border border-white/10 px-2 py-1 font-mono text-[11px] text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white"
+              >
+                {copied ? "Link copied" : "Copy invite link"}
+              </button>
             </div>
           )}
 

@@ -697,3 +697,68 @@ describe("team member cap", () => {
     expect(script).toContain("SCARD");
   });
 });
+
+// --- shareable join links (issue #45) ---------------------------------------
+
+describe("lookupJoinCode", () => {
+  it("resolves a code to its team for display", async () => {
+    const store = await loadStore(true);
+    mockCodeLookup("red-team");
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "Red Team" }, { result: 2 }]);
+    expect(await store.lookupJoinCode("ABC123")).toEqual({ slug: "red-team", name: "Red Team", memberCount: 2 });
+  });
+
+  it("normalizes the code the same way joinTeam does", async () => {
+    // A captain pastes the code in caps, or the link carries whitespace. If
+    // the preview and the join disagreed on normalization, the page would show
+    // a team and the button would then say "invalid code".
+    const store = await loadStore(true);
+    mockCodeLookup("red-team");
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "Red Team" }, { result: 1 }]);
+    await store.lookupJoinCode("  AbC123  ");
+    const [firstCall] = mocks.upstashPipeline.mock.calls;
+    expect(firstCall[0]).toEqual([["GET", "ctf:joincode:abc123"]]);
+  });
+
+  it("returns null for an unknown code", async () => {
+    const store = await loadStore(true);
+    mockCodeLookup(null);
+    expect(await store.lookupJoinCode("nope")).toBeNull();
+  });
+
+  it("returns null for an empty code without touching the store", async () => {
+    const store = await loadStore(true);
+    expect(await store.lookupJoinCode("   ")).toBeNull();
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("treats a code whose team is gone as expired, not as an empty team", async () => {
+    // leaveTeam deletes the team key and its code together, but a partially
+    // cleaned state must not render a card for a team that no longer exists.
+    const store = await loadStore(true);
+    mockCodeLookup("ghost-team");
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }, { result: 0 }]);
+    expect(await store.lookupJoinCode("ABC123")).toBeNull();
+  });
+
+  it("resolves nothing when team writes are disabled", async () => {
+    const store = await loadStore(false);
+    expect(await store.lookupJoinCode("ABC123")).toBeNull();
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("NEVER joins — it only reads", async () => {
+    // The whole point of splitting lookup from join: a GET on the invite page
+    // must not add anyone to a team, or a link preview would.
+    const store = await loadStore(true);
+    mockCodeLookup("red-team");
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "Red Team" }, { result: 1 }]);
+    await store.lookupJoinCode("ABC123");
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+    for (const [cmds] of mocks.upstashPipeline.mock.calls) {
+      for (const cmd of cmds as string[][]) {
+        expect(["GET", "HGET", "SCARD"]).toContain(cmd[0]);
+      }
+    }
+  });
+});

@@ -438,3 +438,39 @@ export async function getViewerTeam(login: string): Promise<TeamInfo | null> {
   const members = Array.isArray(membersRes.result) ? ([...(membersRes.result as string[])].sort()) : [];
   return { slug, name, members };
 }
+
+/**
+ * Resolve a join code to the team it belongs to, for DISPLAY only (issue #45).
+ *
+ * The shareable `/join/<code>` link needs to show a contestant which team they
+ * are about to join before they commit. It deliberately does NOT join: that
+ * stays a POST through `/api/team/join`, so a link preview, a prefetch, or a
+ * crawler following the URL can never add someone to a team.
+ *
+ * Returns null for an unknown or expired code — the same answer the join path
+ * gives, so a bad link cannot be told apart from a stale one by probing. What
+ * it exposes for a VALID code is the team's name and size, which is already
+ * public on the leaderboard.
+ */
+export async function lookupJoinCode(
+  code: string,
+): Promise<{ slug: string; name: string; memberCount: number } | null> {
+  const normalized = code.trim().toLowerCase();
+  if (!normalized) return null;
+  if (!TEAM_WRITES_ENABLED) return null;
+
+  const [codeRes] = await upstashPipeline([["GET", joinCodeKey(normalized)]]);
+  const slug = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : null;
+  if (!slug) return null;
+
+  const [nameRes, countRes] = await upstashPipeline([
+    ["HGET", teamKey(slug), "name"],
+    ["SCARD", membersKey(slug)],
+  ]);
+  // A code whose team has since been disbanded is treated as expired rather
+  // than rendering an empty card: leaveTeam deletes the team key and the code
+  // together, but a partially-cleaned state must not become a dead-end page.
+  const name = typeof nameRes.result === "string" && nameRes.result ? nameRes.result : null;
+  if (!name) return null;
+  return { slug, name, memberCount: typeof countRes.result === "number" ? countRes.result : 0 };
+}
