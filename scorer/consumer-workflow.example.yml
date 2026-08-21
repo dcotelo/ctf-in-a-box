@@ -1,6 +1,6 @@
 # CTF scoring workflow — self-contained, no upstream score-action.
 #
-# ctf-workflow-version: 1
+# ctf-workflow-version: 2
 #
 # BUMP THAT NUMBER whenever a change here needs to reach forks that are
 # ALREADY provisioned — a security fix, or anything a live event would
@@ -170,13 +170,40 @@ jobs:
 
       # (3) Check out the PR HEAD — this is UNTRUSTED contestant code. It is only
       # ever `docker build`+run inside a container on the internal network by the
-      # scorer (step 6); nothing here runs it on the runner host.
+      # scorer (step 7); nothing here runs it on the runner host.
+      #
+      # `allow-unsafe-pr-checkout` is REQUIRED, not optional, and not a
+      # loosening of this workflow's posture. actions/checkout now refuses a
+      # fork-PR checkout under `pull_request_target` unless a workflow says
+      # it has considered the "pwn request" class — and without it every
+      # scoring run on every deployment of this kit fails at this step, before
+      # the scorer is even pulled. It is the opt-in that action documents for
+      # a workflow that has done the analysis.
+      #
+      # The analysis, which is the same one this file's header states: the
+      # danger in `pull_request_target` is EXECUTING a fork's code in a job
+      # that holds the base repo's token and secrets. Nothing here does.
+      # Every `run:` step in this job is `docker login` / `docker pull` /
+      # `docker network create` / `docker run` — the checkout is a build
+      # CONTEXT, mounted into the scorer container, and the contestant's app
+      # is built and booted inside that container on an internal network.
+      # No install script, no build script, no test runner from the PR is
+      # executed on the runner host. `persist-credentials: false` also keeps
+      # the job's token out of the checked-out tree.
+      #
+      # What this flag does NOT change: the scorer container has docker.sock
+      # so it can boot the app as a sibling, and it necessarily BUILDS
+      # contestant-supplied source. That trust boundary is inherent to
+      # judging submitted code and predates this flag — see docs/architecture.md's
+      # security model. This restores the behaviour the kit already had; it
+      # grants nothing new.
       - name: Checkout PR head
         if: steps.cooldown.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+          allow-unsafe-pr-checkout: true
 
       # (4) Log in to GHCR to pull the (private) mirrored scorer image.
       - name: Log in to GHCR

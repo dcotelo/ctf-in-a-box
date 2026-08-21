@@ -181,8 +181,9 @@ EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must pair correctly: dvwa's workflow into DVWA, vampi's into VAmPI
-  [[ "$output" == *"render ctf-score.yml v1 (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"* ]]
-  [[ "$output" == *"render ctf-score.yml v1 (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
+  v="$(template_version)"
+  [[ "$output" == *"render ctf-score.yml v$v (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"* ]]
+  [[ "$output" == *"render ctf-score.yml v$v (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
 }
 
 @test "org ignores decoy targets line outside modules.secure-development (MEDIUM fix #5)" {
@@ -1022,6 +1023,16 @@ EOF
 # the file existed — at any version — so a security fix could only be
 # delivered by hand, one fork at a time.
 
+# The template's current version, read from the template rather than pinned
+# here. These tests are about the version MECHANISM — a fork matching the
+# template reads current, one behind reads stale — not about which number the
+# template happens to be on. Hardcoding it turned every security bump of the
+# workflow into a test edit.
+template_version() {
+  sed -n 's/^# ctf-workflow-version: *\([0-9][0-9]*\).*/\1/p' \
+    "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml" | head -1
+}
+
 @test "the template carries a version stamp and rendering preserves it" {
   grep -qE '^# ctf-workflow-version: [0-9]+$' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
   run bash "$SCRIPT" render --config event.yaml
@@ -1030,10 +1041,11 @@ EOF
 }
 
 @test "upgrade --dry-run plans only the workflow step, never forks or the mirror" {
+  v="$(template_version)"
   run bash "$SCRIPT" upgrade --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"render ctf-score.yml v1 (TARGET=dvwa)"* ]]
-  [[ "$output" == *"render ctf-score.yml v1 (TARGET=vampi)"* ]]
+  [[ "$output" == *"render ctf-score.yml v$v (TARGET=dvwa)"* ]]
+  [[ "$output" == *"render ctf-score.yml v$v (TARGET=vampi)"* ]]
   # The whole reason this is its own subcommand rather than "re-run org".
   [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
   [ -z "$(printf '%s' "$output" | grep -F 'docker push')" ]
@@ -1073,10 +1085,11 @@ EOF
 }
 
 @test "doctor reports a fork on the template's version as current" {
-  write_gh_workflow_stub 1
+  v="$(template_version)"
+  write_gh_workflow_stub "$v"
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
-  [[ "$output" == *"scoring workflow version (template is v1)"* ]]
-  printf '%s' "$output" | grep -qE '^  dvwa +✅ v1'
+  [[ "$output" == *"scoring workflow version (template is v$v)"* ]]
+  printf '%s' "$output" | grep -qE "^  dvwa +✅ v$v"
 }
 
 # The state this whole feature exists for: a live event still running an old
