@@ -428,6 +428,21 @@ register the OAuth app on your personal account rather than the org.
 > when the URL is HTTPS — over plain `http://` the session cookie can be sniffed
 > on the wire, which for an organizer login means admin takeover. `http://localhost`
 > is fine for a local trial only.
+>
+> **This is enforced, not just advised.** A production start with an
+> `http://` `EVENT_URL` pointing at anything other than loopback fails the
+> startup check in `apps/web/src/instrumentation.ts`: the `app` container comes
+> up but answers `500` to every request, and the first lines of
+> `docker compose logs app` name the variable, the value, and the fix. The
+> check runs at server start only — `pnpm build` is unaffected, so a build
+> machine needs no event config.
+>
+> If a deployment is deliberately TLS-less (a closed lab, an isolated
+> classroom network) set `ALLOW_INSECURE_EVENT_URL=1`. It downgrades the
+> refusal to a startup warning that says sessions on that deployment are
+> sniffable by design. It is not for TLS terminated upstream — in that setup
+> the public URL is still `https://`, so `EVENT_URL` should say `https://` and
+> the check passes on its own.
 
 ## Configuration
 
