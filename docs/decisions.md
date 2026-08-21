@@ -1584,6 +1584,69 @@ digest-pinning first-party images); it would also have meant not receiving the
 guard, so it trades a loud break for a silent divergence from upstream's
 current advice.
 
+## 38. Counting the poller's silent drops, and refusing to count the routine ones
+
+**Context.** Two scoring bugs were found in one evening by running a single
+real PR end to end — the upserted-comment dedupe collision (ADR-adjacent, see
+[#130](https://github.com/dcotelo/ctf-in-a-box/issues/130)/#131) and the
+`pull_request_target` checkout guard (ADR 37). They had **nothing in common
+technically and everything in common operationally**: the poller consumed a
+comment, submitted no score, and wrote nothing down. In `tick()`'s ingest
+loop, both silent paths were a bare `continue` sitting above every logged
+branch:
+
+```js
+if (!markSeen(rs, c.id, c.updated_at)) continue;
+const payload = parseScoreComment(c.body, cfg);
+if (!payload) continue;
+```
+
+Neither bug was findable by tailing the poller. The only visible symptom was a
+contestant's PR showing a correct score that the leaderboard did not have —
+and only if somebody happened to compare the two.
+
+**Decision.** Every path that consumes a comment and submits nothing now
+increments a named per-repo counter, and the two that represent real loss also
+increment a cumulative `dropped` in the poller's state, write a `lastDrop`
+description, and surface on `/admin` beside `Ingested`.
+
+The taxonomy is the whole decision:
+
+| Bucket | Meaning | Counted as a drop? |
+|---|---|---|
+| `duplicate` | Revision already handled — `since` is inclusive, so the boundary comment is re-read on most ticks | No |
+| `noMarker` | Bot comment with no `ctf-score:` marker — the workflow's own placeholder, other Actions' comments | No |
+| `invalid` | Marker **present** and unusable — schema drift, truncation, forgery | **Yes** |
+| `rejected` | Scorer returned `4xx`; the comment stays marked seen, so it is never retried | **Yes** |
+| `retried` | Submission failed transiently and was un-marked; next tick re-presents it | No — logged, not lost |
+
+**Splitting `invalid` from `noMarker` required a parser change.**
+`parseScoreComment` returned `null` for both "ordinary comment" and "claims to
+carry a score, and the claim is unreadable", which made a drift between the
+workflow's marker format and the poller's grammar look exactly like silence.
+`hasScoreMarker()` separates them.
+
+**The refusal to count the routine buckets is load-bearing, not a
+simplification.** Duplicates and placeholders occur constantly on a perfectly
+healthy event. Folding them into `dropped` would make the figure permanently
+nonzero, and a warning that is always lit is one organizers stop reading —
+which reproduces the exact failure this counter exists to prevent, while
+looking like a fix. The same reasoning governs the log: a per-repo summary
+line prints only when something non-routine happened, so a quiet poller stays
+quiet and any line it does print means something.
+
+**`dropped`/`lastDrop` are sticky; `lastError` is not.** `lastError` describes
+the tick that wrote it and is `HDEL`ed by the next clean tick. A dropped score
+is still missing after the poller recovers, so clearing it on recovery would
+erase the only pointer to the PR a human has to go re-run.
+
+**Consequences.** The counter's value is in staying at zero. It cannot catch a
+*novel* silent path — a future `continue` added without a bucket is invisible
+again — so the buckets, not the number, are the thing to maintain: any new
+early exit in the ingest loop gets one. Events upgrading from an older poller
+read a status hash with no drop fields, which decodes as `0`/`null` rather
+than `NaN` (pinned by a test in `admin-store.test.ts`).
+
 ## 39. Enforcing HTTPS for `EVENT_URL` at server start, not at build or per request
 
 **Context.** better-auth derives the session cookie's `Secure` flag from the

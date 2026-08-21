@@ -80,7 +80,7 @@ export default async function AdminPage({
       <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Status</h2>
         {sync ? (
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted">Last poll</dt>
               <dd className="font-mono text-white">
@@ -91,6 +91,17 @@ export default async function AdminPage({
               <dt className="text-xs uppercase tracking-wide text-muted">Ingested</dt>
               <dd className="font-mono tabular-nums text-white">{sync.ingested}</dd>
             </div>
+            {/* Sits beside Ingested on purpose: the pair is the whole health
+                check. Points that reached the leaderboard, and points that
+                reached a PR and stopped there. Amber only when nonzero — a
+                warning colour on a permanent zero teaches organizers to
+                ignore the colour. */}
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">Dropped</dt>
+              <dd className={`font-mono tabular-nums ${sync.dropped > 0 ? "text-[#f6ad55]" : "text-white"}`}>
+                {sync.dropped}
+              </dd>
+            </div>
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted">Repos polled</dt>
               <dd className="font-mono tabular-nums text-white">{sync.reposPolled}</dd>
@@ -99,8 +110,14 @@ export default async function AdminPage({
               <dt className="text-xs uppercase tracking-wide text-muted">Sync paused</dt>
               <dd className="font-mono text-white">{sync.paused ? "yes" : "no"}</dd>
             </div>
+            {sync.lastDrop && (
+              <div className="col-span-2 sm:col-span-5">
+                <dt className="text-xs uppercase tracking-wide text-muted">Last drop</dt>
+                <dd className="font-mono text-xs text-[#f6ad55]">{sync.lastDrop}</dd>
+              </div>
+            )}
             {sync.lastError && (
-              <div className="col-span-2 sm:col-span-4">
+              <div className="col-span-2 sm:col-span-5">
                 <dt className="text-xs uppercase tracking-wide text-muted">Last error</dt>
                 <dd className="font-mono text-xs text-[#e53e3e]">{sync.lastError}</dd>
               </div>
