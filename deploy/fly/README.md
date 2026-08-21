@@ -15,38 +15,37 @@ Half the compose stack does not exist here:
 | `scorer` | Fly app, private (`.internal` only) |
 | `sync` | Fly app, private, one volume |
 | `srh` | Fly app, private — **still required**, see below |
-| `redis` | **Managed Redis** (`fly redis create`) |
+| `redis` | Fly app — **the same `redis:7-alpine` compose runs**, with a volume |
 | `caddy` | **Gone** — Fly terminates TLS and issues certificates. |
 
-### Why `srh` is still here
+### Why `srh` is still here, and why Redis is a plain container
 
-An earlier version of this module did not deploy it, on the reasoning that
-`srh` only fakes the Upstash REST API in front of local Redis. **That was
-wrong.** `fly redis create` provisions Upstash-*managed* Redis, which speaks
-only the Redis protocol and hands back a `redis://` private URL — there is no
-REST endpoint. The REST API (`UPSTASH_REDIS_REST_URL` / `_TOKEN`) is an Upstash
-**cloud** feature, not part of the Fly integration.
+`srh` translates the Upstash REST API the app, scorer and sync speak into the
+Redis protocol. That was true on compose and it is true here — nothing about
+Fly removes the need for it.
 
-The app, scorer and sync speak REST and only REST. Point them at a `redis://`
-URL and nothing connects. So `srh` is not optional here; it is the translator
-that makes the managed Redis usable, exactly as on the compose path.
+Redis itself is **our own `redis:7-alpine` app**, not `fly redis create`. The
+managed option works, but it was the wrong default for this kit:
 
-If you already have an Upstash **cloud** database, which does expose REST, you
-can skip the `srh` app and set `UPSTASH_REDIS_REST_URL` / `_TOKEN` directly on
-the other three.
+- **It is not the same Redis.** The kit's testing story is that what you
+  exercise locally is what runs at the event. A managed Redis-compatible
+  service is a different implementation with its own command coverage and
+  eviction behaviour.
+- **It adds a billable add-on** to a kit whose premise is "one box, no cloud
+  bill".
+- **It needed credentials nothing else needed** — `fly redis create`, then
+  scraping a `redis://` URL out of `fly redis status` output. That was the
+  most fragile step in the whole deploy.
+- **`REDIS_PASSWORD` already exists.** `setup/ctf-setup.sh secrets` generates
+  it, and every compose deployment carries one (ADR 41). The managed path
+  ignored it and invented a second credential.
 
-**The scorer needs no Docker.** It runs in `serve` mode: an ordinary HTTP
-server. Judging boots target containers as siblings through `docker.sock`, and
-that happens on GitHub's runners, never here. Without that, none of this would
-fit on Firecracker.
+What Fly genuinely provides that compose does not — TLS termination and
+certificates — is why `caddy` is absent. Redis was never in that category.
 
-**Images follow compose, service by service.** `docker-compose.yml` uses a
-pre-built `image:` for the scorer (`$SCORE_IMAGE`) and `srh`, and `build:` only
-for `app` and `sync` — this module does the same. The scorer in particular
-deploys the *same image the forks pull to judge PRs*, rather than a second
-build from source: same code today, but nothing keeps two builds in step, and
-a rubric or catalogue difference between them shows up as leaderboard totals
-that disagree with the scores.
+If you *do* want a managed database (Upstash cloud, which exposes REST), you
+can skip both the `redis` and `srh` apps and set `UPSTASH_REDIS_REST_URL` /
+`_TOKEN` directly on the other three.
 
 ## Prerequisites (done once, before deploying)
 
@@ -56,21 +55,21 @@ that disagree with the scores.
    hostname — so decide the hostname first. `https://<app>.fly.dev` is the
    default; a custom domain is below.
 3. **Run `init`.** It writes a Fly-specific env file from your existing
-   `.env`, rewrites `EVENT_URL` to the app's Fly hostname, generates an
-   `SRH_TOKEN`, and provisions the managed Redis:
+   `.env`, rewrites `EVENT_URL` to the app's Fly hostname, and fills in
+   `SRH_TOKEN` and `REDIS_PASSWORD` if they are absent:
 
    ```sh
-   ./deploy/fly/deploy.sh init                 # --dry-run first if you like
+   ./deploy/fly/deploy.sh init
    ```
 
-   It **tops up an existing env file** rather than overwriting it — so a
-   hand-made one just gains what it is missing, and its permissions are
-   tightened to `600` either way. It **asks before creating the database** (a billable resource) and will not
-   proceed without a typed `create`. It never overwrites an existing env file
-   and reuses an existing database, so it is safe to re-run.
+   It **touches nothing on Fly and needs no CLI** — it is pure env-file
+   preparation. It tops up an existing file rather than overwriting it, so a
+   hand-made one just gains what it is missing, and tightens it to `600`
+   either way since it holds every secret the event has.
 
-   A separate env file is the point: a compose stack and a Fly deployment need
-   different `EVENT_URL`s, and one file cannot hold both.
+   An env file copied from a working compose deployment **already has
+   `REDIS_PASSWORD`**, and `init` carries it over rather than generating a
+   second one — the deployed redis and the deployed srh have to agree on it.
 
 ## Deploy
 

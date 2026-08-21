@@ -13,22 +13,22 @@ DRY_RUN=""
 ENV_FILE=".env.fly"
 CONFIG="event.yaml"
 FROM_ENV=".env"
-REGION="iad"
 CMD="deploy"
 
 usage() {
   cat <<'EOF'
 usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
-                            [--config event.yaml] [--from .env] [--region iad]
+                            [--config event.yaml] [--from .env]
 
-  init    Prepare an env file for Fly and provision the managed Redis:
-          copies --from (default .env), rewrites EVENT_URL to the app's Fly
-          hostname, generates SRH_TOKEN, runs `fly redis create` and captures
-          its private URL. CREATES A BILLABLE RESOURCE — it says so and asks
-          before it does. Safe to re-run: an existing env file is never
-          overwritten, and an existing database is reused.
+  init    Prepare an env file for Fly: copies --from (default .env), rewrites
+          EVENT_URL to the app's Fly hostname, and fills in SRH_TOKEN and
+          REDIS_PASSWORD if they are absent. Touches nothing on Fly and needs
+          no CLI. Safe to re-run — it tops up an existing file rather than
+          overwriting it, and tightens it to mode 600.
 
-  (none)  Deploy, in order: srh, scorer, sync, app.
+  (none)  Deploy, in order: redis, srh, scorer, sync, app.
+
+          Regions come from the fly.toml files (primary_region), not a flag.
 
 --dry-run prints every fly command it would run and makes NONE of them.
 Secret VALUES are redacted from that output.
@@ -40,7 +40,6 @@ while [ $# -gt 0 ]; do
     init) CMD="init"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --from) FROM_ENV="$2"; shift 2 ;;
-    --region) REGION="$2"; shift 2 ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -109,7 +108,7 @@ APP_APP="$(app_name app.fly.toml)"
 SCORER_APP="$(app_name scorer.fly.toml)"
 SYNC_APP="$(app_name sync.fly.toml)"
 SRH_APP="$(app_name srh.fly.toml)"
-REDIS_NAME="${REDIS_NAME:-$APP_APP-redis}"
+REDIS_APP="$(app_name redis.fly.toml)"
 
 # Checked at the point of use, not up front: `init`'s env-file half needs no
 # CLI at all, and refusing to prepare a file because flyctl is not installed
@@ -163,48 +162,17 @@ if [ "$CMD" = "init" ]; then
     echo "DRY-RUN: would generate SRH_TOKEN"
   fi
 
-  # ---- the managed Redis --------------------------------------------------
-  #
-  # Fly's managed Redis is Upstash-operated but speaks ONLY the Redis
-  # protocol: `fly redis status` hands back `redis://…`, and there is no REST
-  # endpoint. The REST API the app/scorer/sync speak is an Upstash CLOUD
-  # feature, not part of this integration — which is why srh is deployed in
-  # front of it rather than skipped.
-  if grep -q "^SRH_CONNECTION_STRING=." "$ENV_FILE" 2>/dev/null; then
-    echo "== redis already wired in $ENV_FILE"
-  elif [ -n "$DRY_RUN" ]; then
-    echo "DRY-RUN: fly redis create --name $REDIS_NAME --region $REGION --no-replicas"
-    echo "DRY-RUN: would append SRH_CONNECTION_STRING=<redacted> to $ENV_FILE"
+  # Redis credential. The datastore is our own `redis:7-alpine` app (see
+  # redis.fly.toml), authenticated with the same REDIS_PASSWORD the compose
+  # stack uses — so an env file copied from a working compose deployment
+  # already has it, and nothing needs provisioning through the CLI.
+  if grep -q "^REDIS_PASSWORD=." "$ENV_FILE" 2>/dev/null; then
+    echo "   REDIS_PASSWORD already set"
+  elif [ -z "$DRY_RUN" ]; then
+    printf 'REDIS_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> "$ENV_FILE"
+    echo "   generated REDIS_PASSWORD"
   else
-    echo
-    echo "  About to create a MANAGED REDIS DATABASE on Fly:"
-    echo "      name:   $REDIS_NAME"
-    echo "      region: $REGION"
-    echo "  This is a billable resource on your Fly account."
-    printf "  Type 'create' to continue (anything else aborts): "
-    read -r reply
-    [ "$reply" = "create" ] || { echo "aborted; nothing was created" >&2; exit 1; }
-
-    require_fly
-    fly redis create --name "$REDIS_NAME" --region "$REGION" --no-replicas || {
-      echo "FAIL: fly redis create did not succeed." >&2
-      echo "      If the database already exists, add its URL by hand:" >&2
-      echo "        fly redis status $REDIS_NAME" >&2
-      echo "        echo \"SRH_CONNECTION_STRING=redis://…\" >> $ENV_FILE" >&2
-      exit 1
-    }
-    # `fly redis status` prints a table; the private URL is the redis:// token
-    # on it. Extracted rather than parsed positionally so a cosmetic change to
-    # the table does not silently capture the wrong field.
-    url="$(fly redis status "$REDIS_NAME" 2>/dev/null | grep -oE 'redis://[^[:space:]]+' | head -1)"
-    if [ -z "$url" ]; then
-      echo "FAIL: could not read a redis:// URL out of 'fly redis status $REDIS_NAME'." >&2
-      echo "      Read it yourself and append it:" >&2
-      echo "        echo \"SRH_CONNECTION_STRING=redis://…\" >> $ENV_FILE" >&2
-      exit 1
-    fi
-    printf 'SRH_CONNECTION_STRING=%s\n' "$url" >> "$ENV_FILE"
-    echo "   wired $REDIS_NAME into $ENV_FILE"
+    echo "DRY-RUN: would generate REDIS_PASSWORD"
   fi
 
   echo
@@ -223,7 +191,7 @@ if [ -z "$DRY_RUN" ]; then
   [ -f "$CONFIG" ] || { echo "no $CONFIG — copy event.yaml.example and edit it" >&2; exit 1; }
 fi
 
-echo "== apps: $APP_APP / $SCORER_APP / $SYNC_APP / $SRH_APP"
+echo "== apps: $APP_APP / $SCORER_APP / $SYNC_APP / $SRH_APP / $REDIS_APP"
 
 # ---------------------------------------------------------------------------
 # EVENT_URL must be the fly hostname, and it must be https.
@@ -261,27 +229,27 @@ for name in BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SCORER_TOKE
 done
 
 SRH_TOKEN="$(env_value SRH_TOKEN)"
-SRH_CONNECTION_STRING="$(env_value SRH_CONNECTION_STRING)"
-# Name the variable that is ACTUALLY missing. Listing both when only one is
-# absent sends the reader to check the one they already set — the exact wrong
+REDIS_PASSWORD="$(env_value REDIS_PASSWORD)"
+
+# Name the variable that is ACTUALLY missing. Listing several when one is
+# absent sends the reader to check the ones they already set — the exact wrong
 # turn, on the message whose only job is to shorten the search.
 missing=""
 [ -n "$SRH_TOKEN" ] || missing="SRH_TOKEN"
-if [ -z "$SRH_CONNECTION_STRING" ]; then
-  if [ -n "$missing" ]; then missing="$missing and SRH_CONNECTION_STRING"; else missing="SRH_CONNECTION_STRING"; fi
+if [ -z "$REDIS_PASSWORD" ]; then
+  if [ -n "$missing" ]; then missing="$missing and REDIS_PASSWORD"; else missing="REDIS_PASSWORD"; fi
 fi
 if [ -n "$missing" ]; then
   echo "FAIL: $missing missing from $ENV_FILE." >&2
   echo "      Run: ./deploy/fly/deploy.sh init --env-file $ENV_FILE" >&2
-  case "$missing" in
-    *SRH_CONNECTION_STRING*)
-      echo "      That provisions the managed Redis and writes its redis:// URL here." >&2
-      echo "      It needs the fly CLI: https://fly.io/docs/flyctl/install/" >&2 ;;
-  esac
-  echo "      (Fly's managed Redis speaks only the Redis protocol, so srh sits" >&2
-  echo "       in front of it and serves the REST API the services speak.)" >&2
+  echo "      (It generates both. REDIS_PASSWORD is the same credential the" >&2
+  echo "       compose stack uses, so an env file copied from one already has it.)" >&2
   exit 1
 fi
+
+# srh reaches the redis app over the private network. Empty username,
+# password only — the RFC form for a Redis using `requirepass`.
+SRH_CONNECTION_STRING="redis://:$REDIS_PASSWORD@$REDIS_APP.internal:6379"
 
 # The image the FORKS already pull to judge PRs — same one, not a rebuild.
 SCORE_IMAGE="$(env_value SCORE_IMAGE)"
@@ -304,14 +272,28 @@ create_app() {
   fi
 }
 
-echo "== 1/4 srh (Upstash-REST proxy in front of the managed Redis)"
+echo "== 1/5 redis"
+create_app "$REDIS_APP"
+# Durable store for scores, teams and hint purchases — the same named-volume
+# arrangement as compose's `redis-data`.
+if [ -n "$DRY_RUN" ]; then
+  echo "DRY-RUN: fly volumes create ctf_redis_data --app $REDIS_APP --size 1 (if absent)"
+elif fly volumes list --app "$REDIS_APP" 2>/dev/null | grep -q ctf_redis_data; then
+  echo "   volume ctf_redis_data exists"
+else
+  fly volumes create ctf_redis_data --app "$REDIS_APP" --size 1 --yes
+fi
+fly_run secrets set --app "$REDIS_APP" --stage "REDIS_PASSWORD=$REDIS_PASSWORD"
+fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP"
+
+echo "== 2/5 srh (the Upstash-REST API the services speak)"
 create_app "$SRH_APP"
 fly_run secrets set --app "$SRH_APP" --stage \
   "SRH_TOKEN=$SRH_TOKEN" \
   "SRH_CONNECTION_STRING=$SRH_CONNECTION_STRING"
 fly_run deploy --config "$FLY_DIR/srh.fly.toml" --app "$SRH_APP"
 
-echo "== 2/4 scorer"
+echo "== 3/5 scorer"
 create_app "$SCORER_APP"
 fly_run secrets set --app "$SCORER_APP" --stage \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \
@@ -319,7 +301,7 @@ fly_run secrets set --app "$SCORER_APP" --stage \
   "CTF_SCORE_BEARER_TOKEN=$(env_value SCORER_TOKEN)"
 fly_run deploy --config "$FLY_DIR/scorer.fly.toml" --app "$SCORER_APP" --image "$SCORE_IMAGE"
 
-echo "== 3/4 sync (poll mode)"
+echo "== 4/5 sync (poll mode)"
 create_app "$SYNC_APP"
 # The cursor volume. Without it the poller re-reads every comment in every
 # fork after each restart — see sync.fly.toml.
@@ -340,7 +322,7 @@ fly_run secrets set --app "$SYNC_APP" --stage \
 # Built from the repo root so event.yaml is in the build context.
 fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --dockerfile "$FLY_DIR/sync.Dockerfile"
 
-echo "== 4/4 app"
+echo "== 5/5 app"
 create_app "$APP_APP"
 fly_run secrets set --app "$APP_APP" --stage \
   "BETTER_AUTH_SECRET=$(env_value BETTER_AUTH_SECRET)" \
