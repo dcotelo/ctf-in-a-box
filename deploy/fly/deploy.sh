@@ -586,7 +586,25 @@ fly_run secrets set --detach --app "$APP" \
   "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
 
 echo "== 5/5 deploy"
-fly_run deploy --config "$CONFIG_TOML" --app "$APP" --primary-region "$REGION"
+# `--image`, AND IT IS REQUIRED HERE.
+#
+# flyctl's compose parser is happy with zero buildable services — it only
+# rejects MORE than one ("only one service can specify build") — but `fly
+# deploy` still resolves a machine image of its own before it gets that far,
+# and with no `[build]` section it has nothing to resolve:
+#
+#   Error: failed to fetch an image or build from source: app does not have a
+#   Dockerfile or buildpacks configured.
+#
+# Passing an already-built image skips that step entirely. The app image is
+# the right one to hand it: it is the container Fly's proxy routes to
+# (internal_port 3000), and the compose file assigns every container its own
+# image regardless, so this cannot disagree with what actually runs.
+#
+# The alternative — leaving one service buildable so flyctl builds it — does
+# not work for `app`, whose event.yaml must arrive as a build ARG, and flyctl
+# implements no build args at all.
+fly_run deploy --config "$CONFIG_TOML" --app "$APP" --image "$APP_IMAGE" --primary-region "$REGION"
 
 echo "== done"
 cat <<EOF

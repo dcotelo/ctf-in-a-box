@@ -411,3 +411,16 @@ ENV
   # in the source file it cannot reach the deployed poller.
   grep -qF 'EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}' "$REPO/docker-compose.yml"
 }
+
+@test "the deploy passes a prebuilt image so flyctl does not try to build one" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # Without this the first real deploy died after every image was already
+  # built and pushed: flyctl resolves a machine image before it reads the
+  # compose file, and with no [build] section it has nothing to resolve —
+  # "app does not have a Dockerfile or buildpacks configured". Zero buildable
+  # services is fine to the compose parser; it is `fly deploy` that objects.
+  echo "$output" | grep -qE 'fly deploy .*--image registry\.fly\.io/[^ ]+:app'
+}
