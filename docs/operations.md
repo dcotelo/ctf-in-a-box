@@ -344,6 +344,82 @@ scored PR yet) still shows its members' combined quiz total, deduped by
 question. See [docs/architecture.md](architecture.md#leaderboard-with-no-scoring-backend)
 for how the board is built when there's no scoring backend behind it at all.
 
+**Bulk authoring: import and export the whole question bank as one file.**
+Beyond the admin form's one-question-at-a-time editing, the Quiz tab's own
+panel has an **Export questions** button and an **Import a bundle** box
+(paste JSON, or choose a `.json` file) for authoring — or backing up — a
+whole bank in one pass. This is the same bundle format the Classic module
+uses (see [ADR 36](decisions.md#36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)),
+so the rules below will look familiar if you have imported a flag board. A
+bundle is a single JSON object: a `version` and a `questions` array where
+each entry has exactly the fields the admin form itself collects, correct
+answers included. For example, a two-question bundle:
+
+```json
+{
+  "version": 1,
+  "questions": [
+    {
+      "id": "clickjacking-x7k2",
+      "prompt": "Which HTTP header mitigates clickjacking?",
+      "type": "single",
+      "choices": [
+        { "id": "a", "label": "X-Frame-Options" },
+        { "id": "b", "label": "Content-Length" }
+      ],
+      "points": 10,
+      "order": 0,
+      "correct": ["a"]
+    },
+    {
+      "id": "injection-q9pm",
+      "prompt": "Which of these are injection risks?",
+      "type": "multi",
+      "choices": [
+        { "id": "a", "label": "String-concatenated SQL" },
+        { "id": "b", "label": "Parameterized queries" },
+        { "id": "c", "label": "eval() on user input" }
+      ],
+      "points": 15,
+      "order": 1,
+      "correct": ["a", "c"]
+    }
+  ]
+}
+```
+
+Every id in `correct` must be one of that question's own `choices`, a
+`"single"` question must have exactly one correct answer, and no two choices
+within a question may share an id. The whole file is validated in one pass
+before anything is written: every row's problems are reported together, and
+if the file has even one bad row, nothing is imported — there is no partial
+write from a mostly-good file.
+
+**Import is upsert by id, and it never deletes.** Each question in the file
+is created if its id is new to the bank, or overwritten in place if that id
+already exists — that is the entire rule. A question currently in the bank
+but simply not mentioned in the file is left completely untouched. Worth
+stating plainly because the natural assumption runs the other way: importing
+a 10-question file into a bank that already has 15 does **not** shrink it to
+10. There is no way to delete a question through import; use the admin
+form's own Delete button for that, one at a time.
+
+**Ids round-trip, so an export is a genuinely usable backup.** Re-importing
+an unmodified export updates every question in place instead of duplicating
+it. Because a contestant's answer history is keyed by question id, this also
+means re-importing your own backup never detaches anyone's already-banked
+points from the question that earned them.
+
+**Max attempts and Retry after are not part of a bundle.** They are event
+policy rather than content, and they are shared by every question, so
+importing a question set never changes the retry gate you set on the tab —
+in either direction. Set those two where they live, in the panel.
+
+**The exported file contains every answer key in plaintext.** Export is the
+quiz's entire answer sheet in one JSON file. Do not commit it to a public
+repository, paste it into a public issue or chat, or otherwise share it
+casually; treat it with the same care as `/admin` access itself.
+
 **What the quiz doesn't do (yet):** free-text answers, partial credit, and
 per-question attempt/cooldown overrides are all out of scope — the two
 retry knobs are global settings, not per-question ones.

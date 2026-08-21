@@ -4,6 +4,7 @@ import "server-only";
 export { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "./quiz-defaults";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "./quiz-defaults";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { QUIZ_BUNDLE_VERSION, type QuizBundle, type QuizBundleQuestion } from "@/lib/quiz-io";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
@@ -15,6 +16,7 @@ import {
   quizAttemptsKey as attemptsKey,
   canonicalizeChoices,
   QUIZ_ID_RE,
+  QUIZ_POINTS_MAX,
 } from "@/lib/quiz-keys";
 
 /**
@@ -110,15 +112,11 @@ import {
  *  `import { QUIZ_ID_RE } from "@/lib/quiz-store"` working unchanged. */
 export { QUIZ_ID_RE };
 
-/** Upper bound on a question's point value, mirroring `HINT_COST_MAX` in
- *  admin-store.ts. This is not cosmetic: `upsertQuestion` writes `points`
- *  verbatim into the question hash via `JSON.stringify`, and at >=1e21
- *  JavaScript serialises a number in exponential form (`1e+21`), which
- *  GRADE_SCRIPT's anchored `'"points":(%-?%d+)[,}]'` match cannot read — the
- *  script would fall back to 0 and silently award nothing for a correct
- *  answer. A sane cap keeps every storable value inside the plain-integer
- *  form the script can actually parse. */
-export const QUIZ_POINTS_MAX = 100000;
+/** Re-exported from quiz-keys.ts for the same reason `QUIZ_ID_RE` is: the
+ *  bulk-import validator (`quiz-io.ts`) runs in the browser and must check a
+ *  pasted bundle against the very bound this `server-only` file enforces.
+ *  See its definition there for why the cap exists at all. */
+export { QUIZ_POINTS_MAX };
 
 /** Thrown by `upsertQuestion`/`deleteQuestion` for genuine input-validation
  *  failures (bad id/choice format, non-integer points, a `correct` id not
@@ -333,6 +331,95 @@ export async function upsertQuestion(q: Question, correct: string[]): Promise<Ad
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
 
   return { question: q, correct: sortedCorrect };
+}
+
+/** What a bulk import did, for the panel's after-import line and the audit
+ *  trail: how many ids were NEW to the bank and how many already existed and
+ *  were replaced. No `categories` counterpart — the quiz has no category
+ *  concept, which is the one structural difference from classic's summary. */
+export type QuizImportSummary = { created: number; updated: number };
+
+/** Applies a PRE-VALIDATED bundle (produced by `quiz-io.ts`'s `parseBundle`)
+ *  to the store: upserts every question it contains along with its answer
+ *  key.
+ *
+ *  `importBundle` re-validates NOTHING — its whole contract is that the
+ *  caller already ran the bundle through `parseBundle`. Validation lives in
+ *  exactly one place so the single-question admin form and this bulk path
+ *  can never quietly grow different rules; a caller that skips `parseBundle`
+ *  before calling this is the one at fault, not something this function
+ *  guards against. Mirrors `importBundle` in classic-store.ts.
+ *
+ *  UPSERT BY ID, NEVER DELETE. A question already in the bank but absent from
+ *  this bundle is left completely untouched — there is no HDEL anywhere on
+ *  this path. That is the whole reason import is safe to run against a live
+ *  quiz: an organizer can import a partial file (this week's new questions,
+ *  say) without erasing anything else already authored. Existing ids are read
+ *  FIRST (one HKEYS) so `created`/`updated` reflect what was already in the
+ *  bank before this call, not what ends up there after.
+ *
+ *  Every question write and every key write happens in ONE `upstashPipeline`
+ *  call — the same discipline `upsertQuestion` follows for a single row — so
+ *  the question hash and the answer-key hash can never observably disagree
+ *  partway through a bulk import. A question stored without its key is
+ *  precisely the state that makes a question unanswerable, so this is not a
+ *  tidiness point.
+ *
+ *  `prompt` is trimmed and `correct` is canonicalized through the shared
+ *  `canonicalizeChoices` recipe, for the same reasons `upsertQuestion` does
+ *  both: a bundle-authored row must end up byte-identical to a form-authored
+ *  one, and GRADE_SCRIPT's string-compare stands in for a set-compare only
+ *  while both sides canonicalize the same way. */
+export async function importBundle(bundle: QuizBundle): Promise<QuizImportSummary> {
+  const [idsRes] = await upstashPipeline([["HKEYS", QUESTIONS_KEY]]);
+  const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
+
+  let created = 0;
+  let updated = 0;
+  const commands: (string | number)[][] = [];
+  for (const q of bundle.questions) {
+    if (existingIds.has(q.id)) updated += 1;
+    else created += 1;
+
+    // Built field by field, mirroring upsertQuestion's write: the correct set
+    // never reaches this record, only the separate key hash below.
+    const record: Question = {
+      id: q.id,
+      prompt: q.prompt.trim(),
+      type: q.type,
+      choices: q.choices.map((c) => ({ id: c.id, label: c.label })),
+      points: q.points,
+      order: q.order,
+    };
+    commands.push(["HSET", QUESTIONS_KEY, q.id, JSON.stringify(record)]);
+    commands.push(["HSET", KEY_KEY, q.id, JSON.stringify(canonicalizeChoices(q.correct))]);
+  }
+
+  const results = await upstashPipeline(commands);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash bulk import failed: ${failed.error}`);
+
+  return { created, updated };
+}
+
+/** The current question bank, in the same shape `importBundle` accepts — so
+ *  exporting then re-importing round-trips (every id already exists, so
+ *  nothing is reported `created`), which is what makes an export usable as a
+ *  backup. Reads the admin-gated question list, so every row comes back with
+ *  its correct set alongside the public fields, matching
+ *  `QuizBundleQuestion`. */
+export async function exportBundle(): Promise<QuizBundle> {
+  const rows = await listQuestionsForAdmin();
+  const questions: QuizBundleQuestion[] = rows.map(({ question: q, correct }) => ({
+    id: q.id,
+    prompt: q.prompt,
+    type: q.type,
+    choices: q.choices.map((c) => ({ id: c.id, label: c.label })),
+    points: q.points,
+    order: q.order,
+    correct,
+  }));
+  return { version: QUIZ_BUNDLE_VERSION, questions };
 }
 
 /** Removes a question and its answer key together — nothing else.

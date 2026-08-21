@@ -318,18 +318,23 @@ third module isn't mistaken for a fully general n-module platform:
   module that needs scorer-mediated scoring; `quiz` and `classic` are proof
   one doesn't
   always need it, not evidence that plumbing is still missing.
-- **Quiz question authoring has no bulk import/export** — one question at a
-  time through the admin form, no CSV/JSON upload path.
 - **No free-text questions, no partial credit, and no per-question
   attempt/cooldown overrides** — single- and multi-select only, all-or-nothing
   grading, and the two retry-gate settings (`quizMaxAttempts`,
   `quizRetryAfterMin`) are global, not settable per question.
-- **`classic` now has bulk import/export, but still no file attachments and
-  no hints — plainly, not by omission.** The admin panel can export the
-  whole board as one JSON bundle and import one back (upsert by id, never
-  deletes; categories unioned, never replaced) — see
+- **`quiz` and `classic` both have bulk import/export, in one shared format.**
+  Either tab can export its content as a single versioned JSON bundle and
+  import one back — upsert by id, never deletes; classic additionally unions
+  its categories rather than replacing them. See
+  [ADR 36](decisions.md#36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
+  for why the two formats are deliberately the same, and
+  [docs/operations.md](operations.md#quiz) /
   [docs/operations.md](operations.md#classic) for the organizer-facing
-  contract. What's still missing: a challenge's `description` is Markdown
+  contracts. Neither bundle carries its module's retry-gate settings: those
+  are event policy, live-editable in `/admin`, and an import must never move
+  them.
+- **`classic` still has no file attachments and no hints — plainly, not by
+  omission.** What's missing: a challenge's `description` is Markdown
   text only, with nowhere to attach a downloadable file (an image, a pcap, a
   binary) for a contestant to pull down; and the hint system
   (`hintsEnabled`/`hintCost`/the two gating knobs) is wired to
