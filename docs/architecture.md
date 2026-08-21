@@ -744,6 +744,30 @@ config change").
   afterward). Contestant PR code runs via `pull_request_target` in the
   base repo's Action context, so the untrusted PR code itself never sees
   the org's secrets or the GitHub App key.
+- **Explicit same-origin assertion on mutating API routes.** Every custom
+  route authenticates from the session cookie, and that cookie is
+  `SameSite=Lax` — which already blocks the cross-site POST a CSRF attack
+  needs. The assertion in `src/proxy.ts` is therefore defence in depth, not a
+  fix for a live hole: it keeps the property true for a reason this repo
+  controls rather than one a dependency default supplies. A `POST`/`PUT`/
+  `PATCH`/`DELETE` to `/api/*` whose `Origin` is present and does not match
+  `BETTER_AUTH_URL` gets a `403`. Enforced in the proxy rather than per
+  handler because the per-handler version's failure mode is a new route that
+  forgets. `/api/auth/*` is deliberately excluded — better-auth runs its own
+  origin policy there, and two policies on one route is how a sign-in breaks
+  in a way nobody can find. A missing `Origin` is allowed: it means a
+  non-browser client, which carries no ambient cookie to ride. See ADR 40.
+- **Per-login rate limits on the two guessable/hammerable routes.**
+  `/api/team/join` (join-code guessing) and `/api/hints/reveal` are charged
+  against a fixed window keyed on the **authenticated login**
+  (`src/lib/rate-limit-store.ts`), not an IP. That distinction is the point:
+  `lib/gate-store.ts` keys on IP because the pre-event gate runs before anyone
+  has an identity, and it documents that the key is spoofable (Caddy *appends*
+  to `x-forwarded-for`). These routes run after `getSession()`, so there is a
+  key a caller cannot forge without forging the session. They fail **open** on
+  a Redis error — the opposite of the gate throttle, which guards a password
+  compare and fails closed — because these bound abuse of routes that have
+  their own correctness gates underneath.
 
 ## Testing strategy
 

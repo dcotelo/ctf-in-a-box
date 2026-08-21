@@ -1635,3 +1635,75 @@ check cannot see past its own process — an organizer who fronts the box with a
 plain-HTTP proxy while `EVENT_URL` says `https://` still ships sniffable
 cookies, and nothing in the app can detect that. That case belongs to the
 organizer hardening checklist ([#44](https://github.com/dcotelo/ctf-in-a-box/issues/44)).
+
+## 40. CSRF assertion in the proxy, rate limits keyed on the login
+
+**Context.** The custom API routes (`/api/admin/*`, `/api/team/*`,
+`/api/hints/reveal`, `/api/quiz/answer`, `/api/classic/submit`) authenticate
+from the session cookie and had no **explicit** CSRF defence. They were not
+exploitable: better-auth's cookie is `SameSite=Lax`, which blocks the
+cross-site POST the attack needs. The problem is that the protection was a
+dependency's default — one version bump or one config edit away from changing
+without anything in this repo mentioning it. Separately, only `/api/gate` and
+better-auth's own endpoints were rate-limited, leaving join-code guessing and
+hint hammering unbounded.
+
+**Decision, part 1: assert the origin in `proxy.ts`, not in each handler.**
+A mutating request (`POST`/`PUT`/`PATCH`/`DELETE`) to `/api/*` whose `Origin`
+header is present and does not match `BETTER_AUTH_URL`'s origin gets a `403`.
+
+Per-handler checks were the obvious alternative and are worse in the way that
+matters: there are eighteen route files, and the failure mode is the
+nineteenth forgetting. The proxy runs on `/api/:path*`, so a new route is
+covered by existing. The cost is that `config.matcher` must carry a path
+pattern alongside the literal module routes, which `proxy.test.ts` had to
+learn about explicitly — deliberately, rather than relaxing that test into one
+that permits anything.
+
+Two allow-cases are deliberate:
+
+- **No `Origin` header → allow.** Browsers attach `Origin` to every
+  credentialed cross-origin request, so its absence means a non-browser
+  client, which has no ambient cookie to ride. Refusing would break curl and
+  health checks while adding nothing.
+- **No configured URL → allow.** With `BETTER_AUTH_URL` unset there is nothing
+  to compare against. Deriving the expectation from the request's own `Host`
+  would let an attacker satisfy the check by setting it — a gap that is honest
+  beats one that looks like enforcement.
+
+`/api/auth/*` is excluded. better-auth runs its own origin policy against its
+own `trustedOrigins`, and the OAuth flow involves requests this proxy has no
+business adjudicating.
+
+**Decision, part 2: rate-limit on the LOGIN, not the IP.** `gate-store.ts`
+keys its throttle on the client IP because the pre-event gate runs before
+anyone has an identity — and it documents that the key is spoofable, since
+Caddy *appends* to `x-forwarded-for` rather than replacing it. These two
+routes run after `auth.api.getSession()`, so there is a session-backed login
+to key on that a caller cannot forge without forging the session itself. Fixed
+window (one `INCR` + one `EXPIRE` in a single Lua `EVAL`); the up-to-2×-across-
+a-boundary edge is irrelevant at these budgets.
+
+**They fail OPEN, and the gate throttle fails CLOSED.** Not an inconsistency:
+`consumeGateAttempt` guards a password compare, where an unmetered guess
+defeats the control entirely. These bound abuse of routes that have their own
+correctness gates underneath — `joinTeam` validates the code, `revealHint`
+charges atomically and idempotently — so a Redis blip must not stop
+contestants playing. Same fail-open reasoning as the freeze reads.
+
+**Verification.** The origin refusal was checked against a real built server,
+because unit tests cannot establish that Next actually runs the proxy on API
+routes in this version: cross-origin `POST /api/team/join` → `403`;
+same-origin and no-`Origin` → `401` (i.e. reached the handler's own auth
+check); cross-origin `GET` → untouched; a cross-origin `POST` to
+`/api/auth/sign-in/social` → answered by better-auth, not by us. The Lua
+window script was run against the stack's own Redis, including the case a
+JS fake cannot establish: forcing the TTL to 10s mid-window and confirming two
+further requests leave it at 10, proving `EXPIRE` is not re-applied per
+request (which would make the window never end).
+
+**Consequences.** The origin check cannot help a browser that sends no
+`Origin` on a credentialed request — none do today, and if that changed the
+`SameSite` cookie is still underneath. The rate limits bound one login, not
+one human: a contestant with two accounts gets two budgets, which is
+acceptable for what these protect.
