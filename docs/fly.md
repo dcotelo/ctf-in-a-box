@@ -26,14 +26,29 @@ the stack exists only to emulate things Fly provides**:
 | `app` | Fly app (public) | The contestant UI |
 | `scorer` | Fly app (private) | Leaderboard API + score writer |
 | `sync` | Fly app (private, 1 volume) | Poll-mode ingest |
-| `redis` | Managed **Upstash Redis** | — |
-| `srh` | **not deployed** | It exists only to fake the Upstash REST API in front of local Redis. Against real Upstash there is nothing to fake. |
+| `srh` | Fly app (private) | **Required** — see below |
+| `redis` | Managed Redis (`fly redis create`) | — |
 | `caddy` | **not deployed** | Fly terminates TLS and issues certificates. |
 
-The app, scorer and sync already speak the Upstash REST protocol natively
-(`UPSTASH_REDIS_REST_URL` / `_TOKEN`) — that is how the kit was built for its
-original cloud deployment — so pointing them at managed Redis needs no code
-change at all.
+### `srh` is required, and an earlier version of this page said otherwise
+
+Fly's managed Redis is Upstash-operated, which made it tempting to conclude
+that `srh` — whose whole job is faking the Upstash REST API in front of local
+Redis — was redundant here. It is not.
+
+`fly redis create` hands back a **`redis://` private URL and nothing else**.
+The HTTP REST API (`UPSTASH_REDIS_REST_URL` / `_TOKEN`) is an Upstash **cloud**
+feature, not part of the Fly integration. The app, scorer and sync speak REST
+and only REST (`@upstash/redis` in the app, the same wire format hand-rolled in
+`scorer/src/store.js` and `sync/src/redis.js`), so pointed at a `redis://` URL
+they simply do not connect.
+
+So `srh` is deployed as a fourth, private Fly app, pinned to the same image
+digest as `docker-compose.yml`, and the other three reach Redis through it at
+`http://<srh-app>.internal:80`. Exactly the compose topology.
+
+If you have an Upstash **cloud** database — which does expose REST — you can
+skip `srh` and set the two REST variables directly.
 
 ### The scorer needs no Docker here
 
@@ -59,19 +74,20 @@ Firecracker microVMs are enough.
 3. **Create the two GitHub apps** (`ctf-setup.sh app-manifest` / `app-config`
    for the sync App, `oauth-app` / `oauth-config` for sign-in) with that
    hostname.
-4. **Create the Redis** and put its REST credentials in `.env`:
+4. **Run `init`** — it prepares a Fly-specific env file and provisions Redis:
 
    ```sh
-   fly redis create
-   fly redis status <name>
+   ./deploy/fly/deploy.sh init --dry-run    # shows what it would do
+   ./deploy/fly/deploy.sh init
    ```
 
-   ```
-   UPSTASH_REDIS_REST_URL=https://<id>.upstash.io
-   UPSTASH_REDIS_REST_TOKEN=<token>
-   ```
+   It copies your existing `.env`, rewrites `EVENT_URL` to
+   `https://<app>.fly.dev`, generates an `SRH_TOKEN`, runs `fly redis create`,
+   and captures the resulting `redis://` URL — all into `.env.fly`, mode `600`.
 
-5. **Set `EVENT_URL` to the https hostname** in `.env`.
+   Creating the database is **billable**, so it prints what it is about to
+   make and requires a typed `create` first. It never overwrites an existing
+   env file and reuses an existing database, so re-running is safe.
 
 ## Deploy
 
@@ -113,9 +129,15 @@ answer `500` to every request.
             | ctf-in-a-box-scorer| <----- | ctf-in-a-box-sync   |
             +---------+----------+ POST   +----------+----------+
                       |          /score              | outbound only
-                      |                              v
-                      +---------> Upstash <---   GitHub API
-                                  (REST)         (fork comments)
+      UPSTASH REST    |                              v
+      over 6PN        |                          GitHub API
+                      v                        (fork comments)
+            +--------------------+
+            |  ctf-in-a-box-srh  |   private; speaks REST, talks redis://
+            +---------+----------+
+                      |
+                      v
+              managed Redis (fly redis create)
 ```
 
 `*.internal` names resolve only inside your Fly organization, so the

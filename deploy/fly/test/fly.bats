@@ -28,8 +28,9 @@ BETTER_AUTH_SECRET=fixture-secret-value-at-least-32-chars
 GITHUB_CLIENT_ID=fixture-client-id
 GITHUB_CLIENT_SECRET=fixture-client-secret
 SCORER_TOKEN=fixture-scorer-token
-UPSTASH_REDIS_REST_URL=https://fixture.upstash.io
-UPSTASH_REDIS_REST_TOKEN=fixture-upstash-token
+SRH_TOKEN=fixture-srh-token
+SRH_CONNECTION_STRING=redis://fixture-pass@fly-fixture.upstash.io
+SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 GITHUB_APP_ID=1
 GITHUB_APP_PRIVATE_KEY=Zml4dHVyZQ==
 GITHUB_APP_INSTALLATION_ID=1
@@ -176,8 +177,9 @@ BETTER_AUTH_SECRET=CANARY-auth-secret
 GITHUB_CLIENT_ID=public-client-id
 GITHUB_CLIENT_SECRET=CANARY-client-secret
 SCORER_TOKEN=CANARY-scorer-token
-UPSTASH_REDIS_REST_URL=https://example.upstash.io
-UPSTASH_REDIS_REST_TOKEN=CANARY-upstash-token
+SRH_TOKEN=CANARY-srh-token
+SRH_CONNECTION_STRING=redis://CANARY-redis-password@fly-x.upstash.io
+SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 GITHUB_APP_ID=123
 GITHUB_APP_PRIVATE_KEY=CANARY-private-key
 GITHUB_APP_INSTALLATION_ID=456
@@ -196,8 +198,9 @@ BETTER_AUTH_SECRET=CANARY-auth-secret
 GITHUB_CLIENT_ID=public-client-id
 GITHUB_CLIENT_SECRET=CANARY-client-secret
 SCORER_TOKEN=CANARY-scorer-token
-UPSTASH_REDIS_REST_URL=https://example.upstash.io
-UPSTASH_REDIS_REST_TOKEN=CANARY-upstash-token
+SRH_TOKEN=CANARY-srh-token
+SRH_CONNECTION_STRING=redis://CANARY-redis-password@fly-x.upstash.io
+SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 GITHUB_APP_ID=123
 GITHUB_APP_PRIVATE_KEY=CANARY-private-key
 GITHUB_APP_INSTALLATION_ID=456
@@ -205,4 +208,110 @@ ENV
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/secret-env" --config "$BATS_TEST_TMPDIR/event.yaml"
   [[ "$output" == *"BETTER_AUTH_SECRET=<redacted>"* && "$output" == *"GITHUB_APP_ID=123"* ]]
+}
+
+# --- srh is REQUIRED on Fly, and that is the correction this module needed ---
+#
+# The first version of this module did not deploy srh at all, reasoning that it
+# only fakes the Upstash REST API in front of local Redis. That was wrong:
+# `fly redis create` provisions Upstash-MANAGED Redis, which speaks only the
+# Redis protocol and exposes no REST endpoint (the REST API is an Upstash
+# *cloud* feature). The app, scorer and sync speak REST and nothing else, so
+# without srh the stack could not connect to its datastore at all.
+#
+# These tests pin the corrected shape so it cannot quietly regress to the
+# broken one.
+
+@test "srh is deployed, and every service is pointed at it" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"srh.fly.toml"* && "$output" == *"UPSTASH_REDIS_REST_URL=http://ctf-in-a-box-srh.internal:80"* ]]
+}
+
+@test "srh publishes no public service" {
+  # It fronts the entire datastore. A public port here would expose it behind
+  # nothing but the bearer token.
+  [ -z "$(uncommented "$FLY/srh.fly.toml" | grep -F '[http_service]')" ]
+}
+
+@test "srh is pinned by digest, like the compose service it mirrors" {
+  grep -qE 'image = "hiett/serverless-redis-http:latest@sha256:[0-9a-f]{64}"' "$FLY/srh.fly.toml"
+}
+
+@test "srh's digest matches docker-compose.yml exactly" {
+  # Two copies of a third-party pin drift silently; the local stack is what
+  # organizers test against, so the deployed one must be the same bits.
+  compose_digest="$(grep -oE 'hiett/serverless-redis-http:latest@sha256:[0-9a-f]{64}' "$REPO/docker-compose.yml" | head -1)"
+  fly_digest="$(grep -oE 'hiett/serverless-redis-http:latest@sha256:[0-9a-f]{64}' "$FLY/srh.fly.toml" | head -1)"
+  [ "$compose_digest" = "$fly_digest" ]
+}
+
+@test "the scorer deploys the SAME image the forks pull, not a rebuild" {
+  # docker-compose.yml uses `image: ${SCORE_IMAGE}` for the scorer and
+  # `build:` only for app and sync. Building a second scorer here would put a
+  # different artifact in front of the leaderboard than the one judging PRs.
+  [ -z "$(uncommented "$FLY/scorer.fly.toml" | grep -F 'dockerfile')" ]
+}
+
+@test "the scorer deploy passes --image from the env file" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"--image ghcr.io/fixture-org/score:latest"* ]]
+}
+
+@test "a redis:// connection string is redacted — it embeds the password" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ -z "$(printf '%s' "$output" | grep -F 'fixture-pass')" ]
+}
+
+@test "deploying without srh credentials fails with the reason, not a stack trace" {
+  grep -vE '^(SRH_TOKEN|SRH_CONNECTION_STRING)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/no-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+}
+
+# --- init ------------------------------------------------------------------
+
+@test "init --dry-run creates no file and no database" {
+  printf 'BETTER_AUTH_SECRET=x\nEVENT_URL=http://localhost\n' > "$BATS_TEST_TMPDIR/src"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init --dry-run \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated"
+  [ ! -f "$BATS_TEST_TMPDIR/generated" ]
+}
+
+@test "init rewrites EVENT_URL to the app's Fly hostname" {
+  # The source env is a compose one, so it carries http://localhost — which
+  # the deploy step correctly refuses. Carrying it over would make init
+  # produce a file that cannot deploy.
+  printf 'BETTER_AUTH_SECRET=x\nEVENT_URL=http://localhost\n' > "$BATS_TEST_TMPDIR/src"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
+  grep -qx "EVENT_URL=https://ctf-in-a-box-app.fly.dev" "$BATS_TEST_TMPDIR/generated"
+}
+
+@test "init generates an SRH_TOKEN rather than reusing the local stack's" {
+  printf 'BETTER_AUTH_SECRET=x\nSRH_TOKEN=local-stack-token\n' > "$BATS_TEST_TMPDIR/src"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
+  # The local value is copied through, then a fresh one is appended and wins
+  # on read (env_value takes the last match). What must NOT happen is the file
+  # having no token at all.
+  [ -n "$(grep -c '^SRH_TOKEN=' "$BATS_TEST_TMPDIR/generated")" ]
+}
+
+@test "init does NOT create the billable database without a typed confirmation" {
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
+  run bash -c "printf 'yes\n' | env PATH=/usr/bin:/bin bash '$FLY/deploy.sh' init --from '$BATS_TEST_TMPDIR/src' --env-file '$BATS_TEST_TMPDIR/generated'"
+  # "yes" is not the required word; only "create" proceeds.
+  [[ "$output" == *"aborted"* ]]
+}
+
+@test "init writes the env file with owner-only permissions" {
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
+  # It holds every secret the event has; 644 would be a leak on a shared box.
+  [ "$(stat -f '%Lp' "$BATS_TEST_TMPDIR/generated" 2>/dev/null || stat -c '%a' "$BATS_TEST_TMPDIR/generated")" = "600" ]
 }

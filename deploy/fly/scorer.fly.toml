@@ -13,14 +13,23 @@
 app = "ctf-in-a-box-scorer"
 primary_region = "iad"
 
-[build]
-  # The scorer image is PRIVATE (it bakes in the rubric). Two ways to get it
-  # onto Fly, both covered in the README:
-  #   1. build from source here, which needs no registry credentials —
-  #      what this file does, and the default deploy.sh takes;
-  #   2. `image = "ghcr.io/<org>/score:latest"` plus `fly deploy
-  #      --image-label` with GHCR auth configured.
-  dockerfile = "../../scorer/Dockerfile"
+# NO [build] BLOCK — the image is passed by deploy.sh as `fly deploy --image
+# "$SCORE_IMAGE"`, read from your env file.
+#
+# This mirrors docker-compose.yml exactly, which uses `image: ${SCORE_IMAGE}`
+# for the scorer and `build:` only for app and sync. That split is not
+# incidental: SCORE_IMAGE is the image `ctf-setup org` already mirrored into
+# the event org's GHCR, and it is the SAME image every fork's Action pulls to
+# judge PRs.
+#
+# Building a second copy from source here would put a different artifact in
+# front of the leaderboard than the one doing the judging — same source today,
+# but nothing keeps them in step, and a rubric or catalogue difference between
+# the two shows up as totals that disagree with the scores. Deploy the image
+# you already ship.
+#
+# fly.toml cannot interpolate environment variables, which is the other reason
+# this is a flag rather than a line here.
 
 [env]
   # `serve`, NOT `judge`. This is the whole reason the kit runs on Firecracker
