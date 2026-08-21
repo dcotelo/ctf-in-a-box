@@ -26,11 +26,23 @@
 #
 # WHAT THIS SCRIPT ADDS on top of `docker compose config`:
 #
-#   1. Secret VALUES are stripped. `config` interpolates them, which would put
-#      every credential the event has into a file on disk. They are set with
-#      `fly secrets` instead, which is also why stripping them is safe: Fly
-#      injects secrets as environment variables into EVERY container in the
-#      machine, and the variable names already match across services.
+#   1. NOTHING. Specifically: secret values are LEFT IN, and this file is
+#      therefore a credential file — mode 600, gitignored, and deleted by
+#      deploy.sh once the deploy succeeds.
+#
+#      It was built the other way first: values stripped, `fly secrets` relied
+#      on, because Fly's documentation says secrets are "global and available
+#      to every container". They are not. A machine's containers receive only
+#      their own `ExtraEnv`, which comes from this file's `environment:` block;
+#      the machine config carries no `secrets` key at all. Every container came
+#      up without its credentials while `fly secrets list` showed all fourteen
+#      as `Deployed` — the app answering 500 from better-auth's default-secret
+#      error, the scorer refusing to start, sync falling back to a mounted
+#      event.yaml that does not exist on a Fly machine.
+#
+#      The compensation is real, though: per-service scoping that Fly's global
+#      secrets cannot express. The app never receives REDIS_PASSWORD, and redis
+#      never receives GITHUB_CLIENT_SECRET.
 #   2. `build:` becomes `image:`. Images are built and pushed beforehand, so
 #      Fly builds nothing — and the images the event runs are the exact ones
 #      built from this checkout.
@@ -51,6 +63,7 @@ OUT=""
 APP_IMAGE=""
 SYNC_IMAGE=""
 SCORER_IMAGE=""
+EVENT_CONFIG=""
 # The services that go to Fly. Named explicitly rather than filtered out later:
 # `docker compose config SERVICE...` limits the output to these, which is how
 # caddy is excluded WITHOUT giving it a profile. Fly terminates TLS itself, so
@@ -64,12 +77,16 @@ usage() {
   cat <<'EOF'
 usage: deploy/fly/render-compose.sh --out FILE [--env-file .env.fly]
                                     --app-image REF --sync-image REF
-                                    --scorer-image REF [--services "a b c"]
+                                    --scorer-image REF [--event-config event.yaml]
+                                    [--services "a b c"]
                                     [--profiles "--profile poll --profile app"]
 
-Renders docker-compose.yml to a Fly-deployable compose file. Contains no
-secret values: those are set with `fly secrets` and arrive as environment
-variables in every container.
+Renders docker-compose.yml to a Fly-deployable compose file.
+
+THE OUTPUT IS A CREDENTIAL FILE: mode 600, and refused unless gitignored.
+Per-container `environment:` is the only channel that reaches a container in a
+Fly machine — `fly secrets` does not, whatever the documentation says — so the
+values have to travel in it. deploy.sh removes it once the deploy succeeds.
 EOF
 }
 
@@ -80,6 +97,7 @@ while [ $# -gt 0 ]; do
     --app-image) APP_IMAGE="$2"; shift 2 ;;
     --sync-image) SYNC_IMAGE="$2"; shift 2 ;;
     --scorer-image) SCORER_IMAGE="$2"; shift 2 ;;
+    --event-config) EVENT_CONFIG="$2"; shift 2 ;;
     --services) SERVICES="$2"; shift 2 ;;
     --profiles) PROFILES="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -107,28 +125,29 @@ case "$OUT" in
   /*) ;;
   *) OUT="$PWD/$OUT" ;;
 esac
-
-# ---------------------------------------------------------------------------
-# The environment variables whose VALUES must never reach the rendered file.
-#
-# Keyed by NAME, matched exactly. `fly secrets set` supplies each one at
-# runtime, so dropping the line here removes the credential without removing
-# the variable from the container.
-#
-# EVENT_CONFIG_B64 is not a credential, but it is a multi-kilobyte blob that
-# would dominate the file and is already delivered as a secret alongside the
-# rest — keeping it out keeps the rendered file readable, which matters because
-# reviewing it is how an organizer confirms nothing sensitive is in it.
-#
-# GITHUB_CLIENT_ID, GITHUB_APP_ID and GITHUB_APP_INSTALLATION_ID are public
-# identifiers and deliberately stay: they make the file diffable and are what
-# an organizer checks when sign-in points at the wrong OAuth app.
-# ---------------------------------------------------------------------------
-SECRET_KEYS="BETTER_AUTH_SECRET GITHUB_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY SRH_TOKEN UPSTASH_REDIS_REST_TOKEN CTF_SCORE_BEARER_TOKEN SCORER_TOKEN SRH_CONNECTION_STRING REDIS_PASSWORD REDISCLI_AUTH EVENT_CONFIG_B64"
+case "$EVENT_CONFIG" in
+  ""|/*) ;;
+  *) EVENT_CONFIG="$PWD/$EVENT_CONFIG" ;;
+esac
 
 cd "$(dirname "$0")/../.."
 
 command -v docker >/dev/null || { echo "FAIL: docker is required to render the compose file" >&2; exit 1; }
+
+# EVENT_CONFIG_B64 comes in through the ENVIRONMENT, not the env file.
+#
+# sync reads it at start-up (a Fly machine has no ./event.yaml to bind-mount),
+# and the app has already baked it at build time. It is a multi-kilobyte blob
+# derived from event.yaml on every run, so keeping it out of .env.fly avoids a
+# second copy that can silently go stale against the file it came from.
+#
+# A shell variable beats --env-file in compose's precedence order, which is
+# what makes this work even if someone does put it in the env file.
+if [ -n "$EVENT_CONFIG" ]; then
+  [ -f "$EVENT_CONFIG" ] || { echo "FAIL: no $EVENT_CONFIG to read the event config from" >&2; exit 1; }
+  EVENT_CONFIG_B64="$(base64 < "$EVENT_CONFIG" | tr -d '\n')"
+  export EVENT_CONFIG_B64
+fi
 
 # shellcheck disable=SC2086
 # PROFILES and SERVICES are deliberately word-split: both are lists of
@@ -142,11 +161,8 @@ RAW="$(docker compose --env-file "$ENV_FILE" -f docker-compose.yml $PROFILES con
 
 printf '%s\n' "$RAW" | awk -v app_image="$APP_IMAGE" \
                            -v sync_image="$SYNC_IMAGE" \
-                           -v scorer_image="$SCORER_IMAGE" \
-                           -v secret_keys="$SECRET_KEYS" '
+                           -v scorer_image="$SCORER_IMAGE" '
 BEGIN {
-  n = split(secret_keys, k, " ")
-  for (i = 1; i <= n; i++) secret[k[i]] = 1
   # Service names that must become loopback wherever they appear as a host in
   # a URL. Containers in one Fly machine share a netns, so these never resolve.
   svc["srh"] = 1; svc["scorer"] = 1; svc["redis"] = 1; svc["app"] = 1; svc["sync"] = 1
@@ -154,8 +170,11 @@ BEGIN {
   print "# Do not edit: every change belongs in docker-compose.yml, so the local"
   print "# stack and the deployed one cannot diverge. Regenerate with deploy.sh."
   print "#"
-  print "# Contains NO secret values - they are set with `fly secrets` and arrive"
-  print "# as environment variables in every container of the machine."
+  print "#"
+  print "# THIS FILE CONTAINS CREDENTIALS. Mode 600, gitignored, and removed once"
+  print "# the deploy succeeds. Per-container environment is the ONLY channel that"
+  print "# reaches a container in a Fly machine - fly secrets does not, despite"
+  print "# what the docs say - so the values have to travel here."
 }
 
 # Indentation is the structure: `docker compose config` always emits a
@@ -223,11 +242,11 @@ indent == 4 && section == "services" {
 }
 
 # --- environment values ---------------------------------------------------
-in_env && indent == 6 {
-  key = $0
-  sub(/^ +/, "", key); sub(/:.*$/, "", key)
-  if (key in secret) next
-}
+# --- environment values ---------------------------------------------------
+# LEFT INTACT, INCLUDING SECRETS. Per-container `environment:` is the only
+# channel that reaches a container in a Fly machine (see the header). What this
+# does buy is scoping: each credential appears only under the service that
+# `docker-compose.yml` gives it to.
 
 # --- compose escaping -----------------------------------------------------
 # `$$` IS COMPOSE-SPECIFIC AND MUST NOT SURVIVE.
@@ -245,15 +264,25 @@ in_env && indent == 6 {
 { gsub(/\$\$/, "$") }
 
 # --- host rewriting -------------------------------------------------------
-# `http://srh:80` -> `http://localhost:80`. Anchored on `//host:` so it can
-# only ever match a URL authority: a bare word like `scorer` in a comment, or
-# the string "app" inside a longer hostname, is left alone.
+# `http://srh:80` -> `http://localhost:80`.
+#
+# TWO anchors, because a URL authority can carry userinfo. the srh connection
+# string is `redis://:PASSWORD@redis:6379`, where the host follows an `@` and
+# not the `//` — with only the `//host:` form it was left pointing at `redis`,
+# which resolves nowhere in a shared network namespace. That is the original
+# bug this whole module exists to fix, reintroduced by the renderer, and it
+# would have looked exactly like it did before: srh healthy, unable to connect.
+#
+# Both forms end in `:` so they can only match an authority followed by a port.
+# A bare word like `scorer` in a comment, or `app` inside a longer hostname, is
+# left alone.
 {
   out = ""
   rest = $0
-  while (match(rest, /\/\/[A-Za-z0-9_-]+:/)) {
-    host = substr(rest, RSTART + 2, RLENGTH - 3)
-    out = out substr(rest, 1, RSTART + 1)
+  while (match(rest, /(\/\/|@)[A-Za-z0-9_-]+:/)) {
+    lead = substr(rest, RSTART, 1) == "@" ? 1 : 2
+    host = substr(rest, RSTART + lead, RLENGTH - lead - 1)
+    out = out substr(rest, 1, RSTART + lead - 1)
     out = out ((host in svc) ? "localhost" : host) ":"
     rest = substr(rest, RSTART + RLENGTH)
   }
@@ -283,47 +312,35 @@ in_env && indent == 6 {
 END { if (held != "") { } }
 '  > "$OUT.tmp"
 
-mv "$OUT.tmp" "$OUT"
+# Mode 600 BEFORE the content lands. `mv` would otherwise leave the file
+# world-readable for the moment between rename and chmod, and it now holds
+# every credential the event has.
+: > "$OUT"
+chmod 600 "$OUT"
+cat "$OUT.tmp" > "$OUT"
+rm -f "$OUT.tmp"
 
 # ---------------------------------------------------------------------------
-# FAIL-CLOSED CHECK: prove no secret VALUE survived.
+# FAIL-CLOSED CHECK: this file holds credentials, so prove git cannot see it.
 #
-# The stripping above is keyed on variable NAMES, which is exactly the kind of
-# list that goes stale when a service gains a credential. This checks the
-# rendered file for the VALUES themselves, straight out of the env file, so a
-# secret that this script does not know about still cannot ship silently.
+# It used to check the opposite — that no secret value survived — back when the
+# values were stripped and `fly secrets` was expected to supply them. Fly does
+# not do that for compose containers (see the header), so the check has to
+# guard the thing that is now true: a credential file exists on disk, beside a
+# repo whose .env.fly reached a PUBLIC remote twice.
 #
-# Short values are skipped deliberately: a two-character secret would match
-# half the file and turn a real check into a permanent false alarm. Anything
-# that short is not a credential worth protecting.
+# `git check-ignore` is asked directly rather than trusting that .gitignore
+# still has the right rule: the rule and the output path have already moved
+# once in this module's life.
 # ---------------------------------------------------------------------------
-leaked=""
-while IFS= read -r entry; do
-  case "$entry" in
-    ''|'#'*) continue ;;
-    *=*) ;;
-    *) continue ;;
-  esac
-  name="${entry%%=*}"
-  value="${entry#*=}"
-  [ ${#value} -ge 8 ] || continue
-  case " $SECRET_KEYS " in
-    *" $name "*) ;;
-    *) continue ;;
-  esac
-  if grep -qF -- "$value" "$OUT"; then
-    leaked="$leaked $name"
+if git -C "$(dirname "$OUT")" rev-parse --git-dir >/dev/null 2>&1; then
+  if ! git -C "$(dirname "$OUT")" check-ignore -q "$(basename "$OUT")"; then
+    rm -f "$OUT"
+    echo "FAIL: $OUT is NOT gitignored, and it contains every credential this" >&2
+    echo "      event has. Refusing to leave it on disk." >&2
+    echo "      Add it to .gitignore, then re-run." >&2
+    exit 1
   fi
-done < "$ENV_FILE"
-
-if [ -n "$leaked" ]; then
-  rm -f "$OUT"
-  echo "FAIL: the rendered compose file contained secret values:$leaked" >&2
-  echo "      Refusing to leave it on disk. This is a bug in render-compose.sh." >&2
-  exit 1
 fi
 
-# Readable, not secret — reviewing this file is how an organizer confirms what
-# the deploy will run, and it holds no credentials by the check above.
-chmod 644 "$OUT"
-echo "   rendered $OUT ($(grep -c '' "$OUT") lines, no secret values)"
+echo "   rendered $OUT ($(grep -c '' "$OUT") lines, mode 600 — contains secrets, gitignored)"

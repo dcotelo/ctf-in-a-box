@@ -13,7 +13,7 @@ Why it is shaped this way: [ADR 42](../../docs/decisions.md).
 | `fly.toml` | The app: which container serves the public, the volume, the machine size |
 | `render-compose.sh` | Turns the repo's `docker-compose.yml` into the compose file Fly deploys |
 | `deploy.sh` | `init` (env file) and the deploy: build, push, mirror, render, secrets, deploy |
-| `test/fly.bats` | 39 assertions, run by CI's `shell` job. Nothing is ever deployed |
+| `test/fly.bats` | 42 assertions, run by CI's `shell` job. Nothing is ever deployed |
 | `compose.fly.yml` | **Generated**, gitignored. The rendered file Fly actually reads |
 
 ## It runs the real compose file
@@ -73,18 +73,22 @@ and it rejects a file where more than one service declares `build:`
 Docker's parser. So the real file goes through Docker first and Fly receives
 the result. On top of that the render:
 
-1. **Strips secret values.** `config` interpolates them, so its raw output is
-   a file holding the whole event's credentials. They are set with `fly
-   secrets` instead — which is what makes stripping safe, since Fly injects
-   secrets into every container and the variable names already match across
-   services. A fail-closed check then greps the output for the values
-   themselves and refuses to leave the file on disk if any survived.
+1. **Keeps secret values, and guards the file instead.** Per-container
+   `environment:` is the only channel that reaches a container in a Fly
+   machine — `fly secrets` does not, despite Fly's docs saying secrets are
+   "global and available to every container". So the output is a credential
+   file: mode 600, deleted once the deploy succeeds, and a fail-closed check
+   asks `git check-ignore` directly and deletes it if the answer is no. The
+   compensation is scoping Fly cannot express: the app never receives
+   REDIS_PASSWORD, redis never receives GITHUB_CLIENT_SECRET.
 2. **Unescapes `$$`.** To compose it means a literal `$`; Fly passes it
    through untouched, so `sh -c` would expand it as the shell's PID and redis
    would come up with a password like `12345REDIS_PASSWORD` — healthy, and
    impossible to authenticate against.
 3. **Rewrites service names to `localhost`.** No DNS exists between containers
-   in one namespace.
+   in one namespace. Both URL forms are rewritten — `//host:` and the
+   userinfo form `//user:pass@host:`, which srh's connection string uses and
+   which an earlier version missed.
 4. **Drops** bind mounts, named volumes, networks and profiles — none of which
    mean anything on a Fly machine.
 

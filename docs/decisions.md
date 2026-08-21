@@ -1971,3 +1971,34 @@ compose file in a way not explained by either.
 
 `redis-server` does not create `--dir`, so the command `mkdir -p`s it first;
 `sync` already creates its state file's parent directory itself.
+
+**Addendum (secrets travel in the rendered file).** The decision above says
+secret values are stripped from the rendered compose file and supplied by
+`fly secrets`, on the strength of Fly's documented claim that secrets are
+"global and available to every container". **That claim is false**, and the
+first deploy proved it: `fly secrets list` reported all fourteen as `Deployed`
+while every container started without them. The app answered 500 from
+better-auth's default-secret error, the scorer refused to start for want of
+`SCORER_TOKEN`, and sync fell back to a mounted `event.yaml` that does not
+exist on a Fly machine. A machine's containers receive only their own
+`ExtraEnv`, which flyctl populates from the compose file's `environment:`
+block; the machine config carries no `secrets` key at all.
+
+Per-container `environment:` is therefore the only channel that reaches a
+container, and the rendered file has to carry the values. It is treated
+accordingly: mode 600 set before the content is written, a fail-closed check
+that asks `git check-ignore` directly and deletes the file if the answer is
+no, and removal by `deploy.sh` on any exit once a real deploy is done.
+`fly secrets` are still set, so nothing regresses if Fly changes this.
+
+The compensation is not nothing. **Per-service scoping, which the decision
+above recorded as impossible, is exactly what this gives**: each credential
+appears only under the service `docker-compose.yml` grants it to. The `app`
+container never receives `REDIS_PASSWORD`; `redis` never receives
+`GITHUB_CLIENT_SECRET`. Fly's global secrets would have handed both to both.
+
+One bug came with the change. Rewriting service names to `localhost` was
+anchored on `//host:`, which does not match `redis://:PASSWORD@redis:6379` —
+the host there follows an `@`. srh was left pointing at `redis`, reproducing
+the exact IPv6 failure this ADR exists to eliminate, and looking identical to
+it. Both URL forms are rewritten now, with a test for the userinfo one.

@@ -51,7 +51,13 @@ ENV
   RENDERED="$BATS_TEST_TMPDIR/compose.fly.yml"
   render() {
     "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env" --out "$RENDERED" \
-      --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+      --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t \
+      --event-config "$BATS_TEST_TMPDIR/event.yaml"
+    # EVERY render test asserts through this, so it asserts the file exists.
+    # A negative check ("no service name is left as a host") passes trivially
+    # against a file that was never written — which happened while developing
+    # this suite, and read as a pass.
+    [ -s "$RENDERED" ]
   }
   # The render shells out to `docker compose`. Skipping is honest when docker
   # is absent (a laptop without it running the rest of the suite); CI has it,
@@ -178,27 +184,62 @@ ENV
 # goes stale when a service gains a credential.
 # ---------------------------------------------------------------------------
 
-@test "render: no secret value survives into the rendered file" {
+@test "render: the file carries the secrets, because nothing else can" {
   need_docker
   render
-  for value in FIXTUREAUTHSECRETzzzzzzzzzzzz FIXTURECLIENTSECRETyyyyyyyy \
-               FIXTURESCORERTOKENxxxxxxxx FIXTURESRHTOKENwwwwwwwwww \
-               FIXTUREREDISPASSvvvvvvvvv RklYVFVSRVBSSVZBVEVLRVl1dXV1dQ==; do
-    if grep -qF -- "$value" "$RENDERED"; then
-      echo "LEAKED: $value is in $RENDERED"
-      return 1
-    fi
-  done
-  [ -s "$RENDERED" ]
+  # This asserted the OPPOSITE until the first real deploy. The design relied
+  # on Fly's documented promise that secrets are "global and available to every
+  # container"; they are not. A machine's containers receive only their own
+  # ExtraEnv, which comes from this file — so with the values stripped, every
+  # container started without credentials while `fly secrets list` showed all
+  # fourteen as Deployed.
+  grep -qF 'BETTER_AUTH_SECRET: FIXTUREAUTHSECRETzzzzzzzzzzzz' "$RENDERED"
+  grep -qF 'SRH_TOKEN: FIXTURESRHTOKENwwwwwwwwww' "$RENDERED"
+}
+
+@test "render: each credential reaches ONLY the service that needs it" {
+  need_docker
+  render
+  # The compensation for holding secrets in a file: scoping Fly's global
+  # secrets cannot express. Under Fly's model the app container would have
+  # received REDIS_PASSWORD and redis would have received GITHUB_CLIENT_SECRET.
+  app_env="$(awk '/^  app:/{f=1;next} /^  [a-z]+:/{f=0} f' "$RENDERED")"
+  redis_env="$(awk '/^  redis:/{f=1;next} /^  [a-z]+:/{f=0} f' "$RENDERED")"
+  # Guard against both blocks coming back empty, which would pass every
+  # negative below without testing anything.
+  [ -n "$app_env" ] && [ -n "$redis_env" ]
+  [ -z "$(echo "$app_env" | grep -F 'REDIS_PASSWORD')" ]
+  [ -z "$(echo "$redis_env" | grep -F 'GITHUB_CLIENT_SECRET')" ]
+}
+
+@test "render: the output is mode 600" {
+  need_docker
+  render
+  # It holds every credential the event has, next to a repo whose .env.fly
+  # reached a PUBLIC remote twice.
+  perms="$(ls -l "$RENDERED" | cut -c1-10)"
+  [ "$perms" = "-rw-------" ]
 }
 
 @test "render: the redis password is not in any command line" {
   need_docker
   render
-  # Not just absent from `environment:` — absent from argv too. A password in
+  # Even with secrets in the file, argv is a different exposure: a password in
   # a container's command is visible to `docker inspect`, to `ps` inside the
-  # stack, and in every machine-config dump Fly produces.
+  # stack, and in every machine-config dump Fly produces. It travels as an
+  # environment variable and is expanded by the container's own shell.
   [ -z "$(grep -F 'requirepass' "$RENDERED" | grep -F 'FIXTUREREDISPASS')" ]
+}
+
+@test "render: a URL with userinfo has its host rewritten too" {
+  need_docker
+  render
+  # srh's connection string is `redis://:PASSWORD@redis:6379` — the host
+  # follows an `@`, not the `//`. A rewrite anchored only on `//host:` left it
+  # pointing at `redis`, which resolves nowhere in a shared namespace: the
+  # exact failure this module exists to fix, reintroduced by the renderer and
+  # looking identical to the original (srh healthy, unable to connect).
+  grep -qE 'SRH_CONNECTION_STRING: redis://:[^@]+@localhost:6379' "$RENDERED"
 }
 
 @test "render: no compose-only \$\$ escaping survives" {

@@ -152,8 +152,9 @@ jobs:
       # fix in the script, not a rule to widen.
       - run: shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
       - run: bats setup/test/
-      # Static invariants for the fly.io module: the compose render carries no
-      # secret values, resolves every service to loopback, leaves no compose-only
+      # Static invariants for the fly.io module: the compose render scopes each
+      # credential to the one service that needs it, resolves every service to
+      # loopback (including hosts behind URL userinfo), leaves no compose-only
       # `$$` escaping for a shell to mis-expand, and names an image for every
       # service. The render runs for real here (it needs docker compose, which
       # the runner has), but nothing is deployed and no fly account is used —

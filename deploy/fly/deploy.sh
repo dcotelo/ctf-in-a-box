@@ -568,8 +568,23 @@ if [ -n "$DRY_RUN" ] && [ ! -f "$ENV_FILE" ]; then
   echo "DRY-RUN: would render $RENDERED (no $ENV_FILE to render from)"
 else
   "$FLY_DIR/render-compose.sh" --env-file "$ENV_FILE" --out "$RENDERED" \
-    --app-image "$APP_IMAGE" --sync-image "$SYNC_IMAGE" --scorer-image "$SCORER_IMAGE"
+    --app-image "$APP_IMAGE" --sync-image "$SYNC_IMAGE" --scorer-image "$SCORER_IMAGE" \
+    --event-config "$CONFIG"
 fi
+
+# The rendered file holds every credential the event has, so it does not
+# outlive the deploy that needs it. Removed on ANY exit — including a failed
+# or interrupted deploy, which is exactly when a forgotten credential file is
+# most likely to be left behind and least likely to be noticed.
+#
+# A dry run keeps it: reviewing it is the point of previewing, nothing has
+# been sent anywhere, and it is mode 600 and gitignored either way.
+cleanup_rendered() {
+  if [ -z "$DRY_RUN" ]; then
+    rm -f "$RENDERED"
+  fi
+}
+trap cleanup_rendered EXIT INT TERM
 
 # ---------------------------------------------------------------------------
 # 4/5 Secrets.

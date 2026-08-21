@@ -187,15 +187,27 @@ comment in every fork from scratch.
 
 ## Secrets
 
-Every credential is set with `fly secrets` and **never written to a file**.
-The dry run redacts all of them — it prints which variables get set, not what
-they are.
+**Credentials travel in the rendered compose file**, which is therefore a
+secret file: mode 600, gitignored, and deleted as soon as the deploy finishes.
+The dry run redacts every value it prints — it shows which variables get set,
+not what they are — and keeps the rendered file so you can review it.
 
-Fly injects secrets as environment variables into **every container** in the
-machine. That is what lets the rendered compose file carry no credentials at
-all: the variable names already match across services. The flip side is that
-scoping is impossible — the `app` container also receives `REDIS_PASSWORD`,
-and `redis` also receives `GITHUB_CLIENT_SECRET`. That is a platform limit.
+This is not the arrangement the module was built with. Fly's documentation says
+secrets set with `fly secrets` are "global and available to every container";
+they are not. A machine's containers receive only their own environment, which
+comes from the compose file. With the values stripped, every container started
+without credentials while `fly secrets list` reported all fourteen as
+`Deployed` — the app answering 500 from better-auth's default-secret error, the
+scorer refusing to start, sync falling back to an `event.yaml` that does not
+exist on a Fly machine.
+
+`deploy.sh` still sets `fly secrets` as well, so nothing regresses if Fly
+changes this.
+
+**The upside is real scoping**, which Fly's global secrets could not give:
+each credential appears only under the service `docker-compose.yml` grants it
+to. The `app` container never receives `REDIS_PASSWORD`; `redis` never receives
+`GITHUB_CLIENT_SECRET`.
 
 `.env.fly` is gitignored, mode 600, and separate from `.env` on purpose: a
 compose stack and a Fly deployment need different `EVENT_URL`s, and one file
@@ -204,8 +216,9 @@ cannot hold both.
 ## The rendered compose file
 
 `deploy/fly/render-compose.sh` turns `docker-compose.yml` into
-`compose.fly.yml` at the repo root (generated, gitignored). Read it after a dry run
-— it is exactly what Fly will deploy, and it holds no secrets.
+`compose.fly.yml` at the repo root (generated, gitignored, mode 600). Read it
+after a dry run — it is exactly what Fly will deploy. It **does** hold
+credentials, which is why a real deploy removes it when it finishes.
 
 The render exists because **flyctl's compose parser is not Docker's**. It is a
 hand-rolled `yaml.v3` unmarshal, and as of flyctl 0.4.87 it implements neither
@@ -215,13 +228,14 @@ first.
 
 On top of that, the render:
 
-- **strips secret values** — `config` interpolates them, and a fail-closed
-  check greps the output for the values themselves and refuses to leave the
-  file on disk if any survived
+- **keeps secret values, and refuses to write them anywhere git can see** —
+  a fail-closed check asks `git check-ignore` directly and deletes the file if
+  the answer is no
 - **unescapes compose-only `$$`** — to compose it means a literal `$`, but Fly
   passes it straight through, and `sh -c` would expand `$$` as the shell's PID
 - **rewrites service names to `localhost`** — there is no DNS between
-  containers in one namespace
+  containers in one namespace, including hosts that follow userinfo, as in
+  `redis://:PASSWORD@redis:6379`
 - **drops** bind mounts, named volumes, networks and profiles
 
 Never edit the rendered file. Every change belongs in `docker-compose.yml`,
@@ -266,7 +280,7 @@ That takes the volume with it. Export anything you want to keep first.
 ## CI
 
 `.github/workflows/ci.yml`'s `shell` job shellchecks both scripts and runs
-`bats deploy/fly/test/` — 39 assertions covering `fly.toml`'s invariants, the
+`bats deploy/fly/test/` — 42 assertions covering `fly.toml`'s invariants, the
 render's output (no secret values, no `$$`, every service on loopback with an
 image, no leftover build/networks/volumes/profiles keys), and `deploy.sh`'s
 guards. The render runs for real; nothing is ever deployed, and no Fly account
