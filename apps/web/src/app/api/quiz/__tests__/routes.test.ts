@@ -21,6 +21,7 @@ const {
   getSession,
   requireAdmin,
   requireGatePassed,
+  hasTeam,
   answerQuestion,
   listQuestions,
   listQuestionsForAdmin,
@@ -47,6 +48,7 @@ const {
     getSession: vi.fn(),
     requireAdmin: vi.fn(),
     requireGatePassed: vi.fn(),
+    hasTeam: vi.fn(),
     answerQuestion: vi.fn(),
     listQuestions: vi.fn(),
     listQuestionsForAdmin: vi.fn(),
@@ -63,6 +65,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
+vi.mock("@/lib/team-store", () => ({ hasTeam }));
 vi.mock("@/lib/quiz-store", () => ({
   answerQuestion,
   listQuestions,
@@ -118,6 +121,7 @@ beforeEach(() => {
   getSession.mockReset();
   requireAdmin.mockReset();
   requireGatePassed.mockReset();
+  hasTeam.mockReset();
   answerQuestion.mockReset();
   listQuestions.mockReset();
   listQuestionsForAdmin.mockReset();
@@ -127,6 +131,7 @@ beforeEach(() => {
   getSession.mockResolvedValue(SESSION);
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
   requireGatePassed.mockResolvedValue(true);
+  hasTeam.mockResolvedValue(true);
   upstashPipeline.mockResolvedValue([{ result: 1 }, { result: "OK" }]);
 });
 
@@ -163,6 +168,37 @@ describe("POST /api/quiz/answer", () => {
     const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
     expect(res.status).toBe(200);
     expect(answerQuestion).toHaveBeenCalledWith("alice", "q1", ["b"]);
+  });
+
+  // --- the team requirement (issue #153) ------------------------------------
+  //
+  // Scoring is per team: a teamless login's banked points fold into no team
+  // total, so an answer that "counts" for nobody is worse than a refusal.
+
+  it("403s with { error: \"no-team\" } for a teamless login, without touching the store", async () => {
+    hasTeam.mockResolvedValue(false);
+    const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "no-team" });
+    expect(answerQuestion).not.toHaveBeenCalled();
+  });
+
+  it("asks about the SESSION's login, never a body-supplied one", async () => {
+    // Same impersonation rule the route already follows for `answerQuestion`:
+    // a body-supplied login would let anyone borrow a team's membership.
+    hasTeam.mockResolvedValue(false);
+    await answerPOST(answerReq({ questionId: "q1", choices: ["b"], login: "mallory" }));
+    expect(hasTeam).toHaveBeenCalledWith("alice");
+  });
+
+  it("checks the gate BEFORE the team, so a pre-event caller is told that first", async () => {
+    // Ordering matters for the message a contestant reads: before the event
+    // has opened, "not yet" is the true answer, not "go make a team".
+    requireGatePassed.mockResolvedValue(false);
+    hasTeam.mockResolvedValue(false);
+    const res = await answerPOST(answerReq({ questionId: "q1", choices: ["b"] }));
+    expect(await res.json()).toEqual({ error: "gate" });
+    expect(hasTeam).not.toHaveBeenCalled();
   });
 
   it("400 for malformed input (missing choices)", async () => {

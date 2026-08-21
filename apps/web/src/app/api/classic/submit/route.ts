@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireGatePassed } from "@/lib/gate-request";
 import { CLASSIC_ID_RE, submitFlag } from "@/lib/classic-store";
+import { hasTeam } from "@/lib/team-store";
 
 /** Hard cap on a submitted flag's length, checked BEFORE the store ever sees
  *  it. A flag is never more than a short token in practice; this exists only
@@ -50,6 +51,19 @@ export async function POST(request: Request) {
 
   if (!(await requireGatePassed())) {
     return NextResponse.json({ error: "gate" }, { status: 403 });
+  }
+
+  // Scoring is per team, and a teamless login's banked points fold into no
+  // team total (issue #153). Refused here, AFTER the gate (a pre-event lockout
+  // is the more fundamental "not yet") and BEFORE `submitFlag`, so the refusal
+  // can never follow a write that already happened — the same ordering rule
+  // the gate check above follows. `hasTeam` fails OPEN, so a Redis blip lets
+  // the flag through rather than dropping it.
+  //
+  // This runs before the body is even parsed, so a teamless caller cannot use
+  // the response to distinguish a correct flag from a wrong one.
+  if (!(await hasTeam(login))) {
+    return NextResponse.json({ error: "no-team" }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));

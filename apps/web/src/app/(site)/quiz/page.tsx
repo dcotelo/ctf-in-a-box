@@ -21,6 +21,7 @@ import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
 import { isModuleEnabled } from "@/lib/modules";
+import { redirectIfTeamless } from "@/lib/require-team";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerQuiz, listQuestions, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN, type ViewerQuiz } from "@/lib/quiz-store";
 
@@ -81,6 +82,12 @@ export default async function QuizPage() {
   // check `/admin` and every `/api/admin/*` route gate on, so this can never
   // offer a link to someone the admin page would then 403 at.
   const viewerIsAdmin = await isAdminLogin(login);
+
+  // Answers only count for a team (issue #153), and the answer route refuses a
+  // teamless login. Sending them to set a team up first means nobody learns
+  // that by answering a question and watching it not count. Before the loads
+  // below, so a redirect never follows work that was thrown away.
+  await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
   const [questions, viewerQuiz, settings, modules] = await Promise.all([
     listQuestions(),

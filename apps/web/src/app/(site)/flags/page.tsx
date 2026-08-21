@@ -29,6 +29,7 @@ import {
   type ViewerClassic,
 } from "@/lib/classic-store";
 import { isModuleEnabled } from "@/lib/modules";
+import { redirectIfTeamless } from "@/lib/require-team";
 import { getResolvedModules } from "@/lib/resolved-modules";
 
 const DEFAULT_TITLE = "Classic CTF";
@@ -85,6 +86,12 @@ export default async function FlagsPage() {
   // every `/api/admin/*` route gate on, so a link is never offered to someone
   // the admin page would then 403 at. Mirrors quiz/page.tsx.
   const viewerIsAdmin = await isAdminLogin(login);
+
+  // Solves only count for a team (issue #153), and the submit route refuses a
+  // teamless login. Sending them to set a team up first means nobody learns
+  // that by submitting a flag and watching it not count. Before the loads
+  // below, so a redirect never follows work that was thrown away.
+  await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
   const [challenges, categories, solveCounts, viewerClassic, settings, modules] = await Promise.all([
     listChallenges(),

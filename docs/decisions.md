@@ -2211,3 +2211,88 @@ a fork only when the template's stamp is newer than the fork's, so changing the
 template without bumping it leaves existing forks on the old workflow —
 silently keeping a cooldown the organizer can no longer change. A test now
 pins that the stamp is at least 3.
+
+## 47. A team is required to score, enforced at the route and signposted at the page
+
+**Status.** Accepted.
+
+**Context.** The docs said "everyone ends up on a team", and nothing enforced
+it. A contestant could sign in, go straight to `/quiz` or `/flags`, and start
+banking points while belonging to no team.
+
+That is not a cosmetic gap, because the leaderboard ranks **teams**. A team's
+total is the union of its *members'* earned items (`foldTeamTotals`), so points
+banked by a login on no team are folded into nothing. The contestant sees their
+answers accepted and their own per-login progress climb, and appears on no
+scoreboard at all. They find out by checking, usually late.
+
+The invariant was already written down; only the code was missing.
+
+**Decision.** Enforce it in two places, with different jobs.
+
+**The submission routes are the boundary.** `POST /api/quiz/answer` and `POST
+/api/classic/submit` refuse a teamless login with `403 { error: "no-team" }`.
+This is what actually holds: a direct POST never renders a page. The check sits
+*after* the pre-event gate — before the event opens, "not yet" is the truer
+answer than "go make a team" — and *before* the store call, so a refusal can
+never follow a write that already happened. It also runs before the request
+body is parsed, so a teamless caller cannot use the refusal as an oracle for
+whether a flag was correct.
+
+**The page redirect is signposting.** A signed-in contestant with no team who
+opens `/quiz` or `/flags` is sent to `/profile#team`. It prevents nobody: it
+exists so the rule is learned before the work rather than after it.
+
+**`hasTeam` fails OPEN.** An unreachable store answers "on a team". This is the
+same call ADR 31's descendants make for `effectivePaused` and
+`resolveTeamMaxMembers`, and the deliberate opposite of `requireAdmin` (ADR
+44). The asymmetry is about what being wrong costs: a wrong "yes" here costs
+one unattributed score, while a wrong "no" costs every contestant every point
+they earn for the length of the outage. Refusing correct flags during a Redis
+blip is the worse failure by a wide margin.
+
+**Mock mode is exempt.** With `TEAM_WRITES_ENABLED` unset there is no team
+system to be on the wrong side of — `getViewerTeam` falls back to a per-browser
+cookie — so enforcing would lock every demo and local dev-stack out of scoring
+to protect an invariant that build cannot hold anyway.
+
+**Admins are exempt from the redirect, not from the check.** An organizer opens
+a module page to confirm their questions render, which is not playing. An
+organizer who actually submits still meets the route gate, because an admin's
+points fold into no team either.
+
+**Play solo is a first-class path.** Making a team mandatory without it would
+mean the cheapest way to play alone is to invent a team name — a naming
+decision imposed on the one person who has explicitly opted out of having
+teammates. `POST /api/team/solo` creates a team of one named after the caller's
+GitHub login. It is its own route rather than a flag on the create route
+because the name is derived from the session and is not an input; a `name`
+field that is silently ignored is a field somebody eventually relies on.
+
+The login is only the first candidate. Team names are their own namespace, so
+another contestant may already have a team called `octocat`; a collision
+retries with a short suffix rather than erroring, because the whole promise of
+the path is that it takes one click. A GitHub login also runs to 39 characters
+while a team name stops at 32, so the login is clamped — unclamped, this path
+would mint names `renameTeam` then refuses.
+
+**Consequences.**
+
+Leaving or disbanding a team mid-event makes a contestant teamless, and they
+stop scoring until they are on a team again. That is the invariant working, not
+a regression, and the redirect puts them on the team card the moment they open
+a module page.
+
+Points banked before joining a team are **not** lost. Because a team's total is
+the union of its members' items, a joiner's existing per-login solves are
+picked up by the fold automatically — there is no migration step, and none is
+needed.
+
+**Secure Development cannot be enforced this way.** Its points arrive from
+GitHub through the sync poller, not through an app route, so there is no
+submission for the box to refuse. A contestant patching a fork while on no team
+still has their score ingested against a login that belongs to no team, where
+it contributes to no team total. The gap is documented in
+[operations.md](operations.md) rather than papered over; closing it would mean
+the poller dropping or parking scores it cannot attribute, which is a larger
+decision about ingest semantics than this one.

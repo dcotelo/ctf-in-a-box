@@ -762,3 +762,125 @@ describe("lookupJoinCode", () => {
     }
   });
 });
+
+// --- the team requirement (issue #153) ---------------------------------------
+//
+// Scoring is per team: `foldTeamTotals` builds a team's total from its
+// MEMBERS' earned items, so points banked by a login on no team fold into
+// nothing. `hasTeam` is the gate every scoring route asks before banking.
+
+describe("hasTeam", () => {
+  it("is true for a login on a team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
+    expect(await store.hasTeam("octocat")).toBe(true);
+  });
+
+  it("is false for a login on no team", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }]);
+    expect(await store.hasTeam("octocat")).toBe(false);
+  });
+
+  it("treats an empty-string team as no team, not as a team named \"\"", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "" }]);
+    expect(await store.hasTeam("octocat")).toBe(false);
+  });
+
+  it("fails OPEN when the store is unreachable", async () => {
+    // Deliberately the opposite of `requireAdmin`. A Redis blip must not drop
+    // live submissions: being briefly wrong about membership costs one
+    // unattributed score, while failing closed costs every contestant every
+    // point they earn for the length of the outage.
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
+    expect(await store.hasTeam("octocat")).toBe(true);
+  });
+
+  it("is true in mock mode without asking the store at all", async () => {
+    // With TEAM_WRITES_ENABLED unset there is no team system to be on the
+    // wrong side of, so enforcing would lock every demo out of scoring to
+    // protect an invariant that build cannot hold.
+    const store = await loadStore(false);
+    expect(await store.hasTeam("octocat")).toBe(true);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
+describe("createSoloTeam", () => {
+  it("names the team after the contestant, with them as captain", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    expect(await store.createSoloTeam("octocat")).toEqual({ ok: true, team: "octocat" });
+    const [, keys, args] = mocks.upstashEval.mock.calls[0];
+    expect(keys[1]).toBe("ctf:team:octocat");
+    expect(args[0]).toBe("octocat");
+  });
+
+  it("falls back to a suffixed name when that team name is already taken", async () => {
+    // Team names are their own namespace, so nothing stops someone else from
+    // having created a team called "octocat". The whole promise of this path
+    // is one click, so a collision retries rather than erroring.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("name-taken");
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.createSoloTeam("octocat");
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.team).toMatch(/^octocat-[a-z2-9]{3}$/);
+  });
+
+  it("gives up and asks for a name rather than retrying forever", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    // EXACTLY the attempt budget. Queueing spares would leave unconsumed
+    // `mockResolvedValueOnce` entries behind — `vi.clearAllMocks()` clears
+    // recorded calls but NOT the queued one-shot implementations, so the
+    // leftovers would surface in the next test as a phantom reply.
+    for (let i = 0; i < 4; i++) {
+      mockCodeCollisionCheck(false);
+      mocks.upstashEval.mockResolvedValueOnce("name-taken");
+    }
+    expect(await store.createSoloTeam("octocat")).toEqual({
+      ok: false,
+      error: "Couldn't create a team for you. Pick a team name instead",
+    });
+  });
+
+  it("clamps a long login to the team-name cap", async () => {
+    // A GitHub login runs to 39 characters and a team name stops at 32, so a
+    // login is NOT automatically a legal team name — unclamped, this path
+    // would mint names `renameTeam` then refuses.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.createSoloTeam("a".repeat(39));
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.team).toEqual(expect.stringMatching(/^a{1,32}$/));
+  });
+
+  it("refuses while registration is closed, like every other create path", async () => {
+    const store = await loadStore(true);
+    mockRegistrationClosed();
+    const result = await store.createSoloTeam("octocat");
+    expect(result.ok).toBe(false);
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("refuses a contestant who is already on a team", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("already-on-team");
+    expect(await store.createSoloTeam("octocat")).toEqual({
+      ok: false,
+      error: "Leave your current team before creating one",
+    });
+  });
+});
