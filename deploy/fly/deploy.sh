@@ -36,9 +36,37 @@ while [ $# -gt 0 ]; do
 done
 
 # Every fly invocation goes through this, so --dry-run cannot leak a real call.
+#
+# --dry-run REDACTS SECRET VALUES. It printed them in full until an organizer
+# ran it and watched their GitHub App private key, OAuth client secret and
+# BETTER_AUTH_SECRET scroll past — into a terminal, a scrollback buffer, and
+# whatever CI log or screen share happened to be capturing it. A dry run is
+# the command people run FIRST, casually, precisely because they believe it
+# is inert; printing credentials is the last thing it should do.
+#
+# The redaction is on the VALUE half of `NAME=value`, keyed on the name, so
+# the run still shows exactly which variables are set on which app — which is
+# the whole point of previewing it — without showing what they are.
+redact_arg() {
+  case "$1" in
+    *=*)
+      name="${1%%=*}"
+      case "$name" in
+        *SECRET*|*TOKEN*|*PRIVATE_KEY*|*PASSWORD*|EVENT_CONFIG_B64)
+          echo "$name=<redacted>" ;;
+        *) echo "$1" ;;
+      esac ;;
+    *) echo "$1" ;;
+  esac
+}
+
 fly_run() {
   if [ -n "$DRY_RUN" ]; then
-    echo "DRY-RUN: fly $*"
+    printf 'DRY-RUN: fly'
+    for arg in "$@"; do
+      printf ' %s' "$(redact_arg "$arg")"
+    done
+    printf '\n'
     return 0
   fi
   fly "$@"

@@ -160,3 +160,49 @@ ENV
 @test "sync.Dockerfile bakes event.yaml in (Fly has no bind mounts)" {
   grep -q 'COPY event.yaml /config/event.yaml' "$FLY/sync.Dockerfile"
 }
+
+# --- secrets stay out of the dry-run OUTPUT too --------------------------
+#
+# Keeping secrets out of committed files (above) is only half of it. The
+# dry run printed every value in full until someone ran it and watched a
+# GitHub App private key scroll past — into a terminal, a scrollback buffer,
+# and whatever screen share or CI log was capturing it. A dry run is the
+# command people run FIRST, casually, because they believe it is inert.
+
+@test "--dry-run redacts secret values" {
+  cat > "$BATS_TEST_TMPDIR/secret-env" <<'ENV'
+EVENT_URL=https://ctf-in-a-box-app.fly.dev
+BETTER_AUTH_SECRET=CANARY-auth-secret
+GITHUB_CLIENT_ID=public-client-id
+GITHUB_CLIENT_SECRET=CANARY-client-secret
+SCORER_TOKEN=CANARY-scorer-token
+UPSTASH_REDIS_REST_URL=https://example.upstash.io
+UPSTASH_REDIS_REST_TOKEN=CANARY-upstash-token
+GITHUB_APP_ID=123
+GITHUB_APP_PRIVATE_KEY=CANARY-private-key
+GITHUB_APP_INSTALLATION_ID=456
+ENV
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/secret-env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ -z "$(printf '%s' "$output" | grep -F 'CANARY-')" ]
+}
+
+@test "--dry-run still shows which variables are set, and non-secret values" {
+  # Redaction that hid the variable NAMES would make the preview useless —
+  # knowing which secrets land on which app is the reason to run it.
+  cat > "$BATS_TEST_TMPDIR/secret-env" <<'ENV'
+EVENT_URL=https://ctf-in-a-box-app.fly.dev
+BETTER_AUTH_SECRET=CANARY-auth-secret
+GITHUB_CLIENT_ID=public-client-id
+GITHUB_CLIENT_SECRET=CANARY-client-secret
+SCORER_TOKEN=CANARY-scorer-token
+UPSTASH_REDIS_REST_URL=https://example.upstash.io
+UPSTASH_REDIS_REST_TOKEN=CANARY-upstash-token
+GITHUB_APP_ID=123
+GITHUB_APP_PRIVATE_KEY=CANARY-private-key
+GITHUB_APP_INSTALLATION_ID=456
+ENV
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/secret-env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"BETTER_AUTH_SECRET=<redacted>"* && "$output" == *"GITHUB_APP_ID=123"* ]]
+}
