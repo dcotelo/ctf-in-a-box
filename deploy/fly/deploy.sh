@@ -262,9 +262,22 @@ done
 
 SRH_TOKEN="$(env_value SRH_TOKEN)"
 SRH_CONNECTION_STRING="$(env_value SRH_CONNECTION_STRING)"
-if [ -z "$SRH_TOKEN" ] || [ -z "$SRH_CONNECTION_STRING" ]; then
-  echo "FAIL: SRH_TOKEN / SRH_CONNECTION_STRING missing from $ENV_FILE." >&2
+# Name the variable that is ACTUALLY missing. Listing both when only one is
+# absent sends the reader to check the one they already set — the exact wrong
+# turn, on the message whose only job is to shorten the search.
+missing=""
+[ -n "$SRH_TOKEN" ] || missing="SRH_TOKEN"
+if [ -z "$SRH_CONNECTION_STRING" ]; then
+  if [ -n "$missing" ]; then missing="$missing and SRH_CONNECTION_STRING"; else missing="SRH_CONNECTION_STRING"; fi
+fi
+if [ -n "$missing" ]; then
+  echo "FAIL: $missing missing from $ENV_FILE." >&2
   echo "      Run: ./deploy/fly/deploy.sh init --env-file $ENV_FILE" >&2
+  case "$missing" in
+    *SRH_CONNECTION_STRING*)
+      echo "      That provisions the managed Redis and writes its redis:// URL here." >&2
+      echo "      It needs the fly CLI: https://fly.io/docs/flyctl/install/" >&2 ;;
+  esac
   echo "      (Fly's managed Redis speaks only the Redis protocol, so srh sits" >&2
   echo "       in front of it and serves the REST API the services speak.)" >&2
   exit 1

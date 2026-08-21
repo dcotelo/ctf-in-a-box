@@ -362,3 +362,29 @@ ENV
     --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
   [[ "$output" == *"EVENT_URL=https://ctf-in-a-box-app.fly.dev"* ]]
 }
+
+@test "the srh-credentials refusal names only the variable that is actually missing" {
+  # Listing both when one is present sends the reader to re-check the one they
+  # already set — the exact wrong turn, on the message whose only job is to
+  # shorten the search.
+  grep -v '^SRH_CONNECTION_STRING=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/half-srh"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/half-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"SRH_CONNECTION_STRING missing"* && "$output" != *"SRH_TOKEN and"* ]]
+}
+
+@test "a missing connection string points at the fly CLI it needs" {
+  # Running init is the fix, and init's redis step cannot work without flyctl.
+  # Saying so here saves a second failed run.
+  grep -v '^SRH_CONNECTION_STRING=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/half-srh"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/half-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"flyctl"* ]]
+}
+
+@test "both missing still names both" {
+  grep -vE '^(SRH_TOKEN|SRH_CONNECTION_STRING)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh2"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/no-srh2" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"SRH_TOKEN and SRH_CONNECTION_STRING missing"* ]]
+}
