@@ -586,6 +586,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# PIN EVERY IMAGE BY DIGEST, not by tag.
+#
+# A tag is a moving pointer, and Fly resolves it when the machine starts. A
+# rebuilt-and-repushed `:scorer` therefore did NOT reach a running machine: the
+# registry held the new image, the machine kept serving the old one, and the
+# only symptom was a 404 on a route the new build has and the old one does not.
+# Nothing in the deploy output was wrong, which is what made it expensive.
+#
+# Resolving here means the rendered compose names the exact artifact that was
+# just pushed, so what runs is what was built. It matches how docker-compose.yml
+# already pins srh, and it makes a deploy reproducible: the same file redeployed
+# later brings up the same bytes rather than whatever the tag points at then.
+#
+# Falls back to the tag if resolution fails (an old buildx without --format).
+# A deploy that still works on a tag beats a deploy that refuses to run.
+# ---------------------------------------------------------------------------
+pin_digest() {
+  local ref="$1" repo digest
+  repo="${ref%%:*}"
+  digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+  case "$digest" in
+    sha256:*) echo "$repo@$digest" ;;
+    *) echo "$ref" ;;
+  esac
+}
+
+if [ -z "$DRY_RUN" ] && command -v docker >/dev/null; then
+  APP_IMAGE="$(pin_digest "$APP_IMAGE")"
+  SYNC_IMAGE="$(pin_digest "$SYNC_IMAGE")"
+  SCORER_IMAGE="$(pin_digest "$SCORER_IMAGE")"
+  echo "   pinned scorer -> ${SCORER_IMAGE#*@}"
+fi
+
+# ---------------------------------------------------------------------------
 # 3/5 Render the compose file Fly deploys, out of the real docker-compose.yml.
 # ---------------------------------------------------------------------------
 echo "== 3/5 rendering $RENDERED from docker-compose.yml"

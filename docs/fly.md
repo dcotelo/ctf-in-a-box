@@ -307,3 +307,39 @@ render's output (no secret values, no `$$`, every service on loopback with an
 image, no leftover build/networks/volumes/profiles keys), and `deploy.sh`'s
 guards. The render runs for real; nothing is ever deployed, and no Fly account
 is involved.
+
+## Who can read the secrets
+
+Credentials reach the containers through the rendered compose file's
+`environment:` blocks, because that is the only channel Fly gives a
+compose-defined container. They therefore end up in the **machine
+configuration**, and anyone who can reach the app on Fly can read them:
+
+```sh
+fly machines list --app <app> --json     # prints every container's env
+fly ssh console --app <app> -C env
+```
+
+That is not unique to this module — `fly secrets` values are also readable from
+inside the machine by anyone who can `fly ssh console` — but the machine config
+makes them readable without a shell, and it is easy to paste one of those dumps
+into a terminal, a screen share or an issue. Treat `fly machines list --json`
+output as secret material.
+
+The compensation is that each credential is scoped to the one service that
+needs it: the app container never receives `REDIS_PASSWORD`, and `redis` never
+receives `GITHUB_CLIENT_SECRET`. Fly's own global secrets cannot express that.
+
+## Images are pinned by digest
+
+`deploy.sh` resolves each image to its digest after pushing, so the rendered
+compose names the exact artifact that was just built.
+
+A tag is a moving pointer that Fly resolves when the machine starts, and a
+rebuilt-and-repushed `:scorer` did **not** reach a running machine: the registry
+held the new image, the machine kept serving the old one, and the only symptom
+was a `404` on a route the new build has and the old one does not. Nothing in
+the deploy output was wrong.
+
+It also makes a deploy reproducible — redeploying the same file later brings up
+the same bytes, not whatever the tag points at by then.

@@ -631,3 +631,19 @@ ENV
   # one people naturally type — and is exactly what produced the arm64 image.
   grep -qF 'docker build --platform linux/amd64 -t $SCORE_IMAGE scorer/' "$FLY/deploy.sh"
 }
+
+@test "images are pinned by digest, not deployed by tag" {
+  # A tag is a moving pointer that Fly resolves when the machine starts. A
+  # rebuilt-and-repushed :scorer did not reach a running machine — the registry
+  # held the new image, the machine kept serving the old one, and the only
+  # symptom was a 404 on a route the new build has. Nothing in the deploy
+  # output was wrong, which is what made it expensive to find.
+  grep -qF 'pin_digest()' "$FLY/deploy.sh"
+  grep -qF '{{.Manifest.Digest}}' "$FLY/deploy.sh"
+}
+
+@test "digest pinning falls back to the tag rather than failing the deploy" {
+  # An older buildx has no --format. A deploy that still works on a tag beats
+  # one that refuses to run.
+  grep -qF '*) echo "$ref" ;;' "$FLY/deploy.sh"
+}
