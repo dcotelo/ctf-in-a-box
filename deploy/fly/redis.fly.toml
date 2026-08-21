@@ -37,19 +37,45 @@ primary_region = "iad"
 #
 # The password arrives as a secret and is read from the environment here, so
 # it never appears in this file or in `fly logs`.
+# `[processes]` sets the command. Note there is deliberately NO `[[services]]`
+# block below — see the comment after this one.
+#
+# `--bind "* -::*"` is redis's syntax for "every IPv4 and every IPv6
+# interface", and the IPv6 half is the load-bearing part: Fly's private
+# network (`*.internal`) is IPv6-ONLY. A process listening on 0.0.0.0 alone
+# accepts nothing over 6PN, and the symptom is srh timing out against a redis
+# that looks perfectly healthy in `fly logs`.
+# WRAPPED IN `sh -c`, AND IT MUST BE.
+#
+# Fly runs a `[processes]` command WITHOUT a shell, so `$REDIS_PASSWORD` is
+# passed to redis-server as the LITERAL 16-character string "$REDIS_PASSWORD".
+# That is not a broken deploy — redis starts, reports healthy, and accepts
+# `redis-cli -a '$REDIS_PASSWORD'`. The datastore was protected by a password
+# published in this very file.
+#
+# `sh -c` gives it a shell to expand in. `exec` so redis stays PID 1 and
+# receives Fly's signals directly rather than through a shell that ignores
+# them.
 [processes]
-  app = "redis-server --appendonly yes --requirepass $REDIS_PASSWORD"
+  app = "sh -c 'exec redis-server --appendonly yes --requirepass \"$REDIS_PASSWORD\" --bind \"* -::*\"'"
 
 [mounts]
   source = "ctf_redis_data"
   destination = "/data"
 
-# Private only: reachable as ctf-in-a-box-redis.internal:6379 over 6PN, and
-# only by srh, which is the sole service given the password. No public
-# service block, ever — this is the datastore.
-[[services]]
-  internal_port = 6379
-  protocol = "tcp"
+# NO `[[services]]` BLOCK, AND THAT IS HOW IT STAYS PRIVATE.
+#
+# The first version of this file had one without `[[services.ports]]`, on the
+# assumption that a portless service meant "internal only". Fly rejects that
+# outright — `Service must expose at least one port` — because `[[services]]`
+# IS the public-edge mechanism: it is what puts an app behind Fly's proxy and
+# an anycast IP.
+#
+# Reaching an app privately needs nothing declared at all. `<app>.internal`
+# resolves to the machine's 6PN address, and any port the process listens on
+# is reachable from other apps in the same organization. Declaring a service
+# here would be the thing that EXPOSED the datastore, not the thing that
+# hid it.
 
 [[vm]]
   memory = "512mb"

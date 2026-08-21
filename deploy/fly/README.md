@@ -125,6 +125,128 @@ whole history on every deploy and makes the `ingested`/`dropped` counters on
 `/admin` meaningless. `deploy.sh` creates the volume; do not remove the
 `[mounts]` block.
 
+## Build context
+
+A root `.dockerignore` keeps the repo-root builds small. Fly reported this on
+every sync deploy before it existed:
+
+```
+WARN Build context is 1.3 GB across 54,792 files.
+       apps/    1.2 GB
+       .git/    17 MB
+```
+
+Almost all of it was `apps/web/node_modules` and `.next`, neither of which
+belongs in a context — `apps/web/Dockerfile` runs its own `pnpm install
+--frozen-lockfile` and `pnpm build`. Copying a host-built `node_modules` in
+would also risk shipping host-architecture native binaries into a linux image.
+
+After: **~30 kB** for the sync context, ~10 MB for the app's.
+
+It also excludes `.env*`, which is defence in depth rather than housekeeping:
+keeping secrets out of the *context* means a careless `COPY . .` in some
+future Dockerfile cannot pick them up.
+
+Two things it deliberately does **not** exclude, both load-bearing and both
+covered by tests: `event.yaml`, which `sync.Dockerfile` copies (excluding it
+builds a poller with no config, which fails at start rather than at build),
+and `apps/web/` source, which the app image is built from.
+
+`scorer/` and `sync/` keep their own `.dockerignore` for the builds that use
+those directories as the context; the root file governs the repo-root ones.
+
+## The scorer image is mirrored into Fly's registry
+
+**Fly cannot pull from a private third-party registry.** A real run failed
+with:
+
+```
+Error: failed to fetch an image or build from source:
+Authentication required to access image "ghcr.io/<org>/score:latest"
+```
+
+and there is no flag for supplying credentials — Fly's documented answer for
+private images is its own registry, `registry.fly.io/<app>`.
+
+So `deploy.sh` **mirrors** the image before deploying the scorer:
+
+```sh
+fly auth docker
+docker buildx imagetools create --tag registry.fly.io/<scorer-app>:latest "$SCORE_IMAGE"
+```
+
+`imagetools create` copies the manifest registry-to-registry: no local pull,
+no re-tagging of a single-arch layer, and **the digest is preserved exactly**.
+That matters more than convenience — the scorer serving the leaderboard has to
+be the same artifact the forks pull to judge PRs, or a rubric difference
+between them shows up as totals that disagree with the scores. Mirroring keeps
+them identical; rebuilding from source would not.
+
+This is the same move `ctf-setup org` already makes when it mirrors
+`SCORE_IMAGE` into the event org's GHCR so the forks can pull it. Same
+pattern, different destination.
+
+If `buildx` is unavailable it falls back to `docker pull --platform
+linux/amd64` + tag + push. The platform pin is deliberate: the forks' runners
+are amd64, and an arm64 pull on an Apple Silicon machine would mirror an image
+the deployed scorer cannot execute.
+
+You need to be logged in to the source registry (`docker login ghcr.io`) —
+`deploy.sh` uses the login you already have from pushing the image.
+
+## Region
+
+`init` **asks** which region to run in, and writes the answer to the env file
+as `FLY_REGION`. One value then drives every `fly deploy --primary-region` and
+both volumes, so nothing has to be kept in step by hand:
+
+```sh
+./deploy/fly/deploy.sh init                 # prompts, default from the toml
+./deploy/fly/deploy.sh init --region gru    # or say it outright
+```
+
+Pick the region nearest your contestants. **Volumes are region-pinned**, so
+changing it afterwards means destroying and recreating them — which is exactly
+what happened on the first real run, where `fly volumes create` prompted
+mid-deploy and produced a volume in `gru` against apps configured for `iad`.
+
+`--region` also makes the step usable without a terminal (CI, a script). With
+no tty and no flag it takes the toml default rather than blocking on a prompt.
+The value is validated as a three-letter code: `Sao Paulo` is what someone
+types when they read the prompt as a place name, and catching it here beats an
+opaque failure part-way through a deploy.
+
+Note the flag on `fly deploy` is `--primary-region`; there is no `--region`
+there (`fly volumes create` is the one that takes `--region`).
+
+## How the private apps stay private
+
+Only `app` declares a public service (`[http_service]`). `redis`, `srh`,
+`scorer` and `sync` declare **no service block at all** — and that is the
+mechanism, not an omission.
+
+`[[services]]` is Fly's *public-edge* construct: it puts an app behind Fly's
+proxy on an anycast IP, and Fly rejects the config if it has no
+`[[services.ports]]`. An earlier version of this module had portless service
+blocks on the assumption they meant "internal only"; a real `fly deploy`
+answered:
+
+```
+Service has no processes set but app has 1 processes defined
+WARNING: Service must expose at least one port. Add a [[services.ports]] section
+✘ invalid app configuration
+```
+
+Private access needs nothing declared. `<app>.internal` resolves to the
+machine's 6PN address and is reachable only from apps in the same
+organization. A service block would have been the thing that *exposed* the
+datastore.
+
+One consequence worth knowing: **Fly's private network is IPv6-only**, so a
+process bound to `0.0.0.0` alone is unreachable over `.internal`. That is why
+redis runs with `--bind "* -::*"` (all IPv4 *and* all IPv6). The failure mode
+is srh timing out against a redis that looks perfectly healthy in `fly logs`.
+
 ## Poll mode, and what push mode would open
 
 This module is **poll mode**: `sync` reaches out to GitHub, and nothing on the

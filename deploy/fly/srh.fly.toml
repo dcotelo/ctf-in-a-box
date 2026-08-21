@@ -34,13 +34,34 @@ primary_region = "iad"
 # SRH_TOKEN and SRH_CONNECTION_STRING are set with `fly secrets set` — the
 # connection string carries the Redis password, so it never appears here.
 
-# Private only: reachable as ctf-in-a-box-srh.internal:80 over 6PN and nowhere
-# else. A public service here would expose the whole datastore behind nothing
-# but the bearer token, which is the exposure the compose path's network split
-# exists to prevent (ADR 41).
+# A PRIVATE (Flycast) SERVICE — not a public one.
+#
+# The first version declared no service at all, reasoning that private access
+# over `<app>.internal` needs nothing. That is true only for a process that
+# listens on IPv6: Fly's private network is IPv6-only, and this image's server
+# binds IPv4 (0.0.0.0) exclusively. The result was `Connection refused` from
+# every service, a scorer answering 500, and a poller logging
+# `redis writeStatus: fetch failed` — against an srh that looked perfectly
+# healthy in `fly logs` and reported "Using port 80".
+#
+# Flycast is Fly's answer: a PRIVATE anycast IPv6 address handled by Fly's
+# proxy, which accepts IPv6 and forwards to the app's IPv4 port. It needs a
+# service block with a port so the proxy knows the mapping — and it stays
+# private because privacy comes from WHICH IP is allocated, not from the
+# presence of a service. This app has only a private IPv6
+# (`fly ips allocate-v6 --private`), so there is no public address to reach it
+# on. deploy.sh allocates it and asserts no public IP exists.
+#
+# Clients therefore use `<app>.flycast`, not `<app>.internal`.
+#
+# redis needs none of this: it binds `* -::*` (all IPv4 AND all IPv6), so
+# `.internal` reaches it directly.
 [[services]]
   internal_port = 80
   protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
 
 [[vm]]
   memory = "512mb"
