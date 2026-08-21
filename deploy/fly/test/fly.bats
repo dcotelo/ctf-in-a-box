@@ -503,4 +503,59 @@ hostname_run() { # $1 = EVENT_URL
   command -v git >/dev/null || skip "git not available"
   cd "$REPO"
   [ -z "$(git ls-files | grep -E '^\.env' | grep -v '^\.env\.example$')" ]
+# --- what a real `fly deploy` rejected -------------------------------------
+#
+# The first live run failed validation on every private service:
+#
+#   Service has no processes set but app has 1 processes defined
+#   WARNING: Service must expose at least one port. Add a [[services.ports]]
+#   ✘ invalid app configuration
+#
+# The mistake was believing a `[[services]]` block WITHOUT ports meant
+# "internal only". It does not: `[[services]]` IS the public-edge mechanism
+# and Fly refuses it portless. Private access over `<app>.internal` needs
+# nothing declared at all — so a service block here would be what EXPOSED
+# these, not what hid them.
+
+@test "no private app declares a [[services]] block" {
+  for f in redis srh scorer sync; do
+    [ -z "$(uncommented "$FLY/$f.fly.toml" | grep '^\[\[services\]\]')" ] || return 1
+  done
+}
+
+@test "the app — the one public service — uses http_service, not a bare service" {
+  # http_service is the modern public form and carries its own port.
+  grep -q '^\[http_service\]' "$FLY/app.fly.toml"
+}
+
+@test "redis binds IPv6, because Fly's private network is IPv6-only" {
+  # A process on 0.0.0.0 alone accepts nothing over 6PN, and the symptom is
+  # srh timing out against a redis that looks healthy in `fly logs`.
+  grep -q -- '-::\*' "$FLY/redis.fly.toml"
+}
+
+# --- volumes must not prompt, and must match the app's region --------------
+
+@test "volume creation passes an explicit --region" {
+  # `fly volumes create` PROMPTS without one. On a real run that put the
+  # volume in gru while primary_region said iad — an interactive prompt in
+  # the middle of a scripted deploy, and a region mismatch after it.
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"volumes create ctf_redis_data"*"--region iad"* ]]
+}
+
+@test "the volume region is read from the toml, not hardcoded twice" {
+  # Change primary_region and the volume must follow, or the two drift.
+  sed 's/^primary_region = .*/primary_region = "lhr"/' "$FLY/redis.fly.toml" > "$BATS_TEST_TMPDIR/redis.fly.toml"
+  cp "$FLY"/*.fly.toml "$BATS_TEST_TMPDIR/" 2>/dev/null
+  sed -i.bak 's/^primary_region = .*/primary_region = "lhr"/' "$BATS_TEST_TMPDIR/redis.fly.toml"
+  region="$(sed -n 's/^primary_region *= *"\([^"]*\)".*/\1/p' "$BATS_TEST_TMPDIR/redis.fly.toml" | head -1)"
+  [ "$region" = "lhr" ]
+}
+
+@test "both volumes get a region" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$(printf '%s' "$output" | grep -c 'volumes create.*--region')" -eq 2 ]
 }

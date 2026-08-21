@@ -87,6 +87,15 @@ fly_run() {
   fly "$@"
 }
 
+toml_region() {
+  # A volume MUST be created in the same region the machine runs in, and
+  # `fly volumes create` PROMPTS when no --region is given — which on a real
+  # run put the volume in `gru` while the app's primary_region said `iad`.
+  # Read it from the same file that declares it, so the two cannot disagree
+  # and so the deploy stays non-interactive.
+  sed -n 's/^primary_region *= *"\([^"]*\)".*/\1/p' "$FLY_DIR/$1" | head -1
+}
+
 app_name() {
   # `app = "name"` out of a fly.toml, without a TOML parser (no jq/python on
   # this path, same rule as the provisioning scripts).
@@ -306,11 +315,12 @@ create_app "$REDIS_APP"
 # Durable store for scores, teams and hint purchases — the same named-volume
 # arrangement as compose's `redis-data`.
 if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly volumes create ctf_redis_data --app $REDIS_APP --size 1 (if absent)"
+  echo "DRY-RUN: fly volumes create ctf_redis_data --app $REDIS_APP --size 1 --region $(toml_region redis.fly.toml) (if absent)"
 elif fly volumes list --app "$REDIS_APP" 2>/dev/null | grep -q ctf_redis_data; then
   echo "   volume ctf_redis_data exists"
 else
-  fly volumes create ctf_redis_data --app "$REDIS_APP" --size 1 --yes
+  fly volumes create ctf_redis_data --app "$REDIS_APP" --size 1 \
+    --region "$(toml_region redis.fly.toml)" --yes
 fi
 fly_run secrets set --app "$REDIS_APP" --stage "REDIS_PASSWORD=$REDIS_PASSWORD"
 fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP"
@@ -335,11 +345,12 @@ create_app "$SYNC_APP"
 # The cursor volume. Without it the poller re-reads every comment in every
 # fork after each restart — see sync.fly.toml.
 if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly volumes create ctf_sync_state --app $SYNC_APP --size 1 (if absent)"
+  echo "DRY-RUN: fly volumes create ctf_sync_state --app $SYNC_APP --size 1 --region $(toml_region sync.fly.toml) (if absent)"
 elif fly volumes list --app "$SYNC_APP" 2>/dev/null | grep -q ctf_sync_state; then
   echo "   volume ctf_sync_state exists"
 else
-  fly volumes create ctf_sync_state --app "$SYNC_APP" --size 1 --yes
+  fly volumes create ctf_sync_state --app "$SYNC_APP" --size 1 \
+    --region "$(toml_region sync.fly.toml)" --yes
 fi
 fly_run secrets set --app "$SYNC_APP" --stage \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \

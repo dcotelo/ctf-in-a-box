@@ -34,13 +34,17 @@ primary_region = "iad"
 # SRH_TOKEN and SRH_CONNECTION_STRING are set with `fly secrets set` — the
 # connection string carries the Redis password, so it never appears here.
 
-# Private only: reachable as ctf-in-a-box-srh.internal:80 over 6PN and nowhere
-# else. A public service here would expose the whole datastore behind nothing
-# but the bearer token, which is the exposure the compose path's network split
-# exists to prevent (ADR 41).
-[[services]]
-  internal_port = 80
-  protocol = "tcp"
+# NO `[[services]]` BLOCK — that is what keeps it private.
+#
+# `[[services]]` is Fly's PUBLIC-edge mechanism (it requires at least one
+# `[[services.ports]]`, and Fly rejects the config without one). Private
+# access needs nothing declared: `ctf-in-a-box-srh.internal:80` resolves over
+# 6PN and is reachable only from apps in the same organization. Declaring a
+# service here would expose the whole datastore behind nothing but the bearer
+# token.
+#
+# srh must listen on IPv6 for that to work — Fly's private network is
+# IPv6-only. The image's server binds all interfaces, which includes IPv6.
 
 [[vm]]
   memory = "512mb"

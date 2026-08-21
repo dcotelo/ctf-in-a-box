@@ -125,6 +125,34 @@ whole history on every deploy and makes the `ingested`/`dropped` counters on
 `/admin` meaningless. `deploy.sh` creates the volume; do not remove the
 `[mounts]` block.
 
+## How the private apps stay private
+
+Only `app` declares a public service (`[http_service]`). `redis`, `srh`,
+`scorer` and `sync` declare **no service block at all** — and that is the
+mechanism, not an omission.
+
+`[[services]]` is Fly's *public-edge* construct: it puts an app behind Fly's
+proxy on an anycast IP, and Fly rejects the config if it has no
+`[[services.ports]]`. An earlier version of this module had portless service
+blocks on the assumption they meant "internal only"; a real `fly deploy`
+answered:
+
+```
+Service has no processes set but app has 1 processes defined
+WARNING: Service must expose at least one port. Add a [[services.ports]] section
+✘ invalid app configuration
+```
+
+Private access needs nothing declared. `<app>.internal` resolves to the
+machine's 6PN address and is reachable only from apps in the same
+organization. A service block would have been the thing that *exposed* the
+datastore.
+
+One consequence worth knowing: **Fly's private network is IPv6-only**, so a
+process bound to `0.0.0.0` alone is unreachable over `.internal`. That is why
+redis runs with `--bind "* -::*"` (all IPv4 *and* all IPv6). The failure mode
+is srh timing out against a redis that looks perfectly healthy in `fly logs`.
+
 ## Poll mode, and what push mode would open
 
 This module is **poll mode**: `sync` reaches out to GitHub, and nothing on the

@@ -38,14 +38,12 @@ primary_region = "iad"
   # an ordinary HTTP server with no Docker access of any kind.
   CTF_MODE = "serve"
 
-# The service listens on 4000 and is reachable only as
-# ctf-in-a-box-scorer.internal:4000 over 6PN. Fly resolves that name for apps
-# in the same organization and for nothing else.
-[[services]]
-  internal_port = 4000
-  protocol = "tcp"
-  # No `ports` entries: this is what keeps the service private. A `[[services.ports]]`
-  # block is what would publish it.
+# NO `[[services]]` BLOCK — same reason as srh and redis. `[[services]]` is
+# the public-edge mechanism and Fly rejects it without a port; private access
+# over `<app>.internal:4000` needs nothing declared. In poll mode nothing on
+# the internet should reach the scorer at all, which is the whole point.
+#
+# Push mode is the exception: it needs a real public service. See the README.
 
 [[vm]]
   memory = "512mb"
