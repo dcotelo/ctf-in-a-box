@@ -1,0 +1,57 @@
+# The datastore — the same `redis:7-alpine` the compose stack runs, with the
+# same flags, not a managed service.
+#
+# WHY NOT `fly redis create`. The first version of this module used Fly's
+# managed (Upstash-operated) Redis. It works, but it was the wrong default for
+# this kit on four counts:
+#
+#   1. IT IS NOT THE SAME REDIS. The kit's testing story is that what an
+#      organizer exercises locally is what runs at the event. A managed
+#      Redis-compatible service is a different implementation with its own
+#      command coverage and eviction behaviour — and this repo cares about
+#      that enough to assert elsewhere that srh's image digest matches
+#      docker-compose.yml exactly.
+#   2. It adds a billable third-party add-on to a kit whose whole premise is
+#      "one box, no cloud bill".
+#   3. It needed credentials nothing else needed: `fly redis create`, then
+#      scraping a `redis://` URL out of `fly redis status` output — the most
+#      fragile step in the deploy, and one that broke if the CLI's table
+#      formatting ever changed.
+#   4. `REDIS_PASSWORD` ALREADY EXISTS. `setup/ctf-setup.sh secrets` generates
+#      it and every compose deployment already carries one (ADR 41). The
+#      managed path ignored it and invented a second credential.
+#
+# What Fly actually provides that compose does not — TLS termination and
+# certificates — is why `caddy` is absent. Redis was never in that category.
+
+app = "ctf-in-a-box-redis"
+primary_region = "iad"
+
+[build]
+  image = "redis:7-alpine"
+
+# Identical to docker-compose.yml's redis service. `--requirepass` is not
+# optional: an unauthenticated Redis reachable by any app in the organization
+# is the exposure ADR 41 exists to close. deploy.sh refuses to run without
+# REDIS_PASSWORD, mirroring compose's `${REDIS_PASSWORD:?}`.
+#
+# The password arrives as a secret and is read from the environment here, so
+# it never appears in this file or in `fly logs`.
+[processes]
+  app = "redis-server --appendonly yes --requirepass $REDIS_PASSWORD"
+
+[mounts]
+  source = "ctf_redis_data"
+  destination = "/data"
+
+# Private only: reachable as ctf-in-a-box-redis.internal:6379 over 6PN, and
+# only by srh, which is the sole service given the password. No public
+# service block, ever — this is the datastore.
+[[services]]
+  internal_port = 6379
+  protocol = "tcp"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -29,7 +29,7 @@ GITHUB_CLIENT_ID=fixture-client-id
 GITHUB_CLIENT_SECRET=fixture-client-secret
 SCORER_TOKEN=fixture-scorer-token
 SRH_TOKEN=fixture-srh-token
-SRH_CONNECTION_STRING=redis://fixture-pass@fly-fixture.upstash.io
+REDIS_PASSWORD=fixture-redis-password
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 GITHUB_APP_ID=1
 GITHUB_APP_PRIVATE_KEY=Zml4dHVyZQ==
@@ -178,7 +178,7 @@ GITHUB_CLIENT_ID=public-client-id
 GITHUB_CLIENT_SECRET=CANARY-client-secret
 SCORER_TOKEN=CANARY-scorer-token
 SRH_TOKEN=CANARY-srh-token
-SRH_CONNECTION_STRING=redis://CANARY-redis-password@fly-x.upstash.io
+REDIS_PASSWORD=CANARY-redis-password
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 GITHUB_APP_ID=123
 GITHUB_APP_PRIVATE_KEY=CANARY-private-key
@@ -199,7 +199,7 @@ GITHUB_CLIENT_ID=public-client-id
 GITHUB_CLIENT_SECRET=CANARY-client-secret
 SCORER_TOKEN=CANARY-scorer-token
 SRH_TOKEN=CANARY-srh-token
-SRH_CONNECTION_STRING=redis://CANARY-redis-password@fly-x.upstash.io
+REDIS_PASSWORD=CANARY-redis-password
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 GITHUB_APP_ID=123
 GITHUB_APP_PRIVATE_KEY=CANARY-private-key
@@ -259,14 +259,16 @@ ENV
   [[ "$output" == *"--image ghcr.io/fixture-org/score:latest"* ]]
 }
 
-@test "a redis:// connection string is redacted — it embeds the password" {
+@test "the derived redis:// connection string is redacted — it embeds the password" {
+  # Built at deploy time from REDIS_PASSWORD, so the password would otherwise
+  # appear twice in the preview: once as REDIS_PASSWORD, once inside the URL.
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ -z "$(printf '%s' "$output" | grep -F 'fixture-pass')" ]
+  [ -z "$(printf '%s' "$output" | grep -F 'fixture-redis-password')" ]
 }
 
 @test "deploying without srh credentials fails with the reason, not a stack trace" {
-  grep -vE '^(SRH_TOKEN|SRH_CONNECTION_STRING)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh"
+  grep -vE '^(SRH_TOKEN|REDIS_PASSWORD)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh"
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/no-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
   [ "$status" -ne 0 ]
@@ -301,13 +303,6 @@ ENV
   [ -n "$(grep -c '^SRH_TOKEN=' "$BATS_TEST_TMPDIR/generated")" ]
 }
 
-@test "init does NOT create the billable database without a typed confirmation" {
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
-  run bash -c "printf 'yes\n' | env PATH=/usr/bin:/bin bash '$FLY/deploy.sh' init --from '$BATS_TEST_TMPDIR/src' --env-file '$BATS_TEST_TMPDIR/generated'"
-  # "yes" is not the required word; only "create" proceeds.
-  [[ "$output" == *"aborted"* ]]
-}
-
 @test "init writes the env file with owner-only permissions" {
   printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
   printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
@@ -322,4 +317,150 @@ ENV
   # passed locally and failed in CI.
   mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/generated" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/generated")"
   [ "$mode" = "600" ]
+}
+
+@test "init tightens permissions on a PRE-EXISTING env file too" {
+  # A hand-made env file is usually 644 from a plain shell redirect, and it
+  # holds every secret the event has. Chmod'ing only on creation left exactly
+  # the files most likely to be wrong.
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/pre-existing"
+  chmod 644 "$BATS_TEST_TMPDIR/pre-existing"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --env-file "$BATS_TEST_TMPDIR/pre-existing" || true
+  mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/pre-existing" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/pre-existing")"
+  [ "$mode" = "600" ]
+}
+
+@test "init tops up a pre-existing env file instead of overwriting it" {
+  printf 'BETTER_AUTH_SECRET=keep-me\n' > "$BATS_TEST_TMPDIR/pre-existing"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --env-file "$BATS_TEST_TMPDIR/pre-existing" || true
+  # The original value survives AND the missing one was added.
+  grep -q "^BETTER_AUTH_SECRET=keep-me$" "$BATS_TEST_TMPDIR/pre-existing"
+}
+
+@test "an unfilled EVENT_URL placeholder is refused before anything deploys" {
+  # "https://<your-app>.fly.dev" passes a bare https:// check, so without this
+  # it deploys and the failure surfaces much later as a redirect_uri mismatch
+  # at sign-in, against a host nobody can resolve.
+  sed 's#^EVENT_URL=.*#EVENT_URL=https://<your-app>.fly.dev#' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/placeholder-env"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+}
+
+@test "the placeholder refusal names the value to use" {
+  sed 's#^EVENT_URL=.*#EVENT_URL=https://<your-app>.fly.dev#' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/placeholder-env"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"EVENT_URL=https://ctf-in-a-box-app.fly.dev"* ]]
+}
+
+@test "the srh-credentials refusal names only the variable that is actually missing" {
+  # Listing both when one is present sends the reader to re-check the one they
+  # already set — the exact wrong turn, on the message whose only job is to
+  # shorten the search.
+  grep -v '^REDIS_PASSWORD=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/half-srh"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/half-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"REDIS_PASSWORD missing"* && "$output" != *"SRH_TOKEN and"* ]]
+}
+
+@test "init needs no fly CLI at all" {
+  # The whole Redis-provisioning step is gone: the datastore is our own
+  # container, authenticated with the REDIS_PASSWORD the kit already
+  # generates. init is now pure env-file preparation, so it must work with
+  # `fly` nowhere on PATH.
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated"
+  [ "$status" -eq 0 ]
+}
+
+@test "both missing still names both" {
+  grep -vE '^(SRH_TOKEN|REDIS_PASSWORD)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh2"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/no-srh2" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"SRH_TOKEN and REDIS_PASSWORD missing"* ]]
+}
+
+# --- the datastore is OUR container, not a managed add-on -------------------
+
+@test "redis is deployed as the same image the compose stack runs" {
+  grep -q 'image = "redis:7-alpine"' "$FLY/redis.fly.toml"
+}
+
+@test "redis requires a password, exactly as compose does" {
+  # An unauthenticated Redis reachable by every app in the organization is the
+  # exposure ADR 41 exists to close.
+  grep -q -- '--requirepass' "$FLY/redis.fly.toml"
+}
+
+@test "redis persists to a volume" {
+  # Without it, a machine restart loses every score, team and hint purchase.
+  grep -q 'destination = "/data"' "$FLY/redis.fly.toml"
+}
+
+@test "redis publishes no public service" {
+  [ -z "$(uncommented "$FLY/redis.fly.toml" | grep -F '[http_service]')" ]
+}
+
+@test "srh reaches redis over the private network, not a managed endpoint" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"redis.fly.toml"* ]]
+}
+
+@test "redis deploys BEFORE the services that read it" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  redis_at="$(printf '%s' "$output" | grep -n '== 1/5 redis' | cut -d: -f1)"
+  app_at="$(printf '%s' "$output" | grep -n '== 5/5 app' | cut -d: -f1)"
+  [ "$redis_at" -lt "$app_at" ]
+}
+
+# --- EVENT_URL host vs the app it is served from ---------------------------
+#
+# The failure this catches is late and opaque: rename the apps in the toml
+# files and forget the env file (or the reverse) and the deploy SUCCEEDS,
+# while BETTER_AUTH_URL claims a hostname nothing answers on. The symptom is
+# a redirect_uri mismatch at sign-in, with nothing pointing back at the cause.
+
+hostname_run() { # $1 = EVENT_URL
+  sed "s#^EVENT_URL=.*#EVENT_URL=$1#" "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/hn"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/hn" --config "$BATS_TEST_TMPDIR/event.yaml"
+}
+
+@test "a fly.dev host naming a different app warns" {
+  hostname_run "https://some-other-name.fly.dev"
+  [[ "$output" == *"but the app deploys as 'ctf-in-a-box-app'"* ]]
+}
+
+@test "the mismatch warning does NOT block the deploy" {
+  # Warn, never fail: renaming the apps to match is a legitimate answer, and
+  # failing would make this a gate on a choice that is the organizer's.
+  hostname_run "https://some-other-name.fly.dev"
+  [ "$status" -eq 0 ]
+}
+
+@test "the matching fly.dev host says nothing" {
+  # A check that fires on the correct configuration is noise, and noise is
+  # what gets ignored when it finally matters.
+  hostname_run "https://ctf-in-a-box-app.fly.dev"
+  [[ "$output" != *"WARNING"* ]]
+}
+
+@test "a custom domain is not treated as a mismatch" {
+  # `fly certs add` + EVENT_URL pointing at your own domain is a first-class
+  # setup. Warning about it would train organizers to ignore the warning.
+  hostname_run "https://ctf.example.org"
+  [[ "$output" != *"WARNING"* ]]
+}
+
+@test "a custom domain names the certificate command it needs" {
+  hostname_run "https://ctf.example.org"
+  [[ "$output" == *"fly certs add ctf.example.org --app ctf-in-a-box-app"* ]]
 }

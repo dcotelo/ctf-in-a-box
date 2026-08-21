@@ -27,28 +27,36 @@ the stack exists only to emulate things Fly provides**:
 | `scorer` | Fly app (private) | Leaderboard API + score writer |
 | `sync` | Fly app (private, 1 volume) | Poll-mode ingest |
 | `srh` | Fly app (private) | **Required** — see below |
-| `redis` | Managed Redis (`fly redis create`) | — |
+| `redis` | Fly app (private, 1 volume) | The same `redis:7-alpine` compose runs |
 | `caddy` | **not deployed** | Fly terminates TLS and issues certificates. |
 
-### `srh` is required, and an earlier version of this page said otherwise
+### `srh` is required, and Redis is a plain container
 
-Fly's managed Redis is Upstash-operated, which made it tempting to conclude
-that `srh` — whose whole job is faking the Upstash REST API in front of local
-Redis — was redundant here. It is not.
+Two corrections to an earlier version of this page, both worth stating
+plainly because the module shipped with them wrong.
 
-`fly redis create` hands back a **`redis://` private URL and nothing else**.
-The HTTP REST API (`UPSTASH_REDIS_REST_URL` / `_TOKEN`) is an Upstash **cloud**
-feature, not part of the Fly integration. The app, scorer and sync speak REST
-and only REST (`@upstash/redis` in the app, the same wire format hand-rolled in
-`scorer/src/store.js` and `sync/src/redis.js`), so pointed at a `redis://` URL
-they simply do not connect.
+**`srh` is not redundant here.** Its job is translating the Upstash REST API
+the app, scorer and sync speak into the Redis protocol. That was true on
+compose and nothing about Fly changes it. (The original reasoning was that
+Fly's Redis is Upstash-operated, so the REST API would be native — it is not:
+`fly redis create` hands back a `redis://` URL and no REST endpoint, because
+REST is an Upstash *cloud* feature.)
 
-So `srh` is deployed as a fourth, private Fly app, pinned to the same image
-digest as `docker-compose.yml`, and the other three reach Redis through it at
-`http://<srh-app>.internal:80`. Exactly the compose topology.
+**Redis is our own `redis:7-alpine` app, not `fly redis create`.** The managed
+option works, but:
 
-If you have an Upstash **cloud** database — which does expose REST — you can
-skip `srh` and set the two REST variables directly.
+| | |
+|---|---|
+| **Not the same Redis** | The kit's testing story is that what you exercise locally is what runs at the event. A managed Redis-compatible service is a different implementation. |
+| **Billable add-on** | On a kit whose premise is "one box, no cloud bill". |
+| **Fragile provisioning** | It required scraping a `redis://` URL out of `fly redis status` output — the most brittle step in the deploy. |
+| **Duplicate credential** | `REDIS_PASSWORD` already exists: `ctf-setup.sh secrets` generates it and every compose deployment has one (ADR 41). |
+
+What Fly genuinely provides that compose does not — TLS and certificates — is
+why `caddy` is absent. Redis was never in that category.
+
+If you want a managed database anyway, Upstash **cloud** does expose REST: skip
+both the `redis` and `srh` apps and set the two REST variables directly.
 
 ### The scorer needs no Docker here
 
@@ -82,12 +90,19 @@ Firecracker microVMs are enough.
    ```
 
    It copies your existing `.env`, rewrites `EVENT_URL` to
-   `https://<app>.fly.dev`, generates an `SRH_TOKEN`, runs `fly redis create`,
-   and captures the resulting `redis://` URL — all into `.env.fly`, mode `600`.
+   `https://<app>.fly.dev`, and fills in `SRH_TOKEN` and `REDIS_PASSWORD` if
+   they are absent — all into `.env.fly`, mode `600`.
 
-   Creating the database is **billable**, so it prints what it is about to
-   make and requires a typed `create` first. It never overwrites an existing
-   env file and reuses an existing database, so re-running is safe.
+   It **touches nothing on Fly and needs no CLI**: there is nothing to
+   provision, because the datastore is an ordinary container this module
+   deploys like any other service.
+
+   It **tops up an existing env file** rather than overwriting it, so a
+   hand-made one just gains what it is missing — and its permissions are
+   tightened to `600` either way, since it holds every secret the event has.
+   An env file copied from a working compose deployment already carries
+   `REDIS_PASSWORD`; `init` keeps that value rather than generating a second
+   one, since the deployed redis and srh must agree on it.
 
 ## Deploy
 
@@ -135,9 +150,11 @@ answer `500` to every request.
             +--------------------+
             |  ctf-in-a-box-srh  |   private; speaks REST, talks redis://
             +---------+----------+
-                      |
+                      | redis://…@ctf-in-a-box-redis.internal:6379
                       v
-              managed Redis (fly redis create)
+            +--------------------+
+            | ctf-in-a-box-redis |   redis:7-alpine + volume, requirepass
+            +--------------------+
 ```
 
 `*.internal` names resolve only inside your Fly organization, so the
@@ -174,6 +191,28 @@ That is not incorrect — `recordSolves` is monotonic, so a replayed solve
 changes neither points nor `lastSolveAt` — but it re-submits the event's
 entire history on every deploy, and it makes the `ingested` / `dropped`
 counters on `/admin` meaningless. `deploy.sh` creates the volume.
+
+## The hostname the app is actually served from
+
+`deploy.sh` compares `EVENT_URL`'s host against the app it deploys, and says
+something when they disagree:
+
+```
+WARNING: EVENT_URL is https://ctf-in-a-box-test.fly.dev, but the app deploys
+         as 'ctf-in-a-box-app' and will be served at
+         https://ctf-in-a-box-app.fly.dev.
+         Sign-in will fail with a redirect_uri mismatch.
+```
+
+It **warns and continues** — renaming the apps in `deploy/fly/*.fly.toml` to
+match your event is a perfectly good answer, and failing would turn a choice
+into a gate. A custom domain gets a note naming the `fly certs add` it needs,
+not a warning, because that setup is entirely legitimate.
+
+The failure it prevents is a late and opaque one: rename the apps and forget
+the env file (or the reverse) and the deploy *succeeds*, while
+`BETTER_AUTH_URL` claims a hostname nothing answers on. The only symptom is a
+`redirect_uri` mismatch at sign-in, with nothing pointing back at the cause.
 
 ## Poll vs push
 
