@@ -16,6 +16,11 @@
 #             target state is already satisfied, so re-running `org` after
 #             a partial run or failure just resumes where it left off)
 #   render    (re)render just the per-target scoring workflows into dist/workflows/
+#   upgrade   re-commit the rendered scoring workflow to every fork whose
+#             committed copy is behind the template's
+#             `# ctf-workflow-version:` stamp — how a fix to ctf-score.yml
+#             reaches an event that is ALREADY provisioned (`org` does this
+#             too, but also re-mirrors the scorer image)
 #   teardown  archive event repos after the event
 #   doctor    read-only status check: verify a previously-provisioned org
 #             matches targets.tsv (no mutation, no --dry-run needed)
@@ -158,6 +163,44 @@ pull_grant_status() {
   echo unknown
 }
 
+# --- scoring-workflow versioning ------------------------------------------
+#
+# The rendered `ctf-score.yml` carries `# ctf-workflow-version: N`, copied
+# verbatim from the template. Comparing a fork's number against the
+# template's is what makes a fix to the scoring workflow reachable on an
+# event that is already provisioned: before this, `org`'s workflow step
+# checked only that the file EXISTED, so it skipped every fork that had any
+# version of it, and a fix could only be delivered by hand, per fork.
+
+# The template's version. A template with no marker is a bug in this repo,
+# not a condition to tolerate — every comparison below depends on it, and a
+# silent 0 would make every fork read "up to date" forever.
+template_workflow_version() {
+  local v
+  v="$(sed -n 's/^# ctf-workflow-version: *\([0-9][0-9]*\).*/\1/p' "$WORKFLOW_TEMPLATE" | head -1)"
+  [ -n "$v" ] || { echo "BUG: $WORKFLOW_TEMPLATE has no '# ctf-workflow-version: N' marker" >&2; return 1; }
+  echo "$v"
+}
+
+# One fork's committed version. Echoes:
+#   N       the marker's number
+#   0       the file is there but carries no marker (provisioned before
+#           versioning existed — stale by definition)
+#   none    the file is absent, or the read failed
+#
+# FAILS CLOSED on an unreadable reply: `none` sorts as "not satisfied"
+# everywhere it is used, so an API blip can never be mistaken for an
+# up-to-date fork and skip a security fix.
+fork_workflow_version() {
+  local slug="$1" body
+  body="$(gh api "repos/$slug/contents/.github/workflows/ctf-score.yml?ref=ctf" \
+    -H "Accept: application/vnd.github.raw" 2>/dev/null)" || { echo none; return 0; }
+  [ -n "$body" ] || { echo none; return 0; }
+  local v
+  v="$(printf '%s\n' "$body" | sed -n 's/^# ctf-workflow-version: *\([0-9][0-9]*\).*/\1/p' | head -1)"
+  if [ -n "$v" ]; then echo "$v"; else echo 0; fi
+}
+
 # jq selecting the IDs of a fork's inherited (to-be-disabled) workflows: real
 # .github/workflows/ files only, minus our own ctf-score.yml, that are active.
 # The startswith() guard skips GitHub-managed DYNAMIC workflows (e.g.
@@ -173,7 +216,7 @@ plan_step() {
     ctf-branch) echo "DRY-RUN: create refs/heads/ctf on $org/$name from $(prov_field "$t" 2)@$(prov_field "$t" 3); set default_branch=ctf" ;;
     drop-old) echo "DRY-RUN: delete master/main on $org/$name if present and != ctf" ;;
     protect) echo "DRY-RUN: PUT branch protection on $org/$name:ctf (1 approving review, no force-push/deletion)" ;;
-    workflow) echo "DRY-RUN: render ctf-score.yml (TARGET=$t) and PUT to $org/$name:.github/workflows/ctf-score.yml on ctf" ;;
+    workflow) echo "DRY-RUN: render ctf-score.yml v$(template_workflow_version) (TARGET=$t) and PUT to $org/$name:.github/workflows/ctf-score.yml on ctf" ;;
     disable-inherited) echo "DRY-RUN: disable every workflow on $org/$name except .github/workflows/ctf-score.yml" ;;
     pr-template) echo "DRY-RUN: PUT setup/PULL_REQUEST_TEMPLATE.md to $org/$name:.github/PULL_REQUEST_TEMPLATE.md on ctf" ;;
     vapp-dockerfile)
@@ -200,7 +243,19 @@ check_step() {
         --jq '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null)" || n=0
       [ "${n:-0}" -ge 1 ]
       ;;
-    workflow) gh_ok "repos/$org/$name/contents/.github/workflows/ctf-score.yml?ref=ctf" ;;
+    # Version-aware, not merely present. A fork carrying an OLDER workflow is
+    # not "already done": that is exactly the state a security fix has to get
+    # past, and treating presence as satisfaction is what stranded fixes on
+    # live events. `>=`, not `==`, so a fork somehow ahead of the template
+    # (a hand-edit, a downgraded checkout) is left alone rather than
+    # clobbered backwards.
+    workflow)
+      local want have
+      want="$(template_workflow_version)" || return 1
+      have="$(fork_workflow_version "$org/$name")"
+      [ "$have" != none ] || return 1
+      [ "$have" -ge "$want" ]
+      ;;
     disable-inherited)
       local others
       # Let GitHub finish indexing the fork's workflows before judging, or a
@@ -287,7 +342,7 @@ cmd_doctor() {
   check_known_modules || exit 1
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  local rc=0 t id cell name
+  local rc=0 t id cell name want_v have
 
   if gh_ok "orgs/$org"; then
     printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
@@ -352,6 +407,39 @@ cmd_doctor() {
   # something else entirely (a scoring failure on a contestant's PR), so
   # leaving it as a bare "confirm this by hand" reminder meant it stayed
   # unverified until an event was already running.
+  # Scoring-workflow version per fork. The matrix's `wkfl` cell already goes
+  # ❌ when a fork is behind, but ❌ there reads as "missing" — and "present
+  # but three versions old" is a different problem with a different fix, so
+  # it gets said in those words, with the command that resolves it.
+  want_v="$(template_workflow_version)" || want_v=""
+  if [ -n "$want_v" ]; then
+    echo
+    echo "scoring workflow version (template is v$want_v):"
+    while IFS= read -r t; do
+      [ -n "$t" ] || continue
+      name="$(prov_repo_name "$t")"
+      case "$(fork_workflow_version "$org/$name")" in
+        none)
+          printf '  %-18s %s❌ absent%s — no ctf-score.yml on ctf; run: ./setup/ctf-setup.sh org\n' \
+            "$t" "$C_RED" "$C_RESET" ;;
+        0)
+          printf '  %-18s %s❌ pre-versioning%s — provisioned before workflow stamping; run: ./setup/ctf-setup.sh upgrade\n' \
+            "$t" "$C_RED" "$C_RESET" ;;
+        "$want_v")
+          printf '  %-18s %s✅ v%s%s\n' "$t" "$C_GREEN" "$want_v" "$C_RESET" ;;
+        *)
+          have="$(fork_workflow_version "$org/$name")"
+          if [ "$have" -gt "$want_v" ]; then
+            printf '  %-18s %s⚠️  v%s%s — AHEAD of this checkout (v%s); update the kit rather than downgrading the fork\n' \
+              "$t" "$C_YELLOW" "$have" "$C_RESET" "$want_v"
+          else
+            printf '  %-18s %s❌ v%s%s — stale (template v%s); run: ./setup/ctf-setup.sh upgrade\n' \
+              "$t" "$C_RED" "$have" "$C_RESET" "$want_v"
+          fi ;;
+      esac
+    done < <(yaml_targets)
+  fi
+
   echo
   echo "per-fork package Read grant (no API — read back from each fork's own scoring runs):"
   while IFS= read -r t; do
@@ -994,6 +1082,50 @@ cmd_render() {
   done < <(yaml_targets)
   [ ${#targets_arr[@]} -gt 0 ] || { echo "event.yaml: no targets" >&2; exit 1; }
   render_workflows "$org" "${targets_arr[@]}"
+}
+
+# Re-commit the rendered scoring workflow to every fork whose committed copy
+# is behind the template. Exists as its own subcommand rather than "just
+# re-run org" because `org` also mirrors the scorer image — a multi-minute
+# docker push — and an organizer pushing a security fix to a running event
+# should not have to choose between waiting for that and skipping the fix.
+#
+# Idempotent, like every other step: `do_step` re-checks the version and
+# reports "already done" for a fork that is current, so this is safe to run
+# on a whim and safe to re-run after a partial failure.
+cmd_upgrade() {
+  require_config
+  check_known_modules || exit 1
+  local org; org="$(yaml_org)"
+  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+
+  # Same reasoning as cmd_org/cmd_render: a quiz-only event has no forks, so
+  # there is no workflow to upgrade. Not an error.
+  if ! has_module secure-development; then
+    echo "== event.yaml has no secure-development module — no forks to upgrade; nothing to do."
+    return 0
+  fi
+
+  yaml_targets | grep -q . || { echo "event.yaml: no targets under modules.secure-development" >&2; exit 1; }
+
+  local want; want="$(template_workflow_version)" || exit 1
+  echo "== upgrading scoring workflows in $org to v$want (idempotent — re-run safe)"
+  local t
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    echo "== $t -> $org/$(prov_repo_name "$t")"
+    do_step workflow "$t" "$org"
+  done < <(yaml_targets)
+
+  # The workflow only re-runs on the NEXT push to an open PR, so an event
+  # mid-flight keeps scoring against the old copy until then. Say so rather
+  # than letting an organizer assume the fix is live everywhere the moment
+  # this returns.
+  if [ "$DRY_RUN" -eq 0 ]; then
+    echo
+    echo "== Done. Open PRs keep using the previously-started run; the new workflow"
+    echo "   applies from each PR's next push (or a manual re-run)."
+  fi
 }
 
 cmd_teardown() {
@@ -1664,13 +1796,14 @@ if [ "$CMD" != "__selftest" ]; then
     secrets) cmd_secrets ;;
     org) cmd_org ;;
     render) cmd_render ;;
+    upgrade) cmd_upgrade ;;
     teardown) cmd_teardown ;;
     doctor) cmd_doctor ;;
     app-manifest) cmd_app_manifest ;;
     app-config) cmd_app_config ;;
     oauth-app) cmd_oauth_app ;;
     oauth-config) cmd_oauth_config ;;
-    *) echo "usage: ctf-setup.sh [wizard|check|secrets|org|render|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config] [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2
+    *) echo "usage: ctf-setup.sh [wizard|check|secrets|org|render|upgrade|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config] [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2
        echo "  run with no subcommand (or 'wizard') for the guided step-by-step setup" >&2; exit 2 ;;
   esac
 fi

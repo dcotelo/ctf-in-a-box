@@ -1,5 +1,23 @@
 # CTF scoring workflow — self-contained, no upstream score-action.
 #
+# ctf-workflow-version: 1
+#
+# BUMP THAT NUMBER whenever a change here needs to reach forks that are
+# ALREADY provisioned — a security fix, or anything a live event would
+# otherwise keep running the old version of. It is rendered verbatim into
+# every fork's committed copy, which is what lets `ctf-setup.sh` tell a
+# fork's workflow apart from the template's:
+#
+#   doctor   reports a fork behind this number as stale (and one with no
+#            marker at all as pre-versioning, which is also stale)
+#   upgrade  re-commits the rendered workflow to exactly those forks
+#   org      does the same, since its workflow step compares versions
+#            rather than merely checking the file exists
+#
+# Without the stamp there was no way to push a fixed workflow to a running
+# event: `org` skipped the step as soon as the file was present, at any
+# version, so a fix could only reach forks by hand, one at a time.
+#
 # INSTALL: the organizer commits this to EACH forked target repo as
 #   .github/workflows/ctf-score.yml
 # (matches the instructions printed by `setup/ctf-setup.sh org`). Then disable
