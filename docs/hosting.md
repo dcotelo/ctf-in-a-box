@@ -59,8 +59,8 @@ you'd rather drive it yourself or script it. Each step is either a
 # 1. Clone the repo and work from its root.
 git clone https://github.com/dcotelo/ctf-in-a-box && cd ctf-in-a-box
 
-# 2. Generate .env — BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN, EVENT_URL,
-#    SCORE_INGEST=poll, and empty App/OAuth/SCORE_IMAGE fields to fill later.
+# 2. Generate .env — BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN, REDIS_PASSWORD,
+#    EVENT_URL, SCORE_INGEST=poll, and empty App/OAuth/SCORE_IMAGE fields to fill later.
 ./setup/ctf-setup.sh secrets
 
 # 3. Build + push the scorer image, then set SCORE_IMAGE in .env by hand.
@@ -257,6 +257,40 @@ queryable) and shows ✅ once done — only the third is a blind reminder:
    below. A fork still on the old one has no `Pull scorer image` step, so
    `doctor` reports it as ⚠️ unverified — correctly: it has not been observed
    either way.
+
+### Upgrading an event that predates the Redis password
+
+Redis runs with `requirepass`, and `docker-compose.yml` reads that password
+from `REDIS_PASSWORD` with `:?` — so an `.env` written before this change
+**does not start a weaker stack, it does not start at all**:
+
+```
+error while interpolating services.srh.environment.SRH_CONNECTION_STRING:
+required variable REDIS_PASSWORD is missing a value: set REDIS_PASSWORD in
+.env (setup/ctf-setup.sh secrets generates one; see docs/hosting.md)
+```
+
+(It names `srh` rather than `redis` only because that is the first place
+compose resolves the variable — both services need it.)
+
+That is deliberate. A security control whose variable can go missing and
+leave the control silently off is the failure this change exists to remove.
+`doctor` flags it before you get there, with a generated value to paste. To
+fix it by hand, add one line to `.env` and bring the stack back up:
+
+```sh
+echo "REDIS_PASSWORD=$(openssl rand -hex 24)" >> .env
+docker compose --profile poll --profile app up -d
+```
+
+Nothing else changes: no data migration, and the `redis-data` volume is
+untouched. Only `srh` is ever given the password, and only `srh` can reach
+Redis — `app`, `scorer` and `sync` sit on a separate compose network with no
+route to `redis:6379` at all.
+
+If you drive Redis by hand (`docker compose exec redis redis-cli ...`), that
+keeps working unchanged: the service sets `REDISCLI_AUTH`, so `redis-cli`
+authenticates itself inside the container.
 
 ### Upgrading the scoring workflow
 

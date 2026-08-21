@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SMOKE_APP_KEY_B64="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null | base64 | tr -d '\n')"
-export SRH_TOKEN=smoke-srh SCORER_TOKEN=smoke-scorer
+export SRH_TOKEN=smoke-srh SCORER_TOKEN=smoke-scorer REDIS_PASSWORD=smoke-redis
 export GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY="$SMOKE_APP_KEY_B64" GITHUB_APP_INSTALLATION_ID=1
 compose() { docker compose -f docker-compose.yml -f docker-compose.smoke.yml --profile poll "$@"; }
 
@@ -28,6 +28,32 @@ compose up -d --build redis srh scorer mock-github sync
 
 echo "--- redis answers"
 compose exec -T redis redis-cli ping | grep -q PONG
+
+# The two halves of the Redis hardening, asserted rather than assumed. Both
+# are the kind of control that looks present in a compose file and is absent
+# in the running stack — a typo in the connection string, a service left on
+# the wrong network, and everything still works because the fallback is
+# "unauthenticated access succeeds".
+echo "--- redis refuses unauthenticated commands"
+# NOAUTH proves requirepass is live: same client as the PING above, minus the
+# credential. `unset` inside the shell rather than `exec -e REDISCLI_AUTH=`,
+# which is ambiguous — the service already defines that variable, and the
+# empty override did not reliably clear it (redis-cli still attempted an
+# AUTH). Unsetting in-container leaves no doubt about what was sent.
+noauth="$(compose exec -T redis sh -c 'unset REDISCLI_AUTH; redis-cli PING' 2>&1 || true)"
+case "$noauth" in
+  *NOAUTH*|*"Authentication required"*) ;;
+  *) echo "FAIL: redis answered an unauthenticated PING: $noauth"; exit 1 ;;
+esac
+
+echo "--- app-tier services have no route to redis at all"
+# Network isolation, independent of the password: sync sits on `frontend`
+# only, so redis:6379 must not even resolve for it. Tested from sync because
+# it is the app-tier service this smoke profile already builds.
+if compose run --rm --no-deps --entrypoint sh sync -c \
+  "getent hosts redis >/dev/null 2>&1 && echo REACHABLE" 2>/dev/null | grep -q REACHABLE; then
+  echo "FAIL: an app-tier service can still resolve redis — the network split is not in effect"; exit 1
+fi
 
 echo "--- srh proxies redis (upstash REST contract)"
 compose exec -T redis redis-cli set smoke-key smoke-val >/dev/null
