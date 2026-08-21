@@ -125,6 +125,36 @@ whole history on every deploy and makes the `ingested`/`dropped` counters on
 `/admin` meaningless. `deploy.sh` creates the volume; do not remove the
 `[mounts]` block.
 
+## Build context
+
+A root `.dockerignore` keeps the repo-root builds small. Fly reported this on
+every sync deploy before it existed:
+
+```
+WARN Build context is 1.3 GB across 54,792 files.
+       apps/    1.2 GB
+       .git/    17 MB
+```
+
+Almost all of it was `apps/web/node_modules` and `.next`, neither of which
+belongs in a context — `apps/web/Dockerfile` runs its own `pnpm install
+--frozen-lockfile` and `pnpm build`. Copying a host-built `node_modules` in
+would also risk shipping host-architecture native binaries into a linux image.
+
+After: **~30 kB** for the sync context, ~10 MB for the app's.
+
+It also excludes `.env*`, which is defence in depth rather than housekeeping:
+keeping secrets out of the *context* means a careless `COPY . .` in some
+future Dockerfile cannot pick them up.
+
+Two things it deliberately does **not** exclude, both load-bearing and both
+covered by tests: `event.yaml`, which `sync.Dockerfile` copies (excluding it
+builds a poller with no config, which fails at start rather than at build),
+and `apps/web/` source, which the app image is built from.
+
+`scorer/` and `sync/` keep their own `.dockerignore` for the builds that use
+those directories as the context; the root file governs the repo-root ones.
+
 ## The scorer image is mirrored into Fly's registry
 
 **Fly cannot pull from a private third-party registry.** A real run failed

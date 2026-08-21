@@ -682,3 +682,35 @@ hostname_run() { # $1 = EVENT_URL
 @test "the sync deploy does not also pass --dockerfile" {
   [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F -- '--dockerfile')" ]
 }
+
+# --- the build context ------------------------------------------------------
+#
+# Fly reported 1.3 GB across 54,792 files on every sync deploy, almost all of
+# it apps/web/node_modules and .next — neither of which belongs in a context,
+# since apps/web/Dockerfile runs its own `pnpm install` and `pnpm build`.
+
+@test "a root .dockerignore exists for the repo-root builds" {
+  [ -f "$REPO/.dockerignore" ]
+}
+
+@test "node_modules is excluded from the root build context" {
+  grep -qx '\*\*/node_modules' "$REPO/.dockerignore"
+}
+
+@test "env files are excluded from the root build context" {
+  # Defence in depth after .env.fly was committed: keeping secrets out of the
+  # CONTEXT means a careless `COPY . .` in a future Dockerfile cannot pick
+  # them up either.
+  grep -qx '\.env' "$REPO/.dockerignore"
+  grep -qx '\.env\.\*' "$REPO/.dockerignore"
+}
+
+@test "event.yaml is NOT excluded — sync.Dockerfile copies it" {
+  # Excluding it would break the sync image silently: the build succeeds and
+  # the poller then exits because it has no config.
+  [ -z "$(grep -v '^[[:space:]]*#' "$REPO/.dockerignore" | grep -x 'event.yaml')" ]
+}
+
+@test "apps/web source is NOT excluded — the app image builds from it" {
+  [ -z "$(grep -v '^[[:space:]]*#' "$REPO/.dockerignore" | grep -xE 'apps/?|apps/web/?')" ]
+}

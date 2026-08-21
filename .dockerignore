@@ -1,0 +1,48 @@
+# Build context for the images built from the REPO ROOT: apps/web/Dockerfile
+# (the contestant app) and deploy/fly/sync.Dockerfile (the poller, which needs
+# event.yaml and so cannot use sync/'s own narrower context).
+#
+# Without this the context was 1.3 GB across 54,792 files, and Fly's builder
+# reported it on every deploy:
+#
+#   WARN Build context is 1.3 GB across 54,792 files.
+#          apps/    1.2 GB
+#          .git/    17 MB
+#
+# Almost all of that is apps/web/node_modules and .next — neither of which
+# belongs in a context, because apps/web/Dockerfile runs `pnpm install
+# --frozen-lockfile` and `pnpm build` itself. Copying a host-built
+# node_modules in would also risk shipping host-architecture native binaries
+# into a linux image.
+#
+# `scorer/` and `sync/` keep their own .dockerignore for the builds that use
+# those directories as the context; this file governs the root ones.
+
+# Dependencies — every image installs its own.
+**/node_modules
+
+# Build output — every image builds its own.
+apps/web/.next
+apps/web/out
+
+# History. 17 MB of it, and no image reads it.
+.git
+.gitignore
+
+# SECRETS. Nothing should COPY these, and keeping them out of the context
+# means a careless `COPY . .` in some future Dockerfile cannot pick them up.
+# `.env.example` is the committed template and harmless, but nothing needs it
+# in an image either.
+.env
+.env.*
+
+# Local scratch and test artefacts.
+.smoke-event.yaml
+state/
+docs/superpowers/
+**/.DS_Store
+**/*.log
+
+# Editor/tooling noise.
+.vscode/
+.idea/
