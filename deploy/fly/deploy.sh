@@ -490,8 +490,13 @@ fly_run secrets set --app "$SYNC_APP" --stage \
   "GITHUB_APP_ID=$(env_value GITHUB_APP_ID)" \
   "GITHUB_APP_PRIVATE_KEY=$(env_value GITHUB_APP_PRIVATE_KEY)" \
   "GITHUB_APP_INSTALLATION_ID=$(env_value GITHUB_APP_INSTALLATION_ID)"
-# Built from the repo root so event.yaml is in the build context.
-fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --dockerfile "$FLY_DIR/sync.Dockerfile" --primary-region "$REGION"
+# Built from the repo root so event.yaml is in the build context. The
+# Dockerfile itself is named in sync.fly.toml — NOT passed as --dockerfile
+# here. Both at once was the bug: fly resolves the flag against the config
+# file's directory, so `deploy/fly/sync.Dockerfile` became
+# `deploy/fly/deploy/fly/sync.Dockerfile`. One place to say it, and it is the
+# toml, where the path is relative to the toml.
+fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --primary-region "$REGION"
 
 echo "== 5/5 app"
 create_app "$APP_APP"

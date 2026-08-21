@@ -10,7 +10,14 @@ primary_region = "iad"
   # event.yaml. This wrapper builds from the repo root and bakes the config in,
   # because Fly has no bind mounts and sync's EVENT_CONFIG takes a path, not
   # content. See the header of sync.Dockerfile.
-  dockerfile = "deploy/fly/sync.Dockerfile"
+  # Relative to THIS FILE, not to the working directory. `deploy/fly/...`
+  # here produced `deploy/fly/deploy/fly/sync.Dockerfile` on a real run —
+  # fly resolves the path against the config file's own directory.
+  #
+  # The build CONTEXT is separate and is the directory fly deploy runs from
+  # (the repo root), which is what this Dockerfile needs: it copies `sync/`
+  # and `event.yaml`.
+  dockerfile = "sync.Dockerfile"
 
 [env]
   SCORER_URL = "http://ctf-in-a-box-scorer.internal:4000"

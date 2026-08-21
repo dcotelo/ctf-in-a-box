@@ -670,3 +670,15 @@ hostname_run() { # $1 = EVENT_URL
   # editing five files by hand and missing one.
   grep -q "deploy/fly/\*.fly.toml" "$FLY/deploy.sh"
 }
+
+@test "the sync Dockerfile path is relative to its toml, and named once" {
+  # `dockerfile = "deploy/fly/sync.Dockerfile"` produced
+  # `deploy/fly/deploy/fly/sync.Dockerfile` on a real run: fly resolves the
+  # path against the config file's OWN directory. It was also passed as
+  # --dockerfile at the same time — two places to get one path wrong.
+  grep -qx '  dockerfile = "sync.Dockerfile"' "$FLY/sync.fly.toml"
+}
+
+@test "the sync deploy does not also pass --dockerfile" {
+  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F -- '--dockerfile')" ]
+}
