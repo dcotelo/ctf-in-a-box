@@ -133,6 +133,21 @@ suggestions.
   service the default (profile-less) treatment, and never add a `depends_on`
   from `app` to a profiled service — that drags it into every `up` and
   re-breaks the quiz-only boot.
+- **Every compose service must name its network.** `docker-compose.yml`
+  assigns each service to `frontend` or `backend` explicitly (only `srh` is on
+  both — that split is what keeps `app` from reaching `redis:6379`; see ADR
+  41). Compose's rule is that a service declaring NO `networks:` key joins
+  `default` — a **third** network, isolated from both — so an override file
+  that adds a service without one produces a container nothing else can
+  resolve. This already broke `smoke.sh` once: `mock-github` is defined only
+  in `docker-compose.smoke.yml`, inherited no network, and `sync` failed every
+  poll with nothing but `fetch failed` to go on.
+- **`REDIS_PASSWORD` is required, not optional.** Compose reads it with
+  `${REDIS_PASSWORD:?}`, so anything that brings the stack up — a script, a
+  test, `docker compose config` — must set it or fail at interpolation. Note
+  `config`'s failure is easy to swallow: `acceptance-quiz-only.sh` pipes
+  stderr to `/dev/null`, where a missing value would have turned into an empty
+  service list and a vacuously passing comparison.
 - **The score-comment marker is trust-authoritative — it must only ever come
   from the judge's own output, never from the PR checkout.** The sync poller
   ingests any `<!-- ctf-score: {json} -->` marker in a `github-actions[bot]`

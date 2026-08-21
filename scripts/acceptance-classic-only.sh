@@ -96,7 +96,10 @@ OVERRIDE
 
 SYNC_PROJECT=ctf-classic-only-sync-acceptance
 sync_compose() {
-  docker compose -p "$SYNC_PROJECT" -f docker-compose.yml -f "$SYNC_OVERRIDE" "$@"
+  # Same requirement as compose_services above — the real docker-compose.yml
+  # will not resolve without REDIS_PASSWORD.
+  REDIS_PASSWORD="${REDIS_PASSWORD:-acceptance}" \
+    docker compose -p "$SYNC_PROJECT" -f docker-compose.yml -f "$SYNC_OVERRIDE" "$@"
 }
 
 cleanup() {
@@ -130,7 +133,12 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 echo "--- the documented classic-only profile set pulls no secure-development services"
 compose_services() {
+  # REDIS_PASSWORD is REQUIRED, not decorative: docker-compose.yml uses `:?`
+  # on it, so without a value `config` fails — and stderr is discarded here,
+  # which would turn that into an empty service list and a silently vacuous
+  # comparison below.
   SRH_TOKEN=acceptance SCORER_TOKEN=acceptance BETTER_AUTH_SECRET=acceptance \
+    REDIS_PASSWORD=acceptance \
     GITHUB_CLIENT_ID=acceptance GITHUB_CLIENT_SECRET=acceptance \
     docker compose -f docker-compose.yml "$@" config --services 2>/dev/null | sort | tr '\n' ' '
 }

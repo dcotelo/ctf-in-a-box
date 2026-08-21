@@ -8,6 +8,7 @@ services:
       - caddy-data:/data
     environment:
       EVENT_HOST: ${EVENT_URL:-http://localhost}
+    networks: [frontend]
 
   app:
     profiles: ["app"]
@@ -37,6 +38,7 @@ services:
     # quiz-only event that has no scorer image to pull. See scorer's profiles
     # below.
     depends_on: [srh]
+    networks: [frontend]
 
   scorer:
     # The scorer belongs to the secure-development module, exactly as `sync`
@@ -65,6 +67,7 @@ services:
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
       CTF_SCORE_BEARER_TOKEN: ${SCORER_TOKEN}   # requires upstream scorer bearer-auth mode
     depends_on: [srh]
+    networks: [frontend]
 
   srh:
     # Pinned by digest: this third-party image sits in the score read/write path,
@@ -74,14 +77,41 @@ services:
     environment:
       SRH_MODE: env
       SRH_TOKEN: ${SRH_TOKEN}
-      SRH_CONNECTION_STRING: redis://redis:6379
+      # Empty username, password only — the RFC form for a Redis instance
+      # using `requirepass` without ACL users.
+      SRH_CONNECTION_STRING: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (setup/ctf-setup.sh secrets generates one; see docs/hosting.md)}@redis:6379
     depends_on: [redis]
+    # The ONLY service on both networks. That is the isolation: `app`,
+    # `scorer` and `sync` can reach srh (and must, for the Upstash-REST
+    # contract) but have no route to redis:6379 at all, so the bearer token
+    # in front of it cannot be side-stepped from a compromised app container.
+    networks: [frontend, backend]
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    # `:?` on purpose: an unset REDIS_PASSWORD fails the bring-up with this
+    # message rather than starting an unauthenticated Redis. A security
+    # control that silently degrades to "off" when a variable is missing is
+    # the failure mode this whole change exists to remove — and the empty
+    # string would be exactly that, since redis-server treats
+    # `--requirepass ""` as no password at all.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (setup/ctf-setup.sh secrets generates one; see docs/hosting.md)}
+    environment:
+      # redis-cli reads REDISCLI_AUTH, so `docker compose exec redis redis-cli
+      # ...` keeps working unchanged — for organizers debugging by hand, and
+      # for smoke.sh/dev-stack, which drive Redis exactly that way. Passing
+      # `-a` at every call site instead would put the password in each
+      # command line (visible in `ps`) and print a warning on every
+      # invocation.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     volumes: [redis-data:/data]
+    networks: [backend]
 
   sync:
     profiles: ["poll"]
@@ -107,6 +137,17 @@ services:
       - ./event.yaml:/config/event.yaml:ro
       - sync-state:/state
     depends_on: [scorer, srh]
+    networks: [frontend]
+
+# Two networks, and the split is the point: only `srh` sits on both, so the
+# internet-facing `app` has no route to redis:6379 and cannot bypass srh's
+# bearer token even if it were compromised (an SSRF or RCE in the app was the
+# concrete worry — see ADR 41). `backend` is `internal`, so nothing on it can
+# reach the outside world either.
+networks:
+  frontend:
+  backend:
+    internal: true
 
 volumes:
   caddy-data:

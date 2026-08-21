@@ -37,6 +37,19 @@ ensure_env() {
   resolve_env_file
   if [ -n "$ENV_FILE" ]; then
     echo "== using existing $ENV_FILE"
+    # An env file written before Redis grew a password is the common case on
+    # a machine that has run this kit before. Compose would fail on the `:?`
+    # with a message about a variable, which is accurate but does not say
+    # what to do. Say it here instead, and do not edit the file — it may be
+    # the organizer's real .env.
+    if ! grep -q "^REDIS_PASSWORD=." "$ENV_FILE"; then
+      echo "FAIL: $ENV_FILE has no REDIS_PASSWORD (Redis now requires one)." >&2
+      echo "      Add a line like this and re-run:" >&2
+      echo "" >&2
+      echo "      REDIS_PASSWORD=$(openssl rand -hex 24)" >&2
+      echo "" >&2
+      exit 1
+    fi
     return
   fi
   echo "== no .env found; writing a throwaway $DEV_ENV_FILE (same fields as setup/ctf-setup.sh secrets)"
@@ -45,6 +58,7 @@ ensure_env() {
     echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
     echo "SRH_TOKEN=$(openssl rand -hex 24)"
     echo "SCORER_TOKEN=$(openssl rand -hex 24)"
+    echo "REDIS_PASSWORD=$(openssl rand -hex 24)"
     echo "GITHUB_CLIENT_ID="
     echo "GITHUB_CLIENT_SECRET="
     echo "GITHUB_APP_ID="

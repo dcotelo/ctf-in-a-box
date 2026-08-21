@@ -1770,3 +1770,71 @@ request (which would make the window never end).
 `SameSite` cookie is still underneath. The rate limits bound one login, not
 one human: a contestant with two accounts gets two budgets, which is
 acceptable for what these protect.
+
+## 41. Authenticating Redis and cutting the app tier off from it
+
+**Context.** `redis` ran with no `requirepass` on a single flat compose
+network. Every service on that network could reach `redis:6379` directly —
+including the internet-facing Next.js `app`, which is the one container that
+processes untrusted input. An SSRF or RCE there could read or rewrite scores,
+teams and `ctf:admin:settings` (clearing the freeze, say) while completely
+bypassing the SRH bearer token that is supposed to be the only way in.
+
+This was not a v0.1.0 blocker — no untrusted workload runs on the box network,
+since targets are judged in ephemeral GitHub Actions runners — which is why it
+was deferred rather than shipped earlier.
+
+**Decision: do both halves, because they fail differently.**
+
+1. **`requirepass`**, with `SRH_CONNECTION_STRING` carrying the credential.
+   Protects against anything that reaches the port — including a future
+   service added to the backend network without thinking.
+2. **Two networks**, `frontend` and `backend`, with **`srh` the only service
+   on both**. Protects even if the password leaks, and it is the half that
+   actually addresses the stated threat: `app` cannot reach Redis at all.
+   `backend` is `internal`, so it has no egress either.
+
+**Compose fails closed on a missing password.** `${REDIS_PASSWORD:?...}`
+rather than a default value or `:-`. An empty `--requirepass ""` is treated by
+`redis-server` as *no password*, so the natural-looking fallback is exactly
+the silent degradation this ADR exists to remove — a control that reads as
+present and is off. A shipped default would be worse still: it looks secure
+and is public. The cost is that an event provisioned before this change fails
+its next `docker compose up` with a message naming the variable and the fix,
+which is the ADR 37 trade again — a loud break beats a silent divergence.
+`doctor` flags it first, with a generated value to paste.
+
+**`REDISCLI_AUTH` on the redis service, not `-a` at each call site.**
+`redis-cli` reads that variable, so `docker compose exec redis redis-cli ...`
+keeps working unchanged for organizers debugging by hand, and for `smoke.sh`
+and `dev-stack`, which drive Redis exactly that way. Passing `-a` at every
+call site would put the password in each command line (visible in `ps`) and
+print a warning on every invocation.
+
+**The smoke test asserts both halves, and both assertions were checked
+against a control.** This is the class of control that is present in the
+compose file and absent in the running stack — a typo in the connection
+string, a service left on the wrong network — with everything still working,
+because the fallback is "unauthenticated access succeeds". So:
+
+- removing `--requirepass` → `FAIL: redis answered an unauthenticated PING: PONG`
+- adding `backend` to `sync`'s networks → `FAIL: an app-tier service can still
+  resolve redis — the network split is not in effect`
+
+The first assertion needed a second pass to be trustworthy: `compose exec -e
+REDISCLI_AUTH=` did **not** reliably clear the variable (redis-cli still
+attempted an AUTH, so the control run failed for the wrong reason).
+`sh -c 'unset REDISCLI_AUTH; redis-cli PING'` leaves no doubt about what was
+sent.
+
+**Consequences.** Assigning explicit networks makes compose's `default`
+network a real trap: a service that declares none joins `default` — a *third*
+network isolated from both. That is not hypothetical; it broke the smoke run
+immediately, because `mock-github` is defined only in
+`docker-compose.smoke.yml` and inherited no network, leaving `sync` unable to
+resolve it and nothing but `fetch failed` to go on. **Any service added to any
+compose override must name its network.**
+
+The password is not defence against an organizer with shell on the box — they
+can read `.env`. It is defence against a compromised *service*, which is the
+threat that motivated it.

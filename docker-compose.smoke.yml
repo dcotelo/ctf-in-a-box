@@ -10,6 +10,12 @@ services:
   mock-github:
     build: ./test/fixtures
     command: ["node", "mock-github.mjs"]
+    # Required, not cosmetic. The base compose file assigns every service to
+    # an explicit network, and a service that declares none joins `default`
+    # instead — a THIRD network, isolated from both. Without this line sync
+    # (on `frontend`) cannot resolve mock-github at all, and the smoke run
+    # fails with nothing but "fetch failed" to go on.
+    networks: [frontend]
 
   sync:
     environment:

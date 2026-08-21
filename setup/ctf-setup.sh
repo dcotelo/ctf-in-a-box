@@ -350,6 +350,19 @@ cmd_doctor() {
     printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
 
+  # Redis now requires a password, and docker-compose.yml uses `${REDIS_PASSWORD:?}`
+  # — so an .env written before this change does not bring up a weaker stack,
+  # it fails to bring up at all. Checked HERE because doctor is where an
+  # organizer looks when something is wrong, and compose's own error names a
+  # variable without saying where it comes from. Advisory (no `rc=1`): this is
+  # a local .env concern, not a provisioning defect, and doctor's exit code
+  # gates the org-side steps.
+  if [ -f "${OUT:-.env}" ] && ! grep -q "^REDIS_PASSWORD=." "${OUT:-.env}"; then
+    printf '%s⚠️  %s has no REDIS_PASSWORD — "docker compose up" will refuse to start.%s\n' \
+      "$C_YELLOW" "${OUT:-.env}" "$C_RESET"
+    printf '    Add:  REDIS_PASSWORD=%s\n\n' "$(openssl rand -hex 24)"
+  fi
+
   # No secure-development module: no forks, no scorer image, nothing in the
   # per-target matrix below to check — an empty table (headers only) would
   # read as a failure rather than the truth, which is that quiz-only events
@@ -991,6 +1004,10 @@ cmd_secrets() {
     echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
     echo "SRH_TOKEN=$(openssl rand -hex 24)"
     echo "SCORER_TOKEN=$(openssl rand -hex 24)"
+    # Redis's requirepass. Compose refuses to start without it, so this is
+    # not optional for a working stack. Only srh ever uses it; no other
+    # service is given it, and no other service can reach redis.
+    echo "REDIS_PASSWORD=$(openssl rand -hex 24)"
     echo "GITHUB_CLIENT_ID="
     echo "GITHUB_CLIENT_SECRET="
     echo "GITHUB_APP_ID="

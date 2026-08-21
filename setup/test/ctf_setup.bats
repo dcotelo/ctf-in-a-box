@@ -73,9 +73,19 @@ EOF
 @test "secrets generates all required values" {
   run bash "$SCRIPT" secrets --config event.yaml --out .env.test
   [ "$status" -eq 0 ]
-  for var in BETTER_AUTH_SECRET SRH_TOKEN SCORER_TOKEN; do
+  for var in BETTER_AUTH_SECRET SRH_TOKEN SCORER_TOKEN REDIS_PASSWORD; do
     grep -qE "^${var}=.{20,}" .env.test
   done
+}
+
+# Its own test, not just another entry in the loop above: docker-compose.yml
+# uses `${REDIS_PASSWORD:?...}`, so an .env without this value does not start
+# a weaker stack — it does not start at all. A generator that silently stopped
+# emitting it would strand every new organizer at the bring-up.
+@test "secrets generates a Redis password, without which compose refuses to start" {
+  run bash "$SCRIPT" secrets --config event.yaml --out .env.redispw.test
+  [ "$status" -eq 0 ]
+  grep -qE "^REDIS_PASSWORD=[0-9a-f]{32,}$" .env.redispw.test
 }
 
 @test "teardown --dry-run plans archive per target repo" {
@@ -407,7 +417,7 @@ EOF
   run bash "$SCRIPT" secrets --out .env.secrets.test
   [ "$status" -eq 0 ]
   # Verify file was created with required variables
-  for var in BETTER_AUTH_SECRET SRH_TOKEN SCORER_TOKEN; do
+  for var in BETTER_AUTH_SECRET SRH_TOKEN SCORER_TOKEN REDIS_PASSWORD; do
     grep -qE "^${var}=.{20,}" .env.secrets.test
   done
 }
