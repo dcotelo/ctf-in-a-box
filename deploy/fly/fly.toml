@@ -77,18 +77,24 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
-# Redis's append-only file. Without it every score, team and hint purchase is
-# lost on the next deploy — compose gets this from the `redis-data` named
-# volume, which Fly ignores in a compose file.
+# ONE VOLUME, AND FLY PERMITS NO MORE THAN ONE PER MACHINE:
+#
+#   invalid config.mounts, only 1 volume supported
+#
+# Two things here must survive a redeploy — redis's append-only file (every
+# score, team and hint purchase) and sync's cursor (losing it makes the poller
+# re-read every comment in every fork from scratch). Compose gives each its own
+# named volume; a Fly machine cannot, so they share this one under separate
+# directories.
+#
+# WHICH directory each uses is a knob in docker-compose.yml — `REDIS_DIR` and
+# `STATE_PATH` — defaulting to the paths the local stack has always used, with
+# .env.fly setting the Fly values. The sharing is therefore expressed in the
+# compose file and the env file, where the rest of the configuration lives,
+# rather than patched in by the renderer: nothing here is true only on Fly.
 [[mounts]]
-  source = "ctf_redis_data"
+  source = "ctf_data"
   destination = "/data"
-
-# The poller's cursor. Losing it makes sync re-read every comment in every fork
-# from scratch on the next restart.
-[[mounts]]
-  source = "ctf_sync_state"
-  destination = "/state"
 
 # Sized for five containers: Next.js is the heavy one, redis holds the whole
 # event in memory, and the scorer's judge runs elsewhere (on GitHub's runners),

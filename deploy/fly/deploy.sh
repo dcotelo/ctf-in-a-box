@@ -294,6 +294,27 @@ if [ "$CMD" = "init" ]; then
     echo "DRY-RUN: would generate REDIS_PASSWORD"
   fi
 
+  # ---- the single-volume layout ------------------------------------------
+  #
+  # A Fly machine permits exactly ONE volume ("invalid config.mounts, only 1
+  # volume supported"), so redis and sync share it under separate directories.
+  # docker-compose.yml declares both as knobs defaulting to the local paths;
+  # these are the values that move them onto the shared mount.
+  #
+  # Written to the env file rather than hardcoded in the renderer so an
+  # organizer can see — and change — where their data actually lives.
+  for pair in "REDIS_DIR=/data/redis" "STATE_PATH=/data/sync/state.json"; do
+    key="${pair%%=*}"
+    if grep -q "^$key=." "$ENV_FILE" 2>/dev/null; then
+      echo "   $key already set"
+    elif [ -z "$DRY_RUN" ]; then
+      printf '%s\n' "$pair" >> "$ENV_FILE"
+      echo "   set $pair"
+    else
+      echo "DRY-RUN: would set $pair"
+    fi
+  done
+
   echo
   echo "  Ready. Next:"
   echo "      ./deploy/fly/deploy.sh --dry-run --env-file $ENV_FILE"
@@ -465,8 +486,10 @@ make_volume() {
 
 echo "== 1/5 app exists"
 create_app "$APP"
-make_volume ctf_redis_data
-make_volume ctf_sync_state
+# ONE volume: a Fly machine permits no more than one ("invalid config.mounts,
+# only 1 volume supported"). redis and sync share it under separate
+# directories, set by REDIS_DIR and STATE_PATH in the env file.
+make_volume ctf_data
 
 # ---------------------------------------------------------------------------
 # 2/5 Images.

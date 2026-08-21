@@ -125,12 +125,41 @@ ENV
   uncommented "$FLY/fly.toml" | grep -qE '^ *auto_stop_machines *= *false'
 }
 
-@test "both volumes are declared" {
-  # redis's append-only file and sync's cursor. Compose gets these from named
-  # volumes, which Fly ignores in a compose file — so they must be [[mounts]]
-  # here or the event loses every score on the next deploy.
+@test "exactly ONE volume is declared" {
+  # Fly permits no more than one volume per machine, and says so only when the
+  # machine is created — after images are pushed and IPs provisioned:
+  #
+  #   invalid config.mounts, only 1 volume supported
+  #
+  # redis's append-only file and sync's cursor therefore share this volume
+  # under separate directories.
   count="$(grep -v '^[[:space:]]*#' "$FLY/fly.toml" | grep -c 'source = ')"
-  [ "$count" = "2" ]
+  [ "$count" = "1" ]
+}
+
+@test "redis and sync are pointed at separate directories inside that volume" {
+  # Sharing one volume is only safe if the two never collide. Both paths are
+  # knobs in docker-compose.yml, defaulting to the local layout, and init
+  # writes the Fly values into the env file.
+  grep -qF 'REDIS_DIR: ${REDIS_DIR:-/data}' "$REPO/docker-compose.yml"
+  grep -qF 'STATE_PATH: ${STATE_PATH:-/state/state.json}' "$REPO/docker-compose.yml"
+  mount="$(grep -v '^[[:space:]]*#' "$FLY/fly.toml" | sed -n 's/^ *destination = "\(.*\)".*/\1/p')"
+  # Both Fly paths must sit UNDER the mount, or the data is written to the
+  # machine's ephemeral overlay and silently lost on the next deploy.
+  grep -qF "REDIS_DIR=$mount/" "$FLY/deploy.sh"
+  grep -qF "STATE_PATH=$mount/" "$FLY/deploy.sh"
+}
+
+@test "the local defaults are unchanged by the Fly layout" {
+  # The knobs exist for Fly, but a compose stack must keep writing exactly
+  # where it always has — otherwise every existing local event silently starts
+  # from an empty datastore.
+  cd "$REPO"
+  run env SRH_TOKEN=t SCORER_TOKEN=t BETTER_AUTH_SECRET=t REDIS_PASSWORD=p \
+    GITHUB_CLIENT_ID=i GITHUB_CLIENT_SECRET=s SCORE_IMAGE=x \
+    docker compose -f docker-compose.yml --profile poll --profile app config redis sync
+  echo "$output" | grep -qF 'REDIS_DIR: /data'
+  echo "$output" | grep -qF 'STATE_PATH: /state/state.json'
 }
 
 @test "fly.toml names no image of its own" {

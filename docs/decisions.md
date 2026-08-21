@@ -1957,3 +1957,17 @@ output. And `sync` accepts `EVENT_CONFIG_B64` — the same variable, in the same
 encoding, that the app already takes as a build arg — falling back to the
 mounted file when it is absent or empty, because a Fly machine has no repo
 checkout to bind-mount `./event.yaml` from.
+
+**Addendum (single volume).** A Fly machine permits exactly **one** volume —
+`invalid config.mounts, only 1 volume supported`, and only at machine-creation
+time, after every image is pushed and the IPs are provisioned. redis's
+append-only file and sync's cursor therefore share one volume under separate
+directories. Both paths are knobs in `docker-compose.yml` (`REDIS_DIR`,
+`STATE_PATH`) defaulting to exactly what the local stack has always used, with
+`.env.fly` supplying the Fly values. The alternative — having the renderer
+rewrite the paths — would have put a fact about the deployment somewhere no
+organizer would look for it, and made the rendered file differ from the
+compose file in a way not explained by either.
+
+`redis-server` does not create `--dir`, so the command `mkdir -p`s it first;
+`sync` already creates its state file's parent directory itself.

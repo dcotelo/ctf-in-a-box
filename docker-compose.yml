@@ -106,11 +106,22 @@ services:
     # the literal string "$REDIS_PASSWORD" as its password — an error that
     # starts cleanly and reports healthy (this exact bug shipped once on Fly,
     # where `[processes]` also runs no shell; see ADR 42).
+    # `mkdir -p` because `--dir` must already exist — redis-server does not
+    # create it and exits with "Can't chdir to ...". It only ever matters when
+    # REDIS_DIR is a SUBDIRECTORY of the mount, which is the Fly case below.
     command:
       - sh
       - -c
-      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+      - mkdir -p "$$REDIS_DIR" && exec redis-server --appendonly yes --dir "$$REDIS_DIR" --requirepass "$$REDIS_PASSWORD"
     environment:
+      # Where the append-only file lives, INSIDE the mounted volume.
+      #
+      # Defaults to the volume root, which is what compose has always done and
+      # keeps every local stack byte-identical. It is a knob because a Fly
+      # machine permits exactly ONE volume ("invalid config.mounts, only 1
+      # volume supported"), so redis and sync have to share it under separate
+      # directories — .env.fly sets this to /data/redis. See deploy/fly/fly.toml.
+      REDIS_DIR: ${REDIS_DIR:-/data}
       # `:?` on purpose: an unset REDIS_PASSWORD fails the bring-up with this
       # message rather than starting an unauthenticated Redis. A security
       # control that silently degrades to "off" when a variable is missing is
@@ -160,6 +171,11 @@ services:
       # no repo checkout on it, so `./event.yaml` names nothing there. See
       # docs/fly.md and ADR 42.
       EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
+      # The poller's cursor. Same reasoning as redis's REDIS_DIR above: the
+      # default is exactly what compose has always used, and .env.fly moves it
+      # to /data/sync/state.json so both services fit the single volume a Fly
+      # machine allows. sync creates the parent directory itself.
+      STATE_PATH: ${STATE_PATH:-/state/state.json}
     volumes:
       - ./event.yaml:/config/event.yaml:ro
       - sync-state:/state

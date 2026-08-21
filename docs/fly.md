@@ -157,15 +157,30 @@ into Fly's own registry with `docker buildx imagetools create`, which
 preserves the digest. The scorer serving your leaderboard must be the same
 artifact the forks pull to judge PRs, or the totals disagree.
 
-### 3. Volumes are region-pinned
+### 3. One volume, region-pinned, shared by two services
 
-`redis`'s append-only file and `sync`'s cursor each get a Fly volume. Compose
-gets these from named volumes, which Fly **ignores** in a compose file — they
-are declared as `[[mounts]]` in `fly.toml` instead.
+**A Fly machine permits exactly one volume** — `invalid config.mounts, only 1
+volume supported`, reported only when the machine is created, after images are
+pushed and IPs provisioned.
+
+`redis`'s append-only file and `sync`'s cursor therefore share it, under
+separate directories:
+
+| | Local (compose) | Fly |
+| --- | --- | --- |
+| `REDIS_DIR` | `/data` | `/data/redis` |
+| `STATE_PATH` | `/state/state.json` | `/data/sync/state.json` |
+
+Both are knobs in `docker-compose.yml` defaulting to the local layout, with
+`.env.fly` setting the Fly values — so nothing about a compose stack changes,
+and you can see where your data lives rather than having a renderer decide it.
+
+Compose's named volumes are **ignored** by Fly in a compose file; the mount is
+declared as `[[mounts]]` in `fly.toml`.
 
 `init` asks which region to run in and writes it to `.env.fly`, and that one
-answer drives both volumes and the deploy. Changing it later means destroying
-and recreating the volumes, so pick the one nearest your contestants.
+answer drives the volume and the deploy. Changing it later means destroying
+and recreating it, so pick the one nearest your contestants.
 
 Losing the sync cursor is not fatal but is noisy: the poller re-reads every
 comment in every fork from scratch.
@@ -232,7 +247,7 @@ never public, and the datastore reachable from nothing outside the machine.
 
 ## Cost and shape
 
-One machine — `shared-cpu-2x`, 2 GB — plus two 1 GB volumes. Sized for five
+One machine — `shared-cpu-2x`, 2 GB — plus one 1 GB volume. Sized for five
 containers with Next.js as the heavy one; the scorer only *serves* here, since
 judging runs on GitHub's runners.
 
@@ -246,12 +261,12 @@ poller, and nothing arrives to wake it while an event is quiet overnight.
 fly apps destroy ctf-in-a-box
 ```
 
-That takes the volumes with it. Export anything you want to keep first.
+That takes the volume with it. Export anything you want to keep first.
 
 ## CI
 
 `.github/workflows/ci.yml`'s `shell` job shellchecks both scripts and runs
-`bats deploy/fly/test/` — 37 assertions covering `fly.toml`'s invariants, the
+`bats deploy/fly/test/` — 39 assertions covering `fly.toml`'s invariants, the
 render's output (no secret values, no `$$`, every service on loopback with an
 image, no leftover build/networks/volumes/profiles keys), and `deploy.sh`'s
 guards. The render runs for real; nothing is ever deployed, and no Fly account
