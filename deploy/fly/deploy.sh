@@ -14,21 +14,24 @@ ENV_FILE=".env.fly"
 CONFIG="event.yaml"
 FROM_ENV=".env"
 CMD="deploy"
+REGION_ARG=""
 
 usage() {
   cat <<'EOF'
 usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
-                            [--config event.yaml] [--from .env]
+                            [--config event.yaml] [--from .env] [--region gru]
 
   init    Prepare an env file for Fly: copies --from (default .env), rewrites
           EVENT_URL to the app's Fly hostname, and fills in SRH_TOKEN and
           REDIS_PASSWORD if they are absent. Touches nothing on Fly and needs
-          no CLI. Safe to re-run — it tops up an existing file rather than
-          overwriting it, and tightens it to mode 600.
+          no CLI. Asks which Fly region to run in, or takes --region. Safe to re-run — it tops
+          up an existing file rather than overwriting it, and tightens it to
+          mode 600.
 
   (none)  Deploy, in order: redis, srh, scorer, sync, app.
 
-          Regions come from the fly.toml files (primary_region), not a flag.
+          The region comes from FLY_REGION in the env file (init asks), and
+          drives both volumes and every `fly deploy --primary-region`.
 
 --dry-run prints every fly command it would run and makes NONE of them.
 Secret VALUES are redacted from that output.
@@ -40,6 +43,7 @@ while [ $# -gt 0 ]; do
     init) CMD="init"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --from) FROM_ENV="$2"; shift 2 ;;
+    --region) REGION_ARG="$2"; shift 2 ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -171,6 +175,62 @@ if [ "$CMD" = "init" ]; then
     echo "DRY-RUN: would generate SRH_TOKEN"
   fi
 
+  # ---- region ------------------------------------------------------------
+  #
+  # ASKED, not hardcoded. The toml files carry `primary_region = "iad"` as a
+  # default, and on the first real run that was wrong twice over: `fly volumes
+  # create` prompted interactively mid-deploy (it needs an explicit --region),
+  # and the operator — in Brazil — ended up with a volume in gru against an
+  # app configured for iad. Volumes are region-pinned, so fixing that later
+  # means destroying them.
+  #
+  # The answer is written to the env file and drives BOTH the volumes and
+  # `fly deploy --primary-region`, so there is one value and nothing to keep
+  # in sync by hand.
+  if grep -q "^FLY_REGION=." "$ENV_FILE" 2>/dev/null; then
+    echo "   FLY_REGION already set ($(sed -n 's/^FLY_REGION=//p' "$ENV_FILE" | tail -1))"
+  else
+    default_region="${REGION_ARG:-$(toml_region app.fly.toml)}"
+    if [ -n "$REGION_ARG" ]; then
+      # Given explicitly: no prompt. Lets a scripted or CI run set the region
+      # without a tty, and makes the validation below directly testable.
+      case "$REGION_ARG" in
+        [a-z][a-z][a-z]) ;;
+        *) echo "FAIL: '$REGION_ARG' is not a Fly region code (three lowercase letters, e.g. gru)." >&2; exit 1 ;;
+      esac
+      if [ -z "$DRY_RUN" ]; then printf 'FLY_REGION=%s\n' "$REGION_ARG" >> "$ENV_FILE"; fi
+      echo "   region: $REGION_ARG"
+    elif [ -n "$DRY_RUN" ]; then
+      echo "DRY-RUN: would ask for a region (default $default_region)"
+    elif [ -t 0 ]; then
+      echo
+      echo "  Which Fly region should the event run in?"
+      echo "    Pick the one nearest your contestants — it is where the app,"
+      echo "    the datastore and both volumes live. Volumes are region-pinned,"
+      echo "    so changing this later means destroying and recreating them."
+      echo
+      echo "    Common: iad (Virginia)  gru (Sao Paulo)  lhr (London)"
+      echo "            fra (Frankfurt) syd (Sydney)     nrt (Tokyo)"
+      echo "    Full list: fly platform regions"
+      echo
+      printf "  Region [%s]: " "$default_region"
+      read -r reply
+      region="${reply:-$default_region}"
+      # A region code is three lowercase letters. Catching a typo here beats
+      # discovering it as an opaque failure part-way through the deploy.
+      case "$region" in
+        [a-z][a-z][a-z]) ;;
+        *) echo "FAIL: '$region' is not a Fly region code (three lowercase letters, e.g. gru)." >&2; exit 1 ;;
+      esac
+      printf 'FLY_REGION=%s\n' "$region" >> "$ENV_FILE"
+      echo "   region: $region"
+    else
+      # Non-interactive (a test, a CI job): take the default rather than hang.
+      printf 'FLY_REGION=%s\n' "$default_region" >> "$ENV_FILE"
+      echo "   region: $default_region (no tty — took the default)"
+    fi
+  fi
+
   # Redis credential. The datastore is our own `redis:7-alpine` app (see
   # redis.fly.toml), authenticated with the same REDIS_PASSWORD the compose
   # stack uses — so an env file copied from a working compose deployment
@@ -285,6 +345,11 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# One region for every app and both volumes. From the env file when init
+# asked for it, else the toml's primary_region as the documented default.
+REGION="$(env_value FLY_REGION)"
+[ -n "$REGION" ] || REGION="$(toml_region app.fly.toml)"
+
 # srh reaches the redis app over the private network. Empty username,
 # password only — the RFC form for a Redis using `requirepass`.
 SRH_CONNECTION_STRING="redis://:$REDIS_PASSWORD@$REDIS_APP.internal:6379"
@@ -315,22 +380,22 @@ create_app "$REDIS_APP"
 # Durable store for scores, teams and hint purchases — the same named-volume
 # arrangement as compose's `redis-data`.
 if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly volumes create ctf_redis_data --app $REDIS_APP --size 1 --region $(toml_region redis.fly.toml) (if absent)"
+  echo "DRY-RUN: fly volumes create ctf_redis_data --app $REDIS_APP --size 1 --region $REGION (if absent)"
 elif fly volumes list --app "$REDIS_APP" 2>/dev/null | grep -q ctf_redis_data; then
   echo "   volume ctf_redis_data exists"
 else
   fly volumes create ctf_redis_data --app "$REDIS_APP" --size 1 \
-    --region "$(toml_region redis.fly.toml)" --yes
+    --region "$REGION" --yes
 fi
 fly_run secrets set --app "$REDIS_APP" --stage "REDIS_PASSWORD=$REDIS_PASSWORD"
-fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP"
+fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP" --primary-region "$REGION"
 
 echo "== 2/5 srh (the Upstash-REST API the services speak)"
 create_app "$SRH_APP"
 fly_run secrets set --app "$SRH_APP" --stage \
   "SRH_TOKEN=$SRH_TOKEN" \
   "SRH_CONNECTION_STRING=$SRH_CONNECTION_STRING"
-fly_run deploy --config "$FLY_DIR/srh.fly.toml" --app "$SRH_APP"
+fly_run deploy --config "$FLY_DIR/srh.fly.toml" --app "$SRH_APP" --primary-region "$REGION"
 
 echo "== 3/5 scorer"
 create_app "$SCORER_APP"
@@ -338,19 +403,19 @@ fly_run secrets set --app "$SCORER_APP" --stage \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \
   "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN" \
   "CTF_SCORE_BEARER_TOKEN=$(env_value SCORER_TOKEN)"
-fly_run deploy --config "$FLY_DIR/scorer.fly.toml" --app "$SCORER_APP" --image "$SCORE_IMAGE"
+fly_run deploy --config "$FLY_DIR/scorer.fly.toml" --app "$SCORER_APP" --image "$SCORE_IMAGE" --primary-region "$REGION"
 
 echo "== 4/5 sync (poll mode)"
 create_app "$SYNC_APP"
 # The cursor volume. Without it the poller re-reads every comment in every
 # fork after each restart — see sync.fly.toml.
 if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly volumes create ctf_sync_state --app $SYNC_APP --size 1 --region $(toml_region sync.fly.toml) (if absent)"
+  echo "DRY-RUN: fly volumes create ctf_sync_state --app $SYNC_APP --size 1 --region $REGION (if absent)"
 elif fly volumes list --app "$SYNC_APP" 2>/dev/null | grep -q ctf_sync_state; then
   echo "   volume ctf_sync_state exists"
 else
   fly volumes create ctf_sync_state --app "$SYNC_APP" --size 1 \
-    --region "$(toml_region sync.fly.toml)" --yes
+    --region "$REGION" --yes
 fi
 fly_run secrets set --app "$SYNC_APP" --stage \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \
@@ -360,7 +425,7 @@ fly_run secrets set --app "$SYNC_APP" --stage \
   "GITHUB_APP_PRIVATE_KEY=$(env_value GITHUB_APP_PRIVATE_KEY)" \
   "GITHUB_APP_INSTALLATION_ID=$(env_value GITHUB_APP_INSTALLATION_ID)"
 # Built from the repo root so event.yaml is in the build context.
-fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --dockerfile "$FLY_DIR/sync.Dockerfile"
+fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --dockerfile "$FLY_DIR/sync.Dockerfile" --primary-region "$REGION"
 
 echo "== 5/5 app"
 create_app "$APP_APP"
@@ -380,7 +445,7 @@ fly_run secrets set --app "$APP_APP" --stage \
 # notice; the event just looks wrong.
 EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')"
 fly_run deploy --config "$FLY_DIR/app.fly.toml" --app "$APP_APP" \
-  --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
+  --primary-region "$REGION" --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
 
 echo "== done"
 cat <<EOF

@@ -125,6 +125,31 @@ whole history on every deploy and makes the `ingested`/`dropped` counters on
 `/admin` meaningless. `deploy.sh` creates the volume; do not remove the
 `[mounts]` block.
 
+## Region
+
+`init` **asks** which region to run in, and writes the answer to the env file
+as `FLY_REGION`. One value then drives every `fly deploy --primary-region` and
+both volumes, so nothing has to be kept in step by hand:
+
+```sh
+./deploy/fly/deploy.sh init                 # prompts, default from the toml
+./deploy/fly/deploy.sh init --region gru    # or say it outright
+```
+
+Pick the region nearest your contestants. **Volumes are region-pinned**, so
+changing it afterwards means destroying and recreating them — which is exactly
+what happened on the first real run, where `fly volumes create` prompted
+mid-deploy and produced a volume in `gru` against apps configured for `iad`.
+
+`--region` also makes the step usable without a terminal (CI, a script). With
+no tty and no flag it takes the toml default rather than blocking on a prompt.
+The value is validated as a three-letter code: `Sao Paulo` is what someone
+types when they read the prompt as a place name, and catching it here beats an
+opaque failure part-way through a deploy.
+
+Note the flag on `fly deploy` is `--primary-region`; there is no `--region`
+there (`fly volumes create` is the one that takes `--region`).
+
 ## How the private apps stay private
 
 Only `app` declares a public service (`[http_service]`). `redis`, `srh`,

@@ -31,6 +31,7 @@ SCORER_TOKEN=fixture-scorer-token
 SRH_TOKEN=fixture-srh-token
 REDIS_PASSWORD=fixture-redis-password
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
+FLY_REGION=gru
 GITHUB_APP_ID=1
 GITHUB_APP_PRIVATE_KEY=Zml4dHVyZQ==
 GITHUB_APP_INSTALLATION_ID=1
@@ -180,6 +181,7 @@ SCORER_TOKEN=CANARY-scorer-token
 SRH_TOKEN=CANARY-srh-token
 REDIS_PASSWORD=CANARY-redis-password
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
+FLY_REGION=gru
 GITHUB_APP_ID=123
 GITHUB_APP_PRIVATE_KEY=CANARY-private-key
 GITHUB_APP_INSTALLATION_ID=456
@@ -201,6 +203,7 @@ SCORER_TOKEN=CANARY-scorer-token
 SRH_TOKEN=CANARY-srh-token
 REDIS_PASSWORD=CANARY-redis-password
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
+FLY_REGION=gru
 GITHUB_APP_ID=123
 GITHUB_APP_PRIVATE_KEY=CANARY-private-key
 GITHUB_APP_INSTALLATION_ID=456
@@ -542,7 +545,7 @@ hostname_run() { # $1 = EVENT_URL
   # the middle of a scripted deploy, and a region mismatch after it.
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"volumes create ctf_redis_data"*"--region iad"* ]]
+  [[ "$output" == *"volumes create ctf_redis_data"*"--region gru"* ]]
 }
 
 @test "the volume region is read from the toml, not hardcoded twice" {
@@ -558,4 +561,56 @@ hostname_run() { # $1 = EVENT_URL
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
   [ "$(printf '%s' "$output" | grep -c 'volumes create.*--region')" -eq 2 ]
+}
+
+# --- the region is asked for, not hardcoded --------------------------------
+#
+# On the first real run `fly volumes create` PROMPTED mid-deploy (it needs an
+# explicit --region) and the operator — in Brazil — got a volume in gru against
+# apps configured for iad. Volumes are region-pinned, so that is expensive to
+# undo.
+
+@test "init takes an explicit --region" {
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init --region gru \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/reg"
+  grep -qx "FLY_REGION=gru" "$BATS_TEST_TMPDIR/reg"
+}
+
+@test "init rejects something that is not a region code" {
+  # "Sao Paulo" is what someone types when they read the prompt as a place
+  # name. Catching it here beats an opaque failure part-way through a deploy.
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init --region "Sao Paulo" \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/reg"
+  [ "$status" -ne 0 ]
+}
+
+@test "init does not hang without a tty" {
+  # A test or CI run has no terminal; it must take the default rather than
+  # block forever on read.
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/reg"
+  [ "$status" -eq 0 ]
+}
+
+@test "one region drives every app and both volumes" {
+  # Five deploys and two volumes, all in the region from the env file — not
+  # the toml default, so a chosen region actually takes effect everywhere.
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$(printf '%s' "$output" | grep -c -- '--primary-region gru')" -eq 5 ]
+}
+
+@test "both volumes use the chosen region, not the toml default" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$(printf '%s' "$output" | grep -c -- 'volumes create.*--region gru')" -eq 2 ]
+}
+
+@test "deploy uses --primary-region, the flag fly actually has" {
+  # `fly deploy` has NO --region flag; it is --primary-region. Checked against
+  # flyctl's docs rather than assumed, after nearly shipping the wrong one.
+  [ -z "$(grep -E 'fly_run deploy .*[^-]--region ' "$FLY/deploy.sh")" ]
 }
