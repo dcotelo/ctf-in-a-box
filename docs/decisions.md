@@ -1527,3 +1527,59 @@ The same two-builders caveat ADR 34 records applies here: one bundle builder
 server-side (`exportBundle`), one in the admin page (`exportBundleFrom`, which
 already holds the data). They can only drift through an *optional* added
 field — a new required field breaks both at compile time.
+
+## 37. Opting in to the fork-PR checkout `pull_request_target` now guards
+
+**Context.** `actions/checkout` began refusing to check out a fork's pull
+request from a `pull_request_target` workflow:
+
+> Refusing to check out fork pull request code from a 'pull_request_target'
+> workflow. […] To opt in, review the risks […] and set
+> 'allow-unsafe-pr-checkout: true'.
+
+That is step 3 of `ctf-score.yml`, so **every scoring run on every deployment
+of this kit failed at it** — before the scorer image was even pulled. Both
+targets exercised on the test org (DVWA, WebGoat) failed identically and in
+seconds. The guard arrived through the floating `@v4` tag, so it reached
+already-provisioned events with no change on their side.
+
+**Decision.** Set `allow-unsafe-pr-checkout: true`, and bump the workflow to
+**v2** so [#43](#43-…)'s upgrade path carries it to live forks.
+
+The flag's name describes the class of risk, not this workflow's posture. The
+danger `pull_request_target` creates is *executing* a fork's code in a job
+holding the base repo's token and secrets. This job does not. Every `run:`
+step in it is `docker login`, `docker pull`, `docker network create`, or
+`docker run`: the checkout is a build **context**, mounted into the scorer
+container, and the contestant's app is built and booted inside that container
+on an internal network. No install script, build script, or test runner from
+the PR executes on the runner host, and `persist-credentials: false` keeps the
+job's token out of the checked-out tree.
+
+**What the flag does not change.** The scorer container holds `docker.sock` so
+it can boot the app as a sibling, and it necessarily BUILDS contestant-supplied
+source. That trust boundary is inherent to judging submitted code, is recorded
+in the architecture doc's security model, and predates this flag by the whole
+life of the project. This restores behaviour the kit already had; it grants
+nothing new. The honest summary is that the guard asked a question the kit had
+already answered in its own workflow header.
+
+**The alternative was not "be safer", it was "do not score".** Dropping
+`pull_request_target` for `pull_request` gives the job a read-only token that
+cannot post the score comment — the comment IS the score in poll mode (the
+poller ingests it), so the module stops working. Scoring from a
+`workflow_run` trigger keeps the comment but adds a second workflow and a
+race, for a trust boundary identical to the one above.
+
+**Consequences.** This is the first real exercise of the versioned-workflow
+upgrade path, and it is exactly the case that path was built for: a security-
+relevant change to a file that lives in forks. Events provisioned before it
+report `❌ v1 — stale` in `doctor` and take it with
+`./setup/ctf-setup.sh upgrade`. An event that never upgrades scores nothing at
+all, which is at least loud.
+
+Pinning `actions/checkout` by SHA would have prevented the surprise and is
+worth doing ([#49](https://github.com/dcotelo/ctf-in-a-box/issues/49) covers
+digest-pinning first-party images); it would also have meant not receiving the
+guard, so it trades a loud break for a silent divergence from upstream's
+current advice.
