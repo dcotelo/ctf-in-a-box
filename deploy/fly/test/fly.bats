@@ -714,3 +714,25 @@ hostname_run() { # $1 = EVENT_URL
 @test "apps/web source is NOT excluded — the app image builds from it" {
   [ -z "$(grep -v '^[[:space:]]*#' "$REPO/.dockerignore" | grep -xE 'apps/?|apps/web/?')" ]
 }
+
+# --- secrets must actually apply, not just stage ---------------------------
+#
+# `--stage` left the app's six secrets permanently staged on a real deploy —
+# `There are 6 secrets not deployed` — including BETTER_AUTH_URL and
+# BETTER_AUTH_SECRET. better-auth with neither answers 403 to
+# /api/auth/sign-in/social, and nothing in the app's own logs said why.
+
+@test "secrets are not staged-only" {
+  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F 'secrets set' | grep -F -- '--stage')" ]
+}
+
+@test "every app's secrets are set the same way" {
+  # Five apps; a single one left on a different form is how this recurs.
+  [ "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -c 'secrets set --detach')" -eq 5 ]
+}
+
+@test "the dry-run shows the secrets commands it would run" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$(printf '%s' "$output" | grep -c 'secrets set')" -eq 5 ]
+}

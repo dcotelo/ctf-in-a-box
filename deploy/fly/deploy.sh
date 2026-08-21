@@ -394,6 +394,24 @@ create_app() {
   exit 1
 }
 
+# NOTE ON `fly secrets set`: no `--stage`.
+#
+# `--stage` means "hold these, apply on the next deploy". It looks right when
+# the app does not exist yet, and on a real run it left the APP's six secrets
+# — BETTER_AUTH_URL and BETTER_AUTH_SECRET among them — permanently staged:
+#
+#   There are 6 secrets not deployed. Deploy with `fly secrets deploy`
+#
+# better-auth with no baseURL and no signing secret answers 403 to
+# /api/auth/sign-in/social, so sign-in was broken with nothing in the app's
+# own logs to explain it. The other four apps happened to be fine because
+# their `fly deploy` consumed the staged values; depending on that at all was
+# the mistake.
+#
+# Without `--stage`, `fly secrets set` applies immediately, and on an app with
+# no machines yet flyctl stages them itself and says so — the graceful case
+# that `--stage` was reaching for. `--detach` keeps it from blocking on the
+# machine restart, since the deploy that follows will wait anyway.
 echo "== 1/5 redis"
 create_app "$REDIS_APP"
 # Durable store for scores, teams and hint purchases — the same named-volume
@@ -406,19 +424,19 @@ else
   fly volumes create ctf_redis_data --app "$REDIS_APP" --size 1 \
     --region "$REGION" --yes
 fi
-fly_run secrets set --app "$REDIS_APP" --stage "REDIS_PASSWORD=$REDIS_PASSWORD"
+fly_run secrets set --detach --app "$REDIS_APP" "REDIS_PASSWORD=$REDIS_PASSWORD"
 fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP" --primary-region "$REGION"
 
 echo "== 2/5 srh (the Upstash-REST API the services speak)"
 create_app "$SRH_APP"
-fly_run secrets set --app "$SRH_APP" --stage \
+fly_run secrets set --detach --app "$SRH_APP" \
   "SRH_TOKEN=$SRH_TOKEN" \
   "SRH_CONNECTION_STRING=$SRH_CONNECTION_STRING"
 fly_run deploy --config "$FLY_DIR/srh.fly.toml" --app "$SRH_APP" --primary-region "$REGION"
 
 echo "== 3/5 scorer"
 create_app "$SCORER_APP"
-fly_run secrets set --app "$SCORER_APP" --stage \
+fly_run secrets set --detach --app "$SCORER_APP" \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \
   "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN" \
   "CTF_SCORE_BEARER_TOKEN=$(env_value SCORER_TOKEN)"
@@ -483,7 +501,7 @@ else
   fly volumes create ctf_sync_state --app "$SYNC_APP" --size 1 \
     --region "$REGION" --yes
 fi
-fly_run secrets set --app "$SYNC_APP" --stage \
+fly_run secrets set --detach --app "$SYNC_APP" \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \
   "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN" \
   "SCORER_TOKEN=$(env_value SCORER_TOKEN)" \
@@ -500,7 +518,7 @@ fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --primary-reg
 
 echo "== 5/5 app"
 create_app "$APP_APP"
-fly_run secrets set --app "$APP_APP" --stage \
+fly_run secrets set --detach --app "$APP_APP" \
   "BETTER_AUTH_SECRET=$(env_value BETTER_AUTH_SECRET)" \
   "BETTER_AUTH_URL=$EVENT_URL" \
   "GITHUB_CLIENT_ID=$(env_value GITHUB_CLIENT_ID)" \
