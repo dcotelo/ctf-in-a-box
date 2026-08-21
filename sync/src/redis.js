@@ -64,10 +64,16 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
         const fields = [
           "lastPollAt", s.lastPollAt,
           "ingested", String(s.ingested),
+          // Comments consumed that will never become a score without a human.
+          // Cumulative and monotonic like `ingested` — unlike `lastError`,
+          // which describes only the tick that wrote it. A drop is not
+          // self-healing, so it must not be cleared by the next quiet tick.
+          "dropped", String(s.dropped ?? 0),
           "reposPolled", String(s.reposPolled),
           "paused", s.paused ? "1" : "0",
         ];
         if (s.lastError) fields.push("lastError", s.lastError);
+        if (s.lastDrop) fields.push("lastDrop", s.lastDrop);
         const cmds = [["HSET", SYNC_STATUS_KEY, ...fields]];
         if (!s.lastError) cmds.push(["HDEL", SYNC_STATUS_KEY, "lastError"]);
         await pipeline(cmds);

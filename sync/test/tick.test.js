@@ -50,9 +50,12 @@ test("scorer 4xx logs a rejection and permanently drops the comment", async () =
   const logs = [];
   await tick(CFG, state, { fetchImpl: f, log: (m) => logs.push(m) });
   assert.equal(posts.length, 1);
-  // logged as a rejected/dropped submission, not silently swallowed
-  assert.equal(logs.length, 1);
-  assert.match(logs[0], /rejected \(4xx\), dropped/);
+  // logged as a rejected/dropped submission, not silently swallowed. Matched
+  // by content, not by line count — the tick also emits a per-repo
+  // disposition summary (see drop-visibility.test.js), and a count assertion
+  // here would fail on any future line without saying anything about whether
+  // the rejection itself was reported.
+  assert.ok(logs.some((l) => /rejected \(4xx\), dropped/.test(l)));
   // comment stays marked seen (permanent drop) — unlike the 5xx retry case
   assert.equal(state.repos.DVWA.seen.includes(seenKey(1, "2026-08-13T11:00:00Z")), true);
 });

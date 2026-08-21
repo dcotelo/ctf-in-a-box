@@ -187,10 +187,27 @@ describe("getSyncStatus", () => {
 
   it("decodes a heartbeat", async () => {
     mocks.upstashPipeline.mockResolvedValue([{
+      result: [
+        "lastPollAt", "2026-08-14T00:00:00Z", "ingested", "12", "dropped", "2",
+        "lastDrop", "submit DVWA#7: rejected (4xx), dropped", "reposPolled", "3", "paused", "0",
+      ],
+    }]);
+    expect(await getSyncStatus()).toEqual({
+      lastPollAt: "2026-08-14T00:00:00Z", lastError: null, ingested: 12, dropped: 2,
+      lastDrop: "submit DVWA#7: rejected (4xx), dropped", reposPolled: 3, paused: false,
+    });
+  });
+
+  // The hash a PRE-upgrade poller left behind, read by a post-upgrade app —
+  // the state of every already-running event the moment this ships. The drop
+  // fields are simply absent, and absent must decode as "none", not NaN.
+  it("decodes a heartbeat written before the drop counters existed", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{
       result: ["lastPollAt", "2026-08-14T00:00:00Z", "ingested", "12", "reposPolled", "3", "paused", "0"],
     }]);
     expect(await getSyncStatus()).toEqual({
-      lastPollAt: "2026-08-14T00:00:00Z", lastError: null, ingested: 12, reposPolled: 3, paused: false,
+      lastPollAt: "2026-08-14T00:00:00Z", lastError: null, ingested: 12,
+      dropped: 0, lastDrop: null, reposPolled: 3, paused: false,
     });
   });
 });

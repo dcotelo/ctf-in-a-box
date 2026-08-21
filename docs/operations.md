@@ -126,8 +126,27 @@ line on a page.
 The panel offers:
 
 - **Status** — the sync poller's heartbeat (last poll time, comments
-  ingested, repos polled, last error) and a best-effort leaderboard
-  freshness read.
+  ingested, comments **dropped**, repos polled, last error) and a
+  best-effort leaderboard freshness read.
+
+  **Read Ingested and Dropped together.** Ingested is points that reached the
+  leaderboard; Dropped is points that reached a contestant's PR and stopped
+  there — the scorer rejected the submission, or the comment carried a
+  `ctf-score:` marker the poller could not read. Dropped should be **0** on a
+  healthy event; it turns amber and a **Last drop** line names the repo, the
+  PR, and the reason when it isn't. Neither figure resets on its own: a
+  dropped score is still missing after the poller recovers, so the pointer to
+  the PR that needs looking at stays up (unlike Last error, which describes
+  only the most recent tick). A nonzero Dropped means a contestant is looking
+  at a correct score on their PR that the leaderboard does not show — go read
+  the poller's logs for the matching line, fix the cause, and re-run that PR's
+  scoring workflow.
+
+  Routine things are deliberately **not** counted here: a comment re-read at
+  the cursor boundary, and the workflow's own "⏳ Scoring in progress…"
+  placeholder, are both expected and leave Dropped at 0. The poller's logs
+  carry a per-repo breakdown of those on any tick where something
+  non-routine happened.
 - **Freeze** — a pause switch. Pausing **freezes ingestion, not fork
   Actions**: contestants' PRs keep getting judged and commented on exactly
   as before, poll mode's cursor just holds in place (nothing is lost, only

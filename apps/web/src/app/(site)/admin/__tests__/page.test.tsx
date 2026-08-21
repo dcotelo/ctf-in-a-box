@@ -52,6 +52,8 @@ describe("admin page gate", () => {
       lastPollAt: "2026-08-14T00:00:00Z",
       lastError: null,
       ingested: 3,
+      dropped: 0,
+      lastDrop: null,
       reposPolled: 2,
       paused: false,
     });
@@ -59,6 +61,42 @@ describe("admin page gate", () => {
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/freeze|pause/i);
     expect(html).toMatch(/last poll|ingested/i);
+  });
+
+  // A healthy poller must not show a warning: an amber "Dropped" that is
+  // always lit is one organizers stop seeing, which would defeat the whole
+  // point of putting it beside Ingested.
+  it("shows a quiet Dropped counter and no last-drop line when nothing was dropped", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue({
+      paused: false, hintsEnabled: null, hintCost: null,
+      updatedBy: null, updatedAt: null, moduleOverrides: {},
+    });
+    getSyncStatus.mockResolvedValue({
+      lastPollAt: "2026-08-14T00:00:00Z", lastError: null,
+      ingested: 3, dropped: 0, lastDrop: null, reposPolled: 2, paused: false,
+    });
+    const html = renderToStaticMarkup(await AdminPage({ searchParams: Promise.resolve({}) }));
+    expect(html).toMatch(/Dropped/);
+    expect(html).not.toMatch(/Last drop/);
+    expect(html).not.toContain("#f6ad55");
+  });
+
+  it("surfaces the drop count and what was dropped when the poller lost a score", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue({
+      paused: false, hintsEnabled: null, hintCost: null,
+      updatedBy: null, updatedAt: null, moduleOverrides: {},
+    });
+    getSyncStatus.mockResolvedValue({
+      lastPollAt: "2026-08-14T00:00:00Z", lastError: null, ingested: 3, dropped: 2,
+      lastDrop: "submit DVWA#7: rejected (4xx), dropped", reposPolled: 2, paused: false,
+    });
+    const html = renderToStaticMarkup(await AdminPage({ searchParams: Promise.resolve({}) }));
+    // The count itself, in its own cell — not merely a "2" loose in the markup.
+    expect(html).toMatch(/Dropped<\/dt>[\s\S]{0,160}?>2</);
+    expect(html).toContain("submit DVWA#7: rejected (4xx), dropped");
+    expect(html).toContain("#f6ad55");
   });
 
   it("shows 'sync not running' when there is no sync status yet", async () => {

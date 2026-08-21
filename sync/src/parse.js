@@ -2,6 +2,19 @@ const MARKER = /<!--\s*ctf-score:\s*(\{[\s\S]*?\})\s*-->/;
 // Same grammar the scorer enforces — author becomes a Redis key segment there.
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?:\[bot\])?$/;
 
+/** Whether a comment carries a `ctf-score:` marker AT ALL, regardless of
+ *  whether that marker survives validation.
+ *
+ *  The poller needs the two cases apart. `parseScoreComment` returns null for
+ *  both "this is an ordinary bot comment" (the workflow's "⏳ Scoring in
+ *  progress…" placeholder, every other Action's comments — routine, expected,
+ *  uninteresting) and "this comment claims to carry a score and the claim is
+ *  unusable" (a schema drift, a truncated body, a forgery attempt — never
+ *  routine). Collapsing them is how the second one stays invisible. */
+export function hasScoreMarker(body) {
+  return MARKER.test(body ?? "");
+}
+
 export function parseScoreComment(body, { targets }) {
   const m = MARKER.exec(body ?? "");
   if (!m) return null;

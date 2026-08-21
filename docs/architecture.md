@@ -544,10 +544,35 @@ without a rebuild:
   of every settings change, written atomically with the change itself (one
   Lua script, so a change can never land without its audit line).
 - **`ctf:sync:status`** (Redis hash, written by `sync/src/redis.js`'s
-  `writeStatus()` every tick) — `lastPollAt`, `ingested`, `reposPolled`,
-  `paused`, `lastError`. This is `sync`'s heartbeat; the admin dashboard's
-  `GET /api/admin/status` reads it alongside `ctf:admin:settings` and a
-  best-effort leaderboard-freshness read.
+  `writeStatus()` every tick) — `lastPollAt`, `ingested`, `dropped`,
+  `lastDrop`, `reposPolled`, `paused`, `lastError`. This is `sync`'s
+  heartbeat; the admin dashboard's `GET /api/admin/status` reads it alongside
+  `ctf:admin:settings` and a best-effort leaderboard-freshness read.
+
+  `ingested` and `dropped` are a **pair**, and /admin shows them side by side:
+  points that reached the leaderboard, and points that reached a PR and
+  stopped there. A drop is a comment the poller consumed and could not turn
+  into a score — a scorer `4xx`, or a `ctf-score:` marker present but
+  unreadable. Both are cumulative and neither is self-clearing, unlike
+  `lastError`, which describes only the tick that wrote it: a dropped score is
+  still missing after the poller recovers, so the next quiet tick must not
+  erase the pointer to the PR that needs looking at.
+
+  What is deliberately **not** counted is as load-bearing as what is. A
+  duplicate (the `since` cursor is inclusive, so the boundary comment is
+  re-read on most ticks) and a comment with no marker at all (the workflow's
+  "⏳ Scoring in progress…" placeholder, every other Action's comments) are
+  routine. Folding them in would make `dropped` permanently nonzero, and an
+  always-nonzero warning is one organizers learn to ignore — which is the
+  failure this counter exists to prevent. They are still tallied per repo and
+  reported in one summary log line per tick when anything non-routine
+  happened; a fully routine tick prints nothing.
+
+  This exists because **both** of the scoring bugs found by running a real PR
+  end to end had the same shape: a comment was consumed, no score was
+  submitted, and nothing was written down — the `continue` sat above every
+  logged branch, so no amount of tailing the poller would have found either.
+  See ADR 38.
 
 **Freeze = hold ingestion, not stop execution.** Setting `paused` does not
 touch fork Actions or GitHub — PRs keep getting judged and commented on;

@@ -134,6 +134,13 @@ export type SyncStatus = {
   lastPollAt: string | null;
   lastError: string | null;
   ingested: number;
+  /** Score comments the poller consumed and could not turn into points — a
+   *  scorer 4xx, or a `ctf-score:` marker it cannot read. Cumulative, and
+   *  never self-clearing: each one is a score sitting on a PR that the
+   *  leaderboard will never show until somebody intervenes. `lastDrop` says
+   *  which repo and why. */
+  dropped: number;
+  lastDrop: string | null;
   reposPolled: number;
   paused: boolean;
 };
@@ -233,6 +240,8 @@ export async function getSyncStatus(): Promise<SyncStatus | null> {
     lastPollAt: h.lastPollAt ?? null,
     lastError: h.lastError ?? null,
     ingested: Number(h.ingested ?? 0),
+    dropped: Number(h.dropped ?? 0),
+    lastDrop: h.lastDrop ?? null,
     reposPolled: Number(h.reposPolled ?? 0),
     paused: h.paused === "1",
   };
