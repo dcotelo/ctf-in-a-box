@@ -639,3 +639,34 @@ hostname_run() { # $1 = EVENT_URL
   # flyctl's docs rather than assumed, after nearly shipping the wrong one.
   [ -z "$(grep -E 'fly_run deploy .*[^-]--region ' "$FLY/deploy.sh")" ]
 }
+
+# --- idempotence must not depend on parsing human-readable output ----------
+#
+# A real re-run died on `Validation failed: Name has already been taken`. The
+# app DID exist; the check matched "^name<whitespace>" against `fly apps
+# list`'s table, that failed, and `fly apps create` ran anyway. AGENTS.md's
+# rule for the provisioning path is that every step be idempotent — a
+# check-then-act step that cannot see the state it checks is not.
+
+@test "app existence is queried directly, not scraped from a table" {
+  # Comments stripped first: this file EXPLAINS why `fly apps list` is not
+  # used, so a naive grep matches the explanation. Third time that shape has
+  # bitten in this suite — a test failing on its own documentation.
+  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F 'fly apps list')" ]
+}
+
+@test "app existence uses a command whose exit status is the answer" {
+  grep -q 'fly status --app' "$FLY/deploy.sh"
+}
+
+@test "a name collision explains that fly app names are global" {
+  # The raw Fly error reads like a bug in this script. It is not: the name may
+  # be held by an app in an organization the operator cannot see.
+  grep -q 'globally unique' "$FLY/deploy.sh"
+}
+
+@test "the collision message shows how to rename every app at once" {
+  # Five toml files must agree, and EVENT_URL after them — a one-liner beats
+  # editing five files by hand and missing one.
+  grep -q "deploy/fly/\*.fly.toml" "$FLY/deploy.sh"
+}

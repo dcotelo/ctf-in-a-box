@@ -368,11 +368,30 @@ create_app() {
     echo "DRY-RUN: fly apps create $1 (if absent)"
     return 0
   fi
-  if fly apps list 2>/dev/null | grep -qE "^$1[[:space:]]"; then
+  # Existence is asked DIRECTLY, not scraped out of `fly apps list`'s
+  # human-readable table. That table is formatted for people, and matching
+  # "^name<whitespace>" against it silently failed on a real re-run: the app
+  # existed, the check said it did not, `fly apps create` ran, and the deploy
+  # died on `Validation failed: Name has already been taken`. A check-then-act
+  # step that cannot see the state it is checking is not idempotent, which is
+  # the one property this whole script is supposed to have.
+  if fly status --app "$1" >/dev/null 2>&1; then
     echo "   app $1 exists"
-  else
-    fly apps create "$1"
+    return 0
   fi
+  if fly apps create "$1"; then
+    return 0
+  fi
+  # Fly app names are unique across ALL of Fly, not just this organization, so
+  # a plausible name may be held by someone else entirely. Say that, because
+  # the raw error reads like a bug in this script.
+  echo "FAIL: could not create app '$1'." >&2
+  echo "      Fly app names are globally unique — this one may be taken by an" >&2
+  echo "      app you cannot see, or held by an earlier attempt in another org." >&2
+  echo "      Rename all five apps to something event-specific:" >&2
+  echo "        sed -i '' 's/^app = \"ctf-in-a-box-/app = \"my-event-/' deploy/fly/*.fly.toml" >&2
+  echo "      then set EVENT_URL to match the new app name." >&2
+  exit 1
 }
 
 echo "== 1/5 redis"
