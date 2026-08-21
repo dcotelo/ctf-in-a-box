@@ -647,3 +647,14 @@ ENV
   # one that refuses to run.
   grep -qF '*) echo "$ref" ;;' "$FLY/deploy.sh"
 }
+
+@test "the platform check distinguishes 'absent' from 'could not look'" {
+  # The first version treated a failed inspect as a missing platform and
+  # blocked a valid deploy: registry.fly.io returns transient errors, stderr
+  # was swallowed, and an empty result read as "no amd64". A check that cannot
+  # tell those apart fails exactly when the registry is briefly unwell, which
+  # is unrelated to what it guards.
+  grep -qF 'could not inspect' "$FLY/deploy.sh"
+  # And it must actually retry rather than give up on one bad response.
+  grep -qF 'for _ in 1 2; do' "$FLY/deploy.sh"
+}

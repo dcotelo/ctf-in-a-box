@@ -572,16 +572,35 @@ else
   # The app and sync images cannot hit this because THIS script builds them
   # with --platform linux/amd64. The scorer is the one image built elsewhere,
   # by hand, following docs/scorer.md — so it is the one that needs checking.
-  if docker buildx imagetools inspect "$SCORER_IMAGE" >/dev/null 2>&1; then
-    if ! docker buildx imagetools inspect "$SCORER_IMAGE" 2>/dev/null | grep -q "linux/amd64"; then
-      echo "FAIL: $SCORE_IMAGE has no linux/amd64 build, so Fly cannot run it." >&2
-      echo "      Fly machines are amd64. An image built on Apple Silicon without" >&2
-      echo "      an explicit platform is arm64 only, and this mirrors it faithfully." >&2
-      echo "      Rebuild it and push again:" >&2
-      echo "        docker build --platform linux/amd64 -t $SCORE_IMAGE scorer/" >&2
-      echo "        docker push $SCORE_IMAGE" >&2
-      exit 1
-    fi
+  # ONLY fails when the platforms are KNOWN and amd64 is absent.
+  #
+  # The first version treated "inspect failed" as "no amd64" and blocked a
+  # perfectly good deploy: registry.fly.io returns transient errors (the same
+  # flakiness that produces `app repository not found` on a push), stderr went
+  # to /dev/null, and an empty result read as a missing platform. A check that
+  # cannot tell "absent" from "could not look" is worse than no check — it
+  # fails exactly when the registry is briefly unwell, which is unrelated to
+  # the thing it is guarding.
+  #
+  # One retry, because the flakiness is transient. If both attempts fail the
+  # deploy CONTINUES with a warning: an unverified platform is Fly's problem to
+  # report, and it reports it clearly.
+  platforms=""
+  for _ in 1 2; do
+    platforms="$(docker buildx imagetools inspect "$SCORER_IMAGE" 2>&1 || true)"
+    case "$platforms" in *Platform:*) break ;; esac
+    platforms=""
+  done
+  if [ -z "$platforms" ]; then
+    echo "   NOTE: could not inspect $SCORER_IMAGE to verify its platform — continuing." >&2
+  elif ! printf '%s' "$platforms" | grep -q "linux/amd64"; then
+    echo "FAIL: $SCORE_IMAGE has no linux/amd64 build, so Fly cannot run it." >&2
+    echo "      Fly machines are amd64. An image built on Apple Silicon without" >&2
+    echo "      an explicit platform is arm64 only, and this mirrors it faithfully." >&2
+    echo "      Rebuild it and push again:" >&2
+    echo "        docker build --platform linux/amd64 -t $SCORE_IMAGE scorer/" >&2
+    echo "        docker push $SCORE_IMAGE" >&2
+    exit 1
   fi
 fi
 
