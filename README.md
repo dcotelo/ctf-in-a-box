@@ -120,6 +120,7 @@ for a single-shot AWS deploy — `terraform apply` up, `terraform destroy` down.
 |---|---|
 | **Instant grading, no GitHub** | Single- or multi-select questions marked the moment they are answered, all-or-nothing on multi-select. Needs no forks, no org provisioning and no scoring pipeline. |
 | **Authored from `/admin`** | Prompt, choices, correct answers, points and order — with a global attempt cap and retry cooldown. Changes are live on the next request; no rebuild. |
+| **Bulk authoring** | Author one question at a time, or import and export the whole bank as one JSON bundle — the same versioned format the classic board uses. |
 
 **Classic CTF** — a jeopardy-style flag board, graded in the app:
 
