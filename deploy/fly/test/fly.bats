@@ -256,10 +256,35 @@ ENV
   [ -z "$(uncommented "$FLY/scorer.fly.toml" | grep -F 'dockerfile')" ]
 }
 
-@test "the scorer deploy passes --image from the env file" {
+@test "the scorer deploys the mirrored image, not the private GHCR ref" {
+  # Fly CANNOT pull from a private third-party registry — a real run failed
+  # with `Authentication required to access image "ghcr.io/.../score:latest"`
+  # and there is no credential flag. So the deploy must reference
+  # registry.fly.io, and the GHCR ref must appear only as the mirror SOURCE.
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"--image ghcr.io/fixture-org/score:latest"* ]]
+  [[ "$output" == *"--image registry.fly.io/ctf-in-a-box-scorer:latest"* ]]
+}
+
+@test "the scorer image is MIRRORED from SCORE_IMAGE, never rebuilt" {
+  # Mirroring keeps the leaderboard scorer byte-identical to the one the forks
+  # pull to judge. A rebuild would be the same source today and nothing keeps
+  # two builds in step.
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"imagetools create --tag registry.fly.io/ctf-in-a-box-scorer:latest ghcr.io/fixture-org/score:latest"* ]]
+}
+
+@test "the mirror authenticates docker for fly's registry first" {
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"fly auth docker"* ]]
+}
+
+@test "the pull fallback pins linux/amd64" {
+  # The forks' runners are amd64. An arm64 pull on an Apple Silicon machine
+  # would mirror an image the deployed scorer cannot execute.
+  grep -q 'docker pull --platform linux/amd64' "$FLY/deploy.sh"
 }
 
 @test "the derived redis:// connection string is redacted — it embeds the password" {

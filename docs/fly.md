@@ -214,6 +214,45 @@ the env file (or the reverse) and the deploy *succeeds*, while
 `BETTER_AUTH_URL` claims a hostname nothing answers on. The only symptom is a
 `redirect_uri` mismatch at sign-in, with nothing pointing back at the cause.
 
+## The scorer image is mirrored into Fly's registry
+
+**Fly cannot pull from a private third-party registry.** A real run failed
+with:
+
+```
+Error: failed to fetch an image or build from source:
+Authentication required to access image "ghcr.io/<org>/score:latest"
+```
+
+and there is no flag for supplying credentials — Fly's documented answer for
+private images is its own registry, `registry.fly.io/<app>`.
+
+So `deploy.sh` **mirrors** the image before deploying the scorer:
+
+```sh
+fly auth docker
+docker buildx imagetools create --tag registry.fly.io/<scorer-app>:latest "$SCORE_IMAGE"
+```
+
+`imagetools create` copies the manifest registry-to-registry: no local pull,
+no re-tagging of a single-arch layer, and **the digest is preserved exactly**.
+That matters more than convenience — the scorer serving the leaderboard has to
+be the same artifact the forks pull to judge PRs, or a rubric difference
+between them shows up as totals that disagree with the scores. Mirroring keeps
+them identical; rebuilding from source would not.
+
+This is the same move `ctf-setup org` already makes when it mirrors
+`SCORE_IMAGE` into the event org's GHCR so the forks can pull it. Same
+pattern, different destination.
+
+If `buildx` is unavailable it falls back to `docker pull --platform
+linux/amd64` + tag + push. The platform pin is deliberate: the forks' runners
+are amd64, and an arm64 pull on an Apple Silicon machine would mirror an image
+the deployed scorer cannot execute.
+
+You need to be logged in to the source registry (`docker login ghcr.io`) —
+`deploy.sh` uses the login you already have from pushing the image.
+
 ## Region
 
 `init` **asks** which region to run in, and writes the answer to the env file

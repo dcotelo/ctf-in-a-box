@@ -403,7 +403,54 @@ fly_run secrets set --app "$SCORER_APP" --stage \
   "UPSTASH_REDIS_REST_URL=$REST_URL" \
   "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN" \
   "CTF_SCORE_BEARER_TOKEN=$(env_value SCORER_TOKEN)"
-fly_run deploy --config "$FLY_DIR/scorer.fly.toml" --app "$SCORER_APP" --image "$SCORE_IMAGE" --primary-region "$REGION"
+# ---------------------------------------------------------------------------
+# MIRROR THE SCORER IMAGE INTO FLY'S REGISTRY.
+#
+# Fly cannot pull from a private third-party registry. `fly deploy --image
+# ghcr.io/<org>/score:latest` fails with:
+#
+#   Authentication required to access image "ghcr.io/<org>/score:latest"
+#
+# and there is no flag for supplying credentials — Fly's documented answer for
+# private images is its own registry, registry.fly.io/<app>.
+#
+# So this MIRRORS rather than rebuilds, and that distinction is the point: the
+# scorer serving the leaderboard has to be the same artifact the forks pull to
+# judge PRs, or a rubric difference between them shows up as totals that
+# disagree with the scores. `buildx imagetools create` copies the manifest
+# registry-to-registry — no local pull, no re-tag of a single-arch layer, and
+# the digest is preserved exactly.
+#
+# This is the same move `ctf-setup org` already makes when it mirrors
+# SCORE_IMAGE into the event org's GHCR so the forks' Actions can pull it.
+# Same pattern, different destination.
+FLY_IMAGE="registry.fly.io/$SCORER_APP:latest"
+if [ -n "$DRY_RUN" ]; then
+  echo "DRY-RUN: fly auth docker"
+  echo "DRY-RUN: docker buildx imagetools create --tag $FLY_IMAGE $SCORE_IMAGE"
+else
+  command -v docker >/dev/null || {
+    echo "FAIL: docker is required to mirror the scorer image into Fly's registry." >&2
+    exit 1
+  }
+  echo "   mirroring $SCORE_IMAGE -> $FLY_IMAGE"
+  # Authenticates the local docker client for registry.fly.io only; the GHCR
+  # side uses the login the operator already has from pushing the image.
+  fly auth docker >/dev/null || { echo "FAIL: fly auth docker failed" >&2; exit 1; }
+  if ! docker buildx imagetools create --tag "$FLY_IMAGE" "$SCORE_IMAGE" 2>/dev/null; then
+    # buildx is not always present. Fall back to pull/tag/push, pinning
+    # linux/amd64 — the forks' runners are amd64, and an arm64 pull on an
+    # Apple Silicon machine would mirror an image the scorer cannot run.
+    echo "   (buildx imagetools unavailable — falling back to pull/tag/push)"
+    docker pull --platform linux/amd64 "$SCORE_IMAGE" || {
+      echo "FAIL: cannot pull $SCORE_IMAGE. Run: docker login ghcr.io" >&2
+      exit 1
+    }
+    docker tag "$SCORE_IMAGE" "$FLY_IMAGE"
+    docker push "$FLY_IMAGE" || { echo "FAIL: cannot push to $FLY_IMAGE" >&2; exit 1; }
+  fi
+fi
+fly_run deploy --config "$FLY_DIR/scorer.fly.toml" --app "$SCORER_APP" --image "$FLY_IMAGE" --primary-region "$REGION"
 
 echo "== 4/5 sync (poll mode)"
 create_app "$SYNC_APP"
