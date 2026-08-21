@@ -39,7 +39,8 @@ become its captain and get a join code, or join an existing team by code.
 Everyone ends up on a team — a solo player is simply a team of one. Captains
 manage the roster from the app: rename the team, remove a member, transfer the
 captaincy, regenerate the join code, or disband. Team size is capped at four
-members.
+members by default; an organizer changes that from the admin panel's **Event**
+tab ("Players per team") without a rebuild.
 
 The leaderboard ranks **teams**, and each row expands to show its members with
 each member's individual points. A flag solved by several teammates counts
@@ -262,6 +263,26 @@ points/solved/solve-count hashes the leaderboard reads) but deliberately
 same organizer content/contestant progress line the quiz reset draws. A
 rehearsal on the `classic` module wipes back to the challenge set you wrote,
 ready to run for real. See [Classic](#classic) below.
+
+### Players per team
+
+The cap defaults to four and is changed from the **Event** tab. It is enforced
+**when someone joins**, inside the same atomic Redis script that adds them to
+the roster — so the number the panel shows and the number the join path
+enforces are always the same value, read through one resolver.
+
+**Lowering it never evicts anyone.** A team already at five keeps its five
+players when the cap drops to four; it simply cannot take another. Raising it
+takes effect on the next join.
+
+A cap of 0 is rejected: it would refuse every join, including into a captain's
+own team, while the UI advertised "0 players max". The accepted range is 1 to
+100.
+
+If Redis is briefly unreachable the cap falls back to the default rather than
+refusing joins — the opposite of the admin access check, and for the same
+reason in reverse: a registration outage is a worse failure than being briefly
+wrong about a team size.
 
 ### Adding and removing admins
 

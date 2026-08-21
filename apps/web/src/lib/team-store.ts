@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { TEAM_MAX_MEMBERS } from "@/lib/team-limits";
 import { outsideWindow } from "@/lib/admin-store";
 
 const MOCK_TEAM_COOKIE = "ctf-mock-team";
@@ -26,7 +27,16 @@ const MOCK_TEAM_COOKIE = "ctf-mock-team";
  */
 export const TEAM_WRITES_ENABLED = process.env.TEAM_WRITES_ENABLED === "true";
 
-export const TEAM_MAX_MEMBERS = 4;
+// Defined in team-limits.ts (no `server-only`) so the admin panel, a Client
+// Component, can render it as the field's placeholder. Re-exported here
+// because this is where callers expect it.
+//
+// DO NOT READ IT DIRECTLY to decide whether a team is full — call
+// `resolveTeamMaxMembers()`. ADR 31's lesson from the hint toggle is that a
+// split-brain comes from surfaces reading the constant while the override
+// lives elsewhere: the UI advertises one limit and the join path enforces
+// another.
+export { TEAM_MAX_MEMBERS } from "@/lib/team-limits";
 const NAME_MAX_LENGTH = 32;
 const NOT_AVAILABLE_IN_DEMO_MODE = "Not available in demo mode";
 
@@ -176,6 +186,26 @@ async function isRegistrationClosed(): Promise<boolean> {
   return outsideWindow(Date.now(), startsAt ?? null, endsAt ?? null);
 }
 
+/** Players allowed on one team: the organizer's override, else the default.
+ *
+ *  The ONE read path, for the join transaction and for every surface that
+ *  renders "N players max". Enforced on join only — lowering the cap below an
+ *  existing team's size never evicts anyone, it just refuses the next joiner.
+ *
+ *  Fails OPEN to the default: a Redis blip must not make every team look full
+ *  and block registration. Being briefly wrong about the cap is a smaller harm
+ *  than a registration outage, and the Lua script still enforces whatever
+ *  value it is handed atomically. */
+export async function resolveTeamMaxMembers(): Promise<number> {
+  try {
+    const [res] = await upstashPipeline([["HGET", ADMIN_SETTINGS_KEY, "teamMaxMembers"]]);
+    const raw = typeof res.result === "string" ? Number(res.result) : NaN;
+    return Number.isInteger(raw) && raw >= 1 ? raw : TEAM_MAX_MEMBERS;
+  } catch {
+    return TEAM_MAX_MEMBERS;
+  }
+}
+
 async function getUserTeamSlug(login: string): Promise<string | null> {
   const [current] = await upstashPipeline([["HGET", userKey(login), "team"]]);
   return typeof current.result === "string" && current.result ? current.result : null;
@@ -216,14 +246,19 @@ export async function joinTeam(login: string, code: string): Promise<TeamActionR
   const slug = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : null;
   if (!slug) return { ok: false, error: "Invalid or expired join code" }; // verdict: bad-code
 
+  // Resolved, not the constant: the Lua script enforces the cap inside the
+  // transaction, so it has to be handed the value the organizer actually set.
+  // Hardcoding it here again is precisely the split this override exists to
+  // avoid.
+  const maxMembers = await resolveTeamMaxMembers();
   const verdict = await upstashEval(
     JOIN_SCRIPT,
     [userKey(login), teamKey(slug), membersKey(slug)],
-    [login, TEAM_MAX_MEMBERS, slug],
+    [login, maxMembers, slug],
   );
   if (verdict === "already-on-team") return { ok: false, error: "Leave your current team before joining another" };
   if (verdict === "not-found") return { ok: false, error: "That team no longer exists" };
-  if (verdict === "full") return { ok: false, error: `Team is full (${TEAM_MAX_MEMBERS} players max)` };
+  if (verdict === "full") return { ok: false, error: `Team is full (${maxMembers} players max)` };
   if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
   return { ok: true, team: slug };
 }

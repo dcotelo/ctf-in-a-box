@@ -76,6 +76,7 @@ const settings: AdminSettings = {
   quizMaxAttempts: null,
   quizRetryAfterMin: null,
   classicCooldownSec: null,
+  teamMaxMembers: null,
   scoringStartsAt: null,
   scoringEndsAt: null,
   registrationStartsAt: null,

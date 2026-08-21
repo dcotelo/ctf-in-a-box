@@ -38,7 +38,7 @@ import AdminAdminsTab from "./admin-admins-tab";
 import AdminEventTab from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
-import type { ConfirmState } from "./types";
+import type { CommitNumber, ConfirmState } from "./types";
 
 // Registry defaults (displayName/description) keyed by id, for the identity
 // form's placeholders. `enabledModules` — not the `modules` prop — because a
@@ -132,6 +132,9 @@ export default function AdminControls({
   );
   const [classicCooldownSecInput, setClassicCooldownSecInput] = useState(
     initial.classicCooldownSec === null ? "" : String(initial.classicCooldownSec),
+  );
+  const [teamMaxMembersInput, setTeamMaxMembersInput] = useState(
+    initial.teamMaxMembers === null ? "" : String(initial.teamMaxMembers),
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -254,17 +257,11 @@ export default function AdminControls({
   /** Shared commit for the numeric knobs (hint + quiz): junk snaps back to the
    *  stored value, an unchanged value is a no-op, otherwise it's patched
    *  server-side (which re-validates the range — see admin-store). */
-  const commitNumber = (
-    key:
-      | "hintCost"
-      | "hintsMinSolves"
-      | "hintsUnlockAfterMin"
-      | "quizMaxAttempts"
-      | "quizRetryAfterMin"
-      | "classicCooldownSec",
-    raw: string,
-    reset: (v: string) => void,
-  ) => {
+  // Typed as the shared `CommitNumber` rather than repeating its key union
+  // here. The inline copy had already drifted once by the time a seventh key
+  // was added, and a mismatch shows up as a type error at the call site rather
+  // than anywhere near the cause.
+  const commitNumber: CommitNumber = (key, raw, reset) => {
     const current = settings[key];
     const value = Number(raw);
     if (raw.trim() === "" || !Number.isInteger(value) || value < 0) {
@@ -323,6 +320,9 @@ export default function AdminControls({
               setConfirm={setConfirm}
               doReset={doReset}
               doSeed={doSeed}
+              teamMaxMembersInput={teamMaxMembersInput}
+              setTeamMaxMembersInput={setTeamMaxMembersInput}
+              commitNumber={commitNumber}
             />
           ) : tab.id === ADMINS_TAB ? (
             <AdminAdminsTab viewerLogin={viewerLogin} />
