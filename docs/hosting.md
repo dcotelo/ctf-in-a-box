@@ -258,6 +258,13 @@ queryable) and shows ✅ once done — only the third is a blind reminder:
    `doctor` reports it as ⚠️ unverified — correctly: it has not been observed
    either way.
 
+   Note that this includes forks that have **scored successfully many times**.
+   Under the old workflow the pull happened inside `Run scorer`, where it
+   cannot be read back separately, so a working grant is invisible to
+   `doctor` until that fork runs the v2 workflow once. ⚠️ here means *not
+   observed*, never *not granted*. Re-triggering any existing PR on an
+   upgraded fork (close, reopen) is enough to settle it.
+
 ### Upgrading an event that predates the Redis password
 
 Redis runs with `requirepass`, and `docker-compose.yml` reads that password
