@@ -192,6 +192,28 @@ changes neither points nor `lastSolveAt` — but it re-submits the event's
 entire history on every deploy, and it makes the `ingested` / `dropped`
 counters on `/admin` meaningless. `deploy.sh` creates the volume.
 
+## The hostname the app is actually served from
+
+`deploy.sh` compares `EVENT_URL`'s host against the app it deploys, and says
+something when they disagree:
+
+```
+WARNING: EVENT_URL is https://ctf-in-a-box-test.fly.dev, but the app deploys
+         as 'ctf-in-a-box-app' and will be served at
+         https://ctf-in-a-box-app.fly.dev.
+         Sign-in will fail with a redirect_uri mismatch.
+```
+
+It **warns and continues** — renaming the apps in `deploy/fly/*.fly.toml` to
+match your event is a perfectly good answer, and failing would turn a choice
+into a gate. A custom domain gets a note naming the `fly certs add` it needs,
+not a warning, because that setup is entirely legitimate.
+
+The failure it prevents is a late and opaque one: rename the apps and forget
+the env file (or the reverse) and the deploy *succeeds*, while
+`BETTER_AUTH_URL` claims a hostname nothing answers on. The only symptom is a
+`redirect_uri` mismatch at sign-in, with nothing pointing back at the cause.
+
 ## Poll vs push
 
 The module ships **poll mode**, and `scorer.fly.toml` / `sync.fly.toml`

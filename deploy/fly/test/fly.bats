@@ -420,3 +420,47 @@ ENV
   app_at="$(printf '%s' "$output" | grep -n '== 5/5 app' | cut -d: -f1)"
   [ "$redis_at" -lt "$app_at" ]
 }
+
+# --- EVENT_URL host vs the app it is served from ---------------------------
+#
+# The failure this catches is late and opaque: rename the apps in the toml
+# files and forget the env file (or the reverse) and the deploy SUCCEEDS,
+# while BETTER_AUTH_URL claims a hostname nothing answers on. The symptom is
+# a redirect_uri mismatch at sign-in, with nothing pointing back at the cause.
+
+hostname_run() { # $1 = EVENT_URL
+  sed "s#^EVENT_URL=.*#EVENT_URL=$1#" "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/hn"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/hn" --config "$BATS_TEST_TMPDIR/event.yaml"
+}
+
+@test "a fly.dev host naming a different app warns" {
+  hostname_run "https://some-other-name.fly.dev"
+  [[ "$output" == *"but the app deploys as 'ctf-in-a-box-app'"* ]]
+}
+
+@test "the mismatch warning does NOT block the deploy" {
+  # Warn, never fail: renaming the apps to match is a legitimate answer, and
+  # failing would make this a gate on a choice that is the organizer's.
+  hostname_run "https://some-other-name.fly.dev"
+  [ "$status" -eq 0 ]
+}
+
+@test "the matching fly.dev host says nothing" {
+  # A check that fires on the correct configuration is noise, and noise is
+  # what gets ignored when it finally matters.
+  hostname_run "https://ctf-in-a-box-app.fly.dev"
+  [[ "$output" != *"WARNING"* ]]
+}
+
+@test "a custom domain is not treated as a mismatch" {
+  # `fly certs add` + EVENT_URL pointing at your own domain is a first-class
+  # setup. Warning about it would train organizers to ignore the warning.
+  hostname_run "https://ctf.example.org"
+  [[ "$output" != *"WARNING"* ]]
+}
+
+@test "a custom domain names the certificate command it needs" {
+  hostname_run "https://ctf.example.org"
+  [[ "$output" == *"fly certs add ctf.example.org --app ctf-in-a-box-app"* ]]
+}

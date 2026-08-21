@@ -224,6 +224,35 @@ case "$EVENT_URL" in
     exit 1 ;;
 esac
 
+# EVENT_URL's host vs the app it will actually be served from.
+#
+# WARNS, NEVER FAILS. A custom domain is a first-class setup — `fly certs add`
+# then EVENT_URL pointing at it — so a mismatch is not wrong by itself. What
+# IS wrong, and common, is a *.fly.dev host naming an app that does not exist:
+# rename the apps in these toml files and forget the env file, or the reverse,
+# and the deploy succeeds while BETTER_AUTH_URL claims a hostname nothing
+# answers on. That surfaces at sign-in as an opaque redirect_uri mismatch,
+# long after the deploy that caused it.
+EVENT_HOST="${EVENT_URL#https://}"
+EVENT_HOST="${EVENT_HOST%%/*}"
+case "$EVENT_HOST" in
+  "$APP_APP.fly.dev") ;;                       # exactly right
+  *.fly.dev)
+    # A fly.dev host is a claim about an app name, and this one disagrees.
+    echo "WARNING: EVENT_URL is https://$EVENT_HOST, but the app deploys as '$APP_APP'" >&2
+    echo "         and will be served at https://$APP_APP.fly.dev." >&2
+    echo "         Sign-in will fail with a redirect_uri mismatch. Either set" >&2
+    echo "           EVENT_URL=https://$APP_APP.fly.dev" >&2
+    echo "         or rename the apps in deploy/fly/*.fly.toml to match." >&2
+    echo >&2 ;;
+  *)
+    # A custom domain. Legitimate, but it only works once a certificate
+    # exists, so say the command rather than assuming it was run.
+    echo "NOTE: EVENT_URL is a custom domain ($EVENT_HOST), not *.fly.dev." >&2
+    echo "      That needs: fly certs add $EVENT_HOST --app $APP_APP" >&2
+    echo >&2 ;;
+esac
+
 for name in BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SCORER_TOKEN; do
   require "$name" "$(env_value "$name")"
 done
