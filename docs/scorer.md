@@ -503,9 +503,17 @@ patch, so it only fits challenges scored against a shared instance).
   enforces [docs/modules.md](modules.md) §6.3 itself: a `concurrency`
   group (one run per PR, superseded runs cancelled) plus a cooldown gate
   that skips scoring while the previous result comment is younger than
-  `COOLDOWN_MINUTES` (default 5 — a plain env value at the top of the
-  workflow) and annotates the comment with when the next push will be
+  the cooldown, and annotates the comment with when the next push will be
   scored.
+
+  The cooldown is an **organizer setting**, changeable mid-event from
+  `/admin` (Secure Development tab, "Re-run cooldown"). The Action runs
+  inside a contestant's fork and cannot reach the event's datastore, so it
+  fetches the current value from `<event>/api/public/scoring` at the start
+  of each run and falls back to the workflow's baked `COOLDOWN_MINUTES`
+  (default 5) if the event is unreachable, slow, or answers with anything
+  that is not a number. A scoring run never fails because a config lookup
+  did. See [ADR 46](decisions.md).
 
 `scripts/acceptance-scorer.sh` is the offline proof of all of the above:
 it builds the image with the example rubric, judges a fake target that

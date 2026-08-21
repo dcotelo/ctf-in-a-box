@@ -269,6 +269,18 @@ same organizer content/contestant progress line the quiz reset draws. A
 rehearsal on the `classic` module wipes back to the challenge set you wrote,
 ready to run for real. See [Classic](#classic) below.
 
+### Re-run cooldown
+
+On the **Secure Development** tab. It is the minimum minutes between *scored*
+runs on the same PR — every run hands back a per-challenge pass/fail, so a
+short cooldown lets a contestant iterate a check-gaming patch against the
+rubric. `0` disables it.
+
+It takes effect on the **next push**, with no re-rendering of any fork's
+workflow: each fork's Action reads the current value from the event when it
+runs. If the box is unreachable the Action uses the value baked into its
+workflow instead, so scoring continues either way.
+
 ### Players per team
 
 The cap defaults to four and is changed from the **Event** tab. It is enforced

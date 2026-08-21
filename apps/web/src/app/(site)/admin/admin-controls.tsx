@@ -133,6 +133,9 @@ export default function AdminControls({
   const [classicCooldownSecInput, setClassicCooldownSecInput] = useState(
     initial.classicCooldownSec === null ? "" : String(initial.classicCooldownSec),
   );
+  const [cooldownInput, setCooldownInput] = useState(
+    initial.scoreCooldownMin === null ? "" : String(initial.scoreCooldownMin),
+  );
   const [teamMaxMembersInput, setTeamMaxMembersInput] = useState(
     initial.teamMaxMembers === null ? "" : String(initial.teamMaxMembers),
   );
@@ -347,6 +350,8 @@ export default function AdminControls({
                   unlockAfterInput={unlockAfterInput}
                   setUnlockAfterInput={setUnlockAfterInput}
                   commitNumber={commitNumber}
+                  cooldownInput={cooldownInput}
+                  setCooldownInput={setCooldownInput}
                 />
               ) : tab.id === "quiz" ? (
                 <AdminQuizControls

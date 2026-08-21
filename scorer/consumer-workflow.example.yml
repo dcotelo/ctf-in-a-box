@@ -1,6 +1,6 @@
 # CTF scoring workflow — self-contained, no upstream score-action.
 #
-# ctf-workflow-version: 2
+# ctf-workflow-version: 3
 #
 # BUMP THAT NUMBER whenever a change here needs to reach forks that are
 # ALREADY provisioned — a security fix, or anything a live event would
@@ -54,7 +54,11 @@
 #   <LEADERBOARD_LINK>  event.url + /leaderboard — the score comment links here.
 #                Leave empty/unfilled to omit the leaderboard link.
 #
-# KNOB (not a placeholder): COOLDOWN_MINUTES in the job env below — minimum
+# KNOB (not a placeholder): COOLDOWN_MINUTES in the job env below — the
+# FALLBACK minimum. The run asks the event for the organizer's current value
+# first (GET <event>/api/public/scoring) and only uses this when that is
+# unreachable, so an organizer can change the cooldown mid-event without
+# re-rendering every fork's workflow. Minimum
 # minutes between scored runs on one PR (default 5, see the cooldown step).
 #
 # KNOB (not a placeholder): CTF_DISCLOSE_TABLE — set the repo/org Actions
@@ -110,7 +114,34 @@ jobs:
         with:
           script: |
             core.setOutput('skip', 'false');
-            const cooldownMs = Number(process.env.COOLDOWN_MINUTES || 5) * 60 * 1000;
+            // The cooldown is an ORGANIZER setting, and this Action runs in a
+            // fork that cannot read the event's datastore. So it asks the
+            // event for the current value (issue #46), falling back to the
+            // baked COOLDOWN_MINUTES when the box is unreachable, when
+            // LEADERBOARD_LINK was never rendered, or when anything about the
+            // reply is not a number. A scoring run must never fail because a
+            // config lookup did.
+            //
+            // The base URL is derived from LEADERBOARD_LINK rather than
+            // carried as a second placeholder: they are always the same host,
+            // and one rendered value cannot drift from itself.
+            let cooldownMinutes = Number(process.env.COOLDOWN_MINUTES || 5);
+            const base = (process.env.LEADERBOARD_LINK || '').replace(/\/leaderboard\/?$/, '');
+            if (/^https?:\/\//.test(base)) {
+              try {
+                const res = await fetch(`${base}/api/public/scoring`, {
+                  signal: AbortSignal.timeout(5000),
+                });
+                if (res.ok) {
+                  const live = Number((await res.json()).cooldownMinutes);
+                  if (Number.isFinite(live) && live >= 0) cooldownMinutes = live;
+                }
+              } catch {
+                core.info('cooldown: event config unreachable, using the baked default');
+              }
+            }
+            core.info(`cooldown: ${cooldownMinutes} minutes`);
+            const cooldownMs = cooldownMinutes * 60 * 1000;
             const marker = `<!-- ctf-score:${process.env.TARGET} -->`;
             const untilRe = /<!-- ctf-score-cooldown-until:(\S+) -->/;
             const { data: comments } = await github.rest.issues.listComments({
