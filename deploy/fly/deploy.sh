@@ -412,7 +412,10 @@ SCORE_IMAGE="$(env_value SCORE_IMAGE)"
 require SCORE_IMAGE "$SCORE_IMAGE"
 
 # Every service reaches Redis through srh, over the private network.
-REST_URL="http://$SRH_APP.internal:80"
+# `.flycast`, not `.internal` — see srh.fly.toml. srh binds IPv4 only and
+# Fly's private network is IPv6, so traffic goes through Fly's proxy on the
+# app's PRIVATE anycast address.
+REST_URL="http://$SRH_APP.flycast:80"
 
 create_app() {
   # `fly apps create` fails if the app exists, which is the normal state on a
@@ -479,9 +482,43 @@ else
 fi
 fly_run secrets set --detach --app "$REDIS_APP" "REDIS_PASSWORD=$REDIS_PASSWORD"
 fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP" --primary-region "$REGION"
+# `fly deploy` leaves a machine with no public service STOPPED, and nothing
+# autostarts it — there is no proxy in front of redis to wake it on demand.
+# Observed twice: the deploy reported success and the entire stack was down,
+# because the datastore was not running.
+if [ -z "$DRY_RUN" ]; then
+  for m in $(fly machine list --app "$REDIS_APP" --json 2>/dev/null | grep -oE '"id":"[a-z0-9]+"' | cut -d'"' -f4); do
+    fly machine start "$m" --app "$REDIS_APP" >/dev/null 2>&1 || true
+  done
+  echo "   redis machines started"
+fi
 
 echo "== 2/5 srh (the Upstash-REST API the services speak)"
 create_app "$SRH_APP"
+# The private anycast address Flycast routes on. Without it the service block
+# in srh.fly.toml has no IP to answer on and every client gets `Connection
+# refused` — the exact symptom this replaced.
+if [ -n "$DRY_RUN" ]; then
+  echo "DRY-RUN: fly ips allocate-v6 --private --app $SRH_APP (if absent)"
+elif [ "$(fly ips list --app "$SRH_APP" --json 2>/dev/null | grep -c '"Address"')" -gt 0 ]; then
+  echo "   private IPv6 exists"
+else
+  fly ips allocate-v6 --private --app "$SRH_APP" >/dev/null 2>&1 || true
+  echo "   allocated a private IPv6"
+fi
+# A PUBLIC address here would expose the datastore behind nothing but the
+# bearer token. Refuse rather than warn: this is the one service whose
+# accidental exposure hands over every score, team and hint purchase.
+# JSON, not the table. `fly ips list`'s human output ends with a docs line
+# containing the words "public, private, shared" — grepping it for "private"
+# matched that sentence and reported an address that did not exist. Third
+# time output-scraping has bitten in this script; the rule is now: if flyctl
+# offers --json, parse that.
+if [ -z "$DRY_RUN" ] && fly ips list --app "$SRH_APP" --json 2>/dev/null | grep -qE '"Type": *"(v4|v6|shared_v4)"' ; then
+  echo "FAIL: $SRH_APP has a PUBLIC ip. srh fronts the whole datastore and must" >&2
+  echo "      be private-only. Remove it: fly ips release <addr> --app $SRH_APP" >&2
+  exit 1
+fi
 fly_run secrets set --detach --app "$SRH_APP" \
   "SRH_TOKEN=$SRH_TOKEN" \
   "SRH_CONNECTION_STRING=$SRH_CONNECTION_STRING"

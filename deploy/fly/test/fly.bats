@@ -228,13 +228,48 @@ ENV
 @test "srh is deployed, and every service is pointed at it" {
   run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
     --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"srh.fly.toml"* && "$output" == *"UPSTASH_REDIS_REST_URL=http://ctf-in-a-box-srh.internal:80"* ]]
+  [[ "$output" == *"srh.fly.toml"* && "$output" == *"UPSTASH_REDIS_REST_URL=http://ctf-in-a-box-srh.flycast:80"* ]]
 }
 
-@test "srh publishes no public service" {
-  # It fronts the entire datastore. A public port here would expose it behind
-  # nothing but the bearer token.
+@test "srh declares a service but no PUBLIC one" {
+  # srh needs a service block for Flycast (its Elixir server binds IPv4 only,
+  # and Fly's private network is IPv6, so traffic goes through Fly's proxy on
+  # a PRIVATE anycast address). Privacy comes from which IP is allocated, not
+  # from the absence of a service — so what must never appear is http_service.
   [ -z "$(uncommented "$FLY/srh.fly.toml" | grep -F '[http_service]')" ]
+  grep -q '^\[\[services\]\]' "$FLY/srh.fly.toml"
+}
+
+@test "services reach srh over flycast, not .internal" {
+  # `.internal` is direct-to-machine and needs the process to bind IPv6.
+  # srh does not, so every client got `Connection refused`.
+  grep -q 'flycast' "$FLY/deploy.sh"
+}
+
+@test "deploy refuses to continue if srh has a PUBLIC ip" {
+  grep -q 'has a PUBLIC ip' "$FLY/deploy.sh"
+}
+
+@test "public-ip detection parses --json, not the human table" {
+  # `fly ips list`'s human output ends with a docs sentence containing
+  # "public, private, shared"; grepping it for "private" reported an address
+  # that did not exist. Third output-scraping bug in this script.
+  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F 'fly ips list' | grep -v -- '--json')" ]
+}
+
+@test "redis machines are started after deploy" {
+  # `fly deploy` leaves a machine with no public service STOPPED and nothing
+  # autostarts it — no proxy in front of redis to wake it. Observed twice:
+  # deploy reported success while the whole stack was down.
+  grep -q 'fly machine start' "$FLY/deploy.sh"
+}
+
+@test "redis's requirepass is expanded by a shell" {
+  # Fly runs a [processes] command WITHOUT a shell, so `$REDIS_PASSWORD` was
+  # passed to redis-server as a LITERAL 16-char string. Redis started, looked
+  # healthy, and accepted `redis-cli -a '$REDIS_PASSWORD'` — the datastore was
+  # protected by a password published in the committed config.
+  grep -q "sh -c 'exec redis-server" "$FLY/redis.fly.toml"
 }
 
 @test "srh is pinned by digest, like the compose service it mirrors" {
@@ -548,7 +583,9 @@ hostname_run() { # $1 = EVENT_URL
 # these, not what hid them.
 
 @test "no private app declares a [[services]] block" {
-  for f in redis srh scorer sync; do
+  # srh is excluded: it needs one for Flycast, since its server binds IPv4
+  # only and Fly's private network is IPv6. See its own test above.
+  for f in redis scorer sync; do
     [ -z "$(uncommented "$FLY/$f.fly.toml" | grep '^\[\[services\]\]')" ] || return 1
   done
 }
