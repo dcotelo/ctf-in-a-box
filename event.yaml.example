@@ -2,7 +2,11 @@ event:
   name: "OWASP Chapter CTF"
   start: 2026-10-01T09:00:00-03:00
   end: 2026-10-01T18:00:00-03:00
-  url: http://192.168.1.10        # box URL contestants reach; public URL in push mode
+  # NO `url:` HERE. The event's URL is EVENT_URL, in .env — it is a DEPLOYMENT
+  # fact, not an event one. The same event.yaml is deployed to a box, to AWS
+  # and to fly.io on three different hostnames, which is why .env and .env.fly
+  # carry different EVENT_URLs for one event. A `url:` in this file forced one
+  # URL on all of them. Building with it set now fails and says so.
   # discord: https://discord.gg/your-invite  # optional; omit to hide Discord links/mentions in the app
 github:
   org: my-event-org                # disposable per-event org; also the fork org the app's challenge links point at

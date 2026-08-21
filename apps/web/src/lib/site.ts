@@ -10,7 +10,6 @@ export const event = {
   dates: eventConfig.dates,
   location: eventConfig.location,
   ctfStartsAt: eventConfig.ctfStartsAt,
-  url: eventConfig.url,
 
   // Live contestant support during the event: scoring questions, stuck runs,
   // organizer announcements. Sourced from event.yaml's event.discord (or

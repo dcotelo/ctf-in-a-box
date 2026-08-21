@@ -583,6 +583,10 @@ cleanup_rendered() {
   if [ -z "$DRY_RUN" ]; then
     rm -f "$RENDERED"
   fi
+  # The autostop config is a derived copy of fly.toml and holds nothing
+  # sensitive, but it goes too: leaving it behind invites someone to edit the
+  # copy and wonder why their change never deploys.
+  rm -f "$FLY_DIR/.fly.autostop.toml"
 }
 trap cleanup_rendered EXIT INT TERM
 
@@ -623,6 +627,57 @@ fly_run secrets set --detach --app "$APP" \
   "REDISCLI_AUTH=$REDIS_PASSWORD" \
   "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
 
+# ---------------------------------------------------------------------------
+# FLY_AUTO_STOP — let the machine stop when idle. OFF unless asked for.
+#
+# There is no `fly deploy` flag for this: `auto_stop_machines` lives in
+# fly.toml, and `fly machine update --autostop` is undone by the next deploy.
+# So when the knob is set, the committed fly.toml is rendered to a temporary
+# copy with the value substituted and THAT is deployed. fly.toml itself is
+# never edited — a deploy that dirties a tracked file is a deploy that gets
+# committed by accident.
+#
+#   off      (default) always running
+#   stop     stopped when idle; cold start on the next request
+#   suspend  memory snapshotted and restored; much faster wake, costs storage
+#
+# min_machines_running must drop to 0 alongside it, or Fly keeps one machine up
+# and the setting does nothing — a silent no-op that looks like it worked.
+# ---------------------------------------------------------------------------
+DEPLOY_TOML="$CONFIG_TOML"
+AUTO_STOP="$(env_value FLY_AUTO_STOP)"
+[ -n "$AUTO_STOP" ] || AUTO_STOP="off"
+case "$AUTO_STOP" in
+  off) ;;
+  stop|suspend)
+    echo
+    echo "WARNING: FLY_AUTO_STOP=$AUTO_STOP — this machine will stop when idle." >&2
+    echo "         It holds redis AND the sync poller, so while it is stopped the" >&2
+    echo "         leaderboard does not advance: PR score comments pile up on" >&2
+    echo "         GitHub and are only collected once someone loads a page and" >&2
+    echo "         wakes the machine. Fine between events, wrong during one." >&2
+    echo "         Set FLY_AUTO_STOP=off in $ENV_FILE before the event starts." >&2
+    echo
+    DEPLOY_TOML="$FLY_DIR/.fly.autostop.toml"
+    if [ -z "$DRY_RUN" ]; then
+      sed -e "s/^  auto_stop_machines = false/  auto_stop_machines = \"$AUTO_STOP\"/" \
+          -e "s/^  min_machines_running = 1/  min_machines_running = 0/" \
+          "$CONFIG_TOML" > "$DEPLOY_TOML"
+      # Fail loudly rather than deploying a config where the substitution
+      # silently missed — a renamed key here would just quietly keep the
+      # machine running forever while the operator believed otherwise.
+      grep -q "auto_stop_machines = \"$AUTO_STOP\"" "$DEPLOY_TOML" || {
+        echo "FAIL: could not set auto_stop_machines in $CONFIG_TOML." >&2
+        rm -f "$DEPLOY_TOML"
+        exit 1
+      }
+    fi
+    ;;
+  *)
+    echo "FAIL: FLY_AUTO_STOP=$AUTO_STOP is not valid. Use off, stop or suspend." >&2
+    exit 1 ;;
+esac
+
 echo "== 5/5 deploy"
 # `--image`, AND IT IS REQUIRED HERE.
 #
@@ -642,7 +697,7 @@ echo "== 5/5 deploy"
 # The alternative — leaving one service buildable so flyctl builds it — does
 # not work for `app`, whose event.yaml must arrive as a build ARG, and flyctl
 # implements no build args at all.
-fly_run deploy --config "$CONFIG_TOML" --app "$APP" --image "$APP_IMAGE" --primary-region "$REGION"
+fly_run deploy --config "$DEPLOY_TOML" --app "$APP" --image "$APP_IMAGE" --primary-region "$REGION"
 
 echo "== done"
 cat <<EOF

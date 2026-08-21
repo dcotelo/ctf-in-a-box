@@ -74,7 +74,7 @@ docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --
 # 4. Create your event config from the example, then edit it.
 cp event.yaml.example event.yaml
 #    MANUAL edit: github.org, modules.secure-development.targets,
-#    admins=[your login], event.url.
+#    admins=[your login].  (The URL is EVENT_URL in .env, not here.)
 
 # 5. Create the disposable GitHub org — UI-ONLY, ctf-setup never creates it:
 #    https://github.com/account/organizations/new
@@ -458,9 +458,12 @@ ctf-setup.sh oauth-config --client-id <client id>
 ```
 
 This sets `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`; the app
-reads them at runtime. `EVENT_URL` is the value in `.env` — that is what Caddy
-and the app's auth flow use (`event.yaml`'s `event.url` is a separate, unsynced
-field). You can also set both by hand instead of using the helpers, and you may
+reads them at runtime. `EVENT_URL` in `.env` is **the** event URL — Caddy, the app's
+auth flow, the HTTPS start-up guard, the CSRF origin check and the leaderboard
+link in every fork's score comment all read it, and nothing else carries a
+second copy. `event.yaml` used to have a `url:` field beside it; it was a
+deployment fact in the event file, it disagreed silently, and a build now
+fails if one is left behind. You can also set both by hand instead of using the helpers, and you may
 register the OAuth app on your personal account rather than the org.
 
 > **Use HTTPS for any real event.** Set `EVENT_URL` to `https://<your-domain>`
@@ -571,7 +574,9 @@ clean exit isn't treated as a crash and restarted forever. You still need a
 `SCORE_IMAGE` for the scorer that profile also brings up.
 
 Copy `event.yaml.example` and fill in `github.org`, the `modules:` you want,
-`admins` (GitHub logins), and `event.url` — or let
+and `admins` (GitHub logins) — the URL is not in this file, it is `EVENT_URL`
+in `.env`, because one `event.yaml` is deployed to a box, to AWS and to fly.io
+on three different hostnames. Or let
 [the wizard](#quickstart-zero-to-a-scored-event) write the file from your
 answers, which is the same schema with none of the YAML. Only the modules you
 enable need their own settings: `modules.secure-development.targets` and

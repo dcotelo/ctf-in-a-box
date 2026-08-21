@@ -14,7 +14,6 @@ const DEFAULTS = {
   dates: "",
   location: "",
   ctfStartsAt: null,
-  url: "http://localhost:3000",
   contactEmail: "",
   // Canonical forks live under OWASP-CTF; self-hosted events override via
   // event.yaml's github.org (the same key the kit's sync loader requires).
@@ -144,6 +143,27 @@ function fromYaml(path) {
   warnIgnoredKeys(doc);
   const mods = validateModules(doc?.modules);
   const ev = doc?.event ?? {};
+  // event.url MOVED to EVENT_URL, and this refuses rather than ignores.
+  //
+  // It was a DEPLOYMENT fact filed in the EVENT file: one event.yaml is
+  // deployed to a box, to AWS and to Fly, each on a different hostname, which
+  // is why .env and .env.fly carry different EVENT_URLs for the same event.
+  // A `url:` here forced one URL on all of them, and silently lost to
+  // EVENT_URL everywhere it actually mattered (BETTER_AUTH_URL, the HTTPS
+  // start-up guard, the CSRF origin check) while still rendering the
+  // leaderboard link in every fork's score comment. A stale one therefore
+  // pointed contestants at a dead host while sign-in worked fine.
+  if (ev.url !== undefined) {
+    fail(
+      "event.yaml sets `event.url`, which no longer exists.\n" +
+      "      The event's URL is EVENT_URL, in .env (or .env.fly) - it is what\n" +
+      "      BETTER_AUTH_URL, the HTTPS start-up guard and the CSRF origin\n" +
+      "      check all read, and it differs per deployment.\n" +
+      "      Delete these lines from event.yaml:\n" +
+      "        event:\n" +
+      `          url: ${ev.url}`
+    );
+  }
   const startIso = ev.start ? String(ev.start) : null;
   if (startIso !== null && Number.isNaN(new Date(startIso).getTime())) fail(`invalid event.start: ${startIso}`);
   return {
@@ -152,7 +172,6 @@ function fromYaml(path) {
     dates: ev.start ? displayDates(String(ev.start), ev.end && String(ev.end)) : DEFAULTS.dates,
     location: ev.location ?? "",
     ctfStartsAt: startIso,
-    url: ev.url ?? DEFAULTS.url,
     contactEmail: ev.contact ? String(ev.contact) : "",
     githubOrg: doc?.github?.org ? String(doc.github.org) : DEFAULTS.githubOrg,
     discordUrl: ev.discord ? String(ev.discord) : "",
@@ -172,7 +191,6 @@ function fromEnv(env) {
     dates: env.EVENT_START ? displayDates(env.EVENT_START, env.EVENT_END) : "",
     location: env.EVENT_LOCATION ?? "",
     ctfStartsAt: env.EVENT_START ?? null,
-    url: env.EVENT_URL ?? DEFAULTS.url,
     contactEmail: env.EVENT_CONTACT ?? "",
     githubOrg: env.EVENT_GITHUB_ORG ?? DEFAULTS.githubOrg,
     discordUrl: env.EVENT_DISCORD ?? "",

@@ -2002,3 +2002,51 @@ anchored on `//host:`, which does not match `redis://:PASSWORD@redis:6379` —
 the host there follows an `@`. srh was left pointing at `redis`, reproducing
 the exact IPv6 failure this ADR exists to eliminate, and looking identical to
 it. Both URL forms are rewritten now, with a test for the userinfo one.
+
+## 43. One URL, and it lives in `.env`, not `event.yaml`
+
+**Status.** Accepted.
+
+**Context.** The event's URL existed in two authored places at once:
+`event.yaml`'s `event.url` and `EVENT_URL` in `.env`. Nothing kept them in
+step, and they fed different consumers:
+
+| Value | Read by | Effect when stale |
+| --- | --- | --- |
+| `EVENT_URL` | `BETTER_AUTH_URL`, the HTTPS start-up guard (ADR 39), the CSRF origin check (ADR 40), Caddy's host, `deploy/fly`'s validation | sign-in breaks loudly |
+| `event.url` | `ctf-setup.sh`, which renders the leaderboard link into every fork's score comment | every scored PR points contestants at a dead host, silently |
+| `eventConfig.url` (baked into the app from `event.url`) | **nothing at all** | none — it was dead |
+
+The failure mode is the bad one: the copy that breaks loudly and the copy that
+breaks silently are different copies. A Fly deployment ran with a correct
+`EVENT_URL` and an `event.url` still naming the previous app, so sign-in worked
+perfectly while the score comments linked to a host that no longer existed.
+
+**Decision.** `EVENT_URL` is the only URL. `event.url` is removed from
+`event.yaml`, from the wizard that wrote it, from the app's generated config
+and its type. `ctf-setup.sh` reads `EVENT_URL` out of `.env`. A build that
+still finds `event.url` in `event.yaml` **fails**, naming the replacement and
+the lines to delete.
+
+**Why `.env` and not `event.yaml`.** The URL is a *deployment* fact, and
+`event.yaml` describes the *event*. One `event.yaml` is deployed to a box, to
+AWS and to fly.io on three different hostnames — which is precisely why
+`deploy/fly` keeps a separate `.env.fly` whose own header says a compose stack
+and a Fly deployment "need different EVENT_URLs, and one file cannot hold
+both". A single `url:` in the event file could not be right for all of them.
+
+The reverse split — deriving `EVENT_URL` from `event.yaml` — was rejected on
+the same ground, and would additionally have put a security-relevant value
+(the CSRF origin, the auth callback) behind YAML parsed with `sed` in bash.
+
+**Consequences.** `event.yaml` keeps its shape as the human, committable
+description of an event: name, dates, modules, targets, admins. Everything
+that varies per deployment — URL, secrets, image references, region — lives in
+the env file beside them. Existing configs fail one build and need one line
+deleted; the message says which.
+
+Not merging the two files was considered and rejected. `event.yaml` is a
+structured contract shared by three readers (the app's generator,
+`sync/src/config.js`, `ctf-setup.sh`) with nested per-module configuration, and
+the generator's env-only path already demonstrates what flattening it costs:
+one module, no per-module settings, targets as a comma-separated string.

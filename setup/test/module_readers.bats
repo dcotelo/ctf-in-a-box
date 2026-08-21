@@ -178,28 +178,28 @@ WIZ_DATES='  start: 2026-10-01T09:00:00-03:00
 '
 
 @test "corpus: the wizard still emits exactly the secure-development-only fixture" {
-  wiz_emit "OWASP Chapter CTF" "http://192.168.1.10" "$WIZ_DATES" my-event-org \
+  wiz_emit "OWASP Chapter CTF" "$WIZ_DATES" my-event-org \
     "secure-development" "juice-shop dvwa" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-secure-development-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
 
 @test "corpus: the wizard still emits exactly the quiz-only fixture" {
-  wiz_emit "OWASP Chapter Quiz Night" "http://192.168.1.10" "" my-event-org \
+  wiz_emit "OWASP Chapter Quiz Night" "" my-event-org \
     "quiz" "" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-quiz-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
 
 @test "corpus: the wizard still emits exactly the classic-only fixture" {
-  wiz_emit "OWASP Chapter Classic CTF" "http://192.168.1.10" "" my-event-org \
+  wiz_emit "OWASP Chapter Classic CTF" "" my-event-org \
     "classic" "" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-classic-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
 
 @test "corpus: the wizard still emits exactly the both-modules fixture" {
-  wiz_emit "OWASP Chapter CTF" "http://192.168.1.10" "$WIZ_DATES" my-event-org \
+  wiz_emit "OWASP Chapter CTF" "$WIZ_DATES" my-event-org \
     "secure-development quiz" "juice-shop, dvwa" push "your-github-login alice" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-both-modules.yaml" > want.yaml
   diff -u want.yaml got.yaml

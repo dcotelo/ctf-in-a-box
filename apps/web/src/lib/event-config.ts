@@ -15,7 +15,6 @@ export type EventConfig = {
   dates: string;
   location: string;
   ctfStartsAt: string | null;
-  url: string;
   contactEmail: string;
   githubOrg: string;
   discordUrl: string;

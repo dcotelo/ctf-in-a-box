@@ -66,13 +66,19 @@ primary_region = "iad"
 [http_service]
   internal_port = 3000
   force_https = true
-  # NOT auto-stopped, and at least one always running.
+  # NOT auto-stopped BY DEFAULT — and this is the value deploy.sh overrides
+  # when FLY_AUTO_STOP is set in the env file. See "autostop" in docs/fly.md.
   #
-  # Autostop is designed for stateless web apps that can be woken by an
-  # inbound request. This machine also holds redis and the sync poller: a
-  # stopped machine is a stopped datastore and a poller that is not polling,
-  # and no HTTP request arrives to wake it while an event is quiet overnight.
-  # The leaderboard would simply stop advancing.
+  # Autostop is designed for stateless web apps an inbound request can wake.
+  # This machine also holds redis and the sync poller, so stopping it stops the
+  # datastore and the poller, and NOTHING arrives to wake it while an event is
+  # quiet: contestants' PRs are scored by GitHub Actions, which post comments
+  # the poller must be running to collect. The leaderboard would just stop
+  # advancing overnight and catch up whenever someone happened to load a page.
+  #
+  # That makes it wrong DURING an event and reasonable between them — a kit
+  # left standing for a chapter that runs a CTF twice a year is paying for
+  # idle time. Hence a knob, defaulting to the safe value.
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1

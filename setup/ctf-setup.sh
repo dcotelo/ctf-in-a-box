@@ -569,8 +569,27 @@ yaml_org() {
 }
 
 yaml_url() {
-  # event.url — the box URL contestants reach. The only `url:` key in event.yaml.
-  sed -n 's/^[[:space:]]*url:[[:space:]]*\([^#]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//'
+  # EVENT_URL, out of .env — NOT out of event.yaml.
+  #
+  # It used to read `event.url` from the config, which put a DEPLOYMENT fact in
+  # the EVENT file. One event.yaml is deployed to a box, to AWS and to fly.io
+  # on three different hostnames — that is why .env and .env.fly hold different
+  # EVENT_URLs for one event — so a single `url:` could not be right for all of
+  # them. Worse, it lost silently: EVENT_URL is what BETTER_AUTH_URL, the app's
+  # HTTPS start-up guard and the CSRF origin check read, so a stale `event.url`
+  # left sign-in working perfectly while every fork's score comment pointed
+  # contestants at a dead leaderboard.
+  #
+  # Read here rather than passed in because this is the one value the workflow
+  # renderer needs and `secrets` already owns this file ($OUT, default .env).
+  # The file-exists test is load-bearing, not defensive noise. This script runs
+  # under `set -euo pipefail`, so a `sed` on a missing .env exits 2, pipefail
+  # promotes that to the pipeline's status, and the command substitution takes
+  # the whole script down — silently, with no output and exit 1. `render` on a
+  # machine with no .env did exactly that.
+  local env_file="${OUT:-.env}"
+  [ -f "$env_file" ] || return 0
+  sed -n 's/^EVENT_URL=//p' "$env_file" | tail -1 | sed 's/[[:space:]]*$//'
 }
 
 # ---------------------------------------------------------------------------
@@ -1511,15 +1530,20 @@ wiz_module_default() {
 # Fails closed on an empty or unknown selection instead of emitting a
 # `modules:` block with no keys under it, which every reader rejects.
 #
-# Args: name url dates org modules targets ingest admins
+# Args: name dates org modules targets ingest admins
+#
+# No `url`: the event's URL is EVENT_URL in .env. It is a DEPLOYMENT fact, and
+# one event.yaml is deployed to a box, to AWS and to fly.io on three different
+# hostnames — which is exactly why .env and .env.fly hold different EVENT_URLs
+# for one event.
 wiz_event_yaml() {
-  local name="$1" url="$2" dates="$3" org="$4" mods="$5" targets="$6" ingest="$7" admins="$8" m
+  local name="$1" dates="$2" org="$3" mods="$4" targets="$5" ingest="$6" admins="$7" m
   if [ -z "$mods" ]; then
     echo "event.yaml: at least one module must be enabled (known modules: $KNOWN_MODULES)" >&2
     return 1
   fi
-  printf 'event:\n  name: "%s"\n  url: %s\n%sgithub:\n  org: %s\nmodules:\n' \
-    "$name" "$url" "$dates" "$org"
+  printf 'event:\n  name: "%s"\n%sgithub:\n  org: %s\nmodules:\n' \
+    "$name" "$dates" "$org"
   for m in $mods; do
     case "$m" in
       secure-development)
@@ -1651,7 +1675,15 @@ cmd_wizard() {
         wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
         ;;
     esac
+    # Written to .env, NOT to event.yaml. The URL is a deployment fact, and
+    # the same event.yaml is deployed to a box, to AWS and to fly.io on three
+    # different hostnames. Step 2 already asks when it creates .env; this
+    # covers the case where .env existed but carried no EVENT_URL, and
+    # re-writing the same value is harmless.
     wiz_ask ev_url     "Event URL contestants reach" "$(env_val EVENT_URL)"
+    if [ "$DRY_RUN" -ne 1 ] && [ -n "$ev_url" ]; then
+      set_env_var "$out" EVENT_URL "$ev_url"
+    fi
     wiz_ask ev_start   "Event start (ISO 8601 e.g. 2026-10-01T09:00:00-03:00, blank to skip)" ""
     ev_end=""
     [ -z "$ev_start" ] || wiz_ask ev_end "Event end (ISO 8601, blank to skip)" ""
@@ -1670,7 +1702,7 @@ cmd_wizard() {
       # Render to a temp file first: a redirect straight onto $CONFIG truncates
       # it BEFORE the emitter can refuse, which would leave an organizer with
       # an empty event.yaml where their old one used to be.
-      if wiz_event_yaml "$ev_name" "$ev_url" "$ev_dates" "$ev_org" \
+      if wiz_event_yaml "$ev_name" "$ev_dates" "$ev_org" \
            "$ev_mods" "$ev_targets" "$ev_ingest" "$ev_admins" > "$CONFIG.tmp"; then
         mv "$CONFIG.tmp" "$CONFIG"
         echo "  ✅ wrote $CONFIG (org: $ev_org, modules: $ev_mods)"

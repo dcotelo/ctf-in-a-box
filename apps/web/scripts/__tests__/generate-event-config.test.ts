@@ -35,7 +35,7 @@ describe("generate-event-config", () => {
 
   it("reads the kit event.yaml schema", () => {
     const out = generate({}, [
-      'event: { name: "Chapter CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, url: "http://box", discord: "https://discord.gg/chapter" }',
+      'event: { name: "Chapter CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, discord: "https://discord.gg/chapter" }',
       "github: { org: evt }",
       "modules:",
       "  secure-development:",
@@ -54,7 +54,7 @@ describe("generate-event-config", () => {
 
   it("yaml without github.org falls back to the OWASP-CTF default", () => {
     const out = generate({}, [
-      'event: { name: "No Org CTF", url: "http://box" }',
+      'event: { name: "No Org CTF" }',
       "modules:",
       "  secure-development:",
       "    targets: [dvwa]",
@@ -97,7 +97,7 @@ describe("generate-event-config", () => {
 
   it("display dates are independent of build-machine timezone (TZ=UTC)", () => {
     const yaml = [
-      'event: { name: "UTC Test", start: 2026-01-01T01:00:00+09:00, url: "http://test" }',
+      'event: { name: "UTC Test", start: 2026-01-01T01:00:00+09:00 }',
       "modules:",
       "  secure-development:",
       "    targets: [dvwa]",
@@ -116,7 +116,7 @@ describe("generate-event-config", () => {
 
   it("display dates are independent of build-machine timezone (TZ=Pacific/Auckland)", () => {
     const yaml = [
-      'event: { name: "Auckland Test", start: 2026-10-01T09:00:00-03:00, end: 2026-10-02T18:00:00-03:00, url: "http://test" }',
+      'event: { name: "Auckland Test", start: 2026-10-01T09:00:00-03:00, end: 2026-10-02T18:00:00-03:00 }',
       "modules:",
       "  secure-development:",
       "    targets: [dvwa]",
@@ -170,7 +170,7 @@ describe("generate-event-config", () => {
     const out = generate(
       {},
       [
-        'event: { name: "Cross-month", start: 2026-10-30T09:00:00-03:00, end: 2026-11-02T18:00:00-03:00, url: "http://test" }',
+        'event: { name: "Cross-month", start: 2026-10-30T09:00:00-03:00, end: 2026-11-02T18:00:00-03:00 }',
         "modules:",
         "  secure-development:",
         "    targets: [dvwa]",
@@ -275,7 +275,7 @@ describe("generate-event-config corpus differential", () => {
 // so — and must keep saying so, hence this suite.
 describe("ignored top-level keys", () => {
   const QUIZ_EVENT = [
-    'event: { name: "Quiz Night", url: "http://box" }',
+    'event: { name: "Quiz Night" }',
     "github: { org: evt }",
     "modules:",
     "  quiz: {}",
@@ -343,5 +343,46 @@ describe("ignored top-level keys", () => {
     );
     expect(out).toContain(`"name": "Quiz Night"`);
     expect(out).toContain(`"githubOrg": "evt"`);
+  });
+});
+
+// The URL is a DEPLOYMENT fact, and it used to sit in the EVENT file.
+//
+// One event.yaml is deployed to a box, to AWS and to fly.io on three different
+// hostnames — which is why .env and .env.fly carry different EVENT_URLs for the
+// same event — so a single `event.url` could not be right for all of them. It
+// also lost silently: EVENT_URL is what BETTER_AUTH_URL, the HTTPS start-up
+// guard (ADR 39) and the CSRF origin check (ADR 40) read, while `event.url`
+// only reached the leaderboard link in every fork's score comment. A stale one
+// therefore left sign-in working perfectly and pointed contestants at a dead
+// host. Refusing beats ignoring.
+describe("event.url is refused, not ignored", () => {
+  const withUrl = [
+    'event: { name: "Chapter CTF", url: "http://192.168.1.10" }',
+    "github: { org: evt }",
+    "modules:",
+    "  quiz: {}",
+    "admins: [dcotelo]",
+  ].join("\n");
+
+  it("fails the build and names EVENT_URL as the replacement", () => {
+    let stderr = "";
+    try {
+      generate({}, withUrl);
+      throw new Error("expected the generator to fail");
+    } catch (e) {
+      stderr = String((e as { stderr?: Buffer }).stderr ?? (e as Error).message);
+    }
+    expect(stderr).toContain("event.url");
+    expect(stderr).toContain("EVENT_URL");
+    // The message has to carry the fix, not just the complaint.
+    expect(stderr).toContain("Delete these lines from event.yaml");
+  });
+
+  it("builds fine once the key is gone", () => {
+    const out = generate({}, withUrl.replace(', url: "http://192.168.1.10"', ""));
+    expect(out).toContain(`"name": "Chapter CTF"`);
+    // And carries no url of its own: nothing in the app ever read it.
+    expect(out).not.toContain(`"url"`);
   });
 });

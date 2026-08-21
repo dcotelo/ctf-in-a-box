@@ -800,13 +800,13 @@ YAML
 @test "wiz_event_yaml refuses to write a modules: block with nothing under it" {
   # All three readers reject a keyless modules: block, so emitting one would
   # hand the organizer a config that provisions nothing and crash-loops sync.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org "" "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org "" "" poll admin' _ "$SCRIPT"
   [ "$status" -ne 0 ]
   echo "$output" | grep -qF 'at least one module must be enabled'
 }
 
 @test "wiz_event_yaml refuses secure-development with no targets" {
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org secure-development "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org secure-development "" poll admin' _ "$SCRIPT"
   [ "$status" -ne 0 ]
   echo "$output" | grep -qF 'secure-development needs at least one target'
 }
@@ -818,7 +818,7 @@ YAML
   # switch); `teams: { max_size: 6 }` still capped teams at 4
   # (TEAM_MAX_MEMBERS in team-store.ts). Both are gone rather than corrected,
   # because a key that cannot change the answer misleads at any value.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -E 'hints|teams')" ]
 }
@@ -827,7 +827,7 @@ YAML
   # The three keys were emitted by one printf. Guard against the removal having
   # taken admins with it — an empty admins list means /admin 403s for everyone,
   # which is silent until an organizer tries to open the panel.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll dcotelo' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll dcotelo' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qx 'admins: \[dcotelo\]'
 }

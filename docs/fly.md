@@ -265,9 +265,31 @@ One machine — `shared-cpu-2x`, 2 GB — plus one 1 GB volume. Sized for five
 containers with Next.js as the heavy one; the scorer only *serves* here, since
 judging runs on GitHub's runners.
 
-The machine is deliberately **never auto-stopped**. Autostop suits a stateless
-web app that an inbound request can wake; this one also holds redis and the
-poller, and nothing arrives to wake it while an event is quiet overnight.
+### Autostop
+
+The machine **does not stop when idle**, by default. Autostop suits a stateless
+web app an inbound request can wake; this one also holds redis and the sync
+poller. While it is stopped the leaderboard does not advance — contestants' PRs
+are still scored by GitHub Actions, but the comments pile up uncollected until
+someone loads a page and wakes the machine.
+
+That is wrong *during* an event and reasonable *between* them. A kit left
+standing for a chapter that runs a CTF twice a year is paying for idle time,
+so it is a knob in `.env.fly`:
+
+```sh
+FLY_AUTO_STOP=off       # default: always running
+FLY_AUTO_STOP=stop      # stopped when idle, cold start on the next request
+FLY_AUTO_STOP=suspend   # memory snapshotted and restored, much faster wake
+```
+
+`deploy.sh` warns on every deploy where it is not `off`, and refuses a value
+that is not one of the three (`true` is the obvious guess and is not one of
+them). It never edits `fly.toml`: the substitution goes to a temporary copy,
+with `min_machines_running` dropped to 0 — leave that at 1 and Fly keeps a
+machine up regardless, so the setting looks applied and does nothing.
+
+**Turn it off before an event starts.**
 
 ## Tear down
 
@@ -280,7 +302,7 @@ That takes the volume with it. Export anything you want to keep first.
 ## CI
 
 `.github/workflows/ci.yml`'s `shell` job shellchecks both scripts and runs
-`bats deploy/fly/test/` — 42 assertions covering `fly.toml`'s invariants, the
+`bats deploy/fly/test/` — 51 assertions covering `fly.toml`'s invariants, the
 render's output (no secret values, no `$$`, every service on loopback with an
 image, no leftover build/networks/volumes/profiles keys), and `deploy.sh`'s
 guards. The render runs for real; nothing is ever deployed, and no Fly account

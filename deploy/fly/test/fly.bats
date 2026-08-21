@@ -124,10 +124,14 @@ ENV
   uncommented "$FLY/fly.toml" | grep -qE '^ *internal_port *= *3000'
 }
 
-@test "the machine is never auto-stopped" {
+@test "the committed default never auto-stops" {
   # This machine holds redis and the sync poller, not just a web server. A
   # stopped machine is a stopped datastore and a poller that is not polling,
-  # and no inbound request arrives to wake it while an event is quiet.
+  # and no inbound request arrives to wake it while an event is quiet — score
+  # comments pile up on GitHub uncollected.
+  #
+  # FLY_AUTO_STOP opts out of this per deployment (see the autostop tests
+  # below); the value HERE is what an organizer gets without asking.
   uncommented "$FLY/fly.toml" | grep -qE '^ *auto_stop_machines *= *false'
 }
 
@@ -519,4 +523,90 @@ ENV
   # "app does not have a Dockerfile or buildpacks configured". Zero buildable
   # services is fine to the compose parser; it is `fly deploy` that objects.
   echo "$output" | grep -qE 'fly deploy .*--image registry\.fly\.io/[^ ]+:app'
+}
+
+# ---------------------------------------------------------------------------
+# FLY_AUTO_STOP — opt-in idle shutdown.
+# ---------------------------------------------------------------------------
+
+@test "autostop is off unless asked for" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # The committed fly.toml is deployed as-is, with no rendered override.
+  echo "$output" | grep -qF 'fly deploy --config deploy/fly/fly.toml'
+}
+
+@test "FLY_AUTO_STOP deploys a rendered config, never editing fly.toml" {
+  need_docker
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
+  echo "FLY_AUTO_STOP=suspend" >> "$BATS_TEST_TMPDIR/env.as"
+  # Checksummed around the run, NOT compared against git: fly.toml is often
+  # legitimately dirty mid-change, and `git diff --quiet` would then fail for a
+  # reason that has nothing to do with what this test is about.
+  before="$(md5 -q "$FLY/fly.toml" 2>/dev/null || md5sum "$FLY/fly.toml" | cut -d' ' -f1)"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  after="$(md5 -q "$FLY/fly.toml" 2>/dev/null || md5sum "$FLY/fly.toml" | cut -d' ' -f1)"
+  # A deploy that dirties a tracked file is a deploy that gets committed by
+  # accident, so the substitution goes to a temporary copy.
+  echo "$output" | grep -qF 'fly deploy --config deploy/fly/.fly.autostop.toml'
+  [ "$before" = "$after" ]
+}
+
+@test "FLY_AUTO_STOP warns that the leaderboard stops advancing" {
+  need_docker
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
+  echo "FLY_AUTO_STOP=stop" >> "$BATS_TEST_TMPDIR/env.as"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # The machine holds redis and the poller, so this is not the ordinary
+  # stateless-web-app tradeoff Fly's docs describe.
+  echo "$output" | grep -qF 'leaderboard does not advance'
+}
+
+@test "an invalid FLY_AUTO_STOP is refused, not silently ignored" {
+  need_docker
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
+  echo "FLY_AUTO_STOP=true" >> "$BATS_TEST_TMPDIR/env.as"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+  # `true` is the obvious guess and is NOT one of Fly's values.
+  echo "$output" | grep -qF 'Use off, stop or suspend'
+}
+
+@test "the autostop override drops min_machines_running to 0" {
+  # Fly keeps one machine up regardless if the minimum stays at 1, so the
+  # setting would look applied and do nothing.
+  grep -qF 'min_machines_running = 0' "$FLY/deploy.sh"
+}
+
+@test "the autostop override file is gitignored" {
+  cd "$REPO" && git check-ignore -q deploy/fly/.fly.autostop.toml
+}
+
+# ---------------------------------------------------------------------------
+# One URL, in one place.
+# ---------------------------------------------------------------------------
+
+@test "event.yaml carries no url: the URL is EVENT_URL" {
+  # A deployment fact in the event file: one event.yaml goes to a box, to AWS
+  # and to fly.io on three hostnames, which is why .env and .env.fly hold
+  # different EVENT_URLs for one event.
+  [ -z "$(grep -E '^  url:' "$REPO/event.yaml.example")" ]
+}
+
+@test "a leftover event.url fails the app build rather than being ignored" {
+  grep -qF 'event.yaml sets `event.url`' "$REPO/apps/web/scripts/generate-event-config.mjs"
+}
+
+@test "ctf-setup reads the URL from .env, not from event.yaml" {
+  # It renders the leaderboard link into every fork's score comment. Reading a
+  # stale event.url left sign-in working while contestants got a dead link.
+  grep -qF "sed -n 's/^EVENT_URL=//p'" "$REPO/setup/ctf-setup.sh"
 }

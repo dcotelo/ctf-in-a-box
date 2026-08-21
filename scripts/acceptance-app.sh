@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 
 CFG=$(mktemp)
 cat > "$CFG" <<'YAML'
-event: { name: "Acceptance CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, url: http://localhost }
+event: { name: "Acceptance CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00 }
 github: { org: acceptance-org }
 modules:
   secure-development:
