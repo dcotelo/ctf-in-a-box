@@ -30,7 +30,8 @@ export type CommitNumber = (
     | "hintsUnlockAfterMin"
     | "quizMaxAttempts"
     | "quizRetryAfterMin"
-    | "classicCooldownSec",
+    | "classicCooldownSec"
+    | "teamMaxMembers",
   raw: string,
   reset: (v: string) => void,
 ) => void;

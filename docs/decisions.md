@@ -2105,3 +2105,52 @@ list at all, which is why it is not itself admin-gated: `requireAdmin` on it
 would make it useless for the only question it answers. Menu visibility has
 never been the gate (`requireAdmin` is), so a failed check hides a link rather
 than granting one.
+
+## 45. The team-member cap is an admin override, not a constant or a config key
+
+**Status.** Accepted. Implements issue #99, and applies ADR 31's rule to a
+second setting.
+
+**Context.** `TEAM_MAX_MEMBERS = 4` was hardcoded, so an event could not run
+with pairs or teams of six. `event.yaml` once appeared to offer
+`teams: { max_size: 4 }`, but nothing read it — a config asking for 6 silently
+got 4 — and #98 removed the key rather than wiring it, because putting the cap
+back there bakes it at build time.
+
+**Decision.** Follow the `HINT_COST` shape ADR 31 singles out as the one that
+got this right: *a hardcoded default with an admin override and no env var*.
+`TEAM_MAX_MEMBERS` stays as the default, `ctf:admin:settings` gains a
+`teamMaxMembers` override, and every read resolves `override ?? default`
+through `resolveTeamMaxMembers()`.
+
+**One resolver, every read path.** ADR 31's core lesson is that the split-brain
+came from surfaces reading the constant while the toggle wrote elsewhere. Two
+places read this cap — the join transaction and the profile roster — and both
+go through the resolver. The Lua script enforces it *inside* the transaction,
+so the resolved value is passed as an argument; hardcoding it there again would
+reintroduce exactly the split.
+
+**Enforced on join only.** Lowering the cap never evicts anyone: a team already
+over the new limit keeps its members and simply cannot take another. The
+control says so, because the alternative — silently dropping players mid-event
+— is not a behaviour an organizer can undo.
+
+**Zero is rejected.** A stored 0 refuses every join, including into a captain's
+own team, while the panel advertises "0 players max". The floor is 1 and the
+ceiling 100, both validated at the admin boundary rather than at the point of
+use.
+
+**Consequences.**
+
+It **fails open** to the default when the store read throws: a Redis blip must
+not make every team look full and wedge registration. That is the opposite of
+`requireAdmin`'s fail-closed read (ADR 44), and for the mirrored reason — a
+registration outage is worse than being briefly wrong about a team size, while
+granting access is worse than denying it.
+
+Both constants moved to `lib/team-limits.ts`, which carries no `server-only`
+marker. The admin panel is a Client Component and needs the default as a
+placeholder and the ceiling as the field's `max`; importing either store from
+it fails the build outright. The stores re-export them, so server callers are
+unaffected. Same reasoning as `lib/admin-admins.ts` in ADR 44: what a module
+imports is part of its contract.

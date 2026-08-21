@@ -14,6 +14,7 @@ import {
   getAdminSettings,
   getSyncStatus,
   outsideWindow,
+  TEAM_MAX_MEMBERS_MAX,
   updateAdminSettings,
   type AdminSettings,
 } from "@/lib/admin-store";
@@ -29,7 +30,7 @@ describe("getAdminSettings", () => {
     expect(await getAdminSettings()).toEqual({
       paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
       hintsMinSolves: null, hintsUnlockAfterMin: null,
-      quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null,
+      quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
     });
@@ -42,7 +43,7 @@ describe("getAdminSettings", () => {
     expect(await getAdminSettings()).toEqual({
       paused: true, hintsEnabled: false, hintCost: 25, teamRegistrationOpen: true,
       hintsMinSolves: null, hintsUnlockAfterMin: null,
-      quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null,
+      quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
     });
@@ -216,7 +217,7 @@ describe("scheduled windows", () => {
   const base: AdminSettings = {
     paused: false, hintsEnabled: null, hintCost: null, teamRegistrationOpen: true,
     hintsMinSolves: null, hintsUnlockAfterMin: null,
-    quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null,
+    quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
     updatedBy: null, updatedAt: null, moduleOverrides: {},
   };
@@ -366,5 +367,34 @@ describe("module identity overrides", () => {
     const strArgs = args.map(String);
     expect(strArgs[4]).toBe("1"); // numDels = 1
     expect(strArgs.slice(5, 6)).toContain("moduleTitle:secure-development"); // the del target
+  });
+});
+
+// --- teamMaxMembers validation (issue #99) ---------------------------------
+
+describe("teamMaxMembers", () => {
+  it("rejects 0, which would make every join fail", async () => {
+    // Not a pedantic bound. A stored 0 refuses every join including the
+    // captain's own team, while the panel cheerfully advertises "0 players
+    // max" — an event nobody can form a team in, from one typo.
+    await expect(updateAdminSettings({ teamMaxMembers: 0 }, "alice")).rejects.toBeInstanceOf(AdminValidationError);
+  });
+
+  it.each([[-1], [1.5], [TEAM_MAX_MEMBERS_MAX + 1]])("rejects %p", async (v) => {
+    await expect(updateAdminSettings({ teamMaxMembers: v }, "alice")).rejects.toBeInstanceOf(AdminValidationError);
+  });
+
+  it("accepts the bounds themselves", async () => {
+    await expect(updateAdminSettings({ teamMaxMembers: 1 }, "alice")).resolves.toBeDefined();
+    await expect(updateAdminSettings({ teamMaxMembers: TEAM_MAX_MEMBERS_MAX }, "alice")).resolves.toBeDefined();
+  });
+
+  it("decodes a stored value as a number, not the string Redis returns", async () => {
+    // The absent case (null ⇒ use the default) is covered by the empty-hash
+    // test above. This is the other half: a stored "6" must reach the resolver
+    // as 6, or the Lua script gets a string and tonumber() silently decides
+    // the cap.
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["teamMaxMembers", "6"] }]);
+    expect((await getAdminSettings()).teamMaxMembers).toBe(6);
   });
 });

@@ -606,3 +606,94 @@ describe("mock mode (TEAM_WRITES_ENABLED unset)", () => {
     expect(mocks.cookieJar.has("ctf-mock-team")).toBe(false);
   });
 });
+
+// --- the configurable member cap (issue #99) --------------------------------
+//
+// ADR 31's lesson from the hint toggle is that a split-brain comes from
+// surfaces reading a constant while the override lives elsewhere. The cap is
+// enforced INSIDE the Lua join transaction, so what matters is the value that
+// reaches the script — not what any UI says.
+
+/** Queues the resolver's HGET of `teamMaxMembers`. */
+function mockTeamCap(value: string | null) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: value }]);
+}
+
+describe("team member cap", () => {
+  it("hands the ORGANIZER'S override to the join script, not the default", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mockTeamCap("6");
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.joinTeam("octocat", "somecode");
+    const [, , argv] = mocks.upstashEval.mock.calls[0];
+    expect(argv[1]).toBe(6);
+  });
+
+  it("falls back to the default when no override is stored", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mockTeamCap(null);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.joinTeam("octocat", "somecode");
+    const [, , argv] = mocks.upstashEval.mock.calls[0];
+    expect(argv[1]).toBe(store.TEAM_MAX_MEMBERS);
+  });
+
+  it("quotes the RESOLVED cap when the team is full", async () => {
+    // The message a contestant reads has to match the number that refused
+    // them, or the support question writes itself.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mockTeamCap("2");
+    mocks.upstashEval.mockResolvedValueOnce("full");
+    const result = await store.joinTeam("octocat", "somecode");
+    expect(result).toEqual({ ok: false, error: "Team is full (2 players max)" });
+  });
+
+  it("fails OPEN to the default when the store read throws", async () => {
+    // Deliberately the opposite of the admin access check: a Redis blip must
+    // not make every team look full and wedge registration. The Lua script
+    // still enforces whatever value it is handed, atomically.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.joinTeam("octocat", "somecode");
+    const [, , argv] = mocks.upstashEval.mock.calls[0];
+    expect(argv[1]).toBe(store.TEAM_MAX_MEMBERS);
+  });
+
+  it("ignores a junk or out-of-range stored value", async () => {
+    const store = await loadStore(true);
+    for (const junk of ["0", "-3", "abc", ""]) {
+      vi.clearAllMocks();
+      mockRegistrationOpen();
+      mockCodeLookup("red-team");
+      mockTeamCap(junk);
+      mocks.upstashEval.mockResolvedValueOnce("ok");
+      await store.joinTeam("octocat", "somecode");
+      const [, , argv] = mocks.upstashEval.mock.calls[0];
+      expect(argv[1]).toBe(store.TEAM_MAX_MEMBERS);
+    }
+  });
+
+  it("never evicts: lowering the cap leaves an over-sized team intact", async () => {
+    // The cap is a JOIN guard. The script only ever SADDs after an SCARD
+    // check, so there is no path here that removes a member — this pins that
+    // the join flow does not grow one.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mockTeamCap("2");
+    mocks.upstashEval.mockResolvedValueOnce("full");
+    await store.joinTeam("octocat", "somecode");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).not.toContain("SREM");
+    expect(script).toContain("SCARD");
+  });
+});

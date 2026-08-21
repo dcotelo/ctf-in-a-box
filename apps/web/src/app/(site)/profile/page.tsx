@@ -27,7 +27,7 @@ import { challengeTotal, nonPatchedCount } from "@/lib/leaderboard/non-patched";
 import { isModuleEnabled, type ModuleId } from "@/lib/modules";
 import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
-import { getViewerTeam, TEAM_MAX_MEMBERS, TEAM_WRITES_ENABLED } from "@/lib/team-store";
+import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib/team-store";
 import { upstashPipeline } from "@/lib/upstash";
 import { event } from "@/lib/site";
 
@@ -78,7 +78,7 @@ export default async function ProfilePage() {
   // `resolvedModules` (organizer-renamed titles) is what drives the
   // per-module breakdown below off the enabled-module LIST rather than a
   // per-module branch — see the module block loop.
-  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, resolvedModules] =
+  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, resolvedModules, maxMembers] =
     await Promise.all([
       getLeaderboardSource().getUser(login),
       getViewerTeam(login),
@@ -88,6 +88,11 @@ export default async function ProfilePage() {
       classicEnabled ? getClassicTotals() : Promise.resolve(new Map<string, ClassicTotal>()),
       classicEnabled ? listChallenges() : Promise.resolve([] as Challenge[]),
       getResolvedModules(),
+      // The SAME resolver joinTeam uses. Reading TEAM_MAX_MEMBERS here instead
+      // would advertise a limit the join path does not enforce — the split
+      // ADR 31 records from the hint toggle. It rides along in this existing
+      // Promise.all, so it costs no extra round-trip.
+      resolveTeamMaxMembers(),
     ]);
 
   // Live/mock team membership from the store wins; fall back to whatever the
@@ -273,7 +278,7 @@ export default async function ProfilePage() {
       <TeamCard
         team={team}
         writesEnabled={TEAM_WRITES_ENABLED}
-        maxMembers={TEAM_MAX_MEMBERS}
+        maxMembers={maxMembers}
         isCaptain={isCaptain}
         captain={teamMeta.captain}
         joinCode={teamMeta.joinCode}

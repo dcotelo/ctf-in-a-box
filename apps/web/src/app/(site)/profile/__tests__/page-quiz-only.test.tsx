@@ -63,6 +63,9 @@ vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
 vi.mock("@/lib/team-store", () => ({
   getViewerTeam,
+  // The page renders the cap through the same resolver joinTeam enforces
+  // with, so the mock has to provide it (issue #99).
+  resolveTeamMaxMembers: async () => 4,
   TEAM_MAX_MEMBERS: 4,
   TEAM_WRITES_ENABLED: false,
 }));

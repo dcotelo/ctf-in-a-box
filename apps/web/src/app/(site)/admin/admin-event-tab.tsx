@@ -11,8 +11,9 @@
 
 import { useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
+import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
-import type { ConfirmState } from "./types";
+import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
 // local wall-clock string; JS parses it as local time, and we store the
@@ -70,6 +71,9 @@ export type AdminEventTabProps = {
   setConfirm: (c: ConfirmState) => void;
   doReset: (confirmValue: string) => Promise<void>;
   doSeed: () => Promise<void>;
+  teamMaxMembersInput: string;
+  setTeamMaxMembersInput: (v: string) => void;
+  commitNumber: CommitNumber;
 };
 
 export default function AdminEventTab({
@@ -81,6 +85,9 @@ export default function AdminEventTab({
   setConfirm,
   doReset,
   doSeed,
+  teamMaxMembersInput,
+  setTeamMaxMembersInput,
+  commitNumber,
 }: AdminEventTabProps) {
   // No "Event" heading inside the panel: the old flat layout needed an <h3> to
   // separate this group from the module sections below it, but the tab strip is
@@ -134,6 +141,28 @@ export default function AdminEventTab({
             });
           }}
           className="h-5 w-5 flex-none accent-[#2563eb]"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          <span className="text-white">Players per team</span>
+          <span className="block text-xs text-muted">
+            Enforced when someone joins. Lowering it never removes anyone from a team
+            that is already larger — those teams keep their players and simply cannot
+            take another. Blank uses the default ({TEAM_MAX_MEMBERS}).
+          </span>
+        </span>
+        <input
+          type="number"
+          min={1}
+          max={TEAM_MAX_MEMBERS_MAX}
+          value={teamMaxMembersInput}
+          placeholder={String(TEAM_MAX_MEMBERS)}
+          disabled={pending}
+          onChange={(e) => setTeamMaxMembersInput(e.target.value)}
+          onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
         />
       </label>
 
