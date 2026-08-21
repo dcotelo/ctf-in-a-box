@@ -12,7 +12,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import ClassicBoard, { resultLine, type ClassicChallengeView, type Feedback } from "@/components/classic-board";
+import ClassicBoard, {
+  ChallengeCard,
+  resultLine,
+  type ClassicChallengeView,
+  type Feedback,
+} from "@/components/classic-board";
 
 const web: ClassicChallengeView = {
   id: "web-sqli-101",
@@ -134,4 +139,41 @@ describe("resultLine", () => {
     const wrong: Feedback = { kind: "error", text: "Not quite. Try again." };
     expect(resultLine(web, wrong)).toEqual(wrong);
   });
+
+  // #126, mirroring quiz-board.test.tsx. The two boards mirror each other
+  // deliberately, so a fix applied to one and not the other is the regression
+  // — this test is what makes that true rather than aspirational.
+  //
+  // Driven through ChallengeCard with a `feedback` prop for the same reason:
+  // resultLine returns null for a cooldown challenge until a submission
+  // produces feedback, and feedback is client state this repo cannot drive.
+  it("puts the outcome before its consequence, and both above the form (#126)", () => {
+    const cooling: ClassicChallengeView = {
+      ...web,
+      status: "cooldown",
+      retryAt: "2026-08-18T12:34:56.000Z",
+    };
+    const html = renderToStaticMarkup(
+      <ChallengeCard
+        challenge={cooling}
+        authenticated
+        value=""
+        pending={false}
+        feedback={{ kind: "error", text: "Not quite." }}
+        onChange={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    const outcome = html.indexOf("Not quite.");
+    const consequence = html.indexOf("On cooldown");
+    const form = html.indexOf("<input");
+
+    expect(outcome).toBeGreaterThan(-1);
+    expect(consequence).toBeGreaterThan(-1);
+    expect(form).toBeGreaterThan(-1);
+    expect(outcome).toBeLessThan(consequence);
+    expect(consequence).toBeLessThan(form);
+  });
+
 });

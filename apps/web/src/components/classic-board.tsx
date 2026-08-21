@@ -218,7 +218,14 @@ export default function ClassicBoard({
   );
 }
 
-function ChallengeCard({
+/** Exported for tests ONLY, following the same rule as `resultLine` and
+ *  `submitDisabled` above: the ordering of the outcome line against the
+ *  cooldown line (#126) is only observable once `feedback` is set, and
+ *  `feedback` is client state this repo cannot drive — there is no
+ *  testing-library here, by choice. Rendering the card directly with a
+ *  feedback prop is the one way to assert that ordering without adding a
+ *  dependency. Not used by anything outside __tests__. */
+export function ChallengeCard({
   challenge,
   authenticated,
   value,
@@ -260,17 +267,41 @@ function ChallengeCard({
 
       <Markdown source={challenge.description} />
 
-      {challenge.status === "cooldown" && (
-        <p className={`mt-3 text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
-          {!cooldown.mounted
-            ? // Server render and the client's first paint. No clock is read
-              // here: a live Date.now() during render disagrees with the
-              // server's and trips a hydration mismatch.
-              "On cooldown — you can try again shortly."
-            : cooldown.remaining
-              ? `On cooldown — you can try again in ${formatCompact(cooldown.remaining)}.`
-              : "Cooldown's over — you can try again now."}
-        </p>
+      {/* OUTCOME AND ITS CONSEQUENCE, TOGETHER AND ABOVE THE FORM. Mirrors
+          quiz-board.tsx exactly — the two boards mirror each other
+          deliberately, so a fix to one that skipped the other would be the
+          regression. Both lines describe the same submission and used to
+          render at opposite ends of the card with the form between them,
+          putting the consequence before the cause. */}
+      {(result || challenge.status === "cooldown") && (
+        <div className="mt-3 flex flex-col gap-1">
+          {result && (
+            <p
+              role="status"
+              className={`text-sm ${
+                result.kind === "success"
+                  ? "text-[#22c55e]"
+                  : result.kind === "error"
+                    ? "text-[#e53e3e]"
+                    : "text-zinc-400"
+              }`}
+            >
+              {result.text}
+            </p>
+          )}
+          {challenge.status === "cooldown" && (
+            <p className={`text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
+              {!cooldown.mounted
+                ? // Server render and the client's first paint. No clock is read
+                  // here: a live Date.now() during render disagrees with the
+                  // server's and trips a hydration mismatch.
+                  "On cooldown — you can try again shortly."
+                : cooldown.remaining
+                  ? `On cooldown — you can try again in ${formatCompact(cooldown.remaining)}.`
+                  : "Cooldown's over — you can try again now."}
+            </p>
+          )}
+        </div>
       )}
 
       {challenge.status !== "solved" &&
@@ -297,16 +328,6 @@ function ChallengeCard({
           <p className="mt-3 text-xs text-muted">Sign in with GitHub to submit a flag.</p>
         ))}
 
-      {result && (
-        <p
-          role="status"
-          className={`mt-2 text-sm ${
-            result.kind === "success" ? "text-[#22c55e]" : result.kind === "error" ? "text-[#e53e3e]" : "text-zinc-400"
-          }`}
-        >
-          {result.text}
-        </p>
-      )}
     </div>
   );
 }

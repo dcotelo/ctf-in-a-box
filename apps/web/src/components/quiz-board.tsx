@@ -276,7 +276,14 @@ export default function QuizBoard({
   );
 }
 
-function QuestionCard({
+/** Exported for tests ONLY, following the same rule as `resultLine` and
+ *  `submitDisabled` above: the ordering of the outcome line against the
+ *  cooldown line (#126) is only observable once `feedback` is set, and
+ *  `feedback` is client state this repo cannot drive — there is no
+ *  testing-library here, by choice. Rendering the card directly with a
+ *  feedback prop is the one way to assert that ordering without adding a
+ *  dependency. Not used by anything outside __tests__. */
+export function QuestionCard({
   question,
   authenticated,
   maxAttempts,
@@ -330,17 +337,48 @@ function QuestionCard({
         </div>
       </div>
 
-      {question.status === "cooldown" && (
-        <p className={`mt-3 text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
-          {!cooldown.mounted
-            ? // Server render and the client's first paint. No clock is read
-              // here: a live Date.now() during render disagrees with the
-              // server's and trips a hydration mismatch.
-              "On cooldown — you can try again shortly."
-            : cooldown.remaining
-              ? `On cooldown — you can try again in ${formatCompact(cooldown.remaining)}.`
-              : "Cooldown's over — you can try again now."}
-        </p>
+      {/* OUTCOME AND ITS CONSEQUENCE, TOGETHER AND ABOVE THE FORM.
+          These two lines describe the same submission and used to render at
+          opposite ends of the card, with the whole form between them — the
+          cooldown up here, the result after the submit button. A contestant
+          then met the consequence before the cause: a cooldown with no
+          explanation, whose reason sat four elements further down past a form
+          they could no longer use.
+
+          Reading order is now what happened → what it means → what to do.
+          They are separate <p>s rather than one string because the countdown
+          re-renders every second while the result text is frozen, and because
+          the pre-mount branch below exists to avoid a hydration mismatch (see
+          `useCooldown`). */}
+      {(result || question.status === "cooldown") && (
+        <div className="mt-3 flex flex-col gap-1">
+          {result && (
+            <p
+              role="status"
+              className={`text-sm ${
+                result.kind === "success"
+                  ? "text-[#22c55e]"
+                  : result.kind === "error"
+                    ? "text-[#e53e3e]"
+                    : "text-zinc-400"
+              }`}
+            >
+              {result.text}
+            </p>
+          )}
+          {question.status === "cooldown" && (
+            <p className={`text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
+              {!cooldown.mounted
+                ? // Server render and the client's first paint. No clock is read
+                  // here: a live Date.now() during render disagrees with the
+                  // server's and trips a hydration mismatch.
+                  "On cooldown — you can try again shortly."
+                : cooldown.remaining
+                  ? `On cooldown — you can try again in ${formatCompact(cooldown.remaining)}.`
+                  : "Cooldown's over — you can try again now."}
+            </p>
+          )}
+        </div>
       )}
 
       {showChoices && (
@@ -401,16 +439,6 @@ function QuestionCard({
           <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
         ))}
 
-      {result && (
-        <p
-          role="status"
-          className={`mt-2 text-sm ${
-            result.kind === "success" ? "text-[#22c55e]" : result.kind === "error" ? "text-[#e53e3e]" : "text-zinc-400"
-          }`}
-        >
-          {result.text}
-        </p>
-      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import QuizBoard, {
+  QuestionCard,
   describeAttempts,
   describeCorrect,
   resultLine,
@@ -110,6 +111,53 @@ describe("QuizBoard", () => {
     expect(html).toContain("<input");
     expect(html).toMatch(/submit answer/i);
     expect(html).toContain('disabled=""');
+  });
+
+
+  // #126: the two lines describing the SAME submission used to render at
+  // opposite ends of the card, with the whole form between them — the
+  // cooldown above the choices, the result after the submit button. The
+  // contestant met the consequence before the cause: a cooldown with no
+  // explanation, four elements above the reason for it.
+  //
+  // Driven through QuestionCard directly, with a `feedback` prop. That is the
+  // only way to get BOTH lines on screen at once: resultLine returns null for
+  // a cooldown question until a submission produces feedback, and feedback is
+  // client state (no testing-library in this repo, by choice). Rendering
+  // QuizBoard instead would show only the cooldown line and pass whether or
+  // not the fix is present.
+  //
+  // Asserted as ORDER IN THE MARKUP, not presence — both lines rendered
+  // before the fix too, which is precisely why nothing caught this.
+  it("puts the outcome before its consequence, and both above the form (#126)", () => {
+    const cooling: QuizQuestionView = {
+      ...singleChoiceQuestion,
+      status: "cooldown",
+      retryAt: "2026-08-18T12:34:56.000Z",
+    };
+    const html = renderToStaticMarkup(
+      <QuestionCard
+        question={cooling}
+        authenticated
+        maxAttempts={3}
+        selected={[]}
+        pending={false}
+        feedback={{ kind: "error", text: "Not quite." }}
+        onToggle={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    const outcome = html.indexOf("Not quite.");
+    const consequence = html.indexOf("On cooldown");
+    const form = html.indexOf("<fieldset");
+
+    expect(outcome).toBeGreaterThan(-1);
+    expect(consequence).toBeGreaterThan(-1);
+    expect(form).toBeGreaterThan(-1);
+    // what happened -> what it means -> what to do
+    expect(outcome).toBeLessThan(consequence);
+    expect(consequence).toBeLessThan(form);
   });
 
   it("shows an exhausted question with no submit control", () => {

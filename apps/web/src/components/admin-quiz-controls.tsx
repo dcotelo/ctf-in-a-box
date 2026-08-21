@@ -504,6 +504,26 @@ export default function AdminQuizControls({
     }
   }
 
+  /** Retires a bulk-import summary once anything else writes to the bank.
+   *
+   *  The summary describes ONE write. It used to be cleared only by the
+   *  import panel's own controls (a new import, typing in the textarea,
+   *  choosing a file), so it outlived every add, edit, reorder and delete —
+   *  and an organizer who imported a question and then deleted it was left
+   *  reading "Imported 1 question: 0 created, 1 updated." under a list that
+   *  no longer contained it (#127).
+   *
+   *  Nothing is miscounted by that and the store is always correct, but the
+   *  panel's one job is to say exactly what a bulk write did, and a stale
+   *  success line invites the worst reading: that the delete also imported
+   *  something. The rule: a summary of a write does not outlive the next
+   *  write. Errors go with it — a resolved import error is as stale as a
+   *  resolved success. */
+  function retireImportSummary() {
+    setImportResult(null);
+    setImportErrors(null);
+  }
+
   async function submitEditor(editor: QuestionEditor) {
     setFormPending(true);
     setFormError(null);
@@ -514,6 +534,7 @@ export default function AdminQuizControls({
       return;
     }
     setQuestions((prev) => upsertInList(prev, result.row));
+    retireImportSummary();
     setEditing(null);
   }
 
@@ -528,6 +549,7 @@ export default function AdminQuizControls({
     if (changed.length === 0) return;
 
     setQuestions(after);
+    retireImportSummary();
     setReorderPending(true);
     setListError(null);
     for (const row of changed) {
@@ -557,6 +579,7 @@ export default function AdminQuizControls({
         return;
       }
       setQuestions((prev) => prev.filter((q) => q.question.id !== id));
+      retireImportSummary();
       setDeleteTarget(null);
     } catch {
       setDeleteError("Couldn't reach the server — try again.");
