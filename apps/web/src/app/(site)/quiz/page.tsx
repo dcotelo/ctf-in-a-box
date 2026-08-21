@@ -80,7 +80,7 @@ export default async function QuizPage() {
   // Drives the empty state's authoring route only. Deliberately the SAME
   // check `/admin` and every `/api/admin/*` route gate on, so this can never
   // offer a link to someone the admin page would then 403 at.
-  const viewerIsAdmin = isAdminLogin(login);
+  const viewerIsAdmin = await isAdminLogin(login);
 
   const [questions, viewerQuiz, settings, modules] = await Promise.all([
     listQuestions(),

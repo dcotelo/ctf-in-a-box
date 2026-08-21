@@ -34,6 +34,7 @@ import { enabledModules, type ModuleId, type ResolvedModule } from "@/lib/module
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
+import AdminAdminsTab from "./admin-admins-tab";
 import AdminEventTab from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
@@ -49,6 +50,9 @@ const MODULE_DEFAULTS = new Map(enabledModules.map((m) => [m.id as string, { tit
 /** The always-present control-plane tab. Module tabs follow it, in the order
  *  the event config lists them. */
 const EVENT_TAB = "event";
+/** Runtime admin management (issue #147). Sits beside Event rather than
+ *  inside it: it manages WHO may use the panel, not what the event does. */
+const ADMINS_TAB = "admins";
 
 async function postSettings(patch: Record<string, unknown>): Promise<{ settings?: AdminSettings; error?: string }> {
   const res = await fetch("/api/admin/settings", {
@@ -93,6 +97,7 @@ export default function AdminControls({
   demoMode = false,
   modules,
   initialTab,
+  viewerLogin,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -106,6 +111,10 @@ export default function AdminControls({
    *  the server (see page.tsx) so the first render already has the right
    *  panel open; the organizer never sees it flip. */
   initialTab?: string;
+  /** The signed-in organizer's GitHub login, from the same `requireAdmin`
+   *  gate that rendered this page. The Admins tab uses it to warn before
+   *  someone revokes their own access. */
+  viewerLogin: string;
 }) {
   const [settings, setSettings] = useState(initial);
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
@@ -131,6 +140,7 @@ export default function AdminControls({
 
   const tabs = [
     { id: EVENT_TAB, label: "Event" },
+    { id: ADMINS_TAB, label: "Admins" },
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
   const [active, setActive] = useState<string>(
@@ -314,6 +324,8 @@ export default function AdminControls({
               doReset={doReset}
               doSeed={doSeed}
             />
+          ) : tab.id === ADMINS_TAB ? (
+            <AdminAdminsTab viewerLogin={viewerLogin} />
           ) : (
             <section className="flex flex-col gap-4">
               <AdminModuleIdentity

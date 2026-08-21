@@ -1,5 +1,6 @@
 import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import {
   enabledModules,
   isModuleEnabled,
@@ -630,4 +631,50 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
 
   await upstashPipeline(cmds);
   return { contestants: DEMO_CONTESTANTS.length, teams: DEMO_TEAMS.length, solves: total };
+}
+
+// --- runtime admins (issue #147) ---------------------------------------------
+
+// The key, the login pattern and the READ live in admin-admins.ts so the
+// authorization path can import them without pulling in this module and the
+// module registry behind it. Re-exported here so callers that already talk to
+// the admin store keep one import.
+export { ADMIN_ADMINS_KEY, listStoredAdmins } from "@/lib/admin-admins";
+
+// SADD/SREM plus one audit line, in a single script, so a grant can never
+// land without its record — the same guarantee updateAdminSettings gives.
+const ADMINS_SCRIPT = `
+if ARGV[1] == 'add' then redis.call('SADD', KEYS[1], ARGV[2])
+else redis.call('SREM', KEYS[1], ARGV[2]) end
+redis.call('LPUSH', KEYS[2], ARGV[3])
+redis.call('LTRIM', KEYS[2], 0, tonumber(ARGV[4]))
+return redis.call('SMEMBERS', KEYS[1])`;
+
+async function mutateAdmins(action: "add" | "remove", login: string, actor: string): Promise<string[]> {
+  const normalized = login.trim().toLowerCase();
+  if (!normalized) throw new AdminValidationError("login", "login is required");
+  if (!LOGIN_RE.test(normalized)) {
+    throw new AdminValidationError("login", `'${login}' is not a GitHub login`);
+  }
+  const at = new Date().toISOString();
+  const audit = JSON.stringify({ at, by: actor, action: `admin:${action}`, login: normalized });
+  const res = await upstashEval(
+    ADMINS_SCRIPT,
+    [ADMIN_ADMINS_KEY, ADMIN_AUDIT_KEY],
+    [action, normalized, audit, String(AUDIT_CAP - 1)],
+  );
+  const arr = Array.isArray(res) ? (res as string[]) : [];
+  return arr.map((a) => String(a).toLowerCase()).sort();
+}
+
+/** Grant admin to `login` at runtime. Idempotent (SADD). */
+export async function addStoredAdmin(login: string, actor: string): Promise<string[]> {
+  return mutateAdmins("add", login, actor);
+}
+
+/** Revoke a RUNTIME grant. Cannot touch a baked admin — the route refuses
+ *  that before calling here, because a baked login is the lockout recovery
+ *  path and must survive any mistake made through the panel. */
+export async function removeStoredAdmin(login: string, actor: string): Promise<string[]> {
+  return mutateAdmins("remove", login, actor);
 }
