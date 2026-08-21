@@ -5,6 +5,13 @@
 No versioned release has been cut yet. The `main` branch is the only
 supported line — please report issues against the latest commit on `main`.
 
+## Before you run an event
+
+If you are standing this kit up rather than reporting an issue with it, walk
+the [organizer security checklist](https://dcotelo.github.io/ctf-in-a-box/security-checklist.html)
+first. Every item on it is a deployment decision the kit cannot make for you,
+and most have no visible symptom when they are wrong.
+
 ## Reporting a vulnerability
 
 Please use **GitHub's private vulnerability reporting** for this repository

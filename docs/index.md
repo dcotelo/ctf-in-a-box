@@ -165,6 +165,9 @@ including a known v1 limitation on the hint toggle's reach.
   the local dev-stack, teardown, and live-scoring status. It also carries the
   two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
   [Classic](operations.md#classic).
+- [Security checklist](security-checklist.md) — the one-page pre-event walk:
+  HTTPS, secrets, the private scorer image and its per-fork grant, poll vs
+  push, and the admins list.
 - [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
 - [Architecture](architecture.md) — what runs where, how a score gets from a
   contestant's PR to the leaderboard.
