@@ -1,313 +1,122 @@
 # Deploy on fly.io
 
-Run the control plane as **three Fly apps** plus a managed Redis, instead of a
-box you administer. `deploy/fly/deploy.sh` up, `fly apps destroy` down.
+Run the whole event as **one Fly app, one machine, five containers**, instead
+of a box you administer. `deploy/fly/deploy.sh` up, `fly apps destroy` down.
 
 Full walkthrough: [`docs/fly.md`](../../docs/fly.md).
+Why it is shaped this way: [ADR 42](../../docs/decisions.md).
 
-## Why this is simpler than the box
+## What is in here
 
-Half the compose stack does not exist here:
+| File | Job |
+|---|---|
+| `fly.toml` | The app: which container serves the public, the volume, the machine size |
+| `render-compose.sh` | Turns the repo's `docker-compose.yml` into the compose file Fly deploys |
+| `deploy.sh` | `init` (env file) and the deploy: build, push, mirror, render, secrets, deploy |
+| `test/fly.bats` | 56 assertions, run by CI's `shell` job. Nothing is ever deployed |
+| `compose.fly.yml` | **Generated**, gitignored. The rendered file Fly actually reads |
+
+## It runs the real compose file
+
+`fly.toml` points at a compose file through `[build.compose]`, and that file is
+*rendered* from the repo's `docker-compose.yml` on every deploy. There is no
+hand-maintained cloud twin to drift — the same five services, wired the same
+way, from one source.
 
 | Compose service | On Fly |
 |---|---|
-| `app` | Fly app, the only public one |
-| `scorer` | Fly app, private (`.internal` only) |
-| `sync` | Fly app, private, one volume |
-| `srh` | Fly app, private — **still required**, see below |
-| `redis` | Fly app — **the same `redis:7-alpine` compose runs**, with a volume |
-| `caddy` | **Gone** — Fly terminates TLS and issues certificates. |
-
-### Why `srh` is still here, and why Redis is a plain container
-
-`srh` translates the Upstash REST API the app, scorer and sync speak into the
-Redis protocol. That was true on compose and it is true here — nothing about
-Fly removes the need for it.
-
-Redis itself is **our own `redis:7-alpine` app**, not `fly redis create`. The
-managed option works, but it was the wrong default for this kit:
-
-- **It is not the same Redis.** The kit's testing story is that what you
-  exercise locally is what runs at the event. A managed Redis-compatible
-  service is a different implementation with its own command coverage and
-  eviction behaviour.
-- **It adds a billable add-on** to a kit whose premise is "one box, no cloud
-  bill".
-- **It needed credentials nothing else needed** — `fly redis create`, then
-  scraping a `redis://` URL out of `fly redis status` output. That was the
-  most fragile step in the whole deploy.
-- **`REDIS_PASSWORD` already exists.** `setup/ctf-setup.sh secrets` generates
-  it, and every compose deployment carries one (ADR 41). The managed path
-  ignored it and invented a second credential.
-
-What Fly genuinely provides that compose does not — TLS termination and
-certificates — is why `caddy` is absent. Redis was never in that category.
-
-If you *do* want a managed database (Upstash cloud, which exposes REST), you
-can skip both the `redis` and `srh` apps and set `UPSTASH_REDIS_REST_URL` /
-`_TOKEN` directly on the other three.
-
-## Prerequisites (done once, before deploying)
-
-1. **Provision the GitHub org** from your machine: `./setup/ctf-setup.sh org`.
-   Fly does not provision anything on GitHub.
-2. **Create the two GitHub apps** with the OAuth callback at the final
-   hostname — so decide the hostname first. `https://<app>.fly.dev` is the
-   default; a custom domain is below.
-3. **Run `init`.** It writes a Fly-specific env file from your existing
-   `.env`, rewrites `EVENT_URL` to the app's Fly hostname, and fills in
-   `SRH_TOKEN` and `REDIS_PASSWORD` if they are absent:
-
-   ```sh
-   ./deploy/fly/deploy.sh init
-   ```
-
-   It **touches nothing on Fly and needs no CLI** — it is pure env-file
-   preparation. It tops up an existing file rather than overwriting it, so a
-   hand-made one just gains what it is missing, and tightens it to `600`
-   either way since it holds every secret the event has.
-
-   An env file copied from a working compose deployment **already has
-   `REDIS_PASSWORD`**, and `init` carries it over rather than generating a
-   second one — the deployed redis and the deployed srh have to agree on it.
-
-## Deploy
-
-```sh
-./deploy/fly/deploy.sh --dry-run    # prints every fly command, runs none
-./deploy/fly/deploy.sh
-```
-
-`--dry-run` **redacts secret values** — it prints
-`BETTER_AUTH_SECRET=<redacted>`, not the secret. Variable names and
-non-secret values (app ids, the Upstash URL) still show, so the preview tells
-you which secrets land on which app without putting any of them in your
-scrollback.
-
-**Running a local compose stack too?** Keep a separate env file for Fly and
-pass it with `--env-file`. The two need different `EVENT_URL`s — `http://localhost`
-for compose, the `https://` Fly hostname here — and `deploy.sh` refuses the
-localhost one rather than deploying an app that would 500 on every request.
-
-Order is scorer → sync → app, so the app never comes up pointing at a scorer
-that does not exist yet. Every step checks before it acts, so re-running after
-a failure resumes instead of duplicating.
-
-## Tear down
-
-```sh
-fly apps destroy ctf-in-a-box-app ctf-in-a-box-sync ctf-in-a-box-scorer
-fly redis destroy <name>
-```
-
-Then archive the forks: `./setup/ctf-setup.sh teardown`.
-
-## The two things that bite
-
-**1. `event.yaml` is baked at BUILD time, into two images.** Editing it does
-nothing until you redeploy. The app takes it as the `EVENT_CONFIG_B64` build
-arg; `sync` gets it copied in by `sync.Dockerfile`, because Fly has no bind
-mounts and sync's `EVENT_CONFIG` takes a *path*, not content.
-
-Deploy the app without that build arg and the build **succeeds** with an empty
-`admins` list — `/admin` then 403s for everyone, including you — and generic
-branding. There is no error to notice. Always deploy through `deploy.sh`,
-which passes it.
-
-**2. `sync` needs its volume.** The poll cursor lives at
-`/state/state.json`. Fly machines are ephemeral, so without the
-`ctf_sync_state` volume the poller starts from scratch after every restart and
-re-reads every comment in every fork.
-
-That is not a correctness bug — `recordSolves` is monotonic, so replaying a
-solve changes neither points nor `lastSolveAt` — but it re-submits the event's
-whole history on every deploy and makes the `ingested`/`dropped` counters on
-`/admin` meaningless. `deploy.sh` creates the volume; do not remove the
-`[mounts]` block.
-
-## Build context
-
-A root `.dockerignore` keeps the repo-root builds small. Fly reported this on
-every sync deploy before it existed:
-
-```
-WARN Build context is 1.3 GB across 54,792 files.
-       apps/    1.2 GB
-       .git/    17 MB
-```
-
-Almost all of it was `apps/web/node_modules` and `.next`, neither of which
-belongs in a context — `apps/web/Dockerfile` runs its own `pnpm install
---frozen-lockfile` and `pnpm build`. Copying a host-built `node_modules` in
-would also risk shipping host-architecture native binaries into a linux image.
-
-After: **~30 kB** for the sync context, ~10 MB for the app's.
-
-It also excludes `.env*`, which is defence in depth rather than housekeeping:
-keeping secrets out of the *context* means a careless `COPY . .` in some
-future Dockerfile cannot pick them up.
-
-Two things it deliberately does **not** exclude, both load-bearing and both
-covered by tests: `event.yaml`, which `sync.Dockerfile` copies (excluding it
-builds a poller with no config, which fails at start rather than at build),
-and `apps/web/` source, which the app image is built from.
-
-`scorer/` and `sync/` keep their own `.dockerignore` for the builds that use
-those directories as the context; the root file governs the repo-root ones.
-
-## The scorer image is mirrored into Fly's registry
-
-**Fly cannot pull from a private third-party registry.** A real run failed
-with:
-
-```
-Error: failed to fetch an image or build from source:
-Authentication required to access image "ghcr.io/<org>/score:latest"
-```
-
-and there is no flag for supplying credentials — Fly's documented answer for
-private images is its own registry, `registry.fly.io/<app>`.
-
-So `deploy.sh` **mirrors** the image before deploying the scorer:
-
-```sh
-fly auth docker
-docker buildx imagetools create --tag registry.fly.io/<scorer-app>:latest "$SCORE_IMAGE"
-```
-
-`imagetools create` copies the manifest registry-to-registry: no local pull,
-no re-tagging of a single-arch layer, and **the digest is preserved exactly**.
-That matters more than convenience — the scorer serving the leaderboard has to
-be the same artifact the forks pull to judge PRs, or a rubric difference
-between them shows up as totals that disagree with the scores. Mirroring keeps
-them identical; rebuilding from source would not.
-
-This is the same move `ctf-setup org` already makes when it mirrors
-`SCORE_IMAGE` into the event org's GHCR so the forks can pull it. Same
-pattern, different destination.
-
-If `buildx` is unavailable it falls back to `docker pull --platform
-linux/amd64` + tag + push. The platform pin is deliberate: the forks' runners
-are amd64, and an arm64 pull on an Apple Silicon machine would mirror an image
-the deployed scorer cannot execute.
-
-You need to be logged in to the source registry (`docker login ghcr.io`) —
-`deploy.sh` uses the login you already have from pushing the image.
-
-## Region
-
-`init` **asks** which region to run in, and writes the answer to the env file
-as `FLY_REGION`. One value then drives every `fly deploy --primary-region` and
-both volumes, so nothing has to be kept in step by hand:
-
-```sh
-./deploy/fly/deploy.sh init                 # prompts, default from the toml
-./deploy/fly/deploy.sh init --region gru    # or say it outright
-```
-
-Pick the region nearest your contestants. **Volumes are region-pinned**, so
-changing it afterwards means destroying and recreating them — which is exactly
-what happened on the first real run, where `fly volumes create` prompted
-mid-deploy and produced a volume in `gru` against apps configured for `iad`.
-
-`--region` also makes the step usable without a terminal (CI, a script). With
-no tty and no flag it takes the toml default rather than blocking on a prompt.
-The value is validated as a three-letter code: `Sao Paulo` is what someone
-types when they read the prompt as a place name, and catching it here beats an
-opaque failure part-way through a deploy.
-
-Note the flag on `fly deploy` is `--primary-region`; there is no `--region`
-there (`fly volumes create` is the one that takes `--region`).
-
-## How the private apps stay private
-
-Only `app` declares a public service (`[http_service]`). `redis`, `srh`,
-`scorer` and `sync` declare **no service block at all** — and that is the
-mechanism, not an omission.
-
-`[[services]]` is Fly's *public-edge* construct: it puts an app behind Fly's
-proxy on an anycast IP, and Fly rejects the config if it has no
-`[[services.ports]]`. An earlier version of this module had portless service
-blocks on the assumption they meant "internal only"; a real `fly deploy`
-answered:
-
-```
-Service has no processes set but app has 1 processes defined
-WARNING: Service must expose at least one port. Add a [[services.ports]] section
-✘ invalid app configuration
-```
-
-Private access needs nothing declared. `<app>.internal` resolves to the
-machine's 6PN address and is reachable only from apps in the same
-organization. A service block would have been the thing that *exposed* the
-datastore.
-
-One consequence worth knowing: **Fly's private network is IPv6-only**, so a
-process bound to `0.0.0.0` alone is unreachable over `.internal`. That is why
-redis runs with `--bind "* -::*"` (all IPv4 *and* all IPv6). The failure mode
-is srh timing out against a redis that looks perfectly healthy in `fly logs`.
-
-## Poll mode, and what push mode would open
-
-This module is **poll mode**: `sync` reaches out to GitHub, and nothing on the
-internet needs to reach the scorer. That is why `scorer.fly.toml` and
-`sync.fly.toml` publish no ports at all — the Fly equivalent of
-`caddy/Caddyfile.poll` having no `/score` route.
-
-Push mode needs a public `POST /score` on the scorer:
-
-```toml
-[http_service]
-  internal_port = 4000
-  force_https = true
-```
-
-Understand what that opens before adding it: it puts a score-writing endpoint
-on the internet, guarded only by `CTF_SCORE_BEARER_TOKEN`. `test/fly.bats`
-asserts the block is absent, so adding it is a deliberate act that also
-updates a test — which is the intent.
-
-## The hostname the app is actually served from
-
-`deploy.sh` compares `EVENT_URL`'s host against the app it deploys, and says
-something when they disagree:
-
-```
-WARNING: EVENT_URL is https://ctf-in-a-box-test.fly.dev, but the app deploys
-         as 'ctf-in-a-box-app' and will be served at
-         https://ctf-in-a-box-app.fly.dev.
-         Sign-in will fail with a redirect_uri mismatch.
-```
-
-It **warns and continues** — renaming the apps in `deploy/fly/*.fly.toml` to
-match your event is a perfectly good answer, and failing would turn a choice
-into a gate. A custom domain gets a note naming the `fly certs add` it needs,
-not a warning, because that setup is entirely legitimate.
-
-The failure it prevents is a late and opaque one: rename the apps and forget
-the env file (or the reverse) and the deploy *succeeds*, while
-`BETTER_AUTH_URL` claims a hostname nothing answers on. The only symptom is a
-`redirect_uri` mismatch at sign-in, with nothing pointing back at the cause.
-
-## Custom domain
-
-```sh
-fly certs add ctf.example.org --app ctf-in-a-box-app
-```
-
-Then set `EVENT_URL` to it, update the OAuth callback to match, and redeploy
-the app. `BETTER_AUTH_URL` is a secret derived from `EVENT_URL`, and the
-session cookie's `Secure` flag follows its scheme.
-
-## CI
-
-`.github/workflows/ci.yml`'s `shell` job runs `shellcheck` on `deploy.sh` and
-`bats deploy/fly/test/` on any change here. There is no fly account in CI and
-nothing is ever deployed — the same posture as the terraform job.
-
-The suite asserts what a broken port would violate: no public scoring surface,
-the cursor volume matching `STATE_PATH`, the `EVENT_CONFIG_B64` build arg
-present in `deploy.sh` and absent from the committed toml, `serve` mode, no
-secrets in committed files, `--dry-run` making zero `fly` calls, and a **drift
-guard** deriving `deploy/fly/sync.Dockerfile` from `sync/Dockerfile` so the
-duplicate cannot silently rot.
+| `app` | container, the only one reachable from the internet (port 3000) |
+| `scorer` | container, `http://localhost:4000` |
+| `sync` | container, outbound only, one volume |
+| `srh` | container, `http://localhost:80` |
+| `redis` | container, `127.0.0.1:6379`, one volume |
+| `caddy` | **absent** — Fly terminates TLS and issues certificates |
+
+caddy is excluded by naming the deployed services explicitly in the render,
+**not** by giving it a compose profile. Profiling it would make the edge
+opt-in for every *local* bring-up, so one forgotten flag would mean an event
+with no ingress.
+
+## Why one machine and not five apps
+
+**Fly's private network (6PN) is IPv6-only. srh's Redis client is IPv4-only.**
+
+srh is a prebuilt third-party image whose Elixir release bundles redix 1.1.5.
+redix supports `socket_opts` — where `:inet6` would go — but srh builds its
+connection options from the connection string alone and exposes no knob for
+it. A five-app deployment therefore has no way for srh to reach redis, and the
+symptom lies: `nc` to `redis.internal:6379` succeeds, redis looks healthy, and
+srh repeats `SRH was unable to connect to the Redis server` forever.
+
+Containers inside one machine share a network namespace and reach each other
+over `localhost`, on IPv4. That removes the failure rather than working around
+it.
+
+Reproducing it takes about a minute and needs no Fly account: create an IPv6
+docker network, run redis and srh on it, point srh at the address. Identical
+image, redis and password — IPv4 literal works, IPv6 literal does not.
+
+## Why the compose file is rendered, not copied
+
+flyctl's compose parser is **not** Docker's. It is a hand-rolled `yaml.v3`
+unmarshal (`internal/containerconfig/compose.go`), and as of flyctl 0.4.87 it
+implements none of:
+
+- `profiles:` — every service in the file is deployed
+- `${VAR}` interpolation — `${SRH_TOKEN}` arrives as that literal string
+- build `args:` — so `EVENT_CONFIG_B64` could never be baked
+
+and it rejects a file where more than one service declares `build:`
+(`only one service can specify build`), which `docker-compose.yml` does twice.
+
+`docker compose config` implements all of them correctly, because it *is*
+Docker's parser. So the real file goes through Docker first and Fly receives
+the result. On top of that the render:
+
+1. **Keeps secret values, and guards the file instead.** Per-container
+   `environment:` is the only channel that reaches a container in a Fly
+   machine — `fly secrets` does not, despite Fly's docs saying secrets are
+   "global and available to every container". So the output is a credential
+   file: mode 600, deleted once the deploy succeeds, and a fail-closed check
+   asks `git check-ignore` directly and deletes it if the answer is no. The
+   compensation is scoping Fly cannot express: the app never receives
+   REDIS_PASSWORD, redis never receives GITHUB_CLIENT_SECRET.
+2. **Unescapes `$$`.** To compose it means a literal `$`; Fly passes it
+   through untouched, so `sh -c` would expand it as the shell's PID and redis
+   would come up with a password like `12345REDIS_PASSWORD` — healthy, and
+   impossible to authenticate against.
+3. **Rewrites service names to `localhost`.** No DNS exists between containers
+   in one namespace. Both URL forms are rewritten — `//host:` and the
+   userinfo form `//user:pass@host:`, which srh's connection string uses and
+   which an earlier version missed.
+4. **Drops** bind mounts, named volumes, networks and profiles — none of which
+   mean anything on a Fly machine.
+
+Never edit `compose.fly.yml`. Every change belongs in `docker-compose.yml`.
+
+## Guards `deploy.sh` carries
+
+Each of these caught a real mistake:
+
+- non-https `EVENT_URL` refused (the app refuses to serve production over
+  plain HTTP — ADR 39)
+- `<placeholder>` left in `EVENT_URL` refused
+- `EVENT_URL` host vs app name → **warns**, never fails; a custom domain is
+  legitimate
+- secret values redacted in `--dry-run`, which makes no `fly` calls at all
+- env file chmod 600 even when it already existed
+- a missing variable is named individually, not as a list
+- `--skip-build` says plainly that `event.yaml` will not be picked up, because
+  that config is baked into the app image at build time
+- images built `--platform linux/amd64`; an arm64 image deploys cleanly and
+  then dies with an exec format error
+
+## Two things this deployment cannot give you
+
+Both were already true of the five-app version. See ADR 42.
+
+- **No `frontend`/`backend` network split** (ADR 41). One machine, one network
+  namespace — every container can reach `redis:6379`, and binding to
+  `127.0.0.1` would not help because loopback is shared too. `requirepass` is
+  the whole control here, which is why `REDIS_PASSWORD` is mandatory.
+- **No per-service secret scoping.** Fly's secrets are global to the machine.

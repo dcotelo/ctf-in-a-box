@@ -63,7 +63,7 @@ APP_PORT=3110
 
 CFG="$TMP/event.yaml"
 cat > "$CFG" <<'YAML'
-event: { name: "Quiz Only Acceptance", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, url: http://localhost }
+event: { name: "Quiz Only Acceptance", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00 }
 github: { org: acceptance-quiz-org }
 modules:
   quiz: {}

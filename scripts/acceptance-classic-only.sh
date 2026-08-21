@@ -80,7 +80,7 @@ APP_PORT=3112
 
 CFG="$TMP/event.yaml"
 cat > "$CFG" <<'YAML'
-event: { name: "Classic Only Acceptance", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00, url: http://localhost }
+event: { name: "Classic Only Acceptance", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00 }
 github: { org: acceptance-classic-org }
 modules:
   classic: {}

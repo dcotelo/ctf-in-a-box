@@ -1,10 +1,15 @@
 #!/usr/bin/env bats
 #
-# Static checks on the fly.io module. There is no `terraform validate`
-# equivalent for fly.toml, and no account to deploy against in CI, so these
-# assert the invariants that a broken port would violate — the same posture as
+# Checks on the fly.io module. There is no `terraform validate` equivalent for
+# fly.toml, and no account to deploy against in CI, so these assert the
+# invariants a broken port would violate — the same posture as
 # `deploy/aws-terraform/userdata.tftest.hcl`, which exists because `validate`
 # never inspects rendered output.
+#
+# The render is exercised FOR REAL (it needs `docker compose`, which the CI
+# runner has). That matters: this module's job is to turn docker-compose.yml
+# into something flyctl can deploy, and every bug it has had so far lived in
+# the OUTPUT, not in the source.
 #
 # Each assertion is the LAST statement in its test on purpose (AGENTS.md): a
 # `[[ ... ]]` or a negated pipeline that is not last does not fail the test.
@@ -13,765 +18,643 @@ setup() {
   REPO="$(cd "$BATS_TEST_DIRNAME/../../.." && pwd)"
   FLY="$REPO/deploy/fly"
 
-  # Strip comments before asserting on TOML structure. These files EXPLAIN the
-  # blocks they deliberately omit, so a naive grep for "[http_service]" matches
+  # Strip comments before asserting on structure. These files EXPLAIN the
+  # blocks they deliberately omit, so a naive grep for "[[services]]" matches
   # the paragraph saying why there isn't one — a test that fails on its own
-  # documentation.
+  # documentation. This has bitten three times; it is not hypothetical.
   uncommented() { grep -v '^[[:space:]]*#' "$1"; }
 
   # A complete fixture env so --dry-run reaches the deploy steps. An empty file
   # exits early on the required-value checks, which would make the dry-run
   # tests below pass for the wrong reason.
+  #
+  # Every secret value here is DISTINCTIVE and at least 8 characters, because
+  # the leak tests below grep the rendered output for these exact strings. A
+  # short or common value (say "secret") would match incidental text and turn
+  # a real check into noise.
   cat > "$BATS_TEST_TMPDIR/env" <<'ENV'
-EVENT_URL=https://ctf-in-a-box-app.fly.dev
-BETTER_AUTH_SECRET=fixture-secret-value-at-least-32-chars
+EVENT_URL=https://ctf-in-a-box.fly.dev
+BETTER_AUTH_SECRET=FIXTUREAUTHSECRETzzzzzzzzzzzz
 GITHUB_CLIENT_ID=fixture-client-id
-GITHUB_CLIENT_SECRET=fixture-client-secret
-SCORER_TOKEN=fixture-scorer-token
-SRH_TOKEN=fixture-srh-token
-REDIS_PASSWORD=fixture-redis-password
+GITHUB_CLIENT_SECRET=FIXTURECLIENTSECRETyyyyyyyy
+SCORER_TOKEN=FIXTURESCORERTOKENxxxxxxxx
+SRH_TOKEN=FIXTURESRHTOKENwwwwwwwwww
+REDIS_PASSWORD=FIXTUREREDISPASSvvvvvvvvv
 SCORE_IMAGE=ghcr.io/fixture-org/score:latest
 FLY_REGION=gru
 GITHUB_APP_ID=1
-GITHUB_APP_PRIVATE_KEY=Zml4dHVyZQ==
+GITHUB_APP_PRIVATE_KEY=RklYVFVSRVBSSVZBVEVLRVl1dXV1dQ==
 GITHUB_APP_INSTALLATION_ID=1
 ENV
   printf 'github: { org: fixture-org }\n' > "$BATS_TEST_TMPDIR/event.yaml"
+
+  RENDERED="$BATS_TEST_TMPDIR/compose.fly.yml"
+  render() {
+    "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env" --out "$RENDERED" \
+      --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t \
+      --event-config "$BATS_TEST_TMPDIR/event.yaml"
+    # EVERY render test asserts through this, so it asserts the file exists.
+    # A negative check ("no service name is left as a host") passes trivially
+    # against a file that was never written — which happened while developing
+    # this suite, and read as a pass.
+    [ -s "$RENDERED" ]
+  }
+  # The render shells out to `docker compose`. Skipping is honest when docker
+  # is absent (a laptop without it running the rest of the suite); CI has it,
+  # so these never silently vanish where it counts.
+  need_docker() {
+    command -v docker >/dev/null || skip "docker not available"
+    docker compose version >/dev/null 2>&1 || skip "docker compose not available"
+  }
 }
 
-# --- the poll-mode invariant ----------------------------------------------
-#
-# The kit's headline security property in poll mode is ZERO inbound scoring
-# surface. On compose that is `caddy/Caddyfile.poll` having no /score route.
-# Here it is the scorer and sync apps publishing no ports at all. A stray
-# `[http_service]` in either file hands the internet a POST /score guarded by
-# nothing but a bearer token.
+# ---------------------------------------------------------------------------
+# fly.toml — one app, one machine.
+# ---------------------------------------------------------------------------
 
-@test "scorer publishes no public service" {
-  [ -z "$(uncommented "$FLY/scorer.fly.toml" | grep -F '[http_service]')" ]
+@test "fly.toml deploys the rendered compose file, not a Dockerfile" {
+  uncommented "$FLY/fly.toml" | grep -qF '[build.compose]'
 }
 
-@test "scorer declares no published ports" {
-  [ -z "$(uncommented "$FLY/scorer.fly.toml" | grep -F '[[services.ports]]')" ]
-}
-
-@test "sync publishes no public service" {
-  [ -z "$(uncommented "$FLY/sync.fly.toml" | grep -E '^\[http_service\]|^\[\[services')" ]
-}
-
-@test "the app is the one service that IS public, over https only" {
-  grep -q 'force_https = true' "$FLY/app.fly.toml"
-}
-
-# --- the two blockers a naive port gets wrong ------------------------------
-
-@test "sync mounts a volume for its poll cursor" {
-  # Without this the cursor resets on every machine restart and the poller
-  # re-reads every comment in every fork from the beginning.
-  grep -q 'destination = "/state"' "$FLY/sync.fly.toml"
-}
-
-@test "sync's STATE_PATH points at that mount, not at ephemeral disk" {
-  # A volume nobody writes to is decoration. These two must agree.
-  grep -q 'STATE_PATH = "/state/' "$FLY/sync.fly.toml"
-}
-
-@test "the app deploy passes EVENT_CONFIG_B64 as a build arg" {
-  # Omit it and the build SUCCEEDS with an empty admins list — /admin then
-  # 403s for everyone, with no error anywhere to explain why.
-  grep -q -- '--build-arg "EVENT_CONFIG_B64=' "$FLY/deploy.sh"
-}
-
-@test "EVENT_CONFIG_B64 is NOT committed into the app's fly.toml" {
-  # It would embed the organizer's admins list in the repo, and go stale
-  # silently — a stale value still builds.
-  [ -z "$(uncommented "$FLY/app.fly.toml" | grep -E '^ *EVENT_CONFIG_B64 *=')" ]
-}
-
-# --- the reason this runs on Firecracker at all ----------------------------
-
-@test "the scorer runs in serve mode, never judge" {
-  # Judge mode boots target containers as siblings through docker.sock. That
-  # happens on GitHub's runners. A judge-mode scorer here would need
-  # privileged Docker, which Fly does not give it — it would fail at runtime,
-  # not at deploy.
-  grep -q 'CTF_MODE = "serve"' "$FLY/scorer.fly.toml"
-}
-
-# --- secrets stay out of committed files -----------------------------------
-
-@test "no fly.toml carries a secret value" {
-  # Secrets go through `fly secrets set`. A committed one is a leak that
-  # survives in git history.
-  [ -z "$(cat "$FLY"/*.fly.toml | grep -v '^[[:space:]]*#' | grep -E '^ *(BETTER_AUTH_SECRET|GITHUB_CLIENT_SECRET|SCORER_TOKEN|UPSTASH_REDIS_REST_TOKEN|GITHUB_APP_PRIVATE_KEY) *=')" ]
-}
-
-# --- dry-run makes no calls ------------------------------------------------
-
-@test "--dry-run makes zero fly calls" {
-  # Same contract ctf-setup.sh --dry-run holds. A PATH with no `fly` in it
-  # proves it by construction: if the script shelled out, it would fail.
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$status" -eq 0 ]
-}
-
-@test "--dry-run prints the fly commands it would have run" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"DRY-RUN: fly deploy"* ]]
-}
-
-# --- EVENT_URL guard -------------------------------------------------------
-
-@test "a non-https EVENT_URL is refused before anything is deployed" {
-  # The app refuses to serve a production event over plain HTTP (ADR 39), so
-  # deploying with a leftover http://localhost would ship an app that 500s on
-  # every request. Catch it where the message can name the fix.
-  printf 'EVENT_URL=http://localhost\n' > "$BATS_TEST_TMPDIR/bad-env"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/bad-env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$status" -ne 0 ]
-}
-
-@test "the EVENT_URL refusal names the value to use" {
-  printf 'EVENT_URL=http://localhost\n' > "$BATS_TEST_TMPDIR/bad-env"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/bad-env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *".fly.dev"* ]]
-}
-
-# --- drift guard between the two sync Dockerfiles --------------------------
-
-@test "sync.Dockerfile stays equivalent to sync/Dockerfile" {
-  # deploy/fly/sync.Dockerfile duplicates sync/Dockerfile with `sync/`-prefixed
-  # COPY sources, because a repo-root build context cannot use the bare paths —
-  # and it adds the event.yaml bake that Fly needs (no bind mounts).
+@test "the compose file it names is the one render-compose.sh writes" {
+  # flyctl resolves THIS path against the WORKING DIRECTORY, not against the
+  # config file's directory — the opposite of `--dockerfile`, which resolves
+  # against the config. The two rules are inconsistent inside flyctl, and
+  # getting it wrong fails late, after images are pushed and IPs provisioned:
   #
-  # Derive one from the other so the copy cannot silently rot: strip the
-  # `sync/` prefixes and the event.yaml line, and what remains must be
-  # sync/Dockerfile exactly.
-  derived="$(grep -v '^#' "$FLY/sync.Dockerfile" \
-    | grep -v 'COPY event.yaml' \
-    | sed 's#sync/##g' \
-    | sed '/^$/d')"
-  original="$(grep -v '^#' "$REPO/sync/Dockerfile" | sed '/^$/d')"
-  [ "$derived" = "$original" ]
-}
-
-@test "sync.Dockerfile bakes event.yaml in (Fly has no bind mounts)" {
-  grep -q 'COPY event.yaml /config/event.yaml' "$FLY/sync.Dockerfile"
-}
-
-# --- secrets stay out of the dry-run OUTPUT too --------------------------
-#
-# Keeping secrets out of committed files (above) is only half of it. The
-# dry run printed every value in full until someone ran it and watched a
-# GitHub App private key scroll past — into a terminal, a scrollback buffer,
-# and whatever screen share or CI log was capturing it. A dry run is the
-# command people run FIRST, casually, because they believe it is inert.
-
-@test "--dry-run redacts secret values" {
-  cat > "$BATS_TEST_TMPDIR/secret-env" <<'ENV'
-EVENT_URL=https://ctf-in-a-box-app.fly.dev
-BETTER_AUTH_SECRET=CANARY-auth-secret
-GITHUB_CLIENT_ID=public-client-id
-GITHUB_CLIENT_SECRET=CANARY-client-secret
-SCORER_TOKEN=CANARY-scorer-token
-SRH_TOKEN=CANARY-srh-token
-REDIS_PASSWORD=CANARY-redis-password
-SCORE_IMAGE=ghcr.io/fixture-org/score:latest
-FLY_REGION=gru
-GITHUB_APP_ID=123
-GITHUB_APP_PRIVATE_KEY=CANARY-private-key
-GITHUB_APP_INSTALLATION_ID=456
-ENV
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/secret-env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ -z "$(printf '%s' "$output" | grep -F 'CANARY-')" ]
-}
-
-@test "--dry-run still shows which variables are set, and non-secret values" {
-  # Redaction that hid the variable NAMES would make the preview useless —
-  # knowing which secrets land on which app is the reason to run it.
-  cat > "$BATS_TEST_TMPDIR/secret-env" <<'ENV'
-EVENT_URL=https://ctf-in-a-box-app.fly.dev
-BETTER_AUTH_SECRET=CANARY-auth-secret
-GITHUB_CLIENT_ID=public-client-id
-GITHUB_CLIENT_SECRET=CANARY-client-secret
-SCORER_TOKEN=CANARY-scorer-token
-SRH_TOKEN=CANARY-srh-token
-REDIS_PASSWORD=CANARY-redis-password
-SCORE_IMAGE=ghcr.io/fixture-org/score:latest
-FLY_REGION=gru
-GITHUB_APP_ID=123
-GITHUB_APP_PRIVATE_KEY=CANARY-private-key
-GITHUB_APP_INSTALLATION_ID=456
-ENV
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/secret-env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"BETTER_AUTH_SECRET=<redacted>"* && "$output" == *"GITHUB_APP_ID=123"* ]]
-}
-
-# --- srh is REQUIRED on Fly, and that is the correction this module needed ---
-#
-# The first version of this module did not deploy srh at all, reasoning that it
-# only fakes the Upstash REST API in front of local Redis. That was wrong:
-# `fly redis create` provisions Upstash-MANAGED Redis, which speaks only the
-# Redis protocol and exposes no REST endpoint (the REST API is an Upstash
-# *cloud* feature). The app, scorer and sync speak REST and nothing else, so
-# without srh the stack could not connect to its datastore at all.
-#
-# These tests pin the corrected shape so it cannot quietly regress to the
-# broken one.
-
-@test "srh is deployed, and every service is pointed at it" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"srh.fly.toml"* && "$output" == *"UPSTASH_REDIS_REST_URL=http://ctf-in-a-box-srh.flycast:80"* ]]
-}
-
-@test "srh declares a service but no PUBLIC one" {
-  # srh needs a service block for Flycast (its Elixir server binds IPv4 only,
-  # and Fly's private network is IPv6, so traffic goes through Fly's proxy on
-  # a PRIVATE anycast address). Privacy comes from which IP is allocated, not
-  # from the absence of a service — so what must never appear is http_service.
-  [ -z "$(uncommented "$FLY/srh.fly.toml" | grep -F '[http_service]')" ]
-  grep -q '^\[\[services\]\]' "$FLY/srh.fly.toml"
-}
-
-@test "services reach srh over flycast, not .internal" {
-  # `.internal` is direct-to-machine and needs the process to bind IPv6.
-  # srh does not, so every client got `Connection refused`.
-  grep -q 'flycast' "$FLY/deploy.sh"
-}
-
-@test "deploy refuses to continue if srh has a PUBLIC ip" {
-  grep -q 'has a PUBLIC ip' "$FLY/deploy.sh"
-}
-
-@test "public-ip detection parses --json, not the human table" {
-  # `fly ips list`'s human output ends with a docs sentence containing
-  # "public, private, shared"; grepping it for "private" reported an address
-  # that did not exist. Third output-scraping bug in this script.
-  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F 'fly ips list' | grep -v -- '--json')" ]
-}
-
-@test "redis machines are started after deploy" {
-  # `fly deploy` leaves a machine with no public service STOPPED and nothing
-  # autostarts it — no proxy in front of redis to wake it. Observed twice:
-  # deploy reported success while the whole stack was down.
-  grep -q 'fly machine start' "$FLY/deploy.sh"
-}
-
-@test "redis's requirepass is expanded by a shell" {
-  # Fly runs a [processes] command WITHOUT a shell, so `$REDIS_PASSWORD` was
-  # passed to redis-server as a LITERAL 16-char string. Redis started, looked
-  # healthy, and accepted `redis-cli -a '$REDIS_PASSWORD'` — the datastore was
-  # protected by a password published in the committed config.
-  grep -q "sh -c 'exec redis-server" "$FLY/redis.fly.toml"
-}
-
-@test "srh is pinned by digest, like the compose service it mirrors" {
-  grep -qE 'image = "hiett/serverless-redis-http:latest@sha256:[0-9a-f]{64}"' "$FLY/srh.fly.toml"
-}
-
-@test "srh's digest matches docker-compose.yml exactly" {
-  # Two copies of a third-party pin drift silently; the local stack is what
-  # organizers test against, so the deployed one must be the same bits.
-  compose_digest="$(grep -oE 'hiett/serverless-redis-http:latest@sha256:[0-9a-f]{64}' "$REPO/docker-compose.yml" | head -1)"
-  fly_digest="$(grep -oE 'hiett/serverless-redis-http:latest@sha256:[0-9a-f]{64}' "$FLY/srh.fly.toml" | head -1)"
-  [ "$compose_digest" = "$fly_digest" ]
-}
-
-@test "the scorer deploys the SAME image the forks pull, not a rebuild" {
-  # docker-compose.yml uses `image: ${SCORE_IMAGE}` for the scorer and
-  # `build:` only for app and sync. Building a second scorer here would put a
-  # different artifact in front of the leaderboard than the one judging PRs.
-  [ -z "$(uncommented "$FLY/scorer.fly.toml" | grep -F 'dockerfile')" ]
-}
-
-@test "the scorer deploys the mirrored image, not the private GHCR ref" {
-  # Fly CANNOT pull from a private third-party registry — a real run failed
-  # with `Authentication required to access image "ghcr.io/.../score:latest"`
-  # and there is no credential flag. So the deploy must reference
-  # registry.fly.io, and the GHCR ref must appear only as the mirror SOURCE.
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"--image registry.fly.io/ctf-in-a-box-scorer:latest"* ]]
-}
-
-@test "the scorer image is MIRRORED from SCORE_IMAGE, never rebuilt" {
-  # Mirroring keeps the leaderboard scorer byte-identical to the one the forks
-  # pull to judge. A rebuild would be the same source today and nothing keeps
-  # two builds in step.
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"imagetools create --tag registry.fly.io/ctf-in-a-box-scorer:latest ghcr.io/fixture-org/score:latest"* ]]
-}
-
-@test "the mirror authenticates docker for fly's registry first" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"fly auth docker"* ]]
-}
-
-@test "the pull fallback pins linux/amd64" {
-  # The forks' runners are amd64. An arm64 pull on an Apple Silicon machine
-  # would mirror an image the deployed scorer cannot execute.
-  grep -q 'docker pull --platform linux/amd64' "$FLY/deploy.sh"
-}
-
-@test "the derived redis:// connection string is redacted — it embeds the password" {
-  # Built at deploy time from REDIS_PASSWORD, so the password would otherwise
-  # appear twice in the preview: once as REDIS_PASSWORD, once inside the URL.
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ -z "$(printf '%s' "$output" | grep -F 'fixture-redis-password')" ]
-}
-
-@test "deploying without srh credentials fails with the reason, not a stack trace" {
-  grep -vE '^(SRH_TOKEN|REDIS_PASSWORD)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/no-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$status" -ne 0 ]
-}
-
-# --- init ------------------------------------------------------------------
-
-@test "init --dry-run creates no file and no database" {
-  printf 'BETTER_AUTH_SECRET=x\nEVENT_URL=http://localhost\n' > "$BATS_TEST_TMPDIR/src"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init --dry-run \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated"
-  [ ! -f "$BATS_TEST_TMPDIR/generated" ]
-}
-
-@test "init rewrites EVENT_URL to the app's Fly hostname" {
-  # The source env is a compose one, so it carries http://localhost — which
-  # the deploy step correctly refuses. Carrying it over would make init
-  # produce a file that cannot deploy.
-  printf 'BETTER_AUTH_SECRET=x\nEVENT_URL=http://localhost\n' > "$BATS_TEST_TMPDIR/src"
-  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
-  grep -qx "EVENT_URL=https://ctf-in-a-box-app.fly.dev" "$BATS_TEST_TMPDIR/generated"
-}
-
-@test "init generates an SRH_TOKEN rather than reusing the local stack's" {
-  printf 'BETTER_AUTH_SECRET=x\nSRH_TOKEN=local-stack-token\n' > "$BATS_TEST_TMPDIR/src"
-  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
-  # The local value is copied through, then a fresh one is appended and wins
-  # on read (env_value takes the last match). What must NOT happen is the file
-  # having no token at all.
-  [ -n "$(grep -c '^SRH_TOKEN=' "$BATS_TEST_TMPDIR/generated")" ]
-}
-
-@test "init writes the env file with owner-only permissions" {
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
-  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated" || true
-  # It holds every secret the event has; 644 would be a leak on a shared box.
+  #   failed to provision seed volumes: failed to read compose file:
+  #   open compose.fly.yml: no such file or directory
   #
-  # GNU `stat -c` FIRST, BSD `stat -f` as the fallback, and the order is the
-  # whole point: `-c` is an invalid option on BSD and exits nonzero, so the
-  # fallback fires cleanly on macOS. The reverse order silently breaks on
-  # Linux — there `-f` is valid but means "filesystem status", so it SUCCEEDS
-  # with unrelated output and the fallback never runs. That is how this test
-  # passed locally and failed in CI.
-  mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/generated" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/generated")"
-  [ "$mode" = "600" ]
+  # deploy.sh always runs from the repo root, so the rendered file goes there
+  # and this stays a bare filename.
+  uncommented "$FLY/fly.toml" | grep -qE '^ *file *= *"compose\.fly\.yml"'
 }
 
-@test "init tightens permissions on a PRE-EXISTING env file too" {
-  # A hand-made env file is usually 644 from a plain shell redirect, and it
-  # holds every secret the event has. Chmod'ing only on creation left exactly
-  # the files most likely to be wrong.
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/pre-existing"
-  chmod 644 "$BATS_TEST_TMPDIR/pre-existing"
-  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --env-file "$BATS_TEST_TMPDIR/pre-existing" || true
-  mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/pre-existing" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/pre-existing")"
-  [ "$mode" = "600" ]
+@test "deploy.sh renders to the path fly.toml will actually look in" {
+  # The pair above and below only agree if deploy.sh writes the file where
+  # flyctl reads it. Asserting each half separately is what let them disagree.
+  grep -qE '^RENDERED="compose\.fly\.yml"' "$FLY/deploy.sh"
 }
 
-@test "init tops up a pre-existing env file instead of overwriting it" {
-  printf 'BETTER_AUTH_SECRET=keep-me\n' > "$BATS_TEST_TMPDIR/pre-existing"
-  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --env-file "$BATS_TEST_TMPDIR/pre-existing" || true
-  # The original value survives AND the missing one was added.
-  grep -q "^BETTER_AUTH_SECRET=keep-me$" "$BATS_TEST_TMPDIR/pre-existing"
+@test "the rendered compose file is gitignored" {
+  # It is generated on every deploy and derives from .env.fly. Committing it
+  # would put a build artefact in review diffs — and .env.fly itself reached
+  # this public repo twice already, so nothing downstream of it gets tracked.
+  cd "$REPO" && git check-ignore -q compose.fly.yml
 }
 
-@test "an unfilled EVENT_URL placeholder is refused before anything deploys" {
-  # "https://<your-app>.fly.dev" passes a bare https:// check, so without this
-  # it deploys and the failure surfaces much later as a redirect_uri mismatch
-  # at sign-in, against a host nobody can resolve.
-  sed 's#^EVENT_URL=.*#EVENT_URL=https://<your-app>.fly.dev#' \
-    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/placeholder-env"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$status" -ne 0 ]
+@test "the rendered filename is not one flyctl auto-detects" {
+  # flyctl auto-detects compose.yaml, compose.yml, docker-compose.yaml and
+  # docker-compose.yml in the working directory. The rendered file sits at the
+  # repo root, right beside the real docker-compose.yml, so its name must not
+  # collide with that list — and the repo's own compose file must never be
+  # deployed raw, with its ${VAR}s and two build: services intact.
+  name="$(grep -E '^ *file *= *"' "$FLY/fly.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+  case "$name" in
+    compose.yaml|compose.yml|docker-compose.yaml|docker-compose.yml)
+      echo "$name collides with flyctl's auto-detected names"; return 1 ;;
+  esac
+  [ -n "$name" ]
 }
 
-@test "the placeholder refusal names the value to use" {
-  sed 's#^EVENT_URL=.*#EVENT_URL=https://<your-app>.fly.dev#' \
-    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/placeholder-env"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"EVENT_URL=https://ctf-in-a-box-app.fly.dev"* ]]
+@test "public traffic goes to the app container's port, not srh or scorer" {
+  # Only ONE container in a machine receives inbound requests, chosen by
+  # matching internal_port. 3000 is the app. If this ever said 80 the public
+  # would be talking to srh — the datastore's REST API — directly.
+  uncommented "$FLY/fly.toml" | grep -qE '^ *internal_port *= *3000'
 }
 
-@test "the srh-credentials refusal names only the variable that is actually missing" {
-  # Listing both when one is present sends the reader to re-check the one they
-  # already set — the exact wrong turn, on the message whose only job is to
-  # shorten the search.
-  grep -v '^REDIS_PASSWORD=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/half-srh"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/half-srh" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"REDIS_PASSWORD missing"* && "$output" != *"SRH_TOKEN and"* ]]
+@test "the committed default never auto-stops" {
+  # This machine holds redis and the sync poller, not just a web server. A
+  # stopped machine is a stopped datastore and a poller that is not polling,
+  # and no inbound request arrives to wake it while an event is quiet — score
+  # comments pile up on GitHub uncollected.
+  #
+  # FLY_AUTO_STOP opts out of this per deployment (see the autostop tests
+  # below); the value HERE is what an organizer gets without asking.
+  uncommented "$FLY/fly.toml" | grep -qE '^ *auto_stop_machines *= *false'
 }
 
-@test "init needs no fly CLI at all" {
-  # The whole Redis-provisioning step is gone: the datastore is our own
-  # container, authenticated with the REDIS_PASSWORD the kit already
-  # generates. init is now pure env-file preparation, so it must work with
-  # `fly` nowhere on PATH.
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/generated"
-  [ "$status" -eq 0 ]
+@test "exactly ONE volume is declared" {
+  # Fly permits no more than one volume per machine, and says so only when the
+  # machine is created — after images are pushed and IPs provisioned:
+  #
+  #   invalid config.mounts, only 1 volume supported
+  #
+  # redis's append-only file and sync's cursor therefore share this volume
+  # under separate directories.
+  count="$(grep -v '^[[:space:]]*#' "$FLY/fly.toml" | grep -c 'source = ')"
+  [ "$count" = "1" ]
 }
 
-@test "both missing still names both" {
-  grep -vE '^(SRH_TOKEN|REDIS_PASSWORD)=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/no-srh2"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/no-srh2" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"SRH_TOKEN and REDIS_PASSWORD missing"* ]]
+@test "redis and sync are pointed at separate directories inside that volume" {
+  # Sharing one volume is only safe if the two never collide. Both paths are
+  # knobs in docker-compose.yml, defaulting to the local layout, and init
+  # writes the Fly values into the env file.
+  grep -qF 'REDIS_DIR: ${REDIS_DIR:-/data}' "$REPO/docker-compose.yml"
+  grep -qF 'STATE_PATH: ${STATE_PATH:-/state/state.json}' "$REPO/docker-compose.yml"
+  mount="$(grep -v '^[[:space:]]*#' "$FLY/fly.toml" | sed -n 's/^ *destination = "\(.*\)".*/\1/p')"
+  # Both Fly paths must sit UNDER the mount, or the data is written to the
+  # machine's ephemeral overlay and silently lost on the next deploy.
+  grep -qF "REDIS_DIR=$mount/" "$FLY/deploy.sh"
+  grep -qF "STATE_PATH=$mount/" "$FLY/deploy.sh"
 }
 
-# --- the datastore is OUR container, not a managed add-on -------------------
-
-@test "redis is deployed as the same image the compose stack runs" {
-  grep -q 'image = "redis:7-alpine"' "$FLY/redis.fly.toml"
-}
-
-@test "redis requires a password, exactly as compose does" {
-  # An unauthenticated Redis reachable by every app in the organization is the
-  # exposure ADR 41 exists to close.
-  grep -q -- '--requirepass' "$FLY/redis.fly.toml"
-}
-
-@test "redis persists to a volume" {
-  # Without it, a machine restart loses every score, team and hint purchase.
-  grep -q 'destination = "/data"' "$FLY/redis.fly.toml"
-}
-
-@test "redis publishes no public service" {
-  [ -z "$(uncommented "$FLY/redis.fly.toml" | grep -F '[http_service]')" ]
-}
-
-@test "srh reaches redis over the private network, not a managed endpoint" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"redis.fly.toml"* ]]
-}
-
-@test "redis deploys BEFORE the services that read it" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  redis_at="$(printf '%s' "$output" | grep -n '== 1/5 redis' | cut -d: -f1)"
-  app_at="$(printf '%s' "$output" | grep -n '== 5/5 app' | cut -d: -f1)"
-  [ "$redis_at" -lt "$app_at" ]
-}
-
-# --- EVENT_URL host vs the app it is served from ---------------------------
-#
-# The failure this catches is late and opaque: rename the apps in the toml
-# files and forget the env file (or the reverse) and the deploy SUCCEEDS,
-# while BETTER_AUTH_URL claims a hostname nothing answers on. The symptom is
-# a redirect_uri mismatch at sign-in, with nothing pointing back at the cause.
-
-hostname_run() { # $1 = EVENT_URL
-  sed "s#^EVENT_URL=.*#EVENT_URL=$1#" "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/hn"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/hn" --config "$BATS_TEST_TMPDIR/event.yaml"
-}
-
-@test "a fly.dev host naming a different app warns" {
-  hostname_run "https://some-other-name.fly.dev"
-  [[ "$output" == *"but the app deploys as 'ctf-in-a-box-app'"* ]]
-}
-
-@test "the mismatch warning does NOT block the deploy" {
-  # Warn, never fail: renaming the apps to match is a legitimate answer, and
-  # failing would make this a gate on a choice that is the organizer's.
-  hostname_run "https://some-other-name.fly.dev"
-  [ "$status" -eq 0 ]
-}
-
-@test "the matching fly.dev host says nothing" {
-  # A check that fires on the correct configuration is noise, and noise is
-  # what gets ignored when it finally matters.
-  hostname_run "https://ctf-in-a-box-app.fly.dev"
-  [[ "$output" != *"WARNING"* ]]
-}
-
-@test "a custom domain is not treated as a mismatch" {
-  # `fly certs add` + EVENT_URL pointing at your own domain is a first-class
-  # setup. Warning about it would train organizers to ignore the warning.
-  hostname_run "https://ctf.example.org"
-  [[ "$output" != *"WARNING"* ]]
-}
-
-@test "a custom domain names the certificate command it needs" {
-  hostname_run "https://ctf.example.org"
-  [[ "$output" == *"fly certs add ctf.example.org --app ctf-in-a-box-app"* ]]
-}
-
-# --- the env file must never be committable -------------------------------
-#
-# `.env.fly` — which init writes, and which holds the OAuth client secret, the
-# GitHub App private key and the session signing key — was committed to this
-# PUBLIC repo, because .gitignore listed env files individually and a new tool
-# invented a new name. Every secret in it had to be rotated.
-
-@test "the env file init writes is git-ignored" {
-  # `git` is not present in every runner this suite is executed in (the
-  # bats/bats image has none). Skip rather than fail — and rather than pass:
-  # the tracked-file check below returned EMPTY without git, so it passed
-  # vacuously and would have kept passing with a real secret file committed.
-  command -v git >/dev/null || skip "git not available"
+@test "the local defaults are unchanged by the Fly layout" {
+  # The knobs exist for Fly, but a compose stack must keep writing exactly
+  # where it always has — otherwise every existing local event silently starts
+  # from an empty datastore.
   cd "$REPO"
-  run git check-ignore -q .env.fly
-  [ "$status" -eq 0 ]
+  run env SRH_TOKEN=t SCORER_TOKEN=t BETTER_AUTH_SECRET=t REDIS_PASSWORD=p \
+    GITHUB_CLIENT_ID=i GITHUB_CLIENT_SECRET=s SCORE_IMAGE=x \
+    docker compose -f docker-compose.yml --profile poll --profile app config redis sync
+  echo "$output" | grep -qF 'REDIS_DIR: /data'
+  echo "$output" | grep -qF 'STATE_PATH: /state/state.json'
 }
 
-@test "a future env filename is ignored too, without editing .gitignore" {
-  # The specific fix is a glob rather than another entry: the failure mode was
-  # a NEW name nobody had listed, so enumerating one more name repeats it.
-  command -v git >/dev/null || skip "git not available"
-  cd "$REPO"
-  run git check-ignore -q .env.some-tool-not-invented-yet
-  [ "$status" -eq 0 ]
+@test "fly.toml names no image of its own" {
+  # Every image is named in the rendered compose file. A `[build]` image here
+  # would be a second, silent source of truth for what actually runs.
+  [ -z "$(uncommented "$FLY/fly.toml" | grep -E '^ *image *=')" ]
 }
 
-@test ".env.example is still tracked" {
-  # The glob must not swallow the committed template organizers copy from.
-  command -v git >/dev/null || skip "git not available"
-  cd "$REPO"
-  [ -n "$(git ls-files .env.example)" ]
-}
-
-@test "no env file with real secrets is tracked" {
-  command -v git >/dev/null || skip "git not available"
-  cd "$REPO"
-  [ -z "$(git ls-files | grep -E '^\.env' | grep -v '^\.env\.example$')" ]
-}
-
-# --- what a real `fly deploy` rejected -------------------------------------
+# ---------------------------------------------------------------------------
+# The render — what deploy.sh actually hands to flyctl.
 #
-# The first live run failed validation on every private service:
-#
-#   Service has no processes set but app has 1 processes defined
-#   WARNING: Service must expose at least one port. Add a [[services.ports]]
-#   ✘ invalid app configuration
-#
-# The mistake was believing a `[[services]]` block WITHOUT ports meant
-# "internal only". It does not: `[[services]]` IS the public-edge mechanism
-# and Fly refuses it portless. Private access over `<app>.internal` needs
-# nothing declared at all — so a service block here would be what EXPOSED
-# these, not what hid them.
+# THE HEADLINE INVARIANT: no secret values. `docker compose config`
+# interpolates every ${VAR}, so the unfiltered output is a file containing the
+# whole event's credentials. These check for the VALUES, not the variable
+# names, because a name-keyed strip list is exactly the sort of thing that
+# goes stale when a service gains a credential.
+# ---------------------------------------------------------------------------
 
-@test "no private app declares a [[services]] block" {
-  # srh is excluded: it needs one for Flycast, since its server binds IPv4
-  # only and Fly's private network is IPv6. See its own test above.
-  for f in redis scorer sync; do
-    [ -z "$(uncommented "$FLY/$f.fly.toml" | grep '^\[\[services\]\]')" ] || return 1
+@test "render: the file carries the secrets, because nothing else can" {
+  need_docker
+  render
+  # This asserted the OPPOSITE until the first real deploy. The design relied
+  # on Fly's documented promise that secrets are "global and available to every
+  # container"; they are not. A machine's containers receive only their own
+  # ExtraEnv, which comes from this file — so with the values stripped, every
+  # container started without credentials while `fly secrets list` showed all
+  # fourteen as Deployed.
+  grep -qF 'BETTER_AUTH_SECRET: FIXTUREAUTHSECRETzzzzzzzzzzzz' "$RENDERED"
+  grep -qF 'SRH_TOKEN: FIXTURESRHTOKENwwwwwwwwww' "$RENDERED"
+}
+
+@test "render: each credential reaches ONLY the service that needs it" {
+  need_docker
+  render
+  # The compensation for holding secrets in a file: scoping Fly's global
+  # secrets cannot express. Under Fly's model the app container would have
+  # received REDIS_PASSWORD and redis would have received GITHUB_CLIENT_SECRET.
+  app_env="$(awk '/^  app:/{f=1;next} /^  [a-z]+:/{f=0} f' "$RENDERED")"
+  redis_env="$(awk '/^  redis:/{f=1;next} /^  [a-z]+:/{f=0} f' "$RENDERED")"
+  # Guard against both blocks coming back empty, which would pass every
+  # negative below without testing anything.
+  [ -n "$app_env" ] && [ -n "$redis_env" ]
+  [ -z "$(echo "$app_env" | grep -F 'REDIS_PASSWORD')" ]
+  [ -z "$(echo "$redis_env" | grep -F 'GITHUB_CLIENT_SECRET')" ]
+}
+
+@test "render: the output is mode 600" {
+  need_docker
+  render
+  # It holds every credential the event has, next to a repo whose .env.fly
+  # reached a PUBLIC remote twice.
+  perms="$(ls -l "$RENDERED" | cut -c1-10)"
+  [ "$perms" = "-rw-------" ]
+}
+
+@test "render: the redis password is not in any command line" {
+  need_docker
+  render
+  # Even with secrets in the file, argv is a different exposure: a password in
+  # a container's command is visible to `docker inspect`, to `ps` inside the
+  # stack, and in every machine-config dump Fly produces. It travels as an
+  # environment variable and is expanded by the container's own shell.
+  [ -z "$(grep -F 'requirepass' "$RENDERED" | grep -F 'FIXTUREREDISPASS')" ]
+}
+
+@test "render: a URL with userinfo has its host rewritten too" {
+  need_docker
+  render
+  # srh's connection string is `redis://:PASSWORD@redis:6379` — the host
+  # follows an `@`, not the `//`. A rewrite anchored only on `//host:` left it
+  # pointing at `redis`, which resolves nowhere in a shared namespace: the
+  # exact failure this module exists to fix, reintroduced by the renderer and
+  # looking identical to the original (srh healthy, unable to connect).
+  grep -qE 'SRH_CONNECTION_STRING: redis://:[^@]+@localhost:6379' "$RENDERED"
+}
+
+@test "render: no compose-only \$\$ escaping survives" {
+  need_docker
+  render
+  # `$$` means "a literal $" TO COMPOSE, and `docker compose config` re-emits
+  # it that way. Fly is not compose: it passes the string through, so `sh -c`
+  # would expand `$$` as the shell's PID and redis would come up with a
+  # password like "12345REDIS_PASSWORD" — healthy, and impossible to
+  # authenticate against.
+  [ -z "$(grep -F '$$' "$RENDERED")" ]
+}
+
+@test "render: redis still reads its password from the environment" {
+  need_docker
+  render
+  # The counterpart to the two tests above: stripping and unescaping must not
+  # have removed the expansion itself.
+  grep -qF 'requirepass "$REDIS_PASSWORD"' "$RENDERED"
+}
+
+@test "render: every service resolves to loopback, not a service name" {
+  need_docker
+  render
+  # Containers in one machine share a network namespace. There is no DNS
+  # between them: `http://srh:80` resolves nowhere. This is also the whole
+  # reason the deployment is one machine — srh's Redis client is IPv4-only and
+  # Fly's private network is IPv6-only.
+  [ -z "$(grep -E '://(srh|scorer|redis|app|sync):' "$RENDERED")" ]
+}
+
+@test "render: the REST and scorer URLs are present and point at localhost" {
+  need_docker
+  render
+  # The negative test above passes trivially if the URLs vanished altogether.
+  grep -qF 'UPSTASH_REDIS_REST_URL: http://localhost:80' "$RENDERED"
+  grep -qF 'SCORER_URL: http://localhost:4000' "$RENDERED"
+}
+
+@test "render: caddy is not deployed" {
+  need_docker
+  render
+  # Fly terminates TLS and issues certificates, so caddy has no job there —
+  # and it would collide with srh, which also binds port 80 in the shared
+  # namespace. Excluded by naming services explicitly in the render, NOT by
+  # giving caddy a compose profile: profiling it would make the edge opt-in
+  # for every LOCAL bring-up, so one forgotten flag would mean no ingress.
+  [ -z "$(grep -E '^  caddy:' "$RENDERED")" ]
+}
+
+@test "render: every deployed service names an image" {
+  need_docker
+  render
+  # flyctl requires `image` or `build` per service, and this module builds
+  # nothing on Fly. A service that lost its image line fails the deploy with a
+  # message that names the file, not the cause.
+  services="$(grep -cE '^  [a-z-]+:' "$RENDERED")"
+  images="$(grep -cE '^    image: ' "$RENDERED")"
+  [ "$services" = "$images" ]
+}
+
+@test "render: all five services are present" {
+  need_docker
+  render
+  for svc in app scorer sync srh redis; do
+    if ! grep -qE "^  $svc:" "$RENDERED"; then
+      echo "missing service: $svc"
+      return 1
+    fi
   done
+  [ "$(grep -cE '^  [a-z-]+:' "$RENDERED")" = "5" ]
 }
 
-@test "the app — the one public service — uses http_service, not a bare service" {
-  # http_service is the modern public form and carries its own port.
-  grep -q '^\[http_service\]' "$FLY/app.fly.toml"
+@test "render: no build, networks, volumes or profiles keys survive" {
+  need_docker
+  render
+  # build:    flyctl rejects more than one, and cannot pass build args.
+  # volumes:  named volumes are ignored by Fly; bind mounts name host paths
+  #           that do not exist on a Fly machine.
+  # networks: one machine, one namespace.
+  # profiles: flyctl does not implement them, so leaving them would imply a
+  #           filter Fly honours when it does not.
+  [ -z "$(grep -E '^    (build|networks|volumes|profiles):' "$RENDERED")" ]
 }
 
-@test "redis binds IPv6, because Fly's private network is IPv6-only" {
-  # A process on 0.0.0.0 alone accepts nothing over 6PN, and the symptom is
-  # srh timing out against a redis that looks healthy in `fly logs`.
-  grep -q -- '-::\*' "$FLY/redis.fly.toml"
+@test "render: no service is left with an empty environment key" {
+  need_docker
+  render
+  # redis's entire environment is secrets, so stripping them leaves a bare
+  # `environment:` — which is YAML null, not an empty mapping. Docker tolerates
+  # it; a hand-rolled unmarshal into a map type need not.
+  # An `environment:` key is empty exactly when the next line is not indented
+  # deeper than it — including when it is the last line of the file.
+  empty="$(awk '
+    prev == 1 { match($0, /^ */); if (RLENGTH <= 4) print "EMPTY"; prev = 0 }
+    /^    environment:[ \t]*$/ { prev = 1; next }
+    END { if (prev == 1) print "EMPTY" }
+  ' "$RENDERED")"
+  [ -z "$empty" ]
 }
 
-# --- volumes must not prompt, and must match the app's region --------------
-
-@test "volume creation passes an explicit --region" {
-  # `fly volumes create` PROMPTS without one. On a real run that put the
-  # volume in gru while primary_region said iad — an interactive prompt in
-  # the middle of a scripted deploy, and a region mismatch after it.
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [[ "$output" == *"volumes create ctf_redis_data"*"--region gru"* ]]
+@test "render: the output is valid compose" {
+  need_docker
+  render
+  # Structural checks above are line-oriented; this one asks Docker whether the
+  # document actually parses.
+  docker compose -f "$RENDERED" config -q 2>/dev/null
 }
 
-@test "the volume region is read from the toml, not hardcoded twice" {
-  # Change primary_region and the volume must follow, or the two drift.
-  sed 's/^primary_region = .*/primary_region = "lhr"/' "$FLY/redis.fly.toml" > "$BATS_TEST_TMPDIR/redis.fly.toml"
-  cp "$FLY"/*.fly.toml "$BATS_TEST_TMPDIR/" 2>/dev/null
-  sed -i.bak 's/^primary_region = .*/primary_region = "lhr"/' "$BATS_TEST_TMPDIR/redis.fly.toml"
-  region="$(sed -n 's/^primary_region *= *"\([^"]*\)".*/\1/p' "$BATS_TEST_TMPDIR/redis.fly.toml" | head -1)"
-  [ "$region" = "lhr" ]
-}
-
-@test "both volumes get a region" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$(printf '%s' "$output" | grep -c 'volumes create.*--region')" -eq 2 ]
-}
-
-# --- the region is asked for, not hardcoded --------------------------------
-#
-# On the first real run `fly volumes create` PROMPTED mid-deploy (it needs an
-# explicit --region) and the operator — in Brazil — got a volume in gru against
-# apps configured for iad. Volumes are region-pinned, so that is expensive to
-# undo.
-
-@test "init takes an explicit --region" {
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init --region gru \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/reg"
-  grep -qx "FLY_REGION=gru" "$BATS_TEST_TMPDIR/reg"
-}
-
-@test "init rejects something that is not a region code" {
-  # "Sao Paulo" is what someone types when they read the prompt as a place
-  # name. Catching it here beats an opaque failure part-way through a deploy.
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init --region "Sao Paulo" \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/reg"
+@test "render: refuses to run without an image for every service" {
+  # Fly builds nothing here, so a missing image is a deploy that fails late
+  # with a message about the compose file rather than the flag that was
+  # forgotten.
+  run "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env" \
+    --out "$BATS_TEST_TMPDIR/x.yml" --app-image a --sync-image b
   [ "$status" -ne 0 ]
+  echo "$output" | grep -qF -- '--scorer-image is required'
 }
 
-@test "init does not hang without a tty" {
-  # A test or CI run has no terminal; it must take the default rather than
-  # block forever on read.
-  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/src"
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
-    --from "$BATS_TEST_TMPDIR/src" --env-file "$BATS_TEST_TMPDIR/reg"
+@test "render: refuses a missing env file" {
+  run "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/nope" \
+    --out "$BATS_TEST_TMPDIR/x.yml" --app-image a --sync-image b --scorer-image c
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'FAIL: no'
+}
+
+# ---------------------------------------------------------------------------
+# deploy.sh — the dry run is the command people run first, casually.
+# ---------------------------------------------------------------------------
+
+@test "dry-run makes no fly calls at all" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
   [ "$status" -eq 0 ]
+  # Every fly invocation goes through fly_run, which prints instead of running.
+  # A line that would call fly without that prefix is a real call in a dry run.
+  [ -z "$(echo "$output" | grep -E '^fly ')" ]
 }
 
-@test "one region drives every app and both volumes" {
-  # Five deploys and two volumes, all in the region from the env file — not
-  # the toml default, so a chosen region actually takes effect everywhere.
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$(printf '%s' "$output" | grep -c -- '--primary-region gru')" -eq 5 ]
+@test "dry-run redacts every secret value it would set" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # This regressed once for real: an organizer previewed a deploy and watched
+  # their GitHub App private key, OAuth client secret and BETTER_AUTH_SECRET
+  # scroll past into a terminal, a scrollback buffer, and whatever was
+  # capturing the screen.
+  for value in FIXTUREAUTHSECRETzzzzzzzzzzzz FIXTURECLIENTSECRETyyyyyyyy \
+               FIXTURESCORERTOKENxxxxxxxx FIXTURESRHTOKENwwwwwwwwww \
+               FIXTUREREDISPASSvvvvvvvvv RklYVFVSRVBSSVZBVEVLRVl1dXV1dQ==; do
+    if echo "$output" | grep -qF -- "$value"; then
+      echo "LEAKED in dry-run output: $value"
+      return 1
+    fi
+  done
+  echo "$output" | grep -qF 'BETTER_AUTH_SECRET=<redacted>'
 }
 
-@test "both volumes use the chosen region, not the toml default" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$(printf '%s' "$output" | grep -c -- 'volumes create.*--region gru')" -eq 2 ]
+@test "dry-run still shows WHICH variables get set" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # Redaction that hides the variable NAMES too would defeat the point of
+  # previewing: the reason to run this is to check what is configured where.
+  echo "$output" | grep -qF 'UPSTASH_REDIS_REST_TOKEN=<redacted>'
 }
 
-@test "deploy uses --primary-region, the flag fly actually has" {
-  # `fly deploy` has NO --region flag; it is --primary-region. Checked against
-  # flyctl's docs rather than assumed, after nearly shipping the wrong one.
-  [ -z "$(grep -E 'fly_run deploy .*[^-]--region ' "$FLY/deploy.sh")" ]
+@test "the srh connection string points at loopback" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # It is redacted in the output (it embeds the password), so this asserts on
+  # the rendered file's sibling: the variable is set at all.
+  echo "$output" | grep -qF 'SRH_CONNECTION_STRING=<redacted>'
 }
 
-# --- idempotence must not depend on parsing human-readable output ----------
-#
-# A real re-run died on `Validation failed: Name has already been taken`. The
-# app DID exist; the check matched "^name<whitespace>" against `fly apps
-# list`'s table, that failed, and `fly apps create` ran anyway. AGENTS.md's
-# rule for the provisioning path is that every step be idempotent — a
-# check-then-act step that cannot see the state it checks is not.
-
-@test "app existence is queried directly, not scraped from a table" {
-  # Comments stripped first: this file EXPLAINS why `fly apps list` is not
-  # used, so a naive grep matches the explanation. Third time that shape has
-  # bitten in this suite — a test failing on its own documentation.
-  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F 'fly apps list')" ]
+@test "a non-https EVENT_URL is refused" {
+  cd "$REPO"
+  sed 's|^EVENT_URL=.*|EVENT_URL=http://localhost|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.http"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.http" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+  # ADR 39: the app refuses to serve a production event over plain HTTP, so
+  # this would deploy an app that answers 500 to everything.
+  echo "$output" | grep -qF 'must be your app'
 }
 
-@test "app existence uses a command whose exit status is the answer" {
-  grep -q 'fly status --app' "$FLY/deploy.sh"
+@test "an unfilled placeholder EVENT_URL is refused" {
+  cd "$REPO"
+  sed 's|^EVENT_URL=.*|EVENT_URL=https://<your-app>.fly.dev|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.ph"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.ph" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+  # It passes the https:// test, so without this it deploys and fails much
+  # later as a redirect_uri mismatch nobody can resolve.
+  echo "$output" | grep -qF 'placeholder'
 }
 
-@test "a name collision explains that fly app names are global" {
-  # The raw Fly error reads like a bug in this script. It is not: the name may
-  # be held by an app in an organization the operator cannot see.
-  grep -q 'globally unique' "$FLY/deploy.sh"
+@test "a missing REDIS_PASSWORD names REDIS_PASSWORD and nothing else" {
+  cd "$REPO"
+  grep -v '^REDIS_PASSWORD=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.nored"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.nored" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+  # Naming several variables when one is absent sends the reader to check the
+  # ones they already set.
+  [ -z "$(echo "$output" | grep -F 'SRH_TOKEN and')" ]
 }
 
-@test "the collision message shows how to rename every app at once" {
-  # Five toml files must agree, and EVENT_URL after them — a one-liner beats
-  # editing five files by hand and missing one.
-  grep -q "deploy/fly/\*.fly.toml" "$FLY/deploy.sh"
+@test "--skip-build warns that event.yaml will not be picked up" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --skip-build --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # The app bakes event.yaml at BUILD time, so "skip the build" and "pick up
+  # the new config" are contradictory. Silently deploying a stale config that
+  # looks deployed is the failure this prevents.
+  echo "$output" | grep -qF 'baked'
 }
 
-@test "the sync Dockerfile path is relative to its toml, and named once" {
-  # `dockerfile = "deploy/fly/sync.Dockerfile"` produced
-  # `deploy/fly/deploy/fly/sync.Dockerfile` on a real run: fly resolves the
-  # path against the config file's OWN directory. It was also passed as
-  # --dockerfile at the same time — two places to get one path wrong.
-  grep -qx '  dockerfile = "sync.Dockerfile"' "$FLY/sync.fly.toml"
+@test "init needs no fly CLI and touches nothing on Fly" {
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.init"
+  run ./deploy/fly/deploy.sh init --dry-run --env-file "$BATS_TEST_TMPDIR/env.init"
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -E '^fly ')" ]
 }
 
-@test "the sync deploy does not also pass --dockerfile" {
-  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F -- '--dockerfile')" ]
+@test "init rejects a region that is not a Fly region code" {
+  cd "$REPO"
+  grep -v '^FLY_REGION=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.noregion"
+  run ./deploy/fly/deploy.sh init --env-file "$BATS_TEST_TMPDIR/env.noregion" --region GRU1
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'not a Fly region code'
 }
 
-# --- the build context ------------------------------------------------------
-#
-# Fly reported 1.3 GB across 54,792 files on every sync deploy, almost all of
-# it apps/web/node_modules and .next — neither of which belongs in a context,
-# since apps/web/Dockerfile runs its own `pnpm install` and `pnpm build`.
+# ---------------------------------------------------------------------------
+# Cross-file agreement.
+# ---------------------------------------------------------------------------
 
-@test "a root .dockerignore exists for the repo-root builds" {
-  [ -f "$REPO/.dockerignore" ]
+@test "deploy.sh and fly.toml agree on the app name" {
+  # deploy.sh reads the name out of fly.toml rather than repeating it, so this
+  # guards the reader, not a duplicated constant.
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  name="$(grep -E '^app *= *"' "$FLY/fly.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+  echo "$output" | grep -qF "== app: $name"
 }
 
-@test "node_modules is excluded from the root build context" {
-  grep -qx '\*\*/node_modules' "$REPO/.dockerignore"
+@test "sync can take its config from EVENT_CONFIG_B64" {
+  # The single-machine deployment has no repo checkout to bind-mount
+  # ./event.yaml from, so sync must accept the config the same way the app
+  # does. Without this the poller reads a file that is not there.
+  grep -qF 'EVENT_CONFIG_B64' "$REPO/sync/src/config.js"
 }
 
-@test "env files are excluded from the root build context" {
-  # Defence in depth after .env.fly was committed: keeping secrets out of the
-  # CONTEXT means a careless `COPY . .` in a future Dockerfile cannot pick
-  # them up either.
-  grep -qx '\.env' "$REPO/.dockerignore"
-  grep -qx '\.env\.\*' "$REPO/.dockerignore"
+@test "docker-compose.yml passes EVENT_CONFIG_B64 through to sync" {
+  # The render carries whatever compose declares; if the variable is not wired
+  # in the source file it cannot reach the deployed poller.
+  grep -qF 'EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}' "$REPO/docker-compose.yml"
 }
 
-@test "event.yaml is NOT excluded — sync.Dockerfile copies it" {
-  # Excluding it would break the sync image silently: the build succeeds and
-  # the poller then exits because it has no config.
-  [ -z "$(grep -v '^[[:space:]]*#' "$REPO/.dockerignore" | grep -x 'event.yaml')" ]
+@test "the deploy passes a prebuilt image so flyctl does not try to build one" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # Without this the first real deploy died after every image was already
+  # built and pushed: flyctl resolves a machine image before it reads the
+  # compose file, and with no [build] section it has nothing to resolve —
+  # "app does not have a Dockerfile or buildpacks configured". Zero buildable
+  # services is fine to the compose parser; it is `fly deploy` that objects.
+  echo "$output" | grep -qE 'fly deploy .*--image registry\.fly\.io/[^ ]+:app'
 }
 
-@test "apps/web source is NOT excluded — the app image builds from it" {
-  [ -z "$(grep -v '^[[:space:]]*#' "$REPO/.dockerignore" | grep -xE 'apps/?|apps/web/?')" ]
+# ---------------------------------------------------------------------------
+# FLY_AUTO_STOP — opt-in idle shutdown.
+# ---------------------------------------------------------------------------
+
+@test "autostop is off unless asked for" {
+  need_docker
+  cd "$REPO"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # The committed fly.toml is deployed as-is, with no rendered override.
+  echo "$output" | grep -qF 'fly deploy --config deploy/fly/fly.toml'
 }
 
-# --- secrets must actually apply, not just stage ---------------------------
-#
-# `--stage` left the app's six secrets permanently staged on a real deploy —
-# `There are 6 secrets not deployed` — including BETTER_AUTH_URL and
-# BETTER_AUTH_SECRET. better-auth with neither answers 403 to
-# /api/auth/sign-in/social, and nothing in the app's own logs said why.
-
-@test "secrets are not staged-only" {
-  [ -z "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -F 'secrets set' | grep -F -- '--stage')" ]
+@test "FLY_AUTO_STOP deploys a rendered config, never editing fly.toml" {
+  need_docker
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
+  echo "FLY_AUTO_STOP=suspend" >> "$BATS_TEST_TMPDIR/env.as"
+  # Checksummed around the run, NOT compared against git: fly.toml is often
+  # legitimately dirty mid-change, and `git diff --quiet` would then fail for a
+  # reason that has nothing to do with what this test is about.
+  before="$(md5 -q "$FLY/fly.toml" 2>/dev/null || md5sum "$FLY/fly.toml" | cut -d' ' -f1)"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  after="$(md5 -q "$FLY/fly.toml" 2>/dev/null || md5sum "$FLY/fly.toml" | cut -d' ' -f1)"
+  # A deploy that dirties a tracked file is a deploy that gets committed by
+  # accident, so the substitution goes to a temporary copy.
+  echo "$output" | grep -qF 'fly deploy --config deploy/fly/.fly.autostop.toml'
+  [ "$before" = "$after" ]
 }
 
-@test "every app's secrets are set the same way" {
-  # Five apps; a single one left on a different form is how this recurs.
-  [ "$(grep -v '^[[:space:]]*#' "$FLY/deploy.sh" | grep -c 'secrets set --detach')" -eq 5 ]
+@test "FLY_AUTO_STOP warns that the leaderboard stops advancing" {
+  need_docker
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
+  echo "FLY_AUTO_STOP=stop" >> "$BATS_TEST_TMPDIR/env.as"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  # The machine holds redis and the poller, so this is not the ordinary
+  # stateless-web-app tradeoff Fly's docs describe.
+  echo "$output" | grep -qF 'leaderboard does not advance'
 }
 
-@test "the dry-run shows the secrets commands it would run" {
-  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
-    --env-file "$BATS_TEST_TMPDIR/env" --config "$BATS_TEST_TMPDIR/event.yaml"
-  [ "$(printf '%s' "$output" | grep -c 'secrets set')" -eq 5 ]
+@test "an invalid FLY_AUTO_STOP is refused, not silently ignored" {
+  need_docker
+  cd "$REPO"
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
+  echo "FLY_AUTO_STOP=true" >> "$BATS_TEST_TMPDIR/env.as"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+  # `true` is the obvious guess and is NOT one of Fly's values.
+  echo "$output" | grep -qF 'Use off, stop or suspend'
+}
+
+@test "the autostop override drops min_machines_running to 0" {
+  # Fly keeps one machine up regardless if the minimum stays at 1, so the
+  # setting would look applied and do nothing.
+  grep -qF 'min_machines_running = 0' "$FLY/deploy.sh"
+}
+
+@test "the autostop override file is gitignored" {
+  cd "$REPO" && git check-ignore -q deploy/fly/.fly.autostop.toml
+}
+
+# ---------------------------------------------------------------------------
+# One URL, in one place.
+# ---------------------------------------------------------------------------
+
+@test "event.yaml carries no url: the URL is EVENT_URL" {
+  # A deployment fact in the event file: one event.yaml goes to a box, to AWS
+  # and to fly.io on three hostnames, which is why .env and .env.fly hold
+  # different EVENT_URLs for one event.
+  [ -z "$(grep -E '^  url:' "$REPO/event.yaml.example")" ]
+}
+
+@test "a leftover event.url fails the app build rather than being ignored" {
+  grep -qF 'event.yaml sets `event.url`' "$REPO/apps/web/scripts/generate-event-config.mjs"
+}
+
+@test "ctf-setup reads the URL from .env, not from event.yaml" {
+  # It renders the leaderboard link into every fork's score comment. Reading a
+  # stale event.url left sign-in working while contestants got a dead link.
+  grep -qF "sed -n 's/^EVENT_URL=//p'" "$REPO/setup/ctf-setup.sh"
+}
+
+@test "the scorer mirror is checked for a linux/amd64 build" {
+  # `buildx imagetools create` mirrors faithfully, including a single-arch
+  # arm64 image built on an Apple Silicon laptop. Fly machines are amd64, and
+  # without this the failure lands at the very END of the deploy, after both
+  # images are rebuilt and pushed and the secrets set:
+  #
+  #   failed to resolve image for container "scorer":
+  #   platform not found: linux/amd64
+  #
+  # app and sync cannot hit it — deploy.sh builds those with an explicit
+  # --platform. The scorer is the one image built by hand, elsewhere.
+  grep -qF 'linux/amd64' "$FLY/deploy.sh"
+  grep -qF 'has no linux/amd64 build' "$FLY/deploy.sh"
+}
+
+@test "the scorer rebuild instruction carries the platform flag" {
+  # The message has to include the flag, because the command WITHOUT it is the
+  # one people naturally type — and is exactly what produced the arm64 image.
+  grep -qF 'docker build --platform linux/amd64 -t $SCORE_IMAGE scorer/' "$FLY/deploy.sh"
+}
+
+@test "images are pinned by digest, not deployed by tag" {
+  # A tag is a moving pointer that Fly resolves when the machine starts. A
+  # rebuilt-and-repushed :scorer did not reach a running machine — the registry
+  # held the new image, the machine kept serving the old one, and the only
+  # symptom was a 404 on a route the new build has. Nothing in the deploy
+  # output was wrong, which is what made it expensive to find.
+  grep -qF 'pin_digest()' "$FLY/deploy.sh"
+  grep -qF '{{.Manifest.Digest}}' "$FLY/deploy.sh"
+}
+
+@test "digest pinning falls back to the tag rather than failing the deploy" {
+  # An older buildx has no --format. A deploy that still works on a tag beats
+  # one that refuses to run.
+  grep -qF '*) echo "$ref" ;;' "$FLY/deploy.sh"
+}
+
+@test "the platform check distinguishes 'absent' from 'could not look'" {
+  # The first version treated a failed inspect as a missing platform and
+  # blocked a valid deploy: registry.fly.io returns transient errors, stderr
+  # was swallowed, and an empty result read as "no amd64". A check that cannot
+  # tell those apart fails exactly when the registry is briefly unwell, which
+  # is unrelated to what it guards.
+  grep -qF 'could not inspect' "$FLY/deploy.sh"
+  # And it must actually retry rather than give up on one bad response.
+  grep -qF 'for _ in 1 2; do' "$FLY/deploy.sh"
 }

@@ -113,3 +113,44 @@ test("rejects a non-PEM base64 private key", () => {
 test("throws when App creds are not set", () => {
   assert.throws(() => loadConfig(writeYaml(YAML), { SCORER_TOKEN: "s" }), /GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required/);
 });
+
+// ---------------------------------------------------------------------------
+// EVENT_CONFIG_B64 — the no-bind-mount path (single-machine Fly deployment).
+// ---------------------------------------------------------------------------
+
+test("EVENT_CONFIG_B64 supplies the config with no file on disk at all", () => {
+  const cfg = loadConfig("/no/such/event.yaml", {
+    ...ENV,
+    EVENT_CONFIG_B64: Buffer.from(YAML).toString("base64"),
+  });
+  assert.equal(cfg.org, "o");
+  assert.deepEqual(cfg.targets, ["dvwa"]);
+});
+
+// The precedence is what makes one variable safe to set everywhere: an
+// organizer who exports EVENT_CONFIG_B64 for the app's build must not thereby
+// change which config a compose-mounted sync reads out from under itself.
+test("EVENT_CONFIG_B64 wins over the mounted file when both are present", () => {
+  const p = writeYaml(`github: { org: from-file }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`);
+  const fromEnv = `github: { org: from-env }\nmodules:\n  secure-development:\n    targets: [webgoat]\n`;
+  const cfg = loadConfig(p, { ...ENV, EVENT_CONFIG_B64: Buffer.from(fromEnv).toString("base64") });
+  assert.equal(cfg.org, "from-env");
+  assert.deepEqual(cfg.targets, ["webgoat"]);
+});
+
+// compose renders an unset `${EVENT_CONFIG_B64:-}` as "". Treating that as a
+// real (empty) config would report a blank event.yaml instead of falling back
+// to the file that is actually mounted.
+test("an EMPTY EVENT_CONFIG_B64 is absent, not an empty config", () => {
+  const p = writeYaml(YAML);
+  const cfg = loadConfig(p, { ...ENV, EVENT_CONFIG_B64: "" });
+  assert.equal(cfg.org, "o");
+});
+
+// Blames the variable, not the file the text never came from.
+test("EVENT_CONFIG_B64 that decodes to nothing names the variable", () => {
+  assert.throws(
+    () => loadConfig("/no/such/event.yaml", { ...ENV, EVENT_CONFIG_B64: Buffer.from("   ").toString("base64") }),
+    /EVENT_CONFIG_B64 is set but decodes to nothing/,
+  );
+});

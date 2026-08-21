@@ -800,13 +800,13 @@ YAML
 @test "wiz_event_yaml refuses to write a modules: block with nothing under it" {
   # All three readers reject a keyless modules: block, so emitting one would
   # hand the organizer a config that provisions nothing and crash-loops sync.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org "" "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org "" "" poll admin' _ "$SCRIPT"
   [ "$status" -ne 0 ]
   echo "$output" | grep -qF 'at least one module must be enabled'
 }
 
 @test "wiz_event_yaml refuses secure-development with no targets" {
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org secure-development "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org secure-development "" poll admin' _ "$SCRIPT"
   [ "$status" -ne 0 ]
   echo "$output" | grep -qF 'secure-development needs at least one target'
 }
@@ -818,7 +818,7 @@ YAML
   # switch); `teams: { max_size: 6 }` still capped teams at 4
   # (TEAM_MAX_MEMBERS in team-store.ts). Both are gone rather than corrected,
   # because a key that cannot change the answer misleads at any value.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -E 'hints|teams')" ]
 }
@@ -827,7 +827,7 @@ YAML
   # The three keys were emitted by one printf. Guard against the removal having
   # taken admins with it — an empty admins list means /admin 403s for everyone,
   # which is silent until an organizer tries to open the panel.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n u "" org quiz "" poll dcotelo' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll dcotelo' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qx 'admins: \[dcotelo\]'
 }
@@ -1147,4 +1147,25 @@ EOF
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
   printf '%s' "$output" | grep -qE '^  dvwa +❌ absent'
   [ -z "$(printf '%s' "$output" | grep -F '✅ v')" ]
+}
+
+# The event URL moved from event.yaml's `event.url` to EVENT_URL in .env
+# (ADR 43). ctf-setup renders it into every fork's score-comment footer, so an
+# organizer who moved the file but not the value would otherwise lose that link
+# on every scored PR with nothing to explain it.
+
+@test "render warns when EVENT_URL is missing rather than dropping the link silently" {
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'EVENT_URL is not set'
+}
+
+@test "render puts the leaderboard link in the workflow when EVENT_URL is set" {
+  # The counterpart: the warning above must not be the only outcome, or it
+  # would pass just as well against a reader that never works.
+  printf 'EVENT_URL=https://ctf.example.org\n' > .env
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'EVENT_URL is not set')" ]
+  grep -qF 'https://ctf.example.org/leaderboard' dist/workflows/dvwa.ctf-score.yml
 }

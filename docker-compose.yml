@@ -90,19 +90,64 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # `:?` on purpose: an unset REDIS_PASSWORD fails the bring-up with this
-    # message rather than starting an unauthenticated Redis. A security
-    # control that silently degrades to "off" when a variable is missing is
-    # the failure mode this whole change exists to remove — and the empty
-    # string would be exactly that, since redis-server treats
-    # `--requirepass ""` as no password at all.
+    # THE PASSWORD IS READ FROM THE ENVIRONMENT, NOT INTERPOLATED INTO ARGV.
+    #
+    # `--requirepass ${REDIS_PASSWORD}` put the live credential in three places
+    # it did not belong: the container's command line (so any `ps` inside the
+    # stack, and `docker inspect`, showed it), the output of `docker compose
+    # config` (which organizers are told to run, and which deploy/fly renders
+    # to a file), and every machine-config dump on a hosted deployment.
+    #
+    # `$$` is escaped for COMPOSE, not for the shell: compose turns `$$` into a
+    # literal `$`, so redis-server's own `sh` is what expands $REDIS_PASSWORD,
+    # at start-up, inside the container. `exec` keeps redis as PID 1 so it
+    # still receives signals directly rather than through a shell that ignores
+    # them. Without `sh -c` there is no expansion at all and redis would take
+    # the literal string "$REDIS_PASSWORD" as its password — an error that
+    # starts cleanly and reports healthy (this exact bug shipped once on Fly,
+    # where `[processes]` also runs no shell; see ADR 42).
+    # `mkdir -p` because `--dir` must already exist — redis-server does not
+    # create it and exits with "Can't chdir to ...". It only ever matters when
+    # REDIS_DIR is a SUBDIRECTORY of the mount, which is the Fly case below.
+    # `exec docker-entrypoint.sh redis-server ...`, NOT `exec redis-server ...`.
+    #
+    # The image's entrypoint does two things that only happen when its first
+    # argument is literally `redis-server`:
+    #
+    #   1. drops privileges — `setpriv --reuid redis --regid redis
+    #      --clear-groups`, after chowning the data dir
+    #   2. sets `umask 0077`, so the AOF and RDB are not world-readable
+    #
+    # Running `sh -c 'exec redis-server ...'` skips BOTH: the entrypoint sees
+    # `sh`, falls through to `exec "$@"`, and redis ends up running as ROOT
+    # with a 0022 umask. Nothing about that is visible in `docker compose ps`
+    # or in the logs — it was found by diffing `ps -o user` against the
+    # previous command.
+    #
+    # So the shell is used only to expand the two variables, and then hands
+    # back to the entrypoint, which sees `redis-server` and behaves exactly as
+    # it did before this file used a shell at all.
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --requirepass
-      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (setup/ctf-setup.sh secrets generates one; see docs/hosting.md)}
+      - sh
+      - -c
+      - mkdir -p "$$REDIS_DIR" && exec docker-entrypoint.sh redis-server --appendonly yes --dir "$$REDIS_DIR" --requirepass "$$REDIS_PASSWORD"
     environment:
+      # Where the append-only file lives, INSIDE the mounted volume.
+      #
+      # Defaults to the volume root, which is what compose has always done and
+      # keeps every local stack byte-identical. It is a knob because a Fly
+      # machine permits exactly ONE volume ("invalid config.mounts, only 1
+      # volume supported"), so redis and sync have to share it under separate
+      # directories — .env.fly sets this to /data/redis. See deploy/fly/fly.toml.
+      REDIS_DIR: ${REDIS_DIR:-/data}
+      # `:?` on purpose: an unset REDIS_PASSWORD fails the bring-up with this
+      # message rather than starting an unauthenticated Redis. A security
+      # control that silently degrades to "off" when a variable is missing is
+      # the failure mode this whole change exists to remove — and the empty
+      # string would be exactly that, since redis-server treats
+      # `--requirepass ""` as no password at all. `:?` rejects both unset AND
+      # empty, which is why it stays `:?` rather than `:-`.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (setup/ctf-setup.sh secrets generates one; see docs/hosting.md)}
       # redis-cli reads REDISCLI_AUTH, so `docker compose exec redis redis-cli
       # ...` keeps working unchanged — for organizers debugging by hand, and
       # for smoke.sh/dev-stack, which drive Redis exactly that way. Passing
@@ -133,6 +178,22 @@ services:
       # the admin-panel freeze never reaches the poller.
       UPSTASH_REDIS_REST_URL: http://srh:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
+      # The same base64 event.yaml the app takes as a BUILD arg, read here at
+      # START-UP instead. Empty in a normal compose bring-up, where the bind
+      # mount below is the real source — sync treats an empty value as absent
+      # (sync/src/config.js), so setting it for the app's build does not
+      # change what a mounted sync reads.
+      #
+      # It exists for deployments with no host to bind-mount FROM: the
+      # single-machine Fly deployment runs every container on one machine with
+      # no repo checkout on it, so `./event.yaml` names nothing there. See
+      # docs/fly.md and ADR 42.
+      EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
+      # The poller's cursor. Same reasoning as redis's REDIS_DIR above: the
+      # default is exactly what compose has always used, and .env.fly moves it
+      # to /data/sync/state.json so both services fit the single volume a Fly
+      # machine allows. sync creates the parent directory itself.
+      STATE_PATH: ${STATE_PATH:-/state/state.json}
     volumes:
       - ./event.yaml:/config/event.yaml:ro
       - sync-state:/state
