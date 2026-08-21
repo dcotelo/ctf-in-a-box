@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-# Stand the kit up on fly.io: three apps (app, scorer, sync) plus a managed
-# Upstash Redis. Run from anywhere; it works from the repo root.
+# Stand the kit up on fly.io: ONE app, ONE machine, every container in it.
+#
+# The machine runs the same five services docker-compose.yml defines — app,
+# scorer, sync, srh, redis — from a compose file rendered out of that very
+# file, so the deployed wiring cannot drift from the local one. See fly.toml
+# for why it is one app rather than five (short version: srh's Redis client is
+# IPv4-only and Fly's private network is IPv6-only, so the containers have to
+# share a network namespace and talk over localhost).
 #
 # Idempotent by design, like ctf-setup.sh: every step checks before it acts, so
 # re-running after a failure resumes rather than duplicating. Secrets are set
-# through `fly secrets`, never written into a committed file.
+# through `fly secrets`, never written into a file.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 FLY_DIR=deploy/fly
+CONFIG_TOML="$FLY_DIR/fly.toml"
+RENDERED="$FLY_DIR/compose.fly.yml"
 DRY_RUN=""
 ENV_FILE=".env.fly"
 CONFIG="event.yaml"
@@ -16,11 +24,13 @@ FROM_ENV=".env"
 CMD="deploy"
 REGION_ARG=""
 REFRESH=""
+SKIP_BUILD=""
 
 usage() {
   cat <<'EOF'
 usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
                             [--config event.yaml] [--from .env] [--region gru]
+                            [--skip-build]
 
   init --refresh
           Re-copy the credentials that must match an EXTERNAL system (GitHub
@@ -32,17 +42,22 @@ usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
   init    Prepare an env file for Fly: copies --from (default .env), rewrites
           EVENT_URL to the app's Fly hostname, and fills in SRH_TOKEN and
           REDIS_PASSWORD if they are absent. Touches nothing on Fly and needs
-          no CLI. Asks which Fly region to run in, or takes --region. Safe to re-run — it tops
-          up an existing file rather than overwriting it, and tightens it to
-          mode 600.
+          no CLI. Asks which Fly region to run in, or takes --region. Safe to
+          re-run — it tops up an existing file rather than overwriting it, and
+          tightens it to mode 600.
 
-  (none)  Deploy, in order: redis, srh, scorer, sync, app.
+  (none)  Deploy: build and push the app and sync images, mirror the scorer
+          image, render the compose file, set secrets, deploy the machine.
 
           The region comes from FLY_REGION in the env file (init asks), and
-          drives both volumes and every `fly deploy --primary-region`.
+          drives both volumes and `fly deploy --primary-region`.
 
+--skip-build reuses the images already in Fly's registry. Use it when only
+  event.yaml or a secret changed — it turns a multi-minute rebuild into a
+  redeploy. It does NOT skip the app image when event.yaml changed, because
+  that config is baked at build time; the script refuses the combination.
 --dry-run prints every fly command it would run and makes NONE of them.
-Secret VALUES are redacted from that output.
+  Secret VALUES are redacted from that output.
 EOF
 }
 
@@ -55,6 +70,7 @@ while [ $# -gt 0 ]; do
     --refresh) REFRESH=1; shift ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
+    --skip-build) SKIP_BUILD=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -70,8 +86,8 @@ done
 # is inert; printing credentials is the last thing it should do.
 #
 # The redaction is on the VALUE half of `NAME=value`, keyed on the name, so
-# the run still shows exactly which variables are set on which app — which is
-# the whole point of previewing it — without showing what they are.
+# the run still shows exactly which variables are set — which is the whole
+# point of previewing it — without showing what they are.
 redact_arg() {
   case "$1" in
     *=*)
@@ -80,7 +96,7 @@ redact_arg() {
         # CONNECTION_STRING is here because a redis:// URL embeds the
         # password. It was missed on the first pass and caught by reading the
         # dry-run's own output — which is the argument for previewing.
-        *SECRET*|*TOKEN*|*PRIVATE_KEY*|*PASSWORD*|*CONNECTION_STRING*|EVENT_CONFIG_B64)
+        *SECRET*|*TOKEN*|*PRIVATE_KEY*|*PASSWORD*|*CONNECTION_STRING*|*AUTH|EVENT_CONFIG_B64)
           echo "$name=<redacted>" ;;
         *) echo "$1" ;;
       esac ;;
@@ -100,19 +116,10 @@ fly_run() {
   fly "$@"
 }
 
-toml_region() {
-  # A volume MUST be created in the same region the machine runs in, and
-  # `fly volumes create` PROMPTS when no --region is given — which on a real
-  # run put the volume in `gru` while the app's primary_region said `iad`.
-  # Read it from the same file that declares it, so the two cannot disagree
-  # and so the deploy stays non-interactive.
-  sed -n 's/^primary_region *= *"\([^"]*\)".*/\1/p' "$FLY_DIR/$1" | head -1
-}
-
-app_name() {
-  # `app = "name"` out of a fly.toml, without a TOML parser (no jq/python on
+toml_value() {
+  # `key = "value"` out of fly.toml, without a TOML parser (no jq/python on
   # this path, same rule as the provisioning scripts).
-  sed -n 's/^app *= *"\([^"]*\)".*/\1/p' "$FLY_DIR/$1" | head -1
+  sed -n "s/^$1 *= *\"\([^\"]*\)\".*/\1/p" "$CONFIG_TOML" | head -1
 }
 
 env_value() {
@@ -126,11 +133,7 @@ require() {
   fi
 }
 
-APP_APP="$(app_name app.fly.toml)"
-SCORER_APP="$(app_name scorer.fly.toml)"
-SYNC_APP="$(app_name sync.fly.toml)"
-SRH_APP="$(app_name srh.fly.toml)"
-REDIS_APP="$(app_name redis.fly.toml)"
+APP="$(toml_value app)"
 
 # Checked at the point of use, not up front: `init`'s env-file half needs no
 # CLI at all, and refusing to prepare a file because flyctl is not installed
@@ -140,12 +143,11 @@ require_fly() {
 }
 
 # ---------------------------------------------------------------------------
-# init — prepare the env file and provision Redis.
+# init — prepare the env file.
 #
-# Split from `deploy` because it CREATES A BILLABLE RESOURCE and because the
-# values it captures are then just ordinary env-file entries a human can read
-# and edit. Idempotent: it never overwrites an existing env file, and it
-# reuses an existing database rather than making a second one.
+# Split from `deploy` because the values it captures are then just ordinary
+# env-file entries a human can read and edit. Idempotent: it never overwrites
+# an existing env file, only tops it up.
 # ---------------------------------------------------------------------------
 if [ "$CMD" = "init" ]; then
   if [ -f "$ENV_FILE" ]; then
@@ -165,11 +167,11 @@ if [ "$CMD" = "init" ]; then
         echo "# Separate from $FROM_ENV on purpose: a compose stack and a Fly"
         echo "# deployment need different EVENT_URLs, and one file cannot hold both."
         grep -vE "^(EVENT_URL|UPSTASH_REDIS_REST_URL|UPSTASH_REDIS_REST_TOKEN)=" "$FROM_ENV"
-        echo "EVENT_URL=https://$APP_APP.fly.dev"
+        echo "EVENT_URL=https://$APP.fly.dev"
       } > "$ENV_FILE"
       chmod 600 "$ENV_FILE"
     else
-      echo "DRY-RUN: would write $ENV_FILE (mode 600) with EVENT_URL=https://$APP_APP.fly.dev"
+      echo "DRY-RUN: would write $ENV_FILE (mode 600) with EVENT_URL=https://$APP.fly.dev"
     fi
   fi
 
@@ -212,7 +214,7 @@ if [ "$CMD" = "init" ]; then
       echo "   $key updated"
     done
     echo
-    echo "  Now redeploy so the apps pick them up:"
+    echo "  Now redeploy so the machine picks them up:"
     echo "      ./deploy/fly/deploy.sh --env-file $ENV_FILE"
     exit 0
   fi
@@ -230,20 +232,16 @@ if [ "$CMD" = "init" ]; then
 
   # ---- region ------------------------------------------------------------
   #
-  # ASKED, not hardcoded. The toml files carry `primary_region = "iad"` as a
+  # ASKED, not hardcoded. fly.toml carries `primary_region = "iad"` as a
   # default, and on the first real run that was wrong twice over: `fly volumes
   # create` prompted interactively mid-deploy (it needs an explicit --region),
   # and the operator — in Brazil — ended up with a volume in gru against an
   # app configured for iad. Volumes are region-pinned, so fixing that later
   # means destroying them.
-  #
-  # The answer is written to the env file and drives BOTH the volumes and
-  # `fly deploy --primary-region`, so there is one value and nothing to keep
-  # in sync by hand.
   if grep -q "^FLY_REGION=." "$ENV_FILE" 2>/dev/null; then
     echo "   FLY_REGION already set ($(sed -n 's/^FLY_REGION=//p' "$ENV_FILE" | tail -1))"
   else
-    default_region="${REGION_ARG:-$(toml_region app.fly.toml)}"
+    default_region="${REGION_ARG:-$(toml_value primary_region)}"
     if [ -n "$REGION_ARG" ]; then
       # Given explicitly: no prompt. Lets a scripted or CI run set the region
       # without a tty, and makes the validation below directly testable.
@@ -258,9 +256,9 @@ if [ "$CMD" = "init" ]; then
     elif [ -t 0 ]; then
       echo
       echo "  Which Fly region should the event run in?"
-      echo "    Pick the one nearest your contestants — it is where the app,"
-      echo "    the datastore and both volumes live. Volumes are region-pinned,"
-      echo "    so changing this later means destroying and recreating them."
+      echo "    Pick the one nearest your contestants — it is where the whole"
+      echo "    event runs, and where both volumes live. Volumes are"
+      echo "    region-pinned, so changing this later means recreating them."
       echo
       echo "    Common: iad (Virginia)  gru (Sao Paulo)  lhr (London)"
       echo "            fra (Frankfurt) syd (Sydney)     nrt (Tokyo)"
@@ -284,10 +282,9 @@ if [ "$CMD" = "init" ]; then
     fi
   fi
 
-  # Redis credential. The datastore is our own `redis:7-alpine` app (see
-  # redis.fly.toml), authenticated with the same REDIS_PASSWORD the compose
-  # stack uses — so an env file copied from a working compose deployment
-  # already has it, and nothing needs provisioning through the CLI.
+  # Redis credential. The datastore is our own `redis:7-alpine` container,
+  # authenticated with the same REDIS_PASSWORD the compose stack uses — so an
+  # env file copied from a working compose deployment already has it.
   if grep -q "^REDIS_PASSWORD=." "$ENV_FILE" 2>/dev/null; then
     echo "   REDIS_PASSWORD already set"
   elif [ -z "$DRY_RUN" ]; then
@@ -313,7 +310,7 @@ if [ -z "$DRY_RUN" ]; then
   [ -f "$CONFIG" ] || { echo "no $CONFIG — copy event.yaml.example and edit it" >&2; exit 1; }
 fi
 
-echo "== apps: $APP_APP / $SCORER_APP / $SYNC_APP / $SRH_APP / $REDIS_APP"
+echo "== app: $APP (one machine, five containers)"
 
 # ---------------------------------------------------------------------------
 # EVENT_URL must be the fly hostname, and it must be https.
@@ -324,7 +321,7 @@ echo "== apps: $APP_APP / $SCORER_APP / $SYNC_APP / $SRH_APP / $REDIS_APP"
 # fix, rather than in a container log.
 # ---------------------------------------------------------------------------
 EVENT_URL="$(env_value EVENT_URL)"
-EXPECTED_URL="https://$APP_APP.fly.dev"
+EXPECTED_URL="https://$APP.fly.dev"
 # A placeholder that was never filled in. It passes the https:// test below,
 # so without this it deploys — and the failure surfaces much later as a
 # redirect_uri mismatch at sign-in, on a BETTER_AUTH_URL nobody can resolve.
@@ -332,7 +329,7 @@ case "$EVENT_URL" in
   *"<"*|*">"*|*" "*)
     echo "FAIL: EVENT_URL in $ENV_FILE is '$EVENT_URL' — that still has a placeholder in it." >&2
     echo "      Set it to your real hostname, normally:" >&2
-    echo "        EVENT_URL=https://$APP_APP.fly.dev" >&2
+    echo "        EVENT_URL=https://$APP.fly.dev" >&2
     exit 1 ;;
 esac
 
@@ -350,28 +347,24 @@ esac
 #
 # WARNS, NEVER FAILS. A custom domain is a first-class setup — `fly certs add`
 # then EVENT_URL pointing at it — so a mismatch is not wrong by itself. What
-# IS wrong, and common, is a *.fly.dev host naming an app that does not exist:
-# rename the apps in these toml files and forget the env file, or the reverse,
-# and the deploy succeeds while BETTER_AUTH_URL claims a hostname nothing
-# answers on. That surfaces at sign-in as an opaque redirect_uri mismatch,
-# long after the deploy that caused it.
+# IS wrong, and common, is a *.fly.dev host naming an app that does not exist.
 EVENT_HOST="${EVENT_URL#https://}"
 EVENT_HOST="${EVENT_HOST%%/*}"
 case "$EVENT_HOST" in
-  "$APP_APP.fly.dev") ;;                       # exactly right
+  "$APP.fly.dev") ;;                           # exactly right
   *.fly.dev)
     # A fly.dev host is a claim about an app name, and this one disagrees.
-    echo "WARNING: EVENT_URL is https://$EVENT_HOST, but the app deploys as '$APP_APP'" >&2
-    echo "         and will be served at https://$APP_APP.fly.dev." >&2
+    echo "WARNING: EVENT_URL is https://$EVENT_HOST, but the app deploys as '$APP'" >&2
+    echo "         and will be served at https://$APP.fly.dev." >&2
     echo "         Sign-in will fail with a redirect_uri mismatch. Either set" >&2
-    echo "           EVENT_URL=https://$APP_APP.fly.dev" >&2
-    echo "         or rename the apps in deploy/fly/*.fly.toml to match." >&2
+    echo "           EVENT_URL=https://$APP.fly.dev" >&2
+    echo "         or rename the app in deploy/fly/fly.toml to match." >&2
     echo >&2 ;;
   *)
     # A custom domain. Legitimate, but it only works once a certificate
     # exists, so say the command rather than assuming it was run.
     echo "NOTE: EVENT_URL is a custom domain ($EVENT_HOST), not *.fly.dev." >&2
-    echo "      That needs: fly certs add $EVENT_HOST --app $APP_APP" >&2
+    echo "      That needs: fly certs add $EVENT_HOST --app $APP" >&2
     echo >&2 ;;
 esac
 
@@ -398,24 +391,31 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-# One region for every app and both volumes. From the env file when init
-# asked for it, else the toml's primary_region as the documented default.
 REGION="$(env_value FLY_REGION)"
-[ -n "$REGION" ] || REGION="$(toml_region app.fly.toml)"
-
-# srh reaches the redis app over the private network. Empty username,
-# password only — the RFC form for a Redis using `requirepass`.
-SRH_CONNECTION_STRING="redis://:$REDIS_PASSWORD@$REDIS_APP.internal:6379"
+[ -n "$REGION" ] || REGION="$(toml_value primary_region)"
 
 # The image the FORKS already pull to judge PRs — same one, not a rebuild.
 SCORE_IMAGE="$(env_value SCORE_IMAGE)"
 require SCORE_IMAGE "$SCORE_IMAGE"
 
-# Every service reaches Redis through srh, over the private network.
-# `.flycast`, not `.internal` — see srh.fly.toml. srh binds IPv4 only and
-# Fly's private network is IPv6, so traffic goes through Fly's proxy on the
-# app's PRIVATE anycast address.
-REST_URL="http://$SRH_APP.flycast:80"
+# Everything lives in one machine, so every address is loopback. srh's Redis
+# client is IPv4-only, which is precisely why 127.0.0.1 — and not a Fly
+# private hostname — is the only address that works here (see fly.toml).
+SRH_CONNECTION_STRING="redis://:$REDIS_PASSWORD@127.0.0.1:6379"
+
+# The event config, baked into the app image at BUILD time and handed to sync
+# at START-UP. Deploy the app without it and the build silently succeeds with
+# an EMPTY admins list — /admin then 403s for everyone, including the
+# organizer — and generic branding. There is no runtime error to notice.
+if [ -f "$CONFIG" ]; then
+  EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')"
+else
+  EVENT_CONFIG_B64=""
+fi
+
+APP_IMAGE="registry.fly.io/$APP:app"
+SYNC_IMAGE="registry.fly.io/$APP:sync"
+SCORER_IMAGE="registry.fly.io/$APP:scorer"
 
 create_app() {
   # `fly apps create` fails if the app exists, which is the normal state on a
@@ -444,187 +444,149 @@ create_app() {
   echo "FAIL: could not create app '$1'." >&2
   echo "      Fly app names are globally unique — this one may be taken by an" >&2
   echo "      app you cannot see, or held by an earlier attempt in another org." >&2
-  echo "      Rename all five apps to something event-specific:" >&2
-  echo "        sed -i '' 's/^app = \"ctf-in-a-box-/app = \"my-event-/' deploy/fly/*.fly.toml" >&2
+  echo "      Rename it to something event-specific:" >&2
+  echo "        sed -i '' 's/^app = \"ctf-in-a-box\"/app = \"my-event\"/' $CONFIG_TOML" >&2
   echo "      then set EVENT_URL to match the new app name." >&2
   exit 1
 }
 
-# NOTE ON `fly secrets set`: no `--stage`.
-#
-# `--stage` means "hold these, apply on the next deploy". It looks right when
-# the app does not exist yet, and on a real run it left the APP's six secrets
-# — BETTER_AUTH_URL and BETTER_AUTH_SECRET among them — permanently staged:
-#
-#   There are 6 secrets not deployed. Deploy with `fly secrets deploy`
-#
-# better-auth with no baseURL and no signing secret answers 403 to
-# /api/auth/sign-in/social, so sign-in was broken with nothing in the app's
-# own logs to explain it. The other four apps happened to be fine because
-# their `fly deploy` consumed the staged values; depending on that at all was
-# the mistake.
-#
-# Without `--stage`, `fly secrets set` applies immediately, and on an app with
-# no machines yet flyctl stages them itself and says so — the graceful case
-# that `--stage` was reaching for. `--detach` keeps it from blocking on the
-# machine restart, since the deploy that follows will wait anyway.
-echo "== 1/5 redis"
-create_app "$REDIS_APP"
-# Durable store for scores, teams and hint purchases — the same named-volume
-# arrangement as compose's `redis-data`.
-if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly volumes create ctf_redis_data --app $REDIS_APP --size 1 --region $REGION (if absent)"
-elif fly volumes list --app "$REDIS_APP" 2>/dev/null | grep -q ctf_redis_data; then
-  echo "   volume ctf_redis_data exists"
-else
-  fly volumes create ctf_redis_data --app "$REDIS_APP" --size 1 \
-    --region "$REGION" --yes
-fi
-fly_run secrets set --detach --app "$REDIS_APP" "REDIS_PASSWORD=$REDIS_PASSWORD"
-fly_run deploy --config "$FLY_DIR/redis.fly.toml" --app "$REDIS_APP" --primary-region "$REGION"
-# `fly deploy` leaves a machine with no public service STOPPED, and nothing
-# autostarts it — there is no proxy in front of redis to wake it on demand.
-# Observed twice: the deploy reported success and the entire stack was down,
-# because the datastore was not running.
-if [ -z "$DRY_RUN" ]; then
-  for m in $(fly machine list --app "$REDIS_APP" --json 2>/dev/null | grep -oE '"id":"[a-z0-9]+"' | cut -d'"' -f4); do
-    fly machine start "$m" --app "$REDIS_APP" >/dev/null 2>&1 || true
-  done
-  echo "   redis machines started"
-fi
+make_volume() {
+  # A volume MUST be created in the same region the machine runs in, and
+  # `fly volumes create` PROMPTS when no --region is given — which on a real
+  # run put the volume in `gru` while the app's primary_region said `iad`.
+  if [ -n "$DRY_RUN" ]; then
+    echo "DRY-RUN: fly volumes create $1 --app $APP --size 1 --region $REGION (if absent)"
+  elif fly volumes list --app "$APP" 2>/dev/null | grep -q "$1"; then
+    echo "   volume $1 exists"
+  else
+    fly volumes create "$1" --app "$APP" --size 1 --region "$REGION" --yes
+  fi
+}
 
-echo "== 2/5 srh (the Upstash-REST API the services speak)"
-create_app "$SRH_APP"
-# The private anycast address Flycast routes on. Without it the service block
-# in srh.fly.toml has no IP to answer on and every client gets `Connection
-# refused` — the exact symptom this replaced.
-if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly ips allocate-v6 --private --app $SRH_APP (if absent)"
-elif [ "$(fly ips list --app "$SRH_APP" --json 2>/dev/null | grep -c '"Address"')" -gt 0 ]; then
-  echo "   private IPv6 exists"
-else
-  fly ips allocate-v6 --private --app "$SRH_APP" >/dev/null 2>&1 || true
-  echo "   allocated a private IPv6"
-fi
-# A PUBLIC address here would expose the datastore behind nothing but the
-# bearer token. Refuse rather than warn: this is the one service whose
-# accidental exposure hands over every score, team and hint purchase.
-# JSON, not the table. `fly ips list`'s human output ends with a docs line
-# containing the words "public, private, shared" — grepping it for "private"
-# matched that sentence and reported an address that did not exist. Third
-# time output-scraping has bitten in this script; the rule is now: if flyctl
-# offers --json, parse that.
-if [ -z "$DRY_RUN" ] && fly ips list --app "$SRH_APP" --json 2>/dev/null | grep -qE '"Type": *"(v4|v6|shared_v4)"' ; then
-  echo "FAIL: $SRH_APP has a PUBLIC ip. srh fronts the whole datastore and must" >&2
-  echo "      be private-only. Remove it: fly ips release <addr> --app $SRH_APP" >&2
-  exit 1
-fi
-fly_run secrets set --detach --app "$SRH_APP" \
-  "SRH_TOKEN=$SRH_TOKEN" \
-  "SRH_CONNECTION_STRING=$SRH_CONNECTION_STRING"
-fly_run deploy --config "$FLY_DIR/srh.fly.toml" --app "$SRH_APP" --primary-region "$REGION"
+echo "== 1/5 app exists"
+create_app "$APP"
+make_volume ctf_redis_data
+make_volume ctf_sync_state
 
-echo "== 3/5 scorer"
-create_app "$SCORER_APP"
-fly_run secrets set --detach --app "$SCORER_APP" \
-  "UPSTASH_REDIS_REST_URL=$REST_URL" \
-  "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN" \
-  "CTF_SCORE_BEARER_TOKEN=$(env_value SCORER_TOKEN)"
 # ---------------------------------------------------------------------------
-# MIRROR THE SCORER IMAGE INTO FLY'S REGISTRY.
+# 2/5 Images.
 #
-# Fly cannot pull from a private third-party registry. `fly deploy --image
-# ghcr.io/<org>/score:latest` fails with:
+# Fly builds NOTHING here, and that is deliberate. Its compose parser cannot
+# pass build args (so EVENT_CONFIG_B64 could never be baked) and refuses a file
+# where more than one service declares `build:` — which docker-compose.yml does
+# twice. Building here instead means the machine runs the exact images this
+# checkout produces, which is a stronger parity guarantee than a rebuild.
 #
-#   Authentication required to access image "ghcr.io/<org>/score:latest"
-#
-# and there is no flag for supplying credentials — Fly's documented answer for
-# private images is its own registry, registry.fly.io/<app>.
-#
-# So this MIRRORS rather than rebuilds, and that distinction is the point: the
-# scorer serving the leaderboard has to be the same artifact the forks pull to
-# judge PRs, or a rubric difference between them shows up as totals that
-# disagree with the scores. `buildx imagetools create` copies the manifest
-# registry-to-registry — no local pull, no re-tag of a single-arch layer, and
-# the digest is preserved exactly.
-#
-# This is the same move `ctf-setup org` already makes when it mirrors
-# SCORE_IMAGE into the event org's GHCR so the forks' Actions can pull it.
-# Same pattern, different destination.
-FLY_IMAGE="registry.fly.io/$SCORER_APP:latest"
+# --platform linux/amd64 is not optional. Fly machines are amd64; an image
+# built on Apple Silicon without it is arm64 and fails at start with an exec
+# format error, after a successful-looking deploy.
+# ---------------------------------------------------------------------------
+echo "== 2/5 images"
+if [ -n "$SKIP_BUILD" ] && [ -n "$EVENT_CONFIG_B64" ]; then
+  # The app bakes event.yaml at build time, so "skip the build" and "pick up
+  # the new event.yaml" are contradictory instructions. Refuse rather than
+  # deploy a stale config that looks deployed.
+  echo "NOTE: --skip-build reuses the app image already in Fly's registry."
+  echo "      If you changed $CONFIG, drop --skip-build — that config is baked"
+  echo "      into the app image at build time and will NOT be picked up."
+fi
+
 if [ -n "$DRY_RUN" ]; then
   echo "DRY-RUN: fly auth docker"
-  echo "DRY-RUN: docker buildx imagetools create --tag $FLY_IMAGE $SCORE_IMAGE"
+  echo "DRY-RUN: docker build --platform linux/amd64 -f apps/web/Dockerfile --build-arg EVENT_CONFIG_B64=<redacted> -t $APP_IMAGE ."
+  echo "DRY-RUN: docker push $APP_IMAGE"
+  echo "DRY-RUN: docker build --platform linux/amd64 -t $SYNC_IMAGE ./sync"
+  echo "DRY-RUN: docker push $SYNC_IMAGE"
+  echo "DRY-RUN: docker buildx imagetools create --tag $SCORER_IMAGE $SCORE_IMAGE"
+elif [ -n "$SKIP_BUILD" ]; then
+  echo "   --skip-build: reusing $APP_IMAGE, $SYNC_IMAGE and $SCORER_IMAGE"
 else
   command -v docker >/dev/null || {
-    echo "FAIL: docker is required to mirror the scorer image into Fly's registry." >&2
+    echo "FAIL: docker is required to build and mirror the images." >&2
     exit 1
   }
-  echo "   mirroring $SCORE_IMAGE -> $FLY_IMAGE"
-  # Authenticates the local docker client for registry.fly.io only; the GHCR
-  # side uses the login the operator already has from pushing the image.
+  # Authenticates the local docker client for registry.fly.io; the GHCR side
+  # uses the login the operator already has from pushing the scorer image.
   fly auth docker >/dev/null || { echo "FAIL: fly auth docker failed" >&2; exit 1; }
-  if ! docker buildx imagetools create --tag "$FLY_IMAGE" "$SCORE_IMAGE" 2>/dev/null; then
-    # buildx is not always present. Fall back to pull/tag/push, pinning
-    # linux/amd64 — the forks' runners are amd64, and an arm64 pull on an
-    # Apple Silicon machine would mirror an image the scorer cannot run.
+
+  echo "   building app -> $APP_IMAGE"
+  docker build --platform linux/amd64 -f apps/web/Dockerfile \
+    --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64" -t "$APP_IMAGE" .
+  docker push "$APP_IMAGE"
+
+  echo "   building sync -> $SYNC_IMAGE"
+  docker build --platform linux/amd64 -t "$SYNC_IMAGE" ./sync
+  docker push "$SYNC_IMAGE"
+
+  # MIRROR, DO NOT REBUILD. Fly cannot pull from a private third-party
+  # registry ("Authentication required to access image ...") and has no flag
+  # for supplying credentials; its documented answer is its own registry. The
+  # scorer serving the leaderboard has to be the same artifact the forks pull
+  # to judge PRs, or a rubric difference between them shows up as totals that
+  # disagree. `buildx imagetools create` copies the manifest
+  # registry-to-registry, preserving the digest exactly.
+  echo "   mirroring $SCORE_IMAGE -> $SCORER_IMAGE"
+  if ! docker buildx imagetools create --tag "$SCORER_IMAGE" "$SCORE_IMAGE" 2>/dev/null; then
     echo "   (buildx imagetools unavailable — falling back to pull/tag/push)"
     docker pull --platform linux/amd64 "$SCORE_IMAGE" || {
       echo "FAIL: cannot pull $SCORE_IMAGE. Run: docker login ghcr.io" >&2
       exit 1
     }
-    docker tag "$SCORE_IMAGE" "$FLY_IMAGE"
-    docker push "$FLY_IMAGE" || { echo "FAIL: cannot push to $FLY_IMAGE" >&2; exit 1; }
+    docker tag "$SCORE_IMAGE" "$SCORER_IMAGE"
+    docker push "$SCORER_IMAGE" || { echo "FAIL: cannot push to $SCORER_IMAGE" >&2; exit 1; }
   fi
 fi
-fly_run deploy --config "$FLY_DIR/scorer.fly.toml" --app "$SCORER_APP" --image "$FLY_IMAGE" --primary-region "$REGION"
 
-echo "== 4/5 sync (poll mode)"
-create_app "$SYNC_APP"
-# The cursor volume. Without it the poller re-reads every comment in every
-# fork after each restart — see sync.fly.toml.
-if [ -n "$DRY_RUN" ]; then
-  echo "DRY-RUN: fly volumes create ctf_sync_state --app $SYNC_APP --size 1 --region $REGION (if absent)"
-elif fly volumes list --app "$SYNC_APP" 2>/dev/null | grep -q ctf_sync_state; then
-  echo "   volume ctf_sync_state exists"
+# ---------------------------------------------------------------------------
+# 3/5 Render the compose file Fly deploys, out of the real docker-compose.yml.
+# ---------------------------------------------------------------------------
+echo "== 3/5 rendering $RENDERED from docker-compose.yml"
+if [ -n "$DRY_RUN" ] && [ ! -f "$ENV_FILE" ]; then
+  echo "DRY-RUN: would render $RENDERED (no $ENV_FILE to render from)"
 else
-  fly volumes create ctf_sync_state --app "$SYNC_APP" --size 1 \
-    --region "$REGION" --yes
+  "$FLY_DIR/render-compose.sh" --env-file "$ENV_FILE" --out "$RENDERED" \
+    --app-image "$APP_IMAGE" --sync-image "$SYNC_IMAGE" --scorer-image "$SCORER_IMAGE"
 fi
-fly_run secrets set --detach --app "$SYNC_APP" \
-  "UPSTASH_REDIS_REST_URL=$REST_URL" \
+
+# ---------------------------------------------------------------------------
+# 4/5 Secrets.
+#
+# ONE app now, so ONE `fly secrets set`. Fly injects secrets as environment
+# variables into EVERY container in the machine, which is what lets the
+# rendered compose file carry no credentials at all: the variable names
+# already match across services.
+#
+# The flip side is that scoping is impossible — the app container also
+# receives REDIS_PASSWORD, and the redis container also receives
+# GITHUB_CLIENT_SECRET. That is a Fly platform limit, not a choice here, and
+# it is recorded in ADR 44 alongside the loss of the frontend/backend split.
+#
+# NOTE: no `--stage`. `--stage` means "hold these, apply on the next deploy",
+# and on a real run it left six secrets permanently staged — better-auth with
+# no baseURL and no signing secret answers 403 to /api/auth/sign-in/social, so
+# sign-in was broken with nothing in the app's own logs to explain it.
+# `--detach` keeps it from blocking on the machine restart, since the deploy
+# that follows waits anyway.
+# ---------------------------------------------------------------------------
+echo "== 4/5 secrets"
+fly_run secrets set --detach --app "$APP" \
+  "BETTER_AUTH_SECRET=$(env_value BETTER_AUTH_SECRET)" \
+  "BETTER_AUTH_URL=$EVENT_URL" \
+  "GITHUB_CLIENT_SECRET=$(env_value GITHUB_CLIENT_SECRET)" \
+  "SRH_TOKEN=$SRH_TOKEN" \
+  "SRH_CONNECTION_STRING=$SRH_CONNECTION_STRING" \
   "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN" \
+  "CTF_SCORE_BEARER_TOKEN=$(env_value SCORER_TOKEN)" \
   "SCORER_TOKEN=$(env_value SCORER_TOKEN)" \
   "GITHUB_APP_ID=$(env_value GITHUB_APP_ID)" \
   "GITHUB_APP_PRIVATE_KEY=$(env_value GITHUB_APP_PRIVATE_KEY)" \
-  "GITHUB_APP_INSTALLATION_ID=$(env_value GITHUB_APP_INSTALLATION_ID)"
-# Built from the repo root so event.yaml is in the build context. The
-# Dockerfile itself is named in sync.fly.toml — NOT passed as --dockerfile
-# here. Both at once was the bug: fly resolves the flag against the config
-# file's directory, so `deploy/fly/sync.Dockerfile` became
-# `deploy/fly/deploy/fly/sync.Dockerfile`. One place to say it, and it is the
-# toml, where the path is relative to the toml.
-fly_run deploy --config "$FLY_DIR/sync.fly.toml" --app "$SYNC_APP" --primary-region "$REGION"
+  "GITHUB_APP_INSTALLATION_ID=$(env_value GITHUB_APP_INSTALLATION_ID)" \
+  "REDIS_PASSWORD=$REDIS_PASSWORD" \
+  "REDISCLI_AUTH=$REDIS_PASSWORD" \
+  "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
 
-echo "== 5/5 app"
-create_app "$APP_APP"
-fly_run secrets set --detach --app "$APP_APP" \
-  "BETTER_AUTH_SECRET=$(env_value BETTER_AUTH_SECRET)" \
-  "BETTER_AUTH_URL=$EVENT_URL" \
-  "GITHUB_CLIENT_ID=$(env_value GITHUB_CLIENT_ID)" \
-  "GITHUB_CLIENT_SECRET=$(env_value GITHUB_CLIENT_SECRET)" \
-  "UPSTASH_REDIS_REST_URL=$REST_URL" \
-  "UPSTASH_REDIS_REST_TOKEN=$SRH_TOKEN"
-
-# THE BUILD ARG THAT DECIDES WHETHER /admin WORKS.
-#
-# The app bakes event.yaml at BUILD time. Deploy without this and the build
-# silently succeeds with an EMPTY admins list — /admin then 403s for everyone,
-# including the organizer — and generic branding. There is no runtime error to
-# notice; the event just looks wrong.
-EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')"
-fly_run deploy --config "$FLY_DIR/app.fly.toml" --app "$APP_APP" \
-  --primary-region "$REGION" --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
+echo "== 5/5 deploy"
+fly_run deploy --config "$CONFIG_TOML" --app "$APP" --primary-region "$REGION"
 
 echo "== done"
 cat <<EOF
@@ -636,16 +598,16 @@ cat <<EOF
      Update it at https://github.com/settings/developers if it still points
      somewhere else. Sign-in fails with a redirect_uri mismatch otherwise.
 
-  2. Confirm the poller is ingesting, and that srh is answering it:
-       fly logs --app $SYNC_APP
-       fly logs --app $SRH_APP
+  2. Confirm every container came up, and that srh reached redis:
+       fly logs --app $APP
+       fly ssh console --app $APP -C "redis-cli PING"
 
   3. Open $EVENT_URL, sign in, and check /admin loads for a login listed in
      $CONFIG's admins. A 403 there almost always means the app was built
      without EVENT_CONFIG_B64 — redeploy through this script.
 
   Custom domain instead of *.fly.dev:
-       fly certs add <domain> --app $APP_APP
-     then set EVENT_URL to it, update the OAuth callback, and redeploy the app
+       fly certs add <domain> --app $APP
+     then set EVENT_URL to it, update the OAuth callback, and redeploy
      (BETTER_AUTH_URL is a secret, and the cookie's Secure flag follows it).
 EOF

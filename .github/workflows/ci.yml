@@ -144,7 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
-      - run: shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh
+      - run: shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh deploy/fly/render-compose.sh
       # The per-target bring-ups are POSIX sh FRAGMENTS sourced by entrypoint.sh, so
       # they get -s sh (they never run under bash) and SC2034 is excluded: BOOTED and
       # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing
@@ -152,10 +152,12 @@ jobs:
       # fix in the script, not a rule to widen.
       - run: shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
       - run: bats setup/test/
-      # Static invariants for the fly.io module: no public scoring surface,
-      # the sync cursor volume, the EVENT_CONFIG_B64 build arg, and the drift
-      # guard between deploy/fly/sync.Dockerfile and sync/Dockerfile. No fly
-      # account and no deploy — same posture as the terraform job.
+      # Static invariants for the fly.io module: the compose render carries no
+      # secret values, resolves every service to loopback, leaves no compose-only
+      # `$$` escaping for a shell to mis-expand, and names an image for every
+      # service. The render runs for real here (it needs docker compose, which
+      # the runner has), but nothing is deployed and no fly account is used —
+      # same posture as the terraform job.
       - run: bats deploy/fly/test/
 
   smoke:

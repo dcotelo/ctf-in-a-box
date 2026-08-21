@@ -41,8 +41,40 @@ function resolveAuth(env, apiUrl) {
   return { authMode: "app", getToken: (fetchImpl) => auth.getToken(fetchImpl) };
 }
 
+// Where the event.yaml TEXT comes from, in precedence order.
+//
+// EVENT_CONFIG_B64 exists for deployments with no writable host to bind-mount
+// from — the single-machine Fly deployment (docs/fly.md) is the reason it was
+// added. There, every container shares one machine and there is no host path
+// for `./event.yaml:/config/event.yaml:ro` to point at.
+//
+// It is the SAME variable, in the SAME encoding, that the app already takes as
+// a build-arg to bake its config (see apps/web/Dockerfile and ADR 26) — so an
+// organizer sets one value and both readers of event.yaml agree by
+// construction. The difference is only WHEN each consumes it: the app at build
+// time, sync at start-up.
+//
+// The file path stays the default so nothing about a compose deployment
+// changes, and an empty EVENT_CONFIG_B64 is treated as absent rather than as
+// an empty config: compose renders an unset `${EVENT_CONFIG_B64:-}` as the
+// empty string, and taking that literally would turn "variable not set" into
+// "event.yaml is blank" — a parse error blaming the config file for a missing
+// environment variable.
+function readConfigText(path, env) {
+  const b64 = env.EVENT_CONFIG_B64;
+  if (b64) {
+    const text = Buffer.from(b64, "base64").toString("utf8");
+    // base64-decoding junk does not throw — it yields bytes. Catching it here
+    // names the variable that is wrong; letting it through produces a YAML
+    // error about the *file*, which is the one thing it did not come from.
+    if (!text.trim()) throw new Error("EVENT_CONFIG_B64 is set but decodes to nothing (expected base64 of event.yaml)");
+    return text;
+  }
+  return readFileSync(path, "utf8");
+}
+
 export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yaml", env = process.env) {
-  const doc = parseYaml(readFileSync(path, "utf8"));
+  const doc = parseYaml(readConfigText(path, env));
   const org = doc?.github?.org;
   if (!org) throw new Error("event.yaml: github.org is required");
   const modules = doc?.modules;

@@ -1,0 +1,86 @@
+# The whole event, as ONE Fly app running ONE machine with every container in
+# it — app, scorer, sync, srh and redis.
+#
+# WHY ONE APP AND NOT FIVE.
+#
+# This module used to deploy five Fly apps, one per compose service, on the
+# reasoning that it should mirror docker-compose.yml service by service. That
+# arrangement cannot work, for a reason no amount of configuration fixes:
+#
+#   Fly's private network (6PN, `<app>.internal`) is IPv6-ONLY, and srh's
+#   Redis client is IPv4-ONLY.
+#
+# srh is a prebuilt third-party image (hiett/serverless-redis-http) whose
+# Elixir release bundles redix 1.1.5. redix supports `socket_opts` — where
+# `:inet6` would go — but srh builds its connection options from the
+# connection string alone and exposes no environment variable for it. So srh
+# can never reach a redis on another Fly app. Reproduced outside Fly on an
+# IPv6 docker network: the identical image, redis and password succeed over an
+# IPv4 literal and fail over an IPv6 one.
+#
+# Containers inside ONE machine share a network namespace and reach each other
+# over `localhost`, on IPv4. That removes the failure entirely rather than
+# working around it — and it is also cheaper, and closer to what an organizer
+# runs locally.
+#
+# WHAT IS DIFFERENT FROM `docker compose up`, and why:
+#
+#   * caddy is absent. Fly terminates TLS and issues certificates itself.
+#   * There is no frontend/backend network split (ADR 41). One machine has one
+#     network namespace, so every container can reach redis:6379. Fly's flat
+#     6PN meant the five-app deployment had already lost that split — this does
+#     not make it worse, but it does mean `requirepass` is the whole control
+#     there, and it is why REDIS_PASSWORD is mandatory. See ADR 44.
+#
+# The compose file below is GENERATED from the repo's real docker-compose.yml
+# by deploy/fly/render-compose.sh, so the deployed wiring cannot drift from the
+# local one. Run deploy/fly/deploy.sh; it renders, builds, pushes and deploys.
+
+app = "ctf-in-a-box"
+primary_region = "iad"
+
+# Generated, gitignored, and written next to this file. Relative to THIS
+# file's directory — flyctl resolves config-relative paths against the config,
+# not the working directory (a `--dockerfile deploy/fly/...` flag once became
+# `deploy/fly/deploy/fly/...` for exactly this reason).
+[build.compose]
+  file = "compose.fly.yml"
+
+# Port 3000 is the app's, and that is how Fly knows which container serves the
+# public: "only one container handles inbound requests from the Fly proxy",
+# selected by matching internal_port to that container's port. The others
+# (srh 80, scorer 4000, redis 6379) stay private to the machine.
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # NOT auto-stopped, and at least one always running.
+  #
+  # Autostop is designed for stateless web apps that can be woken by an
+  # inbound request. This machine also holds redis and the sync poller: a
+  # stopped machine is a stopped datastore and a poller that is not polling,
+  # and no HTTP request arrives to wake it while an event is quiet overnight.
+  # The leaderboard would simply stop advancing.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+# Redis's append-only file. Without it every score, team and hint purchase is
+# lost on the next deploy — compose gets this from the `redis-data` named
+# volume, which Fly ignores in a compose file.
+[[mounts]]
+  source = "ctf_redis_data"
+  destination = "/data"
+
+# The poller's cursor. Losing it makes sync re-read every comment in every fork
+# from scratch on the next restart.
+[[mounts]]
+  source = "ctf_sync_state"
+  destination = "/state"
+
+# Sized for five containers: Next.js is the heavy one, redis holds the whole
+# event in memory, and the scorer's judge runs elsewhere (on GitHub's runners),
+# so this only serves.
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 2
