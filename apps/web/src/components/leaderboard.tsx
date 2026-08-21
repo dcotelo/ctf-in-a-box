@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { enabledApps as appList } from "@/lib/apps";
-import { nonPatchedCount } from "@/lib/leaderboard/non-patched";
+import { completedCount } from "@/lib/leaderboard/rank";
 import type { ResolvedModule } from "@/lib/modules";
 import ScoreTimeChart from "@/components/score-time-chart";
 import AppChallengeList from "@/components/app-challenge-list";
@@ -20,7 +20,7 @@ import ModuleDetail from "@/components/module-detail";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
-type SortKey = "rank" | "points" | "patched";
+type SortKey = "rank" | "points" | "solved";
 
 // Podium accents for the top three, drawn from the design tokens.
 const PODIUM: Record<number, string> = {
@@ -132,6 +132,7 @@ export function EntryRow({
   onToggle,
   capabilities,
   modules,
+  completable,
 }: {
   entry: LeaderboardEntry;
   topPoints: number;
@@ -140,6 +141,10 @@ export function EntryRow({
   onToggle: () => void;
   capabilities: LeaderboardData["capabilities"];
   modules: readonly ResolvedModule[];
+  /** The EVENT's total completable items, for the solved column's
+   *  denominator. Undefined when nothing stamped it — the column then shows a
+   *  bare count rather than inventing a total. */
+  completable?: number;
 }) {
   // A single-module event has nothing to disambiguate: the row's own points
   // ARE that module's, so a per-module heading would just restate the header
@@ -152,6 +157,13 @@ export function EntryRow({
   // Only a module's NAME is runtime; enabling or disabling one is a rebuild.
   const multiModule = modules.length > 1;
   const secureDev = hasSecureDev(modules);
+  // The same function the comparator ranks on — see `completedCount`.
+  const solved = completedCount(entry);
+  // Clamped to the row's own numerator: a failed module-count read leaves
+  // `completable` short (see withModuleContributions), and "28 / 21" is worse
+  // than no denominator at all. Hidden entirely when there is nothing
+  // trustworthy to divide by.
+  const solvedTotal = completable && completable > 0 ? Math.max(completable, solved) : null;
   return (
     <li
       className={`ds-card group rounded-lg border bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] ${
@@ -202,20 +214,26 @@ export function EntryRow({
                 </p>
               ) : null}
             </div>
-            {secureDev && (
-              <>
-                <div className="hidden sm:block">
-                  <p className="font-mono text-base tabular-nums text-[#22c55e]">{entry.patched}</p>
-                  <p className="text-[11px] uppercase tracking-wide text-muted">patched</p>
-                </div>
-                <div className="hidden sm:block">
-                  <p className="font-mono text-base tabular-nums text-zinc-300">
-                    {nonPatchedCount(entry.patched, entry.total)}
-                  </p>
-                  <p className="text-[11px] uppercase tracking-wide text-muted">non-patched</p>
-                </div>
-              </>
-            )}
+            {/* ONE column, and deliberately the one the board RANKS by.
+                It replaced a `patched` + `non-patched` pair that was both
+                cluttered and unexplanatory: the two always summed to the
+                catalogue, so `non-patched` carried no information `patched`
+                didn't already, and NEITHER was the figure the ordering came
+                from — leaving rows like "1,061 pts at rank 3, above 550 pts
+                at rank 1" with nothing on screen to explain them.
+                `completedCount` is imported from the comparator itself so the
+                number shown and the number sorted on cannot drift apart.
+                Ungated by module, unlike the pair before it: breadth is what
+                every event ranks on, including one with no patching in it. */}
+            <div className="hidden sm:block">
+              <p className="font-mono text-base tabular-nums text-[#22c55e]">
+                {solved}
+                {solvedTotal !== null && (
+                  <span className="text-zinc-500"> / {solvedTotal}</span>
+                )}
+              </p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">solved</p>
+            </div>
             <svg
               className={`text-muted transition-transform ${isOpen ? "rotate-180" : ""}`}
               width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -416,12 +434,11 @@ export default function Leaderboard({
   // Teams are the primary competitive unit once they exist — default there
   // and let individual standings be the secondary, opt-in view.
   const showTeamsToggle = data.capabilities.teams && data.teams.length > 0;
-  // "patched" sorts on a column this event may not have — see hasSecureDev.
-  // Dropping the key rather than disabling the button also keeps `sort` from
-  // ever holding a value nothing on screen explains.
-  const sortKeys: SortKey[] = hasSecureDev(modules)
-    ? ["rank", "points", "patched"]
-    : ["rank", "points"];
+  // All three keys are offered on every event now. The third used to be
+  // "patched" and was gated on hasSecureDev, because it sorted a column a
+  // quiz-only event does not have; it sorts on cross-module completion
+  // instead, which every event has, so the gate went with the column.
+  const sortKeys: SortKey[] = ["rank", "points", "solved"];
 
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>(showTeamsToggle ? "teams" : "individual");
@@ -451,7 +468,8 @@ export default function Leaderboard({
       .sort((a, b) => {
         if (sort === "rank") return a.rank - b.rank;
         if (sort === "points") return b.points - a.points;
-        return b.patched - a.patched;
+        // Same figure the column shows and the comparator ranks on.
+        return completedCount(b) - completedCount(a);
       });
   }, [data.entries, query, sort]);
 
@@ -557,6 +575,7 @@ export default function Leaderboard({
                 onToggle={() => setExpanded(expanded === entry.login ? null : entry.login)}
                 capabilities={data.capabilities}
                 modules={modules}
+                completable={data.completable}
               />
             ))}
           </ul>

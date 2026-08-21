@@ -16,7 +16,12 @@ export function compareStanding(a: LeaderboardEntry, b: LeaderboardEntry): numbe
   return completedCount(b) - completedCount(a) || b.points - a.points || activityMs(a) - activityMs(b);
 }
 
-/** Completion across modules, falling back to `patched` for sources that carry
+/** Completion across modules — the number the board RANKS by, and therefore
+ *  the number the board has to SHOW. Exported for the row's own solved
+ *  column: computing it a second time in the component is how a displayed
+ *  figure drifts from the ordering it is supposed to explain.
+ *
+ *  Falling back to `patched` for sources that carry
  *  no secure-development module data (upstash: `capabilities.apps: false`, so
  *  `withModuleContributions` never stamps a `secure-development` block).
  *
@@ -41,7 +46,7 @@ export function compareStanding(a: LeaderboardEntry, b: LeaderboardEntry): numbe
  *  comparator only sees the rows `withModuleContributions` has already
  *  stamped, so the upstash shape can only be built through that function.
  *  Follow the pointer before changing the fallback. */
-function completedCount(entry: LeaderboardEntry): number {
+export function completedCount(entry: LeaderboardEntry): number {
   const mods = Object.values(entry.modules ?? {});
   const base = entry.modules?.["secure-development"] ? 0 : entry.patched;
   return base + mods.reduce((n, m) => n + (m?.completed ?? 0), 0);

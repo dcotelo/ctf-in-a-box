@@ -40,3 +40,65 @@ export function owaspUrl(code: string | null | undefined): string | null {
   if (API_SLUG[key]) return `https://owasp.org/API-Security/editions/2023/en/${API_SLUG[key]}/`;
   return null;
 }
+
+// Human-readable category names, kept as their own map rather than derived
+// from the slugs above. The slugs LOOK like they encode the label
+// ("A01_2021-Broken_Access_Control"), and unpicking them is nearly right —
+// until "A10_2021-Server-Side_Request_Forgery_%28SSRF%29", where the
+// percent-encoded parens make the derived string wrong in the one place
+// nobody would check. Twenty short lines beat a clever transform with an
+// exception.
+const TOP10_LABEL: Record<string, string> = {
+  A01: "Broken Access Control",
+  A02: "Cryptographic Failures",
+  A03: "Injection",
+  A04: "Insecure Design",
+  A05: "Security Misconfiguration",
+  A06: "Vulnerable and Outdated Components",
+  A07: "Identification and Authentication Failures",
+  A08: "Software and Data Integrity Failures",
+  A09: "Security Logging and Monitoring Failures",
+  A10: "Server-Side Request Forgery (SSRF)",
+};
+
+const API_LABEL: Record<string, string> = {
+  API1: "Broken Object Level Authorization",
+  API2: "Broken Authentication",
+  API3: "Broken Object Property Level Authorization",
+  API4: "Unrestricted Resource Consumption",
+  API5: "Broken Function Level Authorization",
+  API6: "Unrestricted Access to Sensitive Business Flows",
+  API7: "Server-Side Request Forgery",
+  API8: "Security Misconfiguration",
+  API9: "Improper Inventory Management",
+  API10: "Unsafe Consumption of APIs",
+};
+
+/** A category code as the UI renders it: the code itself, a readable label,
+ *  and a canonical link when one exists.
+ *
+ *  This mapping lives app-side ON PURPOSE. The scorer knows a challenge's
+ *  OWASP *code* — that is rubric data — and nothing about how to present it;
+ *  teaching it these slugs and labels would put OWASP's own taxonomy in two
+ *  repos and let them drift. The wire carries the code; the UI resolves it. */
+export type OwaspCategory = {
+  code: string;
+  label: string;
+  /** null for a code outside both Top 10s — the badge then renders as plain
+   *  text. A link that goes nowhere is worse than no link. */
+  url: string | null;
+};
+
+/** Resolves a code to its category, or undefined when there is no code at all
+ *  (a rubric challenge may legitimately carry `owasp: null`).
+ *
+ *  An UNRECOGNISED code still returns a category, labelled with the code
+ *  itself: the code came from the rubric and is worth showing even when this
+ *  build cannot name it — dropping it would hide real catalogue data behind a
+ *  mapping gap. */
+export function owaspCategory(code: string | null | undefined): OwaspCategory | undefined {
+  if (!code || !code.trim()) return undefined;
+  const key = code.trim().toUpperCase();
+  const label = TOP10_LABEL[key] ?? API_LABEL[key];
+  return { code: key, label: label ?? key, url: owaspUrl(key) };
+}

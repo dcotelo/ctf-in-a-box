@@ -431,3 +431,60 @@ test("teamSeries: empty without a rubric (no per-challenge points to accumulate)
   assert.equal(teams[0].points, 1); // degenerate mode: 1 point per solve
   assert.deepEqual(teamSeries, []);
 });
+
+// --- GET /challenges --------------------------------------------------------
+//
+// The app's /challenges page fetches this and falls back to static per-app
+// cards when it fails. It failed on every request for a long time — the route
+// simply did not exist — and the only symptom was an error logged per render.
+
+test("GET /challenges serves the rubric catalogue, unauthenticated", async (t) => {
+  const { base } = await boot(t);
+  const res = await fetch(`${base}/challenges`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // Fixture: dvwa has 1 challenge, juice-shop 2.
+  assert.equal(body.total, 3);
+  assert.deepEqual(body.counts, { dvwa: 1, "juice-shop": 2 });
+  assert.equal(body.challenges.length, 3);
+
+  const one = body.challenges.find((c) => c.id === "reflected-xss-search");
+  assert.deepEqual(one, {
+    app: "juice-shop",
+    id: "reflected-xss-search",
+    name: "Search box no longer reflects HTML",
+    points: 10,
+    owasp: null,
+  });
+});
+
+// The app resolves a code into its label and link (apps/web/src/lib/owasp.ts).
+// Sending a code/label/url object from here would put OWASP's taxonomy in two
+// repos and let them drift.
+test("GET /challenges sends the bare OWASP code, never a presentation object", async (t) => {
+  const { base } = await boot(t);
+  const body = await (await fetch(`${base}/challenges`)).json();
+  for (const c of body.challenges) {
+    assert.ok(c.owasp === null || typeof c.owasp === "string", `owasp must be a code or null, got ${JSON.stringify(c.owasp)}`);
+  }
+});
+
+// Degenerate mode has no per-challenge metadata at all. An empty catalogue is
+// a different answer from a 404 — the app reads "no catalogue here" and stays
+// on its static cards, which is correct; a 404 is what it used to get from
+// EVERY deployment and could not tell apart from a broken one.
+test("GET /challenges reports an empty catalogue without a rubric, not a 404", async (t) => {
+  const { base } = await boot(t, { rubric: null });
+  const res = await fetch(`${base}/challenges`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { challenges: [], counts: {}, total: 0 });
+});
+
+// Non-vacuity for the counts above: the route must not invent a target the
+// rubric never defined.
+test("GET /challenges lists only targets the rubric actually defines", async (t) => {
+  const { base } = await boot(t);
+  const body = await (await fetch(`${base}/challenges`)).json();
+  assert.deepEqual([...new Set(body.challenges.map((c) => c.app))].sort(), ["dvwa", "juice-shop"]);
+});

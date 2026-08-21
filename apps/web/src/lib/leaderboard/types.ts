@@ -145,6 +145,19 @@ export type LeaderboardData = {
    *  the source can't build it (no team concept, or the scorer predates
    *  team series support) — the team chart hides itself. */
   teamSeries?: TeamSeries[];
+  /** How many items this EVENT has to complete, across every enabled module:
+   *  the secure-development catalogue plus the authored quiz and classic
+   *  counts. The denominator for a row's solved count.
+   *
+   *  A property of the event, never of a row — deriving it per entry is the
+   *  bug that made `/profile` read "0 non-patched / 0 total" for a contestant
+   *  who had scored nothing (see lib/leaderboard/non-patched.ts). Stamped by
+   *  `withModuleContributions`, which already reads both module counts for
+   *  its own per-module denominators.
+   *
+   *  Undefined when nothing stamped it (a source read directly in a test);
+   *  the row then shows a bare count rather than inventing a total. */
+  completable?: number;
 };
 
 export type UserProfile = {

@@ -9,7 +9,7 @@ import { isModuleEnabled } from "@/lib/modules";
 import { getQuizTotals, getTeamQuizTotalsBatch, listQuestions, type QuizTotal } from "@/lib/quiz-store";
 import { rankByStanding } from "./rank";
 import type { AppProgress, LeaderboardData, LeaderboardEntry, ModuleProgress, TeamStanding } from "./types";
-import type { AppId } from "@/lib/apps";
+import { enabledTotalChallenges, type AppId } from "@/lib/apps";
 import type { ModuleId } from "@/lib/modules";
 
 /**
@@ -184,7 +184,23 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
     }
   }
 
-  return { ...data, entries, teams };
+  // The board-level denominator for a row's solved count: how many items this
+  // EVENT has, across every enabled module. Stamped here because this is the
+  // one place that already holds both module counts.
+  //
+  // Read off the EVENT, never off a row. A per-row denominator is the defect
+  // that made /profile show "0 non-patched / 0 total" to a contestant who had
+  // scored nothing — the number has to be what there is to do, not what that
+  // contestant has touched.
+  //
+  // A failed `listQuestions`/`listChallenges` leaves its term at 0 (see the
+  // independent-settle comments above), so this can come out SMALLER than
+  // someone's solved count. The row clamps rather than rendering "28 / 21";
+  // the clamp lives there because only a row knows its own numerator.
+  const completable =
+    (secureDev ? enabledTotalChallenges : 0) + quizTotalQuestions + classicTotalChallenges;
+
+  return { ...data, entries, teams, completable };
 }
 
 /** The app-side module totals for one render, threaded through the per-entry

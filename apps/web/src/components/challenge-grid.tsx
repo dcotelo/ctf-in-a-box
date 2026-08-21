@@ -30,8 +30,8 @@ type VisibleApp = {
 function matchChallenge(c: CatalogChallenge, q: string): boolean {
   return (
     c.description.toLowerCase().includes(q) ||
-    c.owasp.code.toLowerCase().includes(q) ||
-    c.owasp.label.toLowerCase().includes(q)
+    (c.owasp?.code.toLowerCase().includes(q) ?? false) ||
+    (c.owasp?.label.toLowerCase().includes(q) ?? false)
   );
 }
 
@@ -251,15 +251,31 @@ function CatalogList({
                   {hintIds?.has(c.id) && !ownedText && (
                     <HintButton app={app} id={c.id} cost={cost} signedIn={signedIn} onPurchased={onPurchased} />
                   )}
-                  <a
-                    href={c.owasp.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={c.owasp.label}
-                    className="ds-tap-24 flex-none rounded border border-white/10 px-1 text-[10px] text-muted transition-colors hover:border-[#2563eb]/60 hover:text-white"
-                  >
-                    {c.owasp.code}
-                  </a>
+                  {/* Two states the old lambda feed never produced and the
+                      scorer's rubric does: a challenge with no category at
+                      all (`owasp: null`), and a code outside both Top 10s.
+                      The first renders no badge; the second renders the code
+                      as plain text. Neither may become an anchor pointing
+                      nowhere. */}
+                  {c.owasp &&
+                    (c.owasp.url ? (
+                      <a
+                        href={c.owasp.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={c.owasp.label}
+                        className="ds-tap-24 flex-none rounded border border-white/10 px-1 text-[10px] text-muted transition-colors hover:border-[#2563eb]/60 hover:text-white"
+                      >
+                        {c.owasp.code}
+                      </a>
+                    ) : (
+                      <span
+                        title={c.owasp.label}
+                        className="flex-none rounded border border-white/10 px-1 text-[10px] text-muted"
+                      >
+                        {c.owasp.code}
+                      </span>
+                    ))}
                 </div>
                 {ownedText && (
                   <p className="rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">

@@ -87,7 +87,12 @@ describe("a leaderboard row on a quiz-only event", () => {
 });
 
 describe("a leaderboard row on a secure-development event", () => {
-  it("keeps both columns", () => {
+  // The row used to carry a `patched` + `non-patched` pair. They always summed
+  // to the catalogue, so the second was pure restatement of the first — and
+  // NEITHER was the figure the board ordered by, which is what made rows like
+  // "1,061 pts at rank 3, above 550 pts at rank 1" unexplainable on screen.
+  // One `solved` column replaced both, showing the comparator's own count.
+  it("shows one solved column, not the old patched/non-patched pair", () => {
     const html = renderToStaticMarkup(
       <EntryRow
         entry={{ ...entry, patched: 3, total: 5 }}
@@ -99,8 +104,57 @@ describe("a leaderboard row on a secure-development event", () => {
         modules={WITH_SECURE_DEV}
       />,
     );
-    expect(html).toContain(">patched<");
-    expect(html).toContain(">non-patched<");
+    expect(html).toContain(">solved<");
+    expect(html).not.toContain(">non-patched<");
+  });
+});
+
+describe("the solved column", () => {
+  function render(props: Partial<Parameters<typeof EntryRow>[0]> = {}) {
+    return renderToStaticMarkup(
+      <EntryRow
+        entry={entry}
+        topPoints={30}
+        isOwn={false}
+        isOpen={false}
+        onToggle={() => {}}
+        capabilities={CAPS}
+        modules={QUIZ_ONLY}
+        {...props}
+      />,
+    );
+  }
+
+  // The whole point of the column: it is the number `compareStanding` orders
+  // on. This entry has 2 quiz completions and 0 patched.
+  /** The rendered solved cell, as "<count>" or "<count> / <total>" — matched
+   *  on the cell itself rather than on a bare number, which appears all over
+   *  the row's markup (points, rank, avatar dimensions). */
+  function solvedCell(html: string): string | null {
+    const m = html.match(/text-\[#22c55e\]"?>(\d+)(?:<span[^>]*>\s*\/\s*(\d+)<\/span>)?/);
+    if (!m) return null;
+    return m[2] ? `${m[1]} / ${m[2]}` : m[1];
+  }
+
+  // The whole point of the column: it is the number `compareStanding` orders
+  // on — 2 quiz completions here, NOT the row's `patched` (0) or points (30).
+  it("shows the cross-module completion count the board ranks by", () => {
+    expect(solvedCell(render({ completable: 4 }))).toBe("2 / 4");
+  });
+
+  // `completable` comes from module counts that can fail their read and
+  // degrade to 0 (see withModuleContributions). A denominator smaller than the
+  // numerator would render "2 / 1", which is worse than no denominator.
+  it("never renders a denominator below the count", () => {
+    expect(solvedCell(render({ completable: 1 }))).toBe("2 / 2");
+  });
+
+  it("falls back to a bare count when nothing stamped a total", () => {
+    const html = render({ completable: undefined });
+    expect(html).toContain(">solved<");
+    // The denominator renders as " / <n>". Matched as that exact shape rather
+    // than a bare "/", which appears in every closing tag on the page.
+    expect(html).not.toMatch(/\s\/\s\d/);
   });
 });
 
@@ -114,10 +168,23 @@ describe("the sort controls on a quiz-only event", () => {
     expect(html).not.toContain("patched");
   });
 
-  it("still offers the patched sort where the module is enabled", () => {
+  // The third key used to be "patched" and was hidden on a quiz-only event,
+  // because it sorted a column that event did not have. It sorts on
+  // cross-module completion now, which every event has — so the gate went
+  // away with the column it was protecting.
+  it("offers the solved sort on a quiz-only event too", () => {
+    const html = renderToStaticMarkup(
+      <Leaderboard data={data} viewerLogin={null} modules={QUIZ_ONLY} />,
+    );
+    expect(html).toContain(">solved<");
+  });
+
+  it("offers the same three keys where secure-development is enabled", () => {
     const html = renderToStaticMarkup(
       <Leaderboard data={data} viewerLogin={null} modules={WITH_SECURE_DEV} />,
     );
-    expect(html).toContain(">patched<");
+    expect(html).toContain(">rank<");
+    expect(html).toContain(">points<");
+    expect(html).toContain(">solved<");
   });
 });

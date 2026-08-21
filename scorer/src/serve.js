@@ -80,6 +80,41 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
           catalog: board.catalog,
         });
       }
+      // The live challenge catalogue the app's /challenges page prefers over
+      // its static per-app cards.
+      //
+      // This route did not exist for a long time while the app asked for it
+      // on every render: `getChallengeCatalog()` fetched it, got a 404, logged
+      // an error and fell back to the static counts. The fallback is correct,
+      // so nothing looked broken — but the error fired on every request, which
+      // is exactly the noise that hides a real one during an event.
+      //
+      // `owasp` goes out as the bare CODE, not a code/label/link object. The
+      // rubric knows the code; how to name and link a category is the app's
+      // business (apps/web/src/lib/owasp.ts). Sending presentation strings
+      // from here would put OWASP's taxonomy in two repos.
+      //
+      // Degenerate mode (serve with no rubric) has no per-challenge metadata
+      // at all, so this reports an empty catalogue rather than 404ing: "this
+      // deployment has no catalogue" is a different answer from "this route
+      // does not exist", and the app's `challenges.length === 0` guard already
+      // treats the former as "stay on the static cards".
+      if (req.method === "GET" && req.url.split("?")[0] === "/challenges") {
+        const challenges = rubric
+          ? targetsInPlay().flatMap((target) =>
+              (rubric.targets.get(target)?.challenges ?? []).map((c) => ({
+                app: target,
+                id: c.id,
+                name: c.name,
+                points: c.points,
+                owasp: c.owasp ?? null,
+              })),
+            )
+          : [];
+        const counts = {};
+        for (const c of challenges) counts[c.app] = (counts[c.app] ?? 0) + 1;
+        return json(res, 200, { challenges, counts, total: challenges.length });
+      }
       if (req.method === "GET" && req.url === "/healthz") return json(res, 200, { ok: true });
       res.writeHead(404).end();
     } catch (err) {
