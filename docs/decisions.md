@@ -1583,3 +1583,55 @@ worth doing ([#49](https://github.com/dcotelo/ctf-in-a-box/issues/49) covers
 digest-pinning first-party images); it would also have meant not receiving the
 guard, so it trades a loud break for a silent divergence from upstream's
 current advice.
+
+## 39. Enforcing HTTPS for `EVENT_URL` at server start, not at build or per request
+
+**Context.** better-auth derives the session cookie's `Secure` flag from the
+scheme of its `baseURL`, which docker-compose sets from `EVENT_URL`. The
+shipped default is `http://localhost` — correct for a local trial. An
+organizer who edits the host and not the scheme (`http://ctf.example.org`)
+gets an event that starts normally, signs in normally, and sends every session
+cookie in cleartext over the venue's wifi. This app configures no `database`,
+so there is no server-side session store: the cookie **is** the identity
+(ADR 20). Sniffing an organizer's cookie is therefore admin takeover, not a
+nuisance, and the mistake has no visible symptom.
+
+**Decision.** A pure `checkEventUrl()` (`apps/web/src/lib/secure-url.ts`)
+classifies the configured URL, and Next's `register()` startup hook
+(`src/instrumentation.ts`) acts on the verdict: `https://` and every loopback
+spelling pass; `http://` to a real host in production throws; everything else
+warns.
+
+**Why the startup hook specifically.** The two obvious homes are both wrong:
+
+- **At import in `lib/auth.ts`** — this also runs during `next build`, which
+  sets `NODE_ENV=production`. A deployment warning would become a build
+  failure on a machine that has no event config at all, and CI builds with
+  dummy values. Verified: with the check in the startup hook, `pnpm build`
+  with `BETTER_AUTH_URL=http://a-real-domain.example` completes normally.
+- **Per request** — too late. By the first request the cookie policy is
+  already settled, and the operator learns from a log line buried under
+  traffic instead of a server that would not come up.
+
+**"Refusing to serve", not "refusing to start".** Next 16.3.0 catches a throw
+from the instrumentation hook, prints `Failed to prepare server`, and keeps
+the process alive answering `500` to everything — it even logs `✓ Ready`
+first. Nothing is served either way, but the message says what the operator
+will actually see, because `docker compose ps` will show the container `Up`.
+
+**The escape hatch is deliberately narrow.** `ALLOW_INSECURE_EVENT_URL=1`
+downgrades the refusal to a warning that states sessions are sniffable by
+design. It exists for a genuinely TLS-less deployment — a closed lab, an
+isolated classroom network. It is explicitly **not** the answer for TLS
+terminated upstream: there the public URL is still `https://`, so `EVENT_URL`
+should say `https://` and the check passes unaided. Offering the hatch for
+that case would train organizers to set it in exactly the situation where they
+do not need it.
+
+**Consequences.** A malformed or unexpected-scheme URL warns rather than
+fails: a config typo is not a security decision the guard can reason about,
+and failing shut on it would take an event down for the wrong reason. The
+check cannot see past its own process — an organizer who fronts the box with a
+plain-HTTP proxy while `EVENT_URL` says `https://` still ships sniffable
+cookies, and nothing in the app can detect that. That case belongs to the
+organizer hardening checklist ([#44](https://github.com/dcotelo/ctf-in-a-box/issues/44)).
