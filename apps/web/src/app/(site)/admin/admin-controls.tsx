@@ -92,6 +92,7 @@ export default function AdminControls({
   initial,
   demoMode = false,
   modules,
+  initialTab,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -99,6 +100,12 @@ export default function AdminControls({
    *  lib/resolved-modules.ts). Render `title` — a `ResolvedModule` has no
    *  `displayName`, by design. */
   modules: readonly ResolvedModule[];
+  /** Which tab to open on arrival, from `/admin?tab=<module id>`. Anything
+   *  this shell doesn't recognise — a typo, or a module this event didn't
+   *  enable — falls back to Event rather than opening nothing. Resolved on
+   *  the server (see page.tsx) so the first render already has the right
+   *  panel open; the organizer never sees it flip. */
+  initialTab?: string;
 }) {
   const [settings, setSettings] = useState(initial);
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
@@ -126,7 +133,9 @@ export default function AdminControls({
     { id: EVENT_TAB, label: "Event" },
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
-  const [active, setActive] = useState<string>(EVENT_TAB);
+  const [active, setActive] = useState<string>(
+    tabs.some((t) => t.id === initialTab) ? (initialTab as string) : EVENT_TAB,
+  );
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   /** WAI-ARIA tabs keyboard model, automatic activation: moving focus moves
