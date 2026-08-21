@@ -165,12 +165,57 @@ jobs:
         if: steps.cooldown.outputs.skip != 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # (5) Create the ctf network the scorer attaches itself and the app to.
+      # (5) Pull the scorer image EXPLICITLY, in a step named for it.
+      #
+      # `docker run` in step (7) would pull it implicitly, which is how this
+      # used to work — and it made the ONE provisioning step that has no API
+      # (the per-fork package Read grant, granted by hand under the package's
+      # "Manage Actions access") fail as a docker error buried in the middle
+      # of the scorer's own step, which then posted "Scoring did not complete"
+      # to the contestant's PR. A setup problem that reads as a scoring
+      # problem is the worst possible framing: the contestant re-pushes, and
+      # the organizer has no reason to look at the package settings.
+      #
+      # A `denied`/`unauthorized`/`not found` reply is specifically NOT a
+      # network flake — it means either this repository was never granted Read
+      # on the package, or the image was never mirrored into the org at all.
+      # Both are the organizer's to fix and neither is the contestant's fault,
+      # so this says so, in those words, and hands step (9) a flag to say it
+      # again on the PR rather than blaming the patch.
+      - name: Pull scorer image
+        id: pull
+        if: steps.cooldown.outputs.skip != 'true'
+        run: |
+          set +e
+          out="$(docker pull "ghcr.io/${EVENT_ORG}/score:latest" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ] && exit 0
+          if printf '%s' "$out" | grep -qiE 'denied|unauthorized|authentication required|not found|manifest unknown'; then
+            echo "denied=true" >> "$GITHUB_OUTPUT"
+            echo "::error title=Scorer image unavailable::This is an event SETUP problem, not a problem with the pull request."
+            {
+              echo "## Scorer image could not be pulled"
+              echo
+              echo "\`ghcr.io/${EVENT_ORG}/score:latest\` was refused. Nothing about the"
+              echo "submitted patch has been judged. **An organizer** needs to fix one of:"
+              echo
+              echo "1. Grant THIS repository Read on the package — <https://github.com/orgs/${EVENT_ORG}/packages>,"
+              echo "   open \`score\`, *Manage Actions access*, *Add repository*. There is no API"
+              echo "   for this step, so it is done by hand once per fork."
+              echo "2. Mirror the image into the org if it was never pushed:"
+              echo "   \`./setup/ctf-setup.sh mirror\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
+
+      # (6) Create the ctf network the scorer attaches itself and the app to.
       - name: Create ctf network
         if: steps.cooldown.outputs.skip != 'true'
         run: docker network create "$NETWORK" 2>/dev/null || true
 
-      # (6) Run the scorer. --entrypoint drives the judge path (boot app + probe).
+      # (7) Run the scorer. --entrypoint drives the judge path (boot app + probe).
       # docker.sock lets it boot the app under test as a sibling container; the
       # workspace + event.json mounts give it the PR checkout and webhook payload.
       # Push-mode secrets are OPTIONAL: leave LEADERBOARD_URL/LEADERBOARD_TOKEN
@@ -204,7 +249,7 @@ jobs:
             -e CTF_DISCLOSE_TABLE="${{ vars.CTF_DISCLOSE_TABLE }}" \
             "ghcr.io/${EVENT_ORG}/score:latest"
 
-      # (7) Always upsert the final comment, replacing the pending one (same
+      # (8) Always upsert the final comment, replacing the pending one (same
       # marker). ctf-score.md already carries the sync JSON marker
       # (<!-- ctf-score: {...} -->) that the poller parses; we keep the
       # target-scoped marker AND the file body together. If the score step failed
@@ -218,6 +263,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           SCORE_OUTCOME: ${{ steps.score.outcome }}
+          PULL_DENIED: ${{ steps.pull.outputs.denied }}
         with:
           script: |
             const fs = require('fs');
@@ -236,10 +282,25 @@ jobs:
             const lb = (process.env.LEADERBOARD_LINK || '').trim();
             const footer = /^https?:\/\//.test(lb) ? `\n\n📊 [View the leaderboard](${lb})` : '';
             let body;
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             if (report && report.trim()) {
               body = `${marker}\n${report}`;
+            } else if (process.env.PULL_DENIED === 'true') {
+              // The scorer image was refused, so NOTHING about this patch was
+              // judged. Saying "scoring did not complete" here would read as a
+              // verdict on the submission and send the contestant back to
+              // re-push a patch that was never looked at — while the organizer,
+              // who is the only one who can fix it, has no reason to look at
+              // the package settings. Name the real cause instead.
+              body =
+                `${marker}\n## 🏆 CTF Patch Score\n\n` +
+                `⚠️ **Not scored — this is an event setup problem, not a problem with your patch.**\n\n` +
+                `The scoring image could not be pulled, so nothing here has been judged yet. ` +
+                `Your pull request is fine as it is; an organizer needs to grant this repository ` +
+                `access to the scorer package. Nothing to do on your side — once that is fixed, ` +
+                `push again (or ask an organizer to re-run) and this comment will be replaced with your score.\n\n` +
+                `<sub>Organizers: see the [run log](${runUrl}) — the failing step's summary has the two-line fix.</sub>`;
             } else {
-              const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
               body = `${marker}\n## 🏆 CTF Patch Score\n\n❌ Scoring did not complete. See the [run log](${runUrl}).`;
             }
             body += footer;

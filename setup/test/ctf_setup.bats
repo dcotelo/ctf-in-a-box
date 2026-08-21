@@ -914,3 +914,103 @@ EOF2
   PATH="$(pwd)/stubs:$PATH" CTF_NO_BROWSER=1 run bash "$SCRIPT" oauth-app --config event.yaml
   printf '%s' "$output" | grep -qF 'open this manually:'
 }
+
+# --- doctor: per-fork package Read grant, verified by observation -----------
+#
+# The grant has no API to read back, but it has an observable consequence: the
+# fork's own scoring workflow either pulled the scorer image or was refused.
+# These stub `gh` to replay that history. Assertions target the grant block
+# only — the provisioning matrix above it has its own tests.
+
+# Writes a `gh` stub that answers the two endpoints `pull_grant_status` reads
+# and shrugs at everything else. $1 = the run-step conclusion to report for
+# DVWA; VAmPI is always left with no runs at all, so every case below also
+# pins the "never ran" arm alongside the one it is really about.
+write_gh_grant_stub() {
+  mkdir -p stubs
+  cat > stubs/gh <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"DVWA/actions/workflows/ctf-score.yml/runs"*) echo 101 ;;
+  *"VAmPI/actions/workflows/ctf-score.yml/runs"*) ;;
+  *"DVWA/actions/runs/101/jobs"*) echo "$1" ;;
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+}
+
+@test "doctor reports a package grant as granted when a run pulled the image" {
+  write_gh_grant_stub success
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  [[ "$output" == *"per-fork package Read grant"* ]]
+  printf '%s' "$output" | grep -qE '^  dvwa +✅ granted'
+}
+
+# The failure this whole feature exists for: without it, a missing grant
+# surfaces as "Scoring did not complete" on a contestant's PR.
+@test "doctor reports a package grant as MISSING when a run was refused the image" {
+  write_gh_grant_stub failure
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +❌ MISSING'
+  [ "$status" -ne 0 ]
+}
+
+# Fails closed: a fork with no scoring run yet has NOT been verified, and must
+# never be reported as granted. VAmPI is in this state in every case above too.
+@test "doctor reports an unrun fork as unverified, never as granted" {
+  write_gh_grant_stub success
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  vampi +⚠️  unverified'
+  [ -z "$(printf '%s' "$output" | grep -E '^  vampi +✅')" ]
+}
+
+# A step that was skipped or cancelled proves nothing about the grant, so it
+# must read as unverified rather than as either verdict.
+@test "doctor treats a skipped pull step as unverified, not as a verdict" {
+  write_gh_grant_stub skipped
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +⚠️  unverified'
+}
+
+# An unreachable API is not evidence of a grant. This is the same fail-closed
+# rule every check_step follows.
+@test "doctor reports unverified when the runs API itself fails" {
+  mkdir -p stubs
+  cat > stubs/gh <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  printf '%s' "$output" | grep -qE '^  dvwa +⚠️  unverified'
+  [ -z "$(printf '%s' "$output" | grep -F '✅ granted')" ]
+}
+
+# The doctor check and the workflow are coupled by one string: doctor reads
+# back the grant by looking for a step named "Pull scorer image" in each
+# fork's scoring runs. Renaming the step in the template would silently turn
+# every fork's status to "unverified" — a check that quietly stops checking,
+# which is worse than no check. Pin the name from both sides.
+@test "the rendered workflow's pull step is named exactly what doctor looks for" {
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  grep -qF -e '- name: Pull scorer image' dist/workflows/dvwa.ctf-score.yml
+  grep -qF 'name == "Pull scorer image"' "$BATS_TEST_DIRNAME/../ctf-setup.sh"
+}
+
+# The whole point of the separate step: a missing grant must fail in a step
+# named for it, not implicitly inside `docker run` where it reads as a
+# scoring failure on the contestant's patch.
+@test "the rendered workflow pulls the scorer image before running it" {
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  pull_line="$(grep -n 'docker pull' dist/workflows/dvwa.ctf-score.yml | head -1 | cut -d: -f1)"
+  run_line="$(grep -n 'name: Run scorer' dist/workflows/dvwa.ctf-score.yml | head -1 | cut -d: -f1)"
+  [ -n "$pull_line" ]
+  [ "$pull_line" -lt "$run_line" ]
+}
