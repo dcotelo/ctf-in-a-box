@@ -39,10 +39,23 @@
 app = "ctf-in-a-box"
 primary_region = "iad"
 
-# Generated, gitignored, and written next to this file. Relative to THIS
-# file's directory — flyctl resolves config-relative paths against the config,
-# not the working directory (a `--dockerfile deploy/fly/...` flag once became
-# `deploy/fly/deploy/fly/...` for exactly this reason).
+# Generated and gitignored. Written at the REPO ROOT, not next to this file,
+# and that is forced by flyctl rather than chosen.
+#
+# This path is resolved against the WORKING DIRECTORY, not against this config
+# file's directory — unlike `--dockerfile`, which resolves against the config
+# (a flag that once became `deploy/fly/deploy/fly/sync.Dockerfile`). The two
+# rules are genuinely inconsistent inside flyctl, and the deploy fails late,
+# after images are pushed and IPs are provisioned:
+#
+#   Error: failed to provision seed volumes: failed to read compose file:
+#   open compose.fly.yml: no such file or directory
+#
+# deploy.sh always runs from the repo root, so the file is rendered there.
+# `compose.fly.yml` is deliberately NOT one of the names flyctl auto-detects
+# (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml), so it
+# can never be picked up by accident — and, just as importantly, the repo's
+# real docker-compose.yml can never be deployed raw, un-rendered.
 [build.compose]
   file = "compose.fly.yml"
 

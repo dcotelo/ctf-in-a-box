@@ -16,7 +16,7 @@ cd "$(dirname "$0")/../.."
 
 FLY_DIR=deploy/fly
 CONFIG_TOML="$FLY_DIR/fly.toml"
-RENDERED="$FLY_DIR/compose.fly.yml"
+RENDERED="compose.fly.yml"
 DRY_RUN=""
 ENV_FILE=".env.fly"
 CONFIG="event.yaml"

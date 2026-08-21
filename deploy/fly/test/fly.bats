@@ -71,18 +71,44 @@ ENV
 }
 
 @test "the compose file it names is the one render-compose.sh writes" {
-  # deploy.sh renders to deploy/fly/compose.fly.yml and fly.toml must point at
-  # exactly that name. flyctl resolves this path against the CONFIG's
-  # directory, not the working directory — the same rule that once turned
-  # `deploy/fly/sync.Dockerfile` into `deploy/fly/deploy/fly/sync.Dockerfile`.
+  # flyctl resolves THIS path against the WORKING DIRECTORY, not against the
+  # config file's directory — the opposite of `--dockerfile`, which resolves
+  # against the config. The two rules are inconsistent inside flyctl, and
+  # getting it wrong fails late, after images are pushed and IPs provisioned:
+  #
+  #   failed to provision seed volumes: failed to read compose file:
+  #   open compose.fly.yml: no such file or directory
+  #
+  # deploy.sh always runs from the repo root, so the rendered file goes there
+  # and this stays a bare filename.
   uncommented "$FLY/fly.toml" | grep -qE '^ *file *= *"compose\.fly\.yml"'
+}
+
+@test "deploy.sh renders to the path fly.toml will actually look in" {
+  # The pair above and below only agree if deploy.sh writes the file where
+  # flyctl reads it. Asserting each half separately is what let them disagree.
+  grep -qE '^RENDERED="compose\.fly\.yml"' "$FLY/deploy.sh"
 }
 
 @test "the rendered compose file is gitignored" {
   # It is generated on every deploy and derives from .env.fly. Committing it
   # would put a build artefact in review diffs — and .env.fly itself reached
   # this public repo twice already, so nothing downstream of it gets tracked.
-  cd "$REPO" && git check-ignore -q deploy/fly/compose.fly.yml
+  cd "$REPO" && git check-ignore -q compose.fly.yml
+}
+
+@test "the rendered filename is not one flyctl auto-detects" {
+  # flyctl auto-detects compose.yaml, compose.yml, docker-compose.yaml and
+  # docker-compose.yml in the working directory. The rendered file sits at the
+  # repo root, right beside the real docker-compose.yml, so its name must not
+  # collide with that list — and the repo's own compose file must never be
+  # deployed raw, with its ${VAR}s and two build: services intact.
+  name="$(grep -E '^ *file *= *"' "$FLY/fly.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+  case "$name" in
+    compose.yaml|compose.yml|docker-compose.yaml|docker-compose.yml)
+      echo "$name collides with flyctl's auto-detected names"; return 1 ;;
+  esac
+  [ -n "$name" ]
 }
 
 @test "public traffic goes to the app container's port, not srh or scorer" {

@@ -189,7 +189,7 @@ cannot hold both.
 ## The rendered compose file
 
 `deploy/fly/render-compose.sh` turns `docker-compose.yml` into
-`deploy/fly/compose.fly.yml` (generated, gitignored). Read it after a dry run
+`compose.fly.yml` at the repo root (generated, gitignored). Read it after a dry run
 — it is exactly what Fly will deploy, and it holds no secrets.
 
 The render exists because **flyctl's compose parser is not Docker's**. It is a
@@ -251,7 +251,7 @@ That takes the volumes with it. Export anything you want to keep first.
 ## CI
 
 `.github/workflows/ci.yml`'s `shell` job shellchecks both scripts and runs
-`bats deploy/fly/test/` — 34 assertions covering `fly.toml`'s invariants, the
+`bats deploy/fly/test/` — 37 assertions covering `fly.toml`'s invariants, the
 render's output (no secret values, no `$$`, every service on loopback with an
 image, no leftover build/networks/volumes/profiles keys), and `deploy.sh`'s
 guards. The render runs for real; nothing is ever deployed, and no Fly account
