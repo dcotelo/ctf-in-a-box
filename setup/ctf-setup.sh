@@ -959,13 +959,26 @@ render_workflow() {
 render_workflows() {
   local org="$1"; shift
   [ -f "$WORKFLOW_TEMPLATE" ] || { echo "workflow template missing: $WORKFLOW_TEMPLATE" >&2; exit 1; }
-  # Leaderboard URL for the score-comment footer, derived once from event.url
-  # (trailing slash stripped). Empty when event.url is unset — the workflow
+  # Leaderboard URL for the score-comment footer, derived once from EVENT_URL
+  # (trailing slash stripped). Empty when EVENT_URL is unset — the workflow
   # only renders the footer link when the value is a real http(s) URL.
+  #
+  # SAYS SO when it is missing. This used to read event.yaml's `event.url`, and
+  # organizers who had that set but no EVENT_URL would otherwise get workflows
+  # with the footer link silently dropped — every scored PR losing the one
+  # link that sends a contestant back to the leaderboard, with nothing to
+  # explain it. A warning, not a failure: a link-less footer is a degraded
+  # comment, not a broken event.
   local base_url lb_url=""
   base_url="$(yaml_url)"
   base_url="${base_url%/}"
-  case "$base_url" in http://*|https://*) lb_url="$base_url/leaderboard" ;; esac
+  case "$base_url" in
+    http://*|https://*) lb_url="$base_url/leaderboard" ;;
+    *)
+      echo "WARNING: EVENT_URL is not set in ${OUT:-.env} (or is not http/https)." >&2
+      echo "         The score comments will carry no leaderboard link." >&2
+      echo "         The event URL moved here from event.yaml's event.url." >&2 ;;
+  esac
   local wfdir="dist/workflows" t app_url dest
   for t in "$@"; do
     app_url="$(app_url_for "$t")" || exit 1

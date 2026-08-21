@@ -1148,3 +1148,24 @@ EOF
   printf '%s' "$output" | grep -qE '^  dvwa +❌ absent'
   [ -z "$(printf '%s' "$output" | grep -F '✅ v')" ]
 }
+
+# The event URL moved from event.yaml's `event.url` to EVENT_URL in .env
+# (ADR 43). ctf-setup renders it into every fork's score-comment footer, so an
+# organizer who moved the file but not the value would otherwise lose that link
+# on every scored PR with nothing to explain it.
+
+@test "render warns when EVENT_URL is missing rather than dropping the link silently" {
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'EVENT_URL is not set'
+}
+
+@test "render puts the leaderboard link in the workflow when EVENT_URL is set" {
+  # The counterpart: the warning above must not be the only outcome, or it
+  # would pass just as well against a reader that never works.
+  printf 'EVENT_URL=https://ctf.example.org\n' > .env
+  run bash "$SCRIPT" render --config event.yaml
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'EVENT_URL is not set')" ]
+  grep -qF 'https://ctf.example.org/leaderboard' dist/workflows/dvwa.ctf-score.yml
+}

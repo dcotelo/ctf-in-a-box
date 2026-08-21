@@ -109,10 +109,28 @@ services:
     # `mkdir -p` because `--dir` must already exist — redis-server does not
     # create it and exits with "Can't chdir to ...". It only ever matters when
     # REDIS_DIR is a SUBDIRECTORY of the mount, which is the Fly case below.
+    # `exec docker-entrypoint.sh redis-server ...`, NOT `exec redis-server ...`.
+    #
+    # The image's entrypoint does two things that only happen when its first
+    # argument is literally `redis-server`:
+    #
+    #   1. drops privileges — `setpriv --reuid redis --regid redis
+    #      --clear-groups`, after chowning the data dir
+    #   2. sets `umask 0077`, so the AOF and RDB are not world-readable
+    #
+    # Running `sh -c 'exec redis-server ...'` skips BOTH: the entrypoint sees
+    # `sh`, falls through to `exec "$@"`, and redis ends up running as ROOT
+    # with a 0022 umask. Nothing about that is visible in `docker compose ps`
+    # or in the logs — it was found by diffing `ps -o user` against the
+    # previous command.
+    #
+    # So the shell is used only to expand the two variables, and then hands
+    # back to the entrypoint, which sees `redis-server` and behaves exactly as
+    # it did before this file used a shell at all.
     command:
       - sh
       - -c
-      - mkdir -p "$$REDIS_DIR" && exec redis-server --appendonly yes --dir "$$REDIS_DIR" --requirepass "$$REDIS_PASSWORD"
+      - mkdir -p "$$REDIS_DIR" && exec docker-entrypoint.sh redis-server --appendonly yes --dir "$$REDIS_DIR" --requirepass "$$REDIS_PASSWORD"
     environment:
       # Where the append-only file lives, INSIDE the mounted volume.
       #
