@@ -17,7 +17,15 @@ RUN if [ -n "$EVENT_CONFIG_B64" ]; then \
 FROM node:22-alpine
 RUN corepack enable
 WORKDIR /app
-COPY --from=build /app ./
+# --chown, because the next line drops to `node`. Without it /app is
+# root-owned and the unprivileged runtime user cannot create
+# `.next/cache/fetch-cache`, which Next.js makes on its FIRST cached fetch —
+# so the container booted fine, served fine, and logged
+# `EACCES: permission denied, mkdir '/app/.next/cache/fetch-cache'` while
+# silently caching nothing. Every `next: { revalidate: N }` fetch then re-hit
+# upstream on every request, and the only evidence read like a Next.js
+# internal rather than a permissions problem.
+COPY --from=build --chown=node:node /app ./
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
 USER node

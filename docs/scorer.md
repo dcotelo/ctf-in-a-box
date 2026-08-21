@@ -18,10 +18,20 @@ public, see [decisions.md #18](decisions.md#18-exec-probe-rubrics-for-all-six-ta
 One image (`scorer/Dockerfile`), two modes:
 
 - **`score serve`** (the image's default CMD) — the leaderboard API that
-  runs on your box as the `scorer` compose service: `POST /score`
-  (bearer-token authed, the single score writer) and `GET /leaderboard`
-  (the shape the app renders). Backed by Redis via the Upstash-REST proxy
-  when `UPSTASH_REDIS_REST_URL` is set, an in-memory store otherwise.
+  runs on your box as the `scorer` compose service. Four routes: `POST
+  /score` (bearer-token authed, the single score writer), `GET /leaderboard`
+  (the shape the app renders), `GET /challenges` (the challenge catalogue the
+  app's `/challenges` page prefers over its static per-app cards), and `GET
+  /healthz`. Everything but `POST /score` is unauthenticated — it is all
+  public catalogue and standings data. Backed by Redis via the Upstash-REST
+  proxy when `UPSTASH_REDIS_REST_URL` is set, an in-memory store otherwise.
+
+  `GET /challenges` sends each challenge's OWASP **code** (`"A03"`, `"API1"`)
+  or `null` — never a label or a link. Naming and linking a category is the
+  app's job (`apps/web/src/lib/owasp.ts`); putting OWASP's taxonomy in both
+  repos would let the two drift. In degenerate mode (no rubric) the route
+  answers with an empty catalogue rather than a 404, so the app can tell
+  "this deployment has no catalogue" apart from "this route doesn't exist".
 - **`score judge`** (via `scorer/entrypoint.sh`) — the per-PR rubric
   runner. It executes inside the fork's GitHub Actions run: boots the
   contestant's patched app in a sibling container on an internal network,

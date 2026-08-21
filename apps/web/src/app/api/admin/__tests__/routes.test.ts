@@ -29,7 +29,11 @@ vi.mock("@/lib/admin-store", async (orig) => ({
   seedDemoData,
 }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
-vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event", modules: [] } }));
+// `targets` is not optional on a real eventConfig — lib/apps.ts reads it at
+// module load to build `enabledApps`. A mock that omits it crashes any import
+// graph that reaches apps.ts, which is a trap for the next unrelated import
+// rather than a property of this suite.
+vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event", modules: [], targets: [] } }));
 
 import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";
