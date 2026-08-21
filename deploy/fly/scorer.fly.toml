@@ -1,0 +1,44 @@
+# Leaderboard API + score writer.
+#
+# NO `[http_service]` BLOCK, AND THAT IS THE POINT. In poll mode the kit has
+# zero inbound scoring surface: nothing on the internet needs to reach the
+# scorer, because `sync` polls GitHub outbound and submits over the private
+# network. Adding a public service here would hand the internet a `POST
+# /score` endpoint protected by nothing but a bearer token — the exact
+# exposure `caddy/Caddyfile.poll` exists to avoid on the compose path.
+#
+# Push mode DOES need it. See the README's "Push mode" section for the one
+# block to add, and understand what you are opening before you add it.
+
+app = "ctf-in-a-box-scorer"
+primary_region = "iad"
+
+[build]
+  # The scorer image is PRIVATE (it bakes in the rubric). Two ways to get it
+  # onto Fly, both covered in the README:
+  #   1. build from source here, which needs no registry credentials —
+  #      what this file does, and the default deploy.sh takes;
+  #   2. `image = "ghcr.io/<org>/score:latest"` plus `fly deploy
+  #      --image-label` with GHCR auth configured.
+  dockerfile = "../../scorer/Dockerfile"
+
+[env]
+  # `serve`, NOT `judge`. This is the whole reason the kit runs on Firecracker
+  # at all: judging boots target containers as siblings through docker.sock,
+  # and that happens on GitHub's runners, never here. A serve-mode scorer is
+  # an ordinary HTTP server with no Docker access of any kind.
+  CTF_MODE = "serve"
+
+# The service listens on 4000 and is reachable only as
+# ctf-in-a-box-scorer.internal:4000 over 6PN. Fly resolves that name for apps
+# in the same organization and for nothing else.
+[[services]]
+  internal_port = 4000
+  protocol = "tcp"
+  # No `ports` entries: this is what keeps the service private. A `[[services.ports]]`
+  # block is what would publish it.
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

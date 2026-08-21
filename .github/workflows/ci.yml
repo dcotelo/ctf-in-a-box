@@ -52,7 +52,10 @@ jobs:
             # corpus (or the example config) moves, or half the contract
             # goes unchecked on the PR that breaks it.
             echo "sync=$(m "^event\.yaml\.example|^sync/|^setup/test/corpus/$CI")"
-            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^scorer/entrypoint$CI")"
+            # deploy/fly is here because its checks ARE shell: a bats suite
+            # plus a shellcheck'd deploy script. There is no `terraform
+            # validate` equivalent for fly.toml to give it its own job.
+            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^deploy/fly/|^sync/Dockerfile$|^scorer/entrypoint$CI")"
             # `^sync/` is here because smoke runs the REAL sync service —
             # docker-compose.smoke.yml overrides only its env and the mounted
             # event.yaml. It is the one end-to-end proof the poll pipeline
@@ -141,7 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
-      - run: shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh
+      - run: shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh
       # The per-target bring-ups are POSIX sh FRAGMENTS sourced by entrypoint.sh, so
       # they get -s sh (they never run under bash) and SC2034 is excluded: BOOTED and
       # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing
@@ -149,6 +152,11 @@ jobs:
       # fix in the script, not a rule to widen.
       - run: shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
       - run: bats setup/test/
+      # Static invariants for the fly.io module: no public scoring surface,
+      # the sync cursor volume, the EVENT_CONFIG_B64 build arg, and the drift
+      # guard between deploy/fly/sync.Dockerfile and sync/Dockerfile. No fly
+      # account and no deploy — same posture as the terraform job.
+      - run: bats deploy/fly/test/
 
   smoke:
     needs: changes

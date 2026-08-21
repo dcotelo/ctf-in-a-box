@@ -1,0 +1,53 @@
+# Contestant web app — the ONLY publicly reachable service in this module.
+#
+# Rename `app = ` below if you want a different hostname; every other file
+# here refers to these apps by the names in deploy.sh's defaults, which read
+# from these files.
+
+app = "ctf-in-a-box-app"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../apps/web/Dockerfile"
+  # BUILD CONTEXT IS THE REPO ROOT, not this directory: apps/web/Dockerfile
+  # copies from the repo root (it builds the vendored app together with the
+  # generated event config). deploy.sh runs `fly deploy` from the root for
+  # exactly this reason.
+
+  [build.args]
+    # DELIBERATELY ABSENT: EVENT_CONFIG_B64.
+    #
+    # It is passed on the command line by deploy.sh instead. Putting it here
+    # would mean committing a base64 blob of the organizer's event.yaml —
+    # including the admins list — into the repo, and it would go stale the
+    # moment event.yaml changed, silently, because a stale value still builds.
+    # See the README's "The two things that bite" section.
+
+[env]
+  # Points at the scorer over Fly's private 6PN network. `.internal` never
+  # resolves from outside the organization, so the leaderboard API is not
+  # exposed even though the app is.
+  LEADERBOARD_API_URL = "http://ctf-in-a-box-scorer.internal:4000"
+  LEADERBOARD_SOURCE = "lambda"
+  TEAM_WRITES_ENABLED = "true"
+  # DEMO_MODE is deliberately unset — it exposes the /admin seed button.
+
+# BETTER_AUTH_SECRET, BETTER_AUTH_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
+# UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are set with
+# `fly secrets set` (deploy.sh does it). They are never written here — this
+# file is committed.
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Zero would let Fly stop the last machine, and a suspended app answers the
+  # first request slowly. One machine stays warm so a contestant hitting the
+  # leaderboard mid-event never waits on a cold start.
+  min_machines_running = 1
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
