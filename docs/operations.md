@@ -323,6 +323,14 @@ active cooldown immediately, and raising it applies to the very next check.
 A wrong attempt spends one of the allotted attempts; once a question is
 answered correctly it's done — no more attempts to spend, right or wrong.
 
+Contestants can see the budget: each unanswered question carries a
+`2 of 3 attempts left` chip next to its points badge, counted down from the
+same attempts row the gate itself reads. The chip is absent when **Max
+attempts** is `0` (nothing to ration) and once the question is answered.
+Lowering the cap mid-event can leave a contestant holding more spent
+attempts than the new cap allows; the chip floors at `0 of N` rather than
+reporting a negative budget.
+
 **Points and scoring.** A question's points are captured on the answer
 record at the moment it's answered correctly, so re-pricing a question
 later never changes what a contestant already earned — only a future

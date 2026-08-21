@@ -117,7 +117,9 @@ describe("/quiz view model", () => {
     renderToStaticMarkup(await QuizPage());
 
     expect(Object.keys(captured.questions[0]).sort()).toEqual(
-      ["choices", "id", "points", "prompt", "status", "type"].sort(),
+      // `attemptsUsed` is a deliberate addition (the attempts-left chip), not
+      // a spread — a count of graded tries carries nothing from the answer key.
+      ["attemptsUsed", "choices", "id", "points", "prompt", "status", "type"].sort(),
     );
   });
 });

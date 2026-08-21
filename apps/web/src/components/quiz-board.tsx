@@ -35,6 +35,11 @@ export type QuizQuestionView = {
   type: QuestionType;
   choices: Choice[];
   points: number;
+  /** Graded attempts this viewer has already spent on this question. Drives
+   *  the attempts chip; 0 for a signed-out visitor and for anything never
+   *  attempted. Server-derived from the same `ctf:quiz:attempts:<login>` row
+   *  the retry gate reads, so the chip and the gate can't disagree. */
+  attemptsUsed: number;
 } & QuizStatus;
 
 type AnswerResponse =
@@ -78,6 +83,45 @@ export function resultLine(question: QuizQuestionView, feedback: Feedback | unde
     return { kind: "info", text: "No attempts remaining for this question." };
   }
   return null;
+}
+
+/** How many graded attempts are left, as a contestant-facing chip — or null
+ *  when the organizer has uncapped attempts (`maxAttempts: 0`) and there is
+ *  no budget to report.
+ *
+ *  The cap has always been enforced and never shown: a contestant got three
+ *  graded tries by default, was never told, and discovered the limit by
+ *  running into it. Clamped at 0 because the cap is re-read live from
+ *  /admin — an organizer who lowers it mid-event can leave a contestant with
+ *  more attempts spent than the new cap allows, and "-1 attempts left" is
+ *  not a thing to print at them. */
+export function describeAttempts(attemptsUsed: number, maxAttempts: number): string | null {
+  if (maxAttempts <= 0) return null;
+  const left = Math.max(0, maxAttempts - attemptsUsed);
+  return `${left} of ${maxAttempts} attempt${maxAttempts === 1 ? "" : "s"} left`;
+}
+
+/** Whether the submit control is inert, for BOTH branches that render one.
+ *
+ *  The cooldown branch used to hardcode `disabled`, while the choices it sat
+ *  under were released the moment the countdown reached zero — so a card
+ *  reading "Cooldown's over — you can try again now." offered live radios
+ *  above a button that could not be pressed again without a manual reload.
+ *  One rule, one place, so the two can't drift apart again.
+ *
+ *  Releasing on `cooledDown` is optimistic by design: GRADE_SCRIPT re-checks
+ *  the cooldown inside the same atomic EVAL that records the attempt, so an
+ *  early click is refused server-side rather than granted. */
+export function submitDisabled(opts: {
+  onCooldown: boolean;
+  /** The client-side countdown has reached zero. False through the server
+   *  render and the first paint — see `useCooldown`. */
+  cooledDown: boolean;
+  pending: boolean;
+  selectedCount: number;
+}): boolean {
+  if (opts.onCooldown && !opts.cooledDown) return true;
+  return opts.pending || opts.selectedCount === 0;
 }
 
 function describeRefusal(reason: string): string {
@@ -141,8 +185,13 @@ function useCooldown(retryAt: string | undefined): { mounted: boolean; remaining
 export default function QuizBoard({
   questions,
   authenticated,
+  maxAttempts,
 }: {
   questions: QuizQuestionView[];
+  /** The organizer's graded-attempt cap, live from /admin (0 = uncapped).
+   *  Passed down rather than read here so the board and the server's own
+   *  status derivation are working from the same number. */
+  maxAttempts: number;
   /** False for a signed-out visitor: questions stay visible, but submitting
    *  requires a GitHub session (`/api/quiz/answer` 401s otherwise), so an
    *  unanswered question renders a sign-in prompt instead of a submit
@@ -183,7 +232,12 @@ export default function QuizBoard({
           ...prev,
           [question.id]: data.correct
             ? { kind: "success", text: describeCorrect(data.points, data.already) }
-            : { kind: "error", text: "Not quite. Try again." },
+            // No "Try again." here. Whether they CAN try again right now is
+            // the retry gate's answer, not this line's: a wrong answer
+            // usually starts a cooldown, and the card's own countdown says
+            // when. Printing an invitation next to a form the same
+            // submission just disabled is what made this read as broken.
+            : { kind: "error", text: "Not quite." },
         }));
       } else if ("error" in data && typeof data.error === "string") {
         setFeedback((prev) => ({
@@ -210,6 +264,7 @@ export default function QuizBoard({
           key={q.id}
           question={q}
           authenticated={authenticated}
+          maxAttempts={maxAttempts}
           selected={selections[q.id] ?? []}
           pending={pending[q.id] ?? false}
           feedback={feedback[q.id]}
@@ -224,6 +279,7 @@ export default function QuizBoard({
 function QuestionCard({
   question,
   authenticated,
+  maxAttempts,
   selected,
   pending,
   feedback,
@@ -232,6 +288,7 @@ function QuestionCard({
 }: {
   question: QuizQuestionView;
   authenticated: boolean;
+  maxAttempts: number;
   selected: string[];
   pending: boolean;
   feedback?: Feedback;
@@ -252,14 +309,25 @@ function QuestionCard({
   const showChoices = question.status === "unanswered" || question.status === "cooldown";
   const choicesDisabled = question.status === "cooldown" && !cooledDown;
   const result = resultLine(question, feedback);
+  // Only while the budget still means something. A question already answered
+  // correctly is done, and its remaining attempts are not a fact the
+  // contestant has any use for.
+  const attemptsLeft = question.status === "answered" ? null : describeAttempts(question.attemptsUsed, maxAttempts);
 
   return (
     <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-white">{question.prompt}</p>
-        <span className="flex-none rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-          {question.points} pts
-        </span>
+        <div className="flex flex-none items-center gap-1.5">
+          {attemptsLeft && (
+            <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+              {attemptsLeft}
+            </span>
+          )}
+          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+            {question.points} pts
+          </span>
+        </div>
       </div>
 
       {question.status === "cooldown" && (
@@ -300,7 +368,7 @@ function QuestionCard({
           <button
             type="button"
             onClick={onSubmit}
-            disabled={pending || selected.length === 0}
+            disabled={submitDisabled({ onCooldown: false, cooledDown, pending, selectedCount: selected.length })}
             className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
           >
             {pending ? "Submitting…" : "Submit answer"}
@@ -309,15 +377,29 @@ function QuestionCard({
           <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
         ))}
 
-      {question.status === "cooldown" && (
-        <button
-          type="button"
-          disabled
-          className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white opacity-50"
-        >
-          Submit answer
-        </button>
-      )}
+      {/* The cooldown's own submit control. It used to be hardcoded
+          `disabled`, while `choicesDisabled` released the radios the moment
+          the countdown hit zero — so a contestant whose card said "Cooldown's
+          over — you can try again now." got live choices above a button that
+          could never be pressed again without a manual reload. It now tracks
+          the same `cooledDown` flag the choices do (classic-board.tsx routes
+          both through one `inputLocked` for exactly this reason). Releasing
+          it optimistically is safe: GRADE_SCRIPT re-checks the cooldown
+          inside the same atomic EVAL that records the attempt, so an early
+          click is refused server-side rather than granted. */}
+      {question.status === "cooldown" &&
+        (authenticated ? (
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={submitDisabled({ onCooldown: true, cooledDown, pending, selectedCount: selected.length })}
+            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+          >
+            {pending ? "Submitting…" : "Submit answer"}
+          </button>
+        ) : (
+          <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
+        ))}
 
       {result && (
         <p
