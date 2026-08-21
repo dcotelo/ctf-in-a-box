@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadState, saveState, repoState, markSeen } from "../src/state.js";
+import { loadState, saveState, repoState, markSeen, seenKey } from "../src/state.js";
 
 /** Writes `body` to a fresh state file and loads it, capturing warnings. */
 function loadWritten(body) {
@@ -125,9 +125,30 @@ test("repoState initializes per-repo slot in place", () => {
 
 test("markSeen dedupes and caps at 500", () => {
   const rs = { since: null, etag: null, seen: [] };
-  assert.equal(markSeen(rs, 42), true);
-  assert.equal(markSeen(rs, 42), false);
-  for (let i = 0; i < 600; i++) markSeen(rs, i);
+  const at = "2026-08-13T11:00:00Z";
+  assert.equal(markSeen(rs, 42, at), true);
+  assert.equal(markSeen(rs, 42, at), false);
+  for (let i = 0; i < 600; i++) markSeen(rs, i, at);
   assert.equal(rs.seen.length, 500);
-  assert.equal(rs.seen.includes(599), true);
+  assert.equal(rs.seen.includes(seenKey(599, at)), true);
+});
+
+// THE bug this key exists for. The scoring workflow upserts one comment per
+// target — a placeholder first, the result edited into the same comment — so
+// dedupe on the id alone made a re-scored PR permanently unreachable: the
+// placeholder burned the id, and the edit carrying the real score was skipped.
+test("markSeen re-presents a comment that was EDITED after being seen", () => {
+  const rs = { since: null, etag: null, seen: [] };
+  assert.equal(markSeen(rs, 7, "2026-08-13T11:00:00Z"), true);
+  assert.equal(markSeen(rs, 7, "2026-08-13T11:05:00Z"), true, "an edited comment must be handled again");
+  assert.equal(markSeen(rs, 7, "2026-08-13T11:05:00Z"), false, "…but only once per revision");
+});
+
+// State written before this key existed holds bare ids. They cannot match a
+// revision key, so upgrading re-presents each still-cursored comment exactly
+// once — which is the repair, not a regression: it is what recovers the
+// scores the id-only key dropped.
+test("markSeen re-presents comments recorded by an older build as bare ids", () => {
+  const rs = { since: null, etag: null, seen: [5364196433] };
+  assert.equal(markSeen(rs, 5364196433, "2026-08-21T02:06:17Z"), true);
 });

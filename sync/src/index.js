@@ -2,7 +2,7 @@ import { loadConfig, REPO_NAMES } from "./config.js";
 import { fetchNewScoreComments } from "./github.js";
 import { parseScoreComment } from "./parse.js";
 import { submitScore } from "./submit.js";
-import { loadState, markSeen, repoState, saveState } from "./state.js";
+import { loadState, markSeen, repoState, saveState, seenKey } from "./state.js";
 import { makeRedis } from "./redis.js";
 
 // Fail-safe wrapper: a broken deps.redis (whatever its origin) must never
@@ -60,7 +60,9 @@ export async function tick(cfg, state, deps = {}) {
     }
     let stopAt;
     for (const c of result.comments) {
-      if (!markSeen(rs, c.id)) continue;
+      // Keyed on the comment REVISION, not its id — the workflow upserts one
+      // comment per target, so the id alone made a re-scored PR unreachable.
+      if (!markSeen(rs, c.id, c.updated_at)) continue;
       const payload = parseScoreComment(c.body, cfg);
       if (!payload) continue;
       try {
@@ -68,7 +70,9 @@ export async function tick(cfg, state, deps = {}) {
         if (ok) state.ingested++;
         else log(`submit ${repo}#${payload.pr}: rejected (4xx), dropped`);
       } catch (err) {
-        rs.seen = rs.seen.filter((id) => id !== c.id); // retry next tick
+        // Retry next tick: drop THIS revision's key, not every key sharing
+        // the comment's id.
+        rs.seen = rs.seen.filter((k) => k !== seenKey(c.id, c.updated_at));
         stopAt ??= c.updated_at; // record first failure's timestamp
         lastError = err.message;
         log(`submit ${repo}#${payload.pr}: ${err.message}`);
