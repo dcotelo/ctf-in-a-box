@@ -63,7 +63,9 @@ that disagree with the scores.
    ./deploy/fly/deploy.sh init                 # --dry-run first if you like
    ```
 
-   It **asks before creating the database** (a billable resource) and will not
+   It **tops up an existing env file** rather than overwriting it — so a
+   hand-made one just gains what it is missing, and its permissions are
+   tightened to `600` either way. It **asks before creating the database** (a billable resource) and will not
    proceed without a typed `create`. It never overwrites an existing env file
    and reuses an existing database, so it is safe to re-run.
 

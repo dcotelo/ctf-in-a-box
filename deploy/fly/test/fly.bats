@@ -323,3 +323,42 @@ ENV
   mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/generated" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/generated")"
   [ "$mode" = "600" ]
 }
+
+@test "init tightens permissions on a PRE-EXISTING env file too" {
+  # A hand-made env file is usually 644 from a plain shell redirect, and it
+  # holds every secret the event has. Chmod'ing only on creation left exactly
+  # the files most likely to be wrong.
+  printf 'BETTER_AUTH_SECRET=x\n' > "$BATS_TEST_TMPDIR/pre-existing"
+  chmod 644 "$BATS_TEST_TMPDIR/pre-existing"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --env-file "$BATS_TEST_TMPDIR/pre-existing" || true
+  mode="$(stat -c '%a' "$BATS_TEST_TMPDIR/pre-existing" 2>/dev/null || stat -f '%Lp' "$BATS_TEST_TMPDIR/pre-existing")"
+  [ "$mode" = "600" ]
+}
+
+@test "init tops up a pre-existing env file instead of overwriting it" {
+  printf 'BETTER_AUTH_SECRET=keep-me\n' > "$BATS_TEST_TMPDIR/pre-existing"
+  printf 'no\n' | env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" init \
+    --env-file "$BATS_TEST_TMPDIR/pre-existing" || true
+  # The original value survives AND the missing one was added.
+  grep -q "^BETTER_AUTH_SECRET=keep-me$" "$BATS_TEST_TMPDIR/pre-existing"
+}
+
+@test "an unfilled EVENT_URL placeholder is refused before anything deploys" {
+  # "https://<your-app>.fly.dev" passes a bare https:// check, so without this
+  # it deploys and the failure surfaces much later as a redirect_uri mismatch
+  # at sign-in, against a host nobody can resolve.
+  sed 's#^EVENT_URL=.*#EVENT_URL=https://<your-app>.fly.dev#' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/placeholder-env"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+}
+
+@test "the placeholder refusal names the value to use" {
+  sed 's#^EVENT_URL=.*#EVENT_URL=https://<your-app>.fly.dev#' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/placeholder-env"
+  run env PATH="/usr/bin:/bin" bash "$FLY/deploy.sh" --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/placeholder-env" --config "$BATS_TEST_TMPDIR/event.yaml"
+  [[ "$output" == *"EVENT_URL=https://ctf-in-a-box-app.fly.dev"* ]]
+}

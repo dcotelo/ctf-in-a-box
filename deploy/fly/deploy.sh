@@ -128,7 +128,13 @@ require_fly() {
 # ---------------------------------------------------------------------------
 if [ "$CMD" = "init" ]; then
   if [ -f "$ENV_FILE" ]; then
-    echo "== $ENV_FILE exists — leaving it alone"
+    echo "== $ENV_FILE exists — topping it up, not overwriting"
+    # Tighten permissions even on a file we did not create. A hand-made env
+    # file is usually 644 from a plain shell redirect, and this one holds
+    # every secret the event has — the OAuth client secret, the App private
+    # key, the session signing key. Chmod'ing only on creation left exactly
+    # the files most likely to be wrong.
+    [ -n "$DRY_RUN" ] || chmod 600 "$ENV_FILE"
   else
     [ -f "$FROM_ENV" ] || { echo "no $FROM_ENV to copy from — run ./setup/ctf-setup.sh secrets first" >&2; exit 1; }
     echo "== writing $ENV_FILE from $FROM_ENV"
@@ -229,6 +235,17 @@ echo "== apps: $APP_APP / $SCORER_APP / $SYNC_APP / $SRH_APP"
 # ---------------------------------------------------------------------------
 EVENT_URL="$(env_value EVENT_URL)"
 EXPECTED_URL="https://$APP_APP.fly.dev"
+# A placeholder that was never filled in. It passes the https:// test below,
+# so without this it deploys — and the failure surfaces much later as a
+# redirect_uri mismatch at sign-in, on a BETTER_AUTH_URL nobody can resolve.
+case "$EVENT_URL" in
+  *"<"*|*">"*|*" "*)
+    echo "FAIL: EVENT_URL in $ENV_FILE is '$EVENT_URL' — that still has a placeholder in it." >&2
+    echo "      Set it to your real hostname, normally:" >&2
+    echo "        EVENT_URL=https://$APP_APP.fly.dev" >&2
+    exit 1 ;;
+esac
+
 case "$EVENT_URL" in
   https://*) ;;
   *)

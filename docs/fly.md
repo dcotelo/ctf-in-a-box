@@ -85,6 +85,10 @@ Firecracker microVMs are enough.
    `https://<app>.fly.dev`, generates an `SRH_TOKEN`, runs `fly redis create`,
    and captures the resulting `redis://` URL — all into `.env.fly`, mode `600`.
 
+   It **tops up an existing env file** rather than overwriting it, so a
+   hand-made one just gains what it is missing — and its permissions are
+   tightened to `600` either way, since it holds every secret the event has.
+
    Creating the database is **billable**, so it prints what it is about to
    make and requires a typed `create` first. It never overwrites an existing
    env file and reuses an existing database, so re-running is safe.
