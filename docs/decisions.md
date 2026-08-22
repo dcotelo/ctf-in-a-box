@@ -2296,3 +2296,101 @@ it contributes to no team total. The gap is documented in
 [operations.md](operations.md) rather than papered over; closing it would mean
 the poller dropping or parking scores it cannot attribute, which is a larger
 decision about ingest semantics than this one.
+
+## 48. Per-contestant support actions, and why they refuse some things
+
+**Status.** Accepted.
+
+**Context.** The only destructive control in the panel was the master reset,
+which wipes the whole event. So the answer to "one contestant is wedged, the
+room is waiting" was *do nothing* or *wipe everyone*. Every realistic live
+ticket — wrong GitHub account, typo'd team name, a captain who left the
+building, a "delete my data" request — had no answer an organizer could act on.
+
+**Decision.** A **Support** tab with per-contestant and per-team primitives:
+look up, reset progress, delete contestant, remove from team, transfer
+captaincy, disband team. Admin-gated, audited, type-to-confirm on the
+destructive ones against the specific login or slug rather than a generic word.
+
+**Look up before you act.** Every control stays disabled until a lookup
+returns. The failure this tab has to avoid is not a subtle one — it is
+resetting the wrong person from a half-remembered username under time
+pressure. Showing the score about to be deleted is the guard, and it is also
+why the read exists at all: there was previously no way to inspect a single
+contestant.
+
+**The read is gated as hard as the writes.** `GET` returns one named
+contestant's team, points, attempts and hint spend. That is precisely the read
+a non-admin must never have, so it sits behind the same `requireAdmin`.
+
+**Refusals that keep a team administrable.** A captain cannot be deleted or
+removed while they hold the team. Rename, remove, regenerate and disband are
+all captain-only, so removing the captain leaves a team nobody — including the
+organizer — can act on. Transfer or disband first. Symmetrically, captaincy
+can only transfer to an existing member, so the override cannot conjure a team
+for an outsider.
+
+**Disband deletes nobody's points.** Solves are per login, so a disbanded
+team's players keep what they earned and can regroup. Deleting their work
+because their team was wrong would turn an admin convenience into a scoring
+incident. The join code IS deleted, or the reverse index keeps resolving and
+`/join/<code>` renders a card for a team that no longer exists.
+
+**The admin overrides are atomic, not read-modify-write.** They drop the
+captain guard that `team-store.ts`'s scripts carry, because an organizer acts
+on a team they are not on — but they keep the existence and membership checks
+*inside* the script, in the same step as the write. An admin path that raced
+with a contestant clicking Leave would be the one unguarded path in the team
+surface.
+
+## Secure Development cannot be reset, only deferred
+
+This is the sharp edge, and it is a property of the ingest design rather than
+of this feature.
+
+`scorer/src/store.js` writes solves with **HSETNX**, deliberately, so replays
+are no-ops. The sync poller re-submits from the PR comments it reads. So
+clearing a contestant's `ctf:solves:<target>` fields works right up until that
+contestant's PR is scored again — a push, or a workflow re-run — at which point
+the same solves are written back.
+
+`resetEvent` has the identical problem and solves it globally: it freezes
+scoring and bumps the `resetAt` epoch, which makes sync drop its cursor. There
+is no per-login equivalent, and inventing one means a tombstone the ingest path
+consults on every score — a new trust-relevant branch in the scoring chain, for
+a support convenience.
+
+The options were: skip Secure Development silently, build the tombstone, or
+delete and warn. **Delete and warn.** Skipping silently would leave a third of
+someone's score behind a button that said it reset them. Deleting is correct
+for a data-removal request. And the warning names the operator's actual move —
+close the PR, or freeze scoring first. Quiz and classic have no such issue:
+those writes originate in the app, so a delete is final.
+
+## The aggregates are not keyed alike
+
+Worth recording because it is invisible and it bit during implementation.
+Every per-login counter is a hash keyed by login — except one:
+
+```
+ctf:quiz:points          HINCRBY <login>          per LOGIN
+ctf:quiz:answered        HINCRBY <login>          per LOGIN
+ctf:classic:points       HINCRBY <login>          per LOGIN
+ctf:classic:solved       HINCRBY <login>          per LOGIN
+ctf:classic:solvecount   HINCRBY <challengeId>    per CHALLENGE
+```
+
+`solvecount` answers "how many people solved challenge X". There is no field
+for a login to delete, so `HDEL`ing it by login removes nothing and silently
+leaves every challenge still counting a contestant whose solves are gone — the
+per-challenge stats drift up, permanently, once per reset. It has to be
+decremented once per challenge the contestant had solved, which means reading
+their solve rows *before* deleting them. A test pins the decrements and asserts
+the `HDEL`-by-login never appears.
+
+**Consequences.** `apps/web/src/lib/team-keys.ts` now holds the `ctf:user:*` /
+`ctf:team:*` / `ctf:joincode:*` builders that were module-private in
+`team-store.ts` — which is why `admin-store.ts`'s reset prefixes and
+`profile/page.tsx` had each open-coded the same strings, the latter with a
+comment admitting it. Open-coded keys are how two readers of the same data
+drift apart.
