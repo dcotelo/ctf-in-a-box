@@ -1,7 +1,7 @@
 # Builds the vendored contestant app from local source (context = repo root).
 # EVENT_CONFIG_B64: optional base64-encoded event.yaml baked into the build;
 # empty means the generator falls back to EVENT_* env vars / neutral defaults.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
+FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS build
 RUN corepack enable
 WORKDIR /app
 COPY apps/web/ ./
@@ -14,7 +14,7 @@ RUN if [ -n "$EVENT_CONFIG_B64" ]; then \
     BETTER_AUTH_SECRET=build-time-dummy BETTER_AUTH_URL=http://localhost:3000 \
     EVENT_CONFIG=${EVENT_CONFIG_B64:+/app/event.yaml} pnpm build
 
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019
 RUN corepack enable
 WORKDIR /app
 # --chown, because the next line drops to `node`. Without it /app is

@@ -14,7 +14,7 @@
 #   cp -r /path/to/private-rubric scorer/rubric
 #   docker build -t ghcr.io/<org>/score:latest --build-arg RUBRIC_DIR=rubric scorer/
 # RUBRIC_DIR is resolved relative to the context root (scorer/); keep it inside.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019
 
 # docker-cli: the judge entrypoint drives sibling containers over the mounted
 # docker.sock (boot the app under test, self-attach to the ctf network).
