@@ -35,7 +35,7 @@ the registry still fails the build loudly; the boundary is the
 |---|---|
 | The disposable per-event GitHub **org** and its lifecycle (`setup/ctf-setup.sh`). | The **targets** it forks/provisions per event, and its teardown equivalents (contract §7). |
 | **Auth** (GitHub OAuth sign-in) and the **admins** allowlist. | — (uses the platform's identity). |
-| **Team** registration, roster, join codes, dedupe rollup (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
+| **Team** registration, roster, join codes, the dedupe rollup, and the requirement that a contestant be on a team before anything scores (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
 | The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
 | The **admin panel** runtime overrides (freeze, hints, registration, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
@@ -506,6 +506,43 @@ aggregate counters alone, mirroring `deleteQuestion`. Points already banked
 for a deleted challenge stay on the leaderboard; only the master reset
 clears them.
 
+## Contestant and team state
+
+- **`ctf:user:<login>`** — the contestant's own record: `team` (their current
+  slug), `joinedAt` (when they joined **that** team), and `firstTeamAt` (the
+  first time they were **ever** on a team). The two timestamps have
+  deliberately different lifetimes: `joinedAt` is cleared alongside `team` by
+  every path that clears it — leave, captain-remove, disband, admin override —
+  while `firstTeamAt` is written with `HSETNX` and survives all of them. ADR 49
+  explains why one field could not serve both: reusing `joinedAt` for the
+  engagement funnel would report every team-switcher's conversion at their
+  *latest* join.
+- **`ctf:team:<slug>`** — `name`, `captain`, `createdAt`, `joinCode`; with
+  **`ctf:team:<slug>:members`** (a SET) and **`ctf:joincode:<code>`** (the
+  reverse index that makes `/join/<code>` resolvable, ADR 45's shareable
+  invite).
+- **`ctf:user:<login>:hints`** — a SET of `<app>/<challengeId>` the contestant
+  bought; **`ctf:hints:spent`** — a hash of login → points spent, read by the
+  leaderboard's per-team penalty fold; **`ctf:hints:at:<login>`** — a hash of
+  `<app>/<challengeId>` → ISO purchase time. That last one is a *separate* key
+  rather than a conversion of the SET, because changing a live key's type would
+  fail `WRONGTYPE` on the first purchase after deploying. It sits under
+  `ctf:hints:` so the master reset's existing prefix already sweeps it.
+
+**A team is required to score** (ADR 47). `POST /api/quiz/answer` and
+`POST /api/classic/submit` refuse a teamless login with
+`403 { error: "no-team" }` — after the pre-event gate, before the store call,
+and (on the classic route) before the body is even parsed, so the refusal
+cannot become an oracle for whether a flag was correct. The page-level
+redirect to `/profile#team` is signposting on top of that, not the boundary.
+The check **fails open**: a Redis blip lets the submission through rather than
+dropping a correct answer.
+
+Key builders for all of the above live in `apps/web/src/lib/team-keys.ts` — a
+dependency-free module, the same pattern as `quiz-keys.ts`/`classic-keys.ts`,
+so readers that must not import the `server-only` store can still name the
+keys without open-coding the strings.
+
 ## Organizer admin panel (runtime overrides)
 
 `event.yaml`'s `admins` allowlist (checked case-insensitively against the
@@ -515,13 +552,38 @@ config above — this one *is* readable/writable while the stack is running,
 without a rebuild:
 
 - **`ctf:admin:settings`** (Redis hash, `apps/web/src/lib/admin-store.ts`) —
-  `paused` (two-state: `"1"` or absent — absent means false), `hintsEnabled`,
-  `hintCost`, `hintsMinSolves` and `hintsUnlockAfterMin` (three-state:
-  a value or absent — absent means "no override, use the build-time
-  default"), plus `updatedBy`/`updatedAt` and
-  `resetAt` (the master-reset epoch `sync` honours — see below). Every
-  reader applies **override-else-default** precedence (`s.hintsEnabled ??
-  HINT_DEFAULT_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
+  two-state `paused` (`"1"` or absent, absent meaning false) and
+  `teamRegistrationOpen`, plus a set of **three-state** knobs where a value or
+  its absence means "no override, use the build-time default":
+
+  | field | what it gates |
+  | --- | --- |
+  | `hintsEnabled`, `hintCost` | hints on/off and their price |
+  | `hintsMinSolves`, `hintsUnlockAfterMin` | the anti-burner gate and the time phase |
+  | `quizMaxAttempts`, `quizRetryAfterMin` | the quiz retry gate |
+  | `classicCooldownSec` | seconds between flag submissions on one challenge |
+  | `scoreCooldownMin` | minutes between SCORED runs on one PR (ADR 46) |
+  | `teamMaxMembers` | players per team (ADR 45) |
+  | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
+  | `registrationStartsAt` / `registrationEndsAt` | the team-registration window |
+
+  plus `updatedBy`/`updatedAt` and `resetAt` (the master-reset epoch `sync`
+  honours — see below). Every reader applies **override-else-default**
+  precedence (`s.hintsEnabled ?? HINT_DEFAULT_ENABLED`, `hint-store.ts`'s
+  `resolveHintConfig`), never the reverse.
+
+  **The scheduled windows are enforced at READ time**, not by a scheduler on
+  the box, and the same `outsideWindow` logic is implemented independently in
+  `apps/web/src/lib/admin-store.ts`, `scorer/src/store.js` and
+  `sync/src/redis.js`. Those three must agree; changing one alone silently
+  splits the event's idea of whether it is running.
+
+  **`scoreCooldownMin` is the one setting a fork needs.** The Action enforcing
+  it runs inside a contestant's repository and cannot reach this Redis, so it
+  pulls the value from **`GET /api/public/scoring`** — the kit's only
+  unauthenticated endpoint, deliberately read-only and carrying scoring
+  *policy* only. ADR 46 states the rule and ADR 50 generalises it: the box may
+  publish policy to a fork; a fork may not report facts to the box.
 
   Two field *families* live on the same hash, keyed by module id rather than
   fixed-name, so a third module needs no storage change:
@@ -540,9 +602,57 @@ without a rebuild:
   because a wrong display name is cosmetic where a wrong gate decision awards
   points). Only the module's *name* is runtime: which modules are enabled
   stays build-time `event.yaml` config.
+- **`ctf:admin:admins`** (Redis SET, ADR 44) — logins granted admin at
+  runtime, on top of the ones baked into the image from `event.yaml`. A set
+  rather than a settings field because membership *is* the whole value.
+  **Baked admins are not revocable here**: they are the recovery path if a
+  runtime grant goes wrong, so no sequence of clicks and no compromised admin
+  session can lock everyone out of `/admin`. `requireAdmin` checks the baked
+  list first, without touching Redis, and **fails closed** — an unreachable
+  store denies rather than resolving to an empty list.
+
 - **`ctf:admin:audit`** — a capped list (`AUDIT_CAP` = 500, `LPUSH`+`LTRIM`)
   of every settings change, written atomically with the change itself (one
-  Lua script, so a change can never land without its audit line).
+  Lua script, so a change can never land without its audit line). Support
+  actions (below) append here too, naming both the actor and the target.
+
+### Support operations (ADR 48)
+
+`POST`/`DELETE /api/admin/ops/user` and `/api/admin/ops/team`, behind
+`requireAdmin`, act on **one** contestant or **one** team: look up, reset
+progress, delete, remove from team, transfer captaincy, disband. They exist
+because the master reset was previously the only destructive control, so a
+single stuck contestant mid-event meant choosing between doing nothing and
+wiping the event.
+
+The `GET` is gated as hard as the writes — one named contestant's team,
+points, attempts and hint spend is precisely the read a non-admin must never
+have. The team overrides drop `team-store`'s captain guard (an organizer acts
+on a team they are not on) but keep the existence and membership checks
+*inside* the Lua, so an admin path is not the one that races a contestant
+clicking Leave.
+
+**Secure Development solves can be deleted but not kept deleted.** The scorer
+writes them with `HSETNX` so replays no-op, and the poller re-submits from PR
+comments — so a per-contestant reset clears them and the next re-score writes
+them back. `resetEvent` solves this globally by freezing and bumping `resetAt`;
+there is no per-login equivalent, so the API returns a **warning** instead of
+pretending. Quiz and classic writes originate in the app, so those deletes are
+final.
+
+### Engagement metrics (ADR 50)
+
+`GET /api/admin/metrics` (JSON, or `?format=csv` for the per-challenge table)
+folds the funnel, per-challenge difficulty, solves-over-time, module split and
+hint usage **entirely out of keys the modules already maintain**. There is no
+collection step and no new write path, and nothing is fetched from a fork —
+authenticating a fork means a credential every contestant can read, so
+fork-reported engagement would be forgeable by the contestants it measures.
+
+Admin-only permanently: the aggregates are harmless, but the payload is
+computed from per-contestant rows, so every field added later is one edit away
+from carrying a login. The response ships its own **caveats** array, because a
+metric whose limits travel separately from it gets quoted without them.
 - **`ctf:sync:status`** (Redis hash, written by `sync/src/redis.js`'s
   `writeStatus()` every tick) — `lastPollAt`, `ingested`, `dropped`,
   `lastDrop`, `reposPolled`, `paused`, `lastError`. This is `sync`'s
