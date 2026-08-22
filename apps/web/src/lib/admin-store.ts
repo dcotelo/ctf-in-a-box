@@ -529,10 +529,21 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
  * metrics fold guards against (an item earned before its own first attempt)
  * cannot arise here. Deriving a start time forwards could overshoot the earn
  * time and be silently dropped from the median instead of failing loudly.
+ *
+ * Every row gets a nonzero head start, INCLUDING a one-try row. Deriving
+ * `firstAt` from the gaps between tries alone means a first-try solve has
+ * `firstAt === lastAt`, and the Insights tab duly reported a median
+ * time-to-solve of **0s** — nobody has ever solved anything in zero seconds.
+ * A first try is not the moment the contestant met the challenge; the reading
+ * came first. So the head start is the time spent before the first submission,
+ * and the per-try gaps stack on top of it.
  */
+const DEMO_FIRST_TRY_MINUTES = 3;
+
 function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number): string {
   const lastAtMs = Date.parse(earnedAt);
-  const firstAt = new Date(lastAtMs - (tries - 1) * gapMinutes * 60_000).toISOString();
+  const elapsedMinutes = DEMO_FIRST_TRY_MINUTES + (tries - 1) * gapMinutes;
+  const firstAt = new Date(lastAtMs - elapsedMinutes * 60_000).toISOString();
   return JSON.stringify({ attempts: tries, firstAt, lastAt: earnedAt, lastAtMs });
 }
 
