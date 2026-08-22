@@ -550,7 +550,24 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   for (const t of DEMO_TEAMS) {
     cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);
     if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
-    for (const m of t.members) cmds.push(["HSET", `ctf:user:${m}`, "team", t.slug]);
+    // The membership timestamps too, not just the pointer. Seeding writes the
+    // user hash directly rather than going through createTeam/joinTeam, so it
+    // is the one path that can produce a member with no `joinedAt` and no
+    // `firstTeamAt` — which made the Insights funnel report "ever on a team:
+    // 0" beside "on a team: 6" on exactly the event a new organizer looks at
+    // first (issue #169 / ADR 49).
+    for (const m of t.members) {
+      cmds.push([
+        "HSET",
+        `ctf:user:${m}`,
+        "team",
+        t.slug,
+        "joinedAt",
+        createdAt,
+        "firstTeamAt",
+        createdAt,
+      ]);
+    }
   }
 
   // Quiz demo data — only when the module is enabled, so a disabled quiz

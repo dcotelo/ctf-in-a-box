@@ -410,3 +410,63 @@ describe("hint ordering", () => {
     expect(m.hints.boughtAfterSolving).toBe(0);
   });
 });
+
+// --- solve rate cannot exceed 100% ------------------------------------------
+
+describe("solveRate denominator", () => {
+  it("never reports above 100% when a solve has no attempt row", async () => {
+    // Earned rows can exist without an attempt row: the demo seed writes
+    // answers directly, and so does any data predating the attempt hash.
+    // Dividing by the attempt-row count alone produced 200% and 300% on a
+    // seeded event — nonsense on its face, not a subtle inaccuracy.
+    mockStore({
+      perLogin: {
+        alice: { quizAnswers: { q1: earned(5, "2026-08-22T10:00:00Z") } },
+        bob: { quizAnswers: { q1: earned(5, "2026-08-22T10:01:00Z") } },
+        // Only ONE of the three solvers has an attempt row.
+        carol: {
+          quizAnswers: { q1: earned(5, "2026-08-22T10:02:00Z") },
+          quizAttempts: { q1: attempt(1) },
+        },
+      },
+      quizPoints: { alice: 5, bob: 5, carol: 5 },
+    });
+    const q1 = (await computeEventMetrics()).challenges.find((c) => c.id === "q1");
+    expect(q1?.solves).toBe(3);
+    expect(q1?.solveRate).toBe(1);
+  });
+
+  it("still reports a genuine partial rate", async () => {
+    // Two attempted, one solved — the rate has to stay 50%, so the fix must
+    // not have become "always 100%".
+    mockStore({
+      perLogin: {
+        alice: {
+          quizAnswers: { q1: earned(5, "2026-08-22T10:00:00Z") },
+          quizAttempts: { q1: attempt(1) },
+        },
+        bob: { quizAttempts: { q1: attempt(4) } },
+      },
+      quizPoints: { alice: 5 },
+    });
+    const q1 = (await computeEventMetrics()).challenges.find((c) => c.id === "q1");
+    expect(q1?.solveRate).toBe(0.5);
+  });
+
+  it("keeps every rate within 0..1 across a mixed board", async () => {
+    mockStore({
+      perLogin: {
+        alice: {
+          quizAnswers: { a: earned(1, "2026-08-22T10:00:00Z"), b: earned(1, "2026-08-22T10:00:00Z") },
+          quizAttempts: { b: attempt(2), c: attempt(9) },
+        },
+      },
+      quizPoints: { alice: 2 },
+    });
+    for (const c of (await computeEventMetrics()).challenges) {
+      if (c.solveRate === null) continue;
+      expect(c.solveRate).toBeGreaterThanOrEqual(0);
+      expect(c.solveRate).toBeLessThanOrEqual(1);
+    }
+  });
+});
