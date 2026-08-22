@@ -337,7 +337,11 @@ The panel offers:
   one module. When the `classic` module is enabled, it seeds a demo flag board
   the same way — categories, challenges (flags included), and a spread of
   solves — so a multi-module event previews as one combined board. See
-  [Classic](#classic) below. The button and its route only exist when the app is
+  [Classic](#classic) below. The seed also writes **attempt** rows, including
+  some for items that were tried and never earned, so the
+  **Insights** tab previews a plausible event rather than one where
+  every challenge was solved first try by everyone who looked at it. The
+  button and its route only exist when the app is
   started with `DEMO_MODE=1` (the local `scripts/dev-stack up` sets it); they are
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.

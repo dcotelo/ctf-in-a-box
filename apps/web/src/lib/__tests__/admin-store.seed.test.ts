@@ -270,4 +270,100 @@ describe("seedDemoData", () => {
     const cmds = mocks.upstashPipeline.mock.calls[0][0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:classic:"))).toBe(false);
   });
+
+  // --- attempt rows -----------------------------------------------------
+  //
+  // The seed banks earned rows directly, so it used to produce an event in
+  // which nobody had ever TRIED anything. Insights then reported a 100% solve
+  // rate, "1.0" average tries and a blank median time on every challenge —
+  // numbers that are each individually well-formed and collectively a lie.
+  // These pin the attempt rows that make those figures mean something.
+
+  for (const [module, prefix, earnedPrefix] of [
+    ["quiz", "ctf:quiz:attempts:", "ctf:quiz:answers:"],
+    ["classic", "ctf:classic:attempts:", "ctf:classic:solves:"],
+  ] as const) {
+    it(`records how many tries each seeded ${module} item took`, async () => {
+      await seedDemoData("alice");
+      const cmds = mocks.upstashPipeline.mock.calls[0][0];
+
+      const attemptCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith(prefix));
+      const earnedCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith(earnedPrefix));
+      expect(earnedCmds.length).toBeGreaterThan(0);
+
+      // EVERY earned row has an attempt row for the same (login, id). Without
+      // this the average-tries column silently falls back to 1.0.
+      const attemptKeys = new Set(attemptCmds.map((c) => `${c[1]}|${c[2]}`));
+      for (const c of earnedCmds) {
+        const login = String(c[1]).replace(earnedPrefix, "");
+        expect(attemptKeys.has(`${prefix}${login}|${c[2]}`)).toBe(true);
+      }
+
+      const windowMs = 6 * 60 * 60 * 1000;
+      for (const c of attemptCmds) {
+        const row = JSON.parse(String(c[3]));
+        // The live shape, field for field — a row metrics-store cannot parse
+        // is the same as no row at all, but fails silently instead of loudly.
+        expect(typeof row.attempts).toBe("number");
+        expect(row.attempts).toBeGreaterThanOrEqual(1);
+        expect(row.lastAtMs).toBe(Date.parse(row.lastAt));
+        // firstAt at or before lastAt, and inside the seeded window. The
+        // metrics fold DROPS a duration whose start is after its end, so a
+        // reversed pair here would show up as a blank median, not an error.
+        const firstMs = Date.parse(row.firstAt);
+        expect(firstMs).toBeLessThanOrEqual(row.lastAtMs);
+        expect(Date.now() - firstMs).toBeLessThanOrEqual(windowMs + 60 * 60 * 1000);
+      }
+    });
+  }
+
+  it("leaves some items attempted but never earned, so solve rates are not all 100%", async () => {
+    await seedDemoData("alice");
+    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+
+    // At least one (login, id) pair that has an attempt row and NO earned row.
+    // This is the pair that makes a solve rate fall below 100%: the metrics
+    // denominator counts everyone who tried, so with no failures recorded
+    // every rate pins to exactly 100% no matter how hard the challenge was.
+    const unearned = (attemptPrefix: string, earnedPrefix: string) => {
+      const earned = new Set(
+        cmds
+          .filter((c) => c[0] === "HSET" && String(c[1]).startsWith(earnedPrefix))
+          .map((c) => `${String(c[1]).replace(earnedPrefix, "")}|${c[2]}`),
+      );
+      return cmds
+        .filter((c) => c[0] === "HSET" && String(c[1]).startsWith(attemptPrefix))
+        .filter((c) => !earned.has(`${String(c[1]).replace(attemptPrefix, "")}|${c[2]}`));
+    };
+
+    expect(unearned("ctf:quiz:attempts:", "ctf:quiz:answers:").length).toBeGreaterThan(0);
+    expect(unearned("ctf:classic:attempts:", "ctf:classic:solves:").length).toBeGreaterThan(0);
+  });
+
+  it("takes more than one try on some items, so average tries is not a flat 1.0", async () => {
+    await seedDemoData("alice");
+    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const tries = cmds
+      .filter((c) => c[0] === "HSET" && /^ctf:(quiz|classic):attempts:/.test(String(c[1])))
+      .map((c) => JSON.parse(String(c[3])).attempts as number);
+    expect(tries.some((t) => t > 1)).toBe(true);
+  });
+
+  it("keeps the same attempt rows on a re-seed (absolute HSET, never an increment)", async () => {
+    // The seed is documented as idempotent and the aggregates are written as
+    // absolute totals for that reason. An attempt row written with HINCRBY, or
+    // with a time derived from Date.now() per-run, would break that quietly:
+    // the second seed would double the tries instead of replacing them.
+    await seedDemoData("alice");
+    const first = mocks.upstashPipeline.mock.calls[0][0].filter(
+      (c) => /^ctf:(quiz|classic):attempts:/.test(String(c[1])),
+    );
+    // Non-empty FIRST. Both assertions below are `.every()`, which is
+    // vacuously true over an empty array — without this line the test passed
+    // against a seed that wrote no attempt rows at all, which is precisely the
+    // bug it exists to catch.
+    expect(first.length).toBeGreaterThan(0);
+    expect(first.every((c) => c[0] === "HSET")).toBe(true);
+    expect(first.every((c) => JSON.parse(String(c[3])).attempts >= 1)).toBe(true);
+  });
 });
