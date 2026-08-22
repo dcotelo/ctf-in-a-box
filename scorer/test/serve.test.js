@@ -64,6 +64,29 @@ test("POST /score requires the exact bearer token", async (t) => {
   assert.equal((await post(solve("octocat", "dvwa", ["sqli-low"]))).status, 202);
 });
 
+// The bearer compare is constant-time (issue #48). `timingSafeEqual` throws on
+// a length mismatch, so the naive port of this check turns a wrong-length token
+// into an uncaught throw — a 500, or a dead socket, where a 401 belongs. These
+// pin the shapes that differ in LENGTH from the real token, which a plain
+// `!==` handled for free and the hardened version has to handle on purpose.
+test("a wrong-length bearer is rejected, not thrown on", async (t) => {
+  const { post } = await boot(t);
+  const body = solve("octocat", "dvwa", ["sqli-low"]);
+  for (const auth of [
+    "Bearer ", // empty token
+    "Bearer s3", // a prefix of the real token
+    `Bearer ${TOKEN}x`, // the real token plus a byte
+    `Bearer ${TOKEN.repeat(50)}`, // far longer than the real token
+    TOKEN, // no "Bearer " prefix at all
+    "Basic s3cret", // right value, wrong scheme
+    "", // present but empty
+  ]) {
+    assert.equal((await post(body, auth)).status, 401, `expected 401 for ${JSON.stringify(auth)}`);
+  }
+  // and the handler is still alive and still accepts the real thing
+  assert.equal((await post(body)).status, 202);
+});
+
 test("POST validation: 400 on bad author, bad target, bad solved, broken JSON", async (t) => {
   const { post } = await boot(t);
   assert.equal((await post(solve("a:b", "dvwa", []))).status, 400); // key-injection grammar

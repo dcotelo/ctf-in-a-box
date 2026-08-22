@@ -124,7 +124,10 @@ state; everything else that touches scores goes through it.
 3. The Action reports the result one of two ways, depending on
    `SCORE_INGEST`:
    - **push**: POSTs the score directly to `${scorerUrl}/score` (through
-     `caddy`'s `/score` route) with a bearer token.
+     `caddy`'s `/score` route) with a bearer token. The scorer compares that
+     token in constant time — both sides are SHA-256'd and passed to
+     `timingSafeEqual`, so neither the token's bytes nor its length are
+     recoverable from how long a rejection takes.
    - **poll** (default): posts a PR comment authored as
      `github-actions[bot]` containing a machine-readable marker,
      `<!-- ctf-score: {...} -->` (`sync/src/parse.js`'s `MARKER`).
