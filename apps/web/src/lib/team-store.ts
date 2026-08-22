@@ -211,6 +211,60 @@ async function getUserTeamSlug(login: string): Promise<string | null> {
   return typeof current.result === "string" && current.result ? current.result : null;
 }
 
+/**
+ * Is this login on a team? The gate every scoring path asks before banking
+ * points (issue #153).
+ *
+ * Scoring is per TEAM: the leaderboard's per-team total is the union of its
+ * members' earned items (`foldTeamTotals`), so points banked by a login that
+ * belongs to no team are folded into nothing. A teamless contestant is playing
+ * a scoreboard they do not appear on and finds out only when they check.
+ * Refusing the submission is the honest answer.
+ *
+ * Two deliberate exemptions:
+ *
+ * MOCK MODE returns true. With `TEAM_WRITES_ENABLED` unset there is no team
+ * system to be on the wrong side of — `getViewerTeam` falls back to a
+ * per-browser cookie — so enforcing here would lock every demo and every
+ * local dev-stack out of scoring to protect an invariant that build cannot
+ * hold anyway.
+ *
+ * FAILS OPEN. An unreachable store answers "on a team". This is the same call
+ * `effectivePaused` and `resolveTeamMaxMembers` make, for the same reason: a
+ * Redis blip must never drop a live submission. Being briefly wrong about
+ * membership costs one unattributed score; failing closed costs every
+ * contestant every point they earn during the outage. The opposite choice
+ * belongs to `requireAdmin`, where granting access wrongly is the worse error.
+ */
+export async function hasTeam(login: string): Promise<boolean> {
+  if (!TEAM_WRITES_ENABLED) return true;
+  try {
+    return (await getUserTeamSlug(login)) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/** The team-name collision verdict, shared by `createTeam` and
+ *  `createSoloTeam` so the retry path recognises it without matching on a
+ *  user-facing error string. */
+const NAME_TAKEN = "name-taken";
+
+/** One create attempt: the registration window and every validity rule are
+ *  the caller's business, this is the write. Returns the script's raw verdict
+ *  so `createSoloTeam` can tell a collision (retryable) from a refusal (not).
+ */
+async function attemptCreate(login: string, name: string, slug: string): Promise<string> {
+  const createdAt = new Date().toISOString();
+  const joinCode = await generateUniqueJoinCode();
+  const verdict = await upstashEval(
+    CREATE_SCRIPT,
+    [userKey(login), teamKey(slug), membersKey(slug), joinCodeKey(joinCode)],
+    [login, name, slug, createdAt, joinCode],
+  );
+  return typeof verdict === "string" ? verdict : "";
+}
+
 export async function createTeam(login: string, name: string): Promise<TeamActionResult> {
   const trimmed = name.trim();
   const slug = slugify(trimmed);
@@ -220,17 +274,62 @@ export async function createTeam(login: string, name: string): Promise<TeamActio
   }
   if (!TEAM_WRITES_ENABLED) return setMockTeam(slug);
   if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
-  const createdAt = new Date().toISOString();
-  const joinCode = await generateUniqueJoinCode();
 
-  const verdict = await upstashEval(
-    CREATE_SCRIPT,
-    [userKey(login), teamKey(slug), membersKey(slug), joinCodeKey(joinCode)],
-    [login, trimmed, slug, createdAt, joinCode],
-  );
+  const verdict = await attemptCreate(login, trimmed, slug);
   if (verdict === "already-on-team") return { ok: false, error: "Leave your current team before creating one" };
-  if (verdict === "name-taken") return { ok: false, error: `Team "${slug}" already exists. Join it instead` };
+  if (verdict === NAME_TAKEN) return { ok: false, error: `Team "${slug}" already exists. Join it instead` };
   return { ok: true, team: slug };
+}
+
+/** How many names `createSoloTeam` tries before giving up and asking the
+ *  contestant for one. Collisions are rare (the first candidate is their own
+ *  GitHub login, which is unique among logins), so this only has to survive
+ *  someone having taken that name as a team name first. */
+const SOLO_NAME_MAX_ATTEMPTS = 4;
+
+/**
+ * Creates a team of one, named after the contestant, in a single click
+ * (issue #153).
+ *
+ * Every contestant must be on a team to be scored, and the docs have always
+ * said a solo player is simply a team of one. Without this, "play alone" means
+ * inventing a team name first — a naming decision imposed on someone who
+ * explicitly does not want a team. The button removes it.
+ *
+ * The login is only the FIRST candidate, not a guarantee: team names live in
+ * their own namespace, so nothing stops another contestant from having already
+ * created a team called "octocat". A collision falls back to a suffixed name
+ * rather than an error, because the whole promise of this path is that it
+ * takes one click.
+ */
+export async function createSoloTeam(login: string): Promise<TeamActionResult> {
+  const base = slugify(login);
+  if (!base) return { ok: false, error: "Team name is required" };
+  if (!TEAM_WRITES_ENABLED) return setMockTeam(base);
+  if (await isRegistrationClosed()) return { ok: false, error: REGISTRATION_CLOSED_ERROR };
+
+  // A GitHub login runs to 39 characters and a team name stops at 32, so the
+  // login is NOT automatically a legal team name — clamped here, leaving room
+  // for the collision suffix, or this path would mint names `renameTeam` would
+  // then refuse to accept.
+  const clamped = base.slice(0, NAME_MAX_LENGTH - 4).replace(/-+$/, "");
+  if (!clamped) return { ok: false, error: "Team name is required" };
+
+  for (let attempt = 0; attempt < SOLO_NAME_MAX_ATTEMPTS; attempt++) {
+    // The suffix uses the join-code alphabet: unambiguous characters, and a
+    // team name a contestant may have to read aloud to a teammate later if
+    // they stop playing solo.
+    const slug = attempt === 0 ? clamped : `${clamped}-${generateJoinCodeCandidate().slice(0, 3)}`;
+    const verdict = await attemptCreate(login, slug, slug);
+    if (verdict === NAME_TAKEN) continue;
+    if (verdict === "already-on-team") {
+      return { ok: false, error: "Leave your current team before creating one" };
+    }
+    return { ok: true, team: slug };
+  }
+  // Four collisions in a row is not a transient condition worth retrying at
+  // them silently — hand it back so they can pick a name themselves.
+  return { ok: false, error: "Couldn't create a team for you. Pick a team name instead" };
 }
 
 /** Joins a team by its captain-shared join code (not the slug). In mock mode

@@ -275,14 +275,20 @@ export default async function ProfilePage() {
         </div>
       </div>
 
-      <TeamCard
-        team={team}
-        writesEnabled={TEAM_WRITES_ENABLED}
-        maxMembers={maxMembers}
-        isCaptain={isCaptain}
-        captain={teamMeta.captain}
-        joinCode={teamMeta.joinCode}
-      />
+      {/* `#team` is the target `redirectIfTeamless` sends a teamless
+          contestant to (lib/require-team.ts). Without it they land at the top
+          of a page of stats with no indication of why they were moved.
+          `scroll-mt-*` keeps the card clear of the sticky header. */}
+      <div id="team" className="scroll-mt-24">
+        <TeamCard
+          team={team}
+          writesEnabled={TEAM_WRITES_ENABLED}
+          maxMembers={maxMembers}
+          isCaptain={isCaptain}
+          captain={teamMeta.captain}
+          joinCode={teamMeta.joinCode}
+        />
+      </div>
 
       {/* Each enabled module's own contribution — driven off `moduleBlocks`
           (`resolvedModules` filtered to the ones with progress to show), NOT

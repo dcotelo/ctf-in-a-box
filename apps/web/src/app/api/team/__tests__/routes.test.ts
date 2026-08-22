@@ -7,11 +7,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  getSession, joinTeam, removeMember, renameTeam, transferCaptain, disbandTeam, regenerateCode, consumeRateLimit,
+  getSession, joinTeam, createSoloTeam, removeMember, renameTeam, transferCaptain, disbandTeam, regenerateCode,
+  consumeRateLimit,
 } = vi.hoisted(
   () => ({
     getSession: vi.fn(),
     joinTeam: vi.fn(),
+    createSoloTeam: vi.fn(),
     removeMember: vi.fn(),
     renameTeam: vi.fn(),
     transferCaptain: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/team-store", () => ({
   joinTeam,
+  createSoloTeam,
   removeMember,
   renameTeam,
   transferCaptain,
@@ -45,6 +48,7 @@ import { POST as renamePOST } from "@/app/api/team/rename/route";
 import { POST as transferPOST } from "@/app/api/team/transfer/route";
 import { POST as disbandPOST } from "@/app/api/team/disband/route";
 import { POST as regenPOST } from "@/app/api/team/regen-code/route";
+import { POST as soloPOST } from "@/app/api/team/solo/route";
 
 const req = (body?: unknown) => new Request("http://x/api/team/x", { method: "POST", body: JSON.stringify(body ?? {}) });
 
@@ -53,6 +57,7 @@ const SESSION = { user: { login: "alice" } };
 beforeEach(() => {
   getSession.mockReset();
   joinTeam.mockReset();
+  createSoloTeam.mockReset();
   removeMember.mockReset();
   renameTeam.mockReset();
   transferCaptain.mockReset();
@@ -243,5 +248,49 @@ describe("POST /api/team/regen-code", () => {
     const res = await regenPOST(req({ slug: "s" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ team: "s", code: "newcod" });
+  });
+});
+
+// --- one-click solo team (issue #153) ----------------------------------------
+//
+// A team is now required before anything scores, and a solo player is a team
+// of one. The NAME is derived server-side from the session, so this route has
+// no inputs at all — which is what keeps it from being a way to mint a team
+// named after somebody else.
+
+describe("POST /api/team/solo", () => {
+  it("401s an unauthenticated request without touching the store", async () => {
+    getSession.mockResolvedValue(null);
+    const res = await soloPOST(req());
+    expect(res.status).toBe(401);
+    expect(createSoloTeam).not.toHaveBeenCalled();
+  });
+
+  it("400s a session with no GitHub login, without touching the store", async () => {
+    getSession.mockResolvedValue({ user: {} });
+    const res = await soloPOST(req());
+    expect(res.status).toBe(400);
+    expect(createSoloTeam).not.toHaveBeenCalled();
+  });
+
+  it("names the team from the SESSION, ignoring anything in the body", async () => {
+    createSoloTeam.mockResolvedValue({ ok: true, team: "alice" });
+    await soloPOST(req({ login: "mallory", name: "mallorys-team" }));
+    expect(createSoloTeam).toHaveBeenCalledWith("alice");
+    expect(createSoloTeam).toHaveBeenCalledTimes(1);
+  });
+
+  it("works with no body at all — there is nothing to send", async () => {
+    createSoloTeam.mockResolvedValue({ ok: true, team: "alice" });
+    const res = await soloPOST(new Request("http://x/api/team/solo", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ team: "alice" });
+  });
+
+  it("400s with the store's own message when it refuses", async () => {
+    createSoloTeam.mockResolvedValue({ ok: false, error: "Registration is closed" });
+    const res = await soloPOST(req());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Registration is closed" });
   });
 });

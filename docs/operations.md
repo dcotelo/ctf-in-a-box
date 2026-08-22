@@ -34,9 +34,29 @@ push mode).
 
 ## Teams
 
-Scoring is per team. Contestants self-register in the app: create a team to
-become its captain and get a join code, or join an existing team by code.
-Everyone ends up on a team — a solo player is simply a team of one. Captains
+Scoring is per team, and **a team is required** — nothing a contestant solves
+counts until they are on one. Contestants self-register in the app: create a
+team to become its captain and get a join code, join an existing team by code,
+or hit **Play solo** for a one-click team of one named after their GitHub
+login. Everyone ends up on a team — a solo player is simply a team of one.
+
+The requirement is enforced in two places. The quiz and flag submission routes
+refuse a teamless login outright, which is the boundary that actually holds; on
+top of that, a signed-in contestant with no team who opens `/quiz` or `/flags`
+is sent to their profile's team card first, so nobody discovers the rule by
+answering a question and watching it not count. Organizers are exempt from the
+redirect — they open module pages to check that their content renders, which is
+not playing — but not from the submission check, since an organizer's points
+would fold into no team either.
+
+> **Secure Development is the exception.** Its points arrive from GitHub
+> through the sync poller rather than through an app route, so there is no
+> submission for the box to refuse. A contestant who patches a fork while on no
+> team still has their score ingested against a login that belongs to no team,
+> and it contributes to no team total. Point contestants at the team card
+> before the event starts.
+
+Captains
 manage the roster from the app: rename the team, remove a member, transfer the
 captaincy, regenerate the join code, or disband. The join code doubles as a
 shareable link — **Copy invite link** on the team card yields

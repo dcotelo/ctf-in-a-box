@@ -252,7 +252,13 @@ export default function TeamCard({
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-3">
-          <p className="text-sm text-zinc-400">Create or join a team to compete.</p>
+          {/* Not "create or join a team to compete" any more: a team is now
+              required before anything scores (issue #153), and the copy has to
+              say so or a contestant reads this as an optional extra and
+              wonders later why nothing counted. */}
+          <p className="text-sm text-zinc-400">
+            You need a team before anything you solve counts. Join one, create one, or play solo.
+          </p>
 
           <div className="flex flex-col gap-1">
             <label htmlFor="team-join-code" className="text-[10px] uppercase tracking-wide text-muted">
@@ -298,6 +304,24 @@ export default function TeamCard({
                 Create
               </button>
             </div>
+          </div>
+
+          {/* A solo player is a team of one — the kit has always said so, and
+              now that a team is mandatory, saying it is not enough: without
+              this the cheapest way to play alone is to invent a team name,
+              which is a naming decision imposed on the one person who has
+              explicitly opted out of having teammates. The server derives the
+              name from their login; there is nothing to type. */}
+          <div className="flex flex-col gap-1 border-t border-white/[0.06] pt-3">
+            <p className="text-xs text-muted">Playing on your own?</p>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => postTeam("/solo"))}
+              className="w-fit rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+            >
+              Play solo
+            </button>
           </div>
         </div>
       )}

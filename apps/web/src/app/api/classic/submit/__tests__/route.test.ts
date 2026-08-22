@@ -10,10 +10,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { vi } from "vitest";
 
-const { getSession, submitFlag, requireGatePassed, CLASSIC_ID_RE } = vi.hoisted(() => ({
+const { getSession, submitFlag, requireGatePassed, hasTeam, CLASSIC_ID_RE } = vi.hoisted(() => ({
   getSession: vi.fn(),
   submitFlag: vi.fn(),
   requireGatePassed: vi.fn(),
+  hasTeam: vi.fn(),
   CLASSIC_ID_RE: /^[\w-]{1,64}$/,
 }));
 
@@ -21,6 +22,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/classic-store", () => ({ submitFlag, CLASSIC_ID_RE }));
+vi.mock("@/lib/team-store", () => ({ hasTeam }));
 
 import { POST } from "@/app/api/classic/submit/route";
 
@@ -45,8 +47,10 @@ beforeEach(() => {
   getSession.mockReset();
   submitFlag.mockReset();
   requireGatePassed.mockReset();
+  hasTeam.mockReset();
   getSession.mockResolvedValue(SESSION);
   requireGatePassed.mockResolvedValue(true);
+  hasTeam.mockResolvedValue(true);
 });
 
 describe("POST /api/classic/submit", () => {
@@ -84,6 +88,45 @@ describe("POST /api/classic/submit", () => {
     const res = await POST(req({ challengeId: "c-1", flag: "CTF{x}" }));
     expect(res.status).toBe(200);
     expect(submitFlag).toHaveBeenCalledWith("alice", "c-1", "CTF{x}");
+  });
+
+  // --- the team requirement (issue #153) ------------------------------------
+  //
+  // Scoring is per team: a teamless login's banked points fold into no team
+  // total, so a solve that "counts" for nobody is worse than a refusal.
+
+  it("403s with { error: \"no-team\" } for a teamless login, without touching the store", async () => {
+    hasTeam.mockResolvedValue(false);
+    const res = await POST(req({ challengeId: "c-1", flag: "CTF{x}" }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "no-team" });
+    expect(submitFlag).not.toHaveBeenCalled();
+  });
+
+  it("refuses a teamless caller IDENTICALLY for a right and a wrong flag", async () => {
+    // The refusal lands before the body is even parsed, so it cannot become an
+    // oracle: a teamless caller must not be able to tell a correct flag from a
+    // wrong one by the shape of the rejection.
+    hasTeam.mockResolvedValue(false);
+    const right = await POST(req({ challengeId: "c-1", flag: "CTF{correct}" }));
+    const wrong = await POST(req({ challengeId: "c-1", flag: "nope" }));
+    expect(right.status).toBe(wrong.status);
+    expect(await right.json()).toEqual(await wrong.json());
+  });
+
+  it("asks about the SESSION's login, never a body-supplied one", async () => {
+    hasTeam.mockResolvedValue(false);
+    session("alice");
+    await POST(req({ challengeId: "c-1", flag: "x", login: "mallory" }));
+    expect(hasTeam).toHaveBeenCalledWith("alice");
+  });
+
+  it("checks the gate BEFORE the team, so a pre-event caller is told that first", async () => {
+    requireGatePassed.mockResolvedValue(false);
+    hasTeam.mockResolvedValue(false);
+    const res = await POST(req({ challengeId: "c-1", flag: "x" }));
+    expect(await res.json()).toEqual({ error: "gate" });
+    expect(hasTeam).not.toHaveBeenCalled();
   });
 
   it("derives login from the session and IGNORES any login in the body", async () => {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireGatePassed } from "@/lib/gate-request";
 import { answerQuestion, QUIZ_ID_RE } from "@/lib/quiz-store";
+import { hasTeam } from "@/lib/team-store";
 
 /** Validating against `quiz-store`'s own exported `QUIZ_ID_RE` (rather than
  *  a local copy) rejects a malformed request here, before it ever reaches
@@ -53,6 +54,16 @@ export async function POST(request: Request) {
 
   if (!(await requireGatePassed())) {
     return NextResponse.json({ error: "gate" }, { status: 403 });
+  }
+
+  // Scoring is per team, and a teamless login's banked points fold into no
+  // team total (issue #153). Refused here, AFTER the gate (a pre-event lockout
+  // is the more fundamental "not yet") and BEFORE `answerQuestion`, so the
+  // refusal can never follow a write that already happened — the same ordering
+  // rule the gate check above follows. `hasTeam` fails OPEN, so a Redis blip
+  // lets the answer through rather than dropping it.
+  if (!(await hasTeam(login))) {
+    return NextResponse.json({ error: "no-team" }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));

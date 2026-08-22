@@ -13,15 +13,27 @@ vi.mock("next/navigation", () => ({
 import TeamCard from "@/components/team-card";
 
 describe("TeamCard", () => {
-  it("shows a create-or-join prompt with both forms when the viewer has no team", () => {
+  it("offers all three ways onto a team when the viewer has none", () => {
     const html = renderToStaticMarkup(
       <TeamCard team={null} writesEnabled maxMembers={4} isCaptain={false} captain={null} joinCode={null} />,
     );
-    expect(html).toMatch(/create or join a team to compete/i);
     // Join-by-code field, labeled as a code (not a slug).
     expect(html).toMatch(/join code/i);
     // Create field.
     expect(html).toMatch(/team name/i);
+    // One-click team of one (issue #153) — without it the cheapest way to play
+    // alone is to invent a team name.
+    expect(html).toMatch(/play solo/i);
+  });
+
+  it("says a team is REQUIRED, not merely available", () => {
+    // A team is now mandatory before anything scores. Copy that reads as an
+    // optional extra leaves a contestant wondering later why nothing counted.
+    const html = renderToStaticMarkup(
+      <TeamCard team={null} writesEnabled maxMembers={4} isCaptain={false} captain={null} joinCode={null} />,
+    );
+    expect(html).toMatch(/need a team/i);
+    expect(html).not.toMatch(/create or join a team to compete/i);
   });
 
   it("shows Leave for a non-captain member and hides captain controls", () => {
