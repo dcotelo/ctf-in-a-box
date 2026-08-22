@@ -52,3 +52,35 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+
+  # Base images are digest-pinned (issue #49), which is what makes a build
+  # reproducible and a swapped image detectable. It also means a pin is frozen
+  # until something moves it: a floating `node:22-alpine` silently picks up the
+  # next 22.x patch, a pinned one never does. These entries are the half of the
+  # trade that keeps a pin from quietly becoming a stale base — without them,
+  # digest-pinning trades a supply-chain risk for an unpatched-CVE one.
+  - package-ecosystem: "docker"
+    directories:
+      - "/sync"
+      - "/scorer"
+      - "/apps/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # All three Dockerfiles run the SAME node base. Ungrouped, a bump opens
+      # three PRs that must all land or the images drift apart — one service
+      # on a different 22.x than the other two is a difference nobody chose.
+      node-base:
+        patterns:
+          - "node"
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"

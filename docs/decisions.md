@@ -2543,3 +2543,48 @@ export of chosen aggregates, never this endpoint with its guard removed.
 **Cost.** O(contestants) in batched round trips, on demand, uncached, with a
 2000-contestant ceiling that reports itself in `caveats` when it truncates —
 a silently truncated metric reads as a complete one.
+
+## 51. Base images are digest-pinned, and dependabot is what keeps the pin honest
+
+**Context.** The Dockerfiles and compose services named their bases by mutable
+tag — `node:22-alpine`, `redis:7-alpine`, `caddy:2-alpine`. A tag is a pointer
+the publisher can move, so two builds of the same commit could sit on different
+underlying images and neither would say so. The third-party SRH image was
+digest-pinned in v0.1.0; this finishes the job for the first-party ones
+([#49](https://github.com/dcotelo/ctf-in-a-box/issues/49)).
+
+**Decision.** Every base carries `tag@sha256:<digest>`. The tag stays in front
+of the digest: it is inert to the resolver, and it is the only thing that tells
+a reader which image they are looking at.
+
+The digests are **OCI image-index** digests, not per-architecture manifest
+digests. An index digest resolves to the right image on whatever platform the
+build runs on; pinning the arm64 manifest from a developer's Mac would produce
+a compose file that cannot run the amd64 box it deploys to, and would fail at
+pull time on the event host rather than here.
+
+**The trade this makes, and the half that is easy to skip.** A pin freezes the
+base until something moves it. A floating `node:22-alpine` silently picks up
+the next 22.x patch, security fixes included; a pinned one never does. Pinning
+without an update path does not remove risk, it swaps a supply-chain risk for
+an unpatched-CVE one — and the second is quieter, because nothing about a stale
+digest looks wrong.
+
+So the pin ships **with** `docker` and `docker-compose` dependabot ecosystems,
+which is what turns a frozen digest back into a reviewed one. The three
+Dockerfiles share a node base and are grouped into a single PR: ungrouped, one
+bump opens three, and landing some of them leaves the services on different
+22.x patches — a difference nobody chose and nothing reports.
+
+**Consequences.** Builds are reproducible and a swapped base is detectable.
+Bumping a base is now a reviewed commit rather than a side effect of whenever
+the layer cache last missed. This is the same reasoning ADR 37 reached from the
+other direction: there, floating `actions/checkout@v4` delivered a security
+guard the kit had not asked for and broke scoring loudly. Pinning trades a loud
+break for a silent divergence — acceptable only because dependabot makes the
+divergence visible on a weekly schedule.
+
+**Not pinned:** the throwaway containers in `scripts/acceptance-*.sh`. They are
+test scaffolding that exists for the length of one run and ships to nobody, and
+pinning them would add three more digests to maintain for no tamper-evidence
+anyone benefits from.
