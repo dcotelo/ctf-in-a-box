@@ -8,7 +8,7 @@ title: CTF-in-a-box
 university, a high school, an OWASP chapter, a meetup, from one box and one
 free GitHub org.
 
-![Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category](assets/demo.gif)
+![Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's points at that instant, then expanding the leading team to its members and its per-target flags, each marked patched or open and linked to its OWASP category](assets/demo.gif)
 
 <sup>The real contestant app, recorded from <code>scripts/dev-stack up</code> with
 seeded demo players. Hover the graph to read every team's score at that moment;
@@ -80,7 +80,7 @@ scoring code to write.
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![The challenge browser: one card per vulnerable app with its challenge count, points range and repo, searchable by challenge, app or OWASP code](assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The board ranks <strong>teams</strong> by default (above) and

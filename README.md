@@ -57,7 +57,7 @@ chapter leads, workshop facilitators, security teams running an internal
 training day.
 
 <p align="center">
-  <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
+  <img alt="Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's points at that instant, then expanding the leading team to its members and its per-target flags, each marked patched or open and linked to its OWASP category" src="docs/assets/demo.gif" width="820">
 </p>
 
 ## Quickstart
@@ -133,7 +133,7 @@ for a single-shot AWS deploy — `terraform apply` up, `terraform destroy` down.
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](docs/assets/hero.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
+| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](docs/assets/hero.jpg) | ![The challenge browser: one card per vulnerable app with its challenge count, points range and repo, searchable by challenge, app or OWASP code](docs/assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The app ships a fixed dark theme. The board ranks
