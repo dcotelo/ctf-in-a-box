@@ -63,8 +63,8 @@ for t in $WANT; do
   # Declare ESM. Every vendored test file uses `import` in a plain `.js` file, and
   # in the built image the rubric lands at /rubric with NO parent package.json — so
   # the children today parse only because Node >= 22.7 detects module syntax by
-  # itself. If the floating `node:22-alpine` base ever resolved to an earlier 22.x
-  # (or an organizer built with a pinned older Node), every child would die with a
+  # itself. If the `node:22-alpine` base were ever repinned to an earlier 22.x
+  # (or an organizer built with an older Node), every child would die with a
   # SyntaxError before reporting, and that reads as a clean 0 / N which the
   # stock-scores-zero gate would happily pass. Generated here, never hand-written:
   # these trees are clobbered on the next vendor run. Upstream's own package.json
