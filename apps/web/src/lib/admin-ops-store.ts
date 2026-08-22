@@ -7,6 +7,7 @@ import {
   joinCodeKey,
   membersKey,
   teamKey,
+  userHintTimesKey,
   userHintsKey,
   userKey,
 } from "@/lib/team-keys";
@@ -302,6 +303,7 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
     ["HDEL", CLASSIC_POINTS_KEY, login],
     ["HDEL", CLASSIC_SOLVED_KEY, login],
     ["DEL", userHintsKey(login)],
+    ["DEL", userHintTimesKey(login)],
     ["HDEL", HINTS_SPENT_KEY, login],
     ...solvedIds.map((id) => ["HINCRBY", CLASSIC_SOLVECOUNT_KEY, id, -1]),
   ]);
@@ -315,7 +317,7 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
     classicAttempts: n(5),
     classicAggregates: n(6) + n(7),
     classicSolveCountsDecremented: solvedIds.length,
-    hints: n(8) + n(9),
+    hints: n(8) + n(9) + n(10),
     secureDevSolves: secureDev,
   };
 

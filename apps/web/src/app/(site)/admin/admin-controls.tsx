@@ -35,6 +35,7 @@ import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAdminsTab from "./admin-admins-tab";
+import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
@@ -58,6 +59,10 @@ const ADMINS_TAB = "admins";
 // tabs: it is control-plane, not module-specific, and an organizer reaching
 // for it is mid-incident rather than mid-configuration.
 const SUPPORT_TAB = "support";
+// Engagement metrics (issue #169). Control-plane like Event/Admins/Support,
+// and last of the four because it is read-only — an organizer reaches for it
+// after the event more often than during it.
+const INSIGHTS_TAB = "insights";
 
 async function postSettings(patch: Record<string, unknown>): Promise<{ settings?: AdminSettings; error?: string }> {
   const res = await fetch("/api/admin/settings", {
@@ -153,6 +158,7 @@ export default function AdminControls({
     { id: EVENT_TAB, label: "Event" },
     { id: ADMINS_TAB, label: "Admins" },
     { id: SUPPORT_TAB, label: "Support" },
+    { id: INSIGHTS_TAB, label: "Insights" },
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
   const [active, setActive] = useState<string>(
@@ -337,6 +343,8 @@ export default function AdminControls({
             <AdminAdminsTab viewerLogin={viewerLogin} />
           ) : tab.id === SUPPORT_TAB ? (
             <AdminSupportTab setConfirm={setConfirm} />
+          ) : tab.id === INSIGHTS_TAB ? (
+            <AdminInsightsTab />
           ) : (
             <section className="flex flex-col gap-4">
               <AdminModuleIdentity

@@ -52,7 +52,9 @@ import {
  *                                 solves. Points are captured at solve time,
  *                                 so a later re-pricing of a challenge never
  *                                 rewrites history.
- *   ctf:classic:attempts:<login> hash, id -> JSON {attempts, lastAt, lastAtMs}
+ *   ctf:classic:attempts:<login> hash, id -> JSON {attempts, firstAt, lastAt, lastAtMs}
+ *        firstAt is the FIRST submission's time and is carried forward across
+ *        rewrites; absent on rows written before it existed (issue #169).
  *                                 — every submission, right or wrong; the
  *                                 cooldown reads this. `lastAtMs` (a plain
  *                                 epoch-ms mirror of `lastAt`) exists only so
@@ -797,11 +799,17 @@ local nowMs = tonumber(ARGV[6])
 local attemptsRaw = redis.call('HGET', KEYS[1], ARGV[1])
 local attempts = 0
 local lastAtMs = nil
+local firstAt = nil
 if attemptsRaw then
   local foundAttempts = string.match(attemptsRaw, '"attempts":(%d+)[,}]')
   if foundAttempts then attempts = tonumber(foundAttempts) end
   local foundLastAtMs = string.match(attemptsRaw, '"lastAtMs":(%d+)[,}]')
   if foundLastAtMs then lastAtMs = tonumber(foundLastAtMs) end
+  -- Carried forward, never recomputed: this row is REWRITTEN on every
+  -- submission, so the first attempt's time survives only by being read back
+  -- out of the row it is being replaced by. Absent on rows written before
+  -- this field existed, which is why the write below falls back to now.
+  firstAt = string.match(attemptsRaw, '"firstAt":"([^"]*)"')
 end
 
 if cooldownMs > 0 and lastAtMs and nowMs < (lastAtMs + cooldownMs) then
@@ -809,7 +817,8 @@ if cooldownMs > 0 and lastAtMs and nowMs < (lastAtMs + cooldownMs) then
 end
 
 attempts = attempts + 1
-redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[6] .. '}')
+if not firstAt then firstAt = ARGV[3] end
+redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"firstAt":"' .. firstAt .. '","lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[6] .. '}')
 
 if target ~= ARGV[2] then
   return {'incorrect', tostring(attempts)}

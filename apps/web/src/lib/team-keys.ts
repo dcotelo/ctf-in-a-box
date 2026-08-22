@@ -31,3 +31,13 @@ export const userHintsKey = (login: string) => `ctf:user:${login}:hints`;
 /** Hash of login -> points spent on hints, read by the leaderboard's
  *  per-team penalty fold. */
 export const HINTS_SPENT_KEY = "ctf:hints:spent";
+
+/** When each hint was bought: hash, `<app>/<id>` -> ISO (issue #169).
+ *
+ *  A SEPARATE key rather than converting `ctf:user:<login>:hints` from a SET
+ *  to a hash — that would be a type change on a key live events already hold,
+ *  so the first SADD after deploying would fail WRONGTYPE mid-event.
+ *
+ *  Under `ctf:hints:` deliberately, so the master reset's `ctf:hints:*` prefix
+ *  already sweeps it and it cannot become the key a reset leaves behind. */
+export const userHintTimesKey = (login: string) => `ctf:hints:at:${login}`;

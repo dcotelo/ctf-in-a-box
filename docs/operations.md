@@ -86,7 +86,7 @@ needs a rebuild. Everyone else is granted from the panel itself, on the
 
 The controls are grouped into **tabs**: an **Event** tab for the settings that
 belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), an **Admins** tab, a **Support** tab, then **one tab per enabled module**, labelled with that
+seed, master reset), an **Admins** tab, a **Support** tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all. The
 tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
@@ -224,6 +224,49 @@ The panel offers:
   flag solved by two teammates counts **once**, but a hint bought by two
   teammates is charged **twice** — hints are individually purchased, so
   redundant buying is the team's own coordination cost.
+
+- **Insights** (its own tab) — engagement metrics for the event, computed
+  **entirely from data the box already stores**. Nothing is collected from
+  contestants' forks, and no new tracking was added: quiz answers and classic
+  solves already carry a timestamp per item per login, Secure Development
+  solves are timestamped as they are ingested, attempts are counted per login,
+  and `firstTeamAt` supplies the funnel's conversion moment.
+
+  It is loaded on demand rather than on arrival — the fold is O(contestants),
+  so the button doubles as the refresh. You get:
+
+  - **Participation** — on a team / ever on a team / submitted / scored /
+    **stuck** (submitted and never scored). The gap between the last two is the
+    number worth watching during an event.
+  - **Solves over time**, in ten-minute buckets, so a room going quiet is
+    visible and datable.
+  - **Hardest first** — every challenge by solves, attempts, solve rate,
+    *average tries taken by the people who did solve it*, and the *median time
+    from their first attempt to their solve*. Those last two are the difficulty
+    signal solve rate alone hides: a challenge everyone eventually solved on
+    their fourth attempt, forty minutes in, is harder than its 100% rate
+    suggests. **Download challenges CSV** exports the full table.
+  - **Where attention went** — scorers per module, hint buyers and spend, and
+    how many hints were bought *before* the buyer solved the thing. A hint
+    bought afterwards bought nothing, so that split is the difference between
+    "hints are used" and "hints help".
+
+  The tab ends with **what these numbers do not measure**, and that list ships
+  in the API payload too rather than living only here — a metric whose limits
+  travel separately from it gets quoted without them. In short: team points on
+  this tab *sum* each member's totals while the leaderboard folds the *union*
+  of their solves; attempt rows carry a first and a last time but not one per
+  try, so the timeline is solves rather than submissions; signing in leaves no record,
+  so the funnel starts at "ever on a team"; Secure Development has no
+  per-challenge attempt data, since its scores arrive already judged; and
+  anything earned before these timestamps existed carries no start time, so
+  early-event figures cover fewer contestants than late-event ones.
+
+  **Admin-only, and it stays that way.** A solve rate is harmless to publish,
+  but this payload is computed from per-contestant rows, so every field added
+  to it later is one edit away from carrying a login. A public post-event
+  summary, if you want one, should be an explicit export of chosen aggregates
+  rather than this endpoint with its guard removed.
 
 - **Support** (its own tab) — act on **one** contestant or **one** team,
   mid-event, without touching anybody else. Before this tab existed the only

@@ -2436,3 +2436,110 @@ Since ADR 47 a signed-in contestant with no team is redirected to team setup,
 so the sign-in→team gap is small — but "signed in and never made a team" is
 not countable today, and closing it means writing on an authenticated request
 path, which is a bigger decision than this one.
+
+## 50. Metrics are computed from stored data; forks report nothing
+
+**Status.** Accepted.
+
+**Context.** Engagement metrics ([#169](https://github.com/dcotelo/ctf-in-a-box/issues/169))
+raised a design question worth settling once: what may a fork tell the box, and
+what may the box tell a fork?
+
+A contestant's fork could report far more than Redis knows — pages opened, time
+spent on a challenge, the moment someone gave up. That is exactly the data an
+engagement metric wants.
+
+**Decision.** Collect none of it. Every figure comes from keys the modules
+already maintain, and no fork reports anything.
+
+**Because a fork cannot report credibly.** Authenticating a fork means a
+credential that every contestant can read, since it lives in their own
+repository. An unauthenticated ingest endpoint is forgeable by every
+contestant; a shared authenticated one is forgeable by anyone who opens their
+workflow file. There is no arrangement in which contestant-reported engagement
+is not attacker-controlled input.
+
+Engagement numbers a participant can inflate are worse than numbers that are
+merely incomplete — the incomplete ones are at least honestly incomplete. And
+this is the same boundary the score chain already enforces: the score marker
+must come from the judge's own output, never from the PR checkout. A telemetry
+endpoint would reopen that shape for softer data.
+
+**The public endpoint stays one-directional.** ADR 46's `/api/public/scoring`
+is fork-facing, read-only and policy-only. Metrics neither reads from it nor
+adds a write counterpart. The rule, stated once: **the box may publish policy
+to a fork; a fork may not report facts to the box.** Anything a contestant
+could gain by lying about does not travel in either direction.
+
+**What that leaves measurable.** More than expected, because the modules were
+already storing timestamps for their own reasons: quiz answers and classic
+solves keep `{points, at}` per item per login, Secure Development solves are
+timestamped as ingested, attempts are counted per login, and `firstTeamAt`
+(ADR 49) anchors the funnel. So the funnel, the difficulty table, solves over
+time, and the module split are all folds over existing keys, with no new write
+path anywhere.
+
+**And what it does not.** Recorded in the payload itself, not only here,
+because a metric whose limits travel separately from it gets quoted without
+them:
+
+- team points on this tab SUM each member's totals; the leaderboard folds the
+  UNION of their solves, so a challenge two teammates both solved counts once
+  there and twice here
+- the timeline plots solves, not submissions: attempt rows carry a first and a
+  last time, but not one per try
+- signing in leaves no record at all (better-auth runs with no database here),
+  so the funnel starts at "ever on a team"
+- Secure Development has no per-challenge attempt data; its scores arrive
+  already judged, so it contributes to participation and points only
+- anything earned before the timestamps below existed carries no start time,
+  so early-event figures cover fewer contestants than late-event ones
+
+**Two of the original gaps were closed by adding fields, deliberately and
+after the reader shipped.** `firstAt` on each attempt row and a purchase time
+per hint — see the section below.
+
+## `firstAt` and hint purchase times
+
+`firstAt` lives inside the attempt row's JSON, beside `attempts`/`lastAt`/
+`lastAtMs`. That row is REWRITTEN on every submission, so the first attempt's
+time survives only by being read back out of the row it is replacing; the Lua
+carries it forward and falls back to now when absent. It is written *after*
+`attempts` and *before* `lastAtMs`, because the script's existing
+`'"lastAtMs":(%d+)[,}]'` pattern relies on `lastAtMs` staying the final field —
+inserting anything after it would silently break the cooldown read. A test
+pins that ordering.
+
+What it buys: **median seconds from a contestant's first attempt to their
+solve**, per challenge. Median rather than mean, because one contestant who
+left a tab open overnight would otherwise dominate a figure computed from a
+handful of solvers.
+
+Hint purchase times went into a **separate key**, `ctf:hints:at:<login>`,
+rather than converting `ctf:user:<login>:hints` from a SET to a hash. That
+conversion is a *type change on a key live events already hold*: the first
+SADD after deploying would fail WRONGTYPE mid-event, and every SMEMBERS reader
+with it. Additive costs one key and needs no migration. It sits under
+`ctf:hints:` so the master reset's `ctf:hints:*` prefix already sweeps it and
+it cannot become the key a reset leaves behind.
+
+What it buys: splitting hints **bought before the solve** from those bought
+after. A hint bought afterwards bought nothing, and counting the two together
+turns "hints are used" into a claim that "hints help" — which the data would
+not have supported. The comparison keeps the target in the key
+(`<target>/<login>/<challengeId>`), because challenge ids are unique within an
+app's catalogue but nothing makes them unique across apps.
+
+Both are stamped by the server and neither is ever supplied by a caller, which
+is the same rule ADR 49 states for `firstTeamAt` and ADR 50 states for the
+fork boundary.
+
+**Admin-only, permanently.** The aggregates are harmless to publish; the
+payload is computed from per-contestant rows, so every field added later is one
+edit away from carrying a login. Gating the route means that edit cannot become
+a disclosure by accident. A public post-event summary should be an explicit
+export of chosen aggregates, never this endpoint with its guard removed.
+
+**Cost.** O(contestants) in batched round trips, on demand, uncached, with a
+2000-contestant ceiling that reports itself in `caveats` when it truncates —
+a silently truncated metric reads as a complete one.

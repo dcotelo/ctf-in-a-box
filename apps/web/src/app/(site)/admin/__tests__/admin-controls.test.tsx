@@ -88,19 +88,19 @@ const settings: AdminSettings = {
 };
 
 describe("AdminControls tab shell", () => {
-  it("renders one tab per enabled module plus Event, Admins and Support", () => {
+  it("renders one tab per enabled module plus the four control-plane tabs", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     expect(html).toContain('role="tablist"');
     expect(html).toContain("Event");
     expect(html).toContain("Admins");
     expect(html).toContain("Support");
+    expect(html).toContain("Insights");
     expect(html).toContain("Secure Development");
     expect(html).toContain("Quiz");
-    // Event + Admins + Support + the two modules. Admins (who may use the
-    // panel) and Support (act on one contestant or team) are control-plane
-    // tabs, not modules, so both are present regardless of what the event
-    // enables.
-    expect(html.match(/role="tab"/g)?.length).toBe(5);
+    // Event + Admins + Support + Insights + the two modules. The four
+    // control-plane tabs are not modules, so all four are present regardless
+    // of what the event enables.
+    expect(html.match(/role="tab"/g)?.length).toBe(6);
   });
 
   it("labels a module tab with its resolved title", () => {
@@ -112,14 +112,14 @@ describe("AdminControls tab shell", () => {
 
   it("renders every tab panel so only visibility is conditional", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(5);
-    // Exactly the four non-selected panels carry `hidden`.
-    expect(html.match(/hidden=""/g)?.length).toBe(4);
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(6);
+    // Exactly the five non-selected panels carry `hidden`.
+    expect(html.match(/hidden=""/g)?.length).toBe(5);
   });
 
   it("wires each tab to its panel for assistive tech", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
-    for (const id of ["event", "admins", "support", "secure-development", "quiz"]) {
+    for (const id of ["event", "admins", "support", "insights", "secure-development", "quiz"]) {
       expect(html).toContain(`id="tab-${id}"`);
       expect(html).toContain(`aria-controls="panel-${id}"`);
       expect(html).toContain(`aria-labelledby="tab-${id}"`);
@@ -139,7 +139,7 @@ describe("AdminControls tab shell", () => {
   it("gives only the selected tab a reachable tabIndex (roving tabindex)", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     expect(html.match(/tabindex="0"/gi)?.length).toBe(1);
-    expect(html.match(/tabindex="-1"/gi)?.length).toBe(4);
+    expect(html.match(/tabindex="-1"/gi)?.length).toBe(5);
   });
 });
 
@@ -178,9 +178,9 @@ describe("AdminControls panel contents", () => {
     const html = renderToStaticMarkup(
       <AdminControls viewerLogin="organizer" initial={settings} modules={twoModules.filter((m) => m.id !== "secure-development")} />,
     );
-    // Event + Admins + Support + quiz. The two control-plane tabs survive a
-    // module being disabled, because neither is a module tab.
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(4);
+    // Event + Admins + Support + Insights + quiz. The control-plane tabs
+    // survive a module being disabled, because none of them is a module tab.
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(5);
     expect(html).not.toContain("Hint cost");
     expect(() => panelFor(html, "secure-development")).toThrow();
   });

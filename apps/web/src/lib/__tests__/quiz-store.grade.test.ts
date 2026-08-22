@@ -409,3 +409,48 @@ describe("answerQuestion refusals", () => {
     consoleError.mockRestore();
   });
 });
+
+// --- firstAt: the attempt row's first-submission time (issue #169) ----------
+//
+// The row is REWRITTEN on every submission, so the first attempt's time
+// survives only by being read back out of the row it is replacing. These pin
+// the carry-forward and, just as importantly, that adding the field did not
+// break the two patterns the script already depended on.
+
+describe("firstAt carry-forward", () => {
+  /** The Lua the script actually runs, so these assert on the real thing
+   *  rather than on a copy that could drift from it. */
+  async function script(): Promise<string> {
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["incorrect", "1"]);
+    await answerQuestion("octocat", "q1", ["a"]);
+    return mocks.upstashEval.mock.calls[0][0];
+  }
+
+  it("reads any existing firstAt back out before rewriting the row", async () => {
+    expect(await script()).toContain(`string.match(attemptsRaw, '"firstAt":"([^"]*)"')`);
+  });
+
+  it("falls back to now when the row predates the field", async () => {
+    expect(await script()).toContain("if not firstAt then firstAt = ARGV[3] end");
+  });
+
+  it("keeps lastAtMs LAST in the written blob, so its own pattern still anchors", async () => {
+    // The script parses `"lastAtMs":(%d+)[,}]`. That `}` alternative only
+    // matches while lastAtMs is the final field — inserting firstAt anywhere
+    // after it would silently break the cooldown read.
+    const s = await script();
+    const write = s.split("\n").find((l) => l.includes("HSET") && l.includes("attempts")) ?? "";
+    expect(write.indexOf("firstAt")).toBeLessThan(write.indexOf("lastAtMs"));
+    expect(write.trimEnd().endsWith(`.. '}')`)).toBe(true);
+  });
+
+  it("round-trips: the blob it writes is readable by the patterns it reads with", async () => {
+    // Simulate one rewrite end to end rather than trusting the two halves
+    // separately — this is the property that actually matters.
+    const blob = `{"attempts":3,"firstAt":"2026-08-22T10:00:00Z","lastAt":"2026-08-22T10:09:00Z","lastAtMs":1755856140000}`;
+    expect(/"attempts":(\d+)[,}]/.exec(blob)?.[1]).toBe("3");
+    expect(/"lastAtMs":(\d+)[,}]/.exec(blob)?.[1]).toBe("1755856140000");
+    expect(/"firstAt":"([^"]*)"/.exec(blob)?.[1]).toBe("2026-08-22T10:00:00Z");
+  });
+});

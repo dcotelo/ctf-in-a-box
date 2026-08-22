@@ -144,7 +144,7 @@ describe("resetUserProgress", () => {
     // once per reset.
     mockNoSecureDevKeys();
     mocks.upstashPipeline.mockResolvedValueOnce(replies(["sql-1", "xss-2"]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // audit
 
     const result = await resetUserProgress("octocat", "admin");
@@ -162,7 +162,7 @@ describe("resetUserProgress", () => {
   it("clears every per-login key and nobody else's", async () => {
     mockNoSecureDevKeys();
     mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     await resetUserProgress("octocat", "admin");
@@ -180,6 +180,7 @@ describe("resetUserProgress", () => {
       "ctf:classic:points#octocat",
       "ctf:classic:solved#octocat",
       "ctf:user:octocat:hints",
+      "ctf:hints:at:octocat",
       "ctf:hints:spent#octocat",
     ]);
   });
@@ -187,7 +188,7 @@ describe("resetUserProgress", () => {
   it("leaves the account and team membership alone", async () => {
     mockNoSecureDevKeys();
     mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     await resetUserProgress("octocat", "admin");
@@ -204,7 +205,7 @@ describe("resetUserProgress", () => {
     mockSecureDevKeys("ctf:solves:dvwa", ["octocat:c1"]);
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1)); // HDEL of those fields
     mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     const result = await resetUserProgress("octocat", "admin");
@@ -215,7 +216,7 @@ describe("resetUserProgress", () => {
   it("says nothing about secure-dev when there was none to clear", async () => {
     mockNoSecureDevKeys();
     mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
     expect((await resetUserProgress("octocat", "admin")).warnings).toEqual([]);
   });
@@ -223,7 +224,7 @@ describe("resetUserProgress", () => {
   it("writes an audit line naming the actor AND the target", async () => {
     mockNoSecureDevKeys();
     mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     await resetUserProgress("octocat", "alice");
@@ -259,7 +260,7 @@ describe("deleteUser", () => {
     mockNoSecureDevKeys();
     mockNoSecureDevKeys(); // the reset's own sweep
     mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // reset audit
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // SREM + DEL
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // delete audit
