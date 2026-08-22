@@ -1211,3 +1211,29 @@ EOF
       "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml" | head -1)"
   [ "$v" -ge 3 ]
 }
+
+# `allow-unsafe-pr-checkout` is load-bearing (ADR 43). actions/checkout refuses
+# a fork-PR checkout under `pull_request_target` without it, and that is step 3
+# of the scoring job — so removing this flag does not harden the workflow, it
+# stops EVERY scoring run on EVERY deployment of the kit, before the scorer
+# image is even pulled. The flag's name invites exactly that mistake, and
+# nothing pinned it until now.
+
+@test "the fork workflow keeps its allow-unsafe-pr-checkout opt-in" {
+  grep -qF 'allow-unsafe-pr-checkout: true' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}
+
+@test "the fork workflow still checks out the PR HEAD, not the base" {
+  # The opt-in only matters because this checks out contestant code. If the ref
+  # ever became the base, the flag would be pointless AND the scorer would be
+  # judging the wrong tree — a silent always-passing scorer.
+  grep -qF 'ref: ${{ github.event.pull_request.head.sha }}' \
+    "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}
+
+@test "the fork workflow keeps the job token out of the checked-out tree" {
+  # persist-credentials: false is half the reason the pull_request_target
+  # analysis in ADR 43 holds. Dropping it leaves a writable token in a tree
+  # built from contestant-supplied source.
+  grep -qF 'persist-credentials: false' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
+}

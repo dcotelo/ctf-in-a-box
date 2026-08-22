@@ -209,7 +209,17 @@ jobs:
       # it has considered the "pwn request" class — and without it every
       # scoring run on every deployment of this kit fails at this step, before
       # the scorer is even pulled. It is the opt-in that action documents for
-      # a workflow that has done the analysis.
+      # a workflow that has done the analysis. A bats test pins it, because
+      # "harden this by removing the unsafe-sounding flag" is a very natural
+      # thing to try and it stops the module scoring anything at all.
+      #
+      # WHICH PIN CARRIES IT: GitHub backported both the block and this opt-in
+      # to every supported major, so the input exists on v4, v5, v6 and v7
+      # alike — which is exactly how the block reached already-provisioned
+      # forks through the floating `@v4` tag in the first place (ADR 43). So
+      # `@v4` here is not stale-and-flagless; it is the tag that received the
+      # change. Worth knowing before "fixing" the pin: bumping it re-renders
+      # every provisioned fork for no behavioural gain.
       #
       # The analysis, which is the same one this file's header states: the
       # danger in `pull_request_target` is EXECUTING a fork's code in a job
