@@ -35,6 +35,7 @@ import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAdminsTab from "./admin-admins-tab";
+import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
@@ -53,6 +54,10 @@ const EVENT_TAB = "event";
 /** Runtime admin management (issue #147). Sits beside Event rather than
  *  inside it: it manages WHO may use the panel, not what the event does. */
 const ADMINS_TAB = "admins";
+// Live-event support (issue #168). Sits after Admins and before the module
+// tabs: it is control-plane, not module-specific, and an organizer reaching
+// for it is mid-incident rather than mid-configuration.
+const SUPPORT_TAB = "support";
 
 async function postSettings(patch: Record<string, unknown>): Promise<{ settings?: AdminSettings; error?: string }> {
   const res = await fetch("/api/admin/settings", {
@@ -147,6 +152,7 @@ export default function AdminControls({
   const tabs = [
     { id: EVENT_TAB, label: "Event" },
     { id: ADMINS_TAB, label: "Admins" },
+    { id: SUPPORT_TAB, label: "Support" },
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
   const [active, setActive] = useState<string>(
@@ -329,6 +335,8 @@ export default function AdminControls({
             />
           ) : tab.id === ADMINS_TAB ? (
             <AdminAdminsTab viewerLogin={viewerLogin} />
+          ) : tab.id === SUPPORT_TAB ? (
+            <AdminSupportTab setConfirm={setConfirm} />
           ) : (
             <section className="flex flex-col gap-4">
               <AdminModuleIdentity

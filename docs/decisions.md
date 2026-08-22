@@ -2296,3 +2296,143 @@ it contributes to no team total. The gap is documented in
 [operations.md](operations.md) rather than papered over; closing it would mean
 the poller dropping or parking scores it cannot attribute, which is a larger
 decision about ingest semantics than this one.
+
+## 48. Per-contestant support actions, and why they refuse some things
+
+**Status.** Accepted.
+
+**Context.** The only destructive control in the panel was the master reset,
+which wipes the whole event. So the answer to "one contestant is wedged, the
+room is waiting" was *do nothing* or *wipe everyone*. Every realistic live
+ticket — wrong GitHub account, typo'd team name, a captain who left the
+building, a "delete my data" request — had no answer an organizer could act on.
+
+**Decision.** A **Support** tab with per-contestant and per-team primitives:
+look up, reset progress, delete contestant, remove from team, transfer
+captaincy, disband team. Admin-gated, audited, type-to-confirm on the
+destructive ones against the specific login or slug rather than a generic word.
+
+**Look up before you act.** Every control stays disabled until a lookup
+returns. The failure this tab has to avoid is not a subtle one — it is
+resetting the wrong person from a half-remembered username under time
+pressure. Showing the score about to be deleted is the guard, and it is also
+why the read exists at all: there was previously no way to inspect a single
+contestant.
+
+**The read is gated as hard as the writes.** `GET` returns one named
+contestant's team, points, attempts and hint spend. That is precisely the read
+a non-admin must never have, so it sits behind the same `requireAdmin`.
+
+**Refusals that keep a team administrable.** A captain cannot be deleted or
+removed while they hold the team. Rename, remove, regenerate and disband are
+all captain-only, so removing the captain leaves a team nobody — including the
+organizer — can act on. Transfer or disband first. Symmetrically, captaincy
+can only transfer to an existing member, so the override cannot conjure a team
+for an outsider.
+
+**Disband deletes nobody's points.** Solves are per login, so a disbanded
+team's players keep what they earned and can regroup. Deleting their work
+because their team was wrong would turn an admin convenience into a scoring
+incident. The join code IS deleted, or the reverse index keeps resolving and
+`/join/<code>` renders a card for a team that no longer exists.
+
+**The admin overrides are atomic, not read-modify-write.** They drop the
+captain guard that `team-store.ts`'s scripts carry, because an organizer acts
+on a team they are not on — but they keep the existence and membership checks
+*inside* the script, in the same step as the write. An admin path that raced
+with a contestant clicking Leave would be the one unguarded path in the team
+surface.
+
+## Secure Development cannot be reset, only deferred
+
+This is the sharp edge, and it is a property of the ingest design rather than
+of this feature.
+
+`scorer/src/store.js` writes solves with **HSETNX**, deliberately, so replays
+are no-ops. The sync poller re-submits from the PR comments it reads. So
+clearing a contestant's `ctf:solves:<target>` fields works right up until that
+contestant's PR is scored again — a push, or a workflow re-run — at which point
+the same solves are written back.
+
+`resetEvent` has the identical problem and solves it globally: it freezes
+scoring and bumps the `resetAt` epoch, which makes sync drop its cursor. There
+is no per-login equivalent, and inventing one means a tombstone the ingest path
+consults on every score — a new trust-relevant branch in the scoring chain, for
+a support convenience.
+
+The options were: skip Secure Development silently, build the tombstone, or
+delete and warn. **Delete and warn.** Skipping silently would leave a third of
+someone's score behind a button that said it reset them. Deleting is correct
+for a data-removal request. And the warning names the operator's actual move —
+close the PR, or freeze scoring first. Quiz and classic have no such issue:
+those writes originate in the app, so a delete is final.
+
+## The aggregates are not keyed alike
+
+Worth recording because it is invisible and it bit during implementation.
+Every per-login counter is a hash keyed by login — except one:
+
+```
+ctf:quiz:points          HINCRBY <login>          per LOGIN
+ctf:quiz:answered        HINCRBY <login>          per LOGIN
+ctf:classic:points       HINCRBY <login>          per LOGIN
+ctf:classic:solved       HINCRBY <login>          per LOGIN
+ctf:classic:solvecount   HINCRBY <challengeId>    per CHALLENGE
+```
+
+`solvecount` answers "how many people solved challenge X". There is no field
+for a login to delete, so `HDEL`ing it by login removes nothing and silently
+leaves every challenge still counting a contestant whose solves are gone — the
+per-challenge stats drift up, permanently, once per reset. It has to be
+decremented once per challenge the contestant had solved, which means reading
+their solve rows *before* deleting them. A test pins the decrements and asserts
+the `HDEL`-by-login never appears.
+
+**Consequences.** `apps/web/src/lib/team-keys.ts` now holds the `ctf:user:*` /
+`ctf:team:*` / `ctf:joincode:*` builders that were module-private in
+`team-store.ts` — which is why `admin-store.ts`'s reset prefixes and
+`profile/page.tsx` had each open-coded the same strings, the latter with a
+comment admitting it. Open-coded keys are how two readers of the same data
+drift apart.
+
+## 49. `firstTeamAt` records the funnel's conversion moment; `joinedAt` does not
+
+**Status.** Accepted.
+
+**Context.** The engagement funnel ([#169](https://github.com/dcotelo/ctf-in-a-box/issues/169))
+is *signed in → got on a team → first solve*. Solves and answers already carry
+timestamps per item per login, so the tail of that funnel was always
+derivable. The middle step was not: `ctf:user:<login>` stored a `team` slug and
+nothing about **when**, and the member set records no join time either.
+
+**Decision.** Two timestamps on the user hash, with deliberately different
+lifetimes.
+
+`joinedAt` is when the contestant joined the team they are on **now**. It is
+written on every join and create, and removed alongside `team` by every path
+that clears it — leave, captain-remove, disband, and the admin overrides from
+ADR 48. It is a fact about the current membership and must not outlive it.
+
+`firstTeamAt` is the first time this login was **ever** on a team. Written with
+**HSETNX**, so a second join cannot move it, and no path deletes it short of
+deleting the contestant.
+
+**Why not one field.** Reusing `joinedAt` for the funnel would undercount
+every contestant who switched teams: their conversion would be reported as
+having happened at their *latest* join, which is arbitrarily later than the
+moment they actually converted. On an event where teams shuffle early — which
+is most events — that skews the one number the funnel exists to produce. A
+test pins the HSETNX, and another asserts no team script deletes `firstTeamAt`,
+so a script added later cannot quietly become the path that erases it.
+
+**The timestamp is an argument, not `TIME` inside the script.** Lua's clock is
+not the app's, and a script that read the server clock would stop being
+deterministic to replay.
+
+**What is still not measurable.** *Signed in* has no record at all. better-auth
+runs with no database here, so a session leaves no Redis footprint, and
+`ctf:user:<login>` is first written when someone joins or creates a team.
+Since ADR 47 a signed-in contestant with no team is redirected to team setup,
+so the sign-in→team gap is small — but "signed in and never made a team" is
+not countable today, and closing it means writing on an authenticated request
+path, which is a bigger decision than this one.

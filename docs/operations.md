@@ -86,7 +86,7 @@ needs a rebuild. Everyone else is granted from the panel itself, on the
 
 The controls are grouped into **tabs**: an **Event** tab for the settings that
 belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), an **Admins** tab, then **one tab per enabled module**, labelled with that
+seed, master reset), an **Admins** tab, a **Support** tab, then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all. The
 tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
@@ -224,6 +224,43 @@ The panel offers:
   flag solved by two teammates counts **once**, but a hint bought by two
   teammates is charged **twice** — hints are individually purchased, so
   redundant buying is the team's own coordination cost.
+
+- **Support** (its own tab) — act on **one** contestant or **one** team,
+  mid-event, without touching anybody else. Before this tab existed the only
+  destructive control was the master reset below, so an organizer facing a
+  single stuck contestant chose between doing nothing and wiping the event.
+
+  Look a contestant up by GitHub login and the tab shows their team, their
+  points and solves per module, their attempt count and their hint spend. Every
+  action stays disabled until a lookup returns — seeing the score you are about
+  to delete is the guard against resetting the wrong person from a
+  half-remembered username while a room waits.
+
+  From there: **reset progress** (clears their answers, solves, attempts and
+  hints; keeps the account and the team), **delete contestant** (all of that
+  plus the team membership and the account record), or **remove from team**.
+  Team-side, there is **transfer captaincy** and **disband** — the captain-only
+  controls, available to an organizer for when the captain is unreachable. That
+  is the common live ticket: a captainless team cannot rename, remove a member,
+  regenerate its code, or disband on its own, and nothing else can rescue it.
+
+  Two deliberate refusals. A **captain cannot be deleted or removed** while they
+  hold the team — transfer or disband first, or you would leave a team nobody
+  can administer. And **disbanding deletes nobody's points**: solves are per
+  contestant, so the players keep what they earned and can regroup.
+
+  > **Secure Development solves come back.** The scorer writes them with
+  > `HSETNX` so replays are no-ops, and the poller re-submits from the PR
+  > comments it reads — so a per-contestant reset clears them, and the next
+  > time that contestant's PR is scored they are written again. The tab warns
+  > when this applies. To make it stick, close the contestant's PR or freeze
+  > scoring first. Quiz and classic have no such problem: those writes
+  > originate in the app, so a delete is final.
+
+  Every action is admin-gated and writes an audit line naming **both** the
+  actor and the target — "who deleted that team, and when" is a question asked
+  after an event, not during it. The destructive ones require type-to-confirm
+  against the specific login or slug, not a generic word.
 
 - **Master reset** (danger zone) — wipes **all** event data so a test run or a
   botched setup can be cleared before the real event. It deletes every solve,
