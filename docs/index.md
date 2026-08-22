@@ -8,7 +8,7 @@ title: CTF-in-a-box
 university, a high school, an OWASP chapter, a meetup, from one box and one
 free GitHub org.
 
-![Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category](assets/demo.gif)
+![Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's points at that instant, then expanding the leading team to its members and its per-target flags, each marked patched or open and linked to its OWASP category](assets/demo.gif)
 
 <sup>The real contestant app, recorded from <code>scripts/dev-stack up</code> with
 seeded demo players. Hover the graph to read every team's score at that moment;
@@ -47,7 +47,9 @@ scoring code to write.
 |---|---|
 | **Team scoring** | Per-team standings, self-registration, captains and join codes; shared flags dedupe so they count once. |
 | **Live leaderboard + graph** | A ranked team leaderboard with a CTFd-style score-over-time graph from real per-solve timestamps. |
-| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, author each module's content, reset between rehearsals. |
+| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, set the team cap and score cooldown, grant admin to others, author each module's content, reset between rehearsals. |
+| **Live-event support** | Act on one contestant or one team without wiping the event: reset progress, delete a contestant, take over a captainless team. Every action audited with actor and target. |
+| **Engagement metrics** | Participation funnel, solves over time, per-challenge difficulty and hint usage — folded out of data the box already stores, with no telemetry from contestants' forks. |
 | **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport for modules graded outside the app. Quiz and Classic bank points directly and never touch it. |
 | **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
@@ -78,7 +80,7 @@ scoring code to write.
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![The challenge browser: one card per vulnerable app with its challenge count, points range and repo, searchable by challenge, app or OWASP code](assets/challenges.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The board ranks <strong>teams</strong> by default (above) and
@@ -135,10 +137,12 @@ the poll-vs-push choice are in [Hosting](hosting.md).
 
 ## Teams
 
-Scoring is per team. Contestants self-register in the app — create a team to
-become its captain and get a join code, or join by code; a solo player is just
-a team of one. Captains manage the roster (rename, remove, transfer, disband,
-regenerate the code). The leaderboard ranks teams, each row expanding to its
+Scoring is per team, and **a team is required** — nothing a contestant solves
+counts until they are on one. Contestants self-register in the app: create a
+team to become its captain and get a join code, join by code, or hit **Play
+solo** for a one-click team of one. The join code doubles as a shareable
+`/join/<code>` link. Captains manage the roster (rename, remove, transfer,
+disband, regenerate the code). The leaderboard ranks teams, each row expanding to its
 members with their individual points — and a flag solved by several teammates
 counts **once**, so a team's total can be less than its members' scores added
 up. Organizers open or close registration from the admin panel. See
@@ -146,14 +150,29 @@ up. Organizers open or close registration from the admin panel. See
 
 ## Organizer admin panel
 
-Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` for a
-live status view (poller heartbeat, last error, leaderboard freshness) and
-runtime controls: a **freeze** switch that pauses ingestion — not fork Actions,
-so PRs keep getting judged, nothing is lost, only queued until you resume — an
-**open/close team registration** toggle, and a hint on/off + cost override.
+Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` — and
+from there **grant admin to anyone else**, without a rebuild. The panel is
+tabbed: **Event** (freeze, registration, the scoring and registration
+schedules, players per team, the score cooldown, demo seed, master reset),
+**Admins**, **Support**, **Insights**, then one tab per enabled module for its
+own knobs and its title/blurb.
+
+The **freeze** switch pauses ingestion, not fork Actions — PRs keep getting
+judged, nothing is lost, it is only queued until you resume.
+
+**Support** acts on one contestant or one team mid-event: look someone up,
+reset their progress, delete them, or take over a team whose captain has
+vanished. It exists because the master reset used to be the only destructive
+control, so a single stuck contestant meant choosing between doing nothing and
+wiping the event.
+
+**Insights** reports engagement — participation funnel, solves over time, a
+hardest-first challenge table with solve rate and time-to-solve, and hint
+usage — computed entirely from data the box already stores. Nothing is
+collected from contestants' forks.
+
 Every change is recorded in a capped audit log. See
-[Operations](operations.md#organizer-admin-panel) for the full picture,
-including a known v1 limitation on the hint toggle's reach.
+[Operations](operations.md#organizer-admin-panel) for the full picture.
 
 ## Learn more
 

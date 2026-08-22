@@ -88,9 +88,12 @@ The controls are grouped into **tabs**: an **Event** tab for the settings that
 belong to the platform itself (freeze, team registration, the schedule, demo
 seed, master reset), an **Admins** tab, a **Support** tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
-tab, so an event that doesn't run a module never sees its settings at all. The
-tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
-the ends). **Event is the default tab** on load, regardless of how many
+tab, so an event that doesn't run a module never sees its settings at all.
+
+![The admin panel's Event tab: the freeze and team-registration toggles, the players-per-team cap, the four scheduled-window date fields, and the demo-mode seed button above the danger zone](assets/admin-event.jpg)
+
+The tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump
+to the ends). **Event is the default tab** on load, regardless of how many
 modules are enabled — unless the URL names another one (see the deep links
 below).
 
@@ -235,6 +238,9 @@ The panel offers:
   It is loaded on demand rather than on arrival — the fold is O(contestants),
   so the button doubles as the refresh. You get:
 
+  ![The Insights tab: the five participation figures, a ten-minute-bucket solve timeline, and the hardest-first challenge table with solves, attempts, solve rate, average tries and median time to solve per challenge](assets/admin-insights.jpg)
+
+
   - **Participation** — on a team / ever on a team / submitted / scored /
     **stuck** (submitted and never scored). The gap between the last two is the
     number worth watching during an event.
@@ -278,6 +284,9 @@ The panel offers:
   action stays disabled until a lookup returns — seeing the score you are about
   to delete is the guard against resetting the wrong person from a
   half-remembered username while a room waits.
+
+  ![The Support tab after a contestant lookup: their team and captain status, when they first joined a team, points and solves per module, attempt count and hint spend, with the reset and delete controls beneath](assets/admin-support.jpg)
+
 
   From there: **reset progress** (clears their answers, solves, attempts and
   hints; keeps the account and the team), **delete contestant** (all of that
