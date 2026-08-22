@@ -86,8 +86,13 @@ async function audit(action: string, actor: string, detail: Record<string, unkno
 
 export type UserDetail = {
   login: string;
-  /** null when this login is on no team. */
-  team: { slug: string; name: string; captain: string | null; isCaptain: boolean } | null;
+  /** null when this login is on no team. `joinedAt` is when they joined THIS
+   *  team, and is null for a record written before the field existed. */
+  team: { slug: string; name: string; captain: string | null; isCaptain: boolean; joinedAt: string | null } | null;
+  /** First time this login was ever on a team — the funnel's conversion moment
+   *  (issue #169). Survives leaving, being removed, and their team being
+   *  disbanded; null for a contestant who converted before the field existed. */
+  firstTeamAt: string | null;
   quiz: { answered: number; points: number; attempts: number };
   classic: { solved: number; points: number; attempts: number };
   /** Secure Development solves, counted from `ctf:solves:<target>`. */
@@ -145,7 +150,7 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
 
   const [teamRes, quizAnswers, quizAttempts, quizPoints, quizAnswered, classicSolves, classicAttempts, classicPoints, classicSolved, hintsBought, hintsSpent] =
     await upstashPipeline([
-      ["HGET", userKey(login), "team"],
+      ["HMGET", userKey(login), "team", "joinedAt", "firstTeamAt"],
       ["HGETALL", quizAnswersKey(login)],
       ["HGETALL", quizAttemptsKey(login)],
       ["HGET", QUIZ_POINTS_KEY, login],
@@ -158,7 +163,12 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
       ["HGET", HINTS_SPENT_KEY, login],
     ]);
 
-  const slug = typeof teamRes.result === "string" && teamRes.result ? teamRes.result : null;
+  const [rawSlug, rawJoinedAt, rawFirstTeamAt] = Array.isArray(teamRes.result)
+    ? (teamRes.result as (string | null)[])
+    : [];
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  const slug = str(rawSlug);
+  const firstTeamAt = str(rawFirstTeamAt);
   let team: UserDetail["team"] = null;
   if (slug) {
     const [nameRes, captainRes] = await upstashPipeline([
@@ -171,6 +181,7 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
       name: typeof nameRes.result === "string" && nameRes.result ? nameRes.result : slug,
       captain,
       isCaptain: captain?.toLowerCase() === login,
+      joinedAt: str(rawJoinedAt),
     };
   }
 
@@ -182,6 +193,7 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
   return {
     login,
     team,
+    firstTeamAt,
     quiz: {
       answered: Number(quizAnswered.result) || quizAnsweredCount,
       points: Number(quizPoints.result) || 0,
@@ -196,6 +208,7 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
     hints: { bought: hintsBoughtCount, spent: Number(hintsSpent.result) || 0 },
     known:
       slug !== null ||
+      firstTeamAt !== null ||
       quizAnsweredCount > 0 ||
       classicSolvedCount > 0 ||
       secureDevSolves > 0 ||
@@ -370,7 +383,7 @@ if redis.call('EXISTS', KEYS[1]) == 0 then return 'no-team' end
 if redis.call('HGET', KEYS[1], 'captain') == ARGV[1] then return 'is-captain' end
 if redis.call('SISMEMBER', KEYS[2], ARGV[1]) == 0 then return 'not-member' end
 redis.call('SREM', KEYS[2], ARGV[1])
-if redis.call('HGET', KEYS[3], 'team') == ARGV[2] then redis.call('HDEL', KEYS[3], 'team') end
+if redis.call('HGET', KEYS[3], 'team') == ARGV[2] then redis.call('HDEL', KEYS[3], 'team', 'joinedAt') end
 return 'ok'`;
 
 /** Removes a member from a team without needing the captain to do it — the
@@ -459,7 +472,10 @@ export async function forceDisbandTeam(
   const members = Array.isArray(membersRes.result) ? (membersRes.result as string[]) : [];
   const code = typeof codeRes.result === "string" && codeRes.result ? codeRes.result : null;
 
-  const cmds: (string | number)[][] = members.map((m) => ["HDEL", userKey(m), "team"]);
+  // `joinedAt` describes the CURRENT membership, so it goes with it.
+  // `firstTeamAt` deliberately survives — it records that this contestant
+  // once converted, which stays true after their team is disbanded.
+  const cmds: (string | number)[][] = members.map((m) => ["HDEL", userKey(m), "team", "joinedAt"]);
   cmds.push(["DEL", membersKey(slug)]);
   cmds.push(["DEL", teamKey(slug)]);
   // The reverse index must go too, or the code keeps resolving to a team that

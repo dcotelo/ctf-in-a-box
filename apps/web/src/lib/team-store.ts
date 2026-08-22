@@ -13,8 +13,22 @@ const MOCK_TEAM_COOKIE = "ctf-mock-team";
  * token) under the v2 schema:
  *   HSET ctf:team:<slug> name <name> captain <login> createdAt <iso> joinCode <code>
  *   SADD ctf:team:<slug>:members <login>     (capped at TEAM_MAX_MEMBERS)
- *   HSET ctf:user:<login> team <slug>
+ *   HSET ctf:user:<login> team <slug> joinedAt <iso> firstTeamAt <iso>
  *   SET ctf:joincode:<code> <slug>            (reverse index for join-by-code)
+ *
+ * The two timestamps mean DIFFERENT things and are cleared differently:
+ *   joinedAt     when they joined the team they are on NOW. Written on every
+ *                join/create, and removed alongside `team` by every path that
+ *                clears it (leave, remove, disband) — it is a fact about the
+ *                current membership and must not outlive it.
+ *   firstTeamAt  the first time this login was EVER on a team. HSETNX, so a
+ *                second join never overwrites it, and no path deletes it short
+ *                of deleting the contestant.
+ *
+ * `firstTeamAt` exists for the engagement funnel (issue #169): signed in ->
+ * got on a team -> first solve. Reusing `joinedAt` for that would undercount
+ * every contestant who switched teams, silently reporting their conversion as
+ * having happened later than it did.
  * When unset, actions persist to a per-browser httpOnly cookie instead, so
  * join/leave stays demoable against the mock leaderboard with zero backend.
  * Captain-only roster actions (remove/rename/transfer/disband/regenerate)
@@ -104,7 +118,8 @@ if redis.call('HEXISTS', KEYS[1], 'team') == 1 then return 'already-on-team' end
 if redis.call('EXISTS', KEYS[2]) == 1 then return 'name-taken' end
 redis.call('HSET', KEYS[2], 'name', ARGV[2], 'captain', ARGV[1], 'createdAt', ARGV[4], 'joinCode', ARGV[5])
 redis.call('SADD', KEYS[3], ARGV[1])
-redis.call('HSET', KEYS[1], 'team', ARGV[3])
+redis.call('HSET', KEYS[1], 'team', ARGV[3], 'joinedAt', ARGV[4])
+redis.call('HSETNX', KEYS[1], 'firstTeamAt', ARGV[4])
 redis.call('SET', KEYS[4], ARGV[3])
 return 'ok'`;
 
@@ -113,14 +128,15 @@ if redis.call('HEXISTS', KEYS[1], 'team') == 1 then return 'already-on-team' end
 if redis.call('EXISTS', KEYS[2]) == 0 then return 'not-found' end
 if redis.call('SCARD', KEYS[3]) >= tonumber(ARGV[2]) then return 'full' end
 redis.call('SADD', KEYS[3], ARGV[1])
-redis.call('HSET', KEYS[1], 'team', ARGV[3])
+redis.call('HSET', KEYS[1], 'team', ARGV[3], 'joinedAt', ARGV[4])
+redis.call('HSETNX', KEYS[1], 'firstTeamAt', ARGV[4])
 return 'ok'`;
 
 const LEAVE_SCRIPT = `
 if redis.call('HGET', KEYS[1], 'team') ~= ARGV[2] then return 'stale' end
 if redis.call('HGET', KEYS[2], 'captain') == ARGV[1] and redis.call('SCARD', KEYS[3]) > 1 then return 'captain-must-transfer' end
 redis.call('SREM', KEYS[3], ARGV[1])
-redis.call('HDEL', KEYS[1], 'team')
+redis.call('HDEL', KEYS[1], 'team', 'joinedAt')
 if redis.call('SCARD', KEYS[3]) == 0 then
   local code = redis.call('HGET', KEYS[2], 'joinCode')
   redis.call('DEL', KEYS[2], KEYS[3])
@@ -133,7 +149,7 @@ if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' e
 if redis.call('SISMEMBER', KEYS[2], ARGV[2]) == 0 then return 'not-member' end
 if ARGV[2] == ARGV[1] then return 'cannot-remove-captain' end
 redis.call('SREM', KEYS[2], ARGV[2])
-redis.call('HDEL', KEYS[3], 'team')
+redis.call('HDEL', KEYS[3], 'team', 'joinedAt')
 return 'ok'`;
 
 const RENAME_SCRIPT = `
@@ -152,7 +168,7 @@ const DISBAND_SCRIPT = `
 if redis.call('HGET', KEYS[1], 'captain') ~= ARGV[1] then return 'not-captain' end
 local members = redis.call('SMEMBERS', KEYS[2])
 for _, login in ipairs(members) do
-  redis.call('HDEL', 'ctf:user:' .. login, 'team')
+  redis.call('HDEL', 'ctf:user:' .. login, 'team', 'joinedAt')
 end
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
 return 'ok'`;
@@ -353,7 +369,7 @@ export async function joinTeam(login: string, code: string): Promise<TeamActionR
   const verdict = await upstashEval(
     JOIN_SCRIPT,
     [userKey(login), teamKey(slug), membersKey(slug)],
-    [login, maxMembers, slug],
+    [login, maxMembers, slug, new Date().toISOString()],
   );
   if (verdict === "already-on-team") return { ok: false, error: "Leave your current team before joining another" };
   if (verdict === "not-found") return { ok: false, error: "That team no longer exists" };

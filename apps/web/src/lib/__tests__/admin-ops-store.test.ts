@@ -32,6 +32,17 @@ import {
 /** Reply for a pipeline of N commands, all zero/empty unless overridden. */
 const replies = (...results: unknown[]) => results.map((result) => ({ result }));
 
+/** lookupUser's first command is one HMGET of [team, joinedAt, firstTeamAt],
+ *  so its reply is an ARRAY, not a scalar. Building it here keeps every
+ *  fixture honest about that — an accidental scalar makes the store read no
+ *  team at all and silently skips the follow-up pipeline, which then eats the
+ *  NEXT test's queued reply. */
+const userHmget = (
+  slug: string | null,
+  joinedAt: string | null = null,
+  firstTeamAt: string | null = null,
+) => [slug, joinedAt, firstTeamAt];
+
 /** The SCAN over `ctf:solves:*` that the secure-dev walk does first. Queues an
  *  empty sweep: cursor "0", no keys. */
 function mockNoSecureDevKeys() {
@@ -71,7 +82,7 @@ describe("input validation", () => {
 describe("lookupUser", () => {
   it("reports a contestant with no team and no data as unknown", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce(
-      replies(null, [], [], null, null, [], [], null, null, 0, null),
+      replies(userHmget(null), [], [], null, null, [], [], null, null, 0, null),
     );
     mockNoSecureDevKeys();
     const detail = await lookupUser("octocat");
@@ -84,7 +95,7 @@ describe("lookupUser", () => {
     // keyed `<login>:<challengeId>`. Counting the whole hash would report
     // another team's work as this contestant's.
     mocks.upstashPipeline.mockResolvedValueOnce(
-      replies(null, [], [], null, null, [], [], null, null, 0, null),
+      replies(userHmget(null), [], [], null, null, [], [], null, null, 0, null),
     );
     mockSecureDevKeys("ctf:solves:dvwa", ["octocat:c1", "octocat:c2", "mallory:c1"]);
     const detail = await lookupUser("octocat");
@@ -96,7 +107,7 @@ describe("lookupUser", () => {
     // "octo" must not match "octocat:c1". The `:` separator is what makes the
     // prefix exact, and LOGIN_RE guarantees a login cannot contain one.
     mocks.upstashPipeline.mockResolvedValueOnce(
-      replies(null, [], [], null, null, [], [], null, null, 0, null),
+      replies(userHmget(null), [], [], null, null, [], [], null, null, 0, null),
     );
     mockSecureDevKeys("ctf:solves:dvwa", ["octocat:c1", "octo:c9"]);
     expect((await lookupUser("octo")).secureDev.solves).toBe(1);
@@ -104,7 +115,7 @@ describe("lookupUser", () => {
 
   it("marks the captain of their team", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce(
-      replies("red-team", [], [], "10", "1", [], [], null, null, 0, null),
+      replies(userHmget("red-team", "2026-08-22T10:00:00Z", "2026-08-20T09:00:00Z"), [], [], "10", "1", [], [], null, null, 0, null),
     );
     mocks.upstashPipeline.mockResolvedValueOnce(replies("Red Team", "Octocat"));
     mockNoSecureDevKeys();
@@ -116,7 +127,11 @@ describe("lookupUser", () => {
       name: "Red Team",
       captain: "Octocat",
       isCaptain: true,
+      joinedAt: "2026-08-22T10:00:00Z",
     });
+    // The funnel's conversion moment, and it is EARLIER than joinedAt here —
+    // this contestant switched teams, and firstTeamAt is what must not move.
+    expect(detail.firstTeamAt).toBe("2026-08-20T09:00:00Z");
   });
 });
 
@@ -226,7 +241,7 @@ describe("deleteUser", () => {
     // Deleting the captain would leave a team nobody can administer: rename,
     // remove, regenerate and disband are all captain-only.
     mocks.upstashPipeline.mockResolvedValueOnce(
-      replies("red-team", [], [], null, null, [], [], null, null, 0, null),
+      replies(userHmget("red-team"), [], [], null, null, [], [], null, null, 0, null),
     );
     mocks.upstashPipeline.mockResolvedValueOnce(replies("Red Team", "octocat"));
     mockNoSecureDevKeys();
@@ -238,7 +253,7 @@ describe("deleteUser", () => {
 
   it("removes the membership and the account record", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce(
-      replies("red-team", [], [], null, null, [], [], null, null, 0, null),
+      replies(userHmget("red-team"), [], [], null, null, [], [], null, null, 0, null),
     );
     mocks.upstashPipeline.mockResolvedValueOnce(replies("Red Team", "alice"));
     mockNoSecureDevKeys();
@@ -304,8 +319,8 @@ describe("team overrides", () => {
     const result = await forceDisbandTeam("red-team", "admin");
     expect(result.members).toBe(2);
     const cmds = allCommands();
-    expect(cmds).toContainEqual(["HDEL", "ctf:user:alice", "team"]);
-    expect(cmds).toContainEqual(["HDEL", "ctf:user:bob", "team"]);
+    expect(cmds).toContainEqual(["HDEL", "ctf:user:alice", "team", "joinedAt"]);
+    expect(cmds).toContainEqual(["HDEL", "ctf:user:bob", "team", "joinedAt"]);
     expect(cmds).toContainEqual(["DEL", "ctf:joincode:abc123"]);
   });
 

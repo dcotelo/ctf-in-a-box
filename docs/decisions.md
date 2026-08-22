@@ -2394,3 +2394,45 @@ the `HDEL`-by-login never appears.
 `profile/page.tsx` had each open-coded the same strings, the latter with a
 comment admitting it. Open-coded keys are how two readers of the same data
 drift apart.
+
+## 49. `firstTeamAt` records the funnel's conversion moment; `joinedAt` does not
+
+**Status.** Accepted.
+
+**Context.** The engagement funnel ([#169](https://github.com/dcotelo/ctf-in-a-box/issues/169))
+is *signed in → got on a team → first solve*. Solves and answers already carry
+timestamps per item per login, so the tail of that funnel was always
+derivable. The middle step was not: `ctf:user:<login>` stored a `team` slug and
+nothing about **when**, and the member set records no join time either.
+
+**Decision.** Two timestamps on the user hash, with deliberately different
+lifetimes.
+
+`joinedAt` is when the contestant joined the team they are on **now**. It is
+written on every join and create, and removed alongside `team` by every path
+that clears it — leave, captain-remove, disband, and the admin overrides from
+ADR 48. It is a fact about the current membership and must not outlive it.
+
+`firstTeamAt` is the first time this login was **ever** on a team. Written with
+**HSETNX**, so a second join cannot move it, and no path deletes it short of
+deleting the contestant.
+
+**Why not one field.** Reusing `joinedAt` for the funnel would undercount
+every contestant who switched teams: their conversion would be reported as
+having happened at their *latest* join, which is arbitrarily later than the
+moment they actually converted. On an event where teams shuffle early — which
+is most events — that skews the one number the funnel exists to produce. A
+test pins the HSETNX, and another asserts no team script deletes `firstTeamAt`,
+so a script added later cannot quietly become the path that erases it.
+
+**The timestamp is an argument, not `TIME` inside the script.** Lua's clock is
+not the app's, and a script that read the server clock would stop being
+deterministic to replay.
+
+**What is still not measurable.** *Signed in* has no record at all. better-auth
+runs with no database here, so a session leaves no Redis footprint, and
+`ctf:user:<login>` is first written when someone joins or creates a team.
+Since ADR 47 a signed-in contestant with no team is redirected to team setup,
+so the sign-in→team gap is small — but "signed in and never made a team" is
+not countable today, and closing it means writing on an authenticated request
+path, which is a bigger decision than this one.

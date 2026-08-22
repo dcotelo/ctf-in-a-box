@@ -26,11 +26,21 @@ import {
  * contestant clicking Leave.
  */
 
-function fail(err: unknown, label: string) {
+/** The two actions this route performs. A UNION, not `string`, so the label
+ *  handed to `fail` below can never be arbitrary caller input. */
+type TeamAction = "remove-member" | "transfer-captain";
+
+function fail(err: unknown, label: TeamAction | "disband") {
   if (err instanceof OpsValidationError) {
     return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
   }
-  console.error(`[admin/ops/team] ${label} failed`, err);
+  // `label` is passed as a console ARGUMENT, never interpolated into the
+  // format string. Anything in the first position is parsed for `%s`/`%d`
+  // specifiers, so a value that reached it from a request body would be a
+  // format-string sink — CodeQL flagged exactly that here when the label was
+  // `String(body.action)`. Narrowing the type fixes the source; keeping the
+  // format string a literal fixes the sink, and either alone would do.
+  console.error("[admin/ops/team] %s failed", label, err);
   return NextResponse.json({ error: "unavailable" }, { status: 503 });
 }
 
@@ -48,16 +58,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "slug and login must be strings" }, { status: 400 });
   }
 
-  try {
-    if (body.action === "remove-member") {
-      return NextResponse.json(await forceRemoveFromTeam(body.slug, body.login, gate.login));
-    }
-    if (body.action === "transfer-captain") {
-      return NextResponse.json(await forceTransferCaptain(body.slug, body.login, gate.login));
-    }
+  // Narrow BEFORE the try, so `action` is the union from here down rather than
+  // `unknown` — the unknown-action 400 stops being a fallthrough at the bottom
+  // of a try block, and the catch's label is provably one of two literals.
+  const action = body.action;
+  if (action !== "remove-member" && action !== "transfer-captain") {
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
+  }
+
+  const { slug, login } = body;
+  try {
+    const result =
+      action === "remove-member"
+        ? await forceRemoveFromTeam(slug, login, gate.login)
+        : await forceTransferCaptain(slug, login, gate.login);
+    return NextResponse.json(result);
   } catch (err) {
-    return fail(err, String(body.action));
+    return fail(err, action);
   }
 }
 

@@ -884,3 +884,104 @@ describe("createSoloTeam", () => {
     });
   });
 });
+
+// --- membership timestamps (issue #169's funnel) -----------------------------
+//
+// `joinedAt` is a fact about the CURRENT team and dies with it. `firstTeamAt`
+// is the funnel's conversion moment — the first time this login was ever on a
+// team — and must survive leaving, being removed, and switching teams. Getting
+// these the same way round would silently report every team-switcher as having
+// converted later than they did.
+
+describe("joinedAt / firstTeamAt", () => {
+  it("stamps both when a contestant creates their first team", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.createTeam("octocat", "Red Team");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).toContain("'joinedAt'");
+    expect(script).toContain("'firstTeamAt'");
+  });
+
+  it("stamps both when a contestant joins by code", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.joinTeam("octocat", "somecode");
+    const [script, , args] = mocks.upstashEval.mock.calls[0];
+    expect(script).toContain("'joinedAt'");
+    expect(script).toContain("'firstTeamAt'");
+    // The timestamp is an argument, not something the script invents — Lua's
+    // clock is not the app's, and a script that called TIME would also stop
+    // being deterministic to replay.
+    expect(String(args[3])).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("writes firstTeamAt with HSETNX so a SECOND join never moves it", async () => {
+    // The whole point. HSET would overwrite, and every contestant who switched
+    // teams would report a later conversion than actually happened.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.joinTeam("octocat", "somecode");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).toMatch(/HSETNX'?,\s*KEYS\[1\],\s*'firstTeamAt'/);
+    // ...and it is NOT also written by the plain HSET beside it.
+    const hset = script.split("\n").find((l) => l.includes("'team'")) ?? "";
+    expect(hset).not.toContain("firstTeamAt");
+  });
+
+  it("clears joinedAt — and NOT firstTeamAt — when leaving", async () => {
+    const store = await loadStore(true);
+    // leaveTeam resolves the current slug first; without this it returns
+    // early and never reaches the script this test is about.
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.leaveTeam("octocat");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).toContain("'team', 'joinedAt'");
+    expect(script).not.toContain("HDEL', KEYS[1], 'firstTeamAt'");
+    expect(script).not.toMatch(/HDEL[^\n]*firstTeamAt/);
+  });
+
+  it("clears joinedAt — and NOT firstTeamAt — when a captain removes someone", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.removeMember("captain", "red-team", "octocat");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).toContain("'team', 'joinedAt'");
+    expect(script).not.toMatch(/HDEL[^\n]*firstTeamAt/);
+  });
+
+  it("clears joinedAt — and NOT firstTeamAt — for every member on disband", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.disbandTeam("captain", "red-team");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).toContain("'team', 'joinedAt'");
+    expect(script).not.toMatch(/HDEL[^\n]*firstTeamAt/);
+  });
+
+  it("never deletes firstTeamAt from ANY team script", async () => {
+    // One assertion over the whole surface, so a script added later cannot
+    // quietly become the path that erases the funnel record.
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.createTeam("octocat", "Red Team");
+    mockRegistrationOpen();
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.transferCaptain("captain", "red-team", "bob");
+    for (const [script] of mocks.upstashEval.mock.calls) {
+      expect(script).not.toMatch(/HDEL[^\n]*firstTeamAt/);
+      expect(script).not.toMatch(/'DEL'[^\n]*firstTeamAt/);
+    }
+  });
+});

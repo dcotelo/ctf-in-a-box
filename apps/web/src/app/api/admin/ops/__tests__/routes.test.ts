@@ -171,6 +171,34 @@ describe("/api/admin/ops/team", () => {
     expect(forceTransferCaptain).toHaveBeenCalledWith("red", "bob", "alice");
   });
 
+  it("never lets a caller-supplied action reach a log format string", async () => {
+    // CodeQL flagged this: the catch used to log `String(body.action)`
+    // interpolated into a template literal, i.e. the console format-string
+    // position, which parses %s/%d. An action is now narrowed to a two-value
+    // union BEFORE the try, so an arbitrary one 400s and never reaches a log
+    // at all. Asserted through behaviour: a format-specifier payload is
+    // refused, and no store call or error log happens.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await teamPOST(
+      jsonReq("http://x/t", "POST", { slug: "red", login: "bob", action: "%s%s%s%d" }),
+    );
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+    expect(forceRemoveFromTeam).not.toHaveBeenCalled();
+    expect(forceTransferCaptain).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("logs a real failure with a LITERAL format string, label as an argument", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    forceRemoveFromTeam.mockRejectedValue(new Error("redis exploded"));
+    await teamPOST(jsonReq("http://x/t", "POST", { slug: "red", login: "bob", action: "remove-member" }));
+    const [format, ...args] = spy.mock.calls[0];
+    expect(format).toBe("[admin/ops/team] %s failed");
+    expect(args[0]).toBe("remove-member");
+    spy.mockRestore();
+  });
+
   it("rejects an unknown team action", async () => {
     const res = await teamPOST(jsonReq("http://x/t", "POST", { slug: "red", login: "bob", action: "x" }));
     expect(res.status).toBe(400);

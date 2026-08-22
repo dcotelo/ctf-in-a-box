@@ -20,7 +20,8 @@ import type { ConfirmState } from "./types";
 
 type UserDetail = {
   login: string;
-  team: { slug: string; name: string; captain: string | null; isCaptain: boolean } | null;
+  team: { slug: string; name: string; captain: string | null; isCaptain: boolean; joinedAt: string | null } | null;
+  firstTeamAt: string | null;
   quiz: { answered: number; points: number; attempts: number };
   classic: { solved: number; points: number; attempts: number };
   secureDev: { solves: number };
@@ -168,7 +169,17 @@ export default function AdminSupportTab({
             ) : (
               "On no team."
             )}
+            {detail.team?.joinedAt && (
+              <span className="text-muted"> — joined {detail.team.joinedAt.slice(0, 16).replace("T", " ")}</span>
+            )}
           </p>
+
+          {detail.firstTeamAt && (
+            <p className="text-[11px] text-muted">
+              First on a team {detail.firstTeamAt.slice(0, 16).replace("T", " ")} UTC
+              {detail.team?.joinedAt && detail.firstTeamAt !== detail.team.joinedAt && " (has switched teams since)"}
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Quiz pts" value={detail.quiz.points} />

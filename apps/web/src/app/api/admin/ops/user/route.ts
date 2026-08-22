@@ -28,11 +28,15 @@ import {
  * form or a stray fetch that forgot its body.
  */
 
-function fail(err: unknown, label: string) {
+function fail(err: unknown, label: "lookup" | "reset" | "delete") {
   if (err instanceof OpsValidationError) {
     return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
   }
-  console.error(`[admin/ops/user] ${label} failed`, err);
+  // Literal format string, label as an argument. These labels are already
+  // literals at every call site, so this is hygiene rather than a fix — but
+  // the sink shape is identical to the one CodeQL flagged on the team route,
+  // and a `string` parameter is an invitation to pass request data later.
+  console.error("[admin/ops/user] %s failed", label, err);
   return NextResponse.json({ error: "unavailable" }, { status: 503 });
 }
 
