@@ -32,6 +32,18 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      # Same rule, different reason. `next` and `eslint-config-next` are both
+      # pinned EXACTLY (no caret) in apps/web/package.json, deliberately kept
+      # on the same version — eslint-config-next ships the lint rules for the
+      # Next it was released with. Ungrouped, dependabot opens one PR each;
+      # they then edit the same two files, so the second conflicts and needs a
+      # rebase, and merging one alone leaves main on a mismatched pair.
+      #
+      # This is not hypothetical: #161 and #164 arrived as exactly that split.
+      next:
+        patterns:
+          - "next"
+          - "eslint-config-next"
 
   - package-ecosystem: "github-actions"
     directory: "/"
