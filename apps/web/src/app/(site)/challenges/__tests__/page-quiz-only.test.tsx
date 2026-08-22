@@ -11,6 +11,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {

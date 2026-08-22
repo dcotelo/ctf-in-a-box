@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LeaderboardData } from "../types";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/modules", () => ({
   enabledModules: [{ id: "secure-development", displayName: "Secure Development", description: "", targets: ["dvwa"] }],
   isModuleEnabled: (id: string) => id === "secure-development",

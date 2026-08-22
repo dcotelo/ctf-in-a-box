@@ -85,6 +85,7 @@ const settings: AdminSettings = {
   updatedBy: null,
   updatedAt: null,
   moduleOverrides: {},
+  enabledModuleIds: null,
 };
 
 describe("AdminControls tab shell", () => {

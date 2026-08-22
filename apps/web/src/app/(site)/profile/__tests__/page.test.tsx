@@ -38,6 +38,7 @@ const {
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // TeamCard (rendered unconditionally by the profile page) calls useRouter —
 // same reason quiz/__tests__/page.test.tsx mocks it for QuizBoard.

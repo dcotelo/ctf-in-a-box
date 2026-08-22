@@ -33,7 +33,43 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
+  enabledModuleIds: null,
     });
+  });
+
+  // Runtime module enablement (issue #175). Stored as a comma-separated id
+  // list; the decoder is what stands between a stale or hand-edited field and
+  // an event that serves nothing.
+  it("decodes a stored module set", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz,classic"] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz", "classic"]);
+  });
+
+  it("drops ids the registry does not know, keeping the rest", async () => {
+    // A module removed from the registry must not be able to re-enable itself
+    // out of stale state — it has no route, no nav entry and no tab, so
+    // honouring it would enable something that cannot render.
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz,not-a-module"] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz"]);
+  });
+
+  it("reads a set that filters down to nothing as NO OVERRIDE, not as nothing-enabled", async () => {
+    // The fail-open rule, at the decoder. A field naming only unknown ids has
+    // to mean "I can't use this, use the baked set" — decoding it to an empty
+    // array would hand the resolver a legitimate-looking "enable nothing" and
+    // 404 the whole event off one stale string.
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "not-a-module,also-not"] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toBeNull();
+  });
+
+  it("tolerates whitespace and duplicates", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", " quiz , quiz,  classic "] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz", "classic"]);
+  });
+
+  it("reads an empty string as no override", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "  "] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toBeNull();
   });
 
   it("decodes a populated hash, treating overrides as present", async () => {
@@ -46,6 +82,8 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
+      // Absent from the hash => null => "no override, use the baked set".
+      enabledModuleIds: null,
     });
   });
 
@@ -219,7 +257,7 @@ describe("scheduled windows", () => {
     hintsMinSolves: null, hintsUnlockAfterMin: null,
     quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-    updatedBy: null, updatedAt: null, moduleOverrides: {},
+    updatedBy: null, updatedAt: null, moduleOverrides: {}, enabledModuleIds: null,
   };
   const T = (iso: string) => Date.parse(iso);
 

@@ -18,6 +18,7 @@ import {
   SECURE_DEV_TERMS,
 } from "../../__tests__/secure-dev-terms";
 
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
     name: "Quiz Night",
@@ -37,7 +38,12 @@ vi.mock("@/lib/event-config", () => ({
 
 import Privacy from "@/app/(site)/privacy/page";
 
-const rendered = renderToStaticMarkup(Privacy());
+// `await` because the page became async when module enablement moved to
+// runtime (issue #175): it reads the live set to decide whether to make the
+// quiz and classic disclosures. Rendering the un-awaited call suspends, which
+// React reports as "a component suspended while responding to synchronous
+// input" rather than as anything resembling a missing await.
+const rendered = renderToStaticMarkup(await Privacy());
 
 /** The gate cookie's literal name is `ctf-challenges-gate` — an identifier a
  *  reader will see in their own browser, not copy, and not renamed per event.

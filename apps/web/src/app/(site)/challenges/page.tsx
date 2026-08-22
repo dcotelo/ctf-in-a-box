@@ -6,7 +6,7 @@ import HintNotice from "@/components/hint-notice";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, getHintNotice } from "@/lib/hint-store";
-import { isModuleEnabled } from "@/lib/modules";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 
@@ -43,7 +43,7 @@ export default async function ChallengesPage() {
   // reason: the nav entry disappearing isn't enough, the URL itself must not
   // resolve. First statement, before anything async, so a disabled module
   // never reaches the data fetches below.
-  if (!isModuleEnabled("secure-development")) notFound();
+  if (!(await isModuleLive("secure-development"))) notFound();
 
   // Both fetches are ISR-cached (revalidate 300); hint availability is public
   // (ids only, no hint text). The page itself renders dynamically regardless —
