@@ -28,6 +28,7 @@ import {
   QUIZ_ANSWERS_PREFIX,
   QUIZ_ATTEMPTS_PREFIX,
   quizAnswersKey,
+  quizAttemptsKey,
   canonicalizeChoices,
 } from "@/lib/quiz-keys";
 import {
@@ -41,6 +42,7 @@ import {
   CLASSIC_SOLVES_PREFIX,
   CLASSIC_ATTEMPTS_PREFIX,
   classicSolvesKey,
+  classicAttemptsKey,
   normalizeFlag,
 } from "@/lib/classic-keys";
 
@@ -512,6 +514,29 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
 // --- demo seed (DEMO_MODE only) ----------------------------------------------
 
 /**
+ * One attempt row in the shape quiz-store's and classic-store's live attempt
+ * scripts write: `{attempts, firstAt, lastAt, lastAtMs}`.
+ *
+ * The seed banks earned rows directly instead of replaying a submission, so
+ * without this it produced an event in which nobody had ever *tried* anything:
+ * the Insights tab showed a 100% solve rate, "1.0" average tries and a blank
+ * median time on every single challenge. That is the same class of gap as the
+ * membership timestamps the seed used to skip (ADR 49) — a fixture that
+ * bypasses the live write path also bypasses the telemetry that path records,
+ * and the first event a new organizer looks at is a seeded one.
+ *
+ * `firstAt` is derived BACKWARDS from the known earn time, so the ordering the
+ * metrics fold guards against (an item earned before its own first attempt)
+ * cannot arise here. Deriving a start time forwards could overshoot the earn
+ * time and be silently dropped from the median instead of failing loudly.
+ */
+function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number): string {
+  const lastAtMs = Date.parse(earnedAt);
+  const firstAt = new Date(lastAtMs - (tries - 1) * gapMinutes * 60_000).toISOString();
+  return JSON.stringify({ attempts: tries, firstAt, lastAt: earnedAt, lastAtMs });
+}
+
+/**
  * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
  * (so the scorer awards points), spread over the last ~6h for a rising
  * score-over-time graph, plus a few teams. When the quiz module is enabled,
@@ -599,6 +624,16 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       // as correct), stored the same way GRADE_SCRIPT stores a live one.
       const choices = canonicalizeChoices(q.correct);
       cmds.push(["HSET", quizAnswersKey(login), questionId, JSON.stringify({ choices, points: q.points, at })]);
+      // The tries it took, so "avg tries" and "median time" have something to
+      // average. Counts and gaps cycle off the index rather than being random:
+      // a seed that produced different numbers on each run would make the
+      // Insights tab impossible to screenshot or assert against.
+      cmds.push([
+        "HSET",
+        quizAttemptsKey(login),
+        questionId,
+        demoAttemptRow(1 + (i % 3), at, 3 + (i % 7)),
+      ]);
 
       const agg = aggregates.get(login) ?? { points: 0, answered: 0 };
       agg.points += q.points;
@@ -606,6 +641,24 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       aggregates.set(login, agg);
       quizAnswersSeeded++;
     });
+    // Attempts that never became answers. Without them every question sits at
+    // a 100% solve rate, which reads as "this quiz was too easy" when what it
+    // actually means is "nobody who failed was ever recorded". One missed
+    // question per contestant who has one, chosen deterministically.
+    const answeredBy = new Map<string, Set<string>>();
+    for (const { login, questionId } of DEMO_QUIZ_ANSWERS) {
+      const set = answeredBy.get(login) ?? new Set<string>();
+      set.add(questionId);
+      answeredBy.set(login, set);
+    }
+    DEMO_CONTESTANTS.forEach((c, ci) => {
+      const answered = answeredBy.get(c.login) ?? new Set<string>();
+      const missed = DEMO_QUESTIONS.find((q) => !answered.has(q.id));
+      if (!missed) return;
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * windowMs).toISOString();
+      cmds.push(["HSET", quizAttemptsKey(c.login), missed.id, demoAttemptRow(1 + (ci % 2), at, 5 + (ci % 4))]);
+    });
+
     // Aggregates are written as the final absolute total (not HINCRBY'd),
     // unlike GRADE_SCRIPT's live increments — the fixture already knows each
     // login's final total, and an absolute HSET keeps re-running the seed
@@ -655,6 +708,13 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const frac = nSolves > 0 ? (i + 0.5) / nSolves : 0.5;
       const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
       cmds.push(["HSET", classicSolvesKey(login), challengeId, JSON.stringify({ points: challenge.points, at })]);
+      // Same reasoning as the quiz attempt row above: index-derived, not random.
+      cmds.push([
+        "HSET",
+        classicAttemptsKey(login),
+        challengeId,
+        demoAttemptRow(1 + ((i + 1) % 3), at, 2 + (i % 9)),
+      ]);
 
       const agg = classicAggregates.get(login) ?? { points: 0, solved: 0 };
       agg.points += challenge.points;
@@ -664,6 +724,21 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       solveCounts.set(challengeId, (solveCounts.get(challengeId) ?? 0) + 1);
       classicSolvesSeeded++;
     });
+    // Unsolved attempts, same reasoning as the quiz block above.
+    const solvedBy = new Map<string, Set<string>>();
+    for (const { login, challengeId } of DEMO_CLASSIC_SOLVES) {
+      const set = solvedBy.get(login) ?? new Set<string>();
+      set.add(challengeId);
+      solvedBy.set(login, set);
+    }
+    DEMO_CONTESTANTS.forEach((c, ci) => {
+      const solved = solvedBy.get(c.login) ?? new Set<string>();
+      const missed = DEMO_CHALLENGES.find((ch) => !solved.has(ch.id));
+      if (!missed) return;
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * windowMs).toISOString();
+      cmds.push(["HSET", classicAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 3), at, 4 + (ci % 5))]);
+    });
+
     // Aggregates written as the final absolute total (not HINCRBY'd), mirroring
     // the quiz aggregates above — idempotent on a second seed run.
     for (const [login, agg] of classicAggregates) {
