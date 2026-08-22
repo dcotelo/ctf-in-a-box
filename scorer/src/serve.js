@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { loadRubric } from "./rubric.js";
 import { createMemoryStore, createRedisStore } from "./store.js";
 
@@ -13,6 +14,28 @@ const SEGMENT = /^[a-z0-9][a-z0-9-]*$/;
 // or a misbehaving CI job must not be able to buffer unbounded bytes in memory.
 const MAX_BODY_BYTES = 64 * 1024;
 
+/**
+ * Constant-time bearer check (issue #48).
+ *
+ * The token is score-authoritative, and `!==` on a string returns as soon as
+ * two bytes differ, so how long the comparison takes is a function of how much
+ * of the token the caller already guessed.
+ *
+ * Both sides are SHA-256'd before the compare, rather than length-guarding and
+ * comparing the raw values. Two reasons, and the second is the one that
+ * matters: `timingSafeEqual` THROWS on a length mismatch, so it needs a guard
+ * either way — and a length guard is itself an early return that leaks the
+ * token's length. Digesting makes every comparison 32 bytes against 32 bytes,
+ * so a caller learns nothing from the clock regardless of what they send.
+ *
+ * A missing header compares as the empty string rather than short-circuiting,
+ * for the same reason.
+ */
+function bearerMatches(header, token) {
+  const digest = (value) => createHash("sha256").update(String(value ?? ""), "utf8").digest();
+  return timingSafeEqual(digest(header), digest(`Bearer ${token}`));
+}
+
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -26,7 +49,7 @@ export function createHandler({ rubric = null, store, token, now = () => new Dat
   const targetsInPlay = () => (rubric ? [...rubric.targets.keys()] : [...seenTargets].sort());
 
   async function score(req, res) {
-    if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
+    if (!bearerMatches(req.headers.authorization, token)) return json(res, 401, { error: "unauthorized" });
     // Organizer freeze (Task 6 holds the poll-mode cursor; this is push mode's
     // half): fails open on a store error, so a Redis blip never drops a live
     // submission — see store.js's isPaused for both implementations.
