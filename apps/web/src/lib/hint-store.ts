@@ -8,6 +8,7 @@ import { getAdminSettings } from "@/lib/admin-store";
 import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
 import { apps, appsById, type AppId } from "@/lib/apps";
 import { isModuleEnabled } from "@/lib/modules";
+import { userHintTimesKey } from "@/lib/team-keys";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 
 /**
@@ -62,6 +63,7 @@ export const HINTS_AVAILABLE = Boolean(
 
 const SPENT_KEY = "ctf:hints:spent";
 const userHintsKey = (login: string) => `ctf:user:${login}:hints`;
+
 const hintHashKey = (app: AppId) => `hints:${app}`;
 
 /** Catalogue ids look like "Challenge-5-Admin-Section" — reject anything
@@ -76,11 +78,14 @@ export function isAppId(value: string): value is AppId {
 // is the idempotency guard, so a double-click (or a race across two tabs)
 // can never charge twice. `hint` is re-checked inside the script — a stale
 // availability cache can't charge for a hint that no longer exists.
+// KEYS: [1]=user's hint set [2]=spend hash [3]=app hint catalogue [4]=purchase times
+// ARGV: [1]=challengeId [2]=<app>/<id> [3]=login [4]=cost [5]=now (ISO)
 const REVEAL_SCRIPT = `
 local hint = redis.call('HGET', KEYS[3], ARGV[1])
 if not hint then return {'missing'} end
 if redis.call('SADD', KEYS[1], ARGV[2]) == 1 then
   local spent = redis.call('HINCRBY', KEYS[2], ARGV[3], ARGV[4])
+  redis.call('HSETNX', KEYS[4], ARGV[2], ARGV[5])
   return {'charged', hint, spent}
 end
 return {'owned', hint, redis.call('HGET', KEYS[2], ARGV[3]) or '0'}`;
@@ -218,8 +223,8 @@ export async function revealHint(login: string, app: string, id: string): Promis
   try {
     verdict = await upstashEval(
       REVEAL_SCRIPT,
-      [userHintsKey(login), SPENT_KEY, hintHashKey(app)],
-      [id, `${app}/${id}`, login, cost],
+      [userHintsKey(login), SPENT_KEY, hintHashKey(app), userHintTimesKey(login)],
+      [id, `${app}/${id}`, login, cost, new Date().toISOString()],
     );
   } catch (err) {
     console.error("Hint reveal failed:", err);

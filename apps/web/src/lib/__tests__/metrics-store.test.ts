@@ -30,7 +30,8 @@ const attempt = (attempts: number, lastAt = "2026-08-22T10:00:00Z") =>
  *   1. one pipeline: quiz points, classic points, hints spent
  *   2. SCAN ctf:solves:*        (secure-dev sweep; repeats until cursor 0)
  *   3. HGETALL of each solves key found
- *   4. five commands per contestant, batched
+ *   4. SIX commands per contestant, batched (answers, solves, quiz attempts,
+ *      classic attempts, firstTeamAt, hint purchase times)
  *
  * Written as a queue rather than per-call mocks because `vi.clearAllMocks()`
  * does NOT clear queued one-shot implementations — leftovers from one test
@@ -49,6 +50,8 @@ function mockStore(opts: {
       quizAttempts?: Record<string, string>;
       classicAttempts?: Record<string, string>;
       firstTeamAt?: string | null;
+      /** `<app>/<challengeId>` -> ISO bought-at. */
+      hintTimes?: Record<string, string>;
     }
   >;
   logins?: string[];
@@ -88,6 +91,7 @@ function mockStore(opts: {
           { result: hash(p.quizAttempts ?? {}) },
           { result: hash(p.classicAttempts ?? {}) },
           { result: [p.firstTeamAt ?? null] },
+          { result: hash(p.hintTimes ?? {}) },
         ];
       }),
     );
@@ -246,7 +250,7 @@ describe("honesty", () => {
     mockStore({ perLogin: {} });
     const m = await computeEventMetrics();
     expect(m.caveats.join(" ")).toMatch(/leaderboard folds the UNION/);
-    expect(m.caveats.join(" ")).toMatch(/solves over time, not submissions over time/);
+    expect(m.caveats.join(" ")).toMatch(/timeline plots solves, not submissions/);
     expect(m.caveats.join(" ")).toMatch(/Signing in leaves no record/);
   });
 
@@ -262,14 +266,16 @@ describe("honesty", () => {
 describe("challengesToCsv", () => {
   const metrics = {
     challenges: [
-      { module: "classic", id: "c1", solves: 2, attempts: 5, solveRate: 0.5, avgAttemptsToSolve: 2.5 },
-      { module: "quiz", id: "q,1", solves: 0, attempts: 0, solveRate: null, avgAttemptsToSolve: null },
+      { module: "classic", id: "c1", solves: 2, attempts: 5, solveRate: 0.5, avgAttemptsToSolve: 2.5, medianSecondsToSolve: 90, solvedAfterHint: 0 },
+      { module: "quiz", id: "q,1", solves: 0, attempts: 0, solveRate: null, avgAttemptsToSolve: null, medianSecondsToSolve: null, solvedAfterHint: 0 },
     ],
   } as EventMetrics;
 
   it("emits a header and one row per challenge", () => {
     const lines = challengesToCsv(metrics).trim().split("\n");
-    expect(lines[0]).toBe("module,id,solves,attempts,solve_rate,avg_attempts_to_solve");
+    expect(lines[0]).toBe(
+      "module,id,solves,attempts,solve_rate,avg_attempts_to_solve,median_seconds_to_solve",
+    );
     expect(lines).toHaveLength(3);
   });
 
@@ -280,6 +286,127 @@ describe("challengesToCsv", () => {
   it("writes an EMPTY cell for null, never the string 'null'", () => {
     // A spreadsheet reading `null` as text silently breaks every average over
     // that column.
-    expect(challengesToCsv(metrics)).toMatch(/quiz,"q,1",0,0,,\n/);
+    expect(challengesToCsv(metrics)).toMatch(/quiz,"q,1",0,0,,,\n/);
+  });
+});
+
+// --- what firstAt and the hint timestamps unlocked -------------------------
+
+describe("time to solve", () => {
+  const attemptFrom = (attempts: number, firstAt: string) =>
+    JSON.stringify({ attempts, firstAt, lastAt: firstAt, lastAtMs: Date.parse(firstAt) });
+
+  it("measures from the FIRST attempt, not the last", async () => {
+    // The whole reason `firstAt` was added. With only `lastAt`, a contestant
+    // who tried at 10:00 and solved at 10:05 would measure as zero seconds.
+    mockStore({
+      perLogin: {
+        alice: {
+          classicSolves: { c1: earned(10, "2026-08-22T10:05:00Z") },
+          classicAttempts: { c1: attemptFrom(3, "2026-08-22T10:00:00Z") },
+        },
+      },
+      classicPoints: { alice: 10 },
+    });
+    const m = await computeEventMetrics();
+    expect(m.challenges.find((c) => c.id === "c1")?.medianSecondsToSolve).toBe(300);
+  });
+
+  it("takes the MEDIAN, so one abandoned tab cannot dominate", async () => {
+    mockStore({
+      perLogin: {
+        alice: {
+          classicSolves: { c1: earned(1, "2026-08-22T10:01:00Z") },
+          classicAttempts: { c1: attemptFrom(1, "2026-08-22T10:00:00Z") },
+        },
+        bob: {
+          classicSolves: { c1: earned(1, "2026-08-22T10:02:00Z") },
+          classicAttempts: { c1: attemptFrom(1, "2026-08-22T10:00:00Z") },
+        },
+        carol: {
+          classicSolves: { c1: earned(1, "2026-08-23T10:00:00Z") },
+          classicAttempts: { c1: attemptFrom(1, "2026-08-22T10:00:00Z") },
+        },
+      },
+      classicPoints: { alice: 1, bob: 1, carol: 1 },
+    });
+    // 60s, 120s, 86400s -> median 120, not the ~29000s mean.
+    expect((await computeEventMetrics()).challenges[0]?.medianSecondsToSolve).toBe(120);
+  });
+
+  it("is null for rows written before firstAt existed", async () => {
+    // Old rows carry no firstAt. A missing duration must read as unknown, not
+    // as an instant solve.
+    mockStore({
+      perLogin: {
+        alice: {
+          classicSolves: { c1: earned(10, "2026-08-22T10:05:00Z") },
+          classicAttempts: { c1: JSON.stringify({ attempts: 2, lastAt: "2026-08-22T10:04:00Z" }) },
+        },
+      },
+      classicPoints: { alice: 10 },
+    });
+    expect((await computeEventMetrics()).challenges[0]?.medianSecondsToSolve).toBeNull();
+  });
+
+  it("discards a solve recorded BEFORE its first attempt", async () => {
+    // Corrupt ordering; a negative duration would drag the median below zero.
+    mockStore({
+      perLogin: {
+        alice: {
+          classicSolves: { c1: earned(10, "2026-08-22T10:00:00Z") },
+          classicAttempts: { c1: attemptFrom(1, "2026-08-22T11:00:00Z") },
+        },
+      },
+      classicPoints: { alice: 10 },
+    });
+    expect((await computeEventMetrics()).challenges[0]?.medianSecondsToSolve).toBeNull();
+  });
+});
+
+describe("hint ordering", () => {
+  it("separates a hint bought BEFORE the solve from one bought after", async () => {
+    // "Hints are used" and "hints help" are different claims. A hint bought
+    // after the solve bought nothing, and lumping them together would let the
+    // first number masquerade as the second.
+    mockStore({
+      sdKeys: {
+        "ctf:solves:dvwa": {
+          "alice:Challenge-1": "2026-08-22T10:10:00Z",
+          "bob:Challenge-1": "2026-08-22T10:10:00Z",
+        },
+      },
+      logins: ["alice", "bob"],
+      perLogin: {
+        alice: { hintTimes: { "dvwa/Challenge-1": "2026-08-22T10:00:00Z" } }, // before
+        bob: { hintTimes: { "dvwa/Challenge-1": "2026-08-22T10:20:00Z" } }, // after
+      },
+    });
+    const m = await computeEventMetrics();
+    expect(m.hints.boughtBeforeSolving).toBe(1);
+    expect(m.hints.boughtAfterSolving).toBe(1);
+  });
+
+  it("counts a hint bought and never solved as NEITHER", async () => {
+    mockStore({
+      logins: ["alice"],
+      perLogin: { alice: { hintTimes: { "dvwa/Challenge-9": "2026-08-22T10:00:00Z" } } },
+    });
+    const m = await computeEventMetrics();
+    expect(m.hints.boughtBeforeSolving).toBe(0);
+    expect(m.hints.boughtAfterSolving).toBe(0);
+  });
+
+  it("does not match a hint against a DIFFERENT target sharing a challenge id", async () => {
+    // Ids are unique within an app's catalogue, not across apps. Flattening
+    // the target away would credit a dvwa hint with a webgoat solve.
+    mockStore({
+      sdKeys: { "ctf:solves:webgoat": { "alice:Challenge-1": "2026-08-22T10:10:00Z" } },
+      logins: ["alice"],
+      perLogin: { alice: { hintTimes: { "dvwa/Challenge-1": "2026-08-22T10:00:00Z" } } },
+    });
+    const m = await computeEventMetrics();
+    expect(m.hints.boughtBeforeSolving).toBe(0);
+    expect(m.hints.boughtAfterSolving).toBe(0);
   });
 });

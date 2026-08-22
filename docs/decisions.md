@@ -2486,19 +2486,53 @@ them:
 - team points on this tab SUM each member's totals; the leaderboard folds the
   UNION of their solves, so a challenge two teammates both solved counts once
   there and twice here
-- attempt rows keep a count and the LAST attempt time, so the timeline is
-  solves over time, not submissions over time
-- hint purchases carry no timestamp, so whether a hint preceded a solve is not
-  knowable — only that one was bought
+- the timeline plots solves, not submissions: attempt rows carry a first and a
+  last time, but not one per try
 - signing in leaves no record at all (better-auth runs with no database here),
   so the funnel starts at "ever on a team"
 - Secure Development has no per-challenge attempt data; its scores arrive
   already judged, so it contributes to participation and points only
+- anything earned before the timestamps below existed carries no start time,
+  so early-event figures cover fewer contestants than late-event ones
 
-Each of those is closable by adding a field, and none was closed here. Adding
-`firstAttemptAt` or a hint-purchase timestamp is a small change of the same
-shape as ADR 49 — worth doing deliberately, if the question is ever asked,
-rather than bundled in with the reader.
+**Two of the original gaps were closed by adding fields, deliberately and
+after the reader shipped.** `firstAt` on each attempt row and a purchase time
+per hint — see the section below.
+
+## `firstAt` and hint purchase times
+
+`firstAt` lives inside the attempt row's JSON, beside `attempts`/`lastAt`/
+`lastAtMs`. That row is REWRITTEN on every submission, so the first attempt's
+time survives only by being read back out of the row it is replacing; the Lua
+carries it forward and falls back to now when absent. It is written *after*
+`attempts` and *before* `lastAtMs`, because the script's existing
+`'"lastAtMs":(%d+)[,}]'` pattern relies on `lastAtMs` staying the final field —
+inserting anything after it would silently break the cooldown read. A test
+pins that ordering.
+
+What it buys: **median seconds from a contestant's first attempt to their
+solve**, per challenge. Median rather than mean, because one contestant who
+left a tab open overnight would otherwise dominate a figure computed from a
+handful of solvers.
+
+Hint purchase times went into a **separate key**, `ctf:hints:at:<login>`,
+rather than converting `ctf:user:<login>:hints` from a SET to a hash. That
+conversion is a *type change on a key live events already hold*: the first
+SADD after deploying would fail WRONGTYPE mid-event, and every SMEMBERS reader
+with it. Additive costs one key and needs no migration. It sits under
+`ctf:hints:` so the master reset's `ctf:hints:*` prefix already sweeps it and
+it cannot become the key a reset leaves behind.
+
+What it buys: splitting hints **bought before the solve** from those bought
+after. A hint bought afterwards bought nothing, and counting the two together
+turns "hints are used" into a claim that "hints help" — which the data would
+not have supported. The comparison keeps the target in the key
+(`<target>/<login>/<challengeId>`), because challenge ids are unique within an
+app's catalogue but nothing makes them unique across apps.
+
+Both are stamped by the server and neither is ever supplied by a caller, which
+is the same rule ADR 49 states for `firstTeamAt` and ADR 50 states for the
+fork boundary.
 
 **Admin-only, permanently.** The aggregates are harmless to publish; the
 payload is computed from per-contestant rows, so every field added later is one

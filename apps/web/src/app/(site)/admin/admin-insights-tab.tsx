@@ -20,6 +20,8 @@ type ChallengeStat = {
   attempts: number;
   solveRate: number | null;
   avgAttemptsToSolve: number | null;
+  medianSecondsToSolve: number | null;
+  solvedAfterHint: number;
 };
 
 type EventMetrics = {
@@ -29,7 +31,7 @@ type EventMetrics = {
   timeline: { at: string; solves: number }[];
   teams: { slug: string; name: string; size: number; points: number }[];
   modules: { quiz: number; classic: number; secureDevelopment: number };
-  hints: { buyers: number; totalSpend: number };
+  hints: { buyers: number; totalSpend: number; boughtBeforeSolving: number; boughtAfterSolving: number };
   caveats: string[];
 };
 
@@ -44,6 +46,15 @@ function Figure({ label, value, hint }: { label: string; value: number; hint?: s
 }
 
 const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%`);
+
+/** Compact duration. An em dash for null, which here means "not knowable" —
+ *  items earned before the first-attempt timestamp existed carry no start. */
+function duration(seconds: number | null): string {
+  if (seconds === null) return "—";
+  if (seconds < 90) return `${seconds}s`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
 
 export default function AdminInsightsTab() {
   const [metrics, setMetrics] = useState<EventMetrics | null>(null);
@@ -143,8 +154,8 @@ export default function AdminInsightsTab() {
                 ))}
               </div>
               <p className="text-[10px] text-muted">
-                Ten-minute buckets, quiz and classic. Attempt rows keep only a last-attempt time, so this is
-                solves, not submissions.
+                Ten-minute buckets, quiz and classic. Attempt rows carry a first and a last time but not one
+                per try, so this is solves, not submissions.
               </p>
             </section>
           )}
@@ -163,7 +174,8 @@ export default function AdminInsightsTab() {
                     <th className="py-1 pr-2 text-right font-medium">Solves</th>
                     <th className="py-1 pr-2 text-right font-medium">Attempts</th>
                     <th className="py-1 pr-2 text-right font-medium">Rate</th>
-                    <th className="py-1 text-right font-medium">Avg tries</th>
+                    <th className="py-1 pr-2 text-right font-medium">Avg tries</th>
+                    <th className="py-1 text-right font-medium">Median time</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono tabular-nums text-zinc-300">
@@ -174,9 +186,10 @@ export default function AdminInsightsTab() {
                       <td className="py-1 pr-2 text-right">{c.solves}</td>
                       <td className="py-1 pr-2 text-right">{c.attempts}</td>
                       <td className="py-1 pr-2 text-right">{pct(c.solveRate)}</td>
-                      <td className="py-1 text-right">
+                      <td className="py-1 pr-2 text-right">
                         {c.avgAttemptsToSolve === null ? "—" : c.avgAttemptsToSolve.toFixed(1)}
                       </td>
+                      <td className="py-1 text-right">{duration(c.medianSecondsToSolve)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -197,6 +210,11 @@ export default function AdminInsightsTab() {
               <Figure label="Sec-dev scorers" value={metrics.modules.secureDevelopment} />
               <Figure label="Hint buyers" value={metrics.hints.buyers} />
               <Figure label="Points spent on hints" value={metrics.hints.totalSpend} />
+              <Figure
+                label="Hints that could help"
+                value={metrics.hints.boughtBeforeSolving}
+                hint={`bought before solving; ${metrics.hints.boughtAfterSolving} came after and bought nothing`}
+              />
             </div>
           </section>
 

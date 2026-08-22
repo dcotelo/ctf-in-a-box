@@ -240,22 +240,27 @@ The panel offers:
     number worth watching during an event.
   - **Solves over time**, in ten-minute buckets, so a room going quiet is
     visible and datable.
-  - **Hardest first** — every challenge by solves, attempts, solve rate, and
-    *average tries taken by the people who did solve it*. That last column is
-    the difficulty signal solve rate alone hides: a challenge everyone
-    eventually solved on their fourth attempt is harder than its 100% rate
+  - **Hardest first** — every challenge by solves, attempts, solve rate,
+    *average tries taken by the people who did solve it*, and the *median time
+    from their first attempt to their solve*. Those last two are the difficulty
+    signal solve rate alone hides: a challenge everyone eventually solved on
+    their fourth attempt, forty minutes in, is harder than its 100% rate
     suggests. **Download challenges CSV** exports the full table.
-  - **Where attention went** — scorers per module, plus hint buyers and spend.
+  - **Where attention went** — scorers per module, hint buyers and spend, and
+    how many hints were bought *before* the buyer solved the thing. A hint
+    bought afterwards bought nothing, so that split is the difference between
+    "hints are used" and "hints help".
 
   The tab ends with **what these numbers do not measure**, and that list ships
   in the API payload too rather than living only here — a metric whose limits
   travel separately from it gets quoted without them. In short: team points on
   this tab *sum* each member's totals while the leaderboard folds the *union*
-  of their solves; attempt rows keep only a last-attempt time, so the timeline
-  is solves rather than submissions; hint purchases carry no timestamp, so
-  whether a hint preceded a solve is unknowable; signing in leaves no record,
-  so the funnel starts at "ever on a team"; and Secure Development has no
-  per-challenge attempt data, since its scores arrive already judged.
+  of their solves; attempt rows carry a first and a last time but not one per
+  try, so the timeline is solves rather than submissions; signing in leaves no record,
+  so the funnel starts at "ever on a team"; Secure Development has no
+  per-challenge attempt data, since its scores arrive already judged; and
+  anything earned before these timestamps existed carries no start time, so
+  early-event figures cover fewer contestants than late-event ones.
 
   **Admin-only, and it stays that way.** A solve rate is harmless to publish,
   but this payload is computed from per-contestant rows, so every field added

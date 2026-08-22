@@ -105,13 +105,36 @@ describe("revealHint", () => {
     mocks.upstashEval.mockResolvedValueOnce(["charged", "text", 10]);
     await store.revealHint("octocat", "juice-shop", "Challenge-5-Admin-Section");
     const [, keys, args] = mocks.upstashEval.mock.calls[0];
-    expect(keys).toEqual(["ctf:user:octocat:hints", "ctf:hints:spent", "hints:juice-shop"]);
-    expect(args).toEqual([
+    expect(keys).toEqual([
+      "ctf:user:octocat:hints",
+      "ctf:hints:spent",
+      "hints:juice-shop",
+      // When it was bought (issue #169). A separate key, not a conversion of
+      // the SET above — that would be a WRONGTYPE on every live event.
+      "ctf:hints:at:octocat",
+    ]);
+    expect(args.slice(0, 4)).toEqual([
       "Challenge-5-Admin-Section",
       "juice-shop/Challenge-5-Admin-Section",
       "octocat",
       10,
     ]);
+    // The purchase time is the server's, never the caller's.
+    expect(String(args[4])).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("stamps the purchase time with HSETNX, so a re-reveal cannot move it", async () => {
+    // Re-revealing an owned hint takes the 'owned' branch and charges nothing;
+    // HSETNX means it also cannot rewrite when the hint was first bought,
+    // which is what the before/after-solve split depends on.
+    const store = await loadStore();
+    mocks.upstashEval.mockResolvedValueOnce(["owned", "text", 10]);
+    await store.revealHint("octocat", "juice-shop", "Challenge-5-Admin-Section");
+    const [script] = mocks.upstashEval.mock.calls[0];
+    expect(script).toContain("HSETNX");
+    // ...and the stamp lives on the charge path only.
+    const charged = script.slice(script.indexOf("SADD"), script.indexOf("return {'charged'"));
+    expect(charged).toContain("HSETNX");
   });
 
   it("reports a missing hint without charging", async () => {
