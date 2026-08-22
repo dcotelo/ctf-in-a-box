@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -218,7 +218,9 @@ describe("generate-event-config corpus differential", () => {
     return line.slice("# targets:".length).split(",").map((t) => t.trim()).filter(Boolean);
   }
 
-  function verdict(file: string): { verdict: "accept" | "reject"; targets: string[]; error?: string } {
+  type Verdict = { verdict: "accept" | "reject"; targets: string[]; error?: string };
+
+  function runFixture(file: string): Verdict {
     try {
       const out = generate({}, readFileSync(join(CORPUS, file), "utf8"));
       const m = out.match(/"targets":\s*(\[[^\]]*\])/);
@@ -226,6 +228,38 @@ describe("generate-event-config corpus differential", () => {
     } catch (err) {
       return { verdict: "reject", targets: [], error: (err as Error).message };
     }
+  }
+
+  /**
+   * The corpus is run ONCE, here, rather than inside each test.
+   *
+   * `generate()` is not a function call — it spawns a `node` subprocess, makes
+   * a temp dir, and writes and reads a file, which is ~90ms of process startup
+   * per fixture. The corpus is 30+ fixtures, and the three tests below used to
+   * walk it independently: ~50 spawns, with the largest single test spending
+   * ~3.2s of a 5s default `testTimeout` on an idle machine.
+   *
+   * That is 65% of the budget with no headroom, and it duly tipped over on a
+   * loaded CI runner — failing a PR that had touched nothing near this code.
+   * The failure looked like whatever dependency that PR happened to bump.
+   *
+   * Precomputing drops the work to one spawn per fixture and leaves the tests
+   * as pure assertions over data, so no individual test carries a subprocess
+   * budget at all. The explicit hook timeout is generous on purpose: the point
+   * is that this never again fails for being slow, only for being wrong.
+   */
+  const verdicts = new Map<string, Verdict>();
+  beforeAll(() => {
+    for (const f of fixtures) verdicts.set(f, runFixture(f));
+  }, 120_000);
+
+  function verdict(file: string): Verdict {
+    const cached = verdicts.get(file);
+    // A miss means the fixture list changed under us, not that the fixture
+    // rejected — surfacing that loudly beats returning a fake "reject" that
+    // would read as a real disagreement.
+    if (!cached) throw new Error(`no precomputed verdict for ${file}`);
+    return cached;
   }
 
   it("corpus is big enough and covers both verdicts", () => {
