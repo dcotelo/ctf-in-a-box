@@ -340,6 +340,26 @@ describe("seedDemoData", () => {
     expect(unearned("ctf:classic:attempts:", "ctf:classic:solves:").length).toBeGreaterThan(0);
   });
 
+  it("gives every attempt row a nonzero duration, one-try rows included", async () => {
+    // Deriving firstAt from the gaps BETWEEN tries alone leaves a one-try row
+    // with firstAt === lastAt, and Insights then reported a median
+    // time-to-solve of "0s" — arithmetically honest and factually impossible.
+    // A first try is not the moment the contestant met the challenge; the
+    // reading came first.
+    await seedDemoData("alice");
+    const rows = mocks.upstashPipeline.mock.calls[0][0]
+      .filter((c) => c[0] === "HSET" && /^ctf:(quiz|classic):attempts:/.test(String(c[1])))
+      .map((c) => JSON.parse(String(c[3])) as { attempts: number; firstAt: string; lastAtMs: number });
+
+    expect(rows.length).toBeGreaterThan(0);
+    // The one-try rows are the ones that regress, so fail loudly if the
+    // fixture ever stops producing any and this test goes quietly vacuous.
+    expect(rows.some((r) => r.attempts === 1)).toBe(true);
+    for (const r of rows) {
+      expect(r.lastAtMs - Date.parse(r.firstAt)).toBeGreaterThan(0);
+    }
+  });
+
   it("takes more than one try on some items, so average tries is not a flat 1.0", async () => {
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls[0][0];
