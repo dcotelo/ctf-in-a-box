@@ -21,8 +21,8 @@ jobs:
       run:
         working-directory: deploy/aws-terraform
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.14.8"
       - name: fmt
