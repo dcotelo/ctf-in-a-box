@@ -50,7 +50,8 @@ export type ChallengeStat = {
   solves: number;
   /** Total submissions against it, successful or not. */
   attempts: number;
-  /** solves / distinct attempters, or null when nobody tried it. */
+  /** solves / distinct people who tried it, or null when nobody did.
+   *  Never exceeds 1: see the denominator note in the fold. */
   solveRate: number | null;
   /** Mean attempts taken by the contestants who did earn it. The real
    *  difficulty signal — a challenge solved by everyone on the fourth try is
@@ -360,13 +361,22 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       const tried = attemptsById.get(key);
       const [mod, ...rest] = key.split(":");
       const solves = solved?.solvers ?? 0;
-      const attempters = tried?.attempters ?? 0;
+      // The denominator is everyone who TRIED, and a solver necessarily tried
+      // even when no attempt row records it — earned rows can exist without
+      // one, because the demo seed writes answers directly and any data
+      // predating the attempt hash has the same shape. Dividing by the
+      // attempt-row count alone produced solve rates of 200% and 300% on a
+      // seeded event, which is nonsense on its face rather than a subtle
+      // inaccuracy. `attempters` can never legitimately be below `solves`, so
+      // taking the larger of the two is both the correct denominator and a
+      // floor that keeps the rate inside 0..1.
+      const triers = Math.max(tried?.attempters ?? 0, solves);
       return {
         module: mod as "quiz" | "classic",
         id: rest.join(":"),
         solves,
         attempts: tried?.attempts ?? 0,
-        solveRate: attempters > 0 ? solves / attempters : null,
+        solveRate: triers > 0 ? solves / triers : null,
         avgAttemptsToSolve: solves > 0 ? (solved as { attemptSum: number }).attemptSum / solves : null,
         medianSecondsToSolve: median(solved?.durations ?? []),
         solvedAfterHint: 0, // quiz/classic have no hints; see `hints` below
