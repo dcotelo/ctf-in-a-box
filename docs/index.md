@@ -8,11 +8,11 @@ title: CTF-in-a-box
 university, a high school, an OWASP chapter, a meetup, from one box and one
 free GitHub org.
 
-![Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's points at that instant, then expanding the leading team to its members and its per-target flags, each marked patched or open and linked to its OWASP category](assets/demo.gif)
+![Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's score at that instant, then expanding the leading team to its members, its per-module totals and its per-target breakdown](assets/demo.gif)
 
-<sup>The real contestant app, recorded from <code>scripts/dev-stack up</code> with
-seeded demo players. Hover the graph to read every team's score at that moment;
-expand a team for its roster and its flags, patched and still open.</sup>
+<sup>The real contestant app with seeded demo players. Hover the graph to read
+every team's score at that moment; expand a team for its roster, what each
+module contributed, and its per-target breakdown.</sup>
 
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
@@ -80,14 +80,18 @@ scoring code to write.
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![The challenge browser: one card per vulnerable app with its challenge count, points range and repo, searchable by challenge, app or OWASP code](assets/challenges.jpg) |
+| ![A contestant's row expanded: per-module totals, then the per-target progress with each challenge's patched or open state](assets/hero.jpg) | ![The challenge browser: one card per vulnerable app, expandable to every challenge with its point value and OWASP category, searchable by challenge, app or OWASP code](assets/challenges.jpg) |
 
-<sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
-with seeded demo players. The board ranks <strong>teams</strong> by default (above) and
-switches to individual standings (left); a flag solved by more than one teammate counts
-<strong>once</strong>, so a team's total is less than its members' scores added up.
-Branding is the neutral "OWASP CTF" default; the event name, targets, and links are
-event-config driven.</sup>
+| Classic flag board | Quiz |
+|---|---|
+| ![The classic board: each flag card shows its point value and solve count, a case-sensitive badge where casing matters, and instant feedback on submit](assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded the moment you submit](assets/quiz.jpg) |
+
+<sup>Captured from the contestant app with seeded demo players. The board ranks
+<strong>teams</strong> by default and switches to individual standings; anything
+solved by more than one teammate counts <strong>once</strong>, so a team's total
+can be less than its members' scores added up. Branding is the neutral
+"OWASP CTF" default; the event name, targets, and links are event-config
+driven.</sup>
 
 ## What organizers run
 
@@ -148,6 +152,11 @@ counts **once**, so a team's total can be less than its members' scores added
 up. Organizers open or close registration from the admin panel. See
 [Operations](operations.md#teams).
 
+![An expanded team row on the leaderboard: member chips with each player's own points, one block per module showing what it contributed to the total, then the per-target breakdown](assets/leaderboard-team.jpg)
+
+<sup>A team row, expanded: who's on it, what each module contributed, and the
+per-target detail — the whole total accounted for in one place.</sup>
+
 ## Organizer admin panel
 
 Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` — and
@@ -176,23 +185,33 @@ Every change is recorded in a capped audit log. See
 
 ## Learn more
 
-- [Hosting](hosting.md) — prerequisites, poll vs push, the GitHub OAuth
-  app, and event config.
+Pick the doc for what you're doing right now:
+
+**Standing the kit up**
+
+- [Hosting](hosting.md) — the guided wizard, prerequisites, poll vs push, the
+  GitHub OAuth app, and event config.
 - [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
   box (`apply` up, `destroy` down).
 - [Deploy on fly.io](fly.md) — the whole stack as one Fly machine, running the
   repo's own `docker-compose.yml`, no box to administer (`deploy.sh` up,
   `fly apps destroy` down).
-- [Operations](operations.md) — teams, the admin panel, verifying the kit,
-  the local dev-stack, teardown, and live-scoring status. It also carries the
-  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
-  [Classic](operations.md#classic).
 - [Security checklist](security-checklist.md) — the one-page pre-event walk:
   HTTPS, secrets, the private scorer image and its per-fork grant, poll vs
   push, and the admins list.
-- [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
+
+**Running an event**
+
+- [Operations](operations.md) — teams, the admin panel, live-event support,
+  verifying the kit, the local dev-stack, and teardown. It also carries the
+  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
+  [Classic](operations.md#classic).
+
+**Under the hood**
+
 - [Architecture](architecture.md) — what runs where, how a score gets from a
   contestant's PR to the leaderboard.
+- [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
 - [Scorer](scorer.md) — both rubric grammars, building your own scorer image,
   and wiring the self-contained scoring workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the way
