@@ -19,6 +19,8 @@ import {
   classicSolvesKey as solvesKey,
   classicAttemptsKey as attemptsKey,
   normalizeFlag,
+  caseSensitiveFlagForm,
+  flagComparisonForm,
   CLASSIC_ID_RE,
   CLASSIC_POINTS_MAX,
   CLASSIC_CATEGORY_MAX_LEN,
@@ -145,6 +147,17 @@ export type Challenge = {
   description: string;
   points: number;
   order: number;
+  /** Compare this challenge's flag with case intact (issue #193). Absent means
+   *  false — the forgiving default every existing challenge already has.
+   *
+   *  PUBLIC on purpose, unlike the flag itself. The board has to tell a
+   *  contestant that case matters, or someone submits the right characters,
+   *  gets "Not quite", and has no way to work out why. Knowing that case
+   *  matters gives away nothing about the answer.
+   *
+   *  It is also what SUBMIT_SCRIPT reads to pick which form of the submission
+   *  to compare — see that script's comment. */
+  caseSensitive?: boolean;
 };
 
 /** One challenge as the ADMIN-GATED surface sees it: the public-safe record
@@ -350,7 +363,7 @@ export async function upsertChallenge(c: Challenge, flag: string): Promise<Admin
   const results = await upstashPipeline([
     ["HSET", CHALLENGES_KEY, c.id, JSON.stringify(c)],
     ["HSET", FLAG_KEY, c.id, authored],
-    ["HSET", FLAGNORM_KEY, c.id, normalizeFlag(flag)],
+    ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, c.caseSensitive)],
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
@@ -458,10 +471,18 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
       description: c.description,
       points: c.points,
       order: c.order,
+      // Only written when true, so a bundle without the field produces a
+      // record byte-identical to what it produced before #193 — the export /
+      // import round-trip test compares stored JSON, and an always-present
+      // `"caseSensitive":false` would break it while changing nothing.
+      ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
     };
     commands.push(["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)]);
     commands.push(["HSET", FLAG_KEY, c.id, c.flag.trim()]);
-    commands.push(["HSET", FLAGNORM_KEY, c.id, normalizeFlag(c.flag)]);
+    // The comparison form follows the record that was just built, NOT the raw
+    // bundle field — they are the same value, and reading it from the record
+    // is what keeps them the same value if either ever gains a default.
+    commands.push(["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(c.flag, record.caseSensitive)]);
   }
   commands.push(["SET", CATEGORIES_KEY, JSON.stringify(unioned)]);
 
@@ -489,6 +510,11 @@ export async function exportBundle(): Promise<ClassicBundle> {
     points: challenge.points,
     order: challenge.order,
     flag,
+    // Emitted only when true, so a board with no case-sensitive challenge
+    // exports byte-identically to how it did before #193 — an organizer
+    // diffing two exports should see the change they made, not a field that
+    // appeared on every row.
+    ...(challenge.caseSensitive ? { caseSensitive: true as const } : {}),
   }));
   return { version: CLASSIC_BUNDLE_VERSION, categories, challenges };
 }
@@ -820,15 +846,26 @@ attempts = attempts + 1
 if not firstAt then firstAt = ARGV[3] end
 redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"firstAt":"' .. firstAt .. '","lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[6] .. '}')
 
-if target ~= ARGV[2] then
-  return {'incorrect', tostring(attempts)}
-end
-
+-- Fetched BEFORE the comparison, not after, because the record now decides
+-- WHICH submitted form to compare (issue #193) as well as what the solve is
+-- worth. Lua still performs no case handling of its own: both forms arrive
+-- already normalized from JS, and this only chooses between them.
 local cRaw = redis.call('HGET', KEYS[4], ARGV[1])
 local points = 0
+local caseSensitive = false
 if cRaw then
   local found = string.match(cRaw, '"points":(%-?%d+)[,}]')
   if found then points = tonumber(found) end
+  -- Absent means false: the field is only written when true, so every
+  -- challenge authored before this existed keeps the forgiving comparison.
+  if string.match(cRaw, '"caseSensitive":true[,}]') then caseSensitive = true end
+end
+
+local submitted = ARGV[2]
+if caseSensitive then submitted = ARGV[7] end
+
+if target ~= submitted then
+  return {'incorrect', tostring(attempts)}
 end
 redis.call('HSET', KEYS[2], ARGV[1], '{"points":' .. points .. ',"at":"' .. ARGV[3] .. '"}')
 redis.call('HINCRBY', KEYS[5], ARGV[4], points)
@@ -916,7 +953,20 @@ export async function submitFlag(login: string, challengeId: string, flag: strin
         SOLVECOUNT_KEY, // KEYS[6]
         SOLVED_KEY, // KEYS[7]
       ],
-      [challengeId, normalizeFlag(flag), nowIso, login, cooldownMs, now.getTime()],
+      // BOTH comparison forms go in, and the script picks. Normalizing on this
+      // side is non-negotiable (Lua's string.lower is ASCII-only — see the
+      // module header), but which form applies is a per-challenge fact the
+      // script is already holding when it decides. Sending both costs one
+      // short string and saves a round trip to read the mode first.
+      [
+        challengeId,
+        normalizeFlag(flag), // ARGV[2] — case-insensitive form (the default)
+        nowIso,
+        login,
+        cooldownMs,
+        now.getTime(),
+        caseSensitiveFlagForm(flag), // ARGV[7] — case preserved (issue #193)
+      ],
     );
   } catch (err) {
     console.error("Classic grading failed:", err);

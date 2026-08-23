@@ -121,6 +121,9 @@ export default async function FlagsPage() {
     description: c.description,
     points: c.points,
     solveCount: solveCounts.get(c.id) ?? 0,
+    // Listed explicitly, like every field above it — this map is deliberately
+    // NOT a spread of the store record, because a spread is how a flag leaks.
+    caseSensitive: c.caseSensitive,
     ...deriveStatus(viewerClassic.solved[c.id], viewerClassic.attempts[c.id], cooldownMs),
   }));
 

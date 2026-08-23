@@ -316,6 +316,7 @@ describe("payloadFromEditor — an edit can never change a challenge's id", () =
       description: "New description",
       points: "999",
       flag: "CTF{changed}",
+      caseSensitive: false,
     };
     const payload = payloadFromEditor({ ...editor, draft }, () => "generated-from-the-new-title");
     expect(payload.id).toBe(c1.id);
@@ -632,5 +633,41 @@ describe("categories POST wire contract, proven against the real route", () => {
     const res = await post(withExtraKey);
     expect(res.status).toBe(400);
     expect(wireSetCategories).not.toHaveBeenCalled();
+  });
+});
+
+// Case-sensitive flags (issue #193). The field passes through four hands —
+// form draft, payload, route parser, store — and the failure mode of dropping
+// it anywhere is silent: the challenge simply grades the forgiving way and
+// nobody finds out until a contestant submits the right characters in the
+// wrong case and is told they are wrong.
+describe("caseSensitive survives the form round trip", () => {
+  it("is omitted from the payload when off, so an unchanged challenge re-saves identically", () => {
+    const editor = editorFromChallenge(row1);
+    const payload = payloadFromEditor({ ...editor, draft: { ...editor.draft, caseSensitive: false } });
+    expect("caseSensitive" in payload).toBe(false);
+  });
+
+  it("is sent as true when on", () => {
+    const editor = editorFromChallenge(row1);
+    const payload = payloadFromEditor({ ...editor, draft: { ...editor.draft, caseSensitive: true } });
+    expect(payload.caseSensitive).toBe(true);
+  });
+
+  it("seeds the edit form as a real boolean, never undefined", () => {
+    // The stored field is absent-when-false. Handing `undefined` to a checkbox
+    // makes React flip the input from controlled to uncontrolled the first
+    // time it is ticked, which is a console warning and a form that stops
+    // tracking its own state.
+    const draft = draftFromChallenge(row1);
+    expect(typeof draft.caseSensitive).toBe("boolean");
+  });
+
+  it("seeds true from a stored case-sensitive challenge", () => {
+    const draft = draftFromChallenge({
+      ...row1,
+      challenge: { ...row1.challenge, caseSensitive: true },
+    });
+    expect(draft.caseSensitive).toBe(true);
   });
 });

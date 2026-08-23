@@ -37,6 +37,9 @@ export type ClassicChallengeView = {
   description: string;
   points: number;
   solveCount: number;
+  /** Compared with capitalisation intact (issue #193). Public deliberately —
+   *  see the badge below. Optional so every existing caller is unchanged. */
+  caseSensitive?: boolean;
 } & ClassicStatus;
 
 type SubmitResponse =
@@ -265,9 +268,23 @@ export function ChallengeCard({
             {challenge.solveCount} solve{challenge.solveCount === 1 ? "" : "s"}
           </p>
         </div>
-        <span className="flex-none rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-          {challenge.points} pts
-        </span>
+        <div className="flex flex-none items-center gap-1.5">
+          {/* Case sensitivity is PUBLIC (issue #193). Without it a contestant
+              submits the right characters, reads "Not quite", and has no way
+              to work out why — the one failure the board can explain for free.
+              It gives away nothing about the answer itself. */}
+          {challenge.caseSensitive && (
+            <span
+              title="This flag is compared with capitalisation intact."
+              className="rounded border border-amber-400/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300/90"
+            >
+              case-sensitive
+            </span>
+          )}
+          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+            {challenge.points} pts
+          </span>
+        </div>
       </div>
 
       <Markdown source={challenge.description} />

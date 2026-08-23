@@ -400,9 +400,19 @@ paths (demo seed, master reset) are the one documented exception, reusing
   behind `requireAdmin`), so an organizer's edit form can show what they
   typed, casing included, instead of forcing a retype-from-memory on every
   typo fix.
-- `ctf:classic:flagnorm` — `normalizeFlag(flag)` (`classic-keys.ts`): trim,
-  then Unicode NFC-normalize, then lowercase. This is the ONLY value grading
-  ever compares against.
+- `ctf:classic:flagnorm` — the challenge's comparison form
+  (`flagComparisonForm` in `classic-keys.ts`): trim, then Unicode
+  NFC-normalize, then lowercase — **unless** the challenge is marked
+  `caseSensitive`, in which case the lowercasing is skipped and only trim and
+  NFC apply (issue #193). This is the ONLY value grading ever compares
+  against.
+
+  Which form applies is decided by the public challenge record, and the
+  grading script only *chooses* between two forms the submission path has
+  already computed in JS. That keeps the long-standing rule intact: no case
+  handling ever happens in Lua, whose `string.lower` is ASCII-only and would
+  disagree with JS on any non-ASCII flag — producing a challenge nobody can
+  solve.
 
 Both are written together in one Upstash pipeline call inside
 `upsertChallenge`, so they can never observably disagree — a challenge can

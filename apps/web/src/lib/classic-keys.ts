@@ -49,7 +49,32 @@ export const CLASSIC_CATEGORIES_MAX = 50;
  *  a Lua-side normalization of any non-ASCII flag disagrees with this one and
  *  produces a challenge nobody can solve. */
 export function normalizeFlag(raw: string): string {
-  return raw.trim().normalize("NFC").toLowerCase();
+  return caseSensitiveFlagForm(raw).toLowerCase();
+}
+
+/** The comparison form for a CASE-SENSITIVE challenge (issue #193): the same
+ *  trim and NFC as above, WITHOUT the lowercasing.
+ *
+ *  Only the lowercasing is optional. Trimming stays because a trailing space a
+ *  contestant cannot see is not a wrong answer, and NFC stays because two
+ *  spellings that render identically must still compare equal — neither of
+ *  those is what "case-sensitive" is asking for.
+ *
+ *  `normalizeFlag` is defined in terms of this rather than beside it, so the
+ *  two forms cannot drift: any future change to trimming or Unicode handling
+ *  lands in both by construction. Both are still JS-only, for the Lua reason
+ *  above. */
+export function caseSensitiveFlagForm(raw: string): string {
+  return raw.trim().normalize("NFC");
+}
+
+/** The stored/compared form for a challenge, given its mode. THE one place
+ *  that decides which of the two applies — callers pass the challenge's flag
+ *  and its `caseSensitive` value and never branch themselves, because a
+ *  branch written twice is a branch that eventually disagrees, and the failure
+ *  it produces is "the correct flag is rejected". */
+export function flagComparisonForm(raw: string, caseSensitive: boolean | undefined): string {
+  return caseSensitive ? caseSensitiveFlagForm(raw) : normalizeFlag(raw);
 }
 
 const ID_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

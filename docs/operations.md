@@ -713,6 +713,20 @@ many challenges are blocking a removal. A challenge itself has a title, a
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
 
+**Flag matching forgives what should be forgiven.** Submissions are trimmed
+and Unicode-normalised on both sides, and compared case-insensitively —
+copy-paste from a terminal picks up trailing spaces, accents can be typed two
+ways that look identical, and none of that is the skill being tested.
+
+**Case-sensitive flags** are the one exception, per challenge, off by default.
+Turn it on only when the capitalisation *is* the answer: a recovered password,
+a base64 string, a case-sensitive hash. Trimming and Unicode normalisation
+still apply — only the case-folding stops. Contestants see a **case-sensitive**
+badge on the challenge card, so nobody loses a solve to a shift key without
+being told; that the flag is case-sensitive gives away nothing about what it
+says. A challenge authored before this existed, or left unticked, grades
+exactly as it always did.
+
 **A flag is stored in plaintext, and it is visible to anyone with `/admin`
 access.** The flag input is masked by default (a Reveal toggle uncovers it,
 in case you're screen-sharing the panel), but there is no hashing and no
