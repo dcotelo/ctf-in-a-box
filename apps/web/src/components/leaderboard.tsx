@@ -72,7 +72,7 @@ function TeamFlags({ team }: { team: TeamStanding }) {
   if (groups.length === 0) return null;
   return (
     <div className="mt-4 border-t border-white/[0.06] pt-4">
-      <p className="mb-3 text-xs uppercase tracking-wider text-muted">Flags</p>
+      <p className="mb-3 text-xs uppercase tracking-wider text-muted">Target breakdown</p>
       <div className="flex flex-col gap-3">
         {groups.map(({ app, challenges }) => {
           const patched = challenges.filter((c) => c.status === "patched").length;
@@ -281,7 +281,10 @@ export function EntryRow({
 /** Exported (in addition to the page's default `Leaderboard`) purely so
  *  tests can render an expanded row directly with `isOpen` — the toggle
  *  itself only flips client-side state that a static render can't drive. */
-export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void }) {
+export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modules = [] }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void; modules?: readonly ResolvedModule[] }) {
+  // Per-module vocabulary for the completed count — the same distinction the
+  // module guides draw ("answered" a question, "solved" a flag/challenge).
+  const completedNoun = (id: string) => (id === "quiz" ? "answered" : "solved");
   return (
     <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
       <button
@@ -351,6 +354,32 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle }: { 
               </span>
             ))}
           </div>
+          {/* Where the total CAME from. Without this, a team on a
+              multi-module event expands its row and finds only the
+              secure-development targets below — most of its points
+              unexplained by the very panel that exists to explain them
+              (issue #200, 2.2). Same source as EntryRow's blocks:
+              `team.modules` is the union-deduped per-module fold. */}
+          {team.modules && Object.keys(team.modules).length > 0 && modules.length > 1 && (
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-white/[0.06] pt-4">
+              {modules
+                .filter((m) => team.modules?.[m.id])
+                .map((m) => {
+                  const progress = team.modules![m.id]!;
+                  return (
+                    <div key={m.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2 text-sm">
+                      <span className="text-xs uppercase tracking-wider text-muted">{m.title}</span>
+                      <span className="ml-2 font-mono tabular-nums text-white">
+                        {progress.points.toLocaleString()} pts
+                      </span>
+                      <span className="ml-2 font-mono text-xs tabular-nums text-muted">
+                        {progress.completed} {completedNoun(m.id)}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
           <TeamFlags team={team} />
         </div>
       )}
@@ -485,6 +514,20 @@ export default function Leaderboard({
    *  this checks both collections rather than just `entries`. */
   const boardIsEmpty = data.entries.length === 0 && data.teams.length === 0;
 
+  // The series is the SOURCE's history — secure-development scoring events
+  // from the scorer. Quiz and classic points are stamped on afterwards by
+  // withModuleContributions as aggregate totals with no timeline, so on a
+  // multi-module event the chart's ceiling and the rows' totals legitimately
+  // disagree (issue #200, 2.3). Until the app-side modules contribute series
+  // events of their own, the chart has to SAY what it plots — an unlabeled
+  // chart whose max is a tenth of the visible totals reads as broken.
+  const sdModule = modules.find((m) => m.id === "secure-development");
+  const appSideTitles = modules.filter((m) => m.id !== "secure-development").map((m) => m.title);
+  const chartNote =
+    sdModule && appSideTitles.length > 0
+      ? `Plots ${sdModule.title} scoring only — ${appSideTitles.join(" and ")} points count toward the totals below but are not charted.`
+      : undefined;
+
   return (
     <div className="flex flex-col gap-5">
       {/* Chart follows the active view: team lines in "teams", player lines
@@ -493,6 +536,7 @@ export default function Leaderboard({
       <ScoreTimeChart
         series={view === "individual" ? data.series : undefined}
         teamSeries={view === "teams" ? data.teamSeries : undefined}
+        note={chartNote}
       />
 
       {/* Controls */}
@@ -558,6 +602,20 @@ export default function Leaderboard({
         </div>
       )}
 
+      {/* The default order is breadth-first (compareStanding: items solved
+          across every module, then points, then earliest activity) — which
+          means the top row is NOT necessarily the highest points, and a
+          contestant reading "#3" next to the biggest PTS figure on the board
+          concludes the ranking is broken unless the rule is stated where the
+          ranking is (issue #200, 2.1). Shown only while that order is active:
+          the points/solved sorts are self-describing. */}
+      {view === "individual" && data.entries.length > 0 && sort === "rank" && (
+        <p className="px-1 text-xs leading-relaxed text-muted">
+          Rank rewards breadth: challenges solved across every module first, then points as the
+          tiebreak, then whoever got there first.
+        </p>
+      )}
+
       {view === "individual" ? (
         data.entries.length === 0 ? (
           <EmptyBoard modules={modules} />
@@ -590,6 +648,7 @@ export default function Leaderboard({
               team={team}
               topPoints={topTeamPoints}
               pointsByLogin={pointsByLogin}
+              modules={modules}
               isOpen={expanded === team.slug}
               onToggle={() => setExpanded(expanded === team.slug ? null : team.slug)}
             />

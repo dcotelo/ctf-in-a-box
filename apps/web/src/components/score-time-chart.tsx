@@ -82,7 +82,7 @@ type PlottedLine = {
  *  axis logic stay in one place regardless of what's being plotted.
  *  `noun` is the singular unit name used in the heading/legend copy
  *  ("contestant" or "team"). */
-function renderChart(entries: ChartSeries[], noun: string) {
+function renderChart(entries: ChartSeries[], noun: string, note?: string) {
   const withPoints = entries.filter((s) => s.points.length > 0);
   if (withPoints.length === 0) return null;
 
@@ -145,6 +145,7 @@ function renderChart(entries: ChartSeries[], noun: string) {
       maxT={maxT}
       maxScore={maxScore}
       noun={noun}
+      note={note}
     />
   );
 }
@@ -190,6 +191,7 @@ function InteractiveChart({
   maxT,
   maxScore,
   noun,
+  note,
 }: {
   lines: PlottedLine[];
   foldedCount: number;
@@ -199,6 +201,7 @@ function InteractiveChart({
   maxT: number;
   maxScore: number;
   noun: string;
+  note?: string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -234,6 +237,11 @@ function InteractiveChart({
           {lines.length === 1 ? "" : "s"}
         </span>
       </div>
+      {/* What this chart does and does not plot. On a multi-module event the
+          series carries only the scorer's history, so its ceiling sits far
+          below the row totals — unlabeled, that reads as a broken chart
+          rather than a narrower one. */}
+      {note && <p className="text-xs leading-relaxed text-muted">{note}</p>}
 
       <div className="relative w-full overflow-x-auto">
         <svg
@@ -293,13 +301,15 @@ function InteractiveChart({
             </text>
           ))}
 
-          {/* X-axis labels */}
-          {xTicks.map((t) => (
+          {/* X-axis labels. The first and last tick sit on the plot's edges,
+              so a centered label would hang half outside the viewBox and
+              clip ("Aug 22, 11:0…") — anchor the ends inward instead. */}
+          {xTicks.map((t, i) => (
             <text
               key={`xtick-${t}`}
               x={x(t)}
               y={HEIGHT - MARGIN.bottom + 16}
-              textAnchor="middle"
+              textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
               className="fill-current text-muted"
               fontSize={10}
             >
@@ -398,14 +408,20 @@ function InteractiveChart({
 export default function ScoreTimeChart({
   series,
   teamSeries,
+  note,
 }: {
   series?: PlayerSeries[];
   teamSeries?: TeamSeries[];
+  /** One sentence on what the series does and does not include — rendered
+   *  under the heading. The leaderboard passes it on multi-module events,
+   *  where the plotted history is narrower than the totals beside it. */
+  note?: string;
 }) {
   if (teamSeries) {
     return renderChart(
       teamSeries.map((t) => ({ key: t.slug, label: t.name, points: t.points })),
       "team",
+      note,
     );
   }
   // No rubric (declarative-only deployment) or an older scorer that doesn't
@@ -414,5 +430,6 @@ export default function ScoreTimeChart({
   return renderChart(
     series.map((s) => ({ key: s.login, label: s.login, points: s.points })),
     "contestant",
+    note,
   );
 }
