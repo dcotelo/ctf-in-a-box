@@ -2644,6 +2644,23 @@ and no explanation.
 The panel shows its row with the reason on it rather than hiding the control or
 leaving one that always errors.
 
+**A switched-off module gets its own 404, because the generic one lies.** The
+root 404 says "that page doesn't exist... the link is just wrong or out of
+date". That is right for a typo and false for a module an organizer turned off
+sixty seconds ago: the link is correct, the page was there, and telling a
+contestant otherwise sends them hunting for a better URL mid-event. Each module
+route carries its own boundary saying what actually happened — the module is
+off, the link is fine, nothing already solved is affected, and it can come
+back. `/challenges` differs again: secure-development is never switched off at
+runtime, so there the page reports that this event does not run the module, and
+promises no return that no organizer could deliver.
+
+**"The last module" counts every LIVE module, not every switchable one.** The
+first cut of the panel counted only toggleable ones, and so locked quiz on an
+event running secure-development plus quiz — while secure-development sat above
+it, enabled and serving. The server would have accepted that change; only the UI
+refused. What makes a set legal is that something is live.
+
 **Consequences.** Editing `event.yaml`'s `modules:` mid-event changes nothing
 until a rebuild — the same trap the `hints:` and `teams:` keys already hit, so
 the file, the example and the wizard's prompt all say "start with" rather than

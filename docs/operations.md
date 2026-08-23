@@ -200,8 +200,15 @@ The panel offers:
 
   - **The last module.** An event has to serve something; a site with every
     module off has no content and no explanation for the people looking at it.
-    The panel greys out the last remaining switch rather than letting you find
-    out from an error.
+    The panel greys out that last switch rather than letting you find out from
+    an error.
+
+    "Last" counts **every live module, including the ones you cannot switch**.
+    On an event running Secure Development plus Quiz, Quiz is the last
+    *switchable* module but not the last live one — Secure Development is still
+    serving — so Quiz can be switched off and the event is left perfectly
+    legal. What makes a set legal is that something is live, not that something
+    switchable is.
   - **Secure Development, in either direction.** It is configured at setup and
     only there — it needs its `scorer` and `sync` services (which are not even
     running on an event that never enabled it; see the profiles table in
@@ -214,6 +221,16 @@ The panel offers:
   same trap `hints:` and `teams:` already have. If Redis is unreachable the app
   falls back to that baked set rather than to "nothing enabled", so an outage
   cannot blank the event.
+
+  **What a contestant sees.** The module's nav link disappears from the header
+  and the footer, and its route stops resolving — with a page that says the
+  module is switched off, that their link is fine, and that nothing they have
+  already solved is affected. It is deliberately not the generic "that page
+  doesn't exist, your link is wrong or out of date": their link was right, the
+  page was there a minute ago, and sending them to hunt for a better URL wastes
+  their time mid-event. `/challenges` says something different again, because
+  Secure Development is never switched off at runtime — there it reports that
+  the event does not run that module, and promises no return.
 
   A newly enabled module's own **admin tab** appears on the next page load,
   since the tab strip is rendered server-side.
