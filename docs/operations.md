@@ -12,6 +12,17 @@ dev-stack for clicking through the real experience, and the current status of
 live-GitHub scoring. For standing the kit up in the first place, see
 [docs/hosting.md](hosting.md).
 
+**On this page:**
+[Running an event](#running-an-event) ·
+[Teams](#teams) ·
+[Admin panel](#organizer-admin-panel) ·
+[Quiz](#quiz) ·
+[Classic](#classic) ·
+[Verifying it works](#verifying-it-works) ·
+[Local dev-stack](#local-dev-stack) ·
+[Known limitations](#known-limitations) ·
+[Status](#status-and-upstream-dependencies)
+
 ## Running an event
 
 **During:**
@@ -74,6 +85,11 @@ added together — the leaderboard dedupes shared solves rather than
 double-counting them. Organizers open or close the registration window from
 the admin panel below.
 
+![A contestant's profile: the header shows their points plus one done-out-of-available stat per enabled module, and the team card below carries the join code, invite link and captain controls](assets/profile.jpg)
+
+<sup>The profile is where teams live day to day: the join code and invite link
+to share, the captain's controls, and a header stat per enabled module.</sup>
+
 ## Organizer admin panel
 
 Anyone listed in `event.yaml`'s `admins` (checked case-insensitively against
@@ -90,7 +106,7 @@ seed, master reset), an **Admins** tab, a **Support** tab, an **Insights** tab, 
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all.
 
-![The admin panel's Event tab: the freeze and team-registration toggles, the players-per-team cap, the four scheduled-window date fields, and the demo-mode seed button above the danger zone](assets/admin-event.jpg)
+![The admin panel's Event tab: the per-module switches, the freeze and team-registration toggles, the players-per-team cap, and the schedule fields with a live "right now: scoring is live" readout](assets/admin-event.jpg)
 
 The tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump
 to the ends). **Event is the default tab** on load, regardless of how many
@@ -529,6 +545,12 @@ the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#quiz-data-flow) for how it scores
 entirely inside the app.
 
+![The quiz as a contestant sees it: answered questions collapsed to what they earned, open ones showing their choices, remaining attempts and point value](assets/quiz.jpg)
+
+<sup>What a contestant sees: answered questions collapse to what they earned;
+open ones show their choices, the attempts they have left, and what a correct
+answer is worth.</sup>
+
 **Authoring** happens in `/admin`, under the Quiz module's section (see
 "Quiz controls" above): add a question with a prompt, pick **single choice**
 or **multiple choice**, give it two or more labeled choices, mark which
@@ -729,6 +751,12 @@ GitHub, the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#classic-data-flow) for how it scores
 entirely inside the app.
 
+![The classic flag board: each card shows its point value and solve count, a case-sensitive badge where casing matters, and instant solved/not-quite feedback under the submission box](assets/flags.jpg)
+
+<sup>The board as a contestant sees it: every card says what it's worth and how
+many people have solved it, a badge marks the flags where casing matters, and
+grading answers the instant you submit.</sup>
+
 **Authoring** happens in `/admin`, under the Classic module's tab (see
 "Classic controls" above). Before adding a challenge you need at least one
 **category** — categories are a simple ordered list (add, reorder by
@@ -737,6 +765,11 @@ while no challenge still files under it; the panel tells you exactly how
 many challenges are blocking a removal. A challenge itself has a title, a
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
+
+![The Classic module's admin tab: the module's title and blurb, the submission cooldown, the ordered category list with move and remove controls, and the challenge list with drag-to-reorder, edit and delete](assets/admin-classic.jpg)
+
+<sup>The whole module is authored here — categories, challenges, cooldown,
+even the module's display name — live, with no rebuild.</sup>
 
 **Flag matching forgives what should be forgiven.** Submissions are trimmed
 and Unicode-normalised on both sides, and compared case-insensitively —
@@ -785,12 +818,13 @@ challenge's own title to confirm (falling back to its id for a
 blank/whitespace-only title), the same pattern the quiz's delete and the
 master reset use.
 
-**Matching is case- and whitespace-insensitive, normalized identically on
-both the authoring and submission sides.** The stored flag is trimmed, then
-Unicode-NFC-normalized, then lowercased before comparison — every submitted
-flag goes through the same normalization before it's checked. A stray
-leading/trailing space or a different capitalization never costs a
-contestant a solve.
+**Matching is whitespace-insensitive and — by default — case-insensitive,
+normalized identically on both the authoring and submission sides.** The
+stored flag is trimmed, then Unicode-NFC-normalized, then lowercased before
+comparison — every submitted flag goes through the same normalization before
+it's checked, so a stray leading/trailing space never costs a contestant a
+solve, and neither does capitalization unless the challenge is marked
+**case-sensitive** (see above), in which case only the case-folding stops.
 
 **There is no cap on attempts — only a cooldown, and it is set in
 SECONDS.** The **Submission cooldown (sec)** field (`classicCooldownSec`,

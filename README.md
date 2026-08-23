@@ -128,12 +128,16 @@ for a single-shot AWS deploy — `terraform apply` up, `terraform destroy` down.
 
 | Feature | What it means for you |
 |---|---|
-| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge point values. Submissions are normalised before comparison, so casing and stray whitespace never cost someone a solve. |
+| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge point values. Submissions are trimmed and normalised, and casing is forgiven too — unless a flag is marked case-sensitive, which its card tells contestants. |
 | **Rich descriptions, bulk authoring** | Descriptions take a sanitised Markdown subset — links, formatting, code. Author one at a time in `/admin`, or import and export the whole board as a single JSON bundle. |
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](docs/assets/hero.jpg) | ![The challenge browser: one card per vulnerable app with its challenge count, points range and repo, searchable by challenge, app or OWASP code](docs/assets/challenges.jpg) |
+| ![A contestant's row expanded: per-module totals, then per-target progress with each challenge's patched or open state](docs/assets/hero.jpg) | ![The challenge browser: one card per vulnerable app, expandable to every challenge with its point value and OWASP category, searchable by challenge, app or OWASP code](docs/assets/challenges.jpg) |
+
+| Classic flag board | Quiz |
+|---|---|
+| ![The classic board: each flag card shows its point value and solve count, a case-sensitive badge where casing matters, and instant feedback on submit](docs/assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded on submit](docs/assets/quiz.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The app ships a fixed dark theme. The board ranks

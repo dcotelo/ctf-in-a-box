@@ -26,6 +26,11 @@ each UI-only one, and resumes if you stop:
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
+![The guided setup wizard in a terminal: an ASCII banner, then numbered steps prompting for each value inline with the matching GitHub URL shown alongside](assets/wizard.jpg)
+
+<sup>The wizard, mid-run: every value is asked for inline with the GitHub page
+it comes from, and the run resumes wherever you stopped.</sup>
+
 **The modules question drives the rest of the wizard.** It offers the module
 ids this build knows (`secure-development quiz classic`) and then asks only
 what the ones you picked actually need:
