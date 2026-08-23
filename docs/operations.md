@@ -306,6 +306,31 @@ The panel offers:
     bought afterwards bought nothing, so that split is the difference between
     "hints are used" and "hints help".
 
+  **What each figure counts.** Several of these mean something narrower than
+  their label, and the narrow reading is the one that matters when you quote a
+  number at a closing ceremony:
+
+  | Figure | Counts | Does not count |
+  |---|---|---|
+  | **On a team** | Distinct logins on a team **right now** | Anyone who has since left |
+  | **Ever on a team** | Distinct logins that have **ever** joined one — survives leaving and switching | Signing in; that leaves no record at all |
+  | **Submitted** | Made at least one submission in any module | — |
+  | **Scored** | Earned at least one point-bearing item in any module, Secure Development included | Submissions that never landed a point |
+  | **Stuck** | Submitted **and never scored** | Anyone who has not submitted yet |
+  | **Solves** (per challenge) | Distinct contestants who earned it | Repeat submissions by the same person |
+  | **Attempts** (per challenge) | Every submission against it, right or wrong | Secure Development items, which do not appear in this table at all |
+  | **Solve rate** | solves ÷ **the people who tried it** | The rest of the event; this is not an event-wide difficulty figure |
+  | **Avg tries** | Mean attempts taken by the contestants who **did** solve it | Everyone still stuck on it — which is why a low rate and a low average can coexist |
+  | **Median time** | Median seconds from a contestant's **first attempt** to their solve | Items earned before `firstAt` existed; those carry no start time |
+  | **Team points** | The **sum** of each member's own totals | Nothing — and that is the catch: the leaderboard folds the **union** of their solves, so a challenge two teammates both solved counts once there and twice here |
+  | **Hints before solving** | Hints bought **before** the buyer earned that item | Hints bought afterwards, and hints for items never solved |
+
+  Solve rate can never exceed 100%: its denominator is the larger of "people
+  with an attempt row" and "people who solved it", because an earned row can
+  exist without an attempt row (the demo seed writes answers directly, and so
+  does any data predating the attempts hash). Dividing by attempt rows alone
+  once produced solve rates of 200% and 300% on a seeded event.
+
   The tab ends with **what these numbers do not measure**, and that list ships
   in the API payload too rather than living only here — a metric whose limits
   travel separately from it gets quoted without them. In short: team points on
