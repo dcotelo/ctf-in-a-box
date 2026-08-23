@@ -811,7 +811,7 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 | `sync/src/config.js` | add `classic` to `KNOWN_MODULES` (tolerated so the shared `event.yaml` can't crash-loop the poller; `classic` never produces a score for `sync` to relay — §2) |
 | `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
 | `setup/ctf-setup.sh` | recognise the `classic` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz` (§7) |
-| `apps/web/src/lib/classic-keys.ts` | key names/builders, `normalizeFlag`, challenge-id generation — dependency-free, shared by the client-side admin form and the server-only store |
+| `apps/web/src/lib/classic-keys.ts` | key names/builders, the flag comparison forms (`normalizeFlag`, `caseSensitiveFlagForm`, `flagComparisonForm`), challenge-id generation — dependency-free, shared by the client-side admin form and the server-only store |
 | `apps/web/src/lib/classic-store.ts` | the module's own `ctf:classic:*` Redis store, its atomic flag-grading Lua script, and the admin/contestant secrecy split |
 | `apps/web/src/lib/markdown.ts` + `apps/web/src/components/markdown.tsx` | the restricted Markdown parser and its node-tree-to-React renderer for challenge descriptions |
 | `apps/web/src/app/api/classic/submit/route.ts` + `apps/web/src/app/api/admin/classic/route.ts` | the flag-submission and organizer-authoring wire contract |

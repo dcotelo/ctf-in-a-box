@@ -195,6 +195,10 @@ export type ChallengeDraft = {
   description: string;
   points: string;
   flag: string;
+  /** Compare the flag with capitalisation intact (issue #193). A plain boolean
+   *  rather than the string every other field here is: those are strings
+   *  because a number input can hold "" mid-edit, which a checkbox cannot. */
+  caseSensitive: boolean;
 };
 
 /** The form's whole state: the editable draft plus the identity/position the
@@ -218,10 +222,11 @@ export type ChallengePayload = {
   points: number;
   order: number;
   flag: string;
+  caseSensitive?: boolean;
 };
 
 export function emptyDraft(defaultCategory: string = ""): ChallengeDraft {
-  return { title: "", category: defaultCategory, description: "", points: "10", flag: "" };
+  return { title: "", category: defaultCategory, description: "", points: "10", flag: "", caseSensitive: false };
 }
 
 /** A brand-new challenge, positioned at the end of the list. No id: one is
@@ -236,7 +241,17 @@ export function newChallengeEditor(nextOrder: number, defaultCategory: string = 
  *  organizer to retype the whole thing from memory, and a mistake there
  *  silently redefines what counts as solved for every contestant. */
 export function draftFromChallenge({ challenge: c, flag }: AdminChallenge): ChallengeDraft {
-  return { title: c.title, category: c.category, description: c.description, points: String(c.points), flag };
+  return {
+    title: c.title,
+    category: c.category,
+    description: c.description,
+    points: String(c.points),
+    flag,
+    // Coerced, because the stored field is absent-when-false and a checkbox
+    // needs a real boolean — an `undefined` here makes React switch the input
+    // from controlled to uncontrolled the first time it is ticked.
+    caseSensitive: c.caseSensitive === true,
+  };
 }
 
 /** Opens an existing challenge for editing: its draft, plus the id and order
@@ -289,6 +304,11 @@ export function payloadFromEditor(
     points: Number(d.points),
     order: editor.order,
     flag: d.flag,
+    // Sent only when true, matching the route's parser and the store's stored
+    // shape — one challenge has one representation whichever door it came
+    // through, so an unchanged challenge re-saved from this form produces a
+    // byte-identical record.
+    ...(d.caseSensitive ? { caseSensitive: true as const } : {}),
   };
 }
 
@@ -1184,6 +1204,27 @@ export function ChallengeForm({
           onChange={(e) => onChange({ ...draft, flag: e.target.value })}
           className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
         />
+      </label>
+
+      {/* Directly under the flag, because it changes what that flag MEANS —
+          not down with the presentation fields. */}
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={draft.caseSensitive}
+          disabled={pending}
+          onChange={(e) => onChange({ ...draft, caseSensitive: e.target.checked })}
+          className="mt-0.5 h-4 w-4 flex-none accent-[#2563eb]"
+        />
+        <span className="text-xs text-muted">
+          <span className="text-white">Case-sensitive flag</span>
+          <span className="block">
+            Off by default, which forgives the commonest contestant mistake. Turn it on only when the
+            capitalisation IS the answer — a recovered password, a base64 string. Contestants are told
+            on the challenge card, so nobody loses to a shift key without knowing why. Leading and
+            trailing spaces are still forgiven either way.
+          </span>
+        </span>
       </label>
 
       <label className="flex flex-col gap-1">

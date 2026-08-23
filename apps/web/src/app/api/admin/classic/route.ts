@@ -73,7 +73,16 @@ type ChallengePayload = Challenge & { flag: string };
  *  challenge field literally named `categories`, before it reintroduces the
  *  ambiguity this route's shape-only dispatch depends on there being none
  *  of. */
-export const CHALLENGE_KEYS = new Set(["id", "title", "category", "description", "points", "order", "flag"]);
+export const CHALLENGE_KEYS = new Set([
+  "id",
+  "title",
+  "category",
+  "description",
+  "points",
+  "order",
+  "flag",
+  "caseSensitive",
+]);
 export const CATEGORIES_KEYS = new Set(["categories"]);
 export const IMPORT_KEYS = new Set(["import"]);
 
@@ -97,6 +106,10 @@ function parseChallengePayload(body: unknown): ChallengePayload | null {
   if (typeof body.points !== "number" || !Number.isInteger(body.points) || body.points < 0) return null;
   if (typeof body.order !== "number" || !Number.isInteger(body.order)) return null;
   if (typeof body.flag !== "string" || body.flag.trim().length === 0) return null;
+  // Optional; a present non-boolean is a malformed body, not a falsy value to
+  // shrug at. A string "false" would otherwise make a challenge case-sensitive
+  // that the organizer explicitly turned off.
+  if (body.caseSensitive !== undefined && typeof body.caseSensitive !== "boolean") return null;
   return {
     id: body.id,
     title: body.title.trim(),
@@ -105,6 +118,10 @@ function parseChallengePayload(body: unknown): ChallengePayload | null {
     points: body.points,
     order: body.order,
     flag: body.flag,
+    // Normalized to "present only when true", the same shape the store writes
+    // and the bundle exports, so one challenge has one representation
+    // whichever door it came through.
+    ...(body.caseSensitive ? { caseSensitive: true as const } : {}),
   };
 }
 

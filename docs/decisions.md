@@ -1331,6 +1331,26 @@ Unicode-normalisation differences are invisible on screen, and case is not the
 skill being tested. A contestant who found the flag should not lose it to any
 of those.
 
+*Amended (issue #193):* the lowercasing — and ONLY the lowercasing — is now a
+per-challenge choice. It stays off by default, because the reasoning above is
+still right for almost every flag. But it made a whole class of answer
+inexpressible: a recovered password, a base64 string, a case-sensitive hash,
+anything where `AbC` and `abc` are different facts. Such a challenge could be
+authored, and the board would then accept the wrong-cased answer as correct.
+
+Trim and NFC apply in both modes and are not negotiable: a trailing space a
+contestant cannot see is not a wrong answer, and two spellings that render
+identically must still compare equal. Neither of those is what
+"case-sensitive" is asking for.
+
+The mode is stored on the PUBLIC challenge record and shown on the card, which
+is the part that makes it fair — a contestant who submits the right characters
+and is told "Not quite" would otherwise have no way to work out why, and
+knowing that case matters gives away nothing about the answer. It also keeps
+Lua out of the decision: both comparison forms are computed in JS and passed
+in, and the script only chooses between them, so `string.lower`'s ASCII-only
+behaviour still never touches a flag.
+
 **Flags are stored recoverably, in plaintext, not as a digest.** This is the
 decision most likely to look wrong at a glance, so the reasoning matters. A
 digest would let the organizer verify a submission without holding the

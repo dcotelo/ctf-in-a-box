@@ -73,7 +73,7 @@ scoring code to write.
 
 | Feature | What it means for you |
 |---|---|
-| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge points. Submissions are normalised, so casing and stray whitespace never cost a solve. |
+| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge points. Submissions are normalised, so stray whitespace never costs a solve — and casing does not either, unless a challenge is explicitly marked case-sensitive, which contestants are told on the card. |
 | **Rich descriptions, bulk authoring** | A sanitised Markdown subset for descriptions; author in `/admin` or import/export the whole board as one JSON bundle. |
 
 ## A closer look

@@ -100,3 +100,29 @@ describe("serializeBundle", () => {
     expect(text).toContain("\n  ");
   });
 });
+
+// Case-sensitive flags across the bundle boundary (issue #193).
+/** `valid` with the given extra fields merged onto its FIRST challenge. */
+function withFirstChallenge(extra: Record<string, unknown>): string {
+  const [first, ...rest] = valid.challenges;
+  return JSON.stringify({ ...valid, challenges: [{ ...first, ...extra }, ...rest] });
+}
+
+describe("caseSensitive in a bundle", () => {
+  it("accepts the field and refuses a non-boolean", () => {
+    // A hand-edited bundle is the realistic source of `"caseSensitive": "true"`,
+    // and a truthy string would silently make a challenge case-sensitive that
+    // its author did not mean to.
+    const ok = parseBundle(withFirstChallenge({ caseSensitive: true }));
+    expect(ok.ok).toBe(true);
+
+    const bad = parseBundle(withFirstChallenge({ caseSensitive: "true" }));
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors.some((e) => e.where.endsWith(".caseSensitive"))).toBe(true);
+  });
+
+  it("still accepts a bundle exported before the field existed", () => {
+    // The contract of a versioned bundle: an older export must keep importing.
+    expect(parseBundle(withFirstChallenge({})).ok).toBe(true);
+  });
+});
