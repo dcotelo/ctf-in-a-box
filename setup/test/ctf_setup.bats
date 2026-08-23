@@ -818,6 +818,10 @@ YAML
   # switch); `teams: { max_size: 6 }` still capped teams at 4
   # (TEAM_MAX_MEMBERS in team-store.ts). Both are gone rather than corrected,
   # because a key that cannot change the answer misleads at any value.
+  #
+  # Both of those are history, not current behaviour: the member cap is an
+  # /admin field now ("Players per team", ADRs 44-45) and TEAM_MAX_MEMBERS is
+  # only what it falls back to. The keys stay unemitted either way.
   run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -E 'hints|teams')" ]

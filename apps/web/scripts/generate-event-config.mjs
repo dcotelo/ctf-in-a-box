@@ -125,7 +125,7 @@ function derivedTargets(mods) {
 const IGNORED_TOP_LEVEL_KEYS = {
   hints: "hints are on by default and turned off in /admin (ADR 31)",
   teams:
-    "teams are always available; /admin opens and closes registration, and the member cap is TEAM_MAX_MEMBERS in team-store.ts",
+    "teams are always available; /admin opens and closes registration and sets the per-team member cap, for which TEAM_MAX_MEMBERS in team-store.ts is only the default",
 };
 
 function warnIgnoredKeys(doc) {

@@ -1584,8 +1584,9 @@ wiz_event_yaml() {
   # Where each setting actually lives:
   #   hints    on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED), turned
   #            off in /admin — ADR 31.
-  #   teams    always available; /admin opens and closes registration. The
-  #            4-member cap is TEAM_MAX_MEMBERS in team-store.ts.
+  #   teams    always available; /admin opens and closes registration AND
+  #            sets the per-team member cap ("Players per team"). The 4 in
+  #            team-store.ts is only the default that field falls back to.
   #
   # A config written before this change still parses: the generator warns on
   # both keys rather than failing.
