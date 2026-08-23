@@ -42,7 +42,15 @@ jobs:
           CI='|^\.github/workflows/ci\.yml$'
           m() { if printf '%s\n' "$changed" | grep -qE "$1"; then echo true; else echo false; fi; }
           {
-            echo "app=$(m "^apps/web/|^scripts/acceptance-app\.sh$CI")"
+            # setup/targets.tsv is here for the same reason the corpus is on
+            # `sync` below: it is the ONLY authoritative source of a fork's
+            # repo name (ctf-setup.sh forks with --fork-name derived from it),
+            # and both `app` and `sync` keep a copy pinned to it by a
+            # differential test. Without this line a PR editing only the tsv —
+            # an upstream rename, a new target — runs neither suite, so the one
+            # guard that would catch the drift stays silent on the exact commit
+            # that causes it.
+            echo "app=$(m "^apps/web/|^setup/targets\.tsv$|^scripts/acceptance-app\.sh$CI")"
             echo "scorer=$(m "^scorer/|^scripts/acceptance-scorer\.sh$CI")"
             # The modules: reader contract is shared between sync and
             # ctf-setup.sh: setup/test/corpus/ is one corpus asserted from
@@ -51,7 +59,7 @@ jobs:
             # event.yaml.example. Each area therefore has to run when the
             # corpus (or the example config) moves, or half the contract
             # goes unchecked on the PR that breaks it.
-            echo "sync=$(m "^event\.yaml\.example|^sync/|^setup/test/corpus/$CI")"
+            echo "sync=$(m "^event\.yaml\.example|^sync/|^setup/test/corpus/|^setup/targets\.tsv$CI")"
             # deploy/fly is here because its checks ARE shell: a bats suite
             # plus a shellcheck'd deploy script. There is no `terraform
             # validate` equivalent for fly.toml to give it its own job.

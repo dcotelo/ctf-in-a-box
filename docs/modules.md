@@ -715,8 +715,28 @@ gets to skip sections that apply to it.
 `ctf-setup.sh` implements `secure-development`'s provisioning today
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):
 
-1. **Fork** each configured target from `OWASP-CTF/<repo>` into the event
-   org (`gh repo fork "OWASP-CTF/$r" --org "$org"`).
+1. **Fork** each configured target into the event org
+   (`gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name"`).
+
+   **`setup/targets.tsv` is the canonical source of both halves of that
+   command.** Its `upstream_repo` column names what is forked (`digininja/DVWA`,
+   `erev0s/VAmPI`, …, pinned to the `ref` column), and `prov_repo_name` — the
+   basename of that same column — names the fork. Nothing else decides a fork's
+   name; every other place that spells one out is a **copy**, and there are two
+   that matter: `sync/src/config.js`'s `REPO_NAMES`, which decides the repos the
+   poller reads score comments from, and `apps/web/src/lib/apps.ts`'s, which
+   builds the fork links contestants click.
+
+   Both copies are pinned to the tsv by a differential test on each side
+   (`sync/test/repo-names.differential.test.js`,
+   `apps/web/src/lib/__tests__/apps-repo-names.differential.test.ts`), and
+   `setup/test/ctf_setup.bats` pins the derivation itself. That matters because
+   the drift is silent in both directions: a wrong name gives contestants a fork
+   link that 404s, or — quieter — leaves the poller watching a repo nobody
+   opens PRs against, so scoring stops for that target while every service
+   still looks healthy. **A module adding a target adds it to `targets.tsv`
+   first**, and updates the copies to match; changing a copy alone is the bug
+   the tests exist to catch (issue #149).
 2. **Render + commit** the scoring workflow: `cmd_org` renders the in-repo
    template (`scorer/consumer-workflow.example.yml`) per target —
    substituting the event org, the target id, and a default `APP_URL` — and
