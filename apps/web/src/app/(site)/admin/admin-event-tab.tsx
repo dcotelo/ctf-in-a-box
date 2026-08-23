@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
+import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
 import type { CommitNumber, ConfirmState } from "./types";
@@ -121,6 +122,16 @@ export default function AdminEventTab({
   // makes a set legal is that SOMETHING is live, not that something switchable
   // is live.
   const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
+  // Effective state for the schedule section's readout — the same
+  // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
+  // server-side, built on the shared outsideWindow. Client render time is an
+  // acceptable "now": the readout re-computes on every settings change, and
+  // an organizer parked on the tab across a boundary sees it on their next
+  // interaction.
+  const nowMs = Date.now();
+  const scoringLiveNow = !settings.paused && !outsideWindow(nowMs, settings.scoringStartsAt, settings.scoringEndsAt);
+  const registrationOpenNow =
+    settings.teamRegistrationOpen && !outsideWindow(nowMs, settings.registrationStartsAt, settings.registrationEndsAt);
   // No "Event" heading inside the panel: the old flat layout needed an <h3> to
   // separate this group from the module sections below it, but the tab strip is
   // that heading now (the panel is labelled by its own tab via
@@ -255,6 +266,22 @@ export default function AdminEventTab({
             window — on top of the manual toggles above.
           </span>
         </div>
+        {/* The EFFECTIVE state, computed from the same fields this section
+            edits — manual toggle AND window, via the shared outsideWindow
+            (the app's copy of the three-reader contract). Without it the
+            organizer does that boolean in their head from four datetime
+            fields plus two toggles, mid-event (issue #200, 3.3). Client
+            render time is the "now"; it refreshes with every edit. */}
+        <p className="text-xs leading-relaxed">
+          <span className="uppercase tracking-wider text-muted">Right now: </span>
+          <span className={scoringLiveNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
+            scoring {scoringLiveNow ? "is live" : settings.paused ? "is frozen (manual)" : "is frozen (outside its window)"}
+          </span>
+          <span className="text-muted"> · </span>
+          <span className={registrationOpenNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
+            registration {registrationOpenNow ? "is open" : settings.teamRegistrationOpen ? "is closed (outside its window)" : "is closed (manual)"}
+          </span>
+        </p>
         <ScheduleField
           key={`ss-${settings.scoringStartsAt ?? ""}`}
           label="Scoring opens"

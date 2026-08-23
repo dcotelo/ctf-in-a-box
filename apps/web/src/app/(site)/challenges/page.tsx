@@ -6,6 +6,8 @@ import HintNotice from "@/components/hint-notice";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getHintAvailability, getHintNotice } from "@/lib/hint-store";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
@@ -50,14 +52,21 @@ export default async function ChallengesPage() {
   // the root layout resolves module names per request, so every route under it
   // does (see resolved-modules.ts) — the caching just keeps these two reads
   // off Redis/GitHub on each of those renders.
-  const [catalog, hintAvailability, title, hints] = await Promise.all([
+  const [catalog, hintAvailability, title, hints, session] = await Promise.all([
     getChallengeCatalog(),
     getHintAvailability(),
     pageTitle(),
     // Must agree with the /admin toggle and show the organizer's configured
     // price, not the hardcoded default the grid beside it already ignores.
     getHintNotice(),
+    // For the banner's sign-in clause only — the page renders dynamically
+    // regardless (root layout resolves module names per request), so this
+    // adds no rendering mode change, just one session read.
+    auth.api.getSession({ headers: await headers() }),
   ]);
+  // Does ANY challenge actually carry a hint? The banner must not promise
+  // 💡 marks on a board that renders none (issue #200, 3.5).
+  const anyHintMarked = Object.values(hintAvailability).some((ids) => (ids?.length ?? 0) > 0);
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
   const appNoun = enabledApps.length === 1 ? "app" : "apps";
@@ -68,7 +77,7 @@ export default async function ChallengesPage() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Targets" title={title} description={description} />
-      <HintNotice active={hints.active} cost={hints.cost} />
+      <HintNotice active={hints.active} cost={hints.cost} signedIn={!!session} anyMarked={anyHintMarked} />
       <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={hintAvailability} />
     </div>
   );
