@@ -28,9 +28,9 @@ import {
   listChallenges,
   type ViewerClassic,
 } from "@/lib/classic-store";
-import { isModuleEnabled } from "@/lib/modules";
-import { redirectIfTeamless } from "@/lib/require-team";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
+import { redirectIfTeamless } from "@/lib/require-team";
 
 const DEFAULT_TITLE = "Classic CTF";
 const DEFAULT_BLURB = "Find the flag, submit the string, take the points.";
@@ -78,7 +78,7 @@ function deriveStatus(
 }
 
 export default async function FlagsPage() {
-  if (!isModuleEnabled("classic")) notFound();
+  if (!(await isModuleLive("classic"))) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;

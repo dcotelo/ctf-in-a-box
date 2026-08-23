@@ -16,6 +16,7 @@ const { isModuleEnabled, isAdminLogin, getSession, listQuestions, getViewerQuiz,
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // QuizBoard (the client component this page renders) calls useRouter for
 // its post-submit refresh — needs a mock the same way quiz-board.test.tsx

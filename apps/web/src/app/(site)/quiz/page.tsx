@@ -20,9 +20,9 @@ import QuizBoard, { type QuizQuestionView, type QuizStatus } from "@/components/
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
-import { isModuleEnabled } from "@/lib/modules";
-import { redirectIfTeamless } from "@/lib/require-team";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
+import { redirectIfTeamless } from "@/lib/require-team";
 import { getViewerQuiz, listQuestions, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN, type ViewerQuiz } from "@/lib/quiz-store";
 
 // `metadata` is a static export and cannot await Redis for the organizer's
@@ -74,7 +74,7 @@ function deriveStatus(
 }
 
 export default async function QuizPage() {
-  if (!isModuleEnabled("quiz")) notFound();
+  if (!(await isModuleLive("quiz"))) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;

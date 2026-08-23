@@ -5,7 +5,7 @@ import {
   listChallenges,
   type ClassicTotal,
 } from "@/lib/classic-store";
-import { isModuleEnabled } from "@/lib/modules";
+import { getEnabledModuleIds, isModuleLive } from "@/lib/enabled-modules";
 import { getQuizTotals, getTeamQuizTotalsBatch, listQuestions, type QuizTotal } from "@/lib/quiz-store";
 import { rankByStanding } from "./rank";
 import type { AppProgress, LeaderboardData, LeaderboardEntry, ModuleProgress, TeamStanding } from "./types";
@@ -85,9 +85,10 @@ import type { ModuleId } from "@/lib/modules";
  * rather than by moving a pipeline stage.
  */
 export async function withModuleContributions(data: LeaderboardData): Promise<LeaderboardData> {
-  const secureDev = isModuleEnabled("secure-development") && data.capabilities.apps;
-  const quizEnabled = isModuleEnabled("quiz");
-  const classicEnabled = isModuleEnabled("classic");
+  const liveModules = await getEnabledModuleIds();
+  const secureDev = liveModules.has("secure-development") && data.capabilities.apps;
+  const quizEnabled = liveModules.has("quiz");
+  const classicEnabled = liveModules.has("classic");
 
   // Both modules' reads are KICKED OFF before either is awaited, so a
   // two-module event overlaps them instead of paying for them back to back —
@@ -240,7 +241,7 @@ type Overlay = {
  * reason.
  */
 export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
-  if (!isModuleEnabled("quiz") || teams.length === 0) return teams;
+  if (!(await isModuleLive("quiz")) || teams.length === 0) return teams;
 
   // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
   // totals carry POINTS (and with them the team board's order), the question
@@ -273,7 +274,7 @@ export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamSta
  * classic outage must never cost a team its quiz points.
  */
 export async function withTeamClassicPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
-  if (!isModuleEnabled("classic") || teams.length === 0) return teams;
+  if (!(await isModuleLive("classic")) || teams.length === 0) return teams;
 
   // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
   // totals carry POINTS (and with them the team board's order), the challenge

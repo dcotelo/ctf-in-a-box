@@ -160,3 +160,47 @@ describe("resolveModules", () => {
     ]).toEqual([true, true, true, true, true, true, true]);
   });
 });
+
+// Runtime enablement (issue #175). `resolveModules` gained an optional live
+// set; omitting it must keep the pre-#175 behaviour exactly, which is what
+// every caller written before this relied on.
+describe("resolveModules with a live module set", () => {
+  it("without a set, resolves the baked modules exactly as before", () => {
+    expect(resolveModules({}).map((m) => m.id)).toEqual(enabledModules.map((m) => m.id));
+  });
+
+  it("filters to the live set", () => {
+    expect(resolveModules({}, new Set(["quiz"])).map((m) => m.id)).toEqual(["quiz"]);
+  });
+
+  it("resolves a module the baked config never mentioned", () => {
+    // classic is not in this fixture's event.yaml, so there is no config entry
+    // to build a def from — the registry has to supply one. Without this a
+    // runtime-enabled module resolves to nothing and renders blank.
+    const resolved = resolveModules({}, new Set(["classic"]));
+    expect(resolved.map((m) => m.id)).toEqual(["classic"]);
+    expect(resolved[0].title).toBeTruthy();
+  });
+
+  it("keeps the organizer's event.yaml order and APPENDS runtime additions", () => {
+    // Ordering is deliberate: toggling a module off and back on must not
+    // reshuffle the nav. Baked order first (filtered to live), then anything
+    // newly enabled, which has no order of its own.
+    const ids = resolveModules({}, new Set(["classic", "quiz", "secure-development"])).map((m) => m.id);
+    expect(ids.slice(0, 2)).toEqual(["secure-development", "quiz"]);
+    expect(ids[2]).toBe("classic");
+  });
+
+  it("applies title overrides to a runtime-enabled module too", () => {
+    const resolved = resolveModules({ classic: { title: "Flag Hunt" } }, new Set(["classic"]));
+    expect(resolved[0].title).toBe("Flag Hunt");
+  });
+
+  it("resolves an empty live set to no modules", () => {
+    // The resolver itself does NOT second-guess an empty set — refusing to
+    // disable the last module is the admin route's job, where it can report a
+    // reason. Everything upstream of here has already fallen back to baked
+    // rather than handing this an empty set by accident.
+    expect(resolveModules({}, new Set())).toEqual([]);
+  });
+});

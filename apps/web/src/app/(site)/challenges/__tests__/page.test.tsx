@@ -18,6 +18,7 @@ const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEn
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog }));
 vi.mock("@/lib/hint-store", () => ({

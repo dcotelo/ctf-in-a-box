@@ -34,6 +34,7 @@ const { isModuleEnabled, getSession, listChallenges, listCategories, getSolveCou
 const captured: { challenges: Record<string, unknown>[] } = { challenges: [] };
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 // Runtime admin grants (issue #147) put a Redis read behind the page's
 // admin-link check for any signed-in viewer. Mocked to empty here: this suite
 // is about the view model's fields, and an unmocked SMEMBERS turns it into a

@@ -24,8 +24,9 @@ import { getViewerHints } from "@/lib/hint-store";
 import type { AppProgress, LeaderboardEntry, ModuleProgress } from "@/lib/leaderboard/types";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
 import { challengeTotal, nonPatchedCount } from "@/lib/leaderboard/non-patched";
-import { isModuleEnabled, type ModuleId } from "@/lib/modules";
+import { type ModuleId } from "@/lib/modules";
 import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib/team-store";
 import { upstashPipeline } from "@/lib/upstash";
@@ -67,9 +68,10 @@ export default async function ProfilePage() {
   const login = (session.user as { login?: string }).login;
   if (!login) redirect("/");
 
-  const quizEnabled = isModuleEnabled("quiz");
-  const classicEnabled = isModuleEnabled("classic");
-  const secureDevEnabled = isModuleEnabled("secure-development");
+  const liveModules = await getEnabledModuleIds();
+  const quizEnabled = liveModules.has("quiz");
+  const classicEnabled = liveModules.has("classic");
+  const secureDevEnabled = liveModules.has("secure-development");
 
   // Quiz/classic totals and item lists are per-login and cheap to fetch here
   // regardless of board size (two HGETALLs each — see getQuizTotals /

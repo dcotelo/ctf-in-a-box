@@ -6,8 +6,14 @@
 // event the proxy still runs on /quiz. Two things must hold and neither left
 // a trace in the old matcher-only test:
 //
-//   - a disabled module's route is NOT gated (there is nothing behind it to
-//     protect; it 404s on its own, as it did before the matcher grew), and
+//   - a disabled module's route IS gated, along with every other registry
+//     route. It used to fall through, on the reasoning that there was nothing
+//     behind it to protect. Runtime enablement (issue #175) ended that: the
+//     proxy is middleware and cannot read Redis to learn the live set, so it
+//     gates the superset instead. Gating a route whose module is off costs
+//     nothing (the page 404s either way), and the alternative — a module
+//     enabled mid-event sitting un-gated until the next rebuild — is the one
+//     outcome the gate exists to prevent.
 //   - it must not be treated as /profile either. /profile used to be the
 //     FALLTHROUGH, so widening the matcher silently turned every non-enabled
 //     module route into a signed-out redirect to "/" — a public 404 became a
@@ -62,12 +68,18 @@ describe("the proxy on a secure-development-only event", () => {
     expect(destination("/challenges")).toBe("/gate");
   });
 
-  it("lets the disabled module's route through untouched", () => {
+  it("gates a route this event has disabled, rather than letting it through", () => {
+    // The behaviour change #175 required. A module can now be switched ON
+    // mid-event; the proxy cannot see that happen, so the only way its route
+    // is gated from the first request is for the gate to cover the whole
+    // registry up front.
     mocks.getSessionCookie.mockReturnValue(null);
-    expect(destination("/quiz")).toBeNull();
+    expect(destination("/quiz")).toBe("/gate");
   });
 
   it("does not bounce a signed-out visitor off the disabled route", () => {
+    // Specifically NOT "/" — the /profile fallthrough bug. A gated route sends
+    // you to /gate; only /profile sends you to the landing page.
     mocks.getSessionCookie.mockReturnValue(null);
     expect(destination("/quiz")).not.toBe("/");
   });

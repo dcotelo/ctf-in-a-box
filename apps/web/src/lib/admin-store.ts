@@ -6,6 +6,7 @@ import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
   enabledModules,
   isModuleEnabled,
+  isModuleId,
   MODULE_TITLE_MAX,
   MODULE_BLURB_MAX,
   type ModuleId,
@@ -130,6 +131,15 @@ export type AdminSettings = {
   /** Organizer-authored title/blurb overrides, keyed by module id. Unknown or
    *  disabled module ids are dropped on read (see decodeSettings). */
   moduleOverrides: ModuleOverrides;
+  /** The modules this event actually serves, overriding `event.yaml`'s baked
+   *  set (issue #175). **Null means "no override" — use the baked set**, which
+   *  is what makes `event.yaml` the seed and the outage fallback rather than
+   *  the live truth.
+   *
+   *  Read here but not yet written by anything: the admin control that sets it
+   *  is the second half of #175. Unknown ids are dropped on read, so a module
+   *  removed from the registry cannot re-enable itself from stale state. */
+  enabledModuleIds: ModuleId[] | null;
 };
 
 /** True when a scheduled window puts `now` outside [startsAt, endsAt].
@@ -252,7 +262,25 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     updatedBy: h.updatedBy ?? null,
     updatedAt: h.updatedAt ?? null,
     moduleOverrides,
+    enabledModuleIds: decodeEnabledModuleIds(h.enabledModules),
   };
+}
+
+/** Decodes the runtime enablement set: a comma-separated id list, or absent.
+ *
+ *  Returns null — "no override, use the baked set" — for absent, empty, and
+ *  for a value that survives filtering with nothing left. That last case is
+ *  the one worth stating: a stored set naming only ids the registry no longer
+ *  knows would otherwise decode to "enable nothing", turning a stale field
+ *  into a site with no content. Falling back to baked is the same fail-open
+ *  rule the rest of this resolution follows. */
+function decodeEnabledModuleIds(raw: string | undefined): ModuleId[] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  const ids = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(isModuleId);
+  return ids.length > 0 ? [...new Set(ids)] : null;
 }
 
 export async function getAdminSettings(): Promise<AdminSettings> {

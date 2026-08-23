@@ -33,11 +33,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { isModuleEnabled } from "@/lib/modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { event } from "@/lib/site";
 
+// secure-development alone stays a module-scope constant: it is the one
+// module that is NOT runtime-toggleable (its targets are provisioning input,
+// not a flag — see the ADR), so baked and live can never disagree about it.
+// quiz and classic CAN be toggled mid-event, and this page's claims about
+// what is collected have to match what actually is, so they are read
+// per-request inside the component below.
 const secureDev = isModuleEnabled("secure-development");
-const quiz = isModuleEnabled("quiz");
-const classic = isModuleEnabled("classic");
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -111,7 +116,11 @@ const cookies: { name: string; what: string; life: string }[] = [
   },
 ];
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const liveModules = await getEnabledModuleIds();
+  const quiz = liveModules.has("quiz");
+  const classic = liveModules.has("classic");
+
   return (
     <div className="flex flex-col gap-10">
       <PageHeader

@@ -3,6 +3,7 @@ import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 import { rankByStanding } from "../rank";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 
 const mocks = vi.hoisted(() => ({
   isModuleEnabled: vi.fn((id: string) => id === "secure-development"),
