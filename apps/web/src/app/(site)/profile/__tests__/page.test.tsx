@@ -210,3 +210,28 @@ describe("profile per-module block content", () => {
     expect(html).not.toContain(">40 pts<");
   });
 });
+
+// The header used to be three secure-development figures (patched /
+// non-patched / total) and nothing else — a contestant whose points were
+// mostly quiz got a header describing a game they weren't playing, led by a
+// wall of not-done ("315 non-patched"). Issue #200, 2.4.
+describe("profile header stats", () => {
+  it("shows one done/available stat per enabled module and drops the non-patched wall", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "quiz" || id === "secure-development");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 2, lastAt: null }]]));
+    listQuestions.mockResolvedValue([{ points: 10 }, { points: 20 }, { points: 30 }] as never[]);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    // Quiz gets its own header stat, in its own vocabulary: 2 of 3 answered.
+    expect(html).toContain("answered");
+    expect(html).toMatch(/2<span[^>]*> \/ 3<\/span>/);
+    // Secure-development keeps its patched figure, now as done/available…
+    expect(html).toContain("patched");
+    // …and the standalone not-done headline is gone.
+    expect(html).not.toContain("non-patched");
+  });
+});

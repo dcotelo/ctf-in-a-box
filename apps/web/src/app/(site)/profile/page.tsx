@@ -23,7 +23,7 @@ import {
 import { getViewerHints } from "@/lib/hint-store";
 import type { AppProgress, LeaderboardEntry, ModuleProgress } from "@/lib/leaderboard/types";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
-import { challengeTotal, nonPatchedCount } from "@/lib/leaderboard/non-patched";
+import { challengeTotal } from "@/lib/leaderboard/non-patched";
 import { type ModuleId } from "@/lib/modules";
 import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
@@ -113,7 +113,6 @@ export default async function ProfilePage() {
   // full catalogue to work through.
   const patchedCount = profile?.patched ?? 0;
   const challengeCount = challengeTotal(profile?.total ?? 0);
-  const nonPatched = nonPatchedCount(patchedCount, profile?.total ?? 0);
   // Hint spend is deducted and the app-side modules' points are added, in that
   // order, as overlays — the exact same math (and order) as the leaderboard's
   // withHintPenalties (subtract, floor at 0) followed by
@@ -124,12 +123,21 @@ export default async function ProfilePage() {
   const classicTotal = classicTotals.get(login);
   const classicPoints = classicTotal?.points ?? 0;
   const netPoints = Math.max(0, (profile?.points ?? 0) - viewerHints.spent) + quizPoints + classicPoints;
+  // The bar's denominator covers every enabled module, because its numerator
+  // does: netPoints already includes quiz and classic. Dividing an all-module
+  // numerator by secure-development's maxPoints alone (the old behaviour) let
+  // the two drift — a quiz-heavy contestant's bar understated them against a
+  // ceiling they weren't playing toward (issue #200, 2.4). Clamped because a
+  // deleted question/challenge deliberately leaves banked points in place, so
+  // the numerator can legitimately exceed a shrunken denominator.
+  const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + q.points, 0);
+  const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + c.points, 0);
+  const maxPointsAllModules = (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints;
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
-  const progressPct = !profile
-    ? 0
-    : profile.maxPoints > 0
-      ? (netPoints / profile.maxPoints) * 100
+  const progressPct =
+    maxPointsAllModules > 0
+      ? Math.min(100, (netPoints / maxPointsAllModules) * 100)
       : challengeCount > 0
         ? (patchedCount / challengeCount) * 100
         : 0;
@@ -254,25 +262,39 @@ export default async function ProfilePage() {
               </p>
             </div>
           )}
-          {/* "patched"/"total" are secure-development's own vocabulary (a
-              regression test passing on a submitted patch) — meaningless on
-              an event that never enabled it, so this whole trio is gated the
-              same way the per-app breakdown below is. */}
+          {/* One done/available stat per enabled module, each in its module's
+              own vocabulary. The old header was three secure-development
+              figures (patched / non-patched / total) and nothing else — a
+              contestant whose points were mostly quiz and flags got a header
+              describing a game they weren't playing, opening with a wall of
+              not-done ("315 non-patched") while their real progress sat
+              below the fold (issue #200, 2.4). */}
           {secureDevEnabled && (
-            <>
-              <div>
-                <p className="font-mono text-xl tabular-nums text-[#22c55e]">{patchedCount}</p>
-                <p className="text-[11px] uppercase tracking-wide text-muted">patched</p>
-              </div>
-              <div>
-                <p className="font-mono text-xl tabular-nums text-zinc-300">{nonPatched}</p>
-                <p className="text-[11px] uppercase tracking-wide text-muted">non-patched</p>
-              </div>
-              <div>
-                <p className="font-mono text-xl tabular-nums text-zinc-400">{challengeCount}</p>
-                <p className="text-[11px] uppercase tracking-wide text-muted">total</p>
-              </div>
-            </>
+            <div>
+              <p className="font-mono text-xl tabular-nums text-[#22c55e]">
+                {patchedCount}
+                <span className="text-sm text-muted"> / {challengeCount}</span>
+              </p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">patched</p>
+            </div>
+          )}
+          {quizEnabled && quizQuestions.length > 0 && (
+            <div>
+              <p className="font-mono text-xl tabular-nums text-zinc-200">
+                {quizTotal?.answered ?? 0}
+                <span className="text-sm text-muted"> / {Math.max(quizQuestions.length, quizTotal?.answered ?? 0)}</span>
+              </p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">answered</p>
+            </div>
+          )}
+          {classicEnabled && classicChallenges.length > 0 && (
+            <div>
+              <p className="font-mono text-xl tabular-nums text-zinc-200">
+                {classicTotal?.solved ?? 0}
+                <span className="text-sm text-muted"> / {Math.max(classicChallenges.length, classicTotal?.solved ?? 0)}</span>
+              </p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">solved</p>
+            </div>
           )}
         </div>
       </div>
