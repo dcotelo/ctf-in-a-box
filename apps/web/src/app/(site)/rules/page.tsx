@@ -60,7 +60,7 @@ export default async function RulesPage() {
     {
       heading: "Teams",
       rules: [
-        "You can compete solo or as a team of up to four. Teams are optional, and you can join or create one from your profile after signing in with GitHub.",
+        "Scoring is per team, and you need one before anything you solve counts. Compete solo with a one-click team of one, or in a team of up to four — create or join one from your profile after signing in with GitHub.",
         "Each person belongs to at most one team at a time.",
         ...fromModules("teams"),
       ],

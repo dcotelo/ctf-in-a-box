@@ -322,6 +322,15 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
           body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress. The scorer credits points to the account that authors the pull request, so play from the same account you sign in with.",
         },
         {
+          // Scores for this module arrive from GitHub through the poller, so
+          // unlike quiz/classic there is no submission the box can refuse — a
+          // teamless patch is silently ingested against no team. That is why
+          // this step says "before you patch" instead of "or you'll be
+          // refused" (see the team requirement in docs/operations.md).
+          title: "Join a team, or play solo",
+          body: "Scoring is per team. From your profile: create a team, join one by code or invite link, or hit Play solo for a one-click team of one. Do it before you patch — your PRs are scored either way, but points earned while you're on no team count toward no team's total.",
+        },
+        {
           title: "Pick a target and a challenge",
           body: `Browse the ${ctx.appCount} vulnerable ${ctx.appCount === 1 ? "app" : "apps"} on the Challenges page: ${ctx.appList}. Each has dozens of independent challenges at different difficulty levels; pick any one to start.`,
         },
@@ -474,7 +483,7 @@ git push -u origin fix/<short-description>`,
       notes: [
         "Every push to an open PR re-runs the scorer, and the run evaluates your whole app, so you can keep stacking fixes on one branch or open a fresh PR per fix, whichever you prefer.",
         "Your best-ever result per challenge is what counts. A later fix always replaces an earlier miss; you can never lose points by trying.",
-        "Points are credited to the GitHub account that authored the PR. Team totals are the sum of what each member lands individually.",
+        "Points are credited to the GitHub account that authored the PR. A challenge patched by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
       ],
       scoring:
         "Every challenge is worth a fixed number of points based on difficulty, and harder vulnerabilities pay out more. Points are awarded the moment your PR’s regression test passes, and your best-ever result for each challenge is what counts, so a later fix always replaces an earlier miss. Your live total, per-app breakdown, and patched and non-patched counts are visible on your profile once you’re signed in.",
@@ -683,6 +692,10 @@ git push -u origin fix/<short-description>`,
           body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress, and nothing is graded for a signed-out visitor.",
         },
         {
+          title: "Join a team, or play solo",
+          body: "Scoring requires a team — answers don't count until you're on one, and the quiz page sends a teamless player to their profile first. From there: create a team, join one by code or invite link, or hit Play solo for a one-click team of one.",
+        },
+        {
           title: "Open the question set",
           body: "Every question the organizers have published is on the Quiz page, each one showing what it is worth. Take them in any order, at your own pace, and come back to the rest later.",
         },
@@ -698,7 +711,7 @@ git push -u origin fix/<short-description>`,
       notes: [
         "Every question carries its own point value, and says what it is worth before you answer it.",
         "Organizers can cap how many times a question may be attempted and make you wait between tries. The question tells you when it is on cooldown and when you have run out of attempts.",
-        "Points are credited to the GitHub account you signed in with. Team totals are the sum of what each member scores individually.",
+        "Points are credited to the GitHub account you signed in with. A question answered by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
       ],
       scoring:
         "Every question is worth a fixed number of points, set by the organizers when they author it. Points are awarded the moment a correct answer is submitted, graded against a stored answer key, so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
@@ -809,10 +822,11 @@ git push -u origin fix/<short-description>`,
     // is also just the word contestants actually use for one of these.
     //
     // Every claim below is checked against the implementation, same
-    // discipline as quiz's: `normalizeFlag` (classic-keys.ts) trims, NFC-
-    // normalizes and lowercases BOTH sides of the comparison, so matching is
-    // case-insensitive and ignores leading/trailing whitespace — say so,
-    // contestants ask. There is NO attempt cap anywhere in classic-store.ts's
+    // discipline as quiz's: `flagComparisonForm` (classic-keys.ts) trims and
+    // NFC-normalizes both sides, and lowercases them UNLESS the challenge is
+    // marked case-sensitive (issue #193; the board badges those) — so the
+    // case-insensitivity claim must always carry that qualifier. Stating it
+    // unconditionally shipped in v0.3.0 and contradicted the badge. There is NO attempt cap anywhere in classic-store.ts's
     // `evaluateGate`; it only ever refuses on paused/already-solved/cooldown,
     // never on a spent allowance, so never promise or imply one. There IS a
     // cooldown (`CLASSIC_COOLDOWN_SEC`, organizer-configurable in seconds via
@@ -829,7 +843,7 @@ git push -u origin fix/<short-description>`,
     home: {
       tagline: "Classic CTF",
       intro: () =>
-        "Find each flag and submit it for points. Every flag carries its own point value, grading happens the instant you submit, and matching is case-insensitive and ignores leading or trailing whitespace, so a stray capital or space never costs you a solve.",
+        "Find each flag and submit it for points. Every flag carries its own point value, grading happens the instant you submit, and matching ignores leading or trailing whitespace and — unless a flag is marked case-sensitive on its card — capitalisation too.",
       expect: {
         heading: "Find it, submit it, get scored on the spot",
         lede: "Each flag sits under a category and is worth a fixed number of points, and the board shows how many people have already solved it. There's no cap on attempts, though organizers can set a short cooldown between tries on the same flag. Matching is exact once it's normalized: case doesn't matter, and leading or trailing whitespace is stripped before it's compared.",
@@ -870,6 +884,10 @@ git push -u origin fix/<short-description>`,
           body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress, and nothing is graded for a signed-out visitor.",
         },
         {
+          title: "Join a team, or play solo",
+          body: "Scoring requires a team — flags don't count until you're on one, and the board sends a teamless player to their profile first. From there: create a team, join one by code or invite link, or hit Play solo for a one-click team of one.",
+        },
+        {
           title: "Open the board",
           body: "Every flag the organizers have published is on the Flags page, grouped by category. Each one shows what it's worth and how many people have already solved it. Work in any order, at your own pace.",
         },
@@ -879,16 +897,16 @@ git push -u origin fix/<short-description>`,
         },
         {
           title: "Submit it and get scored",
-          body: "Paste the flag into the box and submit. It's checked instantly: matching is case-insensitive and ignores leading or trailing whitespace, so an exact copy-paste with different casing still counts. There's no cap on how many times you can try, though organizers can set a short cooldown between submissions on the same flag.",
+          body: "Paste the flag into the box and submit. It's checked instantly: matching ignores leading or trailing whitespace, and casing too — unless the flag is marked case-sensitive, which its card tells you. There's no cap on how many times you can try, though organizers can set a short cooldown between submissions on the same flag.",
         },
       ],
       notes: [
         "Every flag carries its own point value, and shows what it's worth before you submit it, plus how many people have already solved it.",
         "There's no cap on attempts. Organizers can set a short cooldown between submissions on the same flag, and the board tells you when it's still counting down.",
-        "Points are credited to the GitHub account you signed in with. Team totals are the sum of what each member finds individually.",
+        "Points are credited to the GitHub account you signed in with. A flag found by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
       ],
       scoring:
-        "Every flag is worth a fixed number of points, set by whoever wrote it, and that value never changes as more people solve it. Points are awarded the instant a correct flag is submitted, matched case-insensitively and with leading or trailing whitespace ignored, so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
+        "Every flag is worth a fixed number of points, set by whoever wrote it, and that value never changes as more people solve it. Points are awarded the instant a correct flag is submitted — leading or trailing whitespace is ignored, and casing is too unless the flag is marked case-sensitive — so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
       cta: { href: "/flags", label: "Browse the flags" },
     },
     rules: () => ({
