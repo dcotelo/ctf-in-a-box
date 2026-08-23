@@ -215,6 +215,27 @@ describe("listChallenges", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }]);
     expect(await listChallenges()).toEqual([]);
   });
+
+  // Grading reads the STORED JSON in Lua and never touches the parsed object,
+  // so a parser that drops `caseSensitive` still grades correctly — and the
+  // board silently stops telling the contestant the flag is case-sensitive.
+  // That is the one failure the board can explain for free (issue #193), so
+  // the read-back is asserted here rather than inferred from the write.
+  it("carries caseSensitive back off the stored record", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: "a", caseSensitive: true })) },
+    ]);
+    const [first] = await listChallenges();
+    expect(first.caseSensitive).toBe(true);
+  });
+
+  it("leaves caseSensitive absent on a record stored without it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: row(challenge({ id: "a" })) }]);
+    const [first] = await listChallenges();
+    // Absent, not `false`: the board renders the badge on truthiness, and the
+    // stored record omits the field entirely when it is off.
+    expect(first.caseSensitive).toBeUndefined();
+  });
 });
 
 describe("listChallengesForAdmin", () => {
@@ -253,6 +274,19 @@ describe("listChallengesForAdmin", () => {
   it("reports a missing flag row as empty rather than hiding the challenge", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: row(challenge({ id: "a" })) }, { result: [] }]);
     expect(await listChallengesForAdmin()).toEqual([{ challenge: challenge({ id: "a" }), flag: "" }]);
+  });
+
+  // The edit form checks its box off this value. A parser that drops it hands
+  // the organizer an unchecked box for a case-sensitive challenge, and saving
+  // any other field then writes `caseSensitive: false` and re-normalizes the
+  // flag row — a silent downgrade with no warning and no way to notice.
+  it("carries caseSensitive back for the edit form", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: "a", caseSensitive: true })) },
+      { result: ["a", "CTF{Aaa}"] },
+    ]);
+    const [first] = await listChallengesForAdmin();
+    expect(first.challenge.caseSensitive).toBe(true);
   });
 });
 
@@ -637,5 +671,18 @@ describe("exportBundle", () => {
     // Every challenge already exists, so nothing is created — this is the
     // property that makes export usable as a backup.
     expect(summary.created).toBe(0);
+  });
+
+  // An export that drops `caseSensitive` turns the documented backup path into
+  // a downgrade: re-importing it makes the challenge case-insensitive, and the
+  // bundle looks correct in every other field while it happens.
+  it("emits caseSensitive so a backup restores the same grading", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: FULL_BOARD_ID, caseSensitive: true })) },
+      { result: [FULL_BOARD_ID, "ctfbox{One}"] },
+    ]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web"]) }]);
+    const bundle = await exportBundle();
+    expect(bundle.challenges[0].caseSensitive).toBe(true);
   });
 });

@@ -199,6 +199,16 @@ function parseChallenge(raw: string): Challenge | null {
       description: c.description,
       points: c.points,
       order: c.order,
+      // Carried back only when stored true, mirroring how it is written — an
+      // absent field must stay absent, not become `false`, so a record that
+      // predates #193 parses to exactly what it did before.
+      //
+      // This field is easy to leave out here and hard to notice missing:
+      // grading reads the stored JSON in Lua and never sees this object, so
+      // dropping it grades correctly while the board stops badging the
+      // challenge, the edit form unchecks its box, and `exportBundle` writes a
+      // backup that restores as case-INsensitive.
+      ...(c.caseSensitive === true ? { caseSensitive: true as const } : {}),
     };
   } catch {
     return null;
