@@ -18,6 +18,12 @@ const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEn
 }));
 
 vi.mock("server-only", () => ({}));
+// The page reads the session for the hint banner's sign-in clause (issue
+// #200, 3.1); these tests render outside a request scope, so both the
+// header store and the session read are stubbed — signed-out, matching the
+// copy the assertions below were written against.
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog }));

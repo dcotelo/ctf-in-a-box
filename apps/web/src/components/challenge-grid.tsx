@@ -249,6 +249,12 @@ function CatalogList({
                   <span className="min-w-0 flex-1 truncate text-zinc-300" title={c.description}>
                     {c.description}
                   </span>
+                  {/* What it's worth, BEFORE solving it — the landing page
+                      promises "points scale with difficulty", and quiz and
+                      classic both show their value on every card; these rows
+                      were the one place the number existed in the data
+                      (`c.points`) and never rendered (issue #200, 3.5). */}
+                  <span className="flex-none font-mono tabular-nums text-muted">{c.points} pts</span>
                   {hintIds?.has(c.id) && !ownedText && (
                     <HintButton app={app} id={c.id} cost={cost} signedIn={signedIn} onPurchased={onPurchased} />
                   )}

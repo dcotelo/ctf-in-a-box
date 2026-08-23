@@ -181,6 +181,36 @@ describe("AdminControls panel contents", () => {
     expect(eventPanel).toContain("Danger zone");
   });
 
+  // The schedule section states the EFFECTIVE state — toggle AND window,
+  // through the shared outsideWindow — so the organizer never computes it in
+  // their head from four datetime fields plus two toggles (issue #200, 3.3).
+  it("states whether scoring and registration are live right now", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    // Fixture: not paused, no windows, registration open — both live.
+    expect(eventPanel).toContain("Right now:");
+    expect(eventPanel).toContain("scoring is live");
+    expect(eventPanel).toContain("registration is open");
+  });
+
+  it("names WHY scoring is frozen — manual freeze vs a closed window", () => {
+    const manuallyFrozen = renderToStaticMarkup(
+      <AdminControls viewerLogin="organizer" initial={{ ...settings, paused: true }} modules={twoModules} />,
+    );
+    expect(panelFor(manuallyFrozen, "event")).toContain("scoring is frozen (manual)");
+
+    const windowClosed = renderToStaticMarkup(
+      <AdminControls
+        viewerLogin="organizer"
+        // A scoring window that ended long ago — the toggle is on, the
+        // window is what froze it, and the readout must say which.
+        initial={{ ...settings, scoringEndsAt: "2000-01-01T00:00:00.000Z" }}
+        modules={twoModules}
+      />,
+    );
+    expect(panelFor(windowClosed, "event")).toContain("scoring is frozen (outside its window)");
+  });
+
   it("renders the quiz module's settings and question authoring in its own panel", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");

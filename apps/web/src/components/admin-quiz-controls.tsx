@@ -70,7 +70,7 @@
 // banked points is the master reset's job. The confirm copy below says so
 // in as many words; keep the two in step.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary } from "@/lib/quiz-store";
@@ -966,6 +966,17 @@ function QuestionForm({
   const draft = editor.draft;
   const isNew = editor.mode === "new";
   const valid = isDraftValid(draft);
+  // Same below-the-fold problem as classic's ChallengeForm (issue #200,
+  // 3.4): the form opens under the full question list while the button that
+  // opens it sits above, so the click appears to do nothing. Keyed on the
+  // edited question so switching rows counts as a fresh open, while a
+  // keystroke re-render does not re-steal the scroll position.
+  const formRef = useRef<HTMLDivElement>(null);
+  const editingKey = editor.mode === "edit" ? editor.id : "new";
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
+  }, [editingKey]);
   const singleNeedsExactlyOne = draft.type === "single" && draft.correct.length !== 1;
   const multiNeedsAtLeastOne = draft.type === "multi" && draft.correct.length < 1;
 
@@ -997,7 +1008,7 @@ function QuestionForm({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
         {editor.mode === "new" ? "Add question" : `Edit "${confirmPhraseFromPrompt(draft.prompt)}"`}
       </h4>

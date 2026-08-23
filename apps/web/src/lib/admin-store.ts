@@ -142,17 +142,13 @@ export type AdminSettings = {
   enabledModuleIds: ModuleId[] | null;
 };
 
-/** True when a scheduled window puts `now` outside [startsAt, endsAt].
- *  Unparseable/absent bounds are ignored (treated as no bound) so a bad
- *  value can never wedge scoring off. Kept identical in scorer/store.js and
- *  sync/redis.js — change all three together. */
-export function outsideWindow(nowMs: number, startsAt: string | null, endsAt: string | null): boolean {
-  const s = startsAt ? Date.parse(startsAt) : NaN;
-  const e = endsAt ? Date.parse(endsAt) : NaN;
-  if (Number.isFinite(s) && nowMs < s) return true;
-  if (Number.isFinite(e) && nowMs > e) return true;
-  return false;
-}
+// The window check itself lives in schedule-window.ts (a dependency-free
+// leaf) so the /admin Event tab — a Client Component that cannot import this
+// server-only module — renders its "right now" readout from the SAME
+// implementation instead of a fourth copy of the three-reader contract.
+// Re-exported here so every existing caller and test is untouched.
+import { outsideWindow } from "@/lib/schedule-window";
+export { outsideWindow };
 
 /** Effective scoring freeze: the manual toggle OR the scheduled window. */
 export function effectivePaused(s: AdminSettings, nowMs: number = Date.now()): boolean {

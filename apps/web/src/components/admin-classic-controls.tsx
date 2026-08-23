@@ -91,7 +91,7 @@
 // comment in classic-store.ts). Clearing banked points is the master reset's
 // job. The confirm copy below says so in as many words; keep the two in step.
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 // Type-only import: `classic-store.ts` is `server-only`, but a `import type`
 // is fully erased at compile time — no runtime import ever reaches the
@@ -1103,8 +1103,22 @@ export function ChallengeForm({
   const isNew = editor.mode === "new";
   const valid = isDraftValid(draft, categories);
 
+  // The form opens BELOW the full challenge list, while the button that
+  // opens it sits above — on a board of a dozen challenges the click
+  // appeared to do nothing (issue #200, 3.4). Scroll it into view and put
+  // the cursor in the first editable field on every open. Keyed on which
+  // thing is being edited, not on mount alone, so clicking Edit on another
+  // row (same mounted form, new subject) counts as a fresh open — while a
+  // keystroke re-render does not re-steal the scroll position.
+  const formRef = useRef<HTMLDivElement>(null);
+  const editingKey = editor.mode === "edit" ? editor.id : "new";
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
+  }, [editingKey]);
+
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
         {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhraseFromTitle(draft.title, editor.id)}"`}
       </h4>
