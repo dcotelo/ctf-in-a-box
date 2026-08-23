@@ -792,6 +792,7 @@ build-time vendoring step first). Until then, a new module `<name>` with target
 | `scorer/entrypoints/<t>.sh` | the target's bring-up |
 | `scorer/rubric.owasp/<t>/` | the vendored rubric, with its catalogue at `tests/challenges/catalogue.<t>.json` |
 | `setup/ctf-setup.sh` | add `<name>` to `KNOWN_MODULES` |
+| `apps/web/src/lib/metrics-store.ts` | add `<name>` to the per-login read list, the `earnedRows` fold and the `modules` split, or Insights reports nothing for it (§10.4) |
 | `event.yaml.example` + README target table | document the target |
 
 Parity guards catch the most common drift: `scorer/test/targets.test.js`
@@ -824,3 +825,116 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
 this way — there is no target, no rubric, and no catalogue for the scorer to
 know about.
+
+## 10. Engagement-metrics contract (Insights)
+
+The **Insights** tab (`GET /api/admin/metrics`, ADR 50) reports participation,
+per-challenge difficulty, solves over time and hint usage. It has **no
+collection step and no write path of its own**: every figure is a read over
+keys the modules already maintain. That is the design constraint the rest of
+this section follows from — Insights can only report what a module already
+stores, in the shape it already stores it, and adding a metric is never a
+reason to add a tracking write.
+
+See [docs/operations.md](operations.md#organizer-admin-panel) for what each
+figure means to an organizer and [docs/architecture.md](architecture.md#engagement-metrics-adr-50)
+for the fold itself.
+
+### 10.1 What a module must store to be measurable
+
+Two per-login hashes, both keyed by **lowercased** GitHub login, both with the
+**item id** as the field. A module that keeps them gets the full per-challenge
+table for free; a module that keeps neither is still counted in participation
+and points, and appears nowhere else.
+
+| Hash | Field | Value | What it drives |
+|---|---|---|---|
+| `ctf:<module>:<earned>:<login>` — `ctf:quiz:answers:<login>`, `ctf:classic:solves:<login>` | item id | `{"points":<n>,"at":"<iso>"}` | `scored`, the solves-over-time timeline, per-challenge `solves`, and the numerator of `solveRate` |
+| `ctf:<module>:attempts:<login>` | item id | `{"attempts":<n>,"firstAt":"<iso>","lastAt":"<iso>","lastAtMs":<ms>}` | `attempted` and `stuck`, per-challenge `attempts`, `avgAttemptsToSolve`, `medianSecondsToSolve` |
+
+Plus one aggregate the leaderboard already requires:
+
+| Key | Field | Value | What it drives |
+|---|---|---|---|
+| `ctf:<module>:points` | login | integer | the per-module scorer split, and the per-team point sum |
+
+Three rules about those rows, each of which has cost this repo a wrong number:
+
+1. **`at` is when the item was EARNED**, not when the row was written. The
+   timeline buckets on it, so a row stamped at import or seed time moves a
+   solve to the wrong ten minutes.
+2. **`firstAt` is the FIRST attempt and is carried forward** across every
+   later attempt — both modules' Lua scripts re-read the existing row and keep
+   the original (`quiz-store.ts` / `classic-store.ts`, `if not firstAt then
+   firstAt = ARGV[…] end`). It is what makes time-to-solve knowable at all;
+   overwriting it each try silently turns every duration into zero.
+3. **The attempt row must survive the solve.** `avgAttemptsToSolve` and
+   `medianSecondsToSolve` are computed *after* the fact, by matching the
+   earned row against the attempt row for the same id. Clearing attempts on
+   success destroys both figures and leaves the challenge looking
+   first-try-easy.
+
+Parse attempt rows with **`apps/web/src/lib/attempt-row.ts`**, never with
+`Number(value)`. The row is JSON; `Number()` on it is `NaN`, which is how the
+Support tab reported "0 attempts" for every contestant for two releases
+without anything failing.
+
+### 10.2 Item ids are the join key
+
+Per-challenge stats are keyed `<module>:<item id>`, and the earned row and the
+attempt row are matched by that id. This is the same stability rule as §4.3 and
+for a second reason: renaming an id does not just orphan provenance, it splits
+one challenge into two rows in the difficulty table — one with attempts and no
+solves, one with solves and no attempts.
+
+Ids must also be **unique within the module**. They do not need to be unique
+across modules (the `<module>:` prefix separates them), but anything that
+matches rows across two namespaces must carry both parts of the key —
+`readSecureDevSolves` keeps the target in `<target>/<login>/<challengeId>`
+precisely because challenge ids are unique within a target's catalogue and
+nothing makes them unique between targets.
+
+### 10.3 A module with no per-item rows
+
+`secure-development` is this case, and it is a legitimate one. Its scores
+arrive from GitHub already judged: there is a timestamped solve
+(`ctf:solves:<target>`, field `<login>:<challengeId>`) but no attempt record,
+because the attempts happened in a fork the box deliberately does not measure.
+It therefore contributes to participation, points and hint ordering, and
+contributes **nothing** to the per-challenge difficulty table or the timeline.
+
+That absence is stated in the payload's own `caveats[]` rather than left to be
+inferred from an empty row. **A module that cannot supply a figure must make
+the gap visible, not render zero** — a blank cell reads as "no data", a zero
+reads as "measured, and none".
+
+### 10.4 Registration is NOT automatic
+
+Adding a module does not add it to Insights. `computeEventMetrics`
+(`apps/web/src/lib/metrics-store.ts`) names quiz and classic explicitly — the
+per-login read list, the `earnedRows` pair it folds, and the `modules` split in
+the response. A new module with both hashes still reports nothing until it is
+added in those three places.
+
+This is deliberate for now: the fold issues a fixed number of reads per
+contestant, and a registry-driven version would make that number depend on how
+many modules an event enables. It is a **known limitation**, recorded here so
+the next module author finds it in the contract rather than in an empty tab.
+
+### 10.5 What a module must NOT do
+
+- **Do not collect from forks.** A fork can report far more — pages opened,
+  time on a challenge, when someone gave up — and none of it credibly.
+  Authenticating a fork means a credential every contestant can read, so any
+  ingest endpoint is forgeable by the very people being measured. Engagement
+  numbers a participant can inflate are worse than numbers that are merely
+  incomplete. ADR 46's read-only, policy-only rule for `/api/public/scoring` is
+  the other side of the same boundary.
+- **Do not add a write purely to feed a metric.** If a figure needs a new
+  write, it needs a decision record first: every per-contestant field added is
+  one edit away from making an admin payload carry a login.
+- **Do not read a module's aggregate counter where a fold over per-login rows
+  will do.** `ctf:classic:solvecount` exists and would be a free classic-only
+  shortcut; the fold deliberately ignores it, because folding per-login rows
+  produces the same figure for **both** modules from one source. Reading both
+  invites the two to disagree with no way to tell which is right.

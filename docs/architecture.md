@@ -666,6 +666,47 @@ Admin-only permanently: the aggregates are harmless, but the payload is
 computed from per-contestant rows, so every field added later is one edit away
 from carrying a login. The response ships its own **caveats** array, because a
 metric whose limits travel separately from it gets quoted without them.
+
+**What it reads.** Three aggregate reads in one pipeline (`ctf:quiz:points`,
+`ctf:classic:points`, `ctf:hints:spent`), a `SCAN` of `ctf:solves:*` for
+Secure Development, `listTeams()`, and then **six reads per contestant** —
+their quiz answers, classic solves, both attempt hashes, `firstTeamAt` off
+`ctf:user:<login>`, and their hint purchase times — batched 200 commands to a
+round trip. Nothing else; the module contract for those row shapes is
+[docs/modules.md §10](modules.md#10-engagement-metrics-contract-insights).
+
+**Who counts as a contestant** is the union of everyone on a team and everyone
+with points in any module — cheaper than `SCAN`ning `ctf:user:*`, which also
+matches `ctf:user:<login>:hints`. Team membership is what makes `stuck`
+measurable: someone who attempted everything and solved nothing has no points
+row, so only their team knows they exist. That works because ADR 47 makes a
+team mandatory before anything scores. An event running without team writes
+would see only contestants who scored.
+
+**The fold is capped at 2000 contestants** (`MAX_CONTESTANTS`), far beyond
+what the kit targets — the cap exists so a runaway key space cannot turn an
+admin click into an unbounded read. When it bites it says so in `caveats`,
+because a silently truncated metric reads as a complete one.
+
+**On demand, never cached.** The fold is O(contestants), so it runs on the
+button rather than on arrival, and the button doubles as the refresh: an
+organizer re-reading it mid-event wants the current number, not one from a
+minute ago.
+
+**Aggregate counters are deliberately not read.** `ctf:classic:solvecount`
+would be a free classic-only shortcut for per-challenge solves, but folding
+each contestant's own rows produces the same figure for *both* modules from
+one source. Reading both would invite the two to disagree with no way to tell
+which was right.
+
+**The solve-rate denominator has a floor.** It is
+`max(people with an attempt row, people who solved it)`, not the attempt-row
+count alone: an earned row can exist without an attempt row, because the demo
+seed writes answers directly and anything predating the attempts hash has the
+same shape. Dividing by attempt rows alone produced solve rates of 200% and
+300% on a seeded event — nonsense on its face rather than a subtle
+inaccuracy — so the larger of the two is both the correct denominator and the
+floor that keeps the rate inside 0..1.
 - **`ctf:sync:status`** (Redis hash, written by `sync/src/redis.js`'s
   `writeStatus()` every tick) — `lastPollAt`, `ingested`, `dropped`,
   `lastDrop`, `reposPolled`, `paused`, `lastError`. This is `sync`'s
