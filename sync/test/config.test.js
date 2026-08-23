@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import crypto from "node:crypto";
-import { loadConfig, REPO_NAMES, KNOWN_MODULES } from "../src/config.js";
+import { loadConfig, KNOWN_MODULES } from "../src/config.js";
 
 const APP_KEY_B64 = Buffer.from(
   crypto.generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey
@@ -40,12 +40,10 @@ test("rejects missing org, empty targets, missing secrets", () => {
   assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`), { SCORER_TOKEN: "t" }), /GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required/);
 });
 
-test("REPO_NAMES maps every valid target", () => {
-  assert.deepEqual(REPO_NAMES, {
-    "juice-shop": "juice-shop", dvwa: "DVWA", webgoat: "WebGoat",
-    securityshepherd: "SecurityShepherd", vulnerableapp: "VulnerableApp", vampi: "VAmPI",
-  });
-});
+// REPO_NAMES is pinned in repo-names.differential.test.js, against
+// setup/targets.tsv — the file ctf-setup.sh actually derives fork names from.
+// The literal that used to sit here proved only that REPO_NAMES equalled a
+// copy of itself (issue #149).
 
 test("rejects unknown module key", () => {
   const p = writeYaml(`github: { org: my-org }\nmodules:\n  forensics: {}\n`);
