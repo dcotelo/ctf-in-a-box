@@ -42,7 +42,7 @@ const html = await Rules().then(renderToStaticMarkup);
 
 describe("/rules in a classic-only event", () => {
   it("keeps the platform-wide rules", () => {
-    expect(html).toContain("You can compete solo or as a team of up to four.");
+    expect(html).toContain("Scoring is per team, and you need one before anything you solve counts.");
     expect(html).toContain("Each person belongs to at most one team at a time.");
     expect(html).toContain("OWASP Code of Conduct");
     expect(html).toContain("Be excellent to the volunteers, organizers, and your fellow competitors.");

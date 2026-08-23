@@ -100,8 +100,11 @@ describe("landing page in a classic-only event", () => {
     }
   });
 
-  it("states the case- and whitespace-insensitivity of grading, and never claims an attempt cap", () => {
-    expect(html).toContain("case-insensitive");
+  it("states the grading forgiveness WITH its case-sensitive exception, and never claims an attempt cap", () => {
+    // The unconditional "case-insensitive" claim shipped in v0.3.0 and was
+    // false the moment #194 landed per-flag case sensitivity — the lede must
+    // now carry the qualifier the board's own badge enforces (issue #200 1.3).
+    expect(html).toContain("unless a flag is marked case-sensitive");
     expect(html).not.toMatch(/\battempts? (remaining|left)\b/i);
   });
 

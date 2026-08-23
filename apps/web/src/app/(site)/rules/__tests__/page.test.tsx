@@ -22,7 +22,7 @@ describe("/rules on a secure-development event", () => {
   });
 
   it("keeps the platform's own rules", () => {
-    expect(html).toContain("You can compete solo or as a team of up to four.");
+    expect(html).toContain("Scoring is per team, and you need one before anything you solve counts.");
     expect(html).toContain("Each person belongs to at most one team at a time.");
     expect(html).toContain("Be excellent to the volunteers, organizers, and your fellow competitors.");
     expect(html).toContain("Prizes are awarded to the top individuals and top teams overall.");
