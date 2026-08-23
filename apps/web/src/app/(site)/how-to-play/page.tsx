@@ -90,8 +90,20 @@ export default async function HowToPlayPage() {
   // "Good to know" and "How scoring works" are the platform's cards; the
   // modules only supply their bullets and paragraphs, merged in registry
   // order so a two-module event gets one of each rather than two.
-  const notes = guides.flatMap((g) => g.notes);
-  const scoring = guides.flatMap((g) => (g.scoring ? [{ id: g.id, body: g.scoring }] : []));
+  //
+  // Kept GROUPED by module rather than flattened: on a three-module event the
+  // flat list read as nine anonymous bullets with three near-duplicates
+  // ("Points are credited to the GitHub account…" once per module) and three
+  // unlabeled scoring paragraphs — visible repetition that read as a bug
+  // rather than as three modules each speaking for themselves (issue #200,
+  // tier 4). Each group renders under its module's name once a second module
+  // contributes; a single-module event keeps the unlabeled render, same rule
+  // as the leaderboard's per-module headings.
+  const noteGroups = guides
+    .filter((g) => g.notes.length > 0)
+    .map((g) => ({ id: g.id, title: g.title, notes: g.notes }));
+  const scoring = guides.flatMap((g) => (g.scoring ? [{ id: g.id, title: g.title, body: g.scoring }] : []));
+  const multiModule = guides.length > 1;
 
   return (
     <div className="flex flex-col gap-10">
@@ -213,17 +225,23 @@ export default async function HowToPlayPage() {
       ))}
 
       {/* Good-to-know */}
-      {notes.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+      {noteGroups.length > 0 && (
+        <div className="flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
           <h2 className="font-semibold text-white">Good to know</h2>
-          <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-zinc-400">
-            {/* Index keys: two modules can word an identical caveat ("Points
-                are credited to the GitHub account you signed in with"), and
-                the note text is therefore not a unique identity. */}
-            {notes.map((note, i) => (
-              <li key={i}>{note}</li>
-            ))}
-          </ul>
+          {noteGroups.map((group) => (
+            <div key={group.id} className="flex flex-col gap-2">
+              {multiModule && (
+                <p className="text-[11px] uppercase tracking-wide text-muted">{group.title}</p>
+              )}
+              <ul className="flex list-disc flex-col gap-2 pl-5 text-sm leading-relaxed text-zinc-400">
+                {/* Index keys: two modules can word an identical caveat, and
+                    the note text is therefore not a unique identity. */}
+                {group.notes.map((note, i) => (
+                  <li key={i}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
 
@@ -234,9 +252,12 @@ export default async function HowToPlayPage() {
       <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
         {scoring.length > 0 && <h2 className="font-semibold text-white">How scoring works</h2>}
         {scoring.map((paragraph) => (
-          <p key={paragraph.id} className="text-sm leading-relaxed text-zinc-400">
-            {paragraph.body}
-          </p>
+          <div key={paragraph.id} className="flex flex-col gap-1">
+            {multiModule && (
+              <p className="text-[11px] uppercase tracking-wide text-muted">{paragraph.title}</p>
+            )}
+            <p className="text-sm leading-relaxed text-zinc-400">{paragraph.body}</p>
+          </div>
         ))}
         <div className="flex flex-wrap gap-3 pt-1">
           {guides.map(

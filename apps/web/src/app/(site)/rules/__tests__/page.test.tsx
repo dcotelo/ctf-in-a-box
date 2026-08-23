@@ -32,7 +32,7 @@ describe("/rules on a secure-development event", () => {
 
   it("keeps the module's rules, verbatim", () => {
     expect(html).toContain(
-      "Your GitHub login is your identity for scoring. Submit every pull request from the account you signed in with.",
+      "Points for a patch credit the pull request&#x27;s author — open every PR from the same GitHub account you sign in with, or your score lands on a row you can&#x27;t see.",
     );
     expect(html).toContain(
       "Only the 6 challenge targets (Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI) are in scope. Do not attack the CI scoring pipeline, the leaderboard, or other contestants&#x27; forks.",
@@ -58,12 +58,19 @@ describe("/rules on a secure-development event", () => {
     );
   });
 
+  // The dedupe property itself: the identity rule is the platform's ONE
+  // sentence, not one per module — three near-identical adjacent bullets is
+  // the regression this pins against (issue #200, tier 4).
+  it("states the identity rule exactly once, for every module at once", () => {
+    expect(html.split("identity for scoring").length - 1).toBe(1);
+  });
+
   // Module bullets lead "Fair play" and "Scoring & prizes" (they are the
   // specific ones) and follow the platform's in "Teams" and "Conduct" — the
   // order the page has always rendered.
   it("orders module rules against the platform's as the page always has", () => {
     expect(html.indexOf("Each person belongs to at most one team")).toBeLessThan(
-      html.indexOf("Submit every pull request from the account"),
+      html.indexOf("open every PR from the same GitHub account"),
     );
     expect(html.indexOf("Revealing a hint deducts points")).toBeLessThan(
       html.indexOf("Prizes are awarded to the top individuals"),
