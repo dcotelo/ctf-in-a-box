@@ -4,7 +4,7 @@ import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
-  enabledModules,
+  bakedModuleIds,
   isModuleEnabled,
   isModuleId,
   MODULE_TITLE_MAX,
@@ -196,6 +196,9 @@ export type SettingsPatch = {
   scoreCooldownMin?: number;
   teamMaxMembers?: number;
   teamRegistrationOpen?: boolean;
+  /** The modules this event serves. Replaces the set wholesale (issue #175);
+   *  see updateAdminSettings for the two things it refuses. */
+  enabledModules?: ModuleId[];
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
   scoringEndsAt?: string | null;
@@ -232,12 +235,17 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
   // module that has since been disabled must not resurface if it is
   // re-enabled under a different name.
   const moduleOverrides: ModuleOverrides = {};
-  const enabledIds = new Set(enabledModules.map((m) => m.id as string));
   for (const [field, value] of Object.entries(h)) {
     const m = MODULE_FIELD_RE.exec(field);
     if (!m) continue;
     const [, which, id] = m;
-    if (!enabledIds.has(id)) continue;
+    // Filtered against the REGISTRY, not against what event.yaml baked in.
+    // It used to drop overrides for anything outside the baked set, which was
+    // right while enablement was a build-time fact and wrong the moment it
+    // became a runtime one (issue #175): an organizer who enables classic and
+    // renames it would have had the rename silently dropped on every read.
+    // An id the registry does not know is still dropped — it can never render.
+    if (!isModuleId(id)) continue;
     const slot = (moduleOverrides[id as ModuleId] ??= {});
     if (which === "Title") slot.title = value;
     else slot.blurb = value;
@@ -414,11 +422,48 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
         fields.push(k, iso);
         changed[k] = iso as unknown as boolean;
       }
+    } else if (k === "enabledModules") {
+      // Replaces the whole set rather than toggling one id: an organizer's
+      // intent is "these are the modules", and a per-id patch would let two
+      // admin tabs open at once race each other into a set neither chose.
+      if (!Array.isArray(v) || v.some((id) => !isModuleId(id))) {
+        throw new AdminValidationError(k, "enabledModules must be an array of known module ids");
+      }
+      const requested = [...new Set(v as ModuleId[])];
+
+      // Refusal 1: the last module. ADR 24 already refuses a present-but-empty
+      // `modules: {}` at build time, and the runtime analogue has to agree —
+      // otherwise the same configuration is legal through one door and illegal
+      // through the other. An event with nothing enabled is a contestant-facing
+      // site with no content and no explanation.
+      if (requested.length === 0) {
+        throw new AdminValidationError(k, "at least one module must stay enabled");
+      }
+
+      // Refusal 2: secure-development, in either direction. It is not a flag —
+      // it is compose profiles (`scorer` and `sync` are not running on an event
+      // that never enabled it, and the app cannot start containers) plus fork
+      // provisioning that only `ctf-setup.sh` can do, holding a GitHub App key
+      // the web tier deliberately does not have (ADR 41). Disabling is refused
+      // too: the scorer would keep ingesting scores for a module contestants
+      // can no longer see, which is a worse state than either end.
+      const sdId: ModuleId = "secure-development";
+      if (requested.includes(sdId) !== bakedModuleIds.includes(sdId)) {
+        throw new AdminValidationError(
+          k,
+          "secure-development is configured at setup, not at runtime — it needs its scorer and sync services and its provisioned forks",
+        );
+      }
+
+      fields.push(k, requested.join(","));
+      changed[k] = requested.join(",") as unknown as boolean;
     } else if (MODULE_FIELD_RE.test(k)) {
       const [, which, id] = MODULE_FIELD_RE.exec(k)!;
-      // Fail closed: an id that isn't an enabled module is a typo or a probe,
-      // never something to store quietly.
-      if (!enabledModules.some((m) => m.id === id)) {
+      // Fail closed: an id the registry does not know is a typo or a probe,
+      // never something to store quietly. Checked against the REGISTRY rather
+      // than the baked set for the same reason as the read path above — a
+      // module enabled at runtime is renameable like any other.
+      if (!isModuleId(id)) {
         throw new AdminValidationError(k, `unknown module: ${id}`);
       }
       if (typeof v !== "string") throw new AdminValidationError(k, `${k} must be a string`);

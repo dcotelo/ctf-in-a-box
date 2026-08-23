@@ -74,6 +74,22 @@ export type AdminEventTabProps = {
   teamMaxMembersInput: string;
   setTeamMaxMembersInput: (v: string) => void;
   commitNumber: CommitNumber;
+  /** Every module the registry knows about, with the name an organizer would
+   *  recognise and whether this event may toggle it (issue #175). Includes the
+   *  DISABLED ones — a switch you cannot see is not a switch. */
+  moduleChoices: readonly ModuleChoice[];
+  /** The ids live right now: the runtime set, or the baked one when no
+   *  override is stored. */
+  liveModuleIds: readonly string[];
+};
+
+export type ModuleChoice = {
+  id: string;
+  label: string;
+  /** False for secure-development, which is provisioning rather than a flag.
+   *  `reason` says so on the row instead of leaving a dead control. */
+  toggleable: boolean;
+  reason?: string;
 };
 
 export default function AdminEventTab({
@@ -88,7 +104,16 @@ export default function AdminEventTab({
   teamMaxMembersInput,
   setTeamMaxMembersInput,
   commitNumber,
+  moduleChoices,
+  liveModuleIds,
 }: AdminEventTabProps) {
+  const live = new Set(liveModuleIds);
+  // The last toggleable module cannot be switched off — the server refuses it
+  // (ADR 24's runtime analogue), and a control that always errors is worse
+  // than one that explains itself. Counted over TOGGLEABLE modules only:
+  // secure-development can never be the thing that rescues an empty set,
+  // because it can never be switched either way.
+  const liveToggleable = moduleChoices.filter((m) => m.toggleable && live.has(m.id));
   // No "Event" heading inside the panel: the old flat layout needed an <h3> to
   // separate this group from the module sections below it, but the tab strip is
   // that heading now (the panel is labelled by its own tab via
@@ -96,6 +121,54 @@ export default function AdminEventTab({
   // repeating it would just duplicate the tab's own label.
   return (
     <section className="flex flex-col gap-4">
+      <section className="flex flex-col gap-2 border-b border-white/[0.06] pb-4">
+        <div>
+          <h3 className="text-white">Modules</h3>
+          <p className="text-xs text-muted">
+            What this event serves. Switching one off hides its board and its nav link straight away —
+            it deletes nothing, so switching it back on restores the same answers, solves and points.
+          </p>
+        </div>
+        {moduleChoices.map((mod) => {
+          const on = live.has(mod.id);
+          const isLastOn = on && mod.toggleable && liveToggleable.length === 1;
+          const disabled = pending || !mod.toggleable || isLastOn;
+          return (
+            <label key={mod.id} className="flex items-center justify-between gap-3">
+              <span>
+                <span className={mod.toggleable ? "text-white" : "text-zinc-400"}>{mod.label}</span>
+                {!mod.toggleable && mod.reason && <span className="block text-xs text-muted">{mod.reason}</span>}
+                {isLastOn && (
+                  <span className="block text-xs text-muted">
+                    The only module left — an event has to serve something.
+                  </span>
+                )}
+              </span>
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={disabled}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  const ids = next
+                    ? [...live, mod.id]
+                    : [...live].filter((id) => id !== mod.id);
+                  setConfirm({
+                    title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
+                    body: next
+                      ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
+                      : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
+                    confirmLabel: next ? "Enable" : "Disable",
+                    onConfirm: () => apply({ enabledModules: ids }),
+                  });
+                }}
+                className="h-5 w-5 flex-none accent-[#2563eb] disabled:opacity-40"
+              />
+            </label>
+          );
+        })}
+      </section>
+
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className="text-white">Freeze scoring</span>

@@ -2588,3 +2588,69 @@ divergence visible on a weekly schedule.
 test scaffolding that exists for the length of one run and ships to nobody, and
 pinning them would add three more digests to maintain for no tamper-evidence
 anyone benefits from.
+
+## 52. Modules are switched at runtime; Secure Development is configured at setup
+
+**Context.** Module *identity* has been runtime since the title/blurb overrides
+landed, but module *enablement* was baked: `event.yaml`'s `modules:` compiled
+into `event-config.generated.ts` at build time via `EVENT_CONFIG_B64`, and
+roughly twenty consumers read it as a module-load constant. An organizer who
+wanted to add the quiz mid-event needed a rebuild
+([#175](https://github.com/dcotelo/ctf-in-a-box/issues/175)).
+
+**Decision.** The live set lives in `ctf:admin:settings`, and **`event.yaml`
+becomes the seed and the outage fallback rather than the truth**. That
+inversion is the decision; everything else follows from it.
+
+Resolution fails **OPEN**, to the baked set. A Redis blip must not 404 every
+live module at once — the loudest possible failure from the quietest possible
+cause. The decoder applies the same rule to a stored set that filters down to
+nothing (every id in it since removed from the registry): that reads as "no
+override", never as "enable nothing".
+
+**Disabling is a switch, not a delete.** Nothing is written to a module's data
+when it is switched off, so re-enabling restores the same answers, solves and
+points. An organizer using a toggle to hide a broken board must not discover
+they have wiped it.
+
+**The proxy gates the whole registry, enabled or not.** It is middleware, on
+every matched request, and `gate.ts` is deliberately confined to `node:crypto`
+so `next/headers` can never become reachable from it. A Redis read there would
+put a network call on that path and give the gate a dependency that can fail —
+in order to protect a module that, if the read failed, would be left open.
+Gating the superset needs no read: a disabled module's route 404s at the page
+either way, and pre-event the lock screen is what a visitor should see
+regardless. It also stops the gate leaking which modules an event runs before
+it opens.
+
+**Refusing the last module.** ADR 24 already refuses a present-but-empty
+`modules: {}` at build time. The runtime control refuses the equivalent, so
+the same configuration is not legal through one door and illegal through the
+other. An event serving nothing is a contestant-facing site with no content
+and no explanation.
+
+**Secure Development is excluded, in both directions.** It is not a flag:
+
+- **Its services are not running.** `scorer` carries `["poll", "push"]` and
+  `sync` carries `["poll"]`; an event that never enabled the module boots with
+  `--profile app` alone and has no scorer container. The app cannot start one.
+- **Its targets are provisioning input**, not configuration — forks, the App
+  installation, per-fork workflows, all of it `ctf-setup.sh`'s work, holding a
+  GitHub App private key the web tier deliberately does not have (ADR 41).
+- **Disabling is refused too**, not only enabling. The scorer would keep
+  ingesting scores for a module contestants can no longer see, which is worse
+  than either end state.
+
+The panel shows its row with the reason on it rather than hiding the control or
+leaving one that always errors.
+
+**Consequences.** Editing `event.yaml`'s `modules:` mid-event changes nothing
+until a rebuild — the same trap the `hints:` and `teams:` keys already hit, so
+the file, the example and the wizard's prompt all say "start with" rather than
+"enable". Two surfaces stay baked on purpose: the root layout's and
+`/how-to-play`'s meta descriptions, where making them live would put a settings
+read behind every page's metadata for a `<meta>` tag; and `/gate`'s unlock
+destination, where the lock screen is the one page a pre-event crowd hammers
+and should make no settings read at all. `/privacy` did become dynamic — its
+claims about what is collected have to match what actually is, and
+under-disclosure is the wrong direction to be wrong in.

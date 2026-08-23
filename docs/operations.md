@@ -186,6 +186,38 @@ The panel offers:
   deferred), and push mode's `POST /score` returns `503` so a contestant's
   Action retries instead of silently dropping the submission. Un-pausing
   picks up right where it left off.
+- **Modules** (Event tab) — which modules this event serves, switchable
+  **during the event without a rebuild**. Switching one off removes its nav
+  link and stops its board resolving on everyone's next page load; switching it
+  on brings both back.
+
+  **It deletes nothing.** A disabled module's answers, solves, attempts and
+  points stay exactly where they are, so re-enabling restores the same board —
+  the toggle is a switch, not a delete. Use it to pull a broken board out of an
+  event without losing what contestants have already done.
+
+  Two things it refuses, both on purpose:
+
+  - **The last module.** An event has to serve something; a site with every
+    module off has no content and no explanation for the people looking at it.
+    The panel greys out the last remaining switch rather than letting you find
+    out from an error.
+  - **Secure Development, in either direction.** It is configured at setup and
+    only there — it needs its `scorer` and `sync` services (which are not even
+    running on an event that never enabled it; see the profiles table in
+    [hosting](hosting.md)) and its provisioned forks, which only
+    `ctf-setup.sh` can create. Its row shows the reason instead of a control
+    that would always fail. See [ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+
+  **`event.yaml`'s `modules:` is now the starting set and the fallback, not the
+  live truth.** Editing it mid-event changes nothing until you rebuild — the
+  same trap `hints:` and `teams:` already have. If Redis is unreachable the app
+  falls back to that baked set rather than to "nothing enabled", so an outage
+  cannot blank the event.
+
+  A newly enabled module's own **admin tab** appears on the next page load,
+  since the tab strip is rendered server-side.
+
 - **Team registration** — an open/close switch for the team-forming window.
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
