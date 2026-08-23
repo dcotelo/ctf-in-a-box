@@ -30,24 +30,51 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
-import { enabledModules, type ModuleId, type ResolvedModule } from "@/lib/modules";
+import { ALL_MODULE_IDS, bakedModuleIds, moduleDefById, type ModuleId, type ResolvedModule } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAdminsTab from "./admin-admins-tab";
 import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
-import AdminEventTab from "./admin-event-tab";
+import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // Registry defaults (displayName/description) keyed by id, for the identity
-// form's placeholders. `enabledModules` — not the `modules` prop — because a
-// `ResolvedModule` deliberately has no `displayName`/`description` (see
-// lib/modules.ts): those are what an override REPLACES, and this is the one
-// place the admin panel needs the pre-override default alongside it.
-const MODULE_DEFAULTS = new Map(enabledModules.map((m) => [m.id as string, { title: m.displayName, blurb: m.description }]));
+// form's placeholders. Not the `modules` prop — a `ResolvedModule`
+// deliberately has no `displayName`/`description` (see lib/modules.ts): those
+// are what an override REPLACES, and this is the one place the admin panel
+// needs the pre-override default alongside it.
+//
+// Built from the WHOLE registry rather than the baked set: a module enabled at
+// runtime (issue #175) is renameable like any other, and keying this off
+// event.yaml would leave its identity form with no placeholder to show.
+const MODULE_DEFAULTS = new Map(
+  ALL_MODULE_IDS.map((id) => {
+    const def = moduleDefById(id);
+    return [id as string, { title: def?.displayName ?? id, blurb: def?.description ?? "" }];
+  }),
+);
+
+/** Every registry module as a toggle row (issue #175), in registry order.
+ *
+ *  Includes the ones this event has switched OFF — the whole point is to turn
+ *  one back on, and a switch you cannot see is not a switch.
+ *
+ *  secure-development is present but not toggleable, with the reason on the
+ *  row rather than a control that always errors. It is not a flag: its scorer
+ *  and sync services are not running on an event that never enabled it (the
+ *  app cannot start containers), and its targets are forks that only
+ *  `ctf-setup.sh` can provision, holding a GitHub App key the web tier
+ *  deliberately does not have. */
+const MODULE_CHOICES: readonly ModuleChoice[] = ALL_MODULE_IDS.map((id) => ({
+  id: id as string,
+  label: moduleDefById(id)?.displayName ?? (id as string),
+  toggleable: id !== "secure-development",
+  reason: id === "secure-development" ? "Configured at setup — it needs its scorer, its sync poller and its provisioned forks." : undefined,
+}));
 
 /** The always-present control-plane tab. Module tabs follow it, in the order
  *  the event config lists them. */
@@ -338,6 +365,8 @@ export default function AdminControls({
               teamMaxMembersInput={teamMaxMembersInput}
               setTeamMaxMembersInput={setTeamMaxMembersInput}
               commitNumber={commitNumber}
+          moduleChoices={MODULE_CHOICES}
+          liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
             />
           ) : tab.id === ADMINS_TAB ? (
             <AdminAdminsTab viewerLogin={viewerLogin} />

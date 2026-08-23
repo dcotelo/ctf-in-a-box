@@ -84,3 +84,32 @@ describe("getResolvedModules", () => {
     expect(second).toBe(first);
   });
 });
+
+// Runtime enablement reaches the NAV (issue #175). The header and the footer
+// both build off `getResolvedModules`, so a module switched off has to lose its
+// link in both — leaving a nav entry pointing at a route that now 404s is the
+// most visible way this feature could go wrong.
+describe("the nav follows the live module set", () => {
+  it("drops a disabled module's link", async () => {
+    getAdminSettings.mockResolvedValue({ moduleOverrides: {}, enabledModuleIds: ["secure-development"] });
+    const { getNavLinks } = await import("@/lib/resolved-modules");
+    const hrefs = (await getNavLinks()).map((l) => l.href);
+    expect(hrefs).toContain("/challenges");
+    expect(hrefs).not.toContain("/quiz");
+  });
+
+  it("keeps it when the module is live", async () => {
+    getAdminSettings.mockResolvedValue({ moduleOverrides: {}, enabledModuleIds: ["secure-development", "quiz"] });
+    const { getNavLinks } = await import("@/lib/resolved-modules");
+    expect((await getNavLinks()).map((l) => l.href)).toContain("/quiz");
+  });
+
+  it("carries the organizer's rename onto a live module's link", async () => {
+    getAdminSettings.mockResolvedValue({
+      moduleOverrides: { quiz: { title: "Round 1" } },
+      enabledModuleIds: ["secure-development", "quiz"],
+    });
+    const { getNavLinks } = await import("@/lib/resolved-modules");
+    expect((await getNavLinks()).find((l) => l.href === "/quiz")?.label).toBe("Round 1");
+  });
+});

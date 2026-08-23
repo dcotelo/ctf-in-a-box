@@ -686,7 +686,7 @@ YAML
   rm -f .env event.yaml
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to enable — subset of: secure-development quiz'
+  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz'
 }
 
 @test "wizard: a quiz-only event is NEVER asked for targets or score ingest" {
@@ -702,7 +702,7 @@ modules:
 YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to enable — subset of: secure-development quiz classic [quiz]'
+  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic [quiz]'
   [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
   [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
 }
@@ -734,7 +734,7 @@ modules:
 YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to enable — subset of: secure-development quiz classic [secure-development quiz]'
+  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic [secure-development quiz]'
 }
 
 @test "wizard: a quiz-only event skips the scorer image and poll App steps" {
@@ -818,6 +818,10 @@ YAML
   # switch); `teams: { max_size: 6 }` still capped teams at 4
   # (TEAM_MAX_MEMBERS in team-store.ts). Both are gone rather than corrected,
   # because a key that cannot change the answer misleads at any value.
+  #
+  # Both of those are history, not current behaviour: the member cap is an
+  # /admin field now ("Players per team", ADRs 44-45) and TEAM_MAX_MEMBERS is
+  # only what it falls back to. The keys stay unemitted either way.
   run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -E 'hints|teams')" ]

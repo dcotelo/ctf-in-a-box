@@ -103,6 +103,67 @@ describe("updateAdminSettings validation", () => {
     await expect(updateAdminSettings({ hintCost: 999999 }, "alice")).rejects.toBeInstanceOf(AdminValidationError);
   });
 
+  // Runtime module enablement (issue #175). This repo's baked event enables
+  // secure-development ONLY, which makes it the right fixture for both
+  // refusals: quiz/classic are the runtime additions, and SD is the module
+  // that must not move in either direction.
+  describe("enabledModules", () => {
+    it("accepts adding a module the baked config never mentioned", async () => {
+      mocks.upstashEval.mockResolvedValue([]);
+      await updateAdminSettings({ enabledModules: ["secure-development", "quiz"] }, "alice");
+      const args = mocks.upstashEval.mock.calls[0][2];
+      expect(args).toContain("secure-development,quiz");
+    });
+
+    it("refuses an empty set — an event has to serve something", async () => {
+      // ADR 24's runtime analogue. Build time already refuses `modules: {}`;
+      // if runtime did not, the same configuration would be legal through one
+      // door and illegal through the other.
+      await expect(updateAdminSettings({ enabledModules: [] }, "alice")).rejects.toBeInstanceOf(
+        AdminValidationError,
+      );
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses to DISABLE secure-development", async () => {
+      // Its scorer would keep ingesting scores for a module contestants can no
+      // longer see — a worse state than either end.
+      await expect(updateAdminSettings({ enabledModules: ["quiz"] }, "alice")).rejects.toBeInstanceOf(
+        AdminValidationError,
+      );
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses an unknown module id rather than storing it", async () => {
+      await expect(
+        updateAdminSettings({ enabledModules: ["secure-development", "not-a-module"] as never }, "alice"),
+      ).rejects.toBeInstanceOf(AdminValidationError);
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses a non-array", async () => {
+      await expect(
+        updateAdminSettings({ enabledModules: "quiz" as never }, "alice"),
+      ).rejects.toBeInstanceOf(AdminValidationError);
+    });
+
+    it("dedupes before storing", async () => {
+      mocks.upstashEval.mockResolvedValue([]);
+      await updateAdminSettings({ enabledModules: ["secure-development", "quiz", "quiz"] }, "alice");
+      expect(mocks.upstashEval.mock.calls[0][2]).toContain("secure-development,quiz");
+    });
+
+    it("never deletes a module's data — the patch writes one field", async () => {
+      // The toggle is a switch, not a delete: re-enabling must restore the
+      // same board. Nothing in this path may touch ctf:quiz:* or ctf:classic:*.
+      mocks.upstashEval.mockResolvedValue([]);
+      await updateAdminSettings({ enabledModules: ["secure-development"] }, "alice");
+      const [script, keys] = mocks.upstashEval.mock.calls[0];
+      expect(keys.every((k) => k.startsWith("ctf:admin:"))).toBe(true);
+      expect(script).not.toMatch(/quiz|classic/i);
+    });
+  });
+
   it("rejects an unknown patch key", async () => {
     await expect(updateAdminSettings({ bogus: true } as never, "alice")).rejects.toBeInstanceOf(AdminValidationError);
   });

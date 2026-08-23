@@ -45,7 +45,27 @@ the sections below are the enforceable contract behind it.
        score_ingest: poll             # poll | push
    ```
 
-2. MUST NOT expect dynamic/plugin-style registration in v1. **Three**
+2. MUST state whether it can be **enabled at runtime**. Presence in
+   `event.yaml`'s `modules:` is the STARTING set and the outage fallback, not
+   the live truth: organizers switch modules on and off from `/admin` during an
+   event, and the live set lives in `ctf:admin:settings`
+   ([ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
+
+   A module is runtime-toggleable only if **everything it needs already
+   exists** when the switch is flipped. Concretely, enabling it must require no
+   more than a route, a nav entry, a tab and data it keeps in Redis. If it
+   needs a **container** (`docker-compose.yml` profiles are chosen at
+   `up` time and the app cannot start one) or **provisioning** (forks, an App
+   installation, per-repo workflows — `ctf-setup.sh`'s work, holding a key the
+   web tier deliberately does not have, ADR 41), it is configured at setup and
+   its toggle must be **refused with the reason**, in both directions.
+   `secure-development` is the worked example of the second kind; `quiz` and
+   `classic` are the first.
+
+   Disabling MUST NOT delete a module's data. Re-enabling has to restore the
+   same board, or the toggle is a destructive action wearing a switch.
+
+3. MUST NOT expect dynamic/plugin-style registration in v1. **Three**
    independent readers parse the same `event.yaml`, and each enumerates the
    module keys it knows explicitly, failing on anything else: the poll
    service's config loader (`sync/src/config.js`), the app's build-time
@@ -91,7 +111,7 @@ the sections below are the enforceable contract behind it.
    A module is enabled by **being present** under `modules:` and disabled by
    being omitted. There is no `enabled:` key — a module MUST NOT invent one.
 
-3. A module's config block is free to define its own shape beyond
+4. A module's config block is free to define its own shape beyond
    `targets`. Note that in v1 `score_ingest` is documentation-of-intent
    inside `event.yaml` — neither reader acts on it. The actual
    poll/push switch is the separate `SCORE_INGEST` env var consumed by

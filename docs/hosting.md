@@ -388,6 +388,20 @@ targets), so it carries both ingest profiles — `["poll", "push"]` — while
 to the scorer directly and needs no poller. A quiz-only event must not be
 asked to pull a scorer image it has no reason to own.
 
+**This is why `secure-development` is the one module you cannot switch on from
+`/admin`.** Quiz and Classic can be toggled during an event without a rebuild,
+because enabling one needs a route, a nav link and a tab — all of which already
+exist. Secure Development needs the containers in this table, and the profile
+list is fixed when you run `up`: the app cannot start a `scorer` that was never
+brought up, so a runtime toggle would enable a module whose services are not
+there. Its forks are the other half of the same problem — only `ctf-setup.sh`
+can create those. See
+[ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+
+So the `modules:` block below decides the profiles you need **and** decides
+Secure Development permanently; for Quiz and Classic it only decides what the
+event starts with.
+
 **Every one of these is a `--build`, so every one needs `EVENT_CONFIG_B64`.**
 Export it once, in the same shell — without it the build silently bakes
 neutral defaults, including an empty `admins` list that 403s everyone out of
