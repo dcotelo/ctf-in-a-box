@@ -22,6 +22,28 @@ async function postTeam(path: string, body?: Record<string, string>): Promise<Te
   return data;
 }
 
+/** The two captain buttons that sit BESIDE an input — Rename and Transfer.
+ *
+ *  They are disabled until their field has a value, which means **disabled is
+ *  their resting state**: an organizer opening the team card sees them before
+ *  they see the input. Sharing the generic button style meant they arrived at
+ *  50% opacity on top of an already-dim `text-zinc-300`, and stopped reading
+ *  as controls at all — the reported symptom was "there is no rename option",
+ *  from someone looking straight at it.
+ *
+ *  So a disabled state here keeps its border and stays legible: dimmer than
+ *  live, still obviously a button, with a cursor that says why it will not
+ *  respond. The neighbouring buttons (Regenerate, Disband) are only disabled
+ *  while a request is in flight, so they never spend their idle life looking
+ *  like this and are deliberately left alone.
+ *
+ *  Same family of bug as the OWASP badges in #156: a control that is only
+ *  discoverable once you already know it is there is not discoverable. */
+const PAIRED_ACTION_CLASS =
+  "flex-none rounded-md border border-white/20 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 " +
+  "transition-colors hover:border-[#2563eb]/60 hover:bg-[#2563eb]/10 hover:text-white " +
+  "disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
+
 export default function TeamCard({
   team,
   writesEnabled,
@@ -175,7 +197,7 @@ export default function TeamCard({
                   type="button"
                   disabled={pending || !renameValue.trim()}
                   onClick={() => run(() => postTeam("/rename", { slug: team.slug, name: renameValue }))}
-                  className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+                  className={PAIRED_ACTION_CLASS}
                 >
                   Rename
                 </button>
@@ -199,7 +221,7 @@ export default function TeamCard({
                     type="button"
                     disabled={pending || !transferTarget}
                     onClick={() => run(() => postTeam("/transfer", { slug: team.slug, to: transferTarget }))}
-                    className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+                    className={PAIRED_ACTION_CLASS}
                   >
                     Transfer
                   </button>
