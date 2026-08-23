@@ -325,10 +325,22 @@ describe("module toggles", () => {
     expect(render()).toMatch(/deletes nothing|Nothing is deleted/i);
   });
 
-  it("locks the last remaining toggleable module instead of letting it be switched off", () => {
-    // The server refuses this (ADR 24's runtime analogue); a control that
-    // always errors is worse than one that explains itself.
+  it("does NOT lock a toggleable module while a non-toggleable one is still live", () => {
+    // The bug this replaces: counting only TOGGLEABLE live modules locked quiz
+    // on a secure-development + quiz event, on the grounds that quiz was the
+    // last *switchable* module — while secure-development sat above it,
+    // enabled and serving. Disabling quiz there leaves a perfectly legal event,
+    // the server accepts it, and the UI used to refuse anyway.
     const html = render({ enabledModuleIds: ["secure-development", "quiz"] });
+    expect(html).not.toContain("The only module left");
+  });
+
+  it("locks the last LIVE module instead of letting it be switched off", () => {
+    // Genuinely the last one: nothing else is enabled, so switching it off
+    // would leave the event serving nothing. The server refuses that (ADR 24's
+    // runtime analogue); a control that always errors is worse than one that
+    // explains itself.
+    const html = render({ enabledModuleIds: ["quiz"] });
     expect(html).toContain("The only module left");
   });
 });

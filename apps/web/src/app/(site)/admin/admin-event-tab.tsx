@@ -108,12 +108,19 @@ export default function AdminEventTab({
   liveModuleIds,
 }: AdminEventTabProps) {
   const live = new Set(liveModuleIds);
-  // The last toggleable module cannot be switched off — the server refuses it
-  // (ADR 24's runtime analogue), and a control that always errors is worse
-  // than one that explains itself. Counted over TOGGLEABLE modules only:
-  // secure-development can never be the thing that rescues an empty set,
-  // because it can never be switched either way.
-  const liveToggleable = moduleChoices.filter((m) => m.toggleable && live.has(m.id));
+  // The last LIVE module cannot be switched off — the server refuses a set that
+  // would end up empty (ADR 24's runtime analogue), and a control that always
+  // errors is worse than one that explains itself.
+  //
+  // Counted over every live module, INCLUDING the ones that cannot be toggled.
+  // Counting only the toggleable ones was wrong: on an event running
+  // secure-development plus quiz, it locked quiz on the grounds that quiz was
+  // the last *switchable* module — while secure-development sat right above it,
+  // enabled and serving. The event would have been left with content, the
+  // server would have accepted the change, and the UI refused it anyway. What
+  // makes a set legal is that SOMETHING is live, not that something switchable
+  // is live.
+  const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
   // No "Event" heading inside the panel: the old flat layout needed an <h3> to
   // separate this group from the module sections below it, but the tab strip is
   // that heading now (the panel is labelled by its own tab via
@@ -131,7 +138,7 @@ export default function AdminEventTab({
         </div>
         {moduleChoices.map((mod) => {
           const on = live.has(mod.id);
-          const isLastOn = on && mod.toggleable && liveToggleable.length === 1;
+          const isLastOn = on && mod.toggleable && liveCount === 1;
           const disabled = pending || !mod.toggleable || isLastOn;
           return (
             <label key={mod.id} className="flex items-center justify-between gap-3">
