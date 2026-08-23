@@ -73,4 +73,34 @@ describe("TeamCard", () => {
     // The join code itself is surfaced prominently.
     expect(html).toContain("ab12cd");
   });
+
+  it("gives the input-paired captain buttons a DESIGNED disabled state, not just a fade", () => {
+    // The assertion above (`/rename/i` appears in the markup) passed for the
+    // entire time this control was unusable. Rename and Transfer are disabled
+    // until their field has a value — so disabled is their RESTING state, the
+    // one a captain sees on arrival — and they were rendering as
+    // `text-zinc-300` at 50% opacity, which stopped reading as a button at
+    // all. The bug was reported as "there is no rename option" by someone
+    // looking straight at it.
+    //
+    // Presence is not discoverability. What this pins is that the disabled
+    // state is styled deliberately — it keeps a border and a legible text
+    // colour — rather than being the enabled style with the contrast taken
+    // out of it.
+    const html = renderToStaticMarkup(
+      <TeamCard
+        team={{ slug: "red-team", name: "Red Team", members: ["alice", "bob"] }}
+        writesEnabled
+        maxMembers={4}
+        isCaptain
+        captain="alice"
+        joinCode="ab12cd"
+      />,
+    );
+    const renameButton = html.slice(0, html.indexOf(">Rename<"));
+    const classAttr = renameButton.slice(renameButton.lastIndexOf('class="'));
+    expect(classAttr).toMatch(/disabled:border-/);
+    expect(classAttr).toMatch(/disabled:text-/);
+    expect(classAttr).not.toMatch(/disabled:opacity-50/);
+  });
 });
