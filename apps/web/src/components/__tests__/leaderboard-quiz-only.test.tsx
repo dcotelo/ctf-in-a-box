@@ -131,7 +131,7 @@ describe("the solved column", () => {
    *  on the cell itself rather than on a bare number, which appears all over
    *  the row's markup (points, rank, avatar dimensions). */
   function solvedCell(html: string): string | null {
-    const m = html.match(/text-\[#3fb950\]"?>(\d+)(?:<span[^>]*>\s*\/\s*(\d+)<\/span>)?/);
+    const m = html.match(/text-\[#22c55e\]"?>(\d+)(?:<span[^>]*>\s*\/\s*(\d+)<\/span>)?/);
     if (!m) return null;
     return m[2] ? `${m[1]} / ${m[2]}` : m[1];
   }

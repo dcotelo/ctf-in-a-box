@@ -47,7 +47,7 @@ export default function ConfirmModal({
 
   const typeOk = !requireType || typed === requireType;
   const confirmDisabled = pending || !typeOk;
-  const accent = danger ? "bg-[#f85149] hover:bg-[#f85149]" : "bg-[#e6edf3] hover:bg-white";
+  const accent = danger ? "bg-[#e53e3e] hover:bg-[#e53e3e]" : "bg-[#2563eb] hover:bg-[#1d4ed8]";
 
   return (
     <div
@@ -58,10 +58,10 @@ export default function ConfirmModal({
       onClick={() => !pending && onCancel()}
     >
       <div
-        className="w-full max-w-md rounded-lg border border-white/10 bg-[#131826] p-5 shadow-2xl"
+        className="w-full max-w-md rounded-lg border border-white/10 bg-[#16162a] p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className={`text-base font-semibold ${danger ? "text-[#f85149]" : "text-white"}`}>{title}</h3>
+        <h3 className={`text-base font-semibold ${danger ? "text-[#e53e3e]" : "text-white"}`}>{title}</h3>
         <div className="mt-2 text-sm text-zinc-300">{body}</div>
 
         {requireType && (
@@ -74,7 +74,7 @@ export default function ConfirmModal({
               value={typed}
               disabled={pending}
               onChange={(e) => setTyped(e.target.value)}
-              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#f85149]/60 focus-visible:outline-none"
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#e53e3e]/60 focus-visible:outline-none"
             />
           </label>
         )}

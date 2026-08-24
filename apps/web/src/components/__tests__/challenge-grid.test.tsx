@@ -22,7 +22,7 @@ const dvwa: AppMeta = {
   challengeCount: 2,
   maxPoints: 4,
   stars: [1, 3],
-  accent: "#f85149",
+  accent: "#e53e3e",
   icon: "M0 0",
 };
 
@@ -44,7 +44,7 @@ describe("ChallengeGrid (queue)", () => {
     expect(html).toContain("1 pt");
     // The solved row is visibly distinct (dim text + filled green dot) and
     // announced to screen readers — not just present.
-    expect(html).toContain("bg-[#3fb950]");
+    expect(html).toContain("bg-[#22c55e]");
     expect(html).toContain("(patched)");
     // The solved-state toggle appears once solved data exists.
     expect(html).toContain("Solved state");

@@ -24,12 +24,12 @@ export default function ModuleEmptyState({
   authoring: { href: string; label: string } | null;
 }) {
   return (
-    <div className="ds-card flex flex-col items-center gap-3 rounded-lg border border-white/[0.06] bg-[#131826] px-5 py-10 text-center">
+    <div className="ds-card flex flex-col items-center gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
       <p className="text-sm text-zinc-400">{message}</p>
       {authoring && (
         <Link
           href={authoring.href}
-          className="rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+          className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         >
           {authoring.label}
         </Link>

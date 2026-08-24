@@ -51,9 +51,9 @@ export default function EventCountdown({
   if (mounted && !remaining) {
     if (hideWhenComplete) return null;
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-[#3fb950]/40 bg-[#3fb950]/10 px-6 py-3.5 text-sm font-medium text-[#3fb950]">
+      <div className="flex items-center gap-2 rounded-lg border border-[#22c55e]/40 bg-[#22c55e]/10 px-6 py-3.5 text-sm font-medium text-[#22c55e]">
         <span
-          className="h-2 w-2 flex-none rounded-full bg-[#3fb950]"
+          className="h-2 w-2 flex-none rounded-full bg-[#22c55e]"
           style={{ animation: "blink 1s step-end infinite" }}
           aria-hidden="true"
         />
@@ -89,7 +89,7 @@ export default function EventCountdown({
         {UNITS.map(([key, label]) => (
           <div
             key={key}
-            className="flex min-w-[3.75rem] flex-col items-center rounded-md border border-white/10 bg-[#0e1220] px-2.5 py-2 sm:min-w-[4.5rem] sm:px-3.5"
+            className="flex min-w-[3.75rem] flex-col items-center rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 sm:min-w-[4.5rem] sm:px-3.5"
           >
             <span className="font-mono text-xl font-bold tabular-nums text-white sm:text-2xl">
               {String(display[key]).padStart(2, "0")}

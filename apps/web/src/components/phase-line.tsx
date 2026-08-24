@@ -72,7 +72,7 @@ export default async function PhaseLine() {
   void activeIdx;
 
   return (
-    <div className="border-b border-[rgba(230,237,243,0.09)] bg-[#0e1220]">
+    <div className="border-b border-white/[0.09] bg-[#12121e]">
       <ol
         aria-label={`Event phase: ${phase}`}
         className="mx-auto flex max-w-5xl items-center gap-0 overflow-x-auto px-6 py-1.5"
@@ -86,7 +86,7 @@ export default async function PhaseLine() {
               {i > 0 && (
                 <span
                   aria-hidden
-                  className={`mx-2 h-px w-6 sm:w-10 ${isPast || isActive ? "bg-[#e6edf3]/40" : "bg-[#e6edf3]/15"}`}
+                  className={`mx-2 h-px w-6 sm:w-10 ${isPast || isActive ? "bg-white/40" : "bg-white/15"}`}
                 />
               )}
               <span className="flex items-center gap-1.5 whitespace-nowrap">
@@ -95,26 +95,26 @@ export default async function PhaseLine() {
                   className={`h-2 w-2 flex-none rounded-full ${
                     isActive
                       ? phase === "live"
-                        ? "bg-[#3fb950]"
+                        ? "bg-[#22c55e]"
                         : phase === "frozen"
-                          ? "bg-[#d29922]"
-                          : "bg-[#e6edf3]"
+                          ? "bg-[#d4a017]"
+                          : "bg-[#2563eb]"
                       : isPast
-                        ? "bg-[#e6edf3]/50"
-                        : "border border-[#9ba7b4]/50"
+                        ? "bg-white/50"
+                        : "border border-[#8f8f9b]/50"
                   }`}
                   style={isActive ? { animation: "head-breathe 4s ease-in-out infinite" } : undefined}
                 />
                 <span
                   className={`font-mono text-[11px] uppercase tracking-wider ${
-                    isActive ? "text-[#e6edf3]" : "text-[#9ba7b4]/80"
+                    isActive ? "text-white" : "text-[#8f8f9b]/80"
                   }`}
                 >
                   {stop.label}
-                  {isActive && <span className="ml-1 text-[#9ba7b4]">◀ now</span>}
+                  {isActive && <span className="ml-1 text-[#8f8f9b]">◀ now</span>}
                 </span>
                 {time && !isActive && (
-                  <span className="hidden font-mono text-[10px] text-[#9ba7b4]/60 sm:inline">{time}</span>
+                  <span className="hidden font-mono text-[10px] text-[#8f8f9b]/60 sm:inline">{time}</span>
                 )}
               </span>
             </li>

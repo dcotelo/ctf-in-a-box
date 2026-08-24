@@ -39,7 +39,7 @@ function matchChallenge(c: CatalogChallenge, q: string): boolean {
 }
 
 const SELECT =
-  "rounded-md border border-white/10 bg-[#0e1220] px-2.5 py-2 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none";
+  "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
 
 export default function ChallengeGrid({
   apps,
@@ -111,7 +111,7 @@ export default function ChallengeGrid({
       <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {apps.map((app) => (
           <li key={app.id}>
-            <article className="ds-card flex h-full flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
+            <article className="ds-card flex h-full flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
               <div className="flex items-baseline justify-between">
                 <h2 className="text-base font-bold text-white">{app.name}</h2>
                 <span className="font-mono text-xs tabular-nums text-muted">{app.challengeCount}</span>
@@ -175,7 +175,7 @@ export default function ChallengeGrid({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search challenges or OWASP codes"
             aria-label="Search challenges"
-            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           />
         </div>
         <label className="sr-only" htmlFor="filter-target">Target</label>
@@ -200,7 +200,7 @@ export default function ChallengeGrid({
                 type="button"
                 onClick={() => setState(s)}
                 aria-pressed={state === s}
-                className={`px-3 py-2 text-xs font-medium capitalize transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#d29922] ${
+                className={`px-3 py-2 text-xs font-medium capitalize transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#d4a017] ${
                   state === s ? "bg-white/[0.1] text-white" : "text-zinc-400 hover:text-white"
                 }`}
               >
@@ -213,13 +213,13 @@ export default function ChallengeGrid({
       </div>
 
       {spent > 0 && (
-        <p className="-mt-2 font-mono text-xs tabular-nums text-[#d29922]/80">
+        <p className="-mt-2 font-mono text-xs tabular-nums text-[#d4a017]/80">
           💡 −{spent} pts spent on hints
         </p>
       )}
 
       {sections.length === 0 ? (
-        <div className="rounded-lg border border-white/[0.06] bg-[#131826] px-4 py-10 text-center">
+        <div className="rounded-lg border border-white/[0.06] bg-[#16162a] px-4 py-10 text-center">
           <p className="text-sm text-zinc-400">Nothing matches those filters.</p>
           <button
             type="button"
@@ -239,10 +239,10 @@ export default function ChallengeGrid({
           {sections.map(({ app, rows, total, solvedCount }) => (
             <section key={app.id} className="mb-6">
               {/* Sticky under the site header (h-14 = 56px). */}
-              <div className="sticky top-14 z-10 -mx-1 flex items-baseline gap-3 border-b border-white/[0.09] bg-[#0b0e14]/95 px-1 py-2 backdrop-blur">
+              <div className="sticky top-14 z-10 -mx-1 flex items-baseline gap-3 border-b border-white/[0.09] bg-[#1a1a2e]/95 px-1 py-2 backdrop-blur">
                 <h2 className="text-base font-bold text-white">{app.name}</h2>
                 {anySolvedData && (
-                  <span className="font-mono text-xs tabular-nums text-[#3fb950]">
+                  <span className="font-mono text-xs tabular-nums text-[#22c55e]">
                     {solvedCount}/{total} patched
                   </span>
                 )}
@@ -250,7 +250,7 @@ export default function ChallengeGrid({
                   href={app.repo}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="ml-auto hidden font-mono text-xs text-zinc-500 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] sm:inline"
+                  className="ml-auto hidden font-mono text-xs text-zinc-500 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:inline"
                 >
                   {app.repo.replace("https://github.com/", "")}
                 </a>
@@ -266,7 +266,7 @@ export default function ChallengeGrid({
                         <span
                           aria-hidden
                           className={`h-2 w-2 flex-none rounded-full ${
-                            isSolved ? "bg-[#3fb950]" : "border border-[#9ba7b4]/50"
+                            isSolved ? "bg-[#22c55e]" : "border border-[#8f8f9b]/50"
                           }`}
                         />
                         <span
@@ -287,7 +287,7 @@ export default function ChallengeGrid({
                         {c.owasp && <OwaspBadge code={c.owasp.code} />}
                       </div>
                       {ownedText && (
-                        <p className="ml-[18px] rounded border-l-2 border-[#d29922]/50 bg-[#d29922]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d29922]/90">
+                        <p className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">
                           💡 {ownedText}
                         </p>
                       )}

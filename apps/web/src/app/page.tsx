@@ -13,6 +13,7 @@
 // "use client" component — React's flight serializer rejects function-valued
 // props. That is also why `home` is reached via the server-only
 // `getModuleHome` rather than off a ResolvedModule; see lib/modules.ts.
+import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import EventCountdown from "@/components/event-countdown";
@@ -154,16 +155,25 @@ export default async function Home() {
       {phaseLine}
 
       {/* Hero: the event, its games in one breath, ONE action. */}
-      <div className="border-b border-[rgba(230,237,243,0.09)] bg-[#0b0e14]">
+      <div className="border-b border-white/[0.09] bg-[#1a1a2e]">
         <main className="mx-auto flex w-full max-w-5xl flex-col items-start gap-6 px-6 py-16 sm:py-24">
+          {/* OWASP brand mark — the event runs on OWASP projects and says so. */}
+          <Image
+            src="/owasp-logo.png"
+            alt="OWASP"
+            width={200}
+            height={69}
+            priority
+            className="invert"
+          />
           {taglines && (
-            <p className="font-mono text-xs uppercase tracking-[0.3em] text-[#9ba7b4]">{taglines}</p>
+            <p className="font-mono text-xs uppercase tracking-[0.3em] text-[#14b8a6]">{taglines}</p>
           )}
           <h1 className="max-w-3xl text-balance text-5xl font-black tracking-tight text-white sm:text-7xl">
             {event.name}
           </h1>
           {(event.dates || event.location) && (
-            <p className="font-mono text-sm text-[#9ba7b4]">
+            <p className="font-mono text-sm text-[#8f8f9b]">
               {event.dates}
               {event.dates && event.location && " · "}
               {event.location}
@@ -186,14 +196,14 @@ export default async function Home() {
           {/* Right now: the top of the board, in the hero. */}
           {topRows.length > 0 && (
             <div className="mt-6 w-full max-w-md">
-              <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[#9ba7b4]">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[#8f8f9b]">
                 Right now
               </p>
               <ol className="flex flex-col gap-1.5">
                 {topRows.map((row, i) => (
                   <li key={row.key} className="flex items-baseline gap-3 font-mono text-sm">
-                    <span className="w-4 flex-none text-right tabular-nums text-[#9ba7b4]">{i + 1}</span>
-                    <span className="min-w-0 flex-1 truncate text-[#e6edf3]">{row.name}</span>
+                    <span className="w-4 flex-none text-right tabular-nums text-[#8f8f9b]">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-white">{row.name}</span>
                     <span className="flex-none font-semibold tabular-nums text-white">
                       {row.points.toLocaleString("en-US")}
                     </span>
@@ -219,17 +229,17 @@ export default async function Home() {
             {sections.map((section) => (
               <article
                 key={section.id}
-                className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-6"
+                className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
               >
                 <h3 className="text-lg font-bold text-white">{section.title}</h3>
                 <p className="flex-1 text-sm leading-relaxed text-zinc-400">{section.intro}</p>
                 {countFor(section.id) && (
-                  <p className="font-mono text-xs tabular-nums text-[#9ba7b4]">{countFor(section.id)}</p>
+                  <p className="font-mono text-xs tabular-nums text-[#8f8f9b]">{countFor(section.id)}</p>
                 )}
                 {section.cta && (
                   <Link
                     href={section.cta.href}
-                    className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-[#e6edf3] transition-colors hover:border-[#e6edf3]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+                    className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#2563eb]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                   >
                     {section.cta.label}
                   </Link>
@@ -247,7 +257,7 @@ export default async function Home() {
             section.extra && (
               <section key={`extra-${section.id}`} className="flex flex-col gap-6">
                 <div className="flex flex-col gap-3">
-                  <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#9ba7b4]">
+                  <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#14b8a6]">
                     {section.extra.kicker}
                   </p>
                   <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
@@ -258,7 +268,7 @@ export default async function Home() {
                   </p>
                 </div>
                 {section.id === "secure-development" && (
-                  <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-6">
+                  <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
                     <h3 className="text-lg font-semibold text-white">
                       Start with the OWASP Secure Agent Playbook
                     </h3>
@@ -275,13 +285,13 @@ export default async function Home() {
                         href={event.secureAgentPlaybookUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-medium text-[#0b0e14] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+                        className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                       >
                         Get the playbook
                       </a>
                       <Link
                         href="/how-to-play#first-patch"
-                        className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#e6edf3]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+                        className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                       >
                         See it in a worked example
                       </Link>
@@ -297,7 +307,7 @@ export default async function Home() {
         {secureDevelopment && (
           <section className="flex flex-col gap-6">
             <div className="flex flex-col gap-3">
-              <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#9ba7b4]">
+              <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#14b8a6]">
                 {enabledApps.length} real {enabledApps.length === 1 ? "target" : "targets"}
               </p>
               <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
@@ -315,11 +325,11 @@ export default async function Home() {
                 <li key={app.id}>
                   <Link
                     href="/challenges"
-                    className="ds-card group flex h-full flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#131826] p-5"
+                    className="ds-card group flex h-full flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
                   >
                     <div className="flex items-baseline justify-between gap-3">
                       <h3 className="text-base font-bold text-white">{app.name}</h3>
-                      <span className="font-mono text-xs tabular-nums text-[#9ba7b4]">
+                      <span className="font-mono text-xs tabular-nums text-[#8f8f9b]">
                         {catalog?.byApp[app.id]?.length ?? app.challengeCount}
                       </span>
                     </div>
@@ -332,7 +342,7 @@ export default async function Home() {
         )}
 
         {/* The evaluator's ninety seconds: what running this costs. */}
-        <section className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-6 sm:flex-row sm:items-center sm:justify-between">
+        <section className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="max-w-xl">
             <h3 className="text-lg font-semibold text-white">Run this for your own group</h3>
             <p className="mt-1 text-sm leading-relaxed text-zinc-400">
@@ -346,7 +356,7 @@ export default async function Home() {
               href="https://github.com/dcotelo/ctf-in-a-box"
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-medium text-[#0b0e14] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+              className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
               Get the kit
             </a>
@@ -354,7 +364,7 @@ export default async function Home() {
               href="https://dcotelo.github.io/ctf-in-a-box/"
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#e6edf3]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+              className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
               Read the docs
             </a>

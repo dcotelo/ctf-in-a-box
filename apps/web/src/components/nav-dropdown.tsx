@@ -124,7 +124,7 @@ export default function NavDropdown({
         aria-expanded={open}
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
-        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
+        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] ${
           active ? "bg-white/[0.06] font-medium text-white" : "text-zinc-400 hover:text-white"
         }`}
       >
@@ -147,7 +147,7 @@ export default function NavDropdown({
         <ul
           role="menu"
           aria-label={label}
-          className="absolute left-0 top-full z-10 mt-1 min-w-[10rem] rounded-md border border-white/[0.06] bg-[#131826] py-1 shadow-lg"
+          className="absolute left-0 top-full z-10 mt-1 min-w-[10rem] rounded-md border border-white/[0.06] bg-[#16162a] py-1 shadow-lg"
         >
           {items.map((item, index) => (
             <li key={item.href} role="none">
@@ -160,7 +160,7 @@ export default function NavDropdown({
                 aria-current={isActive(item.href) ? "page" : undefined}
                 onClick={onItemClick}
                 onKeyDown={(e) => onItemKeyDown(e, index)}
-                className={`block px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
+                className={`block px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] ${
                   isActive(item.href)
                     ? "bg-white/[0.06] font-medium text-white"
                     : "text-zinc-400 hover:text-white"

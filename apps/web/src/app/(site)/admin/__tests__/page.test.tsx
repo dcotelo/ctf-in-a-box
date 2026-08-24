@@ -79,7 +79,7 @@ describe("admin page gate", () => {
     const html = renderToStaticMarkup(await AdminPage({ searchParams: Promise.resolve({}) }));
     expect(html).toMatch(/Dropped/);
     expect(html).not.toMatch(/Last drop/);
-    // No hex assertion: #d29922 is now the theme-wide signal color (focus
+    // No hex assertion: #d4a017 is now the theme-wide signal color (focus
     // rings, the Right-now readout), so its presence no longer implies the
     // drop warning — the /Last drop/ line above is the real pin.
   });
@@ -98,7 +98,7 @@ describe("admin page gate", () => {
     // The count itself, in its own cell — not merely a "2" loose in the markup.
     expect(html).toMatch(/Dropped<\/dt>[\s\S]{0,160}?>2</);
     expect(html).toContain("submit DVWA#7: rejected (4xx), dropped");
-    expect(html).toContain("#d29922");
+    expect(html).toContain("#d4a017");
   });
 
   it("shows 'sync not running' when there is no sync status yet", async () => {

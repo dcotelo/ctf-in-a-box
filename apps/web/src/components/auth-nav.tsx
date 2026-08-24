@@ -67,9 +67,9 @@ export default function AuthNav() {
       <button
         type="button"
         onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/profile" })}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-[#e6edf3]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/50 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
-        Sign in with GitHub
+        <span className="text-[#22c55e]">$</span> sign-in --github
       </button>
     );
   }
@@ -88,7 +88,7 @@ export default function AuthNav() {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+        className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
         <Image
           src={session.user.image ?? `https://avatars.githubusercontent.com/${displayName}`}
@@ -104,7 +104,7 @@ export default function AuthNav() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-md border border-white/10 bg-[#131826] py-1 shadow-xl"
+          className="absolute right-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-md border border-white/10 bg-[#16162a] py-1 shadow-xl"
         >
           <Link
             href="/profile"

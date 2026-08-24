@@ -11,7 +11,7 @@ import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
 
 const PRIMARY =
-  "inline-flex items-center gap-2 rounded-md bg-[#e6edf3] px-6 py-3 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]";
+  "inline-flex items-center gap-2 rounded-md bg-[#2563eb] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
 export default function HeroCta({
   label,

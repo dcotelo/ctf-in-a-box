@@ -14,7 +14,7 @@ export default function PageHeader({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#9ba7b4]">
+      <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
         {eyebrow}
       </p>
       <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">
@@ -25,7 +25,7 @@ export default function PageHeader({
           {description}
         </p>
       )}
-      <div className="mt-2 h-px w-full bg-gradient-to-r from-[#e6edf3]/40 via-white/[0.06] to-transparent" />
+      <div className="mt-2 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
     </div>
   );
 }

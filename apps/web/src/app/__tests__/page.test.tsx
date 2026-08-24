@@ -44,7 +44,7 @@ vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 // build-time Next magic with no runtime implementation under Vitest.
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "" });
-  return { Archivo: font, Public_Sans: font, Geist_Mono: font };
+  return { Poppins: font, Barlow: font, Geist_Mono: font };
 });
 vi.mock("next/image", () => ({
   default: ({ src, alt }: { src: string; alt: string }) => (

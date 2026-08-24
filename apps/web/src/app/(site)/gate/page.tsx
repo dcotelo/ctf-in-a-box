@@ -56,7 +56,7 @@ export default async function GatePage() {
             : "The event opens when the conference starts. Have the access password from the organizers? Enter it below."
         }
       />
-      <div className="ds-card max-w-md rounded-lg border border-white/[0.06] bg-[#131826] p-5">
+      <div className="ds-card max-w-md rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
         <GateForm destination={UNLOCKED_DESTINATION} unlockLabel={UNLOCK_LABEL} />
       </div>
     </div>

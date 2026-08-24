@@ -102,7 +102,7 @@ export default async function ChallengesPage() {
           PR, so there is no per-run pending state to show — what it CAN say
           is when scores land and where to look when one doesn't. */}
       <p className="-mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted">
-        <span aria-hidden className="mt-1 h-2 w-2 flex-none rounded-full bg-[#d29922]" />
+        <span aria-hidden className="mt-1 h-2 w-2 flex-none rounded-full bg-[#d4a017]" />
         <span>
           Scores land within about a minute of your pull request&rsquo;s checks finishing — your
           patched marks here and on your profile update on reload. A run that finished but scored

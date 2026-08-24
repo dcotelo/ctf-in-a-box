@@ -32,7 +32,7 @@ export default function AppBreakdown({ entry, showPoints }: { entry: Leaderboard
             const progress = entry.apps[app.id]!;
             const pct = progress.total > 0 ? (progress.patched / progress.total) * 100 : 0;
             return (
-              <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#0e1220] px-3 py-2">
+              <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
                 <p className="text-xs" style={{ color: app.accent }}>
                   {app.name}
                 </p>
@@ -63,7 +63,7 @@ export default function AppBreakdown({ entry, showPoints }: { entry: Leaderboard
             const progress = entry.apps[app.id]!;
             const pct = progress.total > 0 ? (progress.patched / progress.total) * 100 : 0;
             return (
-              <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#0e1220] px-3 py-2">
+              <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
                 <p className="text-sm">
                   <span style={{ color: app.accent }}>{app.name}</span>
                   <span className="ml-1.5 font-mono text-xs text-muted">

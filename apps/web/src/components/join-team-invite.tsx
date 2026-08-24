@@ -40,9 +40,9 @@ export default function JoinTeamInvite({
           // query parameter to lose.
           authClient.signIn.social({ provider: "github", callbackURL: `/join/${encodeURIComponent(code)}` })
         }
-        className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-sm text-zinc-200 transition-colors hover:border-[#e6edf3]/45 hover:text-white"
+        className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-sm text-zinc-200 transition-colors hover:border-[#2563eb]/45 hover:text-white"
       >
-        <span className="text-[#3fb950]">$</span> sign-in --github
+        <span className="text-[#22c55e]">$</span> sign-in --github
       </button>
     );
   }
@@ -51,7 +51,7 @@ export default function JoinTeamInvite({
     return (
       <p className="text-sm text-zinc-400">
         You are already on a team. Leave it from your{" "}
-        <a href="/profile" className="text-[#e6edf3] hover:underline">
+        <a href="/profile" className="text-white hover:underline">
           profile
         </a>{" "}
         before joining another.
@@ -90,12 +90,12 @@ export default function JoinTeamInvite({
             setPending(false);
           }
         }}
-        className="self-start rounded-md border border-[#e6edf3]/40 bg-white/[0.06] px-4 py-2 font-mono text-sm text-white transition-colors hover:border-[#e6edf3]/70 disabled:opacity-40"
+        className="self-start rounded-md border border-[#2563eb]/40 bg-white/[0.06] px-4 py-2 font-mono text-sm text-white transition-colors hover:border-[#2563eb]/70 disabled:opacity-40"
       >
         {pending ? "Joining…" : `Join ${teamName}`}
       </button>
       {error && (
-        <p role="alert" className="text-sm text-[#f85149]">
+        <p role="alert" className="text-sm text-[#e53e3e]">
           {error}
         </p>
       )}

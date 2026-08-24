@@ -29,21 +29,21 @@ export default function HintNotice({
 }) {
   if (active) {
     return (
-      <div className="ds-card flex items-start gap-3 rounded-lg border border-[#d29922]/30 bg-[#d29922]/[0.06] p-5">
+      <div className="ds-card flex items-start gap-3 rounded-lg border border-[#d4a017]/30 bg-[#d4a017]/[0.06] p-5">
         <span aria-hidden className="text-lg leading-none">💡</span>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#d29922]">Hints are live</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-[#d4a017]">Hints are live</p>
           {anyMarked ? (
             <p className="mt-1 text-sm leading-relaxed text-zinc-300">
               Stuck? Challenges marked 💡 offer a paid hint. Revealing one deducts{" "}
-              <span className="font-mono tabular-nums text-[#d29922]">−{cost} pts</span> from your
+              <span className="font-mono tabular-nums text-[#d4a017]">−{cost} pts</span> from your
               leaderboard score.{!signedIn && <> Sign in with GitHub to reveal them.</>}
             </p>
           ) : (
             <p className="mt-1 text-sm leading-relaxed text-zinc-300">
               Hints are enabled for this event, but no challenge is offering one yet — when one
               does, a 💡 button appears on its row and revealing costs{" "}
-              <span className="font-mono tabular-nums text-[#d29922]">−{cost} pts</span>.
+              <span className="font-mono tabular-nums text-[#d4a017]">−{cost} pts</span>.
             </p>
           )}
         </div>
@@ -52,16 +52,16 @@ export default function HintNotice({
   }
 
   return (
-    <div className="ds-card flex flex-col gap-4 rounded-lg border border-[#d29922]/30 bg-[#d29922]/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="ds-card flex flex-col gap-4 rounded-lg border border-[#d4a017]/30 bg-[#d4a017]/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex max-w-xl items-start gap-3">
         <span aria-hidden className="text-lg leading-none">💡</span>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-[#d29922]">
+          <p className="text-xs font-medium uppercase tracking-wider text-[#d4a017]">
             Hints unlock at kickoff
           </p>
           <p className="mt-1 text-sm leading-relaxed text-zinc-300">
             When the event starts, challenges on this page will offer paid hints: reveal one for{" "}
-            <span className="font-mono tabular-nums text-[#d29922]">−{cost} pts</span> off your
+            <span className="font-mono tabular-nums text-[#d4a017]">−{cost} pts</span> off your
             leaderboard score. Spend wisely. The penalty is permanent, but so is the hint.
           </p>
         </div>

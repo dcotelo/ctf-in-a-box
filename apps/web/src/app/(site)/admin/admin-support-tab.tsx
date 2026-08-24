@@ -30,7 +30,7 @@ type UserDetail = {
 };
 
 const FIELD =
-  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d29922]/70 focus-visible:outline-none";
+  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
 // Both action styles carry a DESIGNED disabled state, not an opacity fade.
 // Every control on this tab is disabled at rest (nothing is actionable until
 // a lookup returns or both team fields are filled), so the disabled state is
@@ -39,10 +39,10 @@ const FIELD =
 // live next to a faded "Disband team" that looked dead (issue #200, 3.2).
 // Same treatment as team-card.tsx's PAIRED_ACTION_CLASS, the #195 fix.
 const BTN =
-  "flex-none rounded-md bg-[#e6edf3] px-3 py-1.5 text-xs font-medium text-[#0b0e14] transition-colors hover:bg-white " +
+  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] " +
   "disabled:cursor-not-allowed disabled:border disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 const DANGER =
-  "flex-none rounded-md border border-[#f85149]/50 px-3 py-1.5 text-xs text-[#f85149] transition-colors hover:bg-[#f85149]/10 " +
+  "flex-none rounded-md border border-[#e53e3e]/50 px-3 py-1.5 text-xs text-[#e53e3e] transition-colors hover:bg-[#e53e3e]/10 " +
   "disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -162,7 +162,7 @@ export default function AdminSupportTab({
           <div className="flex items-center justify-between gap-2">
             <p className="font-mono text-white">{detail.login}</p>
             {!detail.known && (
-              <span className="rounded border border-[#d29922]/40 bg-[#d29922]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#d29922]">
+              <span className="rounded border border-[#d4a017]/40 bg-[#d4a017]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#d4a017]">
                 no data — check the spelling
               </span>
             )}
@@ -173,7 +173,7 @@ export default function AdminSupportTab({
               <>
                 Team <span className="font-mono text-white">{detail.team.name}</span>
                 <span className="text-muted"> ({detail.team.slug})</span>
-                {detail.team.isCaptain && <span className="text-[#d29922]"> — captain</span>}
+                {detail.team.isCaptain && <span className="text-[#d4a017]"> — captain</span>}
               </>
             ) : (
               "On no team."
@@ -414,8 +414,8 @@ export default function AdminSupportTab({
         </div>
       </section>
 
-      {error && <p className="text-xs text-[#f85149]">{error}</p>}
-      {notice && <p className="text-xs text-[#3fb950]">{notice}</p>}
+      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {notice && <p className="text-xs text-[#22c55e]">{notice}</p>}
     </div>
   );
 }

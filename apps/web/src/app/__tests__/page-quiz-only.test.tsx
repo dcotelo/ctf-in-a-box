@@ -50,7 +50,7 @@ vi.mock("@/lib/admin-store", () => ({
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "" });
-  return { Archivo: font, Public_Sans: font, Geist_Mono: font };
+  return { Poppins: font, Barlow: font, Geist_Mono: font };
 });
 vi.mock("next/image", () => ({
   default: ({ src, alt }: { src: string; alt: string }) => (

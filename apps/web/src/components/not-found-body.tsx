@@ -81,8 +81,8 @@ export default function NotFoundBody({
     <div className="flex flex-col gap-10">
       <PageHeader eyebrow={eyebrow} title={title} description={description} />
 
-      <div className="rounded-lg border border-white/[0.06] bg-[#0e1220] px-6 py-3.5 font-mono text-sm text-muted">
-        <span className="text-[#3fb950]">$</span> owasp-ctf goto{" "}
+      <div className="rounded-lg border border-white/[0.06] bg-[#12121e] px-6 py-3.5 font-mono text-sm text-muted">
+        <span className="text-[#22c55e]">$</span> owasp-ctf goto{" "}
         <span className="text-zinc-400">--route</span> <span>not_found</span>
       </div>
 
@@ -91,7 +91,7 @@ export default function NotFoundBody({
           <Link
             key={r.href}
             href={r.href}
-            className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] p-5 transition-colors hover:border-[#e6edf3]/40"
+            className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5 transition-colors hover:border-[#2563eb]/40"
           >
             <h2 className="font-semibold text-white">{r.label}</h2>
             <p className="mt-1 text-sm leading-relaxed text-zinc-400">{r.body}</p>

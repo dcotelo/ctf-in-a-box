@@ -57,7 +57,7 @@ function ScheduleField({
         onBlur={() => {
           if (input !== canonical) onCommit(fromLocalInput(input));
         }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
       />
     </label>
   );
@@ -180,7 +180,7 @@ export default function AdminEventTab({
                     onConfirm: () => apply({ enabledModules: ids }),
                   });
                 }}
-                className="h-5 w-5 flex-none accent-[#e6edf3] disabled:opacity-40"
+                className="h-5 w-5 flex-none accent-[#2563eb] disabled:opacity-40"
               />
             </label>
           );
@@ -207,7 +207,7 @@ export default function AdminEventTab({
               onConfirm: () => apply({ paused: next }),
             });
           }}
-          className="h-5 w-5 flex-none accent-[#e6edf3]"
+          className="h-5 w-5 flex-none accent-[#2563eb]"
         />
       </label>
 
@@ -231,7 +231,7 @@ export default function AdminEventTab({
               onConfirm: () => apply({ teamRegistrationOpen: next }),
             });
           }}
-          className="h-5 w-5 flex-none accent-[#e6edf3]"
+          className="h-5 w-5 flex-none accent-[#2563eb]"
         />
       </label>
 
@@ -253,7 +253,7 @@ export default function AdminEventTab({
           disabled={pending}
           onChange={(e) => setTeamMaxMembersInput(e.target.value)}
           onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -274,11 +274,11 @@ export default function AdminEventTab({
             render time is the "now"; it refreshes with every edit. */}
         <p className="text-xs leading-relaxed">
           <span className="uppercase tracking-wider text-muted">Right now: </span>
-          <span className={scoringLiveNow ? "text-[#3fb950]" : "text-[#d29922]"}>
+          <span className={scoringLiveNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
             scoring {scoringLiveNow ? "is live" : settings.paused ? "is frozen (manual)" : "is frozen (outside its window)"}
           </span>
           <span className="text-muted"> · </span>
-          <span className={registrationOpenNow ? "text-[#3fb950]" : "text-[#d29922]"}>
+          <span className={registrationOpenNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
             registration {registrationOpenNow ? "is open" : settings.teamRegistrationOpen ? "is closed (outside its window)" : "is closed (manual)"}
           </span>
         </p>
@@ -313,9 +313,9 @@ export default function AdminEventTab({
       </div>
 
       {demoMode && (
-        <div className="flex flex-col gap-3 rounded-md border border-[#e6edf3]/30 bg-[#e6edf3]/[0.04] p-4">
+        <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
           <div>
-            <span className="text-[#e6edf3]">Demo mode</span>
+            <span className="text-white">Demo mode</span>
             <span className="block text-xs text-muted">
               Populate the leaderboard with fake contestants, teams, and solves to
               preview the app. Injects real-challenge-id scores so points render.
@@ -333,16 +333,16 @@ export default function AdminEventTab({
                 onConfirm: doSeed,
               })
             }
-            className="self-start rounded-md border border-[#e6edf3]/45 px-3 py-1.5 text-sm font-medium text-[#e6edf3] hover:bg-white/[0.06] disabled:opacity-50"
+            className="self-start rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Seed demo data
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-3 rounded-md border border-[#f85149]/30 bg-[#f85149]/[0.04] p-4">
+      <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
         <div>
-          <span className="text-[#f85149]">Danger zone</span>
+          <span className="text-[#e53e3e]">Danger zone</span>
           <span className="block text-xs text-muted">
             Master reset wipes <strong>all</strong> event data — teams, points,
             per-player data, and hint spend. It freezes scoring and can&apos;t be
@@ -368,11 +368,11 @@ export default function AdminEventTab({
               onConfirm: () => doReset(eventConfig.name),
             })
           }
-          className="self-start rounded-md border border-[#f85149]/40 px-3 py-1.5 text-sm font-medium text-[#f85149] hover:bg-[#f85149]/10 disabled:opacity-50"
+          className="self-start rounded-md border border-[#e53e3e]/40 px-3 py-1.5 text-sm font-medium text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-50"
         >
           Reset event data…
         </button>
-        {resetInfo && <p className="text-xs text-[#3fb950]">{resetInfo}</p>}
+        {resetInfo && <p className="text-xs text-[#22c55e]">{resetInfo}</p>}
       </div>
     </section>
   );

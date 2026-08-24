@@ -224,7 +224,7 @@ export default async function ProfilePage() {
           this reads the same regardless of which modules are enabled. */}
       <PageHeader eyebrow="Agent dossier" title={login} description="Your personal progress this event." />
 
-      <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-5 sm:flex-row sm:items-center">
+      <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5 sm:flex-row sm:items-center">
         <Image
           src={session.user.image ?? `https://avatars.githubusercontent.com/${login}`}
           alt=""
@@ -244,7 +244,7 @@ export default async function ProfilePage() {
           </div>
           <div className="mt-3 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-white/[0.06]">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#e6edf3]/80 to-[#e6edf3]/45"
+              className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
               style={{ width: `${progressPct}%` }}
             />
           </div>
@@ -256,7 +256,7 @@ export default async function ProfilePage() {
           </div>
           {viewerHints.count > 0 && (
             <div>
-              <p className="font-mono text-xl tabular-nums text-[#d29922]">−{viewerHints.spent}</p>
+              <p className="font-mono text-xl tabular-nums text-[#d4a017]">−{viewerHints.spent}</p>
               <p className="text-[11px] uppercase tracking-wide text-muted">
                 hints ({viewerHints.count})
               </p>
@@ -271,7 +271,7 @@ export default async function ProfilePage() {
               below the fold (issue #200, 2.4). */}
           {secureDevEnabled && (
             <div>
-              <p className="font-mono text-xl tabular-nums text-[#3fb950]">
+              <p className="font-mono text-xl tabular-nums text-[#22c55e]">
                 {patchedCount}
                 <span className="text-sm text-muted"> / {challengeCount}</span>
               </p>
@@ -321,7 +321,7 @@ export default async function ProfilePage() {
           same as an expanded leaderboard row) rather than a second
           breakdown renderer for this page. */}
       {moduleBlocks.length === 0 ? (
-        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] px-5 py-10 text-center">
+        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
           <p className="text-sm text-zinc-400">
             {secureDevEnabled
               ? "No scored PRs yet. Submit a patch to start earning points."
@@ -334,7 +334,7 @@ export default async function ProfilePage() {
       ) : (
         <div className="flex flex-col gap-4">
           {moduleBlocks.map((m) => (
-            <div key={m.id} data-testid="module-block" className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] p-4">
+            <div key={m.id} data-testid="module-block" className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
               {multiModule && (
                 <p className="mb-3 flex items-center justify-between text-xs uppercase tracking-wider text-muted">
                   <span>{m.title}</span>

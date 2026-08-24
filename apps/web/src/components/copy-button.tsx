@@ -46,7 +46,7 @@ export default function CopyButton({
       type="button"
       onClick={copy}
       aria-label={label}
-      className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+      className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
     >
       {/* Purely visual: the accessible name is the stable aria-label above,
           so this swapping text must not also be a live region — otherwise

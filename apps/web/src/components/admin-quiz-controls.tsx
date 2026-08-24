@@ -688,7 +688,7 @@ export default function AdminQuizControls({
           disabled={pending}
           onChange={(e) => setQuizMaxAttemptsInput(e.target.value)}
           onBlur={() => commitNumber("quizMaxAttempts", quizMaxAttemptsInput, setQuizMaxAttemptsInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -708,7 +708,7 @@ export default function AdminQuizControls({
           disabled={pending}
           onChange={(e) => setQuizRetryAfterInput(e.target.value)}
           onBlur={() => commitNumber("quizRetryAfterMin", quizRetryAfterInput, setQuizRetryAfterInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -719,13 +719,13 @@ export default function AdminQuizControls({
             type="button"
             disabled={formPending}
             onClick={() => setEditing(newQuestionEditor(nextOrder))}
-            className="rounded-md border border-[#e6edf3]/45 px-3 py-1.5 text-sm font-medium text-[#e6edf3] hover:bg-white/[0.06] disabled:opacity-50"
+            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add question
           </button>
         </div>
 
-        {listError && <p className="text-xs text-[#f85149]">{listError}</p>}
+        {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
 
         {questions.length === 0 ? (
           <p className="text-xs text-muted">No questions yet.</p>
@@ -801,7 +801,7 @@ export default function AdminQuizControls({
                         setDeleteError(null);
                         setDeleteTarget(row.question);
                       }}
-                      className="rounded-md border border-[#f85149]/40 px-2 py-1 text-xs text-[#f85149] hover:bg-[#f85149]/10"
+                      className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
                     >
                       Delete
                     </button>
@@ -860,7 +860,7 @@ export default function AdminQuizControls({
               }}
               rows={6}
               placeholder="Paste a bundle's JSON here, or choose a file below."
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
             />
 
             <input
@@ -872,7 +872,7 @@ export default function AdminQuizControls({
             />
 
             {clientImportErrors && clientImportErrors.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-[#f85149]">
+              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
                 {clientImportErrors.map((err, i) => (
                   <li key={i}>
                     {err.where}: {err.message}
@@ -882,7 +882,7 @@ export default function AdminQuizControls({
             )}
 
             {importErrors && importErrors.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-[#f85149]">
+              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
                 {importErrors.map((err, i) => (
                   <li key={i}>
                     {err.where}: {err.message}
@@ -891,13 +891,13 @@ export default function AdminQuizControls({
               </ul>
             )}
 
-            {importResult && <p className="text-xs text-[#e6edf3]">{formatImportSummary(importResult)}</p>}
+            {importResult && <p className="text-xs text-white">{formatImportSummary(importResult)}</p>}
 
             <button
               type="button"
               disabled={importPending || !canImport}
               onClick={() => void submitImport()}
-              className="self-start rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="self-start rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {importPending ? "Importing…" : "Import bundle"}
             </button>
@@ -926,7 +926,7 @@ export default function AdminQuizControls({
           body={
             <>
               {confirmCopy.body}
-              {deleteError && <span className="mt-2 block text-[#f85149]">{deleteError}</span>}
+              {deleteError && <span className="mt-2 block text-[#e53e3e]">{deleteError}</span>}
             </>
           }
           confirmLabel={confirmCopy.confirmLabel}
@@ -1008,7 +1008,7 @@ function QuestionForm({
   }
 
   return (
-    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#e6edf3]/30 bg-[#e6edf3]/[0.04] p-4">
+    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
         {editor.mode === "new" ? "Add question" : `Edit "${confirmPhraseFromPrompt(draft.prompt)}"`}
       </h4>
@@ -1040,7 +1040,7 @@ function QuestionForm({
           disabled={pending}
           onChange={(e) => onChange({ ...draft, prompt: e.target.value })}
           rows={2}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1051,7 +1051,7 @@ function QuestionForm({
             value={draft.type}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, type: e.target.value as QuestionType, correct: [] })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           >
             <option value="single">Single choice</option>
             <option value="multi">Multiple choice</option>
@@ -1065,7 +1065,7 @@ function QuestionForm({
             value={draft.points}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           />
         </label>
         {/* Position used to be a number input here. It is now set by dragging
@@ -1091,21 +1091,21 @@ function QuestionForm({
               checked={draft.correct.includes(c.id)}
               disabled={pending || c.id.trim().length === 0}
               onChange={() => toggleCorrect(c.id)}
-              className="h-4 w-4 flex-none accent-[#e6edf3]"
+              className="h-4 w-4 flex-none accent-[#2563eb]"
             />
             <input
               value={c.id}
               placeholder="choice id"
               disabled={pending}
               onChange={(e) => setChoice(i, { id: e.target.value })}
-              className="w-24 flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+              className="w-24 flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
             />
             <input
               value={c.label}
               placeholder="label"
               disabled={pending}
               onChange={(e) => setChoice(i, { label: e.target.value })}
-              className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+              className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
             />
             <button
               type="button"
@@ -1126,7 +1126,7 @@ function QuestionForm({
           Add choice
         </button>
         {(singleNeedsExactlyOne || multiNeedsAtLeastOne) && (
-          <p className="text-xs text-[#d29922]">
+          <p className="text-xs text-[#d4a017]">
             {draft.type === "single"
               ? "A single-choice question needs exactly one correct answer selected."
               : "Select at least one correct answer."}
@@ -1134,7 +1134,7 @@ function QuestionForm({
         )}
       </div>
 
-      {error && <p className="text-xs text-[#f85149]">{error}</p>}
+      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <button
@@ -1149,7 +1149,7 @@ function QuestionForm({
           type="button"
           onClick={onSubmit}
           disabled={pending || !valid}
-          className="rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pending ? "Saving…" : isNew ? "Add question" : "Save changes"}
         </button>

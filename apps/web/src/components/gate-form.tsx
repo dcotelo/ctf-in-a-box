@@ -67,7 +67,7 @@ export default function GateForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-3">
       <label htmlFor="gate-password" className="font-mono text-xs text-zinc-400">
-        <span className="text-[#3fb950]">$</span> enter access password
+        <span className="text-[#22c55e]">$</span> enter access password
       </label>
       <input
         id="gate-password"
@@ -76,18 +76,18 @@ export default function GateForm({
         onChange={(e) => setPassword(e.target.value)}
         autoComplete="off"
         autoFocus
-        className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-sm text-white placeholder:text-muted focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+        className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         placeholder="••••••••"
       />
       <button
         type="submit"
         disabled={pending || !password}
-        className="rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+        className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
         {pending ? "Checking…" : unlockLabel}
       </button>
       {error && (
-        <p role="alert" className="text-sm text-[#f85149]">
+        <p role="alert" className="text-sm text-[#e53e3e]">
           {error}
         </p>
       )}

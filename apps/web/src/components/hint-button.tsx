@@ -13,7 +13,7 @@ import type { AppId } from "@/lib/apps";
 // changing the chip's visual box — the rows stack up to 110 deep, so the
 // visible size has to stay small. See globals.css.
 const CHIP =
-  "ds-tap-24 flex-none rounded border px-1 text-[10px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]";
+  "ds-tap-24 flex-none rounded border px-1 text-[10px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
 export default function HintButton({
   app,
@@ -72,7 +72,7 @@ export default function HintButton({
           type="button"
           onClick={reveal}
           disabled={state === "pending"}
-          className={`${CHIP} border-[#d29922]/60 text-[#d29922] hover:bg-[#d29922]/10 disabled:opacity-50`}
+          className={`${CHIP} border-[#d4a017]/60 text-[#d4a017] hover:bg-[#d4a017]/10 disabled:opacity-50`}
         >
           {state === "pending" ? "…" : `−${cost} pts ✓`}
         </button>
@@ -96,8 +96,8 @@ export default function HintButton({
       title={state === "error" ? `${error} (click to retry)` : `Reveal hint for ${cost} points`}
       className={`${CHIP} ${
         state === "error"
-          ? "border-[#f85149]/60 text-[#f85149] hover:bg-[#f85149]/10"
-          : "border-white/10 text-muted hover:border-[#d29922]/60 hover:text-[#d29922]"
+          ? "border-[#e53e3e]/60 text-[#e53e3e] hover:bg-[#e53e3e]/10"
+          : "border-white/10 text-muted hover:border-[#d4a017]/60 hover:text-[#d4a017]"
       }`}
     >
       {state === "error" ? "⚠ retry" : `💡 −${cost}`}

@@ -25,7 +25,7 @@ export type DisplayRow = {
   solved?: number;
 };
 
-const PODIUM: Record<number, string> = { 1: "#d29922", 2: "#a1a1aa", 3: "#b87333" };
+const PODIUM: Record<number, string> = { 1: "#d4a017", 2: "#a1a1aa", 3: "#b87333" };
 
 export default function DisplayBoard({
   rows,
@@ -43,14 +43,14 @@ export default function DisplayBoard({
   }, [router]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0e14] px-[4vw] py-[3vh]">
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#1a1a2e] px-[4vw] py-[3vh]">
       <div className="flex items-baseline justify-between gap-6">
         <h1 className="truncate font-display text-[3.5vh] font-black tracking-tight text-white">
           {eventName}
         </h1>
         <div className="flex items-baseline gap-6">
           {phaseLabel && (
-            <span className="font-mono text-[2vh] uppercase tracking-widest text-[#9ba7b4]">
+            <span className="font-mono text-[2vh] uppercase tracking-widest text-[#8f8f9b]">
               {phaseLabel}
             </span>
           )}
@@ -65,15 +65,15 @@ export default function DisplayBoard({
           <li key={row.key} className="flex items-baseline gap-[2vw]">
             <span
               className="w-[6vw] flex-none text-right font-display text-[4.2vh] font-black tabular-nums"
-              style={{ color: PODIUM[row.rank] ?? "#9ba7b4" }}
+              style={{ color: PODIUM[row.rank] ?? "#8f8f9b" }}
             >
               {row.rank}
             </span>
-            <span className="min-w-0 flex-1 truncate font-display text-[4.2vh] font-bold text-[#e6edf3]">
+            <span className="min-w-0 flex-1 truncate font-display text-[4.2vh] font-bold text-white">
               {row.name}
             </span>
             {row.solved !== undefined && (
-              <span className="flex-none font-mono text-[2vh] tabular-nums text-[#3fb950]">
+              <span className="flex-none font-mono text-[2vh] tabular-nums text-[#22c55e]">
                 {row.solved} solved
               </span>
             )}
@@ -84,7 +84,7 @@ export default function DisplayBoard({
         ))}
       </ol>
 
-      <p className="mt-[2vh] text-right font-mono text-[1.4vh] text-[#9ba7b4]/60">
+      <p className="mt-[2vh] text-right font-mono text-[1.4vh] text-[#8f8f9b]/60">
         refreshes every 30s
       </p>
     </div>

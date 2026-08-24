@@ -230,7 +230,7 @@ export default function ClassicBoard({
             Your run
           </p>
           <p className="font-mono text-sm tabular-nums">
-            <span className="text-[#3fb950]">{solvedTotal} solved</span>
+            <span className="text-[#22c55e]">{solvedTotal} solved</span>
             <span className="text-muted"> · {pointsTotal.toLocaleString("en-US")} pts</span>
           </p>
           <ul className="flex flex-row flex-wrap gap-x-4 gap-y-1.5 lg:flex-col">
@@ -238,10 +238,10 @@ export default function ClassicBoard({
               <li key={r.category}>
                 <a
                   href={`#${anchorFor(r.category)}`}
-                  className="flex items-baseline gap-2 font-mono text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+                  className="flex items-baseline gap-2 font-mono text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                 >
                   <span className="truncate">{r.category}</span>
-                  <span className={`tabular-nums ${r.solved === r.total ? "text-[#3fb950]" : "text-muted"}`}>
+                  <span className={`tabular-nums ${r.solved === r.total ? "text-[#22c55e]" : "text-muted"}`}>
                     {r.solved}/{r.total}
                   </span>
                 </a>
@@ -314,7 +314,7 @@ export function ChallengeCard({
   const result = resultLine(challenge, feedback);
 
   return (
-    <div className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] p-5">
+    <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-white">{challenge.title}</p>
@@ -356,9 +356,9 @@ export function ChallengeCard({
               role="status"
               className={`text-sm ${
                 result.kind === "success"
-                  ? "text-[#3fb950]"
+                  ? "text-[#22c55e]"
                   : result.kind === "error"
-                    ? "text-[#f85149]"
+                    ? "text-[#e53e3e]"
                     : "text-zinc-400"
               }`}
             >
@@ -366,7 +366,7 @@ export function ChallengeCard({
             </p>
           )}
           {challenge.status === "cooldown" && (
-            <p className={`text-sm ${cooledDown ? "text-[#3fb950]" : "text-[#d29922]"}`}>
+            <p className={`text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
               {!cooldown.mounted
                 ? // Server render and the client's first paint. No clock is read
                   // here: a live Date.now() during render disagrees with the
@@ -389,13 +389,13 @@ export function ChallengeCard({
               disabled={inputLocked}
               onChange={(e) => onChange(e.target.value)}
               placeholder="CTF{...}"
-              className="flex-1 rounded-md border border-white/10 bg-[#0e1220] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+              className="flex-1 rounded-md border border-white/10 bg-[#12121e] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             />
             <button
               type="button"
               onClick={onSubmit}
               disabled={inputLocked || value.trim().length === 0}
-              className="flex-none rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+              className="flex-none rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
               {pending ? "Submitting…" : "Submit flag"}
             </button>

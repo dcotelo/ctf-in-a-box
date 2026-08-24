@@ -21,10 +21,10 @@
 export type CheckStatus = "solved" | "pending" | "failed" | "open";
 
 const DOT: Record<CheckStatus, string> = {
-  solved: "bg-[#3fb950]",
-  pending: "bg-[#d29922]",
-  failed: "bg-[#f85149]",
-  open: "border border-[#9ba7b4]/60 bg-transparent",
+  solved: "bg-[#22c55e]",
+  pending: "bg-[#d4a017]",
+  failed: "bg-[#e53e3e]",
+  open: "border border-[#8f8f9b]/60 bg-transparent",
 };
 
 const LABEL: Record<CheckStatus, string> = {
@@ -67,12 +67,12 @@ export default function ScoreCheck({
       <span
         className={
           status === "solved"
-            ? "text-[#3fb950]"
+            ? "text-[#22c55e]"
             : status === "failed"
-              ? "text-[#f85149]"
+              ? "text-[#e53e3e]"
               : status === "pending"
-                ? "text-[#d29922]"
-                : "text-[#9ba7b4]"
+                ? "text-[#d4a017]"
+                : "text-[#8f8f9b]"
         }
       >
         {label ?? LABEL[status]}

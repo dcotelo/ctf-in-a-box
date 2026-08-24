@@ -62,7 +62,7 @@ export async function commitIdentityField(opts: {
 }
 
 const fieldClass =
-  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none";
+  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
 
 /** One editable field (title or blurb). `patchKey` is computed ONCE by the
  *  caller (AdminModuleIdentity) and used for both the `name` attribute and

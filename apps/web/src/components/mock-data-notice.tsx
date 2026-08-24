@@ -6,9 +6,9 @@ import { event } from "@/lib/site";
 
 export default function MockDataNotice() {
   return (
-    <div className="ds-card flex flex-col gap-4 rounded-lg border border-[#d29922]/30 bg-[#d29922]/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="ds-card flex flex-col gap-4 rounded-lg border border-[#d4a017]/30 bg-[#d4a017]/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="max-w-xl">
-        <p className="text-xs font-medium uppercase tracking-wider text-[#d29922]">
+        <p className="text-xs font-medium uppercase tracking-wider text-[#d4a017]">
           Mock data
         </p>
         <p className="mt-1 text-sm leading-relaxed text-zinc-300">
