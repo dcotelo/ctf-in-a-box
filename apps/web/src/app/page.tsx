@@ -48,7 +48,10 @@ function primaryAction(
       : { label: "Sign in and play", signIn: true, callbackURL: firstBoard?.href ?? "/profile" };
   }
   if (!hasTeam) return { label: "Join a team", href: "/profile#team" };
-  if (firstBoard) return { label: `Open ${firstBoard.label}`, href: firstBoard.href };
+  // The board CTA's own label carries its verb ("Browse targets", "Take the
+  // quiz") — prefixing "Open" produced "Open Browse targets", caught on the
+  // deployed branch's first screenshot pass.
+  if (firstBoard) return { label: firstBoard.label, href: firstBoard.href };
   return { label: "See the standings", href: "/leaderboard" };
 }
 
