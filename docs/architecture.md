@@ -432,9 +432,10 @@ JSON blob the way a points value is.
 **The full key layout is ten `ctf:classic:*` keys**, enumerated in
 `classic-store.ts`'s header comment: `challenges` (the public-safe hash
 contestants see — no field on it could carry a flag even by accident),
-`flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, issue
-#190 — written by the admin form, SECRET until purchased through hint-store's
-reveal, exactly the flag hashes' rule; its name lives in `classic-keys.ts`),
+`flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, per
+issue #190 — written by the admin form, SECRET until purchased through
+hint-store's reveal, exactly the flag hashes' rule; its name lives in
+`classic-keys.ts`),
 `categories` (one JSON array, the organizer's chosen display order), `solves:<login>` (a contestant's banked solves —
 `{points, at}`, points captured at solve time so a later re-price never
 rewrites history), `attempts:<login>` (every submission, right or wrong —
