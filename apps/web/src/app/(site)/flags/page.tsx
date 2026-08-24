@@ -16,7 +16,8 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import ModuleEmptyState from "@/components/module-empty-state";
 import PageHeader from "@/components/page-header";
-import ClassicBoard, { type ClassicChallengeView, type ClassicStatus } from "@/components/classic-board";
+import ClassicBoard, { type ClassicChallengeView } from "@/components/classic-board";
+import { deriveStatus } from "./derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
@@ -44,37 +45,6 @@ export async function generateMetadata(): Promise<Metadata> {
     title: mod?.title ?? DEFAULT_TITLE,
     description: mod?.blurb ?? DEFAULT_BLURB,
   };
-}
-
-/** Derives this viewer's status for one challenge from the SAME solved/
- *  cooldown rule classic-store's `evaluateGate` enforces authoritatively at
- *  submit time — reimplemented here purely for display, using data this page
- *  already has (one `getViewerClassic` pipeline + the current admin
- *  settings) instead of an extra round trip per challenge. A stale or
- *  drifted read here is a display nit at worst: `submitFlag`'s Lua script
- *  re-checks both, atomically, against fresh state, and is the only thing
- *  that actually enforces the solved guard or the cooldown.
- *
- *  `now` defaults to `Date.now()` (read here, in a plain helper, rather than
- *  in the page component's own body) so the Server Component's render
- *  function stays a pure function of its props for React's rules. */
-function deriveStatus(
-  solve: ViewerClassic["solved"][string] | undefined,
-  attempt: ViewerClassic["attempts"][string] | undefined,
-  cooldownMs: number,
-  now: number = Date.now(),
-): ClassicStatus {
-  if (solve) return { status: "solved", earnedPoints: solve.points };
-
-  if (cooldownMs > 0 && attempt) {
-    const lastMs = Date.parse(attempt.lastAt);
-    if (Number.isFinite(lastMs)) {
-      const retryAtMs = lastMs + cooldownMs;
-      if (now < retryAtMs) return { status: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
-    }
-  }
-
-  return { status: "unsolved" };
 }
 
 export default async function FlagsPage() {

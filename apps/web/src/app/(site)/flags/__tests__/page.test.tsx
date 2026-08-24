@@ -84,16 +84,22 @@ describe("flags page view model", () => {
 
     const html = renderToStaticMarkup(await FlagsPage());
 
-    expect(html).toMatch(/solved.*earned 10 point/i);
-    expect(html).toMatch(/on cooldown/i);
-    expect(html).toMatch(/submit flag/i); // c3 (never attempted) still offers one
-    // The count lives in the board's "Your run" rail now, not a sentence.
+    // The grid shows STATE, not forms (issue #208): the solved tile is
+    // marked, every tile links to its own page, and the description/form
+    // moved there.
+    expect(html).toContain("(solved)");
+    expect(html).toContain('href="/flags/c1"');
+    expect(html).toContain('href="/flags/c2"');
+    expect(html).toContain('href="/flags/c3"');
+    expect(html).not.toMatch(/submit flag/i);
+    expect(html).not.toContain("d1"); // descriptions live on /flags/[id]
     expect(html).toContain("/ 3 solved");
   });
 
   // The page and <ClassicBoard> each used to print their own count ("You've
   // solved 1 of 3 challenges." above "1 / 3 solved"), which reads as a
-  // rendering bug. One statement of progress, from one place — the rail.
+  // rendering bug. One statement of progress, from one place — the grid's
+  // summary strip.
   it("states progress exactly once", async () => {
     isModuleEnabled.mockReturnValue(true);
     getSession.mockResolvedValue({ user: { login: "alice" } });
@@ -122,6 +128,8 @@ describe("flags page view model", () => {
     expect(getViewerClassic).not.toHaveBeenCalled();
     expect(html).toMatch(/sign in with github/i);
     expect(html).not.toContain("<button");
+    // And no personal summary — nothing personal to summarize.
+    expect(html).not.toContain("/ 1 solved");
   });
 
   it("shows an empty state with no challenges available", async () => {
