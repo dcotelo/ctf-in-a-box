@@ -63,7 +63,7 @@ import { upstashPipeline } from "@/lib/upstash";
  * never call it with anything that hasn't been through `parseBundle` first.
  */
 
-type ChallengePayload = Challenge & { flag: string };
+type ChallengePayload = Challenge & { flag: string; hint?: string };
 
 /** The two POST shapes' allowed key sets. Exported (not just module-private)
  *  so a test can assert, structurally, that they stay disjoint — see the
@@ -82,6 +82,7 @@ export const CHALLENGE_KEYS = new Set([
   "order",
   "flag",
   "caseSensitive",
+  "hint",
 ]);
 export const CATEGORIES_KEYS = new Set(["categories"]);
 export const IMPORT_KEYS = new Set(["import"]);
@@ -110,6 +111,10 @@ function parseChallengePayload(body: unknown): ChallengePayload | null {
   // shrug at. A string "false" would otherwise make a challenge case-sensitive
   // that the organizer explicitly turned off.
   if (body.caseSensitive !== undefined && typeof body.caseSensitive !== "boolean") return null;
+  // Optional paid-hint text (#190); a present non-string is malformed. An
+  // empty/whitespace hint is a deliberate CLEAR, passed through so the store
+  // deletes the row.
+  if (body.hint !== undefined && typeof body.hint !== "string") return null;
   return {
     id: body.id,
     title: body.title.trim(),
@@ -118,6 +123,7 @@ function parseChallengePayload(body: unknown): ChallengePayload | null {
     points: body.points,
     order: body.order,
     flag: body.flag,
+    ...(body.hint !== undefined ? { hint: body.hint } : {}),
     // Normalized to "present only when true", the same shape the store writes
     // and the bundle exports, so one challenge has one representation
     // whichever door it came through.
@@ -246,11 +252,11 @@ export async function POST(request: Request) {
   const parsed = parseChallengePayload(body);
   if (!parsed) return NextResponse.json({ error: "invalid request payload" }, { status: 400 });
 
-  const { flag, ...challenge } = parsed;
+  const { flag, hint, ...challenge } = parsed;
   const c: Challenge = challenge;
   let saved: AdminChallenge;
   try {
-    saved = await upsertChallenge(c, flag);
+    saved = await upsertChallenge(c, flag, hint);
   } catch (err) {
     return errorResponse(err);
   }
@@ -259,7 +265,7 @@ export async function POST(request: Request) {
   // Echoes the STORED record (flag trimmed by `upsertChallenge`), not the raw
   // payload, so the authoring client's state matches what a subsequent GET
   // would return rather than drifting from it.
-  return NextResponse.json({ challenge: saved.challenge, flag: saved.flag });
+  return NextResponse.json({ challenge: saved.challenge, flag: saved.flag, hint: saved.hint });
 }
 
 export async function DELETE(request: Request) {

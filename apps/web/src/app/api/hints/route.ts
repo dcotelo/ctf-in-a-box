@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     enabled,
     cost,
     purchased: hints.purchased,
+    classic: hints.classic,
     spent: hints.spent,
     count: hints.count,
   });

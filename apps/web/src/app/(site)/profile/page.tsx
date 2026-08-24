@@ -127,9 +127,9 @@ export default async function ProfilePage() {
     try {
       const data = await getLeaderboardSource()
         .getLeaderboard()
-        .then(withHintPenalties)
         .then(withModuleContributions)
-        .then(withTeamStandings);
+        .then(withTeamStandings)
+        .then(withHintPenalties);
       teamStanding = data.teams.find((t) => t.slug === team.slug) ?? null;
       // The store's roster wins; the standing's member list covers the mock
       // fallback path where `team.members` arrives empty.
@@ -160,7 +160,12 @@ export default async function ProfilePage() {
   const quizPoints = quizTotal?.points ?? 0;
   const classicTotal = classicTotals.get(login);
   const classicPoints = classicTotal?.points ?? 0;
-  const netPoints = Math.max(0, (profile?.points ?? 0) - viewerHints.spent) + quizPoints + classicPoints;
+  // Net-of-hints TOTAL: the penalty subtracts from the all-module sum,
+  // floored at 0 — the same math (and the same single application) as the
+  // board's withHintPenalties, which now runs as the pipeline's LAST stage.
+  // Netting scorer points alone (the old form) made hints free whenever the
+  // spend exceeded scorer points — every classic- or quiz-heavy contestant.
+  const netPoints = Math.max(0, (profile?.points ?? 0) + quizPoints + classicPoints - viewerHints.spent);
   // The bar's denominator covers every enabled module, because its numerator
   // does: netPoints already includes quiz and classic. Dividing an all-module
   // numerator by secure-development's maxPoints alone (the old behaviour) let
@@ -197,11 +202,10 @@ export default async function ProfilePage() {
   const moduleProgress: Partial<Record<ModuleId, ModuleProgress>> = {};
   if (secureDevEnabled && Object.keys(appsRecord).length > 0) {
     moduleProgress["secure-development"] = {
-      // Hint-netted, same as the headline figure and the leaderboard's own
-      // row (withHintPenalties runs before withModuleContributions attributes
-      // this same number there) — raw scorer points here would let this
-      // block's total disagree with both.
-      points: Math.max(0, (profile?.points ?? 0) - viewerHints.spent),
+      // GROSS scorer points, same as the leaderboard's own module block —
+      // the hint penalty nets the TOTAL exactly once (headline + the −spent
+      // tile), never a module's block, matching the board's fold order.
+      points: profile?.points ?? 0,
       completed: profile?.patched ?? 0,
       lastActivityAt: profile?.updatedAt ?? null,
       detail: { kind: "secure-development", apps: appsRecord },

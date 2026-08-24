@@ -8,6 +8,14 @@ import type { LeaderboardData } from "./types";
  * the scorer's data is never mutated, so penalties survive re-scores. Scores
  * are floored at 0 and both boards are re-ranked.
  *
+ * THE PIPELINE'S LAST STAGE, deliberately: the penalty nets the FINAL
+ * all-module total. It used to run first, netting scorer points alone —
+ * which made hints free in every case where the row's points arrived later:
+ * a classic- or quiz-only contestant (row created by module contributions),
+ * and upstash-path teams (rows synthesised by team standings). Module blocks
+ * everywhere show GROSS module points; the penalty appears exactly once, at
+ * the row level, as the −N hints marker.
+ *
  * Applies to teams as well as individuals, because the teams view is the
  * DEFAULT board whenever teams exist: leaving team totals unpenalised would
  * make hints effectively free on the primary leaderboard, which is the whole

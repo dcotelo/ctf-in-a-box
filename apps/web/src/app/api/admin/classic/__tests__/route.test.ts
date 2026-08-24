@@ -84,7 +84,7 @@ const CHALLENGE = {
 
 const validPayload = { ...CHALLENGE, flag: "CTF{flag}" };
 
-const ADMIN_ROW = { challenge: CHALLENGE, flag: "CTF{flag}" };
+const ADMIN_ROW = { challenge: CHALLENGE, flag: "CTF{flag}", hint: null };
 
 function allowAdmin() {
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
@@ -256,8 +256,10 @@ describe("POST /api/admin/classic — challenge upsert", () => {
     upsertChallenge.mockResolvedValue(ADMIN_ROW);
     const res = await POST(adminReq("POST", validPayload));
     expect(res.status).toBe(200);
-    expect(upsertChallenge).toHaveBeenCalledWith(CHALLENGE, "CTF{flag}");
-    expect(await res.json()).toEqual({ challenge: CHALLENGE, flag: "CTF{flag}" });
+    // A payload without a hint passes `undefined` through — the store leaves
+    // the hint row alone only via an explicit empty string, never a default.
+    expect(upsertChallenge).toHaveBeenCalledWith(CHALLENGE, "CTF{flag}", undefined);
+    expect(await res.json()).toEqual({ challenge: CHALLENGE, flag: "CTF{flag}", hint: null });
 
     expect(upstashPipeline).toHaveBeenCalledTimes(1);
     const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];

@@ -177,8 +177,8 @@ state; everything else that touches scores goes through it.
    solved/total counts.
 9. Before rendering, the app composes the fetched `LeaderboardData` through a
    fixed pipeline (`app/(site)/leaderboard/page.tsx`):
-   `withHintPenalties` → `withModuleContributions` → `withTeamStandings`
-   (`src/lib/leaderboard/{hint-penalties,module-contributions,team-standings}.ts`).
+   `withModuleContributions` → `withTeamStandings` → `withHintPenalties`
+   (`src/lib/leaderboard/{module-contributions,team-standings,hint-penalties}.ts`).
    `withModuleContributions` attributes each row's points into a
    per-module `ModuleProgress` for every *enabled* module — `secure-development`
    is **attributed**, not added, since its points already came from the
@@ -187,13 +187,12 @@ state; everything else that touches scores goes through it.
    inside `entry.points` to begin with and both are **added** on top instead
    (`entry.points += quizTotal.points + classicTotal.points`) — see
    [Quiz data flow](#quiz-data-flow) and [Classic data flow](#classic-data-flow)
-   below. It runs *after* hints so it attributes the **net**
-   (post-penalty, floored) figure — attributing first would show an expanded
-   row a larger module total than the header above it — and it re-ranks
-   unconditionally, so being last is what makes the final order deterministic
-   (`withHintPenalties` no-ops when hints are disabled and can't be relied on
-   to produce it). Team rows pass through it untouched: nothing renders a
-   per-module team breakdown yet. Ranking
+   below. Hint penalties run **last**, netting the final all-module total
+   exactly once — module blocks everywhere show their *gross* contribution and
+   the row's `−N hints` marker is what reconciles them against the netted
+   header. (The fold used to run first, netting scorer points alone, which
+   made hints free for any row whose points arrive later: a classic- or
+   quiz-only contestant, or an upstash-path team.) Ranking
    itself (`src/lib/leaderboard/rank.ts`'s `compareStanding`) is: items
    completed **across modules** descending, then combined points descending,
    then earliest last-activity ascending, with a `patched`/`lastSolveAt`
@@ -430,11 +429,14 @@ value and compares whole strings with Lua's `==` — a flag can contain
 braces, quotes, and backslashes, so it is never pattern-matched out of a
 JSON blob the way a points value is.
 
-**The full key layout is nine `ctf:classic:*` keys**, enumerated in
+**The full key layout is ten `ctf:classic:*` keys**, enumerated in
 `classic-store.ts`'s header comment: `challenges` (the public-safe hash
 contestants see — no field on it could carry a flag even by accident),
-`flag` and `flagnorm` (above), `categories` (one JSON array, the organizer's
-chosen display order), `solves:<login>` (a contestant's banked solves —
+`flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, per
+issue #190 — written by the admin form, SECRET until purchased through
+hint-store's reveal, exactly the flag hashes' rule; its name lives in
+`classic-keys.ts`),
+`categories` (one JSON array, the organizer's chosen display order), `solves:<login>` (a contestant's banked solves —
 `{points, at}`, points captured at solve time so a later re-price never
 rewrites history), `attempts:<login>` (every submission, right or wrong —
 `{attempts, lastAt, lastAtMs}`, the cooldown's own read), and three running
@@ -534,10 +536,15 @@ clears them.
   **`ctf:team:<slug>:members`** (a SET) and **`ctf:joincode:<code>`** (the
   reverse index that makes `/join/<code>` resolvable, ADR 45's shareable
   invite).
-- **`ctf:user:<login>:hints`** — a SET of `<app>/<challengeId>` the contestant
-  bought; **`ctf:hints:spent`** — a hash of login → points spent, read by the
-  leaderboard's per-team penalty fold; **`ctf:hints:at:<login>`** — a hash of
-  `<app>/<challengeId>` → ISO purchase time. That last one is a *separate* key
+- **`ctf:user:<login>:hints`** — a SET of `<target>/<challengeId>` the
+  contestant bought, where `<target>` is a secure-development app id or the
+  literal `classic` (classic hints, issue #190; their text lives in
+  `ctf:classic:hints` — named in `classic-keys.ts`, not here — written by the
+  admin classic form and secret until purchased, exactly like the flag
+  hashes); **`ctf:hints:spent`** — a hash of
+  login → points spent, read by the leaderboard's per-team penalty fold;
+  **`ctf:hints:at:<login>`** — a hash of `<target>/<challengeId>` → ISO
+  purchase time. That last one is a *separate* key
   rather than a conversion of the SET, because changing a live key's type would
   fail `WRONGTYPE` on the first purchase after deploying. It sits under
   `ctf:hints:` so the master reset's existing prefix already sweeps it.

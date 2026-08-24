@@ -199,6 +199,8 @@ export type ChallengeDraft = {
    *  rather than the string every other field here is: those are strings
    *  because a number input can hold "" mid-edit, which a checkbox cannot. */
   caseSensitive: boolean;
+  /** Optional paid-hint text (#190). Empty = no hint (saving clears it). */
+  hint: string;
 };
 
 /** The form's whole state: the editable draft plus the identity/position the
@@ -223,10 +225,11 @@ export type ChallengePayload = {
   order: number;
   flag: string;
   caseSensitive?: boolean;
+  hint?: string;
 };
 
 export function emptyDraft(defaultCategory: string = ""): ChallengeDraft {
-  return { title: "", category: defaultCategory, description: "", points: "10", flag: "", caseSensitive: false };
+  return { title: "", category: defaultCategory, description: "", points: "10", flag: "", caseSensitive: false, hint: "" };
 }
 
 /** A brand-new challenge, positioned at the end of the list. No id: one is
@@ -240,13 +243,14 @@ export function newChallengeEditor(nextOrder: number, defaultCategory: string = 
  *  `Challenge`. Starting a typo fix with a blank flag box forces the
  *  organizer to retype the whole thing from memory, and a mistake there
  *  silently redefines what counts as solved for every contestant. */
-export function draftFromChallenge({ challenge: c, flag }: AdminChallenge): ChallengeDraft {
+export function draftFromChallenge({ challenge: c, flag, hint }: AdminChallenge): ChallengeDraft {
   return {
     title: c.title,
     category: c.category,
     description: c.description,
     points: String(c.points),
     flag,
+    hint: hint ?? "",
     // Coerced, because the stored field is absent-when-false and a checkbox
     // needs a real boolean — an `undefined` here makes React switch the input
     // from controlled to uncontrolled the first time it is ticked.
@@ -304,6 +308,9 @@ export function payloadFromEditor(
     points: Number(d.points),
     order: editor.order,
     flag: d.flag,
+    // The hint is ALWAYS sent: an emptied field is a deliberate clear, and
+    // the store deletes the row for an empty string (#190).
+    hint: d.hint,
     // Sent only when true, matching the route's parser and the store's stored
     // shape — one challenge has one representation whichever door it came
     // through, so an unchanged challenge re-saved from this form produces a
@@ -318,8 +325,11 @@ export function payloadFromEditor(
  *  the same validation and audit line) as an edit. Carries the row's own
  *  flag: the upsert endpoint requires `flag` as one of `CHALLENGE_KEYS`, and a
  *  reorder must not silently blank or rewrite it. */
-export function payloadFromRow({ challenge: c, flag }: AdminChallenge): ChallengePayload {
-  return { id: c.id, title: c.title, category: c.category, description: c.description, points: c.points, order: c.order, flag };
+export function payloadFromRow({ challenge: c, flag, hint }: AdminChallenge): ChallengePayload {
+  // The hint rides along for the same reason the flag does: a reorder
+  // re-saves the row through the same endpoint, and omitting the field would
+  // clear a hint the organizer never touched.
+  return { id: c.id, title: c.title, category: c.category, description: c.description, points: c.points, order: c.order, flag, hint: hint ?? "" };
 }
 
 /** Moves the row at `from` to index `to` and rewrites EVERY row's `order`
@@ -396,7 +406,7 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
   return {
     version: CLASSIC_BUNDLE_VERSION,
     categories: [...categories],
-    challenges: rows.map(({ challenge: c, flag }) => ({
+    challenges: rows.map(({ challenge: c, flag, hint }) => ({
       id: c.id,
       title: c.title,
       category: c.category,
@@ -404,6 +414,12 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
       points: c.points,
       order: c.order,
       flag,
+      // Present-only-when-set, mirroring the server's exportBundle exactly —
+      // this client-side path silently DROPPED both fields (CodeRabbit on
+      // #210 caught hint; caseSensitive had the same latent hole), and a
+      // re-import of such a bundle downgrades grading and deletes hints.
+      ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
+      ...(hint ? { hint } : {}),
     })),
   };
 }
@@ -496,12 +512,12 @@ export default function AdminClassicControls({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await parseJson<{ error?: string; challenge?: Challenge; flag?: string }>(res);
+      const data = await parseJson<{ error?: string; challenge?: Challenge; flag?: string; hint?: string | null }>(res);
       if (!res.ok || !data.challenge) return { ok: false, message: describeClassicError(res.status, data.error) };
       // The route echoes the STORED (trimmed) flag alongside the challenge;
       // falling back to the payload's own flag would leave the list holding
       // something the store never actually wrote.
-      return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag } };
+      return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag, hint: data.hint ?? null } };
     } catch {
       return { ok: false, message: "Couldn't reach the server — try again." };
     }
@@ -1239,6 +1255,20 @@ export function ChallengeForm({
             trailing spaces are still forgiven either way.
           </span>
         </span>
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-muted">
+          Hint (optional). Contestants pay the configured hint cost to reveal it — leave empty for no
+          hint. Secret until purchased, like the flag.
+        </span>
+        <textarea
+          value={draft.hint}
+          disabled={pending}
+          onChange={(e) => onChange({ ...draft, hint: e.target.value })}
+          rows={2}
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+        />
       </label>
 
       <label className="flex flex-col gap-1">

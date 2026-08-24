@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { isModuleEnabled, isAdminLogin, getSession, listChallenges, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules } =
+const { isModuleEnabled, isAdminLogin, getSession, listChallenges, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules, getClassicHintIds, getHintNotice, getViewerHints } =
   vi.hoisted(() => ({
     isModuleEnabled: vi.fn(),
     isAdminLogin: vi.fn(),
@@ -16,6 +16,9 @@ const { isModuleEnabled, isAdminLogin, getSession, listChallenges, getSolveCount
     getViewerClassic: vi.fn(),
     getAdminSettings: vi.fn(),
     getResolvedModules: vi.fn(),
+    getClassicHintIds: vi.fn(),
+    getHintNotice: vi.fn(),
+    getViewerHints: vi.fn(),
   }));
 
 vi.mock("server-only", () => ({}));
@@ -31,6 +34,7 @@ vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
+vi.mock("@/lib/hint-store", () => ({ getClassicHintIds, getHintNotice, getViewerHints }));
 vi.mock("@/lib/classic-store", () => ({
   listChallenges,
   getSolveCounts,
@@ -68,6 +72,9 @@ beforeEach(() => {
   getResolvedModules.mockResolvedValue([
     { id: "classic", title: "Classic CTF", blurb: "Find the flag, submit the string, take the points." },
   ]);
+  getClassicHintIds.mockResolvedValue([]);
+  getHintNotice.mockResolvedValue({ active: false, cost: 10 });
+  getViewerHints.mockResolvedValue({ purchased: {}, classic: {}, spent: 0, count: 0 });
 });
 
 describe("challenge page gates", () => {
@@ -140,6 +147,46 @@ describe("challenge page", () => {
     const html = renderToStaticMarkup(await ClassicChallengePage(params("c1")));
     expect(html).not.toContain("CTF{never-render-me}");
     expect(html).not.toContain("ctf{never-render-me}");
+  });
+});
+
+// The paid hint (#190): availability is public, the TEXT is not — it renders
+// only for the viewer who bought it, and the affordance never 401s a
+// signed-out visitor.
+describe("challenge page hint", () => {
+  beforeEach(() => {
+    getClassicHintIds.mockResolvedValue(["c1"]);
+    getHintNotice.mockResolvedValue({ active: true, cost: 25 });
+  });
+
+  it("offers the reveal button (with the price) to a signed-in non-owner", async () => {
+    const html = renderToStaticMarkup(await ClassicChallengePage(params("c1")));
+    expect(html).toMatch(/Reveal hint \(−25 pts\)/);
+  });
+
+  it("renders an owned hint's text server-side, with no buy button", async () => {
+    getViewerHints.mockResolvedValue({ purchased: {}, classic: { c1: "Look at robots.txt." }, spent: 25, count: 1 });
+    const html = renderToStaticMarkup(await ClassicChallengePage(params("c1")));
+    expect(html).toContain("Look at robots.txt.");
+    expect(html).not.toMatch(/Reveal hint/);
+  });
+
+  it("tells a signed-out visitor a hint exists without an affordance that would 401", async () => {
+    getSession.mockResolvedValue(null);
+    const html = renderToStaticMarkup(await ClassicChallengePage(params("c1")));
+    expect(html).toContain("sign in to reveal it");
+    expect(html).not.toMatch(/Reveal hint \(/);
+    expect(getViewerHints).not.toHaveBeenCalled();
+  });
+
+  it("renders no hint layer at all when hints are off or the challenge has none", async () => {
+    getHintNotice.mockResolvedValue({ active: false, cost: 25 });
+    const off = renderToStaticMarkup(await ClassicChallengePage(params("c1")));
+    expect(off).not.toContain("💡");
+    getHintNotice.mockResolvedValue({ active: true, cost: 25 });
+    getClassicHintIds.mockResolvedValue([]);
+    const none = renderToStaticMarkup(await ClassicChallengePage(params("c1")));
+    expect(none).not.toContain("💡");
   });
 });
 

@@ -30,6 +30,7 @@ import {
   type ViewerClassic,
 } from "@/lib/classic-store";
 import { isModuleLive } from "@/lib/enabled-modules";
+import { getClassicHintIds } from "@/lib/hint-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
 
@@ -63,13 +64,14 @@ export default async function FlagsPage() {
   // below, so a redirect never follows work that was thrown away.
   await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
-  const [challenges, categories, solveCounts, viewerClassic, settings, modules] = await Promise.all([
+  const [challenges, categories, solveCounts, viewerClassic, settings, modules, hintIds] = await Promise.all([
     listChallenges(),
     listCategories(),
     getSolveCounts(),
     login ? getViewerClassic(login) : Promise.resolve<ViewerClassic>({ solved: {}, attempts: {} }),
     getAdminSettings(),
     getResolvedModules(),
+    getClassicHintIds(),
   ]);
 
   const mod = modules.find((m) => m.id === "classic");
@@ -130,7 +132,7 @@ export default async function FlagsPage() {
             authoring={viewerIsAdmin ? { href: "/admin?tab=classic", label: "Author challenges" } : null}
           />
         ) : (
-          <ClassicBoard categories={categories} challenges={viewChallenges} authenticated={Boolean(login)} />
+          <ClassicBoard categories={categories} challenges={viewChallenges} authenticated={Boolean(login)} hintIds={hintIds} />
         )}
       </div>
     </div>

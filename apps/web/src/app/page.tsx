@@ -138,9 +138,9 @@ export default async function Home() {
     try {
       const data = await getLeaderboardSource()
         .getLeaderboard()
-        .then(withHintPenalties)
         .then(withModuleContributions)
-        .then(withTeamStandings);
+        .then(withTeamStandings)
+        .then(withHintPenalties);
       topRowsAreTeams = data.teams.length > 0;
       topRows = topRowsAreTeams
         ? data.teams.slice(0, 3).map((t) => ({ key: t.slug, name: t.name, points: t.points }))

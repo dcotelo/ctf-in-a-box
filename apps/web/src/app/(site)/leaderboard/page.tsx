@@ -61,7 +61,7 @@ export default async function LeaderboardPage({
   // Team standings last: they only overlay membership onto sources with no
   // team concept, and read the entries as already scored and ranked.
   const [data, session, modules] = await Promise.all([
-    source.getLeaderboard().then(withHintPenalties).then(withModuleContributions).then(withTeamStandings),
+    source.getLeaderboard().then(withModuleContributions).then(withTeamStandings).then(withHintPenalties),
     auth.api.getSession({ headers: await headers() }),
     getResolvedModules(),
   ]);

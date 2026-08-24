@@ -10,6 +10,8 @@ import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
   CLASSIC_CHALLENGES_KEY as CHALLENGES_KEY,
+  CLASSIC_HINTS_KEY as HINTS_KEY,
+  CLASSIC_HINT_MAX,
   CLASSIC_FLAG_KEY as FLAG_KEY,
   CLASSIC_FLAGNORM_KEY as FLAGNORM_KEY,
   CLASSIC_CATEGORIES_KEY as CATEGORIES_KEY,
@@ -174,6 +176,9 @@ export type Challenge = {
 export type AdminChallenge = {
   /** Byte-for-byte what `listChallenges` would have returned for this id. */
   challenge: Challenge;
+  /** Paid-hint text as authored (trimmed), or null when the challenge has no
+   *  hint. ADMIN SURFACES ONLY — contestants buy it through hint-store. */
+  hint: string | null;
   /** The flag AS AUTHORED (trimmed), exactly as `ctf:classic:flag` stores it.
    *  Empty only if the flag row is missing — a challenge in that state can
    *  never be solved, which is worth seeing in the edit form rather than
@@ -257,9 +262,10 @@ export async function listChallenges(): Promise<Challenge[]> {
  *  Both hashes are read in ONE pipeline, so the challenges and their flags
  *  come from the same instant. */
 export async function listChallengesForAdmin(): Promise<AdminChallenge[]> {
-  const [challengesRes, flagRes] = await upstashPipeline([
+  const [challengesRes, flagRes, hintRes] = await upstashPipeline([
     ["HGETALL", CHALLENGES_KEY],
     ["HGETALL", FLAG_KEY],
+    ["HGETALL", HINTS_KEY],
   ]);
 
   const flagFlat = Array.isArray(flagRes.result) ? (flagRes.result as string[]) : [];
@@ -267,10 +273,16 @@ export async function listChallengesForAdmin(): Promise<AdminChallenge[]> {
   for (let i = 0; i < flagFlat.length; i += 2) {
     if (typeof flagFlat[i + 1] === "string") flagById.set(flagFlat[i], flagFlat[i + 1]);
   }
+  const hintFlat = Array.isArray(hintRes.result) ? (hintRes.result as string[]) : [];
+  const hintById = new Map<string, string>();
+  for (let i = 0; i < hintFlat.length; i += 2) {
+    if (typeof hintFlat[i + 1] === "string") hintById.set(hintFlat[i], hintFlat[i + 1]);
+  }
 
   const rows = parseChallengeHash(challengesRes.result).map((challenge) => ({
     challenge,
     flag: flagById.get(challenge.id) ?? "",
+    hint: hintById.get(challenge.id) ?? null,
   }));
   rows.sort((a, b) => compareChallenges(a.challenge, b.challenge));
   return rows;
@@ -343,7 +355,7 @@ export async function setCategories(names: string[]): Promise<string[]> {
  *
  *  Returns what was STORED, as an `AdminChallenge`. Contestant-facing code
  *  never sees this value. */
-export async function upsertChallenge(c: Challenge, flag: string): Promise<AdminChallenge> {
+export async function upsertChallenge(c: Challenge, flag: string, hint?: string | null): Promise<AdminChallenge> {
   if (!CLASSIC_ID_RE.test(c.id)) throw new ClassicValidationError("id", `Invalid challenge id: ${c.id}`);
   if (typeof c.title !== "string" || !c.title.trim()) {
     throw new ClassicValidationError("title", "Challenge title is required");
@@ -368,17 +380,25 @@ export async function upsertChallenge(c: Challenge, flag: string): Promise<Admin
   if (typeof flag !== "string" || !flag.trim()) {
     throw new ClassicValidationError("flag", "Flag is required");
   }
+  if (hint != null && (typeof hint !== "string" || hint.length > CLASSIC_HINT_MAX)) {
+    throw new ClassicValidationError("hint", `Hint must be at most ${CLASSIC_HINT_MAX} characters`);
+  }
 
   const authored = flag.trim();
+  // The hint is written (or CLEARED — an empty/absent hint deletes the row)
+  // in the same pipeline as the challenge, into its own SECRET hash: the
+  // public record must never carry it, same storage rule as the flag pair.
+  const authoredHint = typeof hint === "string" && hint.trim() ? hint.trim() : null;
   const results = await upstashPipeline([
     ["HSET", CHALLENGES_KEY, c.id, JSON.stringify(c)],
     ["HSET", FLAG_KEY, c.id, authored],
     ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, c.caseSensitive)],
+    authoredHint ? ["HSET", HINTS_KEY, c.id, authoredHint] : ["HDEL", HINTS_KEY, c.id],
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
 
-  return { challenge: c, flag: authored };
+  return { challenge: c, flag: authored, hint: authoredHint };
 }
 
 /** Result of a bulk import: how many bundle rows were brand new vs. already
@@ -489,6 +509,11 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
     };
     commands.push(["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)]);
     commands.push(["HSET", FLAG_KEY, c.id, c.flag.trim()]);
+    // Hint written-or-cleared, same as upsertChallenge: re-importing a bundle
+    // without the field removes a hint the earlier import created, so the
+    // round-trip stays faithful in both directions (#190).
+    const hint = typeof c.hint === "string" && c.hint.trim() ? c.hint.trim() : null;
+    commands.push(hint ? ["HSET", HINTS_KEY, c.id, hint] : ["HDEL", HINTS_KEY, c.id]);
     // The comparison form follows the record that was just built, NOT the raw
     // bundle field — they are the same value, and reading it from the record
     // is what keeps them the same value if either ever gains a default.
@@ -512,7 +537,7 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
  *  `ClassicBundleChallenge`. */
 export async function exportBundle(): Promise<ClassicBundle> {
   const [rows, categories] = await Promise.all([listChallengesForAdmin(), listCategories()]);
-  const challenges: ClassicBundleChallenge[] = rows.map(({ challenge, flag }) => ({
+  const challenges: ClassicBundleChallenge[] = rows.map(({ challenge, flag, hint }) => ({
     id: challenge.id,
     title: challenge.title,
     category: challenge.category,
@@ -525,6 +550,9 @@ export async function exportBundle(): Promise<ClassicBundle> {
     // diffing two exports should see the change they made, not a field that
     // appeared on every row.
     ...(challenge.caseSensitive ? { caseSensitive: true as const } : {}),
+    // Same only-when-set rule as caseSensitive: a hint-less board exports
+    // byte-identically to a pre-#190 one.
+    ...(hint ? { hint } : {}),
   }));
   return { version: CLASSIC_BUNDLE_VERSION, categories, challenges };
 }
@@ -554,6 +582,7 @@ export async function deleteChallenge(id: string): Promise<void> {
     ["HDEL", CHALLENGES_KEY, id],
     ["HDEL", FLAG_KEY, id],
     ["HDEL", FLAGNORM_KEY, id],
+    ["HDEL", HINTS_KEY, id],
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);

@@ -57,6 +57,23 @@ describe("ClassicBoard (tile grid)", () => {
     expect(html).not.toContain("Submit flag");
   });
 
+  // Availability is public (#190) — the tile says a hint EXISTS, the page
+  // sells it. Ids only, never text: hintIds is the public shape.
+  it("marks tiles whose challenge has a paid hint on offer", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated hintIds={["web-sqli-101"]} />,
+    );
+    expect(html).toContain("💡");
+    // The tile's aria-label OVERRIDES descendant text, so the emoji alone is
+    // invisible to a screen reader — the label must say it (CodeRabbit #210).
+    expect(html).toContain("50 points, paid hint available");
+    const without = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated />,
+    );
+    expect(without).not.toContain("💡");
+    expect(without).not.toContain("paid hint available");
+  });
+
   it("URL-encodes a challenge id in the tile link", () => {
     const odd = { ...web, id: "web/one two" };
     const html = renderToStaticMarkup(
