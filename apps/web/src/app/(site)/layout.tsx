@@ -2,6 +2,7 @@
 // Route groups `(site)` don't add a URL segment — this just shares the header,
 // a centered content column, and the footer across the grouped pages.
 
+import PhaseLine from "@/components/phase-line";
 import SiteFooter from "@/components/site-footer";
 import { getNavLinks } from "@/lib/resolved-modules";
 
@@ -16,8 +17,14 @@ export default async function SiteLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Awaited here rather than mounted as <PhaseLine />: an async child inside
+  // renderToStaticMarkup suspends (the not-found pages hit this same trap),
+  // and the nav-parity test renders this layout statically.
+  const phaseLine = await PhaseLine();
   return (
     <>
+      {/* The event's state, on every content page — see phase-line.tsx. */}
+      {phaseLine}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
         {children}
       </main>
