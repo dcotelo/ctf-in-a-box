@@ -12,6 +12,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
+// The flags boundaries name the module by its RESOLVED title now (an
+// organizer can rename it in /admin); getResolvedModules needs the same two
+// stubs every other consumer's suite carries.
+vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/admin-store", () => ({ getAdminSettings: async () => ({ moduleOverrides: {} }) }));
 // The shared body resolves live modules for its route directory; that is
 // covered elsewhere, and stubbing it keeps these tests about the copy.
 vi.mock("@/components/not-found-body", () => ({

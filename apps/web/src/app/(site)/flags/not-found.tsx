@@ -16,11 +16,19 @@
 // body deliberately renders neither.
 
 import NotFoundBody, { getNotFoundRoutes } from "@/components/not-found-body";
+import { getAdminSettings } from "@/lib/admin-store";
 import { moduleDefById } from "@/lib/modules";
 
 export default async function FlagsNotFound() {
   const routes = await getNotFoundRoutes();
-  const name = moduleDefById("classic")?.displayName ?? "This module";
+  // The EFFECTIVE title, independent of liveness: getResolvedModules() only
+  // returns LIVE modules, so in the disabled branch — the one that needs the
+  // name most — it degraded to "This module" (CodeRabbit, #209 round 3). The
+  // organizer's override comes straight off settings, falling open to the
+  // registry default when unset or unreadable.
+  const settings = await getAdminSettings().catch(() => null);
+  const name =
+    settings?.moduleOverrides?.classic?.title ?? moduleDefById("classic")?.displayName ?? "This module";
   return (
     <NotFoundBody
       routes={routes}

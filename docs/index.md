@@ -84,7 +84,7 @@ scoring code to write.
 
 | Classic flag board | Quiz |
 |---|---|
-| ![The classic board: each flag card shows its point value and solve count, a case-sensitive badge where casing matters, and instant feedback on submit](assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded the moment you submit](assets/quiz.jpg) |
+| ![The classic board: challenges grouped by category as compact tiles — title, points, and a green check once solved — each opening the challenge's own page with the description and flag form](assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded the moment you submit](assets/quiz.jpg) |
 
 <sup>Captured from the contestant app with seeded demo players. The board ranks
 <strong>teams</strong> by default and switches to individual standings; anything
