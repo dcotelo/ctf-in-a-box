@@ -1,16 +1,25 @@
 "use client";
 
-// Grid of the enabled vulnerable-app targets. A Client Component for the search
-// filter and per-card expand/collapse. When the live catalogue is available
-// each card lists its challenges with OWASP category links; without it the
-// cards fall back to the static counts/points from lib/apps.
+// The challenge browser — a queue, not a card gallery (apps/web/DESIGN.md).
 //
-// Hints layer: which challenges HAVE hints comes in as a server prop (public,
-// safe to bake into the static page); the viewer's own state (session, bought
-// hints) is loaded client-side from GET /api/hints after mount so per-user
-// data never ends up in the shared static render.
+// 321 challenges across six targets is an information-density problem the old
+// card-per-app-with-expansion layout hid rather than solved: 110 rows in a
+// scroll box, no solved state, no way to scan for "what's worth attempting
+// next". This is one flat list under sticky per-target headers, filtered four
+// ways — target, OWASP category, solved state, text — with every row a check
+// atom: green filled for patched, hollow for open.
+//
+// Solved state arrives as a server prop (the viewer's own patched challenge
+// keys, read from their profile by the page); the hint layer keeps its split —
+// which challenges HAVE hints is public and server-provided, the viewer's own
+// purchases load client-side from GET /api/hints after mount so per-user data
+// never lands in the shared static render.
+//
+// Without a live catalogue (no scorer reachable) the browser falls back to
+// one summary card per target from the static counts — filters would have
+// nothing to filter.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import HintButton from "@/components/hint-button";
 import OwaspBadge from "@/components/owasp-badge";
 import type { AppId, AppMeta } from "@/lib/apps";
@@ -19,14 +28,7 @@ import { authClient } from "@/lib/auth-client";
 
 type PurchasedHints = Partial<Record<AppId, Record<string, string>>>;
 
-type VisibleApp = {
-  app: AppMeta;
-  count: number;
-  /** Challenge rows to render (filtered when searching); null = no live data. */
-  challenges: CatalogChallenge[] | null;
-  /** Auto-expand when the query matched individual challenges. */
-  forceOpen: boolean;
-};
+type StateFilter = "all" | "open" | "solved";
 
 function matchChallenge(c: CatalogChallenge, q: string): boolean {
   return (
@@ -36,22 +38,30 @@ function matchChallenge(c: CatalogChallenge, q: string): boolean {
   );
 }
 
+const SELECT =
+  "rounded-md border border-white/10 bg-[#0e1220] px-2.5 py-2 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none";
+
 export default function ChallengeGrid({
   apps,
   catalog,
   hints,
+  solved = {},
 }: {
   apps: AppMeta[];
   catalog: ChallengeCatalog["byApp"] | null;
   /** Challenge ids that have a hint, per app ({} when hints are unavailable). */
   hints: Partial<Record<AppId, string[]>>;
+  /** The viewer's own patched challenge keys, per app — {} signed out or when
+   *  the source carries no per-challenge results. */
+  solved?: Partial<Record<AppId, string[]>>;
 }) {
   const [query, setQuery] = useState("");
+  const [target, setTarget] = useState<"all" | AppId>("all");
+  const [category, setCategory] = useState("all");
+  const [state, setState] = useState<StateFilter>("all");
   const q = query.trim().toLowerCase();
 
   const hintsActive = Object.keys(hints).length > 0;
-  // isPending renders the same signed-out teaser the static HTML has, so the
-  // signed-in upgrade happens after hydration with no markup mismatch.
   const { data: session, isPending } = authClient.useSession();
   const signedIn = hintsActive && !isPending && !!session;
   const [purchased, setPurchased] = useState<PurchasedHints>({});
@@ -80,203 +90,214 @@ export default function ChallengeGrid({
     setSpent(spentNow);
   };
 
-  const visible = apps
-    .map((app): VisibleApp | null => {
-      const all = catalog?.[app.id] ?? null;
-      const count = all?.length ?? app.challengeCount;
-      if (q === "") return { app, count, challenges: all, forceOpen: false };
-      if (app.name.toLowerCase().includes(q)) {
-        return { app, count, challenges: all, forceOpen: false };
-      }
-      const matched = all?.filter((c) => matchChallenge(c, q)) ?? [];
-      if (matched.length === 0) return null;
-      return { app, count, challenges: matched, forceOpen: true };
-    })
-    .filter((v): v is VisibleApp => v !== null);
+  const solvedSets = useMemo(() => {
+    const out = new Map<AppId, Set<string>>();
+    for (const [app, ids] of Object.entries(solved)) out.set(app as AppId, new Set(ids));
+    return out;
+  }, [solved]);
+  const anySolvedData = solvedSets.size > 0;
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="relative w-full sm:max-w-xs">
-        <svg
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="M21 21l-4-4" />
-        </svg>
-        <input
-          type="search"
-          id="challenge-search"
-          name="challenge-search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={catalog ? "Search challenges, apps, or OWASP codes…" : "Search targets…"}
-          aria-label="Search challenges"
-          className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d29922]/70 focus-visible:outline-none"
-        />
-      </div>
+  // Every OWASP code present in the live catalogue, for the category filter.
+  const categories = useMemo(() => {
+    if (!catalog) return [];
+    const codes = new Set<string>();
+    for (const list of Object.values(catalog)) for (const c of list ?? []) if (c.owasp) codes.add(c.owasp.code);
+    return [...codes].sort();
+  }, [catalog]);
 
-      {spent > 0 && (
-        <p className="-mt-3 font-mono text-xs tabular-nums text-[#d29922]/80">
-          💡 −{spent} pts spent on hints
-        </p>
-      )}
-
+  // ── No live catalogue: summary cards, no filters to offer. ──
+  if (!catalog) {
+    return (
       <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map(({ app, count, challenges, forceOpen }) => (
+        {apps.map((app) => (
           <li key={app.id}>
-            <article
-              className="ds-card group flex h-full flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-5 transition-all hover:-translate-y-0.5"
-              style={{ ["--accent" as string]: app.accent }}
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className="flex h-10 w-10 items-center justify-center rounded-full border-2 transition-shadow"
-                  style={{ color: app.accent, borderColor: app.accent }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d={app.icon} />
-                  </svg>
-                </span>
-                <span className="font-mono text-xs tabular-nums text-muted">
-                  {count} challenges
-                </span>
+            <article className="ds-card flex h-full flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-base font-bold text-white">{app.name}</h2>
+                <span className="font-mono text-xs tabular-nums text-muted">{app.challengeCount}</span>
               </div>
-
-              {/* h2, not h3: these sit directly under the page h1, and skipping
-                  a level breaks the heading outline for screen readers. */}
-              <h2 className="text-lg font-semibold text-white">{app.name}</h2>
               <p className="flex-1 text-sm leading-relaxed text-zinc-400">{app.blurb}</p>
-
+              <p className="font-mono text-xs tabular-nums text-muted">
+                {app.stars[0]}–{app.stars[1]} pts per challenge
+              </p>
               <a
                 href={app.repo}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex w-fit items-center gap-1.5 font-mono text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+                className="ds-link w-fit font-mono text-xs"
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.42 7.42 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-                </svg>
                 {app.repo.replace("https://github.com/", "")}
               </a>
-
-              {challenges ? (
-                <div className="border-t border-white/[0.06] pt-3">
-                  <CatalogList
-                    challenges={challenges}
-                    forceOpen={forceOpen}
-                    app={app.id}
-                    hintIds={hints[app.id] ? new Set(hints[app.id]) : null}
-                    signedIn={signedIn}
-                    cost={hintCost}
-                    owned={purchased[app.id]}
-                    onPurchased={onPurchased}
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-xs">
-                  <span className="font-mono tabular-nums text-muted">
-                    {app.stars[0]}–{app.stars[1]} pts / challenge
-                  </span>
-                  <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-                    {app.maxPoints} max
-                  </span>
-                </div>
-              )}
             </article>
           </li>
         ))}
       </ul>
+    );
+  }
 
-      {visible.length === 0 && (
-        <p className="text-sm text-muted">No challenges match “{query.trim()}”.</p>
-      )}
-    </div>
-  );
-}
+  // ── The queue. ──
+  const sections = apps
+    .map((app) => {
+      const all = catalog[app.id] ?? [];
+      const solvedHere = solvedSets.get(app.id) ?? new Set<string>();
+      const rows = all.filter((c) => {
+        if (target !== "all" && app.id !== target) return false;
+        if (category !== "all" && c.owasp?.code !== category) return false;
+        const isSolved = solvedHere.has(c.id);
+        if (state === "open" && isSolved) return false;
+        if (state === "solved" && !isSolved) return false;
+        if (q !== "" && !matchChallenge(c, q) && !app.name.toLowerCase().includes(q)) return false;
+        return true;
+      });
+      return { app, rows, total: all.length, solvedCount: all.filter((c) => solvedHere.has(c.id)).length };
+    })
+    .filter((s) => s.rows.length > 0);
 
-function CatalogList({
-  challenges,
-  forceOpen,
-  app,
-  hintIds,
-  signedIn,
-  cost,
-  owned,
-  onPurchased,
-}: {
-  challenges: CatalogChallenge[];
-  forceOpen: boolean;
-  app: AppId;
-  /** Ids with a hint available; null = no hints for this app. */
-  hintIds: Set<string> | null;
-  signedIn: boolean;
-  cost: number;
-  /** The viewer's bought hints for this app (id → text). */
-  owned: Record<string, string> | undefined;
-  onPurchased: (app: AppId, id: string, text: string, spent: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const expanded = forceOpen || open;
+  const shown = sections.reduce((n, s) => n + s.rows.length, 0);
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={expanded}
-        className="flex items-center gap-1.5 text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
-      >
-        <svg
-          className={`transition-transform ${expanded ? "rotate-90" : ""}`}
-          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"
-          aria-hidden="true"
-        >
-          <path d="m9 6 6 6-6 6" />
-        </svg>
-        {forceOpen
-          ? `${challenges.length} matching`
-          : `${open ? "Hide" : "Show"} ${challenges.length} challenges`}
-      </button>
+    <div className="flex flex-col gap-5">
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-64">
+          <svg
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4-4" />
+          </svg>
+          <input
+            type="search"
+            id="challenge-search"
+            name="challenge-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search challenges or OWASP codes"
+            aria-label="Search challenges"
+            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d29922]/70 focus-visible:outline-none"
+          />
+        </div>
+        <label className="sr-only" htmlFor="filter-target">Target</label>
+        <select id="filter-target" value={target} onChange={(e) => setTarget(e.target.value as "all" | AppId)} className={SELECT}>
+          <option value="all">All targets</option>
+          {apps.map((app) => (
+            <option key={app.id} value={app.id}>{app.name}</option>
+          ))}
+        </select>
+        <label className="sr-only" htmlFor="filter-owasp">OWASP category</label>
+        <select id="filter-owasp" value={category} onChange={(e) => setCategory(e.target.value)} className={SELECT}>
+          <option value="all">All categories</option>
+          {categories.map((code) => (
+            <option key={code} value={code}>{code}</option>
+          ))}
+        </select>
+        {anySolvedData && (
+          <div role="group" aria-label="Solved state" className="flex overflow-hidden rounded-md border border-white/10">
+            {(["all", "open", "solved"] as StateFilter[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setState(s)}
+                aria-pressed={state === s}
+                className={`px-3 py-2 text-xs font-medium capitalize transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#d29922] ${
+                  state === s ? "bg-white/[0.1] text-white" : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+        <span className="ml-auto font-mono text-xs tabular-nums text-muted">{shown} shown</span>
+      </div>
 
-      {expanded && (
-        <ul className="mt-2 flex max-h-64 flex-col gap-1 overflow-y-auto border-l border-white/[0.06] pl-3">
-          {challenges.map((c) => {
-            const ownedText = owned?.[c.id];
-            return (
-              <li key={c.id} className="flex flex-col gap-1 py-0.5 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-zinc-300" title={c.description}>
-                    {c.description}
+      {spent > 0 && (
+        <p className="-mt-2 font-mono text-xs tabular-nums text-[#d29922]/80">
+          💡 −{spent} pts spent on hints
+        </p>
+      )}
+
+      {sections.length === 0 ? (
+        <div className="rounded-lg border border-white/[0.06] bg-[#131826] px-4 py-10 text-center">
+          <p className="text-sm text-zinc-400">Nothing matches those filters.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setTarget("all");
+              setCategory("all");
+              setState("all");
+            }}
+            className="ds-link mt-2 text-sm"
+          >
+            Clear the filters
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {sections.map(({ app, rows, total, solvedCount }) => (
+            <section key={app.id} className="mb-6">
+              {/* Sticky under the site header (h-14 = 56px). */}
+              <div className="sticky top-14 z-10 -mx-1 flex items-baseline gap-3 border-b border-white/[0.09] bg-[#0b0e14]/95 px-1 py-2 backdrop-blur">
+                <h2 className="text-base font-bold text-white">{app.name}</h2>
+                {anySolvedData && (
+                  <span className="font-mono text-xs tabular-nums text-[#3fb950]">
+                    {solvedCount}/{total} patched
                   </span>
-                  {/* What it's worth, BEFORE solving it — the landing page
-                      promises "points scale with difficulty", and quiz and
-                      classic both show their value on every card; these rows
-                      were the one place the number existed in the data
-                      (`c.points`) and never rendered (issue #200, 3.5). */}
-                  <span className="flex-none font-mono tabular-nums text-muted">{c.points} pts</span>
-                  {hintIds?.has(c.id) && !ownedText && (
-                    <HintButton app={app} id={c.id} cost={cost} signedIn={signedIn} onPurchased={onPurchased} />
-                  )}
-                  {/* Two states the old lambda feed never produced and the
-                      scorer's rubric does: a challenge with no category at
-                      all (`owasp: null`), and a code outside both Top 10s.
-                      The first renders no badge; the second renders the code
-                      as plain text. Neither may become an anchor pointing
-                      nowhere. OwaspBadge decides which of those it is from
-                      the code alone — this file used to inline its own copy
-                      of that decision, and the two drifted. */}
-                  {c.owasp && <OwaspBadge code={c.owasp.code} />}
-                </div>
-                {ownedText && (
-                  <p className="rounded border-l-2 border-[#d29922]/50 bg-[#d29922]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d29922]/90">
-                    💡 {ownedText}
-                  </p>
                 )}
-              </li>
-            );
-          })}
-        </ul>
+                <a
+                  href={app.repo}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto hidden font-mono text-xs text-zinc-500 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] sm:inline"
+                >
+                  {app.repo.replace("https://github.com/", "")}
+                </a>
+              </div>
+              <ul>
+                {rows.map((c) => {
+                  const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
+                  const ownedText = purchased[app.id]?.[c.id];
+                  const hasHint = hints[app.id]?.includes(c.id) ?? false;
+                  return (
+                    <li key={c.id} className="flex flex-col gap-1 border-b border-white/[0.04] py-2">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden
+                          className={`h-2 w-2 flex-none rounded-full ${
+                            isSolved ? "bg-[#3fb950]" : "border border-[#9ba7b4]/50"
+                          }`}
+                        />
+                        <span
+                          className={`min-w-0 flex-1 truncate text-sm ${
+                            isSolved ? "text-zinc-500" : "text-zinc-300"
+                          }`}
+                          title={c.description}
+                        >
+                          {c.description}
+                          {isSolved && <span className="sr-only"> (patched)</span>}
+                        </span>
+                        <span className="flex-none font-mono text-xs tabular-nums text-muted">
+                          {c.points} {c.points === 1 ? "pt" : "pts"}
+                        </span>
+                        {hasHint && !ownedText && (
+                          <HintButton app={app.id} id={c.id} cost={hintCost} signedIn={signedIn} onPurchased={onPurchased} />
+                        )}
+                        {c.owasp && <OwaspBadge code={c.owasp.code} />}
+                      </div>
+                      {ownedText && (
+                        <p className="ml-[18px] rounded border-l-2 border-[#d29922]/50 bg-[#d29922]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d29922]/90">
+                          💡 {ownedText}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
