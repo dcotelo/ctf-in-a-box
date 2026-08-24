@@ -168,6 +168,29 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   // module whose batch read fails leaves the rows it would have touched
   // exactly as the previous step left them (missing points, never wrong ones).
   let teams = data.teams;
+  // secure-development is ATTRIBUTED for teams exactly as attributeEntry does
+  // for entries: at this point team.points holds only the scorer's (hint-
+  // netted) score, so the block's points are that number, not an addition.
+  // Without this, an expanded team row showed QUIZ and CLASSIC point chips
+  // while the secure-development share of the total appeared nowhere — a
+  // captain adding up the chips came out short and read it as a scoring bug.
+  if (secureDev && teams.length > 0) {
+    teams = teams.map((team) => {
+      const apps = team.apps;
+      if (!apps || Object.keys(apps).length === 0) return team;
+      const patched = Object.values(apps).reduce((n, app) => n + (app?.patched ?? 0), 0);
+      // Same nothing-to-show gate as every other module block: a team that
+      // hasn't scored here gets no chip, not a zero chip.
+      if (patched === 0 && team.points === 0) return team;
+      return {
+        ...team,
+        modules: {
+          ...(team.modules ?? {}),
+          "secure-development": secureDevelopmentModule(team.points, patched, null, apps),
+        },
+      };
+    });
+  }
   if (data.capabilities.teams && data.teams.length > 0) {
     if (quizEnabled) {
       try {

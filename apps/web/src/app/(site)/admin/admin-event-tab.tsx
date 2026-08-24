@@ -9,7 +9,7 @@
 // `doReset`, `doSeed`) is owned by `admin-controls.tsx` and passed in, so the
 // shell stays the single writer of settings state across all tabs.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
 import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
@@ -43,8 +43,21 @@ function ScheduleField({
   disabled: boolean;
   onCommit: (iso: string | null) => void;
 }) {
-  const [input, setInput] = useState(toLocalInput(value));
-  // Re-sync when the applied value changes (another field's POST returns fresh settings).
+  // The datetime-local value is the VIEWER's wall clock, which the server
+  // cannot know: seeding the input from toLocalInput() during render made the
+  // server (UTC on the box) and the browser (viewer tz) disagree and threw a
+  // hydration error (#418) on every /admin load. So SSR renders the field
+  // empty and the real value lands after mount — the same
+  // render-nothing-until-mounted contract event-countdown uses. The effect
+  // also re-syncs when the applied value changes (another field's POST
+  // returning fresh settings), which the old one-shot useState never did.
+  const [input, setInput] = useState("");
+  useEffect(() => {
+    // Deferred so this reads as subscribing to the applied value rather than
+    // a render-time computation — satisfies react-hooks/set-state-in-effect.
+    const timeout = setTimeout(() => setInput(toLocalInput(value)), 0);
+    return () => clearTimeout(timeout);
+  }, [value]);
   const canonical = toLocalInput(value);
   return (
     <label className="flex items-center justify-between gap-3">

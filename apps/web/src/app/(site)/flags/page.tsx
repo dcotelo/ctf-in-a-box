@@ -127,13 +127,12 @@ export default async function FlagsPage() {
     ...deriveStatus(viewerClassic.solved[c.id], viewerClassic.attempts[c.id], cooldownMs),
   }));
 
-  const solvedCount = viewChallenges.filter((c) => c.status === "solved").length;
-  // Per-VIEWER state, so it sits above the board rather than in the header —
-  // same reasoning as quiz/page.tsx's `progress` line: a page description
-  // says what the page is, this says what *you* have done on it.
-  const progress = login
-    ? `You've solved ${solvedCount} of ${challenges.length} challenge${challenges.length === 1 ? "" : "s"}.`
-    : "Sign in with GitHub to submit flags.";
+  // Per-VIEWER state, so it sits above the board rather than in the header.
+  // Signed in, the board's "Your run" rail carries the solved and point
+  // totals — a sentence restating the same numbers directly above it was the
+  // same fact twice (the duplication quiz/page.tsx also removed). Only the
+  // signed-out prompt has no rail to defer to.
+  const progress = login ? null : "Sign in with GitHub to submit flags.";
 
   return (
     <div className="flex flex-col gap-8">
@@ -150,7 +149,7 @@ export default async function FlagsPage() {
           GitHub" prompt away from a signed-out visitor looking at a board
           whose challenges haven't been authored yet. */}
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-zinc-400">{progress}</p>
+        {progress && <p className="text-sm text-zinc-400">{progress}</p>}
         {challenges.length === 0 ? (
           <ModuleEmptyState
             message={

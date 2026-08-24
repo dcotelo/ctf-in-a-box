@@ -94,6 +94,24 @@ describe("withModuleContributions", () => {
     expect(mocks.getTeamQuizTotalsBatch).not.toHaveBeenCalled();
   });
 
+  // The expanded team row's module chips render from `team.modules`. Without
+  // this attribution a team showed QUIZ and CLASSIC point chips while the
+  // secure-development share of its total appeared nowhere — a captain adding
+  // up the chips came out short and read it as a scoring bug.
+  it("attributes a secure-development block to a team with app data, without changing its points", async () => {
+    const apps = { dvwa: { app: "dvwa" as const, points: 30, maxPoints: 30, patched: 3, total: 3 } };
+    const teams: TeamStanding[] = [
+      { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada"], apps },
+    ];
+    const out = await withModuleContributions({ ...data([entry("ada", 30, 3)]), teams });
+    expect(out.teams[0].points).toBe(30); // attributed, never added
+    expect(out.teams[0].modules?.["secure-development"]).toMatchObject({
+      points: 30,
+      completed: 3,
+      detail: { kind: "secure-development", apps },
+    });
+  });
+
   // upstash carries no per-app data and no modules map, so completedCount
   // falls back to `patched` — which DOES re-order the raw ZRANGE
   // points-descending order this source arrives in. Accepted deliberately (it

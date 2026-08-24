@@ -25,7 +25,10 @@ export type DisplayRow = {
   solved?: number;
 };
 
-const PODIUM: Record<number, string> = { 1: "#d4a017", 2: "#a1a1aa", 3: "#b87333" };
+// Same podium vocabulary as the leaderboard rank chips — rank 3 is the
+// palette teal, not a literal bronze, so the wall display and the board a
+// contestant checks on their phone agree on what third place looks like.
+const PODIUM: Record<number, string> = { 1: "#d4a017", 2: "#a1a1aa", 3: "#14b8a6" };
 
 export default function DisplayBoard({
   rows,

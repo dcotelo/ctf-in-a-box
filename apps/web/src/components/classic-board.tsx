@@ -232,14 +232,15 @@ export default function ClassicBoard({
             Your run
           </p>
           {/* Both figures carry their denominators — a bare "3 solved" says
-              nothing about how much board is left. */}
-          <p className="font-mono text-sm tabular-nums">
+              nothing about how much board is left. Two lines, not one dotted
+              phrase: the rail is 11rem wide on desktop and a single line
+              wrapped mid-number. */}
+          <p className="flex flex-row flex-wrap gap-x-3 font-mono text-sm tabular-nums lg:flex-col">
             <span className="text-[#22c55e]">
               {solvedTotal} / {boardTotal} solved
             </span>
             <span className="text-muted">
-              {" "}
-              · {pointsTotal.toLocaleString("en-US")} / {pointsAvailable.toLocaleString("en-US")} pts
+              {pointsTotal.toLocaleString("en-US")} / {pointsAvailable.toLocaleString("en-US")} pts
             </span>
           </p>
           <ul className="flex flex-row flex-wrap gap-x-4 gap-y-1.5 lg:flex-col">
