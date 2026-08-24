@@ -17,9 +17,7 @@ export default function SiteFooter({ navLinks }: { navLinks: NavLink[] }) {
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="font-mono text-sm text-white">
-              <span className="text-[#3fb950]">$</span> owasp-ctf
-            </p>
+            <p className="font-display text-sm font-bold text-white">{event.name}</p>
             {(event.dates || event.location) && (
               <p className="mt-1 text-sm text-muted">
                 {[event.dates, event.location].filter(Boolean).join(" · ")}

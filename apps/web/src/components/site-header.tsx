@@ -21,11 +21,13 @@ export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#0e1220]/80 backdrop-blur">
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+        {/* The wordmark is the EVENT'S name — the organizer's brand, not the
+            kit's, and not a terminal prompt (DESIGN.md: what dies). */}
         <Link
           href="/"
-          className="font-mono text-sm font-semibold tracking-tight text-white transition-colors hover:text-[#e6edf3]"
+          className="truncate font-display text-sm font-bold tracking-tight text-white transition-colors hover:text-[#e6edf3]"
         >
-          <span className="text-[#3fb950]">$</span> owasp-ctf
+          {event.name}
         </Link>
 
         {/* Desktop nav */}

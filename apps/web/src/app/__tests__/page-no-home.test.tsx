@@ -34,6 +34,20 @@ vi.mock("@/lib/event-config", () => ({
 }));
 
 vi.mock("server-only", () => ({}));
+// The redesigned landing reads the session (for the state-aware primary CTA),
+// the viewer's team, and — once the event is past registration — the top of
+// the leaderboard. These fixtures render signed-out with the board read
+// failing, which the page must tolerate by hiding the strip.
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+vi.mock("@/lib/leaderboard/source", () => ({
+  getLeaderboardSource: () => ({
+    getLeaderboard: async () => {
+      throw new Error("no leaderboard in this fixture");
+    },
+  }),
+}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: {} }),
@@ -59,35 +73,33 @@ const html = await Home().then(renderToStaticMarkup);
 describe("landing page with no module home blocks", () => {
   it("renders the platform frame", () => {
     expect(html).toContain("Bare CTF");
-    expect(html).toContain("How to play");
-    expect(html).toContain("Live leaderboard");
-    expect(html).toContain("Track your progress live");
+    expect(html).toContain("How it works");
+    expect(html).toContain("Run this for your own group");
   });
 
   // Asserted on CONTENT, not on a Tailwind class: a restyle must not be able
   // to silently satisfy this. The tagline <p> is the only thing that can sit
   // between the headline and the close of its wrapper, so its absence is
   // structural rather than cosmetic.
-  it("renders no tagline line and no hero paragraph", () => {
-    expect(html).toMatch(/<\/h1><\/div>/);
-    // The hero intro belongs to `home.intro()`, which does not exist here.
+  it("renders no tagline line, and the blurb stands in for the missing intro", () => {
+    // No home block means no tagline kicker above the headline.
+    expect(html).not.toContain("tracking-[0.3em]");
+    // The game card's body falls back to the module's blurb — the one
+    // sentence every module has — never to authored copy it doesn't.
     expect(html).not.toContain("Answer security questions for points. Every question carries");
   });
 
   // The registry's `description` is the blurb's default, so with no organizer
   // override this is the quiz module's own one-liner reaching the page.
-  it("leads the module's section with its blurb", () => {
+  it("leads the module's game card with its blurb", () => {
     expect(html).toContain("Answer security questions for points.");
-    // A lone module keeps the generic kicker; the heading is the module's
-    // resolved title.
-    expect(html).toContain("What to expect");
-    expect(html).toContain("<h2");
+    expect(html).toContain("The game");
     // …and NOT the authored copy, which this module deliberately has none of.
     expect(html).not.toContain("Straight questions, scored on submit");
   });
 
-  it("renders no numbered steps for a section with no authored ones", () => {
-    expect(html).not.toContain("<ol");
+  it("renders no numbered steps — steps left the landing page entirely", () => {
+    expect(html).not.toContain("Work through the questions");
   });
 
   it("renders no module CTA", () => {

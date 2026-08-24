@@ -67,9 +67,9 @@ export default function AuthNav() {
       <button
         type="button"
         onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/profile" })}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#e6edf3]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-[#e6edf3]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
       >
-        <span className="text-[#3fb950]">$</span> sign-in --github
+        Sign in with GitHub
       </button>
     );
   }

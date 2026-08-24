@@ -1,0 +1,43 @@
+"use client";
+
+// The landing hero's single primary action. Two shapes: a plain link, or the
+// GitHub sign-in (which must run client-side through authClient). The
+// `callbackURL` carries the visitor's intent across the OAuth redirect — a
+// signed-out visitor who clicked "Sign in and play" lands on the board, not
+// back on the marketing page (brief: "never lose someone's intended action
+// across the redirect").
+
+import Link from "next/link";
+import { authClient } from "@/lib/auth-client";
+
+const PRIMARY =
+  "inline-flex items-center gap-2 rounded-md bg-[#e6edf3] px-6 py-3 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]";
+
+export default function HeroCta({
+  label,
+  href,
+  signIn = false,
+  callbackURL = "/profile",
+}: {
+  label: string;
+  href?: string;
+  signIn?: boolean;
+  callbackURL?: string;
+}) {
+  if (signIn) {
+    return (
+      <button
+        type="button"
+        onClick={() => authClient.signIn.social({ provider: "github", callbackURL })}
+        className={PRIMARY}
+      >
+        {label}
+      </button>
+    );
+  }
+  return (
+    <Link href={href ?? "/"} className={PRIMARY}>
+      {label}
+    </Link>
+  );
+}

@@ -29,6 +29,20 @@ vi.mock("@/lib/event-config", () => ({
 }));
 
 vi.mock("server-only", () => ({}));
+// The redesigned landing reads the session (for the state-aware primary CTA),
+// the viewer's team, and — once the event is past registration — the top of
+// the leaderboard. These fixtures render signed-out with the board read
+// failing, which the page must tolerate by hiding the strip.
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+vi.mock("@/lib/leaderboard/source", () => ({
+  getLeaderboardSource: () => ({
+    getLeaderboard: async () => {
+      throw new Error("no leaderboard in this fixture");
+    },
+  }),
+}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: {} }),
@@ -53,8 +67,8 @@ const html = await Home().then(renderToStaticMarkup);
 describe("landing page in a quiz-only event", () => {
   it("still renders the platform frame", () => {
     expect(html).toContain("Quiz Night");
-    expect(html).toContain("How to play");
-    expect(html).toContain("Track your progress live");
+    expect(html).toContain("How it works");
+    expect(html).toContain("Run this for your own group");
   });
 
   it("renders no patch/PR/fork copy", () => {
@@ -86,19 +100,15 @@ describe("landing page in a quiz-only event", () => {
 
   it("renders the quiz module's own copy instead", () => {
     expect(html).toContain("Answer security questions for points.");
-    expect(html).toContain("Straight questions, scored on submit");
     expect(html).toContain("Take the quiz");
     expect(html).toContain('href="/quiz"');
   });
 
-  it("renders the quiz's three steps", () => {
-    for (const title of [
-      "Sign in with GitHub",
-      "Work through the questions",
-      "Get scored on submit",
-    ]) {
-      expect(html).toContain(title);
-    }
+  // The numbered how-to steps left the landing page for How to play; the
+  // pitch renders the game card with the live question count instead.
+  it("renders the game card, not the how-to steps", () => {
+    expect(html).toContain("The game");
+    expect(html).not.toContain("Work through the questions");
   });
 
   it("describes the event with the quiz tagline, not secure-development's", () => {
