@@ -31,7 +31,7 @@ import { withModuleContributions } from "@/lib/leaderboard/module-contributions"
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { isModuleEnabled, type HomeContext } from "@/lib/modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
-import { getViewerTeam } from "@/lib/team-store";
+import { hasTeam } from "@/lib/team-store";
 import { event } from "@/lib/site";
 
 /** The one action this visitor should take, by auth × team × phase. */
@@ -119,9 +119,13 @@ export default async function Home() {
     getNavLinks(),
   ]);
   const login = (session?.user as { login?: string } | undefined)?.login ?? null;
-  const team = login ? await getViewerTeam(login).catch(() => null) : null;
+  // hasTeam, not getViewerTeam truthiness: hasTeam is the SAME fail-open,
+  // mock-mode-aware answer the submission gates use, so the hero can never
+  // say "Join a team" to someone whose submissions would score (a Redis
+  // blip, or a dev stack with team writes off).
+  const team = login ? await hasTeam(login) : false;
   const firstBoard = sections.find((s) => s.cta)?.cta ?? null;
-  const action = primaryAction(phaseInfo?.phase ?? null, Boolean(login), Boolean(team), firstBoard);
+  const action = primaryAction(phaseInfo?.phase ?? null, Boolean(login), team, firstBoard);
 
   // The live strip: the top of the same standings the leaderboard shows.
   // Only once there could be something to show, and a failed read hides the

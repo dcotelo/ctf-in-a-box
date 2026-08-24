@@ -31,7 +31,7 @@ vi.mock("server-only", () => ({}));
 // failing, which the page must tolerate by hiding the strip.
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
-vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
 vi.mock("@/lib/leaderboard/source", () => ({
   getLeaderboardSource: () => ({
     getLeaderboard: async () => {
@@ -85,6 +85,9 @@ describe("landing page with two modules enabled", () => {
   it("renders both modules' game-card CTAs in registry order", () => {
     expect(html).toContain("Browse targets");
     expect(html).toContain("Take the quiz");
+    // In ORDER — registry order also picks `firstBoard` for the hero CTA,
+    // so this is a contract, not cosmetics.
+    expect(html.indexOf("Browse targets")).toBeLessThan(html.indexOf("Take the quiz"));
     expect(html.indexOf("Browse targets")).toBeLessThan(html.indexOf("Take the quiz"));
   });
 

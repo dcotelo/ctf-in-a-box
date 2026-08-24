@@ -77,8 +77,11 @@ describe("PhaseLine", () => {
   });
 
   it("states the current phase's boundary time, pinned to UTC", async () => {
+    // The start sits firmly in the past and the end firmly in the future —
+    // a start of "today at 10:00" made this test phase-dependent on the
+    // wall clock of the machine running it.
     const html = await render({
-      scoringStartsAt: "2026-08-24T10:00:00.000Z",
+      scoringStartsAt: "2020-01-01T00:00:00.000Z",
       scoringEndsAt: "2099-08-24T18:00:00.000Z",
     });
     // Live now; the actionable boundary is the close, labeled honestly.

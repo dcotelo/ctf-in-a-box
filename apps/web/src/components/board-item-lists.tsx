@@ -13,6 +13,26 @@ import ModuleItemList, { type ModuleItem } from "@/components/module-item-list";
 
 type ItemsResponse = { quiz: ModuleItem[] | null; classic: ModuleItem[] | null };
 
+/** The route unions at most 8 logins per request (its anti-scrape cap), but
+ *  an organizer can raise the team size well past that — chunk the roster
+ *  and union the responses client-side so a big team's lists don't silently
+ *  400 away. */
+const CHUNK = 8;
+
+function mergeItems(parts: (ModuleItem[] | null)[]): ModuleItem[] | null {
+  const lists = parts.filter((p): p is ModuleItem[] => p !== null);
+  if (lists.length === 0) return null;
+  const merged = new Map<string, ModuleItem>();
+  for (const list of lists) {
+    for (const item of list) {
+      const seen = merged.get(item.id);
+      // done wins, and the first banked points ride along with it.
+      if (!seen || (!seen.done && item.done)) merged.set(item.id, item);
+    }
+  }
+  return [...merged.values()];
+}
+
 export default function BoardItemLists({ logins }: { logins: string[] }) {
   const [data, setData] = useState<ItemsResponse | null>(null);
   const key = logins.join(",");
@@ -20,12 +40,21 @@ export default function BoardItemLists({ logins }: { logins: string[] }) {
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    fetch(`/api/board/items?logins=${encodeURIComponent(key)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((d: ItemsResponse | null) => {
-        if (!cancelled && d) setData(d);
-      })
-      .catch(() => {});
+    const all = key.split(",");
+    const chunks: string[][] = [];
+    for (let i = 0; i < all.length; i += CHUNK) chunks.push(all.slice(i, i + CHUNK));
+    Promise.all(
+      chunks.map((chunk) =>
+        fetch(`/api/board/items?logins=${encodeURIComponent(chunk.join(","))}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null),
+      ),
+    ).then((parts: (ItemsResponse | null)[]) => {
+      if (cancelled) return;
+      const ok = parts.filter((p): p is ItemsResponse => p !== null);
+      if (ok.length === 0) return;
+      setData({ quiz: mergeItems(ok.map((p) => p.quiz)), classic: mergeItems(ok.map((p) => p.classic)) });
+    });
     return () => {
       cancelled = true;
     };

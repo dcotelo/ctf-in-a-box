@@ -609,10 +609,15 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
  */
 const DEMO_FIRST_TRY_MINUTES = 3;
 
-function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number): string {
+function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number, floorMs?: number): string {
   const lastAtMs = Date.parse(earnedAt);
   const elapsedMinutes = DEMO_FIRST_TRY_MINUTES + (tries - 1) * gapMinutes;
-  const firstAt = new Date(lastAtMs - elapsedMinutes * 60_000).toISOString();
+  // Clamped to the seed window's start (the scoring open, when scheduled):
+  // an earnedAt just inside the window minus a retry gap otherwise lands a
+  // first attempt BEFORE scoring opened — the exact contradiction the window
+  // clamp exists to prevent.
+  const firstAtMs = Math.max(lastAtMs - elapsedMinutes * 60_000, floorMs ?? Number.NEGATIVE_INFINITY);
+  const firstAt = new Date(firstAtMs).toISOString();
   return JSON.stringify({ attempts: tries, firstAt, lastAt: earnedAt, lastAtMs });
 }
 
@@ -731,7 +736,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
         "HSET",
         quizAttemptsKey(login),
         questionId,
-        demoAttemptRow(1 + (i % 3), at, 3 + (i % 7)),
+        demoAttemptRow(1 + (i % 3), at, 3 + (i % 7), base),
       ]);
 
       const agg = aggregates.get(login) ?? { points: 0, answered: 0 };
@@ -755,7 +760,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const missed = DEMO_QUESTIONS.find((q) => !answered.has(q.id));
       if (!missed) return;
       const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
-      cmds.push(["HSET", quizAttemptsKey(c.login), missed.id, demoAttemptRow(1 + (ci % 2), at, 5 + (ci % 4))]);
+      cmds.push(["HSET", quizAttemptsKey(c.login), missed.id, demoAttemptRow(1 + (ci % 2), at, 5 + (ci % 4), base)]);
     });
 
     // Aggregates are written as the final absolute total (not HINCRBY'd),
@@ -812,7 +817,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
         "HSET",
         classicAttemptsKey(login),
         challengeId,
-        demoAttemptRow(1 + ((i + 1) % 3), at, 2 + (i % 9)),
+        demoAttemptRow(1 + ((i + 1) % 3), at, 2 + (i % 9), base),
       ]);
 
       const agg = classicAggregates.get(login) ?? { points: 0, solved: 0 };
@@ -835,7 +840,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const missed = DEMO_CHALLENGES.find((ch) => !solved.has(ch.id));
       if (!missed) return;
       const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
-      cmds.push(["HSET", classicAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 3), at, 4 + (ci % 5))]);
+      cmds.push(["HSET", classicAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 3), at, 4 + (ci % 5), base)]);
     });
 
     // Aggregates written as the final absolute total (not HINCRBY'd), mirroring

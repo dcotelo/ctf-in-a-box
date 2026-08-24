@@ -213,11 +213,16 @@ export default function ClassicBoard({
     .filter((r) => r.total > 0);
   const solvedTotal = run.reduce((n, r) => n + r.solved, 0);
   const boardTotal = run.reduce((n, r) => n + r.total, 0);
-  const pointsTotal = challenges.reduce(
+  // Points over the RENDERED set — challenges whose category is in the
+  // `categories` prop — matching the counts above, which already derive from
+  // it. Summing the raw prop let a challenge in an unlisted category count
+  // toward the rail while rendering nowhere on the board.
+  const rendered = challenges.filter((c) => categories.includes(c.category));
+  const pointsTotal = rendered.reduce(
     (n, c) => n + (c.status === "solved" ? c.earnedPoints : 0),
     0,
   );
-  const pointsAvailable = challenges.reduce((n, c) => n + c.points, 0);
+  const pointsAvailable = rendered.reduce((n, c) => n + c.points, 0);
   const anchorFor = (category: string) => `cat-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
   return (

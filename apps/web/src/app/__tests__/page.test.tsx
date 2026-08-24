@@ -27,7 +27,7 @@ vi.mock("server-only", () => ({}));
 // failing, which the page must tolerate by hiding the strip.
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
-vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
 // Switchable: the default fixture renders with the board read FAILING (the
 // page must hide the strip), and the standings-strip test below swaps in a
 // synthetic board for one render.

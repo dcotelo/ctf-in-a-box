@@ -28,7 +28,13 @@ export default function HeroCta({
     return (
       <button
         type="button"
-        onClick={() => authClient.signIn.social({ provider: "github", callbackURL })}
+        onClick={() => {
+          // Surface a failed redirect start instead of leaving the CTA
+          // silently idle; the OAuth flow itself navigates away on success.
+          void authClient.signIn.social({ provider: "github", callbackURL }).catch((err) => {
+            console.error("sign-in failed to start:", err);
+          });
+        }}
         className={PRIMARY}
       >
         {label}

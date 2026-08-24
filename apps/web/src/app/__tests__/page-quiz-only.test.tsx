@@ -35,7 +35,7 @@ vi.mock("server-only", () => ({}));
 // failing, which the page must tolerate by hiding the strip.
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
-vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
 vi.mock("@/lib/leaderboard/source", () => ({
   getLeaderboardSource: () => ({
     getLeaderboard: async () => {

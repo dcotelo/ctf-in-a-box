@@ -40,7 +40,7 @@ vi.mock("server-only", () => ({}));
 // failing, which the page must tolerate by hiding the strip.
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
-vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
 vi.mock("@/lib/leaderboard/source", () => ({
   getLeaderboardSource: () => ({
     getLeaderboard: async () => {
@@ -82,8 +82,11 @@ describe("landing page with no module home blocks", () => {
   // between the headline and the close of its wrapper, so its absence is
   // structural rather than cosmetic.
   it("renders no tagline line, and the blurb stands in for the missing intro", () => {
-    // No home block means no tagline kicker above the headline.
-    expect(html).not.toContain("tracking-[0.3em]");
+    // No home block means no tagline kicker above the headline: the h1
+    // follows the OWASP mark directly, with no <p> in between. Structural,
+    // not a class pin — a retracked restyle must not satisfy this.
+    expect(html).toMatch(/alt="OWASP"[^>]*\/?><h1/);
+    expect(html).not.toMatch(/<p[^>]*>[^<]*<\/p><h1/);
     // The game card's body falls back to the module's blurb — the one
     // sentence every module has — never to authored copy it doesn't.
     expect(html).not.toContain("Answer security questions for points. Every question carries");
