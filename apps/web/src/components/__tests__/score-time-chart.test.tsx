@@ -80,15 +80,16 @@ describe("ScoreTimeChart", () => {
     expect(html).toBe("");
   });
 
-  it("does not crash on a single-point series and skips its path", () => {
+  it("draws a full step line even for a single-point series", () => {
     const withSinglePoint = series({
       dave: [{ t: "2026-08-01T05:00:00.000Z", score: 15 }],
     });
     const html = renderToStaticMarkup(<ScoreTimeChart series={withSinglePoint} />);
     expect(html).toContain("<svg");
-    // Three multi-point players still get a path; dave (1 point) does not.
-    expect(countOccurrences(html, "<path")).toBe(3);
-    // dave still shows up as a marker + legend entry, not a broken line.
+    // Every series gets a step path now — anchored at zero on the left edge
+    // and held flat to the right — so dave's lone solve is a line, not a
+    // floating marker. Four players, four paths.
+    expect(countOccurrences(html, "<path")).toBe(4);
     expect(html).toContain("dave");
   });
 
