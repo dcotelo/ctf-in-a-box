@@ -28,9 +28,14 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
 vi.mock("@/lib/team-store", () => ({ getViewerTeam: async () => null }));
+// Switchable: the default fixture renders with the board read FAILING (the
+// page must hide the strip), and the standings-strip test below swaps in a
+// synthetic board for one render.
+const board = vi.hoisted(() => ({ data: null as unknown }));
 vi.mock("@/lib/leaderboard/source", () => ({
   getLeaderboardSource: () => ({
     getLeaderboard: async () => {
+      if (board.data) return board.data;
       throw new Error("no leaderboard in this fixture");
     },
   }),
@@ -129,6 +134,40 @@ describe("landing page with secure-development enabled", () => {
   // One module: the games section is headed "The game", singular.
   it("heads a single-module event's games section in the singular", () => {
     expect(html).toContain("The game<");
+  });
+});
+
+describe("the hero standings strip", () => {
+  // The default fixture's failing board read proves the strip HIDES (the
+  // frame tests above render without it). This one proves what it says when
+  // there is a board: the kicker names WHAT the rows are — three bare names
+  // and numbers mean nothing to a first-time visitor — and points carry
+  // their unit, like everywhere else in the app.
+  it("labels the rows as teams and the numbers as points", async () => {
+    board.data = {
+      entries: [],
+      teams: [
+        { rank: 1, slug: "byte-me", name: "Byte Me", captain: "ada", points: 1458, members: ["ada"] },
+        { rank: 2, slug: "zero-cool", name: "Zero Cool", captain: "kev", points: 750, members: ["kev"] },
+      ],
+      generatedAt: "2026-08-24T00:00:00.000Z",
+      capabilities: { apps: false, teams: true, challenges: false },
+    };
+    try {
+      const withBoard = await Home().then(renderToStaticMarkup);
+      expect(withBoard).toContain("Top teams right now");
+      expect(withBoard).toContain("Byte Me");
+      expect(withBoard).toContain("1,458");
+      expect(withBoard).toContain("pts");
+      expect(withBoard).toContain("Full standings");
+    } finally {
+      board.data = null;
+    }
+  });
+
+  it("hides itself when the board read fails", () => {
+    expect(html).not.toContain("right now");
+    expect(html).not.toContain("Full standings");
   });
 });
 

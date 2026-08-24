@@ -127,6 +127,9 @@ export default async function Home() {
   // Only once there could be something to show, and a failed read hides the
   // strip — the pitch must not 500 because Redis blinked.
   let topRows: { key: string; name: string; points: number }[] = [];
+  // Whether the rows are teams or individuals — the strip's kicker says
+  // WHICH, because three bare names mean nothing to a first-time visitor.
+  let topRowsAreTeams = false;
   if (phaseInfo && phaseInfo.phase !== "registration") {
     try {
       const data = await getLeaderboardSource()
@@ -134,10 +137,10 @@ export default async function Home() {
         .then(withHintPenalties)
         .then(withModuleContributions)
         .then(withTeamStandings);
-      topRows =
-        data.teams.length > 0
-          ? data.teams.slice(0, 3).map((t) => ({ key: t.slug, name: t.name, points: t.points }))
-          : data.entries.slice(0, 3).map((e) => ({ key: e.login, name: e.login, points: e.points }));
+      topRowsAreTeams = data.teams.length > 0;
+      topRows = topRowsAreTeams
+        ? data.teams.slice(0, 3).map((t) => ({ key: t.slug, name: t.name, points: t.points }))
+        : data.entries.slice(0, 3).map((e) => ({ key: e.login, name: e.login, points: e.points }));
     } catch {
       topRows = [];
     }
@@ -193,19 +196,30 @@ export default async function Home() {
             </Link>
           </div>
 
-          {/* Right now: the top of the board, in the hero. */}
+          {/* The top of the board, in the hero. The kicker names WHAT the
+              rows are (teams vs players) — "Right now" alone described the
+              freshness and not the content, so a first-time visitor saw
+              three names and three unlabeled numbers. Rank numerals take the
+              leaderboard's podium colors so the strip visually rhymes with
+              the page it links to. */}
           {topRows.length > 0 && (
             <div className="mt-6 w-full max-w-md">
               <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[#8f8f9b]">
-                Right now
+                {topRowsAreTeams ? "Top teams right now" : "Leading right now"}
               </p>
               <ol className="flex flex-col gap-1.5">
                 {topRows.map((row, i) => (
                   <li key={row.key} className="flex items-baseline gap-3 font-mono text-sm">
-                    <span className="w-4 flex-none text-right tabular-nums text-[#8f8f9b]">{i + 1}</span>
+                    <span
+                      className="w-4 flex-none text-right font-semibold tabular-nums"
+                      style={{ color: ["#d4a017", "#a1a1aa", "#14b8a6"][i] ?? "#8f8f9b" }}
+                    >
+                      {i + 1}
+                    </span>
                     <span className="min-w-0 flex-1 truncate text-white">{row.name}</span>
                     <span className="flex-none font-semibold tabular-nums text-white">
                       {row.points.toLocaleString("en-US")}
+                      <span className="ml-1 text-xs font-normal text-[#8f8f9b]">pts</span>
                     </span>
                   </li>
                 ))}
