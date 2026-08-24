@@ -353,16 +353,18 @@ third module isn't mistaken for a fully general n-module platform:
   contracts. Neither bundle carries its module's retry-gate settings: those
   are event policy, live-editable in `/admin`, and an import must never move
   them.
-- **`classic` still has no file attachments and no hints — plainly, not by
-  omission.** What's missing: a challenge's `description` is Markdown
-  text only, with nowhere to attach a downloadable file (an image, a pcap, a
-  binary) for a contestant to pull down; and the hint system
-  (`hintsEnabled`/`hintCost`/the two gating knobs) is wired to
-  `secure-development` targets alone — a classic challenge has no hint of
-  its own to buy, at any price. Both are scoped to later PRs in this same
-  series (attachments, then hints), not this one, and neither exists
-  anywhere in `classic-store.ts` or `admin-classic-controls.tsx` today for a
-  reader to find by trial and error.
+- **`classic` still has no file attachments — plainly, not by omission.**
+  A challenge's `description` is Markdown text only, with nowhere to attach
+  a downloadable file (an image, a pcap, a binary) for a contestant to pull
+  down. Attachments are scoped to a later PR in this same series (#186).
+- **`classic` HAS paid hints (issue #190).** An organizer attaches optional
+  hint text in the admin classic form (or a bundle's `hint` field); the text
+  is secret until purchased — its own hash, `ctf:classic:hints`, exactly the
+  flag hashes' storage rule — and contestants buy it on the challenge's own
+  page through the SAME reveal machinery, cost, gating knobs and penalty
+  fold as secure-development's hints. The anti-burner gate counts solves on
+  the whole classic board (categories are display groupings, not progress
+  domains).
 
 This section remains the contract a *new* module (forensics, api-security,
 cloud, …) must satisfy to plug into the same UI: it is now proven against

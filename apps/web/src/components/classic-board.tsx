@@ -21,6 +21,7 @@ export default function ClassicBoard({
   categories,
   challenges,
   authenticated,
+  hintIds = [],
 }: {
   /** The organizer's category display order — categories render in this
    *  order, and a category with no matching challenge is skipped entirely. */
@@ -31,6 +32,10 @@ export default function ClassicBoard({
   /** False for a signed-out visitor — the personal progress summary hides
    *  (there is nothing personal to summarize); tiles stay browsable. */
   authenticated: boolean;
+  /** Challenge ids with a paid hint on offer — PUBLIC availability (#190),
+   *  never text. Drives the tile's 💡 marker; the purchase lives on the
+   *  challenge's own page. */
+  hintIds?: string[];
 }) {
   // Totals over the RENDERED set — challenges whose category is in the
   // `categories` prop — so the summary can never disagree with the tiles
@@ -83,6 +88,11 @@ export default function ClassicBoard({
                       <span className="flex items-baseline justify-between">
                         <span className={`font-mono text-xs tabular-nums ${solved ? "text-[#22c55e]/80" : "text-muted"}`}>
                           {challenge.points} pts
+                          {hintIds.includes(challenge.id) && (
+                            <span title="A paid hint is available on this challenge's page." className="ml-1.5">
+                              💡
+                            </span>
+                          )}
                         </span>
                         {solved && (
                           <span aria-hidden className="font-mono text-xs text-[#22c55e]">
