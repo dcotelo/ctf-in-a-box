@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { logActivity } from "@/lib/activity-log";
 import { requireGatePassed } from "@/lib/gate-request";
 import { CLASSIC_ID_RE, submitFlag } from "@/lib/classic-store";
 import { hasTeam } from "@/lib/team-store";
@@ -76,6 +77,11 @@ export async function POST(request: Request) {
   const result = await submitFlag(login, challengeId, flag);
   if (result.ok) {
     if (!result.correct) return NextResponse.json({ correct: false });
+    // Activity log (issue #212): fresh solves only — an idempotent
+    // re-submission banked nothing and would double-count the event. The id,
+    // never the flag; logActivity is fail-open, so it cannot fail a solve
+    // that already landed.
+    if (!result.already) await logActivity("classic-solve", login, challengeId);
     // `already` (this login had banked this flag before — see SubmitResult)
     // rides along so the client can say so, instead of reading the
     // accompanying `points: 0` as an award of nothing.

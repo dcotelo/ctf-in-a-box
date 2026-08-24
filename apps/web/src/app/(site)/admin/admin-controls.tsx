@@ -35,6 +35,7 @@ import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAdminsTab from "./admin-admins-tab";
+import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
@@ -90,6 +91,10 @@ const SUPPORT_TAB = "support";
 // and last of the four because it is read-only — an organizer reaches for it
 // after the event more often than during it.
 const INSIGHTS_TAB = "insights";
+// The activity log (issue #212). Read-only like Insights but LIVE — an
+// organizer reaches for it mid-event ("did anyone sign in yet?", "who just
+// solved that?"), so it sits between Support and Insights.
+const ACTIVITY_TAB = "activity";
 
 async function postSettings(patch: Record<string, unknown>): Promise<{ settings?: AdminSettings; error?: string }> {
   const res = await fetch("/api/admin/settings", {
@@ -185,6 +190,7 @@ export default function AdminControls({
     { id: EVENT_TAB, label: "Event" },
     { id: ADMINS_TAB, label: "Admins" },
     { id: SUPPORT_TAB, label: "Support" },
+    { id: ACTIVITY_TAB, label: "Activity" },
     { id: INSIGHTS_TAB, label: "Insights" },
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
@@ -372,6 +378,8 @@ export default function AdminControls({
             <AdminAdminsTab viewerLogin={viewerLogin} />
           ) : tab.id === SUPPORT_TAB ? (
             <AdminSupportTab setConfirm={setConfirm} />
+          ) : tab.id === ACTIVITY_TAB ? (
+            <AdminActivityTab />
           ) : tab.id === INSIGHTS_TAB ? (
             <AdminInsightsTab />
           ) : (

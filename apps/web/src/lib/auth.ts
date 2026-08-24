@@ -1,5 +1,7 @@
 import { betterAuth } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
+import { recordCallbackLogin } from "@/lib/activity-log";
 
 /**
  * Stateless better-auth instance: no `database` key, so sessions live entirely
@@ -106,6 +108,16 @@ export const auth = betterAuth({
     "/get-access-token",
     "/refresh-token",
   ],
+  hooks: {
+    // Sign-in timestamps for the admin activity log (issue #212). The after
+    // hook runs on EVERY auth endpoint; recordCallbackLogin filters to the
+    // OAuth callback (the one path where a fresh session means "signed in")
+    // and extracts the login. It is fail-open all the way down — a Redis
+    // blip can lose the log line but can never fail the sign-in.
+    after: createAuthMiddleware(async (ctx) => {
+      await recordCallbackLogin(ctx.path, ctx.context.newSession);
+    }),
+  },
   socialProviders: {
     github: {
       clientId: process.env.GITHUB_CLIENT_ID!,

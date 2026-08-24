@@ -815,6 +815,7 @@ build-time vendoring step first). Until then, a new module `<name>` with target
 | `scorer/rubric.owasp/<t>/` | the vendored rubric, with its catalogue at `tests/challenges/catalogue.<t>.json` |
 | `setup/ctf-setup.sh` | add `<name>` to `KNOWN_MODULES` |
 | `apps/web/src/lib/metrics-store.ts` | add `<name>` to the per-login read list, the `earnedRows` fold and the `modules` split, or Insights reports nothing for it (§10.4) |
+| `apps/web/src/lib/activity-keys.ts` | add a `<name>-solve` type and call `logActivity` from the module's submit route on FRESH solves only (id in `detail`, never the answer), or the admin Activity tab never sees the module |
 | `event.yaml.example` + README target table | document the target |
 
 Parity guards catch the most common drift: `scorer/test/targets.test.js`

@@ -14,6 +14,7 @@
 //   src/lib/team-store.ts ............ team membership
 //   src/lib/quiz-store.ts ............ quiz answers and points
 //   src/lib/classic-store.ts ......... classic flag solves, attempts, points
+//   src/lib/activity-log.ts .......... organizer activity log (sign-ins, solves, team changes)
 //
 // Tone note: this page reads as reassuring because the underlying design
 // genuinely is careful — not the other way round. Don't add warmth here that
@@ -206,6 +207,13 @@ export default async function PrivacyPage() {
             <>
               <span className="text-white">Team membership</span>: the team&apos;s name, who
               created it, and the GitHub logins of its members.
+            </>,
+            <>
+              <span className="text-white">An activity log for the organizers</span>: when you
+              signed in, when you solved something (recorded by its id, never the answer you
+              submitted), and team changes, keyed to your GitHub login. Only organizers can see
+              it, only the most recent few thousand entries are kept — older ones are
+              discarded automatically — and it holds no IP address or device data.
             </>,
             ...(secureDev
               ? [
