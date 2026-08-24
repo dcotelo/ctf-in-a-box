@@ -63,7 +63,7 @@ const Card = ({ heading, children }: { heading: string; children: React.ReactNod
   </section>
 );
 
-const Bullets = ({ items, accent = "#2563eb" }: { items: React.ReactNode[]; accent?: string }) => (
+const Bullets = ({ items, accent = "#3987e5" }: { items: React.ReactNode[]; accent?: string }) => (
   <ul className="flex flex-col gap-3">
     {items.map((item, i) => (
       <li key={i} className="flex gap-3 text-sm leading-relaxed text-zinc-400">

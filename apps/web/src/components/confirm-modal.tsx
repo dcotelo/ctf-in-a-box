@@ -47,7 +47,7 @@ export default function ConfirmModal({
 
   const typeOk = !requireType || typed === requireType;
   const confirmDisabled = pending || !typeOk;
-  const accent = danger ? "bg-[#f85149] hover:bg-[#c53030]" : "bg-[#e6edf3] hover:bg-[#1d4ed8]";
+  const accent = danger ? "bg-[#f85149] hover:bg-[#f85149]" : "bg-[#e6edf3] hover:bg-white";
 
   return (
     <div

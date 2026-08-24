@@ -395,7 +395,7 @@ export function ChallengeCard({
               type="button"
               onClick={onSubmit}
               disabled={inputLocked || value.trim().length === 0}
-              className="flex-none rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+              className="flex-none rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
             >
               {pending ? "Submitting…" : "Submit flag"}
             </button>

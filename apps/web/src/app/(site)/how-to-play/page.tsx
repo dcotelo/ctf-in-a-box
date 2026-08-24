@@ -46,7 +46,7 @@ const PLATFORM_LEDE =
 
 function CodeBlock({ code }: { code: string }) {
   return (
-    <pre className="mt-3 overflow-x-auto rounded-md border border-white/10 bg-[#0e0e1a] p-3 font-mono text-xs leading-relaxed text-zinc-300">
+    <pre className="mt-3 overflow-x-auto rounded-md border border-white/10 bg-[#0e1220] p-3 font-mono text-xs leading-relaxed text-zinc-300">
       {code}
     </pre>
   );

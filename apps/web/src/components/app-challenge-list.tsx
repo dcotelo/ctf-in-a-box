@@ -13,7 +13,7 @@ import OwaspBadge from "@/components/owasp-badge";
 const STATUS_STYLE: Record<ChallengeResult["status"], { dot: string; label: string }> = {
   patched: { dot: "#3fb950", label: "Patched" },
   open: { dot: "#f85149", label: "Open" },
-  missing: { dot: "#71717a", label: "Not attempted" },
+  missing: { dot: "#9ba7b4", label: "Not attempted" },
 };
 
 export default function AppChallengeList({ challenges }: { challenges: ChallengeResult[] }) {

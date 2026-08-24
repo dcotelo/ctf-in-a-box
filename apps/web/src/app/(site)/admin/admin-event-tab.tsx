@@ -180,7 +180,7 @@ export default function AdminEventTab({
                     onConfirm: () => apply({ enabledModules: ids }),
                   });
                 }}
-                className="h-5 w-5 flex-none accent-[#2563eb] disabled:opacity-40"
+                className="h-5 w-5 flex-none accent-[#e6edf3] disabled:opacity-40"
               />
             </label>
           );
@@ -207,7 +207,7 @@ export default function AdminEventTab({
               onConfirm: () => apply({ paused: next }),
             });
           }}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
+          className="h-5 w-5 flex-none accent-[#e6edf3]"
         />
       </label>
 
@@ -231,7 +231,7 @@ export default function AdminEventTab({
               onConfirm: () => apply({ teamRegistrationOpen: next }),
             });
           }}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
+          className="h-5 w-5 flex-none accent-[#e6edf3]"
         />
       </label>
 
@@ -372,7 +372,7 @@ export default function AdminEventTab({
         >
           Reset event data…
         </button>
-        {resetInfo && <p className="text-xs text-[#7dd3a0]">{resetInfo}</p>}
+        {resetInfo && <p className="text-xs text-[#3fb950]">{resetInfo}</p>}
       </div>
     </section>
   );

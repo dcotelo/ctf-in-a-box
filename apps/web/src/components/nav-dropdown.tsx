@@ -147,7 +147,7 @@ export default function NavDropdown({
         <ul
           role="menu"
           aria-label={label}
-          className="absolute left-0 top-full z-10 mt-1 min-w-[10rem] rounded-md border border-white/[0.06] bg-[#1a1a2a] py-1 shadow-lg"
+          className="absolute left-0 top-full z-10 mt-1 min-w-[10rem] rounded-md border border-white/[0.06] bg-[#131826] py-1 shadow-lg"
         >
           {items.map((item, index) => (
             <li key={item.href} role="none">

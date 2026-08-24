@@ -64,7 +64,7 @@ export default function AdminSecureDevTab({
           checked={settings.hintsEnabled ?? HINT_DEFAULT_ENABLED}
           disabled={pending}
           onChange={(e) => void apply({ hintsEnabled: e.target.checked })}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
+          className="h-5 w-5 flex-none accent-[#e6edf3]"
         />
       </label>
 

@@ -1016,7 +1016,7 @@ export default function AdminClassicControls({
               type="button"
               disabled={importPending || !canImport}
               onClick={() => void submitImport()}
-              className="self-start rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
+              className="self-start rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               {importPending ? "Importing…" : "Import bundle"}
             </button>
@@ -1228,7 +1228,7 @@ export function ChallengeForm({
           checked={draft.caseSensitive}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, caseSensitive: e.target.checked })}
-          className="mt-0.5 h-4 w-4 flex-none accent-[#2563eb]"
+          className="mt-0.5 h-4 w-4 flex-none accent-[#e6edf3]"
         />
         <span className="text-xs text-muted">
           <span className="text-white">Case-sensitive flag</span>
@@ -1278,7 +1278,7 @@ export function ChallengeForm({
           type="button"
           onClick={onSubmit}
           disabled={pending || !valid}
-          className="rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pending ? "Saving…" : isNew ? "Add challenge" : "Save changes"}
         </button>

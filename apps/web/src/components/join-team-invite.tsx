@@ -95,7 +95,7 @@ export default function JoinTeamInvite({
         {pending ? "Joining…" : `Join ${teamName}`}
       </button>
       {error && (
-        <p role="alert" className="text-sm text-[#f87171]">
+        <p role="alert" className="text-sm text-[#f85149]">
           {error}
         </p>
       )}

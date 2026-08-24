@@ -75,7 +75,7 @@ export const apps: AppMeta[] = [
     id: "webgoat",
     name: "WebGoat",
     blurb: "OWASP's guided insecure Java app with lesson-driven exploitation and fixes.",
-    accent: "#2563eb",
+    accent: "#3987e5",
     icon: "M4 8c2-3 6-4 8-4s6 1 8 4l-2 10a6 6 0 0 1-12 0L4 8Z",
     repo: repoUrl("webgoat"),
     challengeCount: 69,

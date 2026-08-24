@@ -398,7 +398,7 @@ export function QuestionCard({
                 checked={selected.includes(choice.id)}
                 disabled={choicesDisabled}
                 onChange={() => onToggle(choice.id)}
-                className="h-4 w-4 flex-none accent-[#2563eb]"
+                className="h-4 w-4 flex-none accent-[#e6edf3]"
               />
               {choice.label}
             </label>
@@ -412,13 +412,11 @@ export function QuestionCard({
             type="button"
             onClick={onSubmit}
             disabled={submitDisabled({ onCooldown: false, cooledDown, pending, selectedCount: selected.length })}
-            className="mt-3 rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+            className="mt-3 rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
           >
             {pending ? "Submitting…" : "Submit answer"}
           </button>
-        ) : (
-          <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
-        ))}
+        ) : null)}
 
       {/* The cooldown's own submit control. It used to be hardcoded
           `disabled`, while `choicesDisabled` released the radios the moment
@@ -436,13 +434,11 @@ export function QuestionCard({
             type="button"
             onClick={onSubmit}
             disabled={submitDisabled({ onCooldown: true, cooledDown, pending, selectedCount: selected.length })}
-            className="mt-3 rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+            className="mt-3 rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
           >
             {pending ? "Submitting…" : "Submit answer"}
           </button>
-        ) : (
-          <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
-        ))}
+        ) : null)}
 
     </div>
   );

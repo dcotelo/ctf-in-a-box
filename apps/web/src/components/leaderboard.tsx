@@ -48,7 +48,7 @@ function RankChip({ rank }: { rank: number }) {
     <span
       className="flex h-10 w-10 flex-none items-center justify-center rounded-md font-display text-lg font-black tabular-nums"
       style={{
-        color: podium ?? "#71717a",
+        color: podium ?? "#9ba7b4",
         borderWidth: 1,
         borderStyle: "solid",
         borderColor: podium ? `${podium}66` : "rgba(255,255,255,0.08)",
@@ -166,7 +166,7 @@ export function EntryRow({
   const solvedTotal = completable && completable > 0 ? Math.max(completable, solved) : null;
   return (
     <li
-      className={`ds-card group rounded-lg border bg-[#131826] transition-all hover:border-[#e6edf3]/40 hover:bg-[#1a1a30] ${
+      className={`ds-card group rounded-lg border bg-[#131826] transition-all hover:border-[#e6edf3]/40 hover:bg-[#161c2e] ${
         isOwn ? "border-[#e6edf3]/60" : "border-white/[0.06]"
       }`}
     >
@@ -286,7 +286,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
   // module guides draw ("answered" a question, "solved" a flag/challenge).
   const completedNoun = (id: string) => (id === "quiz" ? "answered" : "solved");
   return (
-    <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#131826] transition-all hover:border-[#e6edf3]/40 hover:bg-[#1a1a30]">
+    <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#131826] transition-all hover:border-[#e6edf3]/40 hover:bg-[#161c2e]">
       <button
         type="button"
         onClick={onToggle}

@@ -98,7 +98,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             placeholder="github-login"
             autoComplete="off"
             spellCheck={false}
-            className="min-w-48 rounded-md border border-white/10 bg-[#0f0f1e] px-3 py-1.5 font-mono text-sm text-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+            className="min-w-48 rounded-md border border-white/10 bg-[#0e1220] px-3 py-1.5 font-mono text-sm text-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
           />
           <button
             type="submit"
@@ -110,7 +110,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
         </form>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-[#f87171]">
+          <p role="alert" className="mt-3 text-sm text-[#f85149]">
             {error}
           </p>
         )}
@@ -146,7 +146,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
                   }
                   void mutate("DELETE", row.login);
                 }}
-                className="rounded-md border border-white/10 px-2 py-1 font-mono text-xs text-zinc-400 transition-colors hover:border-[#f87171]/50 hover:text-[#f87171] disabled:opacity-40"
+                className="rounded-md border border-white/10 px-2 py-1 font-mono text-xs text-zinc-400 transition-colors hover:border-[#f85149]/50 hover:text-[#f85149] disabled:opacity-40"
               >
                 Remove
               </button>
