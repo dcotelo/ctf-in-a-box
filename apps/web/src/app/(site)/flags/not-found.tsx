@@ -16,11 +16,14 @@
 // body deliberately renders neither.
 
 import NotFoundBody, { getNotFoundRoutes } from "@/components/not-found-body";
-import { moduleDefById } from "@/lib/modules";
+import { getResolvedModules } from "@/lib/resolved-modules";
 
 export default async function FlagsNotFound() {
   const routes = await getNotFoundRoutes();
-  const name = moduleDefById("classic")?.displayName ?? "This module";
+  // The RESOLVED title — an organizer can rename the module in /admin, and
+  // the recovery cards below (getNotFoundRoutes) already use that name;
+  // deriving this heading from the registry default let the two disagree.
+  const name = (await getResolvedModules()).find((m) => m.id === "classic")?.title ?? "This module";
   return (
     <NotFoundBody
       routes={routes}

@@ -288,7 +288,18 @@ export function ChallengeCard({
 
       {challenge.status !== "solved" &&
         (authenticated ? (
-          <div className="mt-3 flex gap-2">
+          // A real <form>, so Enter in the input submits — a contestant who
+          // types a flag and hits Enter should not be met with silence
+          // (CodeRabbit on #209). preventDefault keeps it a fetch, not a
+          // navigation; the disabled guards below still apply because the
+          // submit handler is the same one the button calls.
+          <form
+            className="mt-3 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSubmit();
+            }}
+          >
             <input
               type="text"
               value={value}
@@ -298,14 +309,13 @@ export function ChallengeCard({
               className="flex-1 rounded-md border border-white/10 bg-[#12121e] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             />
             <button
-              type="button"
-              onClick={onSubmit}
+              type="submit"
               disabled={inputLocked || value.trim().length === 0}
               className="flex-none rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
               {pending ? "Submitting…" : "Submit flag"}
             </button>
-          </div>
+          </form>
         ) : (
           <p className="mt-3 text-xs text-muted">Sign in with GitHub to submit a flag.</p>
         ))}

@@ -7,11 +7,14 @@
 
 import NotFoundBody, { getNotFoundRoutes } from "@/components/not-found-body";
 import { isModuleLive } from "@/lib/enabled-modules";
-import { moduleDefById } from "@/lib/modules";
+import { getResolvedModules } from "@/lib/resolved-modules";
 
 export default async function ChallengeNotFound() {
   const routes = await getNotFoundRoutes();
-  const name = moduleDefById("classic")?.displayName ?? "This module";
+  // The RESOLVED title — an organizer can rename the module in /admin, and
+  // the recovery cards below (getNotFoundRoutes) already use that name;
+  // deriving this heading from the registry default let the two disagree.
+  const name = (await getResolvedModules()).find((m) => m.id === "classic")?.title ?? "This module";
 
   if (!(await isModuleLive("classic"))) {
     // Same story the board's boundary tells, for the same reason.

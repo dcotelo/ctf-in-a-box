@@ -101,8 +101,9 @@ export default async function ClassicChallengePage({ params }: { params: Promise
         </h1>
       </div>
 
-      {!login && <p className="text-sm text-zinc-400">Sign in with GitHub to submit flags.</p>}
-
+      {/* No page-level sign-in prompt: the card renders its own next to the
+          form — one statement, where the action is (the same dedupe the
+          board pages already follow). */}
       {/* The card repeats title/points/solves in its own header — kept: it is
           the same component the tests pin (#126 ordering, cooldown copy), and
           on a long description the recap beside the form is what keeps the
