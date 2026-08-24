@@ -310,9 +310,10 @@ describe("per-challenge catalog", () => {
     );
     expect(html).toContain("Quiz");
     expect(html).toMatch(/200 pts/);
-    // Module vocabulary survives: questions are answered, not solved.
+    // Module vocabulary survives: questions are answered, challenges are
+    // patched — each module's own noun, never a shared "solved".
     expect(html).toMatch(/3 answered/);
-    expect(html).toMatch(/6 solved/);
+    expect(html).toMatch(/6 patched/);
   });
 
   it("renders no module blocks on a single-module event — the total needs no split", () => {
