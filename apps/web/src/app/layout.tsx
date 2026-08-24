@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Poppins, Barlow, Geist_Mono } from "next/font/google";
+import { Archivo, Public_Sans, Geist_Mono } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
 import { event } from "@/lib/site";
@@ -7,16 +7,18 @@ import { enabledModules } from "@/lib/modules";
 import { getNavGroups } from "@/lib/resolved-modules";
 import "./globals.css";
 
-const poppins = Poppins({
-  variable: "--font-poppins",
+// Display: a grotesque with shoulders — signage, not the default geometric.
+const archivo = Archivo({
+  variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
+  weight: ["500", "700", "900"],
 });
 
-const barlow = Barlow({
-  variable: "--font-barlow",
+// Body: built for dense civic/technical copy; survives grading text at 15px.
+const publicSans = Public_Sans({
+  variable: "--font-body",
   subsets: ["latin"],
-  weight: ["300", "400", "500"],
+  weight: ["400", "600"],
 });
 
 const geistMono = Geist_Mono({
@@ -51,7 +53,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${poppins.variable} ${barlow.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${archivo.variable} ${publicSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <SiteHeader navLinks={navLinks} />

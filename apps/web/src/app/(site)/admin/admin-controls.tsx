@@ -315,7 +315,7 @@ export default function AdminControls({
   };
 
   return (
-    <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+    <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
 
       <div role="tablist" aria-label="Admin controls" className="flex flex-wrap gap-1 border-b border-white/[0.06]">
@@ -335,7 +335,7 @@ export default function AdminControls({
             onKeyDown={(e) => onTabKeyDown(e, index)}
             className={
               active === tab.id
-                ? "-mb-px rounded-t-md border-b-2 border-[#2563eb] px-3 py-2 text-sm font-medium text-white"
+                ? "-mb-px rounded-t-md border-b-2 border-[#e6edf3]/70 px-3 py-2 text-sm font-medium text-white"
                 : "-mb-px rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200"
             }
           >
@@ -427,7 +427,7 @@ export default function AdminControls({
           last changed by {settings.updatedBy} <ChangedAt iso={settings.updatedAt} />
         </p>
       )}
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-xs text-[#f85149]">{error}</p>}
 
       {confirm && (
         <ConfirmModal

@@ -260,7 +260,7 @@ export function ChallengeCard({
   const result = resultLine(challenge, feedback);
 
   return (
-    <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+    <div className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-white">{challenge.title}</p>
@@ -302,9 +302,9 @@ export function ChallengeCard({
               role="status"
               className={`text-sm ${
                 result.kind === "success"
-                  ? "text-[#22c55e]"
+                  ? "text-[#3fb950]"
                   : result.kind === "error"
-                    ? "text-[#e53e3e]"
+                    ? "text-[#f85149]"
                     : "text-zinc-400"
               }`}
             >
@@ -312,7 +312,7 @@ export function ChallengeCard({
             </p>
           )}
           {challenge.status === "cooldown" && (
-            <p className={`text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
+            <p className={`text-sm ${cooledDown ? "text-[#3fb950]" : "text-[#d29922]"}`}>
               {!cooldown.mounted
                 ? // Server render and the client's first paint. No clock is read
                   // here: a live Date.now() during render disagrees with the
@@ -335,13 +335,13 @@ export function ChallengeCard({
               disabled={inputLocked}
               onChange={(e) => onChange(e.target.value)}
               placeholder="CTF{...}"
-              className="flex-1 rounded-md border border-white/10 bg-[#12121e] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+              className="flex-1 rounded-md border border-white/10 bg-[#0e1220] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
             />
             <button
               type="button"
               onClick={onSubmit}
               disabled={inputLocked || value.trim().length === 0}
-              className="flex-none rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+              className="flex-none rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
             >
               {pending ? "Submitting…" : "Submit flag"}
             </button>

@@ -57,7 +57,7 @@ function Inline({ nodes }: { nodes: MdInline[] }) {
 function Block({ block }: { block: MdBlock }) {
   if (block.kind === "codeblock") {
     return (
-      <pre className="overflow-x-auto rounded-md border border-white/10 bg-[#12121e] p-3 font-mono text-xs text-zinc-200">
+      <pre className="overflow-x-auto rounded-md border border-white/10 bg-[#0e1220] p-3 font-mono text-xs text-zinc-200">
         <code>{block.text}</code>
       </pre>
     );

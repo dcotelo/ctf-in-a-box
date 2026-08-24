@@ -19,13 +19,13 @@ export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
     pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#12121e]/80 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#0e1220]/80 backdrop-blur">
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link
           href="/"
-          className="font-mono text-sm font-semibold tracking-tight text-white transition-colors hover:text-[#2563eb]"
+          className="font-mono text-sm font-semibold tracking-tight text-white transition-colors hover:text-[#e6edf3]"
         >
-          <span className="text-[#22c55e]">$</span> owasp-ctf
+          <span className="text-[#3fb950]">$</span> owasp-ctf
         </Link>
 
         {/* Desktop nav */}
@@ -40,7 +40,7 @@ export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
                 <Link
                   href={entry.href}
                   aria-current={isActive(entry.href) ? "page" : undefined}
-                  className={`rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+                  className={`rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
                     isActive(entry.href)
                       ? "bg-white/[0.06] font-medium text-white"
                       : "text-zinc-400 hover:text-white"
@@ -59,7 +59,7 @@ export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
                 href={event.discordUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-md px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+                className="rounded-md px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
               >
                 Discord
               </a>
@@ -76,7 +76,7 @@ export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             aria-label="Toggle navigation menu"
-            className="rounded-md p-2 text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] md:hidden"
+            className="rounded-md p-2 text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] md:hidden"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               {open ? (

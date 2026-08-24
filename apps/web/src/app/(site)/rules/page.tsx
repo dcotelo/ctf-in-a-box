@@ -132,13 +132,13 @@ export default async function RulesPage() {
         {sections.map((section) => (
           <section
             key={section.heading}
-            className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
+            className="rounded-lg border border-white/[0.06] bg-[#131826] p-6"
           >
             <h2 className="mb-4 text-lg font-semibold text-white">{section.heading}</h2>
             <ul className="flex flex-col gap-3">
               {section.rules.map((rule, i) => (
                 <li key={i} className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
+                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e6edf3]" />
                   <span>{rule}</span>
                 </li>
               ))}

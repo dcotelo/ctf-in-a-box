@@ -41,10 +41,10 @@ const PLAIN = `${BASE} border-white/10 text-muted`;
 // globals.css. The chip renders ~23x15, so the link needs it; the inert span
 // is not a pointer target and does not.
 const LINK =
-  `${BASE} ds-tap-24 border-[#2563eb]/40 text-[var(--accent-blue-link)] underline ` +
+  `${BASE} ds-tap-24 border-[#e6edf3]/40 text-[var(--accent-blue-link)] underline ` +
   "decoration-[color-mix(in_srgb,var(--accent-blue-link)_40%,transparent)] underline-offset-2 " +
-  "transition-colors hover:border-[#2563eb]/70 hover:decoration-[var(--accent-blue-link)] " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]";
+  "transition-colors hover:border-[#e6edf3]/70 hover:decoration-[var(--accent-blue-link)] " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]";
 
 export default function OwaspBadge({ code, className = "" }: { code: string; className?: string }) {
   const category = owaspCategory(code);

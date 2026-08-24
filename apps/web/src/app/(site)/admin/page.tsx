@@ -46,7 +46,7 @@ export default async function AdminPage({
     return (
       <div className="flex flex-col gap-8">
         <PageHeader eyebrow="Admin" title="Forbidden" description="Organizer access only." />
-        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
+        <div className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] px-5 py-10 text-center">
           <p className="text-sm text-zinc-400">
             You need to be an organizer to view this page.
           </p>
@@ -77,7 +77,7 @@ export default async function AdminPage({
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Organizer" title="Admin" description="Event controls and sync status." />
 
-      <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+      <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Status</h2>
         {sync ? (
           <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
@@ -119,7 +119,7 @@ export default async function AdminPage({
             {sync.lastError && (
               <div className="col-span-2 sm:col-span-5">
                 <dt className="text-xs uppercase tracking-wide text-muted">Last error</dt>
-                <dd className="font-mono text-xs text-[#e53e3e]">{sync.lastError}</dd>
+                <dd className="font-mono text-xs text-[#f85149]">{sync.lastError}</dd>
               </div>
             )}
           </dl>
@@ -137,7 +137,7 @@ export default async function AdminPage({
           viewerLogin={gate.login}
         />
       ) : (
-        <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+        <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
           <p className="text-sm text-zinc-400">Settings unavailable — Redis unreachable.</p>
         </div>

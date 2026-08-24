@@ -90,7 +90,7 @@ export default async function Home() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="relative flex flex-col items-center justify-center overflow-hidden bg-[#1a1a2e] py-20">
+      <div className="relative flex flex-col items-center justify-center overflow-hidden bg-[#0b0e14] py-20">
         {/* Subtle scanline overlay */}
         <div
           className="pointer-events-none absolute inset-0 z-10 opacity-[0.03]"
@@ -121,27 +121,27 @@ export default async function Home() {
           {/* Security-themed icon row */}
           <div className="flex items-center gap-4">
             {/* Clock / Time - red */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#e53e3e] text-[#e53e3e]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#f85149] text-[#f85149]">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 6v6l4 2" />
               </svg>
             </div>
             {/* Shield - yellow */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#d4a017] text-[#d4a017]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#d29922] text-[#d29922]">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               </svg>
             </div>
             {/* Lock - blue */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#2563eb] text-[#2563eb]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#e6edf3]/70 text-[#e6edf3]">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
             </div>
             {/* People - teal */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#14b8a6] text-[#14b8a6]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#9ba7b4] text-[#9ba7b4]">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
@@ -160,7 +160,7 @@ export default async function Home() {
               {event.name}
             </h1>
             {taglines && (
-              <p className="text-lg font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+              <p className="text-lg font-medium uppercase tracking-[0.25em] text-[#9ba7b4]">
                 {taglines}
               </p>
             )}
@@ -180,7 +180,7 @@ export default async function Home() {
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/how-to-play"
-              className="rounded-md bg-[#2563eb] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
+              className="rounded-md bg-[#e6edf3] px-5 py-2.5 text-sm font-medium text-[#0b0e14] transition-colors hover:bg-white"
             >
               How to play
             </Link>
@@ -237,7 +237,7 @@ export default async function Home() {
         </main>
 
         {/* Bottom accent */}
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#2563eb]/20 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#e6edf3]/20 to-transparent" />
       </div>
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-16 px-4 py-16 sm:px-6">
@@ -248,7 +248,7 @@ export default async function Home() {
                 module's organizer-resolved title so they stay tellable apart. */}
             <section className="flex flex-col gap-6">
               <div className="flex flex-col gap-3">
-                <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+                <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#9ba7b4]">
                   {sections.length > 1 ? section.title : "What to expect"}
                 </p>
                 <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
@@ -257,7 +257,7 @@ export default async function Home() {
                 <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
                   {section.expect.lede}
                 </p>
-                <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
+                <div className="mt-1 h-px w-full bg-gradient-to-r from-[#e6edf3]/40 via-white/[0.06] to-transparent" />
               </div>
 
               {/* Only a module with authored steps gets the numbered grid; a
@@ -270,9 +270,9 @@ export default async function Home() {
                   {section.steps.map((step, i) => (
                     <li
                       key={step.title}
-                      className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
+                      className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-5"
                     >
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e6edf3]/40 bg-white/[0.06] font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
                         {i + 1}
                       </span>
                       <h3 className="font-semibold text-white">{step.title}</h3>
@@ -291,7 +291,7 @@ export default async function Home() {
             {section.extra && (
               <section className="flex flex-col gap-6">
                 <div className="flex flex-col gap-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#9ba7b4]">
                     {section.extra.kicker}
                   </p>
                   <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
@@ -300,11 +300,11 @@ export default async function Home() {
                   <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
                     {section.extra.body}
                   </p>
-                  <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
+                  <div className="mt-1 h-px w-full bg-gradient-to-r from-[#e6edf3]/40 via-white/[0.06] to-transparent" />
                 </div>
 
                 {section.id === "secure-development" && (
-                  <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+                  <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-6">
                     <h3 className="text-lg font-semibold text-white">
                       Start with the OWASP Secure Agent Playbook
                     </h3>
@@ -321,7 +321,7 @@ export default async function Home() {
                         href={event.secureAgentPlaybookUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="rounded-md bg-[#2563eb] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
+                        className="rounded-md bg-[#e6edf3] px-5 py-2.5 text-sm font-medium text-[#0b0e14] transition-colors hover:bg-white"
                       >
                         Get the playbook
                       </a>
@@ -344,7 +344,7 @@ export default async function Home() {
         {secureDevelopment && (
           <section className="flex flex-col gap-6">
             <div className="flex flex-col gap-3">
-              <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+              <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#9ba7b4]">
                 {enabledApps.length} real {enabledApps.length === 1 ? "target" : "targets"}
               </p>
               <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
@@ -356,7 +356,7 @@ export default async function Home() {
                 Each app is a well-known, deliberately vulnerable OWASP project. Points scale with
                 difficulty, and the deeper flaws in {topAppsList} pay out the most.
               </p>
-              <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
+              <div className="mt-1 h-px w-full bg-gradient-to-r from-[#e6edf3]/40 via-white/[0.06] to-transparent" />
             </div>
 
             <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -364,7 +364,7 @@ export default async function Home() {
                 <li key={app.id}>
                   <Link
                     href="/challenges"
-                    className="ds-card group flex h-full flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5 transition-all hover:-translate-y-0.5"
+                    className="ds-card group flex h-full flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-5 transition-all hover:-translate-y-0.5"
                     style={{ ["--accent" as string]: app.accent }}
                   >
                     <div className="flex items-center justify-between">
@@ -390,7 +390,7 @@ export default async function Home() {
         )}
 
         {/* Tracking */}
-        <section className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6 sm:flex-row sm:items-center sm:justify-between">
+        <section className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="max-w-xl">
             <h3 className="text-lg font-semibold text-white">Track your progress live</h3>
             {/* Deliberately module-neutral. This used to promise a "patched and
@@ -406,7 +406,7 @@ export default async function Home() {
           <div className="flex flex-none flex-wrap gap-3">
             <Link
               href="/leaderboard"
-              className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
+              className="rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-medium text-[#0b0e14] transition-colors hover:bg-white"
             >
               View leaderboard
             </Link>

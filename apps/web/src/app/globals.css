@@ -1,82 +1,97 @@
 @import "tailwindcss";
 
+/* The review-queue theme (apps/web/DESIGN.md). One stance carries the whole
+   palette: COLOR MEANS SCORING. Interactive chrome is monochrome paper-on-ink;
+   the only saturated hues anywhere are the diff pair and the pending amber,
+   so green always means "you scored" and red always means "this failed".
+   Committed single-dark-theme design: the app lives between a terminal and a
+   GitHub tab; ground and every color are painted explicitly. */
+
 :root {
-  --background: #1a1a2e;
-  --foreground: #d4d4d8;
-  --accent-blue: #2563eb;
-  /* Accent blue is a chrome/brand colour: at 3.3:1 on --background it is fine
-     for borders, bars, and large or bold accents, but it fails WCAG AA (4.5:1)
-     for body-size text. Inline text links use this lighter step instead —
-     6.7:1 on --background, same hue family. */
-  --accent-blue-link: #60a5fa;
-  /* Muted label text. zinc-500 (#71717b) is only 3.5:1 on --background and
-     3.3:1 inside the bg-white/[0.03] input fill — under the WCAG AA 4.5:1
-     floor, and no muted label here is large enough for the 3:1 exemption.
-     This step is 4.9:1 on the worst surface and 5.3:1 on --background while
-     staying a clear tier below zinc-400 (6.5:1), so "low-contrast chrome,
-     high-contrast content" survives. Use it for every muted *label*; zinc-600
-     stays for separators and disabled chrome only. */
-  --text-muted: #8f8f9b;
-  --accent-green: #22c55e;
-  --accent-red: #e53e3e;
-  --accent-yellow: #d4a017;
-  --accent-teal: #14b8a6;
-  --sidebar-bg: #12121e;
-  --card-bg: #16162a;
+  --ink: #0b0e14; /* page ground — blue-black, neutral */
+  --paper: #e6edf3; /* primary text + primary buttons: 13.9:1 on ink */
+  --dim: #9ba7b4; /* secondary text/labels: 7.4:1 on ink — muted, still AA+ */
+  --diff-add: #3fb950; /* scored / solved / passing — never decorative */
+  --diff-del: #f85149; /* failed / destructive — never decorative */
+  --signal: #d29922; /* pending, attention, focus, the HEAD marker */
+
+  /* Derived surfaces: one ground, white-alpha steps — not independent hues. */
+  --panel: #131826; /* raised card (ink + ~4% paper) */
+  --well: #0e1220; /* recessed fill (inputs, code) */
+  --line: rgba(230, 237, 243, 0.09); /* hairline borders */
+  --line-strong: rgba(230, 237, 243, 0.18);
+
+  /* Legacy aliases — components still reference these names; they now point
+     into the new palette so nothing renders the retired navy/blue. The hex
+     sweep retires the literals; these keep any straggler coherent. */
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --text-muted: var(--dim);
+  --accent-blue: var(--paper);
+  --accent-blue-link: var(--paper);
+  --accent-green: var(--diff-add);
+  --accent-red: var(--diff-del);
+  --accent-yellow: var(--signal);
+  --accent-teal: var(--dim);
+  --sidebar-bg: var(--well);
+  --card-bg: var(--panel);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--text-muted);
-  --font-sans: var(--font-barlow), sans-serif;
+  --color-background: var(--ink);
+  --color-foreground: var(--paper);
+  --color-muted: var(--dim);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-dim: var(--dim);
+  --color-add: var(--diff-add);
+  --color-del: var(--diff-del);
+  --color-signal: var(--signal);
+  --color-panel: var(--panel);
+  --color-well: var(--well);
+  --font-sans: var(--font-body), sans-serif;
+  --font-display: var(--font-display), sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-barlow), sans-serif;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-body), sans-serif;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-poppins), sans-serif;
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.01em;
 }
 
-@keyframes pulse-glow {
-  0%, 100% {
-    text-shadow: 0 0 20px rgba(37, 99, 235, 0.3), 0 0 40px rgba(37, 99, 235, 0.1);
-  }
-  50% {
-    text-shadow: 0 0 30px rgba(37, 99, 235, 0.5), 0 0 60px rgba(37, 99, 235, 0.2);
-  }
+/* Everything numeric lines up — ranks, points, counts, codes. */
+.tabular, code, kbd, pre {
+  font-variant-numeric: tabular-nums;
 }
 
-@keyframes scanline {
-  0% {
-    transform: translateY(-100%);
-  }
-  100% {
-    transform: translateY(100vh);
-  }
+/* The check atom's landing sweep: pending amber flips to scored green once.
+   The ONE celebratory animation in the app (DESIGN.md: motion). */
+@keyframes check-land {
+  0% { transform: scale(0.6); opacity: 0.4; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+/* The phase line's HEAD marker breathes — the only looping motion. */
+@keyframes head-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(210, 153, 34, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(210, 153, 34, 0); }
 }
 
 /* Shared hover treatment for interactive cards (leaderboard rows, challenge
    tiles, FAQ items). The glow picks up each card's --accent when one is set,
    falling back to the brand blue. */
+.ds-card {
+  transition: border-color 120ms ease;
+}
 .ds-card:hover {
-  box-shadow:
-    0 8px 30px -14px color-mix(in srgb, var(--accent, #2563eb) 45%, transparent);
+  border-color: var(--line-strong);
 }
 
 /* Inline prose link. Colour alone can't carry the link affordance:
@@ -85,13 +100,13 @@ h1, h2, h3, h4, h5, h6 {
    hover just strengthens it. Chrome/nav links are a different case — they sit
    alone rather than inside a sentence — and keep their bare colour treatment. */
 .ds-link {
-  color: var(--accent-blue-link);
+  color: var(--paper);
   text-decoration-line: underline;
   text-underline-offset: 2px;
-  text-decoration-color: color-mix(in srgb, var(--accent-blue-link) 40%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--paper) 45%, transparent);
 }
 .ds-link:hover {
-  text-decoration-color: var(--accent-blue-link);
+  text-decoration-color: var(--paper);
 }
 
 /* WCAG 2.5.8 (24x24 minimum pointer target). The OWASP and hint chips in the

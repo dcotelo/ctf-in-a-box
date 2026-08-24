@@ -112,7 +112,7 @@ export default async function TermsPage() {
         description="What taking part in this competition commits you to. Short, and specific to the CTF. The OWASP Foundation's own policies govern everything beyond it."
       />
 
-      <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+      <section className="rounded-lg border border-white/[0.06] bg-[#131826] p-6">
         <h2 className="mb-2 text-lg font-semibold text-white">What governs what</h2>
         <p className="text-sm leading-relaxed text-zinc-400">
           This page covers participation in the CTF. Beyond it, the OWASP Foundation&apos;s{" "}
@@ -141,13 +141,13 @@ export default async function TermsPage() {
         {sections.map((section) => (
           <section
             key={section.heading}
-            className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
+            className="rounded-lg border border-white/[0.06] bg-[#131826] p-6"
           >
             <h2 className="mb-4 text-lg font-semibold text-white">{section.heading}</h2>
             <ul className="flex flex-col gap-3">
               {section.items.map((item, i) => (
                 <li key={i} className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
+                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e6edf3]" />
                   <span>{item}</span>
                 </li>
               ))}

@@ -78,7 +78,7 @@ export default function AdminSecureDevTab({
           disabled={pending}
           onChange={(e) => setHintCostInput(e.target.value)}
           onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -98,7 +98,7 @@ export default function AdminSecureDevTab({
           disabled={pending}
           onChange={(e) => setMinSolvesInput(e.target.value)}
           onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -118,7 +118,7 @@ export default function AdminSecureDevTab({
           disabled={pending}
           onChange={(e) => setUnlockAfterInput(e.target.value)}
           onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -141,7 +141,7 @@ export default function AdminSecureDevTab({
           disabled={pending}
           onChange={(e) => setCooldownInput(e.target.value)}
           onBlur={() => commitNumber("scoreCooldownMin", cooldownInput, setCooldownInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
     </>

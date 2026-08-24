@@ -46,11 +46,11 @@ export default function CodeOfConductPage() {
         description="The OWASP Code of Conduct applies to this event, and is in force the entire time you're here. Harassment of any kind ends your event."
       />
 
-      <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+      <section className="rounded-lg border border-white/[0.06] bg-[#131826] p-6">
         <h2 className="mb-4 text-lg font-semibold text-white">Which code applies</h2>
         <ul className="flex flex-col gap-3">
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
+            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e6edf3]" />
             <span>
               The{" "}
               <ExternalLink href={event.owaspCodeOfConductUrl}>
@@ -68,7 +68,7 @@ export default function CodeOfConductPage() {
             </span>
           </li>
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
+            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e6edf3]" />
             <span>
               It is not waived by anything on this site, and organizers can remove anyone from
               the competition for a breach of it.
@@ -77,7 +77,7 @@ export default function CodeOfConductPage() {
         </ul>
       </section>
 
-      <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+      <section className="rounded-lg border border-white/[0.06] bg-[#131826] p-6">
         <h2 className="mb-2 text-lg font-semibold text-white">Reporting a problem</h2>
         {/* "the target" here is the person a behaviour is aimed at, not a
             challenge target — a homonym, and this line is NOT rewritten to
@@ -93,7 +93,7 @@ export default function CodeOfConductPage() {
         </p>
         <ul className="flex flex-col gap-3">
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
+            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#f85149]" />
             <span>
               <span className="font-semibold text-white">For anything CTF-specific</span>: find
               an organizer at the OWASP CTF area
@@ -109,7 +109,7 @@ export default function CodeOfConductPage() {
           </li>
           {event.contactEmail && (
             <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-              <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
+              <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#f85149]" />
               <span>
                 <span className="font-semibold text-white">In writing, and in private</span>:{" "}
                 <a href={`mailto:${event.contactEmail}`} className="font-mono ds-link">
@@ -124,11 +124,11 @@ export default function CodeOfConductPage() {
         </ul>
       </section>
 
-      <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+      <section className="rounded-lg border border-white/[0.06] bg-[#131826] p-6">
         <h2 className="mb-4 text-lg font-semibold text-white">Also worth reading</h2>
         <ul className="flex flex-col gap-3">
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
+            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e6edf3]" />
             <span>
               <Link href="/rules" className="ds-link">
                 Rules
@@ -137,7 +137,7 @@ export default function CodeOfConductPage() {
             </span>
           </li>
           <li className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2563eb]" />
+            <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e6edf3]" />
             <span>
               <Link href="/terms" className="ds-link">
                 Terms

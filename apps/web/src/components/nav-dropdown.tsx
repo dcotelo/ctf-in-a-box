@@ -124,7 +124,7 @@ export default function NavDropdown({
         aria-expanded={open}
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
-        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+        className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
           active ? "bg-white/[0.06] font-medium text-white" : "text-zinc-400 hover:text-white"
         }`}
       >
@@ -160,7 +160,7 @@ export default function NavDropdown({
                 aria-current={isActive(item.href) ? "page" : undefined}
                 onClick={onItemClick}
                 onKeyDown={(e) => onItemKeyDown(e, index)}
-                className={`block px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+                className={`block px-3 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
                   isActive(item.href)
                     ? "bg-white/[0.06] font-medium text-white"
                     : "text-zinc-400 hover:text-white"

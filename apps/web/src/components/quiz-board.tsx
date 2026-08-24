@@ -327,7 +327,7 @@ export function QuestionCard({
   const attemptsLeft = question.status === "answered" ? null : describeAttempts(question.attemptsUsed, maxAttempts);
 
   return (
-    <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+    <div className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] p-5">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-white">{question.prompt}</p>
         <div className="flex flex-none items-center gap-1.5">
@@ -362,9 +362,9 @@ export function QuestionCard({
               role="status"
               className={`text-sm ${
                 result.kind === "success"
-                  ? "text-[#22c55e]"
+                  ? "text-[#3fb950]"
                   : result.kind === "error"
-                    ? "text-[#e53e3e]"
+                    ? "text-[#f85149]"
                     : "text-zinc-400"
               }`}
             >
@@ -372,7 +372,7 @@ export function QuestionCard({
             </p>
           )}
           {question.status === "cooldown" && (
-            <p className={`text-sm ${cooledDown ? "text-[#22c55e]" : "text-[#d4a017]"}`}>
+            <p className={`text-sm ${cooledDown ? "text-[#3fb950]" : "text-[#d29922]"}`}>
               {!cooldown.mounted
                 ? // Server render and the client's first paint. No clock is read
                   // here: a live Date.now() during render disagrees with the
@@ -412,7 +412,7 @@ export function QuestionCard({
             type="button"
             onClick={onSubmit}
             disabled={submitDisabled({ onCooldown: false, cooledDown, pending, selectedCount: selected.length })}
-            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+            className="mt-3 rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
           >
             {pending ? "Submitting…" : "Submit answer"}
           </button>
@@ -436,7 +436,7 @@ export function QuestionCard({
             type="button"
             onClick={onSubmit}
             disabled={submitDisabled({ onCooldown: true, cooledDown, pending, selectedCount: selected.length })}
-            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+            className="mt-3 rounded-md bg-[#e6edf3] px-4 py-2 text-sm font-semibold text-[#0b0e14] transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
           >
             {pending ? "Submitting…" : "Submit answer"}
           </button>

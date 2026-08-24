@@ -122,7 +122,7 @@ export default async function HowToPlayPage() {
 
           {/* Workflow callout */}
           {guide.loop && (
-            <div className="rounded-lg border border-[#2563eb]/30 bg-[#2563eb]/[0.06] p-5">
+            <div className="rounded-lg border border-[#e6edf3]/30 bg-[#e6edf3]/[0.06] p-5">
               <p className="text-xs font-medium uppercase tracking-wider text-[var(--accent-blue-link)]">
                 {guide.loop.kicker}
               </p>
@@ -143,8 +143,8 @@ export default async function HowToPlayPage() {
               step 4, and contestants who skim only the numbered list still
               see it. */}
           {guide.callout && (
-            <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
-              <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">
+            <div className="rounded-lg border border-[#9ba7b4]/30 bg-[#9ba7b4]/[0.06] p-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-[#9ba7b4]">
                 {guide.callout.kicker}
               </p>
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">
@@ -158,9 +158,9 @@ export default async function HowToPlayPage() {
             {guide.steps.map((step, i) => (
               <li
                 key={step.title}
-                className="flex gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
+                className="flex gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-5"
               >
-                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
+                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#e6edf3]/40 bg-white/[0.06] font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
                   {i + 1}
                 </span>
                 <div>
@@ -175,7 +175,7 @@ export default async function HowToPlayPage() {
           {guide.example && (
             <section className="flex flex-col gap-5" aria-labelledby={guide.example.anchor}>
               <div className="flex flex-col gap-3">
-                <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+                <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#9ba7b4]">
                   {guide.example.kicker}
                 </p>
                 <h2
@@ -193,10 +193,10 @@ export default async function HowToPlayPage() {
                 {guide.example.steps.map((step, i) => (
                   <li
                     key={step.title}
-                    className="rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
+                    className="rounded-lg border border-white/[0.06] bg-[#131826] p-5"
                   >
                     <div className="flex gap-4">
-                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#14b8a6]/40 bg-[#14b8a6]/10 font-mono text-sm font-bold tabular-nums text-[#14b8a6]">
+                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#9ba7b4]/40 bg-[#9ba7b4]/10 font-mono text-sm font-bold tabular-nums text-[#9ba7b4]">
                         {i + 1}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -210,8 +210,8 @@ export default async function HowToPlayPage() {
               </ol>
 
               {guide.example.bonus && (
-                <div className="rounded-lg border border-[#14b8a6]/30 bg-[#14b8a6]/[0.06] p-5">
-                  <p className="text-xs font-medium uppercase tracking-wider text-[#14b8a6]">
+                <div className="rounded-lg border border-[#9ba7b4]/30 bg-[#9ba7b4]/[0.06] p-5">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[#9ba7b4]">
                     {guide.example.bonus.kicker}
                   </p>
                   <p className="mt-2 text-sm leading-relaxed text-zinc-400">
@@ -226,7 +226,7 @@ export default async function HowToPlayPage() {
 
       {/* Good-to-know */}
       {noteGroups.length > 0 && (
-        <div className="flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+        <div className="flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
           <h2 className="font-semibold text-white">Good to know</h2>
           {noteGroups.map((group) => (
             <div key={group.id} className="flex flex-col gap-2">
@@ -249,7 +249,7 @@ export default async function HowToPlayPage() {
           to the rules and the leaderboard, which exist on every event — and
           each module contributes the paragraph that says how ITS points are
           earned, plus its own entry-point button. */}
-      <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+      <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
         {scoring.length > 0 && <h2 className="font-semibold text-white">How scoring works</h2>}
         {scoring.map((paragraph) => (
           <div key={paragraph.id} className="flex flex-col gap-1">
@@ -266,7 +266,7 @@ export default async function HowToPlayPage() {
                 <Link
                   key={guide.id}
                   href={guide.cta.href}
-                  className="rounded-md border border-[#2563eb] bg-[#2563eb]/10 px-4 py-2 text-sm font-medium text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20"
+                  className="rounded-md border border-[#e6edf3]/70 bg-white/[0.06] px-4 py-2 text-sm font-medium text-[var(--accent-blue-link)] transition-colors hover:bg-white/[0.1]"
                 >
                   {guide.cta.label}
                 </Link>

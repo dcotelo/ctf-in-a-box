@@ -24,9 +24,9 @@ type SortKey = "rank" | "points" | "solved";
 
 // Podium accents for the top three, drawn from the design tokens.
 const PODIUM: Record<number, string> = {
-  1: "#d4a017", // gold
+  1: "#d29922", // gold
   2: "#a1a1aa", // silver
-  3: "#14b8a6", // teal-bronze
+  3: "#9ba7b4", // teal-bronze
 };
 
 function Avatar({ login, size = 32 }: { login: string; size?: number }) {
@@ -77,7 +77,7 @@ function TeamFlags({ team }: { team: TeamStanding }) {
         {groups.map(({ app, challenges }) => {
           const patched = challenges.filter((c) => c.status === "patched").length;
           return (
-            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2">
+            <div key={app.id} className="rounded-md border border-white/[0.06] bg-[#0e1220] px-3 py-2">
               <p className="text-sm">
                 <span style={{ color: app.accent }}>{app.name}</span>
                 <span className="ml-1.5 font-mono text-xs text-muted">
@@ -166,15 +166,15 @@ export function EntryRow({
   const solvedTotal = completable && completable > 0 ? Math.max(completable, solved) : null;
   return (
     <li
-      className={`ds-card group rounded-lg border bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30] ${
-        isOwn ? "border-[#2563eb]/60" : "border-white/[0.06]"
+      className={`ds-card group rounded-lg border bg-[#131826] transition-all hover:border-[#e6edf3]/40 hover:bg-[#1a1a30] ${
+        isOwn ? "border-[#e6edf3]/60" : "border-white/[0.06]"
       }`}
     >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
       >
         <div className="flex items-center gap-4">
           <RankChip rank={entry.rank} />
@@ -189,14 +189,14 @@ export function EntryRow({
                 </span>
               )}
               {isOwn && (
-                <span className="flex-none rounded border border-[#2563eb]/50 bg-[#2563eb]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--accent-blue-link)]">
+                <span className="flex-none rounded border border-[#e6edf3]/45 bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--accent-blue-link)]">
                   you
                 </span>
               )}
             </div>
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
+                className="h-full rounded-full bg-gradient-to-r from-[#e6edf3]/80 to-[#e6edf3]/45"
                 style={{ width: `${topPoints > 0 ? (entry.points / topPoints) * 100 : 0}%` }}
               />
             </div>
@@ -209,7 +209,7 @@ export function EntryRow({
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
               {entry.hintPenalty ? (
-                <p className="font-mono text-[10px] tabular-nums text-[#d4a017]/80" title="Points spent on hints (already deducted)">
+                <p className="font-mono text-[10px] tabular-nums text-[#d29922]/80" title="Points spent on hints (already deducted)">
                   −{entry.hintPenalty} hints
                 </p>
               ) : null}
@@ -226,7 +226,7 @@ export function EntryRow({
                 Ungated by module, unlike the pair before it: breadth is what
                 every event ranks on, including one with no patching in it. */}
             <div className="hidden sm:block">
-              <p className="font-mono text-base tabular-nums text-[#22c55e]">
+              <p className="font-mono text-base tabular-nums text-[#3fb950]">
                 {solved}
                 {solvedTotal !== null && (
                   <span className="text-zinc-500"> / {solvedTotal}</span>
@@ -286,12 +286,12 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
   // module guides draw ("answered" a question, "solved" a flag/challenge).
   const completedNoun = (id: string) => (id === "quiz" ? "answered" : "solved");
   return (
-    <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
+    <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#131826] transition-all hover:border-[#e6edf3]/40 hover:bg-[#1a1a30]">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
       >
         <div className="flex items-center gap-4">
           <RankChip rank={team.rank} />
@@ -299,7 +299,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
             <span className="truncate font-medium text-white">{team.name}</span>
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
+                className="h-full rounded-full bg-gradient-to-r from-[#e6edf3]/80 to-[#e6edf3]/45"
                 style={{ width: `${topPoints > 0 ? (team.points / topPoints) * 100 : 0}%` }}
               />
             </div>
@@ -312,7 +312,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
               {team.hintPenalty ? (
                 <p
-                  className="font-mono text-[10px] tabular-nums text-[#d4a017]/80"
+                  className="font-mono text-[10px] tabular-nums text-[#d29922]/80"
                   title="Points its members spent on hints (already deducted)"
                 >
                   −{team.hintPenalty} hints
@@ -339,12 +339,12 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
             {team.members.map((login) => (
               <span
                 key={login}
-                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#12121e] py-1 pl-1 pr-2 text-xs text-zinc-300"
+                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0e1220] py-1 pl-1 pr-2 text-xs text-zinc-300"
               >
                 <Avatar login={login} size={18} />
                 {login}
                 {login === team.captain && (
-                  <span className="flex-none rounded border border-[#d4a017]/50 bg-[#d4a017]/10 px-1 py-0.5 text-[9px] uppercase tracking-wide text-[#d4a017]">
+                  <span className="flex-none rounded border border-[#d29922]/50 bg-[#d29922]/10 px-1 py-0.5 text-[9px] uppercase tracking-wide text-[#d29922]">
                     captain
                   </span>
                 )}
@@ -367,7 +367,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
                 .map((m) => {
                   const progress = team.modules![m.id]!;
                   return (
-                    <div key={m.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2 text-sm">
+                    <div key={m.id} className="rounded-md border border-white/[0.06] bg-[#0e1220] px-3 py-2 text-sm">
                       <span className="text-xs uppercase tracking-wider text-muted">{m.title}</span>
                       <span className="ml-2 font-mono tabular-nums text-white">
                         {progress.points.toLocaleString()} pts
@@ -402,7 +402,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
 export function EmptyBoard({ modules }: { modules: readonly ResolvedModule[] }) {
   const copy = modules.find((m) => m.emptyBoard)?.emptyBoard;
   return (
-    <div className="flex flex-col items-center gap-5 rounded-lg border border-white/[0.06] bg-[#16162a] px-6 py-10 text-center">
+    <div className="flex flex-col items-center gap-5 rounded-lg border border-white/[0.06] bg-[#131826] px-6 py-10 text-center">
       <Image
         src="/leaderboard-empty.svg"
         alt="An empty winners' podium with an unclaimed flag on the top step"
@@ -421,7 +421,7 @@ export function EmptyBoard({ modules }: { modules: readonly ResolvedModule[] }) 
       {copy && (
         <Link
           href={copy.cta.href}
-          className="rounded-md border border-[#2563eb]/60 bg-[#2563eb]/10 px-4 py-2 font-mono text-sm text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+          className="rounded-md border border-[#e6edf3]/60 bg-white/[0.06] px-4 py-2 font-mono text-sm text-[var(--accent-blue-link)] transition-colors hover:bg-white/[0.1] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
         >
           {copy.cta.label}
         </Link>
@@ -434,7 +434,7 @@ export function EmptyBoard({ modules }: { modules: readonly ResolvedModule[] }) 
  *  Always offers the way out (clearing the search) rather than dead-ending. */
 function NoMatch({ noun, query, onClear }: { noun: string; query: string; onClear: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] px-5 py-10 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-white/[0.06] bg-[#131826] px-5 py-10 text-center">
       <p className="text-base text-zinc-300">
         No {noun} matching <span className="font-mono text-white">&ldquo;{query}&rdquo;</span> on the
         board yet.
@@ -443,7 +443,7 @@ function NoMatch({ noun, query, onClear }: { noun: string; query: string; onClea
       <button
         type="button"
         onClick={onClear}
-        className="mt-1 rounded-md border border-white/10 px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-[#2563eb] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="mt-1 rounded-md border border-white/10 px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#e6edf3]/60 hover:text-[#e6edf3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
       >
         $ clear search
       </button>
@@ -558,7 +558,7 @@ export default function Leaderboard({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={view === "individual" ? "Search contestants…" : "Search teams…"}
             aria-label="Search leaderboard"
-            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d29922]/70 focus-visible:outline-none"
           />
         </div>
 
@@ -570,9 +570,9 @@ export default function Leaderboard({
                 type="button"
                 onClick={() => setView(v)}
                 aria-pressed={view === v}
-                className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+                className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
                   view === v
-                    ? "border-[#2563eb] bg-[#2563eb]/10 text-[var(--accent-blue-link)]"
+                    ? "border-[#e6edf3]/70 bg-white/[0.06] text-[var(--accent-blue-link)]"
                     : "border-white/10 text-zinc-400 hover:text-white"
                 }`}
               >
@@ -592,8 +592,8 @@ export default function Leaderboard({
               key={key}
               type="button"
               onClick={() => setSort(key)}
-              className={`transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
-                sort === key ? "text-[#14b8a6]" : "hover:text-zinc-300"
+              className={`transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922] ${
+                sort === key ? "text-[#9ba7b4]" : "hover:text-zinc-300"
               }`}
             >
               {key}

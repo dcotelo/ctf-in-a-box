@@ -755,7 +755,7 @@ export default function AdminClassicControls({
           disabled={pending}
           onChange={(e) => setClassicCooldownSecInput(e.target.value)}
           onBlur={() => commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -763,7 +763,7 @@ export default function AdminClassicControls({
         <div className="flex items-center justify-between gap-3">
           <span className="text-white">Categories</span>
         </div>
-        {categoryError && <p className="text-xs text-[#e53e3e]">{categoryError}</p>}
+        {categoryError && <p className="text-xs text-[#f85149]">{categoryError}</p>}
         {categories.length === 0 ? (
           <p className="text-xs text-muted">No categories yet — add one before authoring a challenge.</p>
         ) : (
@@ -797,7 +797,7 @@ export default function AdminClassicControls({
                     type="button"
                     disabled={categoryPending}
                     onClick={() => removeCategory(name)}
-                    className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
+                    className="rounded-md border border-[#f85149]/40 px-2 py-1 text-xs text-[#f85149] hover:bg-[#f85149]/10 disabled:opacity-40"
                   >
                     Remove
                   </button>
@@ -812,13 +812,13 @@ export default function AdminClassicControls({
             placeholder="New category"
             disabled={categoryPending}
             onChange={(e) => setNewCategoryInput(e.target.value)}
-            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
           />
           <button
             type="button"
             disabled={categoryPending || newCategoryInput.trim().length === 0}
             onClick={addCategory}
-            className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="rounded-md border border-[#e6edf3]/45 px-3 py-1.5 text-sm font-medium text-[#e6edf3] hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add category
           </button>
@@ -835,13 +835,13 @@ export default function AdminClassicControls({
               setFlagRevealed(false);
               setEditing(newChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
-            className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="rounded-md border border-[#e6edf3]/45 px-3 py-1.5 text-sm font-medium text-[#e6edf3] hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add challenge
           </button>
         </div>
 
-        {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
+        {listError && <p className="text-xs text-[#f85149]">{listError}</p>}
 
         {challenges.length === 0 ? (
           <p className="text-xs text-muted">No challenges yet.</p>
@@ -920,7 +920,7 @@ export default function AdminClassicControls({
                         setDeleteError(null);
                         setDeleteTarget(row.challenge);
                       }}
-                      className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
+                      className="rounded-md border border-[#f85149]/40 px-2 py-1 text-xs text-[#f85149] hover:bg-[#f85149]/10"
                     >
                       Delete
                     </button>
@@ -979,7 +979,7 @@ export default function AdminClassicControls({
               }}
               rows={6}
               placeholder="Paste a bundle's JSON here, or choose a file below."
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
             />
 
             <input
@@ -991,7 +991,7 @@ export default function AdminClassicControls({
             />
 
             {clientImportErrors && clientImportErrors.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+              <ul className="flex flex-col gap-1 text-xs text-[#f85149]">
                 {clientImportErrors.map((err, i) => (
                   <li key={i}>
                     {err.where}: {err.message}
@@ -1001,7 +1001,7 @@ export default function AdminClassicControls({
             )}
 
             {importErrors && importErrors.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+              <ul className="flex flex-col gap-1 text-xs text-[#f85149]">
                 {importErrors.map((err, i) => (
                   <li key={i}>
                     {err.where}: {err.message}
@@ -1010,13 +1010,13 @@ export default function AdminClassicControls({
               </ul>
             )}
 
-            {importResult && <p className="text-xs text-[#7aa2ff]">{formatImportSummary(importResult)}</p>}
+            {importResult && <p className="text-xs text-[#e6edf3]">{formatImportSummary(importResult)}</p>}
 
             <button
               type="button"
               disabled={importPending || !canImport}
               onClick={() => void submitImport()}
-              className="self-start rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
+              className="self-start rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {importPending ? "Importing…" : "Import bundle"}
             </button>
@@ -1049,7 +1049,7 @@ export default function AdminClassicControls({
           body={
             <>
               {confirmCopy.body}
-              {deleteError && <span className="mt-2 block text-[#e53e3e]">{deleteError}</span>}
+              {deleteError && <span className="mt-2 block text-[#f85149]">{deleteError}</span>}
             </>
           }
           confirmLabel={confirmCopy.confirmLabel}
@@ -1118,7 +1118,7 @@ export function ChallengeForm({
   }, [editingKey]);
 
   return (
-    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#e6edf3]/30 bg-[#e6edf3]/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
         {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhraseFromTitle(draft.title, editor.id)}"`}
       </h4>
@@ -1149,7 +1149,7 @@ export function ChallengeForm({
           value={draft.title}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, title: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1160,7 +1160,7 @@ export function ChallengeForm({
             value={draft.category}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, category: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
           >
             {!categories.includes(draft.category) && (
               <option value={draft.category} disabled>
@@ -1183,7 +1183,7 @@ export function ChallengeForm({
             value={draft.points}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
           />
         </label>
         {/* Position used to be a number input here. It is now set by
@@ -1202,7 +1202,7 @@ export function ChallengeForm({
           <button
             type="button"
             onClick={() => setFlagRevealed(!flagRevealed)}
-            className="ml-2 text-[#7aa2ff] hover:underline"
+            className="ml-2 text-[#e6edf3] hover:underline"
           >
             {flagRevealed ? "Hide" : "Reveal"}
           </button>
@@ -1216,7 +1216,7 @@ export function ChallengeForm({
           value={draft.flag}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, flag: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1249,7 +1249,7 @@ export function ChallengeForm({
           onChange={(e) => onChange({ ...draft, description: e.target.value })}
           rows={4}
           maxLength={MARKDOWN_MAX}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d29922]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1263,7 +1263,7 @@ export function ChallengeForm({
         </div>
       </div>
 
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-xs text-[#f85149]">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <button
@@ -1278,7 +1278,7 @@ export function ChallengeForm({
           type="button"
           onClick={onSubmit}
           disabled={pending || !valid}
-          className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md bg-[#e6edf3] px-3 py-1.5 text-sm font-medium text-[#0b0e14] hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pending ? "Saving…" : isNew ? "Add challenge" : "Save changes"}
         </button>

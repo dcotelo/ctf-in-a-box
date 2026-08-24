@@ -74,7 +74,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+      <div className="ds-card rounded-lg border border-white/[0.06] bg-[#131826] p-5">
         <h3 className="font-mono text-sm text-white">Admins</h3>
         <p className="mt-1 text-sm text-zinc-400">
           Grant or revoke organizer access without rebuilding. Changes take effect immediately.
@@ -98,12 +98,12 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             placeholder="github-login"
             autoComplete="off"
             spellCheck={false}
-            className="min-w-48 rounded-md border border-white/10 bg-[#0f0f1e] px-3 py-1.5 font-mono text-sm text-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+            className="min-w-48 rounded-md border border-white/10 bg-[#0f0f1e] px-3 py-1.5 font-mono text-sm text-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
           />
           <button
             type="submit"
             disabled={pending || input.trim() === ""}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-200 transition-colors hover:border-[#2563eb]/50 hover:text-white disabled:opacity-40"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-200 transition-colors hover:border-[#e6edf3]/45 hover:text-white disabled:opacity-40"
           >
             Add admin
           </button>
@@ -114,7 +114,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             {error}
           </p>
         )}
-        {notice && !error && <p className="mt-3 text-sm text-[#22c55e]">{notice}</p>}
+        {notice && !error && <p className="mt-3 text-sm text-[#3fb950]">{notice}</p>}
 
         <ul className="mt-4 flex flex-col gap-1">
           {baked.map((row) => (

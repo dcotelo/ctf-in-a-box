@@ -52,7 +52,7 @@ vi.mock("@/lib/admin-store", () => ({
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "" });
-  return { Poppins: font, Barlow: font, Geist_Mono: font };
+  return { Archivo: font, Public_Sans: font, Geist_Mono: font };
 });
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 vi.mock("@/components/auth-nav", () => ({ default: () => null }));

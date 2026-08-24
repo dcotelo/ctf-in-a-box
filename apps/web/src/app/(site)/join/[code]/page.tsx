@@ -87,7 +87,7 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Teams" title={title} description="Join a team with a shared link." />
-      <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+      <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#131826] p-5">
         {children}
       </div>
     </div>

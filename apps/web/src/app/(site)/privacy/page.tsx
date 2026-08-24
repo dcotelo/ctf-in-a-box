@@ -57,7 +57,7 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
 );
 
 const Card = ({ heading, children }: { heading: string; children: React.ReactNode }) => (
-  <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+  <section className="rounded-lg border border-white/[0.06] bg-[#131826] p-6">
     <h2 className="mb-4 text-lg font-semibold text-white">{heading}</h2>
     {children}
   </section>
@@ -129,12 +129,12 @@ export default async function PrivacyPage() {
         description="A security event should be able to explain exactly what it does with your data. This page does that: written against the code, in plain language, with the awkward parts left in."
       />
 
-      <section className="rounded-lg border border-[#22c55e]/25 bg-[#22c55e]/[0.05] p-6">
+      <section className="rounded-lg border border-[#3fb950]/25 bg-[#3fb950]/[0.05] p-6">
         <h2 className="mb-4 text-lg font-semibold text-white">What we never do</h2>
-        <Bullets items={NEVER} accent="#22c55e" />
+        <Bullets items={NEVER} accent="#3fb950" />
       </section>
 
-      <section className="rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
+      <section className="rounded-lg border border-white/[0.06] bg-[#131826] p-6">
         <p className="text-sm leading-relaxed text-zinc-400">
           The OWASP Foundation&apos;s{" "}
           <ExternalLink href={event.owaspPrivacyUrl}>Privacy Policy</ExternalLink> is the

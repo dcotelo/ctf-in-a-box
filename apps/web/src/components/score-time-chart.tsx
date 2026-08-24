@@ -13,7 +13,7 @@
 //
 // Colors: the dataviz skill's validated default categorical palette (dark
 // steps), re-validated with the skill's validator against this app's actual
-// --background (#1a1a2e) rather than the skill's generic dark surface — all
+// --background (#0b0e14) rather than the skill's generic dark surface — all
 // eight slots clear the lightness/chroma/CVD/contrast gates in fixed order.
 // A 9th+ line is never a generated hue (the skill's #1 anti-pattern): ranks
 // 9-10 fold into a single shared muted "Other" entry instead.
@@ -96,7 +96,7 @@ function renderChart(entries: ChartSeries[], noun: string, note?: string) {
   // range to draw an x-axis over. Note instead of a broken/zero-width chart.
   if (minT === maxT) {
     return (
-      <div className="rounded-lg border border-white/[0.06] bg-[#16162a] px-4 py-6 text-center text-sm text-muted">
+      <div className="rounded-lg border border-white/[0.06] bg-[#131826] px-4 py-6 text-center text-sm text-muted">
         Not enough score history yet to chart.
       </div>
     );
@@ -229,7 +229,7 @@ function InteractiveChart({
   const tooltipLeftSide = hoverPct > 58;
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
+    <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#131826] p-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Score over time</h2>
         <span className="text-xs text-muted">
@@ -327,7 +327,7 @@ function InteractiveChart({
                 <path d={line.path} fill="none" stroke={line.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
               )}
               {line.points.map((p, idx) => (
-                <circle key={idx} cx={p.x} cy={p.y} r={4} fill={line.color} stroke="#16162a" strokeWidth={2} />
+                <circle key={idx} cx={p.x} cy={p.y} r={4} fill={line.color} stroke="#131826" strokeWidth={2} />
               ))}
             </g>
           ))}
@@ -347,7 +347,7 @@ function InteractiveChart({
               {lines.map((line) => {
                 const yy = interpY(line.points, hoverX);
                 if (yy == null) return null;
-                return <circle key={`h-${line.key}`} cx={hoverX} cy={yy} r={4.5} fill={line.color} stroke="#0d0d16" strokeWidth={2} />;
+                return <circle key={`h-${line.key}`} cx={hoverX} cy={yy} r={4.5} fill={line.color} stroke="#0b0e14" strokeWidth={2} />;
               })}
             </g>
           )}
@@ -357,7 +357,7 @@ function InteractiveChart({
             positioned by the crosshair's horizontal fraction of the SVG. */}
         {hoverX != null && hoverT != null && (
           <div
-            className="pointer-events-none absolute top-2 z-10 w-max max-w-[240px] rounded-md border border-white/10 bg-[#0d0d16]/95 px-2.5 py-2 text-xs shadow-lg"
+            className="pointer-events-none absolute top-2 z-10 w-max max-w-[240px] rounded-md border border-white/10 bg-[#0b0e14]/95 px-2.5 py-2 text-xs shadow-lg"
             style={{
               left: `${hoverPct}%`,
               transform: tooltipLeftSide ? "translateX(calc(-100% - 10px))" : "translateX(10px)",

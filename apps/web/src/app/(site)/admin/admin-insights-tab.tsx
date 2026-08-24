@@ -91,7 +91,7 @@ export default function AdminInsightsTab() {
           type="button"
           disabled={pending}
           onClick={() => void load()}
-          className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 disabled:opacity-50"
+          className="flex-none rounded-md bg-[#e6edf3] px-3 py-1.5 text-xs font-medium text-[#0b0e14] transition-colors hover:bg-white disabled:opacity-50"
         >
           {pending ? "Computing…" : metrics ? "Refresh" : "Compute metrics"}
         </button>
@@ -99,7 +99,7 @@ export default function AdminInsightsTab() {
           <>
             <a
               href="/api/admin/metrics?format=csv"
-              className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white"
+              className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#e6edf3]/60 hover:text-white"
             >
               Download challenges CSV
             </a>
@@ -117,7 +117,7 @@ export default function AdminInsightsTab() {
         </p>
       )}
 
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-xs text-[#f85149]">{error}</p>}
 
       {metrics && (
         <>
@@ -149,7 +149,7 @@ export default function AdminInsightsTab() {
                     key={b.at}
                     title={`${b.at.slice(11, 16)} — ${b.solves} solve${b.solves === 1 ? "" : "s"}`}
                     style={{ height: `${peak ? Math.max(4, (b.solves / peak) * 100) : 4}%` }}
-                    className="w-2 flex-none rounded-sm bg-[#2563eb]/70"
+                    className="w-2 flex-none rounded-sm bg-[#e6edf3]/70"
                   />
                 ))}
               </div>
