@@ -197,31 +197,85 @@ export default function ClassicBoard({
     }
   }
 
+  // The rail's per-category run: solved counts and earned points, computed
+  // from the same props the cards render — one source, no second count that
+  // can drift (DESIGN.md: play surface).
+  const run = categories
+    .map((category) => {
+      const inCategory = challenges.filter((c) => c.category === category);
+      return {
+        category,
+        total: inCategory.length,
+        solved: inCategory.filter((c) => c.status === "solved").length,
+      };
+    })
+    .filter((r) => r.total > 0);
+  const solvedTotal = run.reduce((n, r) => n + r.solved, 0);
+  const pointsTotal = challenges.reduce(
+    (n, c) => n + (c.status === "solved" ? c.earnedPoints : 0),
+    0,
+  );
+  const anchorFor = (category: string) => `cat-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
   return (
-    <div className="flex flex-col gap-8">
-      {categories.map((category) => {
-        const inCategory = challenges.filter((c) => c.category === category);
-        if (inCategory.length === 0) return null; // A category with no challenges is hidden.
-        return (
-          <div key={category} className="flex flex-col gap-4">
-            <h2 className="text-lg font-semibold text-white">{category}</h2>
-            <div className="flex flex-col gap-4">
-              {inCategory.map((challenge) => (
-                <ChallengeCard
-                  key={challenge.id}
-                  challenge={challenge}
-                  authenticated={authenticated}
-                  value={inputs[challenge.id] ?? ""}
-                  pending={pending[challenge.id] ?? false}
-                  feedback={feedback[challenge.id]}
-                  onChange={(value) => setInputs((prev) => ({ ...prev, [challenge.id]: value }))}
-                  onSubmit={() => submit(challenge)}
-                />
-              ))}
+    <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+      {/* Your run: progress beside the work, doubling as jump nav. Sticky on
+          desktop; on mobile it collapses to a chip row above the board. */}
+      {authenticated && run.length > 0 && (
+        <nav
+          aria-label="Your run"
+          className="flex flex-row flex-wrap gap-x-4 gap-y-2 lg:sticky lg:top-20 lg:w-44 lg:flex-none lg:flex-col lg:gap-3"
+        >
+          <p className="hidden font-mono text-[11px] uppercase tracking-wider text-muted lg:block">
+            Your run
+          </p>
+          <p className="font-mono text-sm tabular-nums">
+            <span className="text-[#3fb950]">{solvedTotal} solved</span>
+            <span className="text-muted"> · {pointsTotal.toLocaleString("en-US")} pts</span>
+          </p>
+          <ul className="flex flex-row flex-wrap gap-x-4 gap-y-1.5 lg:flex-col">
+            {run.map((r) => (
+              <li key={r.category}>
+                <a
+                  href={`#${anchorFor(r.category)}`}
+                  className="flex items-baseline gap-2 font-mono text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+                >
+                  <span className="truncate">{r.category}</span>
+                  <span className={`tabular-nums ${r.solved === r.total ? "text-[#3fb950]" : "text-muted"}`}>
+                    {r.solved}/{r.total}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col gap-8">
+        {categories.map((category) => {
+          const inCategory = challenges.filter((c) => c.category === category);
+          if (inCategory.length === 0) return null; // A category with no challenges is hidden.
+          return (
+            <div key={category} id={anchorFor(category)} className="flex scroll-mt-20 flex-col gap-4">
+              <h2 className="text-lg font-semibold text-white">{category}</h2>
+              <div className="flex flex-col gap-4">
+                {inCategory.map((challenge) => (
+                  <ChallengeCard
+                    key={challenge.id}
+                    challenge={challenge}
+                    authenticated={authenticated}
+                    value={inputs[challenge.id] ?? ""}
+                    pending={pending[challenge.id] ?? false}
+                    feedback={feedback[challenge.id]}
+                    onChange={(value) => setInputs((prev) => ({ ...prev, [challenge.id]: value }))}
+                    onSubmit={() => submit(challenge)}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -97,6 +97,19 @@ export default async function ChallengesPage() {
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Targets" title={title} description={description} />
       <HintNotice active={hints.active} cost={hints.cost} signedIn={!!session} anyMarked={anyHintMarked} />
+      {/* The scoring cadence, stated instead of silent (DESIGN.MD: "scoring
+          latency — the honest version"). The app never sees a contestant's
+          PR, so there is no per-run pending state to show — what it CAN say
+          is when scores land and where to look when one doesn't. */}
+      <p className="-mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted">
+        <span aria-hidden className="mt-1 h-2 w-2 flex-none rounded-full bg-[#d29922]" />
+        <span>
+          Scores land within about a minute of your pull request&rsquo;s checks finishing — your
+          patched marks here and on your profile update on reload. A run that finished but scored
+          nothing means the regression test still fails: open your PR&rsquo;s Checks tab on GitHub
+          to see which test, fix, and push again. Your best result always stands.
+        </span>
+      </p>
       <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={hintAvailability} solved={solved} />
     </div>
   );
