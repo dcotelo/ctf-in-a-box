@@ -27,6 +27,7 @@
 // than quietly fixing.
 
 import {
+  CLASSIC_HINT_MAX,
   CLASSIC_ID_RE,
   CLASSIC_POINTS_MAX,
   CLASSIC_CATEGORY_MAX_LEN,
@@ -48,6 +49,9 @@ export type ClassicBundleChallenge = {
    *  rather than required so every bundle exported before #193 still imports,
    *  which is the whole contract of a versioned bundle. */
   caseSensitive?: boolean;
+  /** Optional paid-hint text (#190). Absent = no hint. Secret like `flag`:
+   *  a bundle is an ORGANIZER artifact and already carries every answer. */
+  hint?: string;
 };
 
 export type ClassicBundle = {
@@ -69,6 +73,7 @@ const CHALLENGE_KEYS = [
   "order",
   "flag",
   "caseSensitive",
+  "hint",
 ] as const;
 const CHALLENGE_KEY_SET = new Set<string>(CHALLENGE_KEYS);
 
@@ -146,6 +151,16 @@ function validateChallenge(raw: unknown, index: number, categories: readonly str
   // case-sensitive that its author did not mean to.
   if (raw.caseSensitive !== undefined && typeof raw.caseSensitive !== "boolean") {
     errors.push({ where: `${base}.caseSensitive`, message: "caseSensitive must be true or false" });
+  }
+
+  // Optional paid-hint text (#190): a non-empty string within the cap.
+  if (raw.hint !== undefined) {
+    if (typeof raw.hint !== "string" || !raw.hint.trim() || raw.hint.length > CLASSIC_HINT_MAX) {
+      errors.push({
+        where: `${base}.hint`,
+        message: `hint must be a non-empty string of at most ${CLASSIC_HINT_MAX} characters`,
+      });
+    }
   }
 
   const title = raw.title;

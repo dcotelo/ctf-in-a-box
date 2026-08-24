@@ -62,8 +62,8 @@ const c2: Challenge = {
   order: 2,
 };
 
-const row1: AdminChallenge = { challenge: c1, flag: "CTF{real}" };
-const row2: AdminChallenge = { challenge: c2, flag: "CTF{other}" };
+const row1: AdminChallenge = { challenge: c1, flag: "CTF{real}", hint: null };
+const row2: AdminChallenge = { challenge: c2, flag: "CTF{other}", hint: null };
 
 function renderControls(initialChallenges: AdminChallenge[] = [], initialCategories: string[] = ["Web"]) {
   return renderToStaticMarkup(
@@ -267,7 +267,7 @@ describe("ChallengeForm — the masking/preview/no-id properties an organizer ac
   // board uses. A second renderer here would drift and stop being a preview
   // of anything real.
   it("previews the description through the same renderer the board uses", () => {
-    const editor = editorFromChallenge({ challenge: { ...c1, description: "**b**" }, flag: "f" });
+    const editor = editorFromChallenge({ challenge: { ...c1, description: "**b**" }, flag: "f", hint: null });
     const html = renderToStaticMarkup(
       <ChallengeForm
         editor={editor}
@@ -317,6 +317,7 @@ describe("payloadFromEditor — an edit can never change a challenge's id", () =
       points: "999",
       flag: "CTF{changed}",
       caseSensitive: false,
+      hint: "",
     };
     const payload = payloadFromEditor({ ...editor, draft }, () => "generated-from-the-new-title");
     expect(payload.id).toBe(c1.id);
@@ -327,13 +328,13 @@ describe("payloadFromEditor — an edit can never change a challenge's id", () =
   });
 
   it("keeps the id across a title that would generate a different one", () => {
-    const editor = editorFromChallenge({ challenge: { ...c1, id: "legacy-hand-typed-id" }, flag: "f" });
+    const editor = editorFromChallenge({ challenge: { ...c1, id: "legacy-hand-typed-id" }, flag: "f", hint: null });
     const payload = payloadFromEditor({ ...editor, draft: { ...editor.draft, title: "New title entirely" } });
     expect(payload.id).toBe("legacy-hand-typed-id");
   });
 
   it("keeps the challenge's existing position rather than re-deriving one", () => {
-    const editor = editorFromChallenge({ challenge: { ...c1, order: 7 }, flag: "f" });
+    const editor = editorFromChallenge({ challenge: { ...c1, order: 7 }, flag: "f", hint: null });
     expect(payloadFromEditor(editor).order).toBe(7);
   });
 
@@ -357,14 +358,14 @@ describe("payloadFromEditor — an edit can never change a challenge's id", () =
   it("carries exactly the wire contract's challenge keys, nothing more", () => {
     const payload = payloadFromEditor(editorFromChallenge(row1));
     expect(Object.keys(payload).sort()).toEqual(
-      ["category", "description", "flag", "id", "order", "points", "title"].sort(),
+      ["category", "description", "flag", "hint", "id", "order", "points", "title"].sort(),
     );
   });
 });
 
 describe("payloadFromRow", () => {
   it("round-trips a stored row unchanged, so a reorder re-saves only the order", () => {
-    const payload = payloadFromRow({ challenge: { ...c1, order: 3 }, flag: "CTF{real}" });
+    const payload = payloadFromRow({ challenge: { ...c1, order: 3 }, flag: "CTF{real}", hint: null });
     expect(payload).toEqual({
       id: c1.id,
       title: c1.title,
@@ -373,13 +374,14 @@ describe("payloadFromRow", () => {
       points: c1.points,
       order: 3,
       flag: "CTF{real}",
+      hint: "",
     });
   });
 });
 
 describe("reorderChallenges", () => {
   const rows = (...ids: string[]): AdminChallenge[] =>
-    ids.map((id, i) => ({ challenge: { ...c1, id, title: `Title ${id}`, order: i + 1 }, flag: "f" }));
+    ids.map((id, i) => ({ challenge: { ...c1, id, title: `Title ${id}`, order: i + 1 }, flag: "f", hint: null }));
 
   const shape = (list: AdminChallenge[]) => list.map((r) => [r.challenge.id, r.challenge.order] as const);
 
@@ -413,8 +415,8 @@ describe("reorderChallenges", () => {
 
   it("treats an out-of-range index as a no-op rather than a silent renumbering", () => {
     const sparse: AdminChallenge[] = [
-      { challenge: { ...c1, id: "a", order: 0 }, flag: "f" },
-      { challenge: { ...c1, id: "b", order: 40 }, flag: "f" },
+      { challenge: { ...c1, id: "a", order: 0 }, flag: "f", hint: null },
+      { challenge: { ...c1, id: "b", order: 40 }, flag: "f", hint: null },
     ];
     expect(shape(reorderChallenges(sparse, 0, 5))).toEqual([
       ["a", 0],
@@ -425,7 +427,7 @@ describe("reorderChallenges", () => {
 
 describe("changedOrderRows", () => {
   const rows = (...ids: string[]): AdminChallenge[] =>
-    ids.map((id, i) => ({ challenge: { ...c1, id, order: i + 1 }, flag: "f" }));
+    ids.map((id, i) => ({ challenge: { ...c1, id, order: i + 1 }, flag: "f", hint: null }));
 
   it("names exactly the challenges a move has to write back", () => {
     const before = rows("a", "b", "c", "d");
