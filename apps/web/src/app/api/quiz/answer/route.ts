@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { logActivity } from "@/lib/activity-log";
 import { requireGatePassed } from "@/lib/gate-request";
 import { answerQuestion, QUIZ_ID_RE } from "@/lib/quiz-store";
 import { hasTeam } from "@/lib/team-store";
@@ -76,6 +77,11 @@ export async function POST(request: Request) {
   const result = await answerQuestion(login, questionId, choices);
   if (result.ok) {
     if (!result.correct) return NextResponse.json({ correct: false });
+    // Activity log (issue #212): fresh solves only — an idempotent
+    // re-submission banked nothing. The question id, never the choices;
+    // logActivity is fail-open, so it cannot fail an answer that already
+    // landed.
+    if (!result.already) await logActivity("quiz-solve", login, questionId);
     // `already` (this login had banked this question before — see
     // AnswerResult) rides along so the client can say so, instead of
     // reading the accompanying `points: 0` as an award of nothing.

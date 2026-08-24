@@ -15,6 +15,12 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+// auth.ts now imports activity-log.ts (the sign-in hook, issue #212), which
+// carries `server-only` and the Upstash client — inert here (the hook never
+// fires at import time) but the marker import itself throws outside a Server
+// Component, so it is stubbed like every other suite does.
+vi.mock("server-only", () => ({}));
+
 vi.hoisted(() => {
   // betterAuth() runs at import time and warns on a weak secret. Only fills
   // gaps, so a real .env.local still wins locally.
@@ -104,5 +110,15 @@ describe("user.additionalFields.login", () => {
     const login = auth.options.user?.additionalFields?.login as { input?: boolean } | undefined;
     expect(login).toBeDefined();
     expect(login?.input).not.toBe(false);
+  });
+});
+
+describe("sign-in activity hook (issue #212)", () => {
+  it("registers an after hook, the login capture point", () => {
+    // The hook body is a thin wrapper around recordCallbackLogin, whose path
+    // filter and login extraction are pinned in activity-log.test.ts. This
+    // pins only that the wiring exists — remove the hook and sign-ins
+    // silently stop being recorded.
+    expect(typeof auth.options.hooks?.after).toBe("function");
   });
 });

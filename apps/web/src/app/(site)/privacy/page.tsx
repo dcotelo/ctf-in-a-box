@@ -14,6 +14,7 @@
 //   src/lib/team-store.ts ............ team membership
 //   src/lib/quiz-store.ts ............ quiz answers and points
 //   src/lib/classic-store.ts ......... classic flag solves, attempts, points
+//   src/lib/activity-log.ts .......... organizer activity log (sign-ins, solves, team changes)
 //
 // Tone note: this page reads as reassuring because the underlying design
 // genuinely is careful — not the other way round. Don't add warmth here that
@@ -207,6 +208,13 @@ export default async function PrivacyPage() {
               <span className="text-white">Team membership</span>: the team&apos;s name, who
               created it, and the GitHub logins of its members.
             </>,
+            <>
+              <span className="text-white">An activity log for the organizers</span>: when you
+              signed in, when you solved something (recorded by its id, never the answer you
+              submitted), and team changes, keyed to your GitHub login. Only organizers can see
+              it, only the most recent few thousand entries are kept — older ones are
+              discarded automatically — and it holds no IP address or device data.
+            </>,
             ...(secureDev
               ? [
                   <>
@@ -244,9 +252,9 @@ export default async function PrivacyPage() {
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
           All of it is keyed to a public GitHub username and nothing more: no email, no real
           name, no device or location data. It lives in an Upstash Redis instance run for this
-          event. Being straight with you: this competition data has
-          no automatic expiry today, so treat it as kept until the organizers clear it down
-          after the event. You can ask for yours sooner. See below.
+          event. Being straight with you: apart from the activity log&apos;s rolling cap, this
+          competition data has no automatic expiry today, so treat it as kept until the
+          organizers clear it down after the event. You can ask for yours sooner. See below.
         </p>
       </Card>
 

@@ -46,6 +46,7 @@ import {
   classicAttemptsKey,
   normalizeFlag,
 } from "@/lib/classic-keys";
+import { ACTIVITY_LOG_KEY } from "@/lib/activity-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -527,6 +528,10 @@ const RESET_PREFIXES: readonly [string, string][] = [
   ["classicPoints", CLASSIC_POINTS_KEY],
   ["classicSolved", CLASSIC_SOLVED_KEY],
   ["classicSolveCount", CLASSIC_SOLVECOUNT_KEY],
+  // The activity log (issue #212) is contestant PROGRESS in the same sense as
+  // solves — a record of what people did during the event — so a reset wipes
+  // it. Leaving it would let a "fresh" event open with last event's sign-ins.
+  ["activity", ACTIVITY_LOG_KEY],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the

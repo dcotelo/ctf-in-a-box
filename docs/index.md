@@ -163,8 +163,8 @@ Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` — and
 from there **grant admin to anyone else**, without a rebuild. The panel is
 tabbed: **Event** (freeze, registration, the scoring and registration
 schedules, players per team, the score cooldown, demo seed, master reset),
-**Admins**, **Support**, **Insights**, then one tab per enabled module for its
-own knobs and its title/blurb.
+**Admins**, **Support**, **Activity**, **Insights**, then one tab per enabled
+module for its own knobs and its title/blurb.
 
 The **freeze** switch pauses ingestion, not fork Actions — PRs keep getting
 judged, nothing is lost, it is only queued until you resume.
@@ -174,6 +174,11 @@ reset their progress, delete them, or take over a team whose captain has
 vanished. It exists because the master reset used to be the only destructive
 control, so a single stuck contestant meant choosing between doing nothing and
 wiping the event.
+
+**Activity** is the live event log — sign-ins, solves, and team changes,
+newest first, filterable by type and login. Entries name the challenge or
+team involved, never a flag or an answer, and only the most recent few
+thousand are kept.
 
 **Insights** reports engagement — participation funnel, solves over time, a
 hardest-first challenge table with solve rate and time-to-solve, and hint

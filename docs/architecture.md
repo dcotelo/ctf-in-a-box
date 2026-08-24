@@ -636,6 +636,19 @@ without a rebuild:
   Lua script, so a change can never land without its audit line). Support
   actions (below) append here too, naming both the actor and the target.
 
+- **`ctf:activity:log`** (issue #212) — a capped list (`ACTIVITY_LOG_MAX` =
+  5000, `LPUSH`+`LTRIM` in one pipeline, so every write carries its own trim)
+  of contestant-facing events: sign-ins (recorded from better-auth's
+  after-hook on the OAuth callback), fresh quiz/classic solves, and team
+  create/join/leave/rename. Read only by the admin panel's **Activity** tab
+  (`GET /api/admin/activity`, admin-gated). Two invariants, both from
+  `activity-log.ts`: the writer **fails open** — it sits inside sign-in and
+  submission paths, and a lost log line must never fail the action it
+  describes — and the `detail` field carries **ids and slugs only, never
+  flags, answers, or hint text**. Wiped by the master reset alongside the
+  other progress keys; distinct from `ctf:admin:audit`, which records what
+  *organizers* changed.
+
 ### Support operations (ADR 48)
 
 `POST`/`DELETE /api/admin/ops/user` and `/api/admin/ops/team`, behind

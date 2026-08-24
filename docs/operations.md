@@ -102,7 +102,8 @@ needs a rebuild. Everyone else is granted from the panel itself, on the
 
 The controls are grouped into **tabs**: an **Event** tab for the settings that
 belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), an **Admins** tab, a **Support** tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
+seed, master reset), an **Admins** tab, a **Support** tab, an **Activity**
+tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
 tab, so an event that doesn't run a module never sees its settings at all.
 
@@ -292,6 +293,17 @@ The panel offers:
   flag solved by two teammates counts **once**, but a hint bought by two
   teammates is charged **twice** — hints are individually purchased, so
   redundant buying is the team's own coordination cost.
+
+- **Activity** (its own tab) — the live event log: sign-ins, quiz and
+  classic solves, and team create/join/leave/rename, newest first, with type
+  chips and a login filter. Backed by one capped Redis list
+  (`ctf:activity:log`, newest ~5,000 entries — older ones drop
+  automatically), written **fail-open** so a Redis blip can lose a log line
+  but never fail the sign-in or solve it describes. Entries carry the
+  challenge/question id or team slug — **never a flag, an answer, or hint
+  text** — and no IP or device data, which is what keeps the tab safe to
+  screen-share mid-event. Loaded on demand; the button doubles as refresh.
+  The master reset wipes it with the rest of the event's progress.
 
 - **Insights** (its own tab) — engagement metrics for the event, computed
   **entirely from data the box already stores**. Nothing is collected from

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn<(script: string, keys: string[], args: (string | number)[]) => Promise<unknown>>(),
   upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
+  logActivity: vi.fn<(type: string, login: string, detail?: string) => Promise<void>>(),
   cookieJar: new Map<string, string>(),
 }));
 
@@ -18,6 +19,10 @@ vi.mock("@/lib/upstash", () => ({
   upstashEval: mocks.upstashEval,
   upstashPipeline: mocks.upstashPipeline,
 }));
+// Mocked (not the real fail-open writer) so the pipeline-count pins below
+// keep counting only the store's OWN Redis traffic. The store->log wiring is
+// pinned in the "activity log" describe at the bottom.
+vi.mock("@/lib/activity-log", () => ({ logActivity: mocks.logActivity }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (mocks.cookieJar.has(name) ? { name, value: mocks.cookieJar.get(name) } : undefined),
@@ -983,5 +988,63 @@ describe("joinedAt / firstTeamAt", () => {
       expect(script).not.toMatch(/HDEL[^\n]*firstTeamAt/);
       expect(script).not.toMatch(/'DEL'[^\n]*firstTeamAt/);
     }
+  });
+});
+
+// Issue #212: every successful membership mutation writes one activity-log
+// entry (type + acting login + team slug — the slug, never anything richer),
+// and NO refusal path does. logActivity itself is fail-open (pinned in
+// activity-log.test.ts); these pin only that the store calls it at the right
+// moments.
+describe("activity log", () => {
+  it("logs team-create with the slug on a successful create", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.createTeam("octocat", "Red Team");
+    expect(mocks.logActivity).toHaveBeenCalledExactlyOnceWith("team-create", "octocat", "red-team");
+  });
+
+  it("logs team-join on a successful join, team-leave on a successful leave", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeLookup("red-team");
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.joinTeam("octocat", "somecode");
+    expect(mocks.logActivity).toHaveBeenCalledWith("team-join", "octocat", "red-team");
+
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.leaveTeam("octocat");
+    expect(mocks.logActivity).toHaveBeenCalledWith("team-leave", "octocat", "red-team");
+  });
+
+  it("logs team-rename against the captain, keyed by the unchanged slug", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    await store.renameTeam("captain", "red-team", "Crimson Team");
+    expect(mocks.logActivity).toHaveBeenCalledExactlyOnceWith("team-rename", "captain", "red-team");
+  });
+
+  it("logs nothing on a refusal", async () => {
+    const store = await loadStore(true);
+    mockRegistrationOpen();
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("already-on-team");
+    await store.createTeam("octocat", "Red Team");
+
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "red-team" }]);
+    mocks.upstashEval.mockResolvedValueOnce("captain-must-transfer");
+    await store.leaveTeam("captain");
+
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
+  it("logs nothing in mock (cookie) mode — a browser-local choice is not an event fact", async () => {
+    const store = await loadStore(false);
+    await store.createTeam("octocat", "Red Team");
+    expect(mocks.logActivity).not.toHaveBeenCalled();
   });
 });
