@@ -187,7 +187,7 @@ describe("profile per-module block content", () => {
     expect(html).toContain("/ 60 pts");
   });
 
-  it("nets hint spend into the secure-development module's own point total, matching the headline", async () => {
+  it("shows the module block GROSS and nets hint spend once, in the headline", async () => {
     isModuleEnabled.mockImplementation((id: string) => id === "secure-development" || id === "quiz");
     // Two resolved modules so `multiModule` is true and the per-module
     // heading (which carries the points figure under test) renders at all.
@@ -211,11 +211,14 @@ describe("profile per-module block content", () => {
 
     const html = renderToStaticMarkup(await ProfilePage());
 
-    // 40 raw - 10 hint spend = 30. NOT the raw 40. Pinned as the summary's
-    // adjacent earned + available spans, because AppBreakdown's per-app tile
-    // legitimately shows the raw 40 further down.
-    expect(html).toContain('>30</span><span class="text-muted"> / 100 pts</span>');
-    expect(html).not.toContain(">40 pts<");
+    // Module blocks are GROSS (40 raw), and the penalty nets the TOTAL
+    // exactly once — headline 30 (40 − 10) beside the −10 hints tile —
+    // matching the board's fold, which runs as the pipeline's LAST stage.
+    // Netting the block too double-counted the deduction visually, and the
+    // old scorer-only netting made hints free for module-only contestants.
+    expect(html).toContain('>40</span><span class="text-muted"> / 100 pts</span>');
+    expect(html).toContain(">30<"); // the headline points tile
+    expect(html).toContain("−10");
   });
 });
 
