@@ -53,74 +53,119 @@ const STOPS: { id: EventPhase; label: string }[] = [
   { id: "results", label: "results" },
 ];
 
+/** The current phase's node/chip color: green while scoring runs, amber for
+ *  a freeze, brand blue for the lobby, paper for the final state. */
+const PHASE_COLOR: Record<EventPhase, string> = {
+  registration: "#2563eb",
+  live: "#22c55e",
+  frozen: "#d4a017",
+  results: "#d4d4d8", // --foreground: the event's final, settled state
+
+};
+
+/** UTC pinned explicitly: this is a Server Component, so whatever the box's
+ *  clock renders is what every visitor sees — an unlabeled server-local time
+ *  would just be UTC wearing no badge. Saying "UTC" makes it honest. */
 function fmt(iso: string | null): string | null {
   if (!iso) return null;
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return new Date(ms).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
 }
 
 export default async function PhaseLine() {
   const resolved = await resolvePhase();
   if (!resolved) return null;
   const { phase, startsAt, endsAt } = resolved;
-  const activeIdx = STOPS.findIndex((s) => s.id === phase);
   // A live event that was never frozen skips the "frozen" stop entirely —
   // showing a phase that may never happen invites "when does it freeze?".
   const stops = phase === "frozen" ? STOPS : STOPS.filter((s) => s.id !== "frozen");
   const activeIn = stops.findIndex((s) => s.id === phase);
-  void activeIdx;
+  const color = PHASE_COLOR[phase];
+
+  // One boundary time, attached to the CURRENT phase — the moment a visitor
+  // would actually plan around. (A manual freeze has no known end, so it
+  // makes no promise.)
+  const boundary =
+    phase === "registration" && fmt(startsAt)
+      ? `scoring opens ${fmt(startsAt)} UTC`
+      : phase === "live" && fmt(endsAt)
+        ? `until ${fmt(endsAt)} UTC`
+        : phase === "results" && fmt(endsAt)
+          ? `ended ${fmt(endsAt)} UTC`
+          : null;
 
   return (
     <div className="border-b border-white/[0.09] bg-[#12121e]">
-      <ol
-        aria-label={`Event phase: ${phase}`}
-        className="mx-auto flex max-w-5xl items-center gap-0 overflow-x-auto px-6 py-1.5"
-      >
-        {stops.map((stop, i) => {
-          const isActive = i === activeIn;
-          const isPast = i < activeIn;
-          const time = stop.id === "live" ? fmt(startsAt) : stop.id === "results" ? fmt(endsAt) : null;
-          return (
-            <li key={stop.id} className="flex items-center">
-              {i > 0 && (
-                <span
-                  aria-hidden
-                  className={`mx-2 h-px w-6 sm:w-10 ${isPast || isActive ? "bg-white/40" : "bg-white/15"}`}
-                />
-              )}
-              <span className="flex items-center gap-1.5 whitespace-nowrap">
-                <span
-                  aria-hidden
-                  className={`h-2 w-2 flex-none rounded-full ${
-                    isActive
-                      ? phase === "live"
-                        ? "bg-[#22c55e]"
-                        : phase === "frozen"
-                          ? "bg-[#d4a017]"
-                          : "bg-[#2563eb]"
-                      : isPast
-                        ? "bg-white/50"
-                        : "border border-[#8f8f9b]/50"
-                  }`}
-                  style={isActive ? { animation: "head-breathe 4s ease-in-out infinite" } : undefined}
-                />
-                <span
-                  className={`font-mono text-[11px] uppercase tracking-wider ${
-                    isActive ? "text-white" : "text-[#8f8f9b]/80"
-                  }`}
-                >
-                  {stop.label}
-                  {isActive && <span className="ml-1 text-[#8f8f9b]">◀ now</span>}
+      <div className="mx-auto flex max-w-5xl items-center justify-center gap-3 overflow-x-auto px-6 py-2">
+        <ol aria-label={`Event phase: ${phase}`} className="flex items-center">
+          {stops.map((stop, i) => {
+            const isActive = i === activeIn;
+            const isPast = i < activeIn;
+            return (
+              <li key={stop.id} className="flex items-center">
+                {/* Connectors read as the branch itself: solid where the
+                    event has already travelled, dashed where it hasn't. */}
+                {i > 0 &&
+                  (i <= activeIn ? (
+                    <span aria-hidden className="mx-2.5 h-[2px] w-8 rounded-full bg-[#2563eb]/60 sm:w-14" />
+                  ) : (
+                    <span aria-hidden className="mx-2.5 w-8 border-t border-dashed border-white/20 sm:w-14" />
+                  ))}
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <span
+                    aria-hidden
+                    className={
+                      isActive
+                        ? "h-2.5 w-2.5 flex-none rounded-full"
+                        : isPast
+                          ? "h-2 w-2 flex-none rounded-full bg-[#2563eb]"
+                          : "h-2 w-2 flex-none rounded-full border border-[#8f8f9b]/50"
+                    }
+                    style={
+                      isActive
+                        ? { background: color, animation: "head-breathe 4s ease-in-out infinite" }
+                        : undefined
+                    }
+                  />
+                  <span
+                    className={`font-mono text-[11px] uppercase tracking-wider ${
+                      isActive ? "font-semibold text-white" : isPast ? "text-[#8f8f9b]" : "text-[#8f8f9b]/60"
+                    }`}
+                  >
+                    {stop.label}
+                  </span>
+                  {/* The HEAD marker as a git-style ref chip on the current
+                      commit — what "◀ now" was reaching for and not saying. */}
+                  {isActive && (
+                    <span
+                      className="rounded-sm border px-1 py-px font-mono text-[9px] lowercase"
+                      style={{
+                        color,
+                        borderColor: `${color}80`,
+                        background: `${color}1a`,
+                      }}
+                    >
+                      now
+                    </span>
+                  )}
                 </span>
-                {time && !isActive && (
-                  <span className="hidden font-mono text-[10px] text-[#8f8f9b]/60 sm:inline">{time}</span>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+              </li>
+            );
+          })}
+        </ol>
+        {boundary && (
+          <span className="hidden whitespace-nowrap font-mono text-[10px] text-[#8f8f9b] sm:inline">
+            {boundary}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
