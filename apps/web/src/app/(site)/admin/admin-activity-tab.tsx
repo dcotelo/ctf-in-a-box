@@ -156,6 +156,7 @@ export default function AdminActivityTab() {
             ))}
             <input
               type="text"
+              aria-label="Filter by login"
               value={loginFilter}
               onChange={(e) => setLoginFilter(e.target.value)}
               placeholder="filter by login"

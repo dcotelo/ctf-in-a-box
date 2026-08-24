@@ -252,9 +252,9 @@ export default async function PrivacyPage() {
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
           All of it is keyed to a public GitHub username and nothing more: no email, no real
           name, no device or location data. It lives in an Upstash Redis instance run for this
-          event. Being straight with you: this competition data has
-          no automatic expiry today, so treat it as kept until the organizers clear it down
-          after the event. You can ask for yours sooner. See below.
+          event. Being straight with you: apart from the activity log&apos;s rolling cap, this
+          competition data has no automatic expiry today, so treat it as kept until the
+          organizers clear it down after the event. You can ask for yours sooner. See below.
         </p>
       </Card>
 

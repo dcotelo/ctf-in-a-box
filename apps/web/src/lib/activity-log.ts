@@ -29,14 +29,22 @@ export type ActivityEntry = {
   detail?: string;
 };
 
+/** How long a caller waits on the log write before moving on. Fail-open has
+ *  to cover HANGS as well as errors: upstashPipeline's fetch carries no
+ *  timeout of its own, and this writer sits inside sign-in callbacks and
+ *  submit routes — a stalled Upstash request must not keep those pending. */
+const LOG_WRITE_TIMEOUT_MS = 1500;
+
 /**
  * Appends one entry and trims the list, in one pipeline — a caller can never
  * grow the list past the cap by racing the trim, because every write carries
  * its own.
  *
  * Fire-and-forget by contract: resolves (never rejects) whether or not the
- * write landed. Callers may `await` it for ordering or drop the promise;
- * neither can fail them.
+ * write landed, and resolves within LOG_WRITE_TIMEOUT_MS even if Redis
+ * hangs — the write itself is left running (it may still land) with its
+ * rejection handled, only the caller stops waiting. Callers may `await` it
+ * for ordering or drop the promise; neither can fail them.
  */
 export async function logActivity(type: ActivityType, login: string, detail?: string): Promise<void> {
   try {
@@ -46,13 +54,30 @@ export async function logActivity(type: ActivityType, login: string, detail?: st
       login,
       ...(detail ? { detail } : {}),
     });
-    await upstashPipeline([
+    // The catch is attached to the write BEFORE the race: if the timeout wins
+    // and the write rejects later, that rejection is already handled rather
+    // than surfacing as an unhandled rejection.
+    const write = upstashPipeline([
       ["LPUSH", ACTIVITY_LOG_KEY, entry],
       ["LTRIM", ACTIVITY_LOG_KEY, 0, ACTIVITY_LOG_MAX - 1],
-    ]);
+    ]).then(
+      () => undefined,
+      // The one place a lost log line surfaces at all. Deliberately not
+      // rethrown — see rule 1 in the header.
+      (err) => console.warn("[activity] log write failed", err),
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, LOG_WRITE_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([write, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   } catch (err) {
-    // The one place a lost log line surfaces at all. Deliberately not
-    // rethrown — see rule 1 in the header.
+    // Belt-and-braces for anything synchronous above (JSON.stringify can't
+    // realistically throw here, but rule 1 is absolute).
     console.warn("[activity] log write failed", err);
   }
 }

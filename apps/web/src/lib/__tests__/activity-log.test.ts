@@ -59,6 +59,28 @@ describe("logActivity", () => {
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  // Fail-open covers HANGS, not just rejections: this writer sits inside
+  // sign-in callbacks and submit routes, and upstashPipeline's fetch has no
+  // timeout of its own — a stalled Upstash request must not keep a login or
+  // a solve pending past LOG_WRITE_TIMEOUT_MS.
+  it("stops waiting on a hung write after the timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      upstash.upstashPipeline.mockReturnValue(new Promise(() => {})); // never settles
+      let resolved = false;
+      const pending = logActivity("login", "octocat").then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      await pending;
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("recordCallbackLogin", () => {
