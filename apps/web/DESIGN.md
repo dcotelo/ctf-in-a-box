@@ -20,7 +20,9 @@ redesign, what reverted, and the rules that keep the two coherent.
   flagship event is an OWASP event and says so.
 - **Structure = redesign.** The layouts shipped by the redesign stay:
   the landing as a pitch with one state-aware CTA, the challenge browser as
-  a flat filterable queue under sticky target headers, the leaderboard's
+  a stack of collapsible target progress cards (rows in a two-column grid
+  behind each; a single-target event auto-opens, any active filter
+  force-opens matches), the leaderboard's
   `?display=1` projector mode, the phase line, the check atom, the "Your
   run" rail on the classic board.
 

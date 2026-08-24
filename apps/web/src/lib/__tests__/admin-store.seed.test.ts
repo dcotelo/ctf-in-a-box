@@ -24,7 +24,10 @@ import {
 
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
-  mocks.upstashPipeline.mockResolvedValue([]);
+  // Answers BOTH pipelines the seed now runs: the settings read (HGETALL,
+  // which the clamp consumes — empty hash = no schedule = unclamped) and the
+  // write batch (whose return is unused).
+  mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
   mocks.isModuleEnabled.mockReset();
   mocks.isModuleEnabled.mockImplementation((id) => id === "quiz" || id === "classic");
 });
@@ -39,8 +42,10 @@ describe("seedDemoData", () => {
     );
     expect(out).toEqual({ contestants: DEMO_CONTESTANTS.length, teams: DEMO_TEAMS.length, solves: expectedSolves });
 
-    expect(mocks.upstashPipeline).toHaveBeenCalledOnce();
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    // Two pipeline calls now: the schedule read (for the timestamp clamp),
+    // then every write in ONE batch — the writes stay a single pipeline.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(2);
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
     // one HSET per solve, into ctf:solves:<target>
     const solveCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:"));
@@ -60,7 +65,7 @@ describe("seedDemoData", () => {
 
   it("spreads EACH contestant's solves across the window so lines interleave", async () => {
     await seedDemoData("bob");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     // pick the contestant with the most solves and check their own timestamps
     // span most of the ~6h window (not a narrow per-contestant block).
     const top = [...DEMO_CONTESTANTS].sort(
@@ -76,6 +81,54 @@ describe("seedDemoData", () => {
     expect(times[times.length - 1] - times[0]).toBeGreaterThan(windowMs * 0.5);
   });
 
+  // The clamp: seeded history must agree with the phase line. A seed clicked
+  // two hours into a scheduled event must not stamp solves before "scoring
+  // opens" — that put a full race on the chart dated before the schedule
+  // said scoring existed.
+  it("clamps every seeded timestamp inside the scoring window when one is set", async () => {
+    const startMs = Date.now() - 2 * 60 * 60 * 1000; // opened 2h ago
+    const endMs = Date.now() + 24 * 60 * 60 * 1000; // closes tomorrow
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      {
+        result: [
+          "scoringStartsAt",
+          new Date(startMs).toISOString(),
+          "scoringEndsAt",
+          new Date(endMs).toISOString(),
+        ],
+      },
+    ]);
+    await seedDemoData("alice");
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+    const stamps = cmds
+      .filter(
+        (c) =>
+          c[0] === "HSET" &&
+          (String(c[1]).startsWith("ctf:solves:") || String(c[1]).startsWith("ctf:quiz:answers:")),
+      )
+      .map((c) => Date.parse(String(c[3]).startsWith("{") ? (JSON.parse(String(c[3])) as { at: string }).at : String(c[3])));
+    expect(stamps.length).toBeGreaterThan(0);
+    for (const t of stamps) {
+      expect(t).toBeGreaterThanOrEqual(startMs);
+      expect(t).toBeLessThanOrEqual(Date.now());
+    }
+  });
+
+  it("falls back to the unclamped window when the schedule is entirely in the future", async () => {
+    const startMs = Date.now() + 60 * 60 * 1000; // opens in an hour
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: ["scoringStartsAt", new Date(startMs).toISOString()] },
+    ]);
+    await seedDemoData("alice");
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+    const stamps = cmds
+      .filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:"))
+      .map((c) => Date.parse(String(c[3])));
+    expect(stamps.length).toBeGreaterThan(0);
+    // Never future-dated — the fallback is yesterday's now-minus-6h window.
+    for (const t of stamps) expect(t).toBeLessThanOrEqual(Date.now());
+  });
+
   it("puts every demo contestant on a team (no soloists left off the team board)", () => {
     const teamed = new Set(DEMO_TEAMS.flatMap((t) => t.members));
     for (const c of DEMO_CONTESTANTS) expect(teamed.has(c.login)).toBe(true);
@@ -85,7 +138,7 @@ describe("seedDemoData", () => {
 
   it("seeds demo questions and answers so DEMO_MODE shows two scoring modules", async () => {
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
     // a mix of single and multi questions
     expect(DEMO_QUESTIONS.some((q) => q.type === "single")).toBe(true);
@@ -167,13 +220,13 @@ describe("seedDemoData", () => {
   it("writes no ctf:quiz:* keys when the quiz module is disabled", async () => {
     mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:quiz:"))).toBe(false);
   });
 
   it("seeds classic challenges + both flag hashes, with NO flag in the public record", async () => {
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
     expect(DEMO_CHALLENGES.length).toBeGreaterThanOrEqual(8);
     expect(new Set(DEMO_CHALLENGES.map((c) => c.category)).size).toBeGreaterThanOrEqual(3);
@@ -213,7 +266,7 @@ describe("seedDemoData", () => {
 
   it("seeds classic solves so aggregates agree with the per-login rows and solvecount", async () => {
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
     expect(DEMO_CLASSIC_SOLVES.length).toBeGreaterThan(0);
 
@@ -267,7 +320,7 @@ describe("seedDemoData", () => {
   it("writes no ctf:classic:* keys when the classic module is disabled", async () => {
     mocks.isModuleEnabled.mockImplementation((id) => id === "quiz");
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:classic:"))).toBe(false);
   });
 
@@ -285,7 +338,7 @@ describe("seedDemoData", () => {
   ] as const) {
     it(`records how many tries each seeded ${module} item took`, async () => {
       await seedDemoData("alice");
-      const cmds = mocks.upstashPipeline.mock.calls[0][0];
+      const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
       const attemptCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith(prefix));
       const earnedCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith(earnedPrefix));
@@ -319,7 +372,7 @@ describe("seedDemoData", () => {
 
   it("leaves some items attempted but never earned, so solve rates are not all 100%", async () => {
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
     // At least one (login, id) pair that has an attempt row and NO earned row.
     // This is the pair that makes a solve rate fall below 100%: the metrics
@@ -347,7 +400,7 @@ describe("seedDemoData", () => {
     // A first try is not the moment the contestant met the challenge; the
     // reading came first.
     await seedDemoData("alice");
-    const rows = mocks.upstashPipeline.mock.calls[0][0]
+    const rows = mocks.upstashPipeline.mock.calls.at(-1)![0]
       .filter((c) => c[0] === "HSET" && /^ctf:(quiz|classic):attempts:/.test(String(c[1])))
       .map((c) => JSON.parse(String(c[3])) as { attempts: number; firstAt: string; lastAtMs: number });
 
@@ -362,7 +415,7 @@ describe("seedDemoData", () => {
 
   it("takes more than one try on some items, so average tries is not a flat 1.0", async () => {
     await seedDemoData("alice");
-    const cmds = mocks.upstashPipeline.mock.calls[0][0];
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     const tries = cmds
       .filter((c) => c[0] === "HSET" && /^ctf:(quiz|classic):attempts:/.test(String(c[1])))
       .map((c) => JSON.parse(String(c[3])).attempts as number);
@@ -375,7 +428,7 @@ describe("seedDemoData", () => {
     // with a time derived from Date.now() per-run, would break that quietly:
     // the second seed would double the tries instead of replacing them.
     await seedDemoData("alice");
-    const first = mocks.upstashPipeline.mock.calls[0][0].filter(
+    const first = mocks.upstashPipeline.mock.calls.at(-1)![0].filter(
       (c) => /^ctf:(quiz|classic):attempts:/.test(String(c[1])),
     );
     // Non-empty FIRST. Both assertions below are `.every()`, which is

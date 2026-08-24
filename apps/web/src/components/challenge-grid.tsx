@@ -61,6 +61,17 @@ export default function ChallengeGrid({
   const [state, setState] = useState<StateFilter>("all");
   const q = query.trim().toLowerCase();
 
+  // Per-target expansion. At rest the browser is a stack of target progress
+  // cards, not a 321-row wall. Three rules decide whether a section's rows
+  // show: a single-target event always shows them (an accordion of one is
+  // pure friction), ANY active filter shows every matching section (a search
+  // that lands behind a closed card reads as "no results"), and otherwise the
+  // viewer's own toggle decides.
+  const [open, setOpen] = useState<Partial<Record<AppId, boolean>>>({});
+  const filtersActive = q !== "" || target !== "all" || category !== "all" || state !== "all";
+  const forceOpen = apps.length === 1 || filtersActive;
+  const sectionOpen = (id: AppId) => forceOpen || (open[id] ?? false);
+
   const hintsActive = Object.keys(hints).length > 0;
   const { data: session, isPending } = authClient.useSession();
   // Hydration guard, same race as auth-nav's: the session store can resolve
@@ -293,30 +304,72 @@ export default function ChallengeGrid({
         </div>
       ) : (
         <div className="flex flex-col">
-          {sections.map(({ app, rows, total, solvedCount, earnedPoints, maxPoints }) => (
-            <section key={app.id} className="mb-6">
-              {/* Sticky under the site header (h-14 = 56px). */}
-              <div className="sticky top-14 z-10 -mx-1 flex items-baseline gap-3 border-b border-white/[0.09] bg-[#1a1a2e]/95 px-1 py-2 backdrop-blur">
-                <h2 className="text-base font-bold text-white">{app.name}</h2>
-                {anySolvedData && (
-                  <span className="font-mono text-xs tabular-nums text-[#22c55e]">
-                    {solvedCount}/{total} patched
-                    <span className="text-muted">
-                      {" "}
-                      · {earnedPoints}/{maxPoints} pts
+          {sections.map(({ app, rows, total, solvedCount, earnedPoints, maxPoints }) => {
+            const isOpen = sectionOpen(app.id);
+            return (
+            <section key={app.id} className="mb-3 rounded-lg border border-white/[0.06] bg-[#16162a]">
+              {/* The target header is the section's summary AND its toggle:
+                  321 rows as one flat wall was the complaint, so at rest the
+                  page is six progress cards and the rows live behind them. */}
+              <div className="flex items-center gap-3 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setOpen((prev) => ({ ...prev, [app.id]: !isOpen }))}
+                  aria-expanded={isOpen}
+                  disabled={forceOpen}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] disabled:cursor-default"
+                >
+                  {!forceOpen && (
+                    <svg
+                      aria-hidden
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className={`flex-none text-muted transition-transform ${isOpen ? "rotate-90" : ""}`}
+                    >
+                      <path d="m9 6 6 6-6 6" />
+                    </svg>
+                  )}
+                  <h2 className="text-base font-bold text-white">{app.name}</h2>
+                  {anySolvedData ? (
+                    <span className="font-mono text-xs tabular-nums text-[#22c55e]">
+                      {solvedCount}/{total} patched
+                      <span className="text-muted">
+                        {" "}
+                        · {earnedPoints}/{maxPoints} pts
+                      </span>
                     </span>
-                  </span>
-                )}
+                  ) : (
+                    <span className="font-mono text-xs tabular-nums text-muted">
+                      {total} challenges · {maxPoints} pts
+                    </span>
+                  )}
+                </button>
+                {/* Outside the toggle — a link nested in a button is invalid
+                    and unreachable by keyboard. */}
                 <a
                   href={app.repo}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="ml-auto hidden font-mono text-xs text-zinc-500 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:inline"
+                  className="ml-auto hidden flex-none font-mono text-xs text-zinc-500 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:inline"
                 >
                   {app.repo.replace("https://github.com/", "")}
                 </a>
               </div>
-              <ul>
+              {/* The viewer's ground gained on this target, visible collapsed. */}
+              {anySolvedData && (
+                <div aria-hidden className="mx-4 mb-0 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
+                    style={{ width: `${total > 0 ? (solvedCount / total) * 100 : 0}%` }}
+                  />
+                </div>
+              )}
+              {isOpen && (
+              <ul className="grid grid-cols-1 gap-x-8 px-4 pb-3 pt-2 md:grid-cols-2">
                 {rows.map((c) => {
                   const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
                   const ownedText = purchased[app.id]?.[c.id];
@@ -356,8 +409,10 @@ export default function ChallengeGrid({
                   );
                 })}
               </ul>
+              )}
             </section>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -76,6 +76,42 @@ describe("ChallengeGrid (queue)", () => {
     expect(html).toContain("1/2 pts");
   });
 
+  // The at-rest shape: a stack of target progress cards, not a row wall.
+  // Rows render only for an expanded section — a single-target event
+  // auto-opens (which is why every fixture above sees its rows), and any
+  // active filter force-opens matching sections client-side.
+  it("collapses every target to a progress card when the event has more than one", () => {
+    const juice: AppMeta = { ...dvwa, id: "juice-shop", name: "Juice Shop" };
+    const juiceRows: CatalogChallenge[] = [
+      { app: "juice-shop", id: "xss-low", description: "DOM XSS", points: 1, owasp: { code: "A03", label: "Injection", url: null } },
+    ];
+    const html = renderToStaticMarkup(
+      <ChallengeGrid
+        apps={[dvwa, juice]}
+        catalog={{ dvwa: rows, "juice-shop": juiceRows }}
+        hints={{}}
+        solved={{ dvwa: ["sqli-low"] }}
+      />,
+    );
+    // Headers carry the summary (name, progress, per-target bar)…
+    expect(html).toContain("DVWA");
+    expect(html).toContain("Juice Shop");
+    expect(html).toContain("1/2 patched");
+    expect(html).toContain('aria-expanded="false"');
+    // …and the rows themselves stay behind the toggle.
+    expect(html).not.toContain("SQL Injection (Low)");
+    expect(html).not.toContain("DOM XSS");
+  });
+
+  it("shows a signed-out viewer each card's size instead of progress", () => {
+    const juice: AppMeta = { ...dvwa, id: "juice-shop", name: "Juice Shop" };
+    const html = renderToStaticMarkup(
+      <ChallengeGrid apps={[dvwa, juice]} catalog={{ dvwa: rows, "juice-shop": [] }} hints={{}} />,
+    );
+    expect(html).toContain("2 challenges · 2 pts");
+    expect(html).not.toContain("patched");
+  });
+
   it("falls back to summary cards without a live catalogue", () => {
     const html = renderToStaticMarkup(<ChallengeGrid apps={[dvwa]} catalog={null} hints={{}} />);
     expect(html).toContain("DVWA");

@@ -633,7 +633,26 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
 
   const cmds: (string | number)[][] = [];
-  const base = now - windowMs;
+  // The seed window: the last ~6h, CLAMPED to the scoring schedule when one
+  // is set — a fixture stamped before "scoring opens" puts a full race on the
+  // chart dated before the phase line says scoring existed, on exactly the
+  // demo an organizer inspects first. The window ends at now (or the scoring
+  // close, if that already passed) and starts no earlier than the scoring
+  // open. A schedule entirely in the future has no valid past instant to
+  // clamp to, so it falls back to the unclamped window — future-dated solves
+  // would be a worse lie than a mistimed one.
+  // Best-effort: a settings blip must not fail the seed — it just seeds
+  // unclamped, which is yesterday's behavior.
+  const settings = await getAdminSettings().catch(() => null);
+  const scoringStartMs = settings?.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
+  const scoringEndMs = settings?.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
+  let end = Number.isFinite(scoringEndMs) ? Math.min(now, scoringEndMs) : now;
+  let base = Math.max(end - windowMs, Number.isFinite(scoringStartMs) ? scoringStartMs : end - windowMs);
+  if (!(base < end)) {
+    base = now - windowMs;
+    end = now;
+  }
+  const spanMs = end - base;
   const n = DEMO_CONTESTANTS.length;
   // Spread EACH contestant's solves across the whole window (not a per-contestant
   // block), so every line rises throughout and they interleave. A per-contestant
@@ -645,13 +664,13 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     for (const [target, ids] of Object.entries(c.solves)) {
       for (const id of ids) {
         const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
-        const ts = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+        const ts = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
         cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
         j++;
       }
     }
   });
-  const createdAt = new Date(now - windowMs).toISOString();
+  const createdAt = new Date(base).toISOString();
   for (const t of DEMO_TEAMS) {
     cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);
     if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
@@ -698,7 +717,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const q = questionsById.get(questionId);
       if (!q) return; // fixture-consistency guard; should never trigger
       const frac = nAnswers > 0 ? (i + 0.5) / nAnswers : 0.5;
-      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      const at = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
       // Same shared recipe as the key above: a demo answer's banked
       // `choices` is always the question's full correct set (it's recorded
       // as correct), stored the same way GRADE_SCRIPT stores a live one.
@@ -735,7 +754,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const answered = answeredBy.get(c.login) ?? new Set<string>();
       const missed = DEMO_QUESTIONS.find((q) => !answered.has(q.id));
       if (!missed) return;
-      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * windowMs).toISOString();
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
       cmds.push(["HSET", quizAttemptsKey(c.login), missed.id, demoAttemptRow(1 + (ci % 2), at, 5 + (ci % 4))]);
     });
 
@@ -786,7 +805,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const challenge = challengesById.get(challengeId);
       if (!challenge) return; // fixture-consistency guard; should never trigger
       const frac = nSolves > 0 ? (i + 0.5) / nSolves : 0.5;
-      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      const at = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
       cmds.push(["HSET", classicSolvesKey(login), challengeId, JSON.stringify({ points: challenge.points, at })]);
       // Same reasoning as the quiz attempt row above: index-derived, not random.
       cmds.push([
@@ -815,7 +834,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const solved = solvedBy.get(c.login) ?? new Set<string>();
       const missed = DEMO_CHALLENGES.find((ch) => !solved.has(ch.id));
       if (!missed) return;
-      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * windowMs).toISOString();
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
       cmds.push(["HSET", classicAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 3), at, 4 + (ci % 5))]);
     });
 
