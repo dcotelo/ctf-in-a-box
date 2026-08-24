@@ -284,7 +284,8 @@ export function EntryRow({
 export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modules = [] }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void; modules?: readonly ResolvedModule[] }) {
   // Per-module vocabulary for the completed count — the same distinction the
   // module guides draw ("answered" a question, "solved" a flag/challenge).
-  const completedNoun = (id: string) => (id === "quiz" ? "answered" : "solved");
+  const completedNoun = (id: string) =>
+    id === "quiz" ? "answered" : id === "secure-development" ? "patched" : "solved";
   return (
     <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
       <button
