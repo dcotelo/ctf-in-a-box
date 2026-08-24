@@ -214,15 +214,23 @@ export default async function Home() {
             )}
           </div>
 
+          {/* Each hero lede carries its module's name once a second module
+              contributes: three anonymous stacked paragraphs read as one
+              essay that keeps changing subject, and the reader only learns
+              which game each described by scrolling to the full sections
+              below (issue #200, tier 4). One module needs no label — its
+              paragraph IS the event. */}
           {sections.map(
             (section) =>
               section.intro && (
-                <p
-                  key={section.id}
-                  className="max-w-2xl text-balance text-base leading-relaxed text-zinc-400"
-                >
-                  {section.intro}
-                </p>
+                <div key={section.id} className="flex max-w-2xl flex-col items-center gap-1">
+                  {sections.length > 1 && (
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted">{section.title}</p>
+                  )}
+                  <p className="text-balance text-base leading-relaxed text-zinc-400">
+                    {section.intro}
+                  </p>
+                </div>
               ),
           )}
 

@@ -27,8 +27,14 @@ export const metadata: Metadata = {
 // folds every enabled module (issue #200, 1.4). A lede that names one
 // module's currency on a shared board misinforms; the plain statement is
 // true on every event including a secure-development-only one.
-const description =
-  "Live contestant rankings from every enabled challenge board. Sign in with GitHub to highlight your own row and unlock your profile.";
+//
+// The sign-in clause renders only for the visitor it applies to: telling a
+// signed-in contestant to "Sign in with GitHub" reads as broken state
+// detection (issue #200, 3.1 — the same fix the hint banner got). The page
+// already loads the session for the YOU-row highlight, so this costs
+// nothing.
+const BASE_DESCRIPTION = "Live contestant rankings from every enabled challenge board.";
+const SIGNED_OUT_CLAUSE = " Sign in with GitHub to highlight your own row and unlock your profile.";
 
 export default async function LeaderboardPage() {
   const source = getLeaderboardSource();
@@ -62,7 +68,7 @@ export default async function LeaderboardPage() {
       <PageHeader
         eyebrow="Standings"
         title="Leaderboard"
-        description={description}
+        description={session ? BASE_DESCRIPTION : BASE_DESCRIPTION + SIGNED_OUT_CLAUSE}
       />
       {getLeaderboardSourceMode() === "mock" && <MockDataNotice />}
       {/* data.series/teamSeries pass straight through this spread — the

@@ -58,6 +58,16 @@ describe("landing page with two modules enabled", () => {
     expect(html).toContain("Answer security questions for points.");
   });
 
+  // Three stacked anonymous paragraphs read as one essay that keeps changing
+  // subject (issue #200, tier 4) — each hero lede now carries its module's
+  // RESOLVED title, so the label sits before its paragraph and before the
+  // full sections further down.
+  it("labels each hero lede with its module's resolved title", () => {
+    const heroLabel = html.indexOf("Round 1");
+    expect(heroLabel).toBeGreaterThan(-1);
+    expect(heroLabel).toBeLessThan(html.indexOf("Answer security questions for points."));
+  });
+
   it("renders both modules' CTAs, in registry order, alongside the platform's", () => {
     expect(html.indexOf("How to play")).toBeLessThan(html.indexOf("Browse targets"));
     expect(html.indexOf("Browse targets")).toBeLessThan(html.indexOf("Take the quiz"));
@@ -77,7 +87,10 @@ describe("landing page with two modules enabled", () => {
 
   it("keeps the bring-your-agent section attached to secure-development only", () => {
     expect(html).toContain("Please use AI");
-    expect(html.indexOf("Please use AI")).toBeLessThan(html.indexOf("Round 1"));
+    // lastIndexOf: the hero now labels each module's lede with its title
+    // (issue #200, tier 4), so the FIRST "Round 1" is the hero label near the
+    // top. The section this ordering guards against is the LAST occurrence.
+    expect(html.indexOf("Please use AI")).toBeLessThan(html.lastIndexOf("Round 1"));
   });
 
   it("still renders the secure-development targets grid", () => {

@@ -132,7 +132,13 @@ export default async function QuizPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={blurb} />
+      {/* The eyebrow names WHAT THE PAGE LISTS, the title names the module —
+          eyebrow={moduleTitle} rendered the same words twice, stacked
+          ("QUIZ" over "Quiz"), which read as a template slip rather than a
+          kicker (issue #200, tier 4). Same pattern as /challenges' own
+          "Targets" eyebrow, and it stays accurate whatever the organizer
+          renames the module to. */}
+      <PageHeader eyebrow="Questions" title={moduleTitle} description={blurb} />
       {/* The progress line sits OUTSIDE the empty-state branch on purpose. It
           used to be the header description, which rendered whatever the
           question count was; moving it into the populated branch quietly took

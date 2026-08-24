@@ -494,8 +494,14 @@ git push -u origin fix/<short-description>`,
     // patches, hints — which is exactly why none of them can stay in the
     // platform's own list.
     rules: (ctx) => ({
+      // The generic "your GitHub login is your identity" sentence lives in
+      // the platform's own Teams list now — three modules each restating it
+      // rendered as three near-identical adjacent bullets (issue #200,
+      // tier 4). This module keeps only the nuance the generic sentence
+      // cannot carry: points credit the PULL REQUEST'S author, which is not
+      // automatically the signed-in session.
       teams: [
-        "Your GitHub login is your identity for scoring. Submit every pull request from the account you signed in with.",
+        "Points for a patch credit the pull request's author — open every PR from the same GitHub account you sign in with, or your score lands on a row you can't see.",
       ],
       fairPlay: [
         `Only the ${ctx.appCount} challenge ${ctx.appCount === 1 ? "target" : "targets"} (${ctx.appList}) ${ctx.appCount === 1 ? "is" : "are"} in scope. Do not attack the CI scoring pipeline, the leaderboard, or other contestants' forks.`,
@@ -718,9 +724,9 @@ git push -u origin fix/<short-description>`,
       cta: { href: "/quiz", label: "Take the quiz" },
     },
     rules: () => ({
-      teams: [
-        "Your GitHub login is your identity for scoring. Answer from the account you signed in with.",
-      ],
+      // No teams bullet: the identity rule is the platform's one sentence
+      // now, and quiz had no module-specific nuance to add to it.
+      teams: [],
       fairPlay: [
         "The published questions are the whole game. Do not attack the scoring pipeline, the leaderboard, or other contestants' accounts.",
         "Submit your own work. Don't publish answers for others to copy during the event.",
@@ -910,9 +916,9 @@ git push -u origin fix/<short-description>`,
       cta: { href: "/flags", label: "Browse the flags" },
     },
     rules: () => ({
-      teams: [
-        "Your GitHub login is your identity for scoring. Submit flags from the account you signed in with.",
-      ],
+      // No teams bullet: the identity rule is the platform's one sentence
+      // now, and classic had no module-specific nuance to add to it.
+      teams: [],
       fairPlay: [
         "The published flags are the whole game. Do not attack the scoring pipeline, the leaderboard, or other contestants' accounts.",
         "Submit your own work. Don't publish flags or writeups for others to copy during the event.",
