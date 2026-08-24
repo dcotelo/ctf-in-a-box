@@ -7,7 +7,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { eventConfig } from "@/lib/event-config";
@@ -26,9 +26,27 @@ const adminSet = new Set(eventConfig.admins.map((a) => a.toLowerCase()));
 const isBakedAdmin = (login: string | undefined) =>
   typeof login === "string" && adminSet.has(login.toLowerCase());
 
+// The pages that only make sense WITH a session. Signing out anywhere else
+// stays put (a refresh re-renders the same public page signed out), but
+// signing out here used to refresh in place too — landing the person on
+// /admin's "Forbidden" wall or /profile's sign-in prompt, which reads as an
+// error when all they did was sign out.
+const SESSION_ONLY_PREFIXES = ["/admin", "/profile"] as const;
+
+/** Where to send someone after sign-out: home from a session-gated page,
+ *  `null` (= refresh in place) from a public one. Prefix matching is
+ *  segment-aware so a hypothetical public /profiles never false-positives.
+ *  Exported for direct testing — the click handler is client state a static
+ *  render cannot drive. */
+export function signOutDestination(pathname: string): string | null {
+  const gated = SESSION_ONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return gated ? "/" : null;
+}
+
 export default function AuthNav() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   // Hydration guard. The server always renders the pending placeholder, but
   // useSession() is backed by a client store whose fetch can RESOLVE before
@@ -142,6 +160,12 @@ export default function AuthNav() {
             role="menuitem"
             onClick={async () => {
               await authClient.signOut();
+              // Session-gated pages redirect home instead of refreshing in
+              // place — see signOutDestination. router.refresh() runs in both
+              // branches so the router's server-component cache drops the
+              // signed-in render either way.
+              const destination = signOutDestination(pathname);
+              if (destination) router.push(destination);
               router.refresh();
             }}
             className="block w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-white/[0.06] hover:text-white"
