@@ -46,7 +46,7 @@ function RankChip({ rank }: { rank: number }) {
   const podium = PODIUM[rank];
   return (
     <span
-      className="flex h-9 w-9 flex-none items-center justify-center rounded-md font-mono text-sm font-bold tabular-nums"
+      className="flex h-10 w-10 flex-none items-center justify-center rounded-md font-display text-lg font-black tabular-nums"
       style={{
         color: podium ?? "#71717a",
         borderWidth: 1,
@@ -204,7 +204,7 @@ export function EntryRow({
 
           <div className="flex flex-none items-center gap-5 text-right">
             <div>
-              <p className="font-mono text-base font-bold tabular-nums text-white">
+              <p className="font-mono text-xl font-bold tabular-nums text-white">
                 {entry.points.toLocaleString()}
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
@@ -306,7 +306,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
           </div>
           <div className="flex flex-none items-center gap-5 text-right">
             <div>
-              <p className="font-mono text-base font-bold tabular-nums text-white">
+              <p className="font-mono text-xl font-bold tabular-nums text-white">
                 {team.points.toLocaleString()}
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
@@ -562,6 +562,15 @@ export default function Leaderboard({
           />
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          {/* The projector surface: chrome-free top ten at wall size. A link,
+              not state — organizers open it in its own tab/window. */}
+          <Link
+            href="/leaderboard?display=1"
+            className="rounded-full border border-white/10 px-3 py-1 text-xs font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d29922]"
+          >
+            Display mode
+          </Link>
         {showTeamsToggle && (
           <div className="flex flex-wrap items-center gap-2">
             {(["individual", "teams"] as View[]).map((v) => (
@@ -581,6 +590,7 @@ export default function Leaderboard({
             ))}
           </div>
         )}
+        </div>
       </div>
       )}
 
