@@ -11,6 +11,7 @@ import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import ModuleDetail from "@/components/module-detail";
 import TeamCard from "@/components/team-card";
+import TeamProgress from "@/components/team-progress";
 import type { AppId } from "@/lib/apps";
 import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
@@ -21,8 +22,11 @@ import {
   type ClassicTotal,
 } from "@/lib/classic-store";
 import { getViewerHints } from "@/lib/hint-store";
-import type { AppProgress, LeaderboardEntry, ModuleProgress } from "@/lib/leaderboard/types";
+import type { AppProgress, LeaderboardEntry, ModuleProgress, TeamStanding } from "@/lib/leaderboard/types";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
+import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
+import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
+import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { challengeTotal } from "@/lib/leaderboard/non-patched";
 import { type ModuleId } from "@/lib/modules";
 import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
@@ -104,6 +108,32 @@ export default async function ProfilePage() {
     (profile?.team ? { slug: profile.team, name: profile.teamName ?? profile.team, members: [] } : null);
   const effectiveTeam = team?.slug ?? null;
   const teamMeta = team ? await getTeamMeta(team.slug) : { captain: null, joinCode: null };
+
+  // The team's scoring picture, from the SAME pipeline (and the same overlay
+  // order) the public leaderboard runs, so the panel and the board can never
+  // disagree about the team's total. A failed read drops the panel, never the
+  // page — this is a progress display, not a gate.
+  let teamStanding: TeamStanding | null = null;
+  let teamMemberEntries: { login: string; entry: LeaderboardEntry | null }[] = [];
+  if (team) {
+    try {
+      const data = await getLeaderboardSource()
+        .getLeaderboard()
+        .then(withHintPenalties)
+        .then(withModuleContributions)
+        .then(withTeamStandings);
+      teamStanding = data.teams.find((t) => t.slug === team.slug) ?? null;
+      // The store's roster wins; the standing's member list covers the mock
+      // fallback path where `team.members` arrives empty.
+      const roster = team.members.length > 0 ? team.members : (teamStanding?.members ?? []);
+      teamMemberEntries = roster.map((member) => ({
+        login: member,
+        entry: data.entries.find((e) => e.login === member) ?? null,
+      }));
+    } catch {
+      teamStanding = null;
+    }
+  }
   const isCaptain = teamMeta.captain !== null && teamMeta.captain === login;
   // Both derived through the SAME helper the public leaderboard row uses, so
   // a contestant's own dossier and their board row can't disagree about what
@@ -248,6 +278,17 @@ export default async function ProfilePage() {
               style={{ width: `${progressPct}%` }}
             />
           </div>
+          {/* The bar says WHAT it measures — an unlabeled bar reads as
+              decoration, and its denominator (every enabled module's points)
+              is not guessable. Falls back to the same done/total pair the
+              percentage itself falls back to. */}
+          <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted">
+            {maxPointsAllModules > 0
+              ? `${netPoints.toLocaleString("en-US")} of ${maxPointsAllModules.toLocaleString("en-US")} pts available`
+              : challengeCount > 0
+                ? `${patchedCount} of ${challengeCount} done`
+                : null}
+          </p>
         </div>
         <div className="flex flex-none gap-6 text-right">
           <div>
@@ -303,7 +344,7 @@ export default async function ProfilePage() {
           contestant to (lib/require-team.ts). Without it they land at the top
           of a page of stats with no indication of why they were moved.
           `scroll-mt-*` keeps the card clear of the sticky header. */}
-      <div id="team" className="scroll-mt-24">
+      <div id="team" className="scroll-mt-24 flex flex-col gap-4">
         <TeamCard
           team={team}
           writesEnabled={TEAM_WRITES_ENABLED}
@@ -312,6 +353,13 @@ export default async function ProfilePage() {
           captain={teamMeta.captain}
           joinCode={teamMeta.joinCode}
         />
+        {teamStanding && teamMemberEntries.length > 0 && (
+          <TeamProgress
+            standing={teamStanding}
+            memberEntries={teamMemberEntries}
+            viewerLogin={login}
+          />
+        )}
       </div>
 
       {/* Each enabled module's own contribution — driven off `moduleBlocks`

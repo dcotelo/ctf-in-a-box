@@ -211,10 +211,12 @@ export default function ClassicBoard({
     })
     .filter((r) => r.total > 0);
   const solvedTotal = run.reduce((n, r) => n + r.solved, 0);
+  const boardTotal = run.reduce((n, r) => n + r.total, 0);
   const pointsTotal = challenges.reduce(
     (n, c) => n + (c.status === "solved" ? c.earnedPoints : 0),
     0,
   );
+  const pointsAvailable = challenges.reduce((n, c) => n + c.points, 0);
   const anchorFor = (category: string) => `cat-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
   return (
@@ -229,9 +231,16 @@ export default function ClassicBoard({
           <p className="hidden font-mono text-[11px] uppercase tracking-wider text-muted lg:block">
             Your run
           </p>
+          {/* Both figures carry their denominators — a bare "3 solved" says
+              nothing about how much board is left. */}
           <p className="font-mono text-sm tabular-nums">
-            <span className="text-[#22c55e]">{solvedTotal} solved</span>
-            <span className="text-muted"> · {pointsTotal.toLocaleString("en-US")} pts</span>
+            <span className="text-[#22c55e]">
+              {solvedTotal} / {boardTotal} solved
+            </span>
+            <span className="text-muted">
+              {" "}
+              · {pointsTotal.toLocaleString("en-US")} / {pointsAvailable.toLocaleString("en-US")} pts
+            </span>
           </p>
           <ul className="flex flex-row flex-wrap gap-x-4 gap-y-1.5 lg:flex-col">
             {run.map((r) => (

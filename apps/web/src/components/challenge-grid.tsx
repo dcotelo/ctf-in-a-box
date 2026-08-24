@@ -149,14 +149,59 @@ export default function ChallengeGrid({
         if (q !== "" && !matchChallenge(c, q) && !app.name.toLowerCase().includes(q)) return false;
         return true;
       });
-      return { app, rows, total: all.length, solvedCount: all.filter((c) => solvedHere.has(c.id)).length };
+      return {
+        app,
+        rows,
+        total: all.length,
+        solvedCount: all.filter((c) => solvedHere.has(c.id)).length,
+        earnedPoints: all.reduce((n, c) => n + (solvedHere.has(c.id) ? c.points : 0), 0),
+        maxPoints: all.reduce((n, c) => n + c.points, 0),
+      };
     })
     .filter((s) => s.rows.length > 0);
 
   const shown = sections.reduce((n, s) => n + s.rows.length, 0);
 
+  // The viewer's whole-board progress, computed over the FULL catalogue (not
+  // the filtered rows) so narrowing the view never shrinks the totals.
+  const overall = { solved: 0, total: 0, earned: 0, max: 0 };
+  for (const app of apps) {
+    const all = catalog[app.id] ?? [];
+    const solvedHere = solvedSets.get(app.id) ?? new Set<string>();
+    overall.total += all.length;
+    for (const c of all) {
+      overall.max += c.points;
+      if (solvedHere.has(c.id)) {
+        overall.solved += 1;
+        overall.earned += c.points;
+      }
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
+      {/* The viewer's whole-board progress — full-catalogue totals that never
+          move when the filters below narrow the view. Only once solved data
+          exists: signed out there is nothing personal to summarize. */}
+      {anySolvedData && overall.total > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-white/[0.06] bg-[#16162a] px-4 py-3">
+          <p className="font-mono text-sm tabular-nums">
+            <span className="text-[#22c55e]">{overall.solved}</span>
+            <span className="text-muted"> / {overall.total} patched</span>
+          </p>
+          <p className="font-mono text-sm tabular-nums">
+            <span className="text-white">{overall.earned.toLocaleString("en-US")}</span>
+            <span className="text-muted"> / {overall.max.toLocaleString("en-US")} pts</span>
+          </p>
+          <div className="h-1.5 min-w-24 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
+              style={{ width: `${(overall.solved / overall.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full sm:w-64">
@@ -236,7 +281,7 @@ export default function ChallengeGrid({
         </div>
       ) : (
         <div className="flex flex-col">
-          {sections.map(({ app, rows, total, solvedCount }) => (
+          {sections.map(({ app, rows, total, solvedCount, earnedPoints, maxPoints }) => (
             <section key={app.id} className="mb-6">
               {/* Sticky under the site header (h-14 = 56px). */}
               <div className="sticky top-14 z-10 -mx-1 flex items-baseline gap-3 border-b border-white/[0.09] bg-[#1a1a2e]/95 px-1 py-2 backdrop-blur">
@@ -244,6 +289,10 @@ export default function ChallengeGrid({
                 {anySolvedData && (
                   <span className="font-mono text-xs tabular-nums text-[#22c55e]">
                     {solvedCount}/{total} patched
+                    <span className="text-muted">
+                      {" "}
+                      · {earnedPoints}/{maxPoints} pts
+                    </span>
                   </span>
                 )}
                 <a

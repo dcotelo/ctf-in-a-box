@@ -88,6 +88,26 @@ describe("QuizBoard", () => {
     expect(html).not.toMatch(/submit answer/i);
   });
 
+  // The board's progress strip: answered/total and earned/available, so the
+  // page answers "how far along am I" without scrolling — and never for a
+  // signed-out visitor, who has no personal progress to summarize.
+  it("shows a signed-in viewer answered-of-total and earned-of-available points", () => {
+    const answered: QuizQuestionView = { ...singleChoiceQuestion, status: "answered", earnedPoints: 10 };
+    const html = renderToStaticMarkup(
+      <QuizBoard questions={[answered, multiChoiceQuestion]} maxAttempts={3} authenticated />,
+    );
+    expect(html).toContain("/ 2 answered");
+    expect(html).toContain("/ 25 pts");
+  });
+
+  it("shows no progress strip to a signed-out visitor", () => {
+    const html = renderToStaticMarkup(
+      <QuizBoard questions={[singleChoiceQuestion, multiChoiceQuestion]} maxAttempts={3} authenticated={false} />,
+    );
+    expect(html).not.toContain("/ 2 answered");
+    expect(html).not.toContain("/ 25 pts");
+  });
+
   // The retry instant is never printed. It renders as a live countdown that
   // starts after hydration, so the server render — which is all
   // `renderToStaticMarkup` produces — deliberately shows a time-free

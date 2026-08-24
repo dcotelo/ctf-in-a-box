@@ -62,6 +62,20 @@ describe("ChallengeGrid (queue)", () => {
     expect(html).not.toContain("patched");
   });
 
+  // The whole-board strip and the per-target header both carry POINT totals,
+  // not just counts — and the strip's numbers come from the full catalogue,
+  // so they must match regardless of any filter state at render time.
+  it("summarizes whole-board and per-target progress with point denominators", () => {
+    const html = renderToStaticMarkup(
+      <ChallengeGrid apps={[dvwa]} catalog={{ dvwa: rows }} hints={{}} solved={{ dvwa: ["sqli-low"] }} />,
+    );
+    // The strip: 1 of 2 patched, 1 of 2 points banked.
+    expect(html).toContain("/ 2 patched");
+    expect(html).toContain("/ 2 pts");
+    // The target header adds its own earned/available pair.
+    expect(html).toContain("1/2 pts");
+  });
+
   it("falls back to summary cards without a live catalogue", () => {
     const html = renderToStaticMarkup(<ChallengeGrid apps={[dvwa]} catalog={null} hints={{}} />);
     expect(html).toContain("DVWA");
