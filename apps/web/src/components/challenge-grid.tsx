@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useState } from "react";
 import HintButton from "@/components/hint-button";
 import OwaspBadge from "@/components/owasp-badge";
+import ProgressSummary from "@/components/progress-summary";
 import type { AppId, AppMeta } from "@/lib/apps";
 import type { CatalogChallenge, ChallengeCatalog } from "@/lib/challenges";
 import { authClient } from "@/lib/auth-client";
@@ -207,21 +208,14 @@ export default function ChallengeGrid({
           move when the filters below narrow the view. Only once solved data
           exists: signed out there is nothing personal to summarize. */}
       {anySolvedData && overall.total > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-white/[0.06] bg-[#16162a] px-4 py-3">
-          <p className="font-mono text-sm tabular-nums">
-            <span className="text-[#22c55e]">{overall.solved}</span>
-            <span className="text-muted"> / {overall.total} patched</span>
-          </p>
-          <p className="font-mono text-sm tabular-nums">
-            <span className="text-white">{overall.earned.toLocaleString("en-US")}</span>
-            <span className="text-muted"> / {overall.max.toLocaleString("en-US")} pts</span>
-          </p>
-          <div className="h-1.5 min-w-24 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-              style={{ width: `${(overall.solved / overall.total) * 100}%` }}
-            />
-          </div>
+        <div className="rounded-lg border border-white/[0.06] bg-[#16162a] px-4 py-3">
+          <ProgressSummary
+            done={overall.solved}
+            total={overall.total}
+            noun="patched"
+            earned={overall.earned}
+            available={overall.max}
+          />
         </div>
       )}
 

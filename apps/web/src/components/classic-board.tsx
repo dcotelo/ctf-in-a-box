@@ -16,6 +16,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Markdown from "@/components/markdown";
+import ProgressSummary from "@/components/progress-summary";
 import { formatCompact, getRemaining, type Remaining } from "@/lib/countdown";
 
 /** Per-challenge progress, mutually exclusive. Every branch carries only
@@ -231,18 +232,18 @@ export default function ClassicBoard({
           <p className="hidden font-mono text-[11px] uppercase tracking-wider text-muted lg:block">
             Your run
           </p>
-          {/* Both figures carry their denominators — a bare "3 solved" says
-              nothing about how much board is left. Two lines, not one dotted
-              phrase: the rail is 11rem wide on desktop and a single line
-              wrapped mid-number. */}
-          <p className="flex flex-row flex-wrap gap-x-3 font-mono text-sm tabular-nums lg:flex-col">
-            <span className="text-[#22c55e]">
-              {solvedTotal} / {boardTotal} solved
-            </span>
-            <span className="text-muted">
-              {pointsTotal.toLocaleString("en-US")} / {pointsAvailable.toLocaleString("en-US")} pts
-            </span>
-          </p>
+          {/* The shared progress shape (progress-summary.tsx) — same read as
+              the quiz strip and the challenge browser. In this 11rem rail it
+              wraps naturally: counts, points, then the bar on its own line. */}
+          <div className="w-full">
+            <ProgressSummary
+              done={solvedTotal}
+              total={boardTotal}
+              noun="solved"
+              earned={pointsTotal}
+              available={pointsAvailable}
+            />
+          </div>
           <ul className="flex flex-row flex-wrap gap-x-4 gap-y-1.5 lg:flex-col">
             {run.map((r) => (
               <li key={r.category}>

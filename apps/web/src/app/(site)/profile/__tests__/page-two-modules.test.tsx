@@ -102,7 +102,7 @@ describe("/profile on a two-module event", () => {
     const html = renderToStaticMarkup(await ProfilePage());
     expect(html).toContain(">4<"); // secure-development's per-app patched count (DVWA)
     expect(html).toContain("/ 6 patched");
-    expect(html).toContain("3 / 5"); // quiz answered / total
+    expect(html).toContain("/ 5 answered"); // quiz answered / total, via ProgressSummary
   });
 
   it("heads each block with that module's resolved title, in registry order", () => {

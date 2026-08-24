@@ -205,8 +205,10 @@ describe("profile per-module block content", () => {
 
     const html = renderToStaticMarkup(await ProfilePage());
 
-    // 40 raw - 10 hint spend = 30. NOT the raw 40.
-    expect(html).toContain(">30 pts<");
+    // 40 raw - 10 hint spend = 30. NOT the raw 40. Pinned as the summary's
+    // adjacent earned + available spans, because AppBreakdown's per-app tile
+    // legitimately shows the raw 40 further down.
+    expect(html).toContain('>30</span><span class="text-muted"> / 100 pts</span>');
     expect(html).not.toContain(">40 pts<");
   });
 });

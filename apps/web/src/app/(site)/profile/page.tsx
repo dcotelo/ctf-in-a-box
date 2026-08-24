@@ -10,6 +10,7 @@ import Image from "next/image";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import ModuleDetail from "@/components/module-detail";
+import ProgressSummary from "@/components/progress-summary";
 import TeamCard from "@/components/team-card";
 import TeamProgress from "@/components/team-progress";
 import type { AppId } from "@/lib/apps";
@@ -160,8 +161,8 @@ export default async function ProfilePage() {
   // ceiling they weren't playing toward (issue #200, 2.4). Clamped because a
   // deleted question/challenge deliberately leaves banked points in place, so
   // the numerator can legitimately exceed a shrunken denominator.
-  const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + q.points, 0);
-  const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + c.points, 0);
+  const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + (Number(q.points) || 0), 0);
+  const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
   const maxPointsAllModules = (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints;
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
@@ -246,6 +247,21 @@ export default async function ProfilePage() {
   // note in leaderboard.tsx's EntryRow, which this mirrors.
   const multiModule = resolvedModules.length > 1;
   const moduleBlocks = resolvedModules.filter((m) => moduleProgress[m.id]);
+
+  // The shared progress shape's numbers, per module — each module's own noun,
+  // its done/total pair, and its earned/available points. Denominators reuse
+  // the same clamped figures computed above, so a block can never read
+  // "6 / 5" or claim a ceiling the header bar doesn't.
+  const moduleSummary = (id: ModuleId): { done: number; total: number; noun: string; earned: number; available: number } => {
+    const progress = moduleProgress[id]!;
+    if (progress.detail.kind === "quiz") {
+      return { done: progress.detail.answered, total: progress.detail.total, noun: "answered", earned: progress.points, available: quizMaxPoints };
+    }
+    if (progress.detail.kind === "classic") {
+      return { done: progress.detail.solved, total: progress.detail.total, noun: "solved", earned: progress.points, available: classicMaxPoints };
+    }
+    return { done: progress.completed, total: challengeCount, noun: "patched", earned: progress.points, available: profile?.maxPoints ?? 0 };
+  };
 
   return (
     <div className="flex flex-col gap-8">
@@ -382,19 +398,25 @@ export default async function ProfilePage() {
       ) : (
         <div className="flex flex-col gap-4">
           {moduleBlocks.map((m) => (
-            <div key={m.id} data-testid="module-block" className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
-              {multiModule && (
-                <p className="mb-3 flex items-center justify-between text-xs uppercase tracking-wider text-muted">
-                  <span>{m.title}</span>
-                  <span className="font-mono text-sm text-zinc-300">{moduleProgress[m.id]!.points} pts</span>
-                </p>
-              )}
-              {/* showPoints is unconditional here, not a per-module branch:
-                  it only takes effect inside AppBreakdown (the
-                  secure-development render path), so quiz's block silently
-                  ignores it. It's what restores the per-app "30 / 60 pts"
+            <div key={m.id} data-testid="module-block" className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
+              {/* Every block opens with the shared progress shape
+                  (progress-summary.tsx) — the same line the boards themselves
+                  show, so a module's block here and its own page agree on
+                  what "how far along" looks like. Shown on single-module
+                  events too: the title is redundant there, the totals and
+                  the bar are not. */}
+              <ProgressSummary
+                label={multiModule ? m.title : undefined}
+                {...moduleSummary(m.id)}
+              />
+              {/* The quiz/classic ModuleDetail branches render exactly the
+                  done/total line the summary above now carries — only
+                  secure-development still has more to say (the per-target
+                  breakdown). showPoints restores the per-app "30 / 60 pts"
                   figure the pre-module custom grid used to show. */}
-              <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
+              {moduleProgress[m.id]!.detail.kind === "secure-development" && (
+                <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
+              )}
             </div>
           ))}
         </div>

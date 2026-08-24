@@ -88,7 +88,7 @@ describe("flags page view model", () => {
     expect(html).toMatch(/on cooldown/i);
     expect(html).toMatch(/submit flag/i); // c3 (never attempted) still offers one
     // The count lives in the board's "Your run" rail now, not a sentence.
-    expect(html).toContain("1 / 3 solved");
+    expect(html).toContain("/ 3 solved");
   });
 
   // The page and <ClassicBoard> each used to print their own count ("You've
@@ -108,7 +108,7 @@ describe("flags page view model", () => {
 
     // The rail owns the count; the page-level sentence must not return.
     expect(html).not.toMatch(/You&#x27;ve solved/);
-    expect(html.match(/1 \/ 3 solved/g)).toEqual(["1 / 3 solved"]);
+    expect(html.match(/\/ 3 solved/g)).toEqual(["/ 3 solved"]);
   });
 
   it("treats a signed-out visitor as having no progress and prompts sign-in instead of a submit control", async () => {

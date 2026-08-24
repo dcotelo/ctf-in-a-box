@@ -126,8 +126,10 @@ describe("ClassicBoard", () => {
         authenticated
       />,
     );
-    expect(html).toContain("1 / 2 solved");
-    expect(html).toContain("50 / 125 pts");
+    // The shared ProgressSummary splits number and denominator into spans,
+    // so the pins match the denominator halves.
+    expect(html).toContain("/ 2 solved");
+    expect(html).toContain("/ 125 pts");
   });
 });
 

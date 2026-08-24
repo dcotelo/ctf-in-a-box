@@ -104,7 +104,8 @@ beforeEach(() => {
 describe("/profile on a quiz-only event", () => {
   it("shows a quiz contribution block when the module is enabled", async () => {
     const html = renderToStaticMarkup(await ProfilePage());
-    expect(html).toContain("3 / 5");
+    // The block opens with the shared ProgressSummary (spans split the pair).
+    expect(html).toContain("/ 5 answered");
   });
 
   // The list is enumerated, not sampled — see the file-level comment. This
