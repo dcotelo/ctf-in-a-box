@@ -17,6 +17,7 @@ import ScoreTimeChart from "@/components/score-time-chart";
 import AppChallengeList from "@/components/app-challenge-list";
 import AppBreakdown from "@/components/app-breakdown";
 import ModuleDetail from "@/components/module-detail";
+import BoardItemLists from "@/components/board-item-lists";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 type View = "individual" | "teams";
@@ -272,6 +273,11 @@ export function EntryRow({
           ) : (
             <LegacyBreakdown entry={entry} />
           )}
+          {/* Which questions / which flags — the same Show-N lists the
+              profile blocks carry, lazily fetched now that the row is
+              actually open. Only when the entry has app-side activity to
+              enumerate. */}
+          {(entry.modules?.quiz || entry.modules?.classic) && <BoardItemLists logins={[entry.login]} />}
         </div>
       )}
     </li>
@@ -382,6 +388,11 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
             </div>
           )}
           <TeamFlags team={team} />
+          {/* The team's quiz/classic items — the members' UNION, matching how
+              the team banks points. Same lazy fetch as the entry rows. */}
+          {(team.modules?.quiz || team.modules?.classic) && team.members.length > 0 && (
+            <BoardItemLists logins={team.members} />
+          )}
         </div>
       )}
     </li>
