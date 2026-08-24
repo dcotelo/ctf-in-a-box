@@ -72,7 +72,7 @@ export default function ClassicBoard({
                   <li key={challenge.id}>
                     <Link
                       href={`/flags/${encodeURIComponent(challenge.id)}`}
-                      aria-label={`${challenge.title}, ${challenge.points} points${solved ? ", solved" : ""}`}
+                      aria-label={`${challenge.title}, ${challenge.points} points${solved ? ", solved" : ""}${hintIds.includes(challenge.id) ? ", paid hint available" : ""}`}
                       className={`ds-card flex h-full min-h-24 flex-col justify-between gap-2 rounded-lg border p-4 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] ${
                         solved
                           ? "border-[#22c55e]/40 bg-[#22c55e]/[0.08]"

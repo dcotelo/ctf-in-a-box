@@ -429,11 +429,13 @@ value and compares whole strings with Lua's `==` — a flag can contain
 braces, quotes, and backslashes, so it is never pattern-matched out of a
 JSON blob the way a points value is.
 
-**The full key layout is nine `ctf:classic:*` keys**, enumerated in
+**The full key layout is ten `ctf:classic:*` keys**, enumerated in
 `classic-store.ts`'s header comment: `challenges` (the public-safe hash
 contestants see — no field on it could carry a flag even by accident),
-`flag` and `flagnorm` (above), `categories` (one JSON array, the organizer's
-chosen display order), `solves:<login>` (a contestant's banked solves —
+`flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, issue
+#190 — written by the admin form, SECRET until purchased through hint-store's
+reveal, exactly the flag hashes' rule; its name lives in `classic-keys.ts`),
+`categories` (one JSON array, the organizer's chosen display order), `solves:<login>` (a contestant's banked solves —
 `{points, at}`, points captured at solve time so a later re-price never
 rewrites history), `attempts:<login>` (every submission, right or wrong —
 `{attempts, lastAt, lastAtMs}`, the cooldown's own read), and three running
@@ -536,8 +538,9 @@ clears them.
 - **`ctf:user:<login>:hints`** — a SET of `<target>/<challengeId>` the
   contestant bought, where `<target>` is a secure-development app id or the
   literal `classic` (classic hints, issue #190; their text lives in
-  `ctf:classic:hints`, written by the admin classic form and secret until
-  purchased, exactly like the flag hashes); **`ctf:hints:spent`** — a hash of
+  `ctf:classic:hints` — named in `classic-keys.ts`, not here — written by the
+  admin classic form and secret until purchased, exactly like the flag
+  hashes); **`ctf:hints:spent`** — a hash of
   login → points spent, read by the leaderboard's per-team penalty fold;
   **`ctf:hints:at:<login>`** — a hash of `<target>/<challengeId>` → ISO
   purchase time. That last one is a *separate* key

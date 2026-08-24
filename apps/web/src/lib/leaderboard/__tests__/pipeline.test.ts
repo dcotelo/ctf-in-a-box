@@ -35,6 +35,8 @@ vi.mock("@/lib/classic-store", () => ({
   getTeamClassicTotalsBatch: mocks.getTeamClassicTotalsBatch,
   listChallenges: mocks.listChallenges,
 }));
+const teamStore = vi.hoisted(() => ({ listTeams: vi.fn() }));
+vi.mock("@/lib/team-store", () => ({ listTeams: teamStore.listTeams }));
 
 // Mutable so a single module graph can cover both the hints-off and hints-on
 // pipelines (vi.mock is hoisted and applies for the whole file).
@@ -47,6 +49,7 @@ vi.mock("@/lib/hint-store", () => ({
 }));
 
 import { withModuleContributions } from "../module-contributions";
+import { withTeamStandings } from "../team-standings";
 import { withHintPenalties } from "../hint-penalties";
 
 const base: LeaderboardData = {
@@ -59,8 +62,10 @@ const base: LeaderboardData = {
   capabilities: { apps: true, teams: false, challenges: false },
 };
 
-// The page's real order: contributions first, the penalty overlay LAST.
-const pipeline = (data: LeaderboardData) => withModuleContributions(data).then(withHintPenalties);
+// The page's real order — ALL THREE stages, so a synthesised team row's
+// penalty behaviour is exercised too, not just entries'.
+const pipeline = (data: LeaderboardData) =>
+  withModuleContributions(data).then(withTeamStandings).then(withHintPenalties);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -71,6 +76,7 @@ beforeEach(() => {
   mocks.listQuestions.mockResolvedValue([]);
   mocks.getClassicTotals.mockResolvedValue(new Map());
   mocks.listChallenges.mockResolvedValue([]);
+  teamStore.listTeams.mockResolvedValue([]);
 });
 
 describe("leaderboard pipeline", () => {
@@ -101,6 +107,24 @@ describe("leaderboard pipeline", () => {
     const ada = out.entries.find((e) => e.login === "ada")!;
     expect(ada.points).toBe(5);
     expect(out.entries[0].rank).toBe(1);
+  });
+
+  // A team row SYNTHESISED by withTeamStandings (the upstash path: no source
+  // teams) is penalised on its members' spend like any other — the second
+  // row shape the old first-stage fold never saw.
+  it("charges a synthesised team row its members' hint spend", async () => {
+    mocks.isModuleEnabled.mockImplementation((id: string) => id === "quiz");
+    mocks.getQuizTotals.mockResolvedValue(new Map([["carol", { points: 100, answered: 4, lastAt: "2026-08-01T11:00:00.000Z" }]]));
+    mocks.getTeamQuizTotalsBatch.mockResolvedValue([{ points: 100, answered: 4, lastAt: "2026-08-01T11:00:00.000Z" }]);
+    mocks.listQuestions.mockResolvedValue([{}, {}, {}, {}]);
+    teamStore.listTeams.mockResolvedValue([{ slug: "solo-carol", name: "Solo Carol", members: ["carol"] }]);
+    hints.enabled = true;
+    hints.penalties = new Map([["carol", 30]]);
+
+    const out = await pipeline({ ...base, entries: [], capabilities: { apps: false, teams: false, challenges: false } });
+    const team = out.teams.find((t) => t.slug === "solo-carol")!;
+    expect(team.points).toBe(70); // 100 quiz − 30 hints
+    expect(team.hintPenalty).toBe(30);
   });
 
   // THE fix this order exists for: a contestant with no scorer row — their

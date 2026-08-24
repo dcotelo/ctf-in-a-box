@@ -363,6 +363,23 @@ describe("payloadFromEditor — an edit can never change a challenge's id", () =
   });
 });
 
+describe("exportBundleFrom", () => {
+  // The CLIENT-side export must emit exactly what the server's exportBundle
+  // emits — this path silently dropped caseSensitive AND hint, and a
+  // re-import of such a bundle downgrades grading and deletes hints
+  // (CodeRabbit #210; the same #196 downgrade class, in the client door).
+  it("round-trips caseSensitive and hint, present only when set", () => {
+    const rows: AdminChallenge[] = [
+      { challenge: { ...c1, caseSensitive: true }, flag: "CTF{real}", hint: "Look closer." },
+      { challenge: c2, flag: "CTF{other}", hint: null },
+    ];
+    const bundle = exportBundleFrom(rows, ["Web"]);
+    expect(bundle.challenges[0]).toMatchObject({ caseSensitive: true, hint: "Look closer." });
+    expect(bundle.challenges[1]).not.toHaveProperty("caseSensitive");
+    expect(bundle.challenges[1]).not.toHaveProperty("hint");
+  });
+});
+
 describe("payloadFromRow", () => {
   it("round-trips a stored row unchanged, so a reorder re-saves only the order", () => {
     const payload = payloadFromRow({ challenge: { ...c1, order: 3 }, flag: "CTF{real}", hint: null });

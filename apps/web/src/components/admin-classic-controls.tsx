@@ -406,7 +406,7 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
   return {
     version: CLASSIC_BUNDLE_VERSION,
     categories: [...categories],
-    challenges: rows.map(({ challenge: c, flag }) => ({
+    challenges: rows.map(({ challenge: c, flag, hint }) => ({
       id: c.id,
       title: c.title,
       category: c.category,
@@ -414,6 +414,12 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
       points: c.points,
       order: c.order,
       flag,
+      // Present-only-when-set, mirroring the server's exportBundle exactly —
+      // this client-side path silently DROPPED both fields (CodeRabbit on
+      // #210 caught hint; caseSensitive had the same latent hole), and a
+      // re-import of such a bundle downgrades grading and deletes hints.
+      ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
+      ...(hint ? { hint } : {}),
     })),
   };
 }

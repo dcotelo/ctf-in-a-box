@@ -64,10 +64,14 @@ describe("ClassicBoard (tile grid)", () => {
       <ClassicBoard categories={["Web"]} challenges={[web]} authenticated hintIds={["web-sqli-101"]} />,
     );
     expect(html).toContain("💡");
+    // The tile's aria-label OVERRIDES descendant text, so the emoji alone is
+    // invisible to a screen reader — the label must say it (CodeRabbit #210).
+    expect(html).toContain("50 points, paid hint available");
     const without = renderToStaticMarkup(
       <ClassicBoard categories={["Web"]} challenges={[web]} authenticated />,
     );
     expect(without).not.toContain("💡");
+    expect(without).not.toContain("paid hint available");
   });
 
   it("URL-encodes a challenge id in the tile link", () => {
