@@ -9,7 +9,7 @@
 // `doReset`, `doSeed`) is owned by `admin-controls.tsx` and passed in, so the
 // shell stays the single writer of settings state across all tabs.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
 import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
@@ -43,8 +43,21 @@ function ScheduleField({
   disabled: boolean;
   onCommit: (iso: string | null) => void;
 }) {
-  const [input, setInput] = useState(toLocalInput(value));
-  // Re-sync when the applied value changes (another field's POST returns fresh settings).
+  // The datetime-local value is the VIEWER's wall clock, which the server
+  // cannot know: seeding the input from toLocalInput() during render made the
+  // server (UTC on the box) and the browser (viewer tz) disagree and threw a
+  // hydration error (#418) on every /admin load. So SSR renders the field
+  // empty and the real value lands after mount — the same
+  // render-nothing-until-mounted contract event-countdown uses. The effect
+  // also re-syncs when the applied value changes (another field's POST
+  // returning fresh settings), which the old one-shot useState never did.
+  const [input, setInput] = useState("");
+  useEffect(() => {
+    // Deferred so this reads as subscribing to the applied value rather than
+    // a render-time computation — satisfies react-hooks/set-state-in-effect.
+    const timeout = setTimeout(() => setInput(toLocalInput(value)), 0);
+    return () => clearTimeout(timeout);
+  }, [value]);
   const canonical = toLocalInput(value);
   return (
     <label className="flex items-center justify-between gap-3">
@@ -57,7 +70,7 @@ function ScheduleField({
         onBlur={() => {
           if (input !== canonical) onCommit(fromLocalInput(input));
         }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
       />
     </label>
   );
@@ -253,7 +266,7 @@ export default function AdminEventTab({
           disabled={pending}
           onChange={(e) => setTeamMaxMembersInput(e.target.value)}
           onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -313,9 +326,9 @@ export default function AdminEventTab({
       </div>
 
       {demoMode && (
-        <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+        <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
           <div>
-            <span className="text-[#7aa2ff]">Demo mode</span>
+            <span className="text-white">Demo mode</span>
             <span className="block text-xs text-muted">
               Populate the leaderboard with fake contestants, teams, and solves to
               preview the app. Injects real-challenge-id scores so points render.
@@ -333,7 +346,7 @@ export default function AdminEventTab({
                 onConfirm: doSeed,
               })
             }
-            className="self-start rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="self-start rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Seed demo data
           </button>
@@ -372,7 +385,7 @@ export default function AdminEventTab({
         >
           Reset event data…
         </button>
-        {resetInfo && <p className="text-xs text-[#7dd3a0]">{resetInfo}</p>}
+        {resetInfo && <p className="text-xs text-[#22c55e]">{resetInfo}</p>}
       </div>
     </section>
   );

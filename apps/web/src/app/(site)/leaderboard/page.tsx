@@ -13,6 +13,9 @@ import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { auth } from "@/lib/auth";
+import DisplayBoard from "@/components/display-board";
+import { resolvePhase } from "@/components/phase-line";
+import { completedCount } from "@/lib/leaderboard/rank";
 import { event } from "@/lib/site";
 import { getResolvedModules } from "@/lib/resolved-modules";
 
@@ -36,7 +39,15 @@ export const metadata: Metadata = {
 const BASE_DESCRIPTION = "Live contestant rankings from every enabled challenge board.";
 const SIGNED_OUT_CLAUSE = " Sign in with GitHub to highlight your own row and unlock your profile.";
 
-export default async function LeaderboardPage() {
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ display?: string }>;
+}) {
+  // ?display=1 is the projector surface: chrome-free top ten, viewport-scaled
+  // type, self-refreshing (display-board.tsx). Resolved first so the display
+  // render can skip nothing it needs and everything it doesn't.
+  const wantsDisplay = (await searchParams)?.display === "1";
   const source = getLeaderboardSource();
   // Penalties BEFORE module contributions: withModuleContributions
   // attributes each row's `points` into its per-module breakdown, so it has
@@ -58,6 +69,34 @@ export default async function LeaderboardPage() {
   // Pre-format relative times server-side so client and server render
   // identical markup (see src/lib/relative-time.ts).
   const generatedAtMs = Date.parse(data.generatedAt);
+
+  if (wantsDisplay) {
+    const phaseInfo = await resolvePhase();
+    // Teams when the event has them, individuals otherwise — the same
+    // primary view the interactive board defaults to.
+    const rows =
+      data.teams.length > 0
+        ? data.teams.slice(0, 10).map((t) => ({
+            key: t.slug,
+            rank: t.rank,
+            name: t.name,
+            points: t.points,
+          }))
+        : data.entries.slice(0, 10).map((e) => ({
+            key: e.login,
+            rank: e.rank,
+            name: e.login,
+            points: e.points,
+            solved: completedCount(e),
+          }));
+    return (
+      <DisplayBoard
+        rows={rows}
+        eventName={event.name}
+        phaseLabel={phaseInfo ? phaseInfo.phase : null}
+      />
+    );
+  }
   const entries = data.entries.map((entry) => ({
     ...entry,
     updatedAgo: entry.updatedAt ? formatRelativeTime(entry.updatedAt, generatedAtMs) : undefined,

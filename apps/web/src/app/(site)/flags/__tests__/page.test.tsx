@@ -87,12 +87,13 @@ describe("flags page view model", () => {
     expect(html).toMatch(/solved.*earned 10 point/i);
     expect(html).toMatch(/on cooldown/i);
     expect(html).toMatch(/submit flag/i); // c3 (never attempted) still offers one
-    expect(html).toMatch(/solved 1 of 3 challenges/i);
+    // The count lives in the board's "Your run" rail now, not a sentence.
+    expect(html).toContain("/ 3 solved");
   });
 
   // The page and <ClassicBoard> each used to print their own count ("You've
-  // solved 1 of 3 challenges." above "1 of 3 solved."), which reads as a
-  // rendering bug. One statement of progress, from one place.
+  // solved 1 of 3 challenges." above "1 / 3 solved"), which reads as a
+  // rendering bug. One statement of progress, from one place — the rail.
   it("states progress exactly once", async () => {
     isModuleEnabled.mockReturnValue(true);
     getSession.mockResolvedValue({ user: { login: "alice" } });
@@ -105,7 +106,9 @@ describe("flags page view model", () => {
 
     const html = renderToStaticMarkup(await FlagsPage());
 
-    expect(html.match(/\b\d+ of \d+\b/g)).toEqual(["1 of 3"]);
+    // The rail owns the count; the page-level sentence must not return.
+    expect(html).not.toMatch(/You&#x27;ve solved/);
+    expect(html.match(/\/ 3 solved/g)).toEqual(["/ 3 solved"]);
   });
 
   it("treats a signed-out visitor as having no progress and prompts sign-in instead of a submit control", async () => {

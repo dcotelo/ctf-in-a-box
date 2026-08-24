@@ -46,7 +46,7 @@ const PLATFORM_LEDE =
 
 function CodeBlock({ code }: { code: string }) {
   return (
-    <pre className="mt-3 overflow-x-auto rounded-md border border-white/10 bg-[#0e0e1a] p-3 font-mono text-xs leading-relaxed text-zinc-300">
+    <pre className="mt-3 overflow-x-auto rounded-md border border-white/10 bg-[#12121e] p-3 font-mono text-xs leading-relaxed text-zinc-300">
       {code}
     </pre>
   );
@@ -122,7 +122,7 @@ export default async function HowToPlayPage() {
 
           {/* Workflow callout */}
           {guide.loop && (
-            <div className="rounded-lg border border-[#2563eb]/30 bg-[#2563eb]/[0.06] p-5">
+            <div className="rounded-lg border border-[#2563eb]/30 bg-white/[0.06] p-5">
               <p className="text-xs font-medium uppercase tracking-wider text-[var(--accent-blue-link)]">
                 {guide.loop.kicker}
               </p>
@@ -160,7 +160,7 @@ export default async function HowToPlayPage() {
                 key={step.title}
                 className="flex gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
               >
-                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
+                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#2563eb]/40 bg-white/[0.06] font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
                   {i + 1}
                 </span>
                 <div>
@@ -196,7 +196,7 @@ export default async function HowToPlayPage() {
                     className="rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
                   >
                     <div className="flex gap-4">
-                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#14b8a6]/40 bg-[#14b8a6]/10 font-mono text-sm font-bold tabular-nums text-[#14b8a6]">
+                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#8f8f9b]/40 bg-[#8f8f9b]/10 font-mono text-sm font-bold tabular-nums text-[#8f8f9b]">
                         {i + 1}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -266,7 +266,7 @@ export default async function HowToPlayPage() {
                 <Link
                   key={guide.id}
                   href={guide.cta.href}
-                  className="rounded-md border border-[#2563eb] bg-[#2563eb]/10 px-4 py-2 text-sm font-medium text-[var(--accent-blue-link)] transition-colors hover:bg-[#2563eb]/20"
+                  className="rounded-md border border-[#2563eb]/70 bg-white/[0.06] px-4 py-2 text-sm font-medium text-[var(--accent-blue-link)] transition-colors hover:bg-white/[0.1]"
                 >
                   {guide.cta.label}
                 </Link>

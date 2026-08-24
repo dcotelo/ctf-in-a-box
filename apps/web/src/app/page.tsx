@@ -1,35 +1,60 @@
-// The landing page is a PLATFORM frame: logo, event name, dates, countdown,
-// the how-to-play/leaderboard/Discord CTAs and the progress-tracking card. The
-// copy that describes what contestants actually *do* belongs to whichever
-// modules the event enables, and is pulled from their registry `home` blocks —
-// so a quiz-only event never advertises forks, patches or pull requests.
+// The landing page is a PITCH with one door, not documentation (DESIGN.md).
 //
-// This is a Server Component and must stay one. `ModuleHome.intro`/`.steps`
-// are FUNCTIONS: they are called here, server-side, and only the resulting
-// strings are rendered. Never pass a ModuleHome (or anything holding it) into
-// a "use client" component — React's flight serializer rejects function-valued
+// Three visitors, in priority order: a contestant mid-event who needs the way
+// back to their board; a signed-out contestant who needs one obvious action
+// for the event's CURRENT phase; an evaluator deciding in ninety seconds
+// whether to run this kit for their group. Grading rules — cooldowns,
+// normalization, case-sensitivity — live in How to play and at the point of
+// play, never here.
+//
+// This is a Server Component and must stay one. `ModuleHome.intro` is a
+// FUNCTION: it is called here, server-side, and only the resulting strings
+// are rendered. Never pass a ModuleHome (or anything holding it) into a
+// "use client" component — React's flight serializer rejects function-valued
 // props. That is also why `home` is reached via the server-only
 // `getModuleHome` rather than off a ResolvedModule; see lib/modules.ts.
-import { Fragment } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { headers } from "next/headers";
 import EventCountdown from "@/components/event-countdown";
+import HeroCta from "@/components/hero-cta";
+import PhaseLine, { resolvePhase, type EventPhase } from "@/components/phase-line";
 import SiteFooter from "@/components/site-footer";
-import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
+import { auth } from "@/lib/auth";
+import { enabledApps, enabledTotalChallenges, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
+import { listChallenges } from "@/lib/classic-store";
+import { listQuestions } from "@/lib/quiz-store";
+import { getLeaderboardSource } from "@/lib/leaderboard/source";
+import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
+import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
+import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { isModuleEnabled, type HomeContext } from "@/lib/modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
+import { hasTeam } from "@/lib/team-store";
 import { event } from "@/lib/site";
 
-// Tailwind scans for literal class strings, so the step grid's widest breakpoint
-// is looked up rather than interpolated. Four steps (secure-development) keep
-// the four-up row the page has always rendered.
-const STEP_GRID_LG: Record<number, string> = {
-  1: "lg:grid-cols-1",
-  2: "lg:grid-cols-2",
-  3: "lg:grid-cols-3",
-  4: "lg:grid-cols-4",
-};
+/** The one action this visitor should take, by auth × team × phase. */
+function primaryAction(
+  phase: EventPhase | null,
+  signedIn: boolean,
+  hasTeam: boolean,
+  firstBoard: { href: string; label: string } | null,
+): { label: string; href?: string; signIn?: boolean; callbackURL?: string } {
+  if (phase === "results") return { label: "See the final standings", href: "/leaderboard" };
+  if (phase === "frozen") return { label: "See the standings", href: "/leaderboard" };
+  if (!signedIn) {
+    return phase === "registration"
+      ? { label: "Sign in and register", signIn: true, callbackURL: "/profile#team" }
+      : { label: "Sign in and play", signIn: true, callbackURL: firstBoard?.href ?? "/profile" };
+  }
+  if (!hasTeam) return { label: "Join a team", href: "/profile#team" };
+  // The board CTA's own label carries its verb ("Browse targets", "Take the
+  // quiz") — prefixing "Open" produced "Open Browse targets", caught on the
+  // deployed branch's first screenshot pass.
+  if (firstBoard) return { label: firstBoard.label, href: firstBoard.href };
+  return { label: "See the standings", href: "/leaderboard" };
+}
 
 export default async function Home() {
   const catalog = await getChallengeCatalog();
@@ -50,284 +75,241 @@ export default async function Home() {
     totalChallenges: catalog?.total ?? enabledTotalChallenges,
   };
 
-  // Registry order, organizer-resolved titles, and — crucially — plain strings:
-  // intro() and steps() are invoked HERE, on the server. Nothing below this
-  // line holds a function.
-  //
-  // A module with NO `home` block still gets a section, led by its
-  // organizer-editable `blurb`. `home` is optional on ModuleDef precisely so a
-  // module can ship a route before it ships hero copy, and the old behaviour —
-  // drop it from the landing page entirely — meant such a module was invisible
-  // here no matter what the organizer wrote about it in /admin. The blurb is
-  // the one sentence every module has, so it is the sensible lede; everything
-  // that has no fallback (the uppercase tagline, the hero paragraph, the
-  // numbered steps, the CTA) stays absent rather than being invented.
-  const sections = (await getResolvedModules()).map((module) => {
+  // Registry order, organizer-resolved titles, plain strings only — see the
+  // header comment for why intro() is invoked here.
+  const resolvedModules = await getResolvedModules();
+  const sections = resolvedModules.map((module) => {
     const home = getModuleHome(module.id);
     return {
       id: module.id,
       title: module.title,
       tagline: home?.tagline ?? null,
-      intro: home ? home.intro(ctx) : null,
-      expect: home?.expect ?? { heading: module.title, lede: module.blurb },
-      steps: home ? home.steps(ctx) : [],
+      intro: home ? home.intro(ctx) : module.blurb,
       cta: home?.cta ?? null,
       extra: home?.extra ?? null,
     };
   });
 
-  // Zero modules with a tagline is a valid event, not an error: the frame
-  // renders on its own.
   const taglines = sections
     .map((s) => s.tagline)
     .filter((t): t is string => Boolean(t))
     .join(" · ");
 
-  // This route is outside the `(site)` group, so it re-creates the footer
-  // itself — and must therefore resolve its links the same way, or the landing
-  // page's footer disagrees with its own header. Same memoized read as above.
-  const navLinks = await getNavLinks();
+  // Per-board item counts for the game cards. Quiz and classic are one read
+  // each and only when enabled; a failed read drops the count line, never the
+  // card.
+  const [quizCount, classicCount] = await Promise.all([
+    isModuleEnabled("quiz") ? listQuestions().then((q) => q.length).catch(() => null) : Promise.resolve(null),
+    isModuleEnabled("classic") ? listChallenges().then((c) => c.length).catch(() => null) : Promise.resolve(null),
+  ]);
+  const countFor = (id: string): string | null => {
+    if (id === "secure-development")
+      return `${ctx.totalChallenges} challenges · ${ctx.appCount} ${ctx.appCount === 1 ? "app" : "apps"}`;
+    if (id === "quiz") return quizCount === null ? null : `${quizCount} ${quizCount === 1 ? "question" : "questions"}`;
+    if (id === "classic") return classicCount === null ? null : `${classicCount} ${classicCount === 1 ? "flag" : "flags"}`;
+    return null;
+  };
+
+  // Visitor state for the single primary action. The phase comes from the
+  // same resolver the phase line uses, so the hero and the strip can never
+  // disagree; the team read only runs signed-in.
+  const [phaseInfo, session, navLinks] = await Promise.all([
+    resolvePhase(),
+    auth.api.getSession({ headers: await headers() }),
+    getNavLinks(),
+  ]);
+  const login = (session?.user as { login?: string } | undefined)?.login ?? null;
+  // hasTeam, not getViewerTeam truthiness: hasTeam is the SAME fail-open,
+  // mock-mode-aware answer the submission gates use, so the hero can never
+  // say "Join a team" to someone whose submissions would score (a Redis
+  // blip, or a dev stack with team writes off).
+  const team = login ? await hasTeam(login) : false;
+  const firstBoard = sections.find((s) => s.cta)?.cta ?? null;
+  const action = primaryAction(phaseInfo?.phase ?? null, Boolean(login), team, firstBoard);
+
+  // The live strip: the top of the same standings the leaderboard shows.
+  // Only once there could be something to show, and a failed read hides the
+  // strip — the pitch must not 500 because Redis blinked.
+  let topRows: { key: string; name: string; points: number }[] = [];
+  // Whether the rows are teams or individuals — the strip's kicker says
+  // WHICH, because three bare names mean nothing to a first-time visitor.
+  let topRowsAreTeams = false;
+  if (phaseInfo && phaseInfo.phase !== "registration") {
+    try {
+      const data = await getLeaderboardSource()
+        .getLeaderboard()
+        .then(withHintPenalties)
+        .then(withModuleContributions)
+        .then(withTeamStandings);
+      topRowsAreTeams = data.teams.length > 0;
+      topRows = topRowsAreTeams
+        ? data.teams.slice(0, 3).map((t) => ({ key: t.slug, name: t.name, points: t.points }))
+        : data.entries.slice(0, 3).map((e) => ({ key: e.login, name: e.login, points: e.points }));
+    } catch {
+      topRows = [];
+    }
+  }
+
+  const gamesGrid =
+    sections.length >= 3 ? "md:grid-cols-3" : sections.length === 2 ? "md:grid-cols-2" : "";
+
+  // Awaited, not mounted: an async child suspends under renderToStaticMarkup
+  // (the landing test suites render this page statically).
+  const phaseLine = await PhaseLine();
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="relative flex flex-col items-center justify-center overflow-hidden bg-[#1a1a2e] py-20">
-        {/* Subtle scanline overlay */}
-        <div
-          className="pointer-events-none absolute inset-0 z-10 opacity-[0.03]"
-          style={{
-            background:
-              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.05) 2px, rgba(255,255,255,0.05) 4px)",
-          }}
-        />
+      {phaseLine}
 
-        {/* Slow scanline bar */}
-        <div
-          className="pointer-events-none absolute inset-x-0 z-10 h-[1px] bg-white/[0.04]"
-          style={{ animation: "scanline 10s linear infinite" }}
-        />
-
-        {/* Content */}
-        <main className="relative z-20 flex flex-col items-center gap-10 px-6 text-center">
-          {/* OWASP Logo */}
+      {/* Hero: the event, its games in one breath, ONE action. */}
+      <div className="border-b border-white/[0.09] bg-[#1a1a2e]">
+        <main className="mx-auto flex w-full max-w-5xl flex-col items-start gap-6 px-6 py-16 sm:py-24">
+          {/* OWASP brand mark — the event runs on OWASP projects and says so. */}
           <Image
             src="/owasp-logo.png"
             alt="OWASP"
-            width={280}
-            height={97}
+            width={200}
+            height={69}
             priority
             className="invert"
           />
-
-          {/* Security-themed icon row */}
-          <div className="flex items-center gap-4">
-            {/* Clock / Time - red */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#e53e3e] text-[#e53e3e]">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 6v6l4 2" />
-              </svg>
-            </div>
-            {/* Shield - yellow */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#d4a017] text-[#d4a017]">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-            </div>
-            {/* Lock - blue */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#2563eb] text-[#2563eb]">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-            </div>
-            {/* People - teal */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#14b8a6] text-[#14b8a6]">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            </div>
-          </div>
-
-          {/* Title */}
-          <div className="flex flex-col items-center gap-3">
-            <h1
-              className="text-5xl font-bold tracking-tight text-white sm:text-7xl"
-              style={{ animation: "pulse-glow 4s ease-in-out infinite" }}
-            >
-              {event.name}
-            </h1>
-            {taglines && (
-              <p className="text-lg font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
-                {taglines}
-              </p>
-            )}
-          </div>
-
+          {taglines && (
+            <p className="font-mono text-xs uppercase tracking-[0.3em] text-[#14b8a6]">{taglines}</p>
+          )}
+          <h1 className="max-w-3xl text-balance text-5xl font-black tracking-tight text-white sm:text-7xl">
+            {event.name}
+          </h1>
           {(event.dates || event.location) && (
-            <div className="flex items-center gap-3 text-sm text-zinc-400">
-              {event.dates && <span>{event.dates}</span>}
-              {event.dates && event.location && <span className="text-zinc-600">&middot;</span>}
-              {event.location && <span>{event.location}</span>}
+            <p className="font-mono text-sm text-[#8f8f9b]">
+              {event.dates}
+              {event.dates && event.location && " · "}
+              {event.location}
+            </p>
+          )}
+          {phaseInfo?.phase === "registration" && event.ctfStartsAt && <EventCountdown />}
+
+          <div className="mt-2 flex flex-wrap items-center gap-5">
+            <HeroCta
+              label={action.label}
+              href={action.href}
+              signIn={action.signIn}
+              callbackURL={action.callbackURL}
+            />
+            <Link href="/how-to-play" className="ds-link text-sm">
+              How it works
+            </Link>
+          </div>
+
+          {/* The top of the board, in the hero. The kicker names WHAT the
+              rows are (teams vs players) — "Right now" alone described the
+              freshness and not the content, so a first-time visitor saw
+              three names and three unlabeled numbers. Rank numerals take the
+              leaderboard's podium colors so the strip visually rhymes with
+              the page it links to. */}
+          {topRows.length > 0 && (
+            <div className="mt-6 w-full max-w-md">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[#8f8f9b]">
+                {topRowsAreTeams ? "Top teams right now" : "Leading right now"}
+              </p>
+              <ol className="flex flex-col gap-1.5">
+                {topRows.map((row, i) => (
+                  <li key={row.key} className="flex items-baseline gap-3 font-mono text-sm">
+                    <span
+                      className="w-4 flex-none text-right font-semibold tabular-nums"
+                      style={{ color: ["#d4a017", "#a1a1aa", "#14b8a6"][i] ?? "#8f8f9b" }}
+                    >
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-white">{row.name}</span>
+                    <span className="flex-none font-semibold tabular-nums text-white">
+                      {row.points.toLocaleString("en-US")}
+                      <span className="ml-1 text-xs font-normal text-[#8f8f9b]">pts</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <Link href="/leaderboard" className="ds-link mt-2 inline-block text-xs">
+                Full standings
+              </Link>
             </div>
           )}
+        </main>
+      </div>
 
-          {event.ctfStartsAt && <EventCountdown />}
-
-          {/* CTAs: platform first, then each enabled module's own entry point. */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/how-to-play"
-              className="rounded-md bg-[#2563eb] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
-            >
-              How to play
-            </Link>
-            {sections.map(
-              (section) =>
-                section.cta && (
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 py-16">
+        {/* The games: one card per enabled module — the pitch, the size of the
+            board, and the door in. No grading rules here by design. */}
+        <section className="flex flex-col gap-6">
+          <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            {sections.length === 1 ? "The game" : "The games"}
+          </h2>
+          <div className={`grid grid-cols-1 gap-4 ${gamesGrid}`}>
+            {sections.map((section) => (
+              <article
+                key={section.id}
+                className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
+              >
+                <h3 className="text-lg font-bold text-white">{section.title}</h3>
+                <p className="flex-1 text-sm leading-relaxed text-zinc-400">{section.intro}</p>
+                {countFor(section.id) && (
+                  <p className="font-mono text-xs tabular-nums text-[#8f8f9b]">{countFor(section.id)}</p>
+                )}
+                {section.cta && (
                   <Link
-                    key={section.id}
                     href={section.cta.href}
-                    className="rounded-md border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+                    className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#2563eb]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                   >
                     {section.cta.label}
                   </Link>
-                ),
-            )}
-            <Link
-              href="/leaderboard"
-              className="rounded-md border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
-            >
-              Live leaderboard
-            </Link>
-            {event.discordUrl && (
-              <a
-                href={event.discordUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
-              >
-                Join the Discord
-              </a>
-            )}
+                )}
+              </article>
+            ))}
           </div>
+        </section>
 
-          {/* Each hero lede carries its module's name once a second module
-              contributes: three anonymous stacked paragraphs read as one
-              essay that keeps changing subject, and the reader only learns
-              which game each described by scrolling to the full sections
-              below (issue #200, tier 4). One module needs no label — its
-              paragraph IS the event. */}
-          {sections.map(
-            (section) =>
-              section.intro && (
-                <div key={section.id} className="flex max-w-2xl flex-col items-center gap-1">
-                  {sections.length > 1 && (
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted">{section.title}</p>
-                  )}
-                  <p className="text-balance text-base leading-relaxed text-zinc-400">
-                    {section.intro}
-                  </p>
-                </div>
-              ),
-          )}
-
-        </main>
-
-        {/* Bottom accent */}
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#2563eb]/20 to-transparent" />
-      </div>
-
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-16 px-4 py-16 sm:px-6">
-        {sections.map((section) => (
-          <Fragment key={section.id}>
-            {/* What to expect. With one module the kicker stays the generic
-                "What to expect"; with several, each section is headed by that
-                module's organizer-resolved title so they stay tellable apart. */}
-            <section className="flex flex-col gap-6">
-              <div className="flex flex-col gap-3">
-                <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
-                  {sections.length > 1 ? section.title : "What to expect"}
-                </p>
-                <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                  {section.expect.heading}
-                </h2>
-                <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
-                  {section.expect.lede}
-                </p>
-                <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
-              </div>
-
-              {/* Only a module with authored steps gets the numbered grid; a
-                  blurb-only section is its heading and lede, not an empty
-                  list. */}
-              {section.steps.length > 0 && (
-                <ol
-                  className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${STEP_GRID_LG[section.steps.length] ?? "lg:grid-cols-4"}`}
-                >
-                  {section.steps.map((step, i) => (
-                    <li
-                      key={step.title}
-                      className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
-                    >
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#2563eb]/40 bg-[#2563eb]/10 font-mono text-sm font-bold tabular-nums text-[var(--accent-blue-link)]">
-                        {i + 1}
-                      </span>
-                      <h3 className="font-semibold text-white">{step.title}</h3>
-                      <p className="text-sm leading-relaxed text-zinc-400">{step.body}</p>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-
-            {/* A module's optional extra section. For secure-development this is
-                "Please use AI" — the event's actual thesis, so it gets its own
-                section rather than a line inside the steps — and it carries the
-                Secure Agent Playbook card, which is secure-development's own
-                recommendation and renders nowhere else. */}
-            {section.extra && (
-              <section className="flex flex-col gap-6">
+        {/* A module's optional thesis section. For secure-development this is
+            "Please use AI" — the event's actual differentiator, so it stays on
+            the pitch page — with the Secure Agent Playbook card. */}
+        {sections.map(
+          (section) =>
+            section.extra && (
+              <section key={`extra-${section.id}`} className="flex flex-col gap-6">
                 <div className="flex flex-col gap-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+                  <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#14b8a6]">
                     {section.extra.kicker}
                   </p>
-                  <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                  <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
                     {section.extra.heading}
                   </h2>
                   <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
                     {section.extra.body}
                   </p>
-                  <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
                 </div>
-
                 {section.id === "secure-development" && (
                   <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6">
                     <h3 className="text-lg font-semibold text-white">
                       Start with the OWASP Secure Agent Playbook
                     </h3>
                     <p className="max-w-3xl text-sm leading-relaxed text-zinc-400">
-                      OWASP&rsquo;s own open-source playbook for pointing an AI agent at a codebase. It
-                      ships structured, OWASP-grounded procedures for security code review, dependency
-                      and secrets scanning, and API and web assessment, each one mapped to the
-                      same OWASP Top 10 categories these challenges are graded against. It turns
-                      &ldquo;find the bug&rdquo; into a repeatable method, which is exactly what you want
-                      against 300-plus challenges on a deadline.
+                      OWASP&rsquo;s own open-source playbook for pointing an AI agent at a codebase.
+                      It ships structured, OWASP-grounded procedures for security code review,
+                      dependency and secrets scanning, and API and web assessment, each one mapped to
+                      the same OWASP Top 10 categories these challenges are graded against. It turns
+                      &ldquo;find the bug&rdquo; into a repeatable method, which is exactly what you
+                      want against 300-plus challenges on a deadline.
                     </p>
                     <div className="flex flex-wrap items-center gap-3">
                       <a
                         href={event.secureAgentPlaybookUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="rounded-md bg-[#2563eb] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
+                        className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                       >
                         Get the playbook
                       </a>
                       <Link
-                        href="/how-to-play"
-                        className="rounded-md border border-white/10 bg-white/[0.03] px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+                        href="/how-to-play#first-patch"
+                        className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                       >
                         See it in a worked example
                       </Link>
@@ -335,52 +317,40 @@ export default async function Home() {
                   </div>
                 )}
               </section>
-            )}
-          </Fragment>
-        ))}
+            ),
+        )}
 
-        {/* Targets. secure-development's content — the registry holds copy, not
-            markup, so the grid itself stays here behind the module gate. */}
+        {/* The targets, when secure-development plays: six deliberately
+            vulnerable OWASP apps are the evaluator's proof this is real. */}
         {secureDevelopment && (
           <section className="flex flex-col gap-6">
             <div className="flex flex-col gap-3">
-              <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+              <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#14b8a6]">
                 {enabledApps.length} real {enabledApps.length === 1 ? "target" : "targets"}
               </p>
-              <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
                 {catalog
                   ? `${catalog.total} challenges up for grabs`
-                  : `${enabledTotalChallenges} challenges, ${enabledTotalMaxPoints} points up for grabs`}
+                  : `${enabledTotalChallenges} challenges up for grabs`}
               </h2>
               <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
                 Each app is a well-known, deliberately vulnerable OWASP project. Points scale with
                 difficulty, and the deeper flaws in {topAppsList} pay out the most.
               </p>
-              <div className="mt-1 h-px w-full bg-gradient-to-r from-[#2563eb]/40 via-white/[0.06] to-transparent" />
             </div>
-
             <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {sortedApps.map((app) => (
                 <li key={app.id}>
                   <Link
                     href="/challenges"
-                    className="ds-card group flex h-full flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5 transition-all hover:-translate-y-0.5"
-                    style={{ ["--accent" as string]: app.accent }}
+                    className="ds-card group flex h-full flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#16162a] p-5"
                   >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className="flex h-10 w-10 items-center justify-center rounded-full border-2 transition-shadow"
-                        style={{ color: app.accent, borderColor: app.accent }}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d={app.icon} />
-                        </svg>
-                      </span>
-                      <span className="font-mono text-xs tabular-nums text-muted">
-                        {catalog?.byApp[app.id]?.length ?? app.challengeCount} challenges
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h3 className="text-base font-bold text-white">{app.name}</h3>
+                      <span className="font-mono text-xs tabular-nums text-[#8f8f9b]">
+                        {catalog?.byApp[app.id]?.length ?? app.challengeCount}
                       </span>
                     </div>
-                    <h3 className="text-lg font-semibold text-white">{app.name}</h3>
                     <p className="text-sm leading-relaxed text-zinc-400">{app.blurb}</p>
                   </Link>
                 </li>
@@ -389,33 +359,33 @@ export default async function Home() {
           </section>
         )}
 
-        {/* Tracking */}
+        {/* The evaluator's ninety seconds: what running this costs. */}
         <section className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="max-w-xl">
-            <h3 className="text-lg font-semibold text-white">Track your progress live</h3>
-            {/* Deliberately module-neutral. This used to promise a "patched and
-                non-patched count per app", which a quiz-only event does not
-                have — the last piece of secure-development copy left in the
-                platform frame. page-quiz-only.test.tsx pins the absence of
-                "patched" so it can't come back. */}
+            <h3 className="text-lg font-semibold text-white">Run this for your own group</h3>
             <p className="mt-1 text-sm leading-relaxed text-zinc-400">
-              Sign in with GitHub to claim your row on the leaderboard, follow your progress on
-              your profile, and team up with other contestants.
+              This event runs on CTF-in-a-box: one machine, one free GitHub org, no cloud account,
+              scoring rubrics included. A university course, a chapter night or a weekend workshop
+              can stand it up in an afternoon.
             </p>
           </div>
           <div className="flex flex-none flex-wrap gap-3">
-            <Link
-              href="/leaderboard"
-              className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
+            <a
+              href="https://github.com/dcotelo/ctf-in-a-box"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
-              View leaderboard
-            </Link>
-            <Link
-              href="/how-to-play"
-              className="rounded-md border border-white/10 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+              Get the kit
+            </a>
+            <a
+              href="https://dcotelo.github.io/ctf-in-a-box/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
-              Read the full guide
-            </Link>
+              Read the docs
+            </a>
           </div>
         </section>
       </div>

@@ -10,22 +10,30 @@ import Image from "next/image";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import ModuleDetail from "@/components/module-detail";
+import ModuleItemList, { type ModuleItem } from "@/components/module-item-list";
+import ProgressSummary from "@/components/progress-summary";
 import TeamCard from "@/components/team-card";
+import TeamProgress from "@/components/team-progress";
 import type { AppId } from "@/lib/apps";
 import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
 import {
   getClassicTotals,
+  getViewerClassic,
   listChallenges,
   type Challenge,
   type ClassicTotal,
+  type ViewerClassic,
 } from "@/lib/classic-store";
 import { getViewerHints } from "@/lib/hint-store";
-import type { AppProgress, LeaderboardEntry, ModuleProgress } from "@/lib/leaderboard/types";
+import type { AppProgress, LeaderboardEntry, ModuleProgress, TeamStanding } from "@/lib/leaderboard/types";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
+import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
+import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
+import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { challengeTotal } from "@/lib/leaderboard/non-patched";
 import { type ModuleId } from "@/lib/modules";
-import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
+import { getQuizTotals, getViewerQuiz, listQuestions, type Question, type QuizTotal, type ViewerQuiz } from "@/lib/quiz-store";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib/team-store";
@@ -80,7 +88,7 @@ export default async function ProfilePage() {
   // `resolvedModules` (organizer-renamed titles) is what drives the
   // per-module breakdown below off the enabled-module LIST rather than a
   // per-module branch — see the module block loop.
-  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, resolvedModules, maxMembers] =
+  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, viewerQuiz, viewerClassic, resolvedModules, maxMembers] =
     await Promise.all([
       getLeaderboardSource().getUser(login),
       getViewerTeam(login),
@@ -89,6 +97,10 @@ export default async function ProfilePage() {
       quizEnabled ? listQuestions() : Promise.resolve([] as Question[]),
       classicEnabled ? getClassicTotals() : Promise.resolve(new Map<string, ClassicTotal>()),
       classicEnabled ? listChallenges() : Promise.resolve([] as Challenge[]),
+      // The viewer's OWN per-item progress, for the blocks' Show-N lists —
+      // the same reads the boards themselves make, module-gated identically.
+      quizEnabled ? getViewerQuiz(login) : Promise.resolve<ViewerQuiz>({ answered: {}, attempts: {} }),
+      classicEnabled ? getViewerClassic(login) : Promise.resolve<ViewerClassic>({ solved: {}, attempts: {} }),
       getResolvedModules(),
       // The SAME resolver joinTeam uses. Reading TEAM_MAX_MEMBERS here instead
       // would advertise a limit the join path does not enforce — the split
@@ -104,6 +116,32 @@ export default async function ProfilePage() {
     (profile?.team ? { slug: profile.team, name: profile.teamName ?? profile.team, members: [] } : null);
   const effectiveTeam = team?.slug ?? null;
   const teamMeta = team ? await getTeamMeta(team.slug) : { captain: null, joinCode: null };
+
+  // The team's scoring picture, from the SAME pipeline (and the same overlay
+  // order) the public leaderboard runs, so the panel and the board can never
+  // disagree about the team's total. A failed read drops the panel, never the
+  // page — this is a progress display, not a gate.
+  let teamStanding: TeamStanding | null = null;
+  let teamMemberEntries: { login: string; entry: LeaderboardEntry | null }[] = [];
+  if (team) {
+    try {
+      const data = await getLeaderboardSource()
+        .getLeaderboard()
+        .then(withHintPenalties)
+        .then(withModuleContributions)
+        .then(withTeamStandings);
+      teamStanding = data.teams.find((t) => t.slug === team.slug) ?? null;
+      // The store's roster wins; the standing's member list covers the mock
+      // fallback path where `team.members` arrives empty.
+      const roster = team.members.length > 0 ? team.members : (teamStanding?.members ?? []);
+      teamMemberEntries = roster.map((member) => ({
+        login: member,
+        entry: data.entries.find((e) => e.login === member) ?? null,
+      }));
+    } catch {
+      teamStanding = null;
+    }
+  }
   const isCaptain = teamMeta.captain !== null && teamMeta.captain === login;
   // Both derived through the SAME helper the public leaderboard row uses, so
   // a contestant's own dossier and their board row can't disagree about what
@@ -130,8 +168,8 @@ export default async function ProfilePage() {
   // ceiling they weren't playing toward (issue #200, 2.4). Clamped because a
   // deleted question/challenge deliberately leaves banked points in place, so
   // the numerator can legitimately exceed a shrunken denominator.
-  const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + q.points, 0);
-  const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + c.points, 0);
+  const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + (Number(q.points) || 0), 0);
+  const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
   const maxPointsAllModules = (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints;
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
@@ -217,6 +255,57 @@ export default async function ProfilePage() {
   const multiModule = resolvedModules.length > 1;
   const moduleBlocks = resolvedModules.filter((m) => moduleProgress[m.id]);
 
+  // The shared progress shape's numbers, per module — each module's own noun,
+  // its done/total pair, and its earned/available points. Denominators reuse
+  // the same clamped figures computed above, so a block can never read
+  // "6 / 5" or claim a ceiling the header bar doesn't.
+  const moduleSummary = (id: ModuleId): { done: number; total: number; noun: string; earned: number; available: number } => {
+    const progress = moduleProgress[id]!;
+    if (progress.detail.kind === "quiz") {
+      return { done: progress.detail.answered, total: progress.detail.total, noun: "answered", earned: progress.points, available: quizMaxPoints };
+    }
+    if (progress.detail.kind === "classic") {
+      return { done: progress.detail.solved, total: progress.detail.total, noun: "solved", earned: progress.points, available: classicMaxPoints };
+    }
+    return { done: progress.completed, total: challengeCount, noun: "patched", earned: progress.points, available: profile?.maxPoints ?? 0 };
+  };
+
+  // Per-item rows for the quiz/classic blocks' Show-N lists — which questions
+  // are answered, which flags are solved. Built FIELD BY FIELD from the
+  // public records, never a spread of a store row (a classic record's
+  // siblings include the flag; a quiz record's, the answer key). The
+  // secure-development block already has its own per-target lists via
+  // AppBreakdown.
+  const moduleItems = (id: ModuleId): { items: ModuleItem[]; noun: string; doneLabel: string } | null => {
+    if (id === "quiz" && quizQuestions.length > 0) {
+      return {
+        noun: quizQuestions.length === 1 ? "question" : "questions",
+        doneLabel: "Answered",
+        items: quizQuestions.map((qn) => ({
+          id: qn.id,
+          label: qn.prompt,
+          points: qn.points,
+          done: Boolean(viewerQuiz.answered[qn.id]),
+          earnedPoints: viewerQuiz.answered[qn.id]?.points,
+        })),
+      };
+    }
+    if (id === "classic" && classicChallenges.length > 0) {
+      return {
+        noun: classicChallenges.length === 1 ? "flag" : "flags",
+        doneLabel: "Solved",
+        items: classicChallenges.map((c) => ({
+          id: c.id,
+          label: c.title,
+          points: c.points,
+          done: Boolean(viewerClassic.solved[c.id]),
+          earnedPoints: viewerClassic.solved[c.id]?.points,
+        })),
+      };
+    }
+    return null;
+  };
+
   return (
     <div className="flex flex-col gap-8">
       {/* "target" is secure-development's own noun (and trips the shared
@@ -248,6 +337,17 @@ export default async function ProfilePage() {
               style={{ width: `${progressPct}%` }}
             />
           </div>
+          {/* The bar says WHAT it measures — an unlabeled bar reads as
+              decoration, and its denominator (every enabled module's points)
+              is not guessable. Falls back to the same done/total pair the
+              percentage itself falls back to. */}
+          <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted">
+            {maxPointsAllModules > 0
+              ? `${netPoints.toLocaleString("en-US")} of ${maxPointsAllModules.toLocaleString("en-US")} pts available`
+              : challengeCount > 0
+                ? `${patchedCount} of ${challengeCount} done`
+                : null}
+          </p>
         </div>
         <div className="flex flex-none gap-6 text-right">
           <div>
@@ -303,7 +403,7 @@ export default async function ProfilePage() {
           contestant to (lib/require-team.ts). Without it they land at the top
           of a page of stats with no indication of why they were moved.
           `scroll-mt-*` keeps the card clear of the sticky header. */}
-      <div id="team" className="scroll-mt-24">
+      <div id="team" className="scroll-mt-24 flex flex-col gap-4">
         <TeamCard
           team={team}
           writesEnabled={TEAM_WRITES_ENABLED}
@@ -312,6 +412,13 @@ export default async function ProfilePage() {
           captain={teamMeta.captain}
           joinCode={teamMeta.joinCode}
         />
+        {teamStanding && teamMemberEntries.length > 0 && (
+          <TeamProgress
+            standing={teamStanding}
+            memberEntries={teamMemberEntries}
+            viewerLogin={login}
+          />
+        )}
       </div>
 
       {/* Each enabled module's own contribution — driven off `moduleBlocks`
@@ -334,19 +441,31 @@ export default async function ProfilePage() {
       ) : (
         <div className="flex flex-col gap-4">
           {moduleBlocks.map((m) => (
-            <div key={m.id} data-testid="module-block" className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
-              {multiModule && (
-                <p className="mb-3 flex items-center justify-between text-xs uppercase tracking-wider text-muted">
-                  <span>{m.title}</span>
-                  <span className="font-mono text-sm text-zinc-300">{moduleProgress[m.id]!.points} pts</span>
-                </p>
-              )}
-              {/* showPoints is unconditional here, not a per-module branch:
-                  it only takes effect inside AppBreakdown (the
-                  secure-development render path), so quiz's block silently
-                  ignores it. It's what restores the per-app "30 / 60 pts"
+            <div key={m.id} data-testid="module-block" className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
+              {/* Every block opens with the shared progress shape
+                  (progress-summary.tsx) — the same line the boards themselves
+                  show, so a module's block here and its own page agree on
+                  what "how far along" looks like. Shown on single-module
+                  events too: the title is redundant there, the totals and
+                  the bar are not. */}
+              <ProgressSummary
+                label={multiModule ? m.title : undefined}
+                {...moduleSummary(m.id)}
+              />
+              {/* The quiz/classic ModuleDetail branches render exactly the
+                  done/total line the summary above now carries — only
+                  secure-development still has more to say (the per-target
+                  breakdown). showPoints restores the per-app "30 / 60 pts"
                   figure the pre-module custom grid used to show. */}
-              <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
+              {moduleProgress[m.id]!.detail.kind === "secure-development" && (
+                <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
+              )}
+              {/* Quiz/classic get the same Show-N item list the target cards
+                  have — which questions are answered, which flags solved. */}
+              {(() => {
+                const list = moduleItems(m.id);
+                return list ? <ModuleItemList items={list.items} noun={list.noun} doneLabel={list.doneLabel} /> : null;
+              })()}
             </div>
           ))}
         </div>

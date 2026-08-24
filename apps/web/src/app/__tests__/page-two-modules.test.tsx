@@ -25,6 +25,20 @@ vi.mock("@/lib/event-config", () => ({
 }));
 
 vi.mock("server-only", () => ({}));
+// The redesigned landing reads the session (for the state-aware primary CTA),
+// the viewer's team, and — once the event is past registration — the top of
+// the leaderboard. These fixtures render signed-out with the board read
+// failing, which the page must tolerate by hiding the strip.
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
+vi.mock("@/lib/leaderboard/source", () => ({
+  getLeaderboardSource: () => ({
+    getLeaderboard: async () => {
+      throw new Error("no leaderboard in this fixture");
+    },
+  }),
+}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 // An organizer rename, so the per-module section headings are demonstrably the
 // RESOLVED title and not the registry default.
@@ -68,10 +82,13 @@ describe("landing page with two modules enabled", () => {
     expect(heroLabel).toBeLessThan(html.indexOf("Answer security questions for points."));
   });
 
-  it("renders both modules' CTAs, in registry order, alongside the platform's", () => {
-    expect(html.indexOf("How to play")).toBeLessThan(html.indexOf("Browse targets"));
+  it("renders both modules' game-card CTAs in registry order", () => {
+    expect(html).toContain("Browse targets");
+    expect(html).toContain("Take the quiz");
+    // In ORDER — registry order also picks `firstBoard` for the hero CTA,
+    // so this is a contract, not cosmetics.
     expect(html.indexOf("Browse targets")).toBeLessThan(html.indexOf("Take the quiz"));
-    expect(html.indexOf("Take the quiz")).toBeLessThan(html.indexOf("Live leaderboard"));
+    expect(html.indexOf("Browse targets")).toBeLessThan(html.indexOf("Take the quiz"));
   });
 
   it("heads each what-to-expect section with that module's resolved title", () => {
@@ -80,9 +97,12 @@ describe("landing page with two modules enabled", () => {
     expect(html).not.toContain("What to expect");
   });
 
-  it("renders each module's own steps", () => {
-    expect(html).toContain("Patch it and open a PR");
-    expect(html).toContain("Get scored on submit");
+  // The numbered steps left the landing page for How to play; each module's
+  // card carries its pitch and its door instead.
+  it("renders each module's game card, not its steps", () => {
+    expect(html).toContain("The games");
+    expect(html).not.toContain("Patch it and open a PR");
+    expect(html).not.toContain("Get scored on submit");
   });
 
   it("keeps the bring-your-agent section attached to secure-development only", () => {

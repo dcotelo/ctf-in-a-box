@@ -45,6 +45,20 @@ vi.mock("@/lib/event-config", () => ({
 // halves of the contract at once — an override must reach BOTH surfaces, and
 // a module with no override must read identically in both.
 vi.mock("server-only", () => ({}));
+// The redesigned landing reads the session (for the state-aware primary CTA),
+// the viewer's team, and — once the event is past registration — the top of
+// the leaderboard. These fixtures render signed-out with the board read
+// failing, which the page must tolerate by hiding the strip.
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
+vi.mock("@/lib/leaderboard/source", () => ({
+  getLeaderboardSource: () => ({
+    getLeaderboard: async () => {
+      throw new Error("no leaderboard in this fixture");
+    },
+  }),
+}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: { quiz: { title: "Round 1" } } }),

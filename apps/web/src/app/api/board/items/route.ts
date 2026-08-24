@@ -1,0 +1,57 @@
+import { NextResponse } from "next/server";
+import { LOGIN_RE } from "@/lib/admin-admins";
+import { getViewerClassic, listChallenges } from "@/lib/classic-store";
+import { isModuleLive } from "@/lib/enabled-modules";
+import { getViewerQuiz, listQuestions } from "@/lib/quiz-store";
+
+/** How many logins one request may union — a team's roster, not a scrape. */
+const MAX_LOGINS = 8;
+
+type Item = { id: string; label: string; points: number; done: boolean; earnedPoints?: number };
+
+/**
+ * Per-item quiz/classic completion for a login (an expanded leaderboard row)
+ * or a roster (an expanded team row, whose completion is the members' union —
+ * the same union the team's banked points already reflect).
+ *
+ * Public and read-only, like the leaderboard it serves: WHO has solved WHAT
+ * is already on the board as counts, and every label here (a question's
+ * prompt, a challenge's title) is on a public page. What must never leave
+ * this route is grading material — items are built field by field from the
+ * public records, and the viewer maps carry only ids and banked points.
+ */
+export async function GET(request: Request) {
+  const raw = new URL(request.url).searchParams.get("logins") ?? "";
+  const logins = raw.split(",").map((l) => l.trim()).filter(Boolean);
+  if (logins.length === 0 || logins.length > MAX_LOGINS || !logins.every((l) => LOGIN_RE.test(l))) {
+    return NextResponse.json({ error: "bad logins" }, { status: 400 });
+  }
+
+  const [quizLive, classicLive] = await Promise.all([isModuleLive("quiz"), isModuleLive("classic")]);
+
+  let quiz: Item[] | null = null;
+  if (quizLive) {
+    const [questions, viewers] = await Promise.all([
+      listQuestions(),
+      Promise.all(logins.map((l) => getViewerQuiz(l))),
+    ]);
+    quiz = questions.map((q) => {
+      const hit = viewers.map((v) => v.answered[q.id]).find(Boolean);
+      return { id: q.id, label: q.prompt, points: q.points, done: Boolean(hit), earnedPoints: hit?.points };
+    });
+  }
+
+  let classic: Item[] | null = null;
+  if (classicLive) {
+    const [challenges, viewers] = await Promise.all([
+      listChallenges(),
+      Promise.all(logins.map((l) => getViewerClassic(l))),
+    ]);
+    classic = challenges.map((c) => {
+      const hit = viewers.map((v) => v.solved[c.id]).find(Boolean);
+      return { id: c.id, label: c.title, points: c.points, done: Boolean(hit), earnedPoints: hit?.points };
+    });
+  }
+
+  return NextResponse.json({ quiz, classic });
+}

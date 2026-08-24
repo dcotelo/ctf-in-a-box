@@ -41,7 +41,7 @@ async function postTeam(path: string, body?: Record<string, string>): Promise<Te
  *  discoverable once you already know it is there is not discoverable. */
 const PAIRED_ACTION_CLASS =
   "flex-none rounded-md border border-white/20 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 " +
-  "transition-colors hover:border-[#2563eb]/60 hover:bg-[#2563eb]/10 hover:text-white " +
+  "transition-colors hover:border-[#2563eb]/60 hover:bg-white/[0.06] hover:text-white " +
   "disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 
 export default function TeamCard({
@@ -126,7 +126,7 @@ export default function TeamCard({
           </div>
 
           {displayCode && (
-            <div className="flex flex-col gap-2 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/10 px-3 py-2">
+            <div className="flex flex-col gap-2 rounded-md border border-[#2563eb]/30 bg-white/[0.06] px-3 py-2">
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-muted">Share this join code</p>
                 <p className="font-mono text-lg tracking-widest text-white">{displayCode}</p>
@@ -191,7 +191,7 @@ export default function TeamCard({
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   placeholder="New team name"
-                  className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                  className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
                 />
                 <button
                   type="button"
@@ -208,7 +208,7 @@ export default function TeamCard({
                   <select
                     value={transferTarget}
                     onChange={(e) => setTransferTarget(e.target.value)}
-                    className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                    className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
                   >
                     <option value="">Transfer captain to…</option>
                     {otherMembers.map((member) => (
@@ -292,13 +292,13 @@ export default function TeamCard({
                 value={joinValue}
                 onChange={(e) => setJoinValue(e.target.value)}
                 placeholder="Join code"
-                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
               />
               <button
                 type="button"
                 disabled={pending || !joinValue.trim()}
                 onClick={() => run(() => postTeam("/join", { code: joinValue }))}
-                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 disabled:opacity-50"
+                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
               >
                 Join
               </button>
@@ -315,13 +315,13 @@ export default function TeamCard({
                 value={createValue}
                 onChange={(e) => setCreateValue(e.target.value)}
                 placeholder="Team name"
-                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
               />
               <button
                 type="button"
                 disabled={pending || !createValue.trim()}
                 onClick={() => run(() => postTeam("", { name: createValue }))}
-                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 disabled:opacity-50"
+                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
               >
                 Create
               </button>

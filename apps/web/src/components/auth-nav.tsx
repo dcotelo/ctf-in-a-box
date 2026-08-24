@@ -8,7 +8,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { eventConfig } from "@/lib/event-config";
 
@@ -30,6 +30,21 @@ export default function AuthNav() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Hydration guard. The server always renders the pending placeholder, but
+  // useSession() is backed by a client store whose fetch can RESOLVE before
+  // React hydrates (big pages, slow mains) — the first client render then
+  // shows the signed-in menu against the server's placeholder and React
+  // throws #418 on every affected full load. Gating on mounted pins the
+  // first client render to the placeholder no matter how fast the session
+  // arrives; the deliberate signed-out flash (see header comment) already
+  // covers the UX of that extra frame.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // Deferred so this reads as subscribing to mount rather than a render-time
+    // computation — satisfies react-hooks/set-state-in-effect.
+    const timeout = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timeout);
+  }, []);
   // Keyed by login so switching accounts cannot carry the previous viewer's
   // answer over. `null` = not asked yet.
   const [granted, setGranted] = useState<{ login: string; admin: boolean } | null>(null);
@@ -58,7 +73,7 @@ export default function AuthNav() {
     }
   }
 
-  if (isPending) {
+  if (!mounted || isPending) {
     return <div className="h-8 w-8 flex-none animate-pulse rounded-full bg-white/[0.06]" aria-hidden="true" />;
   }
 
@@ -67,7 +82,7 @@ export default function AuthNav() {
       <button
         type="button"
         onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/profile" })}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/50 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/50 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
         <span className="text-[#22c55e]">$</span> sign-in --github
       </button>
@@ -88,7 +103,7 @@ export default function AuthNav() {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
         <Image
           src={session.user.image ?? `https://avatars.githubusercontent.com/${displayName}`}

@@ -1,0 +1,73 @@
+// /api/board/items — the expanded leaderboard rows' per-item quiz/classic
+// completion. The pins that matter: login validation (this is a public
+// route), the members' UNION for team rosters, module gating, and that
+// nothing grading-shaped can reach the payload.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  isModuleLive: vi.fn<(id: string) => Promise<boolean>>(),
+  listQuestions: vi.fn(),
+  getViewerQuiz: vi.fn(),
+  listChallenges: vi.fn(),
+  getViewerClassic: vi.fn(),
+}));
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => ({ isModuleLive: mocks.isModuleLive }));
+vi.mock("@/lib/quiz-store", () => ({ listQuestions: mocks.listQuestions, getViewerQuiz: mocks.getViewerQuiz }));
+vi.mock("@/lib/classic-store", () => ({ listChallenges: mocks.listChallenges, getViewerClassic: mocks.getViewerClassic }));
+
+import { GET } from "@/app/api/board/items/route";
+
+const req = (logins: string) => new Request(`http://box/api/board/items?logins=${encodeURIComponent(logins)}`);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.isModuleLive.mockResolvedValue(true);
+  mocks.listQuestions.mockResolvedValue([{ id: "q1", prompt: "What is XSS?", points: 50 }]);
+  mocks.getViewerQuiz.mockResolvedValue({ answered: {}, attempts: {} });
+  mocks.listChallenges.mockResolvedValue([{ id: "c1", title: "Robots Only", points: 50 }]);
+  mocks.getViewerClassic.mockResolvedValue({ solved: {}, attempts: {} });
+});
+
+describe("GET /api/board/items", () => {
+  it("refuses malformed, empty, and oversized login lists", async () => {
+    expect((await GET(req(""))).status).toBe(400);
+    expect((await GET(req("not a login!"))).status).toBe(400);
+    expect((await GET(req(Array.from({ length: 9 }, (_, i) => `user-${i}`).join(",")))).status).toBe(400);
+  });
+
+  it("unions a roster: an item any member completed is done, with the banked points", async () => {
+    mocks.getViewerQuiz.mockImplementation(async (login: string) => ({
+      answered: login === "bob" ? { q1: { points: 50, at: "2026-08-24T00:00:00.000Z" } } : {},
+      attempts: {},
+    }));
+    const res = await GET(req("alice,bob"));
+    const body = await res.json();
+    expect(body.quiz).toEqual([{ id: "q1", label: "What is XSS?", points: 50, done: true, earnedPoints: 50 }]);
+    expect(body.classic).toEqual([{ id: "c1", label: "Robots Only", points: 50, done: false }]);
+  });
+
+  it("returns null for a module that is not live, and never reads its store", async () => {
+    mocks.isModuleLive.mockImplementation(async (id: string) => id === "quiz");
+    const body = await (await GET(req("alice"))).json();
+    expect(body.classic).toBeNull();
+    expect(mocks.listChallenges).not.toHaveBeenCalled();
+    expect(mocks.getViewerClassic).not.toHaveBeenCalled();
+  });
+
+  // Simulates the leak this route must be immune to: a store record that
+  // somehow carries grading material. Items are built field by field, so a
+  // flag or an answer key on the source object has no path into the payload.
+  it("never echoes grading fields from the public records", async () => {
+    mocks.listChallenges.mockResolvedValue([
+      { id: "c1", title: "Robots Only", points: 50, flag: "CTF{leak}", flagnorm: "ctf{leak}" },
+    ]);
+    mocks.listQuestions.mockResolvedValue([
+      { id: "q1", prompt: "What is XSS?", points: 50, correct: ["a"] },
+    ]);
+    const text = await (await GET(req("alice"))).text();
+    expect(text).not.toContain("CTF{leak}");
+    expect(text).not.toContain("ctf{leak}");
+    expect(text).not.toContain("correct");
+  });
+});

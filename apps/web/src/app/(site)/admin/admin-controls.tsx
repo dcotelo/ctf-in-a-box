@@ -335,7 +335,7 @@ export default function AdminControls({
             onKeyDown={(e) => onTabKeyDown(e, index)}
             className={
               active === tab.id
-                ? "-mb-px rounded-t-md border-b-2 border-[#2563eb] px-3 py-2 text-sm font-medium text-white"
+                ? "-mb-px rounded-t-md border-b-2 border-[#2563eb]/70 px-3 py-2 text-sm font-medium text-white"
                 : "-mb-px rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200"
             }
           >

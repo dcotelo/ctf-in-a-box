@@ -16,6 +16,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Markdown from "@/components/markdown";
+import ProgressSummary from "@/components/progress-summary";
 import { formatCompact, getRemaining, type Remaining } from "@/lib/countdown";
 
 /** Per-challenge progress, mutually exclusive. Every branch carries only
@@ -197,31 +198,100 @@ export default function ClassicBoard({
     }
   }
 
+  // The rail's per-category run: solved counts and earned points, computed
+  // from the same props the cards render — one source, no second count that
+  // can drift (DESIGN.md: play surface).
+  const run = categories
+    .map((category) => {
+      const inCategory = challenges.filter((c) => c.category === category);
+      return {
+        category,
+        total: inCategory.length,
+        solved: inCategory.filter((c) => c.status === "solved").length,
+      };
+    })
+    .filter((r) => r.total > 0);
+  const solvedTotal = run.reduce((n, r) => n + r.solved, 0);
+  const boardTotal = run.reduce((n, r) => n + r.total, 0);
+  // Points over the RENDERED set — challenges whose category is in the
+  // `categories` prop — matching the counts above, which already derive from
+  // it. Summing the raw prop let a challenge in an unlisted category count
+  // toward the rail while rendering nowhere on the board.
+  const rendered = challenges.filter((c) => categories.includes(c.category));
+  const pointsTotal = rendered.reduce(
+    (n, c) => n + (c.status === "solved" ? c.earnedPoints : 0),
+    0,
+  );
+  const pointsAvailable = rendered.reduce((n, c) => n + c.points, 0);
+  const anchorFor = (category: string) => `cat-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
   return (
-    <div className="flex flex-col gap-8">
-      {categories.map((category) => {
-        const inCategory = challenges.filter((c) => c.category === category);
-        if (inCategory.length === 0) return null; // A category with no challenges is hidden.
-        return (
-          <div key={category} className="flex flex-col gap-4">
-            <h2 className="text-lg font-semibold text-white">{category}</h2>
-            <div className="flex flex-col gap-4">
-              {inCategory.map((challenge) => (
-                <ChallengeCard
-                  key={challenge.id}
-                  challenge={challenge}
-                  authenticated={authenticated}
-                  value={inputs[challenge.id] ?? ""}
-                  pending={pending[challenge.id] ?? false}
-                  feedback={feedback[challenge.id]}
-                  onChange={(value) => setInputs((prev) => ({ ...prev, [challenge.id]: value }))}
-                  onSubmit={() => submit(challenge)}
-                />
-              ))}
-            </div>
+    <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+      {/* Your run: progress beside the work, doubling as jump nav. Sticky on
+          desktop; on mobile it collapses to a chip row above the board. */}
+      {authenticated && run.length > 0 && (
+        <nav
+          aria-label="Your run"
+          className="flex flex-row flex-wrap gap-x-4 gap-y-2 lg:sticky lg:top-20 lg:w-44 lg:flex-none lg:flex-col lg:gap-3"
+        >
+          <p className="hidden font-mono text-[11px] uppercase tracking-wider text-muted lg:block">
+            Your run
+          </p>
+          {/* The shared progress shape (progress-summary.tsx) — same read as
+              the quiz strip and the challenge browser. In this 11rem rail it
+              wraps naturally: counts, points, then the bar on its own line. */}
+          <div className="w-full">
+            <ProgressSummary
+              done={solvedTotal}
+              total={boardTotal}
+              noun="solved"
+              earned={pointsTotal}
+              available={pointsAvailable}
+            />
           </div>
-        );
-      })}
+          <ul className="flex flex-row flex-wrap gap-x-4 gap-y-1.5 lg:flex-col">
+            {run.map((r) => (
+              <li key={r.category}>
+                <a
+                  href={`#${anchorFor(r.category)}`}
+                  className="flex items-baseline gap-2 font-mono text-xs text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+                >
+                  <span className="truncate">{r.category}</span>
+                  <span className={`tabular-nums ${r.solved === r.total ? "text-[#22c55e]" : "text-muted"}`}>
+                    {r.solved}/{r.total}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col gap-8">
+        {categories.map((category) => {
+          const inCategory = challenges.filter((c) => c.category === category);
+          if (inCategory.length === 0) return null; // A category with no challenges is hidden.
+          return (
+            <div key={category} id={anchorFor(category)} className="flex scroll-mt-20 flex-col gap-4">
+              <h2 className="text-lg font-semibold text-white">{category}</h2>
+              <div className="flex flex-col gap-4">
+                {inCategory.map((challenge) => (
+                  <ChallengeCard
+                    key={challenge.id}
+                    challenge={challenge}
+                    authenticated={authenticated}
+                    value={inputs[challenge.id] ?? ""}
+                    pending={pending[challenge.id] ?? false}
+                    feedback={feedback[challenge.id]}
+                    onChange={(value) => setInputs((prev) => ({ ...prev, [challenge.id]: value }))}
+                    onSubmit={() => submit(challenge)}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -335,13 +405,13 @@ export function ChallengeCard({
               disabled={inputLocked}
               onChange={(e) => onChange(e.target.value)}
               placeholder="CTF{...}"
-              className="flex-1 rounded-md border border-white/10 bg-[#12121e] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+              className="flex-1 rounded-md border border-white/10 bg-[#12121e] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             />
             <button
               type="button"
               onClick={onSubmit}
               disabled={inputLocked || value.trim().length === 0}
-              className="flex-none rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+              className="flex-none rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
               {pending ? "Submitting…" : "Submit flag"}
             </button>

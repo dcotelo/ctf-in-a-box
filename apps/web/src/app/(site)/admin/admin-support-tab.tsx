@@ -30,7 +30,7 @@ type UserDetail = {
 };
 
 const FIELD =
-  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none";
+  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
 // Both action styles carry a DESIGNED disabled state, not an opacity fade.
 // Every control on this tab is disabled at rest (nothing is actionable until
 // a lookup returns or both team fields are filled), so the disabled state is
@@ -39,7 +39,7 @@ const FIELD =
 // live next to a faded "Disband team" that looked dead (issue #200, 3.2).
 // Same treatment as team-card.tsx's PAIRED_ACTION_CLASS, the #195 fix.
 const BTN =
-  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 " +
+  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] " +
   "disabled:cursor-not-allowed disabled:border disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 const DANGER =
   "flex-none rounded-md border border-[#e53e3e]/50 px-3 py-1.5 text-xs text-[#e53e3e] transition-colors hover:bg-[#e53e3e]/10 " +

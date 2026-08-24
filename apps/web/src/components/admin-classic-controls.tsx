@@ -755,7 +755,7 @@ export default function AdminClassicControls({
           disabled={pending}
           onChange={(e) => setClassicCooldownSecInput(e.target.value)}
           onBlur={() => commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -812,13 +812,13 @@ export default function AdminClassicControls({
             placeholder="New category"
             disabled={categoryPending}
             onChange={(e) => setNewCategoryInput(e.target.value)}
-            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           />
           <button
             type="button"
             disabled={categoryPending || newCategoryInput.trim().length === 0}
             onClick={addCategory}
-            className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add category
           </button>
@@ -835,7 +835,7 @@ export default function AdminClassicControls({
               setFlagRevealed(false);
               setEditing(newChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
-            className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add challenge
           </button>
@@ -979,7 +979,7 @@ export default function AdminClassicControls({
               }}
               rows={6}
               placeholder="Paste a bundle's JSON here, or choose a file below."
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
             />
 
             <input
@@ -1010,7 +1010,7 @@ export default function AdminClassicControls({
               </ul>
             )}
 
-            {importResult && <p className="text-xs text-[#7aa2ff]">{formatImportSummary(importResult)}</p>}
+            {importResult && <p className="text-xs text-white">{formatImportSummary(importResult)}</p>}
 
             <button
               type="button"
@@ -1118,7 +1118,7 @@ export function ChallengeForm({
   }, [editingKey]);
 
   return (
-    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
         {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhraseFromTitle(draft.title, editor.id)}"`}
       </h4>
@@ -1149,7 +1149,7 @@ export function ChallengeForm({
           value={draft.title}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, title: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1160,7 +1160,7 @@ export function ChallengeForm({
             value={draft.category}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, category: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           >
             {!categories.includes(draft.category) && (
               <option value={draft.category} disabled>
@@ -1183,7 +1183,7 @@ export function ChallengeForm({
             value={draft.points}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           />
         </label>
         {/* Position used to be a number input here. It is now set by
@@ -1202,7 +1202,7 @@ export function ChallengeForm({
           <button
             type="button"
             onClick={() => setFlagRevealed(!flagRevealed)}
-            className="ml-2 text-[#7aa2ff] hover:underline"
+            className="ml-2 text-white hover:underline"
           >
             {flagRevealed ? "Hide" : "Reveal"}
           </button>
@@ -1216,7 +1216,7 @@ export function ChallengeForm({
           value={draft.flag}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, flag: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1249,7 +1249,7 @@ export function ChallengeForm({
           onChange={(e) => onChange({ ...draft, description: e.target.value })}
           rows={4}
           maxLength={MARKDOWN_MAX}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 

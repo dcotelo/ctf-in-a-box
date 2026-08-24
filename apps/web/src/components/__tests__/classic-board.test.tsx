@@ -114,6 +114,23 @@ describe("ClassicBoard", () => {
     );
     expect(html).not.toMatch(/\d+ of \d+/);
   });
+
+  // The "Your run" rail's totals must carry their denominators: a bare
+  // "1 solved" answers nothing about how much board is left, and points
+  // earned without points available reads as decoration.
+  it("the rail states solved-of-total and earned-of-available points", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard
+        categories={["Web", "Crypto"]}
+        challenges={[{ ...web, status: "solved", earnedPoints: 50 }, crypto]}
+        authenticated
+      />,
+    );
+    // The shared ProgressSummary splits number and denominator into spans,
+    // so the pins match the denominator halves.
+    expect(html).toContain("/ 2 solved");
+    expect(html).toContain("/ 125 pts");
+  });
 });
 
 describe("resultLine", () => {
