@@ -121,14 +121,12 @@ export default async function QuizPage() {
     ...deriveStatus(viewerQuiz.answered[q.id], viewerQuiz.attempts[q.id], maxAttempts, cooldownMs),
   }));
 
-  const answeredCount = viewQuestions.filter((q) => q.status === "answered").length;
-  // Per-VIEWER state, so it sits above the board rather than in the header:
-  // a page description says what the page is, and this says what *you* have
-  // done on it — two different things that were sharing one slot, with the
-  // organizer-controlled one losing.
-  const progress = login
-    ? `You've answered ${answeredCount} of ${questions.length} question${questions.length === 1 ? "" : "s"}.`
-    : "Sign in with GitHub to answer questions.";
+  // Per-VIEWER state, so it sits above the board rather than in the header.
+  // Signed in, the board's own progress strip (answered/total, points, bar)
+  // carries the count — a sentence saying the same numbers directly above it
+  // was the same fact twice, the duplication the classic board already
+  // removed. Only the signed-out prompt has no strip to defer to.
+  const progress = login ? null : "Sign in with GitHub to answer questions.";
 
   return (
     <div className="flex flex-col gap-8">
@@ -147,7 +145,7 @@ export default async function QuizPage() {
           the visitor most worth telling, since signing in now is what lets
           them answer the moment questions appear. */}
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-zinc-400">{progress}</p>
+        {progress && <p className="text-sm text-zinc-400">{progress}</p>}
         {questions.length === 0 ? (
           <ModuleEmptyState
             message={
