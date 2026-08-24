@@ -71,7 +71,13 @@ vi.mock("@/lib/modules", async (importOriginal) => ({
 // directly — these tests don't exercise the breakdown blocks, so an empty
 // list is enough to keep the page from rendering any.
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
-vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals,
+  listQuestions,
+  getTeamQuizTotals,
+  // The blocks' Show-N item list reads the viewer's own per-question map.
+  getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage from "@/app/(site)/profile/page";

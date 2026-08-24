@@ -10,6 +10,7 @@ import Image from "next/image";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import ModuleDetail from "@/components/module-detail";
+import ModuleItemList, { type ModuleItem } from "@/components/module-item-list";
 import ProgressSummary from "@/components/progress-summary";
 import TeamCard from "@/components/team-card";
 import TeamProgress from "@/components/team-progress";
@@ -18,9 +19,11 @@ import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
 import {
   getClassicTotals,
+  getViewerClassic,
   listChallenges,
   type Challenge,
   type ClassicTotal,
+  type ViewerClassic,
 } from "@/lib/classic-store";
 import { getViewerHints } from "@/lib/hint-store";
 import type { AppProgress, LeaderboardEntry, ModuleProgress, TeamStanding } from "@/lib/leaderboard/types";
@@ -30,7 +33,7 @@ import { withModuleContributions } from "@/lib/leaderboard/module-contributions"
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { challengeTotal } from "@/lib/leaderboard/non-patched";
 import { type ModuleId } from "@/lib/modules";
-import { getQuizTotals, listQuestions, type Question, type QuizTotal } from "@/lib/quiz-store";
+import { getQuizTotals, getViewerQuiz, listQuestions, type Question, type QuizTotal, type ViewerQuiz } from "@/lib/quiz-store";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib/team-store";
@@ -85,7 +88,7 @@ export default async function ProfilePage() {
   // `resolvedModules` (organizer-renamed titles) is what drives the
   // per-module breakdown below off the enabled-module LIST rather than a
   // per-module branch — see the module block loop.
-  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, resolvedModules, maxMembers] =
+  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, viewerQuiz, viewerClassic, resolvedModules, maxMembers] =
     await Promise.all([
       getLeaderboardSource().getUser(login),
       getViewerTeam(login),
@@ -94,6 +97,10 @@ export default async function ProfilePage() {
       quizEnabled ? listQuestions() : Promise.resolve([] as Question[]),
       classicEnabled ? getClassicTotals() : Promise.resolve(new Map<string, ClassicTotal>()),
       classicEnabled ? listChallenges() : Promise.resolve([] as Challenge[]),
+      // The viewer's OWN per-item progress, for the blocks' Show-N lists —
+      // the same reads the boards themselves make, module-gated identically.
+      quizEnabled ? getViewerQuiz(login) : Promise.resolve<ViewerQuiz>({ answered: {}, attempts: {} }),
+      classicEnabled ? getViewerClassic(login) : Promise.resolve<ViewerClassic>({ solved: {}, attempts: {} }),
       getResolvedModules(),
       // The SAME resolver joinTeam uses. Reading TEAM_MAX_MEMBERS here instead
       // would advertise a limit the join path does not enforce — the split
@@ -263,6 +270,42 @@ export default async function ProfilePage() {
     return { done: progress.completed, total: challengeCount, noun: "patched", earned: progress.points, available: profile?.maxPoints ?? 0 };
   };
 
+  // Per-item rows for the quiz/classic blocks' Show-N lists — which questions
+  // are answered, which flags are solved. Built FIELD BY FIELD from the
+  // public records, never a spread of a store row (a classic record's
+  // siblings include the flag; a quiz record's, the answer key). The
+  // secure-development block already has its own per-target lists via
+  // AppBreakdown.
+  const moduleItems = (id: ModuleId): { items: ModuleItem[]; noun: string; doneLabel: string } | null => {
+    if (id === "quiz" && quizQuestions.length > 0) {
+      return {
+        noun: quizQuestions.length === 1 ? "question" : "questions",
+        doneLabel: "Answered",
+        items: quizQuestions.map((qn) => ({
+          id: qn.id,
+          label: qn.prompt,
+          points: qn.points,
+          done: Boolean(viewerQuiz.answered[qn.id]),
+          earnedPoints: viewerQuiz.answered[qn.id]?.points,
+        })),
+      };
+    }
+    if (id === "classic" && classicChallenges.length > 0) {
+      return {
+        noun: classicChallenges.length === 1 ? "flag" : "flags",
+        doneLabel: "Solved",
+        items: classicChallenges.map((c) => ({
+          id: c.id,
+          label: c.title,
+          points: c.points,
+          done: Boolean(viewerClassic.solved[c.id]),
+          earnedPoints: viewerClassic.solved[c.id]?.points,
+        })),
+      };
+    }
+    return null;
+  };
+
   return (
     <div className="flex flex-col gap-8">
       {/* "target" is secure-development's own noun (and trips the shared
@@ -417,6 +460,12 @@ export default async function ProfilePage() {
               {moduleProgress[m.id]!.detail.kind === "secure-development" && (
                 <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
               )}
+              {/* Quiz/classic get the same Show-N item list the target cards
+                  have — which questions are answered, which flags solved. */}
+              {(() => {
+                const list = moduleItems(m.id);
+                return list ? <ModuleItemList items={list.items} noun={list.noun} doneLabel={list.doneLabel} /> : null;
+              })()}
             </div>
           ))}
         </div>
