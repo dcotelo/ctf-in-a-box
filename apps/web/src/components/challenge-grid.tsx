@@ -63,7 +63,19 @@ export default function ChallengeGrid({
 
   const hintsActive = Object.keys(hints).length > 0;
   const { data: session, isPending } = authClient.useSession();
-  const signedIn = hintsActive && !isPending && !!session;
+  // Hydration guard, same race as auth-nav's: the session store can resolve
+  // BEFORE React hydrates, making the first client render disagree with the
+  // server's signed-out markup (HintButton renders a different control per
+  // signedIn). Pin the first client render to signed-out; the session lands
+  // one frame later.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // Deferred — subscribing to mount, not computing during render
+    // (react-hooks/set-state-in-effect).
+    const timeout = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timeout);
+  }, []);
+  const signedIn = hintsActive && mounted && !isPending && !!session;
   const [purchased, setPurchased] = useState<PurchasedHints>({});
   const [hintCost, setHintCost] = useState(10);
   const [spent, setSpent] = useState(0);

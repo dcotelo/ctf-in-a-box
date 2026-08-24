@@ -205,7 +205,7 @@ export function EntryRow({
           <div className="flex flex-none items-center gap-5 text-right">
             <div>
               <p className="font-mono text-xl font-bold tabular-nums text-white">
-                {entry.points.toLocaleString()}
+                {entry.points.toLocaleString("en-US")}
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
               {entry.hintPenalty ? (
@@ -307,7 +307,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
           <div className="flex flex-none items-center gap-5 text-right">
             <div>
               <p className="font-mono text-xl font-bold tabular-nums text-white">
-                {team.points.toLocaleString()}
+                {team.points.toLocaleString("en-US")}
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">pts</p>
               {team.hintPenalty ? (
@@ -349,7 +349,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
                   </span>
                 )}
                 <span className="flex-none rounded-full bg-white/[0.06] px-1.5 py-0.5 font-mono tabular-nums text-[11px] text-zinc-200">
-                  {(pointsByLogin?.get(login) ?? 0).toLocaleString()} pts
+                  {(pointsByLogin?.get(login) ?? 0).toLocaleString("en-US")} pts
                 </span>
               </span>
             ))}
@@ -370,7 +370,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
                     <div key={m.id} className="rounded-md border border-white/[0.06] bg-[#12121e] px-3 py-2 text-sm">
                       <span className="text-xs uppercase tracking-wider text-muted">{m.title}</span>
                       <span className="ml-2 font-mono tabular-nums text-white">
-                        {progress.points.toLocaleString()} pts
+                        {progress.points.toLocaleString("en-US")} pts
                       </span>
                       <span className="ml-2 font-mono text-xs tabular-nums text-muted">
                         {progress.completed} {completedNoun(m.id)}

@@ -8,7 +8,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { eventConfig } from "@/lib/event-config";
 
@@ -30,6 +30,21 @@ export default function AuthNav() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Hydration guard. The server always renders the pending placeholder, but
+  // useSession() is backed by a client store whose fetch can RESOLVE before
+  // React hydrates (big pages, slow mains) — the first client render then
+  // shows the signed-in menu against the server's placeholder and React
+  // throws #418 on every affected full load. Gating on mounted pins the
+  // first client render to the placeholder no matter how fast the session
+  // arrives; the deliberate signed-out flash (see header comment) already
+  // covers the UX of that extra frame.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // Deferred so this reads as subscribing to mount rather than a render-time
+    // computation — satisfies react-hooks/set-state-in-effect.
+    const timeout = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timeout);
+  }, []);
   // Keyed by login so switching accounts cannot carry the previous viewer's
   // answer over. `null` = not asked yet.
   const [granted, setGranted] = useState<{ login: string; admin: boolean } | null>(null);
@@ -58,7 +73,7 @@ export default function AuthNav() {
     }
   }
 
-  if (isPending) {
+  if (!mounted || isPending) {
     return <div className="h-8 w-8 flex-none animate-pulse rounded-full bg-white/[0.06]" aria-hidden="true" />;
   }
 
