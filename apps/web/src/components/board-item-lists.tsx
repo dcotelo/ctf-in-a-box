@@ -52,7 +52,7 @@ export default function BoardItemLists({ logins }: { logins: string[] }) {
     ).then((parts: (ItemsResponse | null)[]) => {
       if (cancelled) return;
       const ok = parts.filter((p): p is ItemsResponse => p !== null);
-      if (ok.length === 0) return;
+      if (ok.length === 0 || ok.length !== chunks.length) return;
       setData({ quiz: mergeItems(ok.map((p) => p.quiz)), classic: mergeItems(ok.map((p) => p.classic)) });
     });
     return () => {
