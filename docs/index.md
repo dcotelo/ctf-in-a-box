@@ -89,9 +89,8 @@ scoring code to write.
 <sup>Captured from the contestant app with seeded demo players. The board ranks
 <strong>teams</strong> by default and switches to individual standings; anything
 solved by more than one teammate counts <strong>once</strong>, so a team's total
-can be less than its members' scores added up. Branding is the neutral
-"OWASP CTF" default; the event name, targets, and links are event-config
-driven.</sup>
+can be less than its members' scores added up. The event name, branding,
+targets, and links are all event-config driven.</sup>
 
 ## What organizers run
 
@@ -211,6 +210,8 @@ Pick the doc for what you're doing right now:
   verifying the kit, the local dev-stack, and teardown. It also carries the
   two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
   [Classic](operations.md#classic).
+- [Troubleshooting](troubleshooting.md) — the mid-event runbook: symptom,
+  diagnosis, fix.
 
 **Under the hood**
 
@@ -221,15 +222,17 @@ Pick the doc for what you're doing right now:
   and wiring the self-contained scoring workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the way
   it is.
+- [Glossary](glossary.md) — the terms an outsider trips on (target, module,
+  rubric, marker, poll vs push, …) and the project's five names.
 
 ## Status
 
 The kit is complete and tested offline: the smoke test (`scripts/smoke.sh`)
-exercises the whole poll pipeline end to end, and every target's rubric is
-gated against the unpatched app. Real, live-GitHub scoring depends on a small
-number of changes still landing in other OWASP-CTF repos. See
-[Status and upstream dependencies](operations.md#status-and-upstream-dependencies)
-for the current state.
+exercises the whole poll pipeline end to end, every target's rubric is gated
+against the unpatched app, and the full live-GitHub scoring path ships
+in-kit — what it still awaits is a first real event driving real contestant
+PRs through real GitHub. The known limits, stated in the open, are in
+[Status and upstream dependencies](operations.md#status-and-upstream-dependencies).
 
 ---
 
