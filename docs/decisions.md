@@ -24,7 +24,7 @@ their **Status** line; the record itself is never rewritten.
 - [ADR 6 — Poller trust model: author filter before parsing, grammar as key guard](#adr-6-poller-trust-model-author-filter-before-parsing-grammar-as-key-guard)
 - [ADR 7 — Oracle discipline: pass/fail and points only, never diagnostics](#adr-7-oracle-discipline-passfail-and-points-only-never-diagnostics)
 - [ADR 8 — Private scorer image and per-event mirror; access control over obfuscation](#adr-8-private-scorer-image-and-per-event-mirror-access-control-over-obfuscation)
-- [ADR 9 — Per-event disposable GitHub orgs; `pull_request_target` isolation](#adr-9-per-event-disposable-github-orgs-pull_request_target-isolation)
+- [ADR 9 — Per-event disposable GitHub orgs; base-repo workflow isolation](#adr-9-per-event-disposable-github-orgs-base-repo-workflow-isolation)
 - [ADR 10 — `event.yaml`'s module namespace; deliberate, not dynamic, registration](#adr-10-eventyamls-module-namespace-deliberate-not-dynamic-registration)
 - [ADR 11 — Vendor the contestant app into `apps/web/`; upstream stays read-only](#adr-11-vendor-the-contestant-app-into-appsweb-upstream-stays-read-only)
 - [ADR 12 — Build-time config generation over runtime config](#adr-12-build-time-config-generation-over-runtime-config)
@@ -52,9 +52,9 @@ their **Status** line; the record itself is never rewritten.
 - [ADR 34 — Classic bulk import/export as a versioned, self-contained bundle](#adr-34-classic-bulk-importexport-as-a-versioned-self-contained-bundle)
 - [ADR 35 — Module composition: the contract a fourth module must satisfy](#adr-35-module-composition-the-contract-a-fourth-module-must-satisfy)
 - [ADR 36 — Quiz adopts classic's bundle format rather than inventing a second one](#adr-36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
-- [ADR 37 — Opting in to the fork-PR checkout `pull_request_target` now guards](#adr-37-opting-in-to-the-fork-pr-checkout-pull_request_target-now-guards)
+- [ADR 37 — Opting in to the guarded fork-PR checkout](#adr-37-opting-in-to-the-guarded-fork-pr-checkout)
 - [ADR 38 — Counting the poller's silent drops, and refusing to count the routine ones](#adr-38-counting-the-pollers-silent-drops-and-refusing-to-count-the-routine-ones)
-- [ADR 39 — Enforcing HTTPS for `EVENT_URL` at server start, not at build or per request](#adr-39-enforcing-https-for-event_url-at-server-start-not-at-build-or-per-request)
+- [ADR 39 — Enforcing HTTPS for the event URL at server start, not at build or per request](#adr-39-enforcing-https-for-the-event-url-at-server-start-not-at-build-or-per-request)
 - [ADR 40 — CSRF assertion in the proxy, rate limits keyed on the login](#adr-40-csrf-assertion-in-the-proxy-rate-limits-keyed-on-the-login)
 - [ADR 41 — Authenticating Redis and cutting the app tier off from it](#adr-41-authenticating-redis-and-cutting-the-app-tier-off-from-it)
 - [ADR 42 — One Fly machine running the real compose file, not five Fly apps](#adr-42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps)
@@ -255,7 +255,7 @@ principle: the goal is limiting who can pull it at all, not making the
 image itself unreadable — which pairs with oracle discipline (decision 7)
 as the actual leak-prevention layer.
 
-## ADR 9. Per-event disposable GitHub orgs; `pull_request_target` isolation
+## ADR 9. Per-event disposable GitHub orgs; base-repo workflow isolation
 
 **Status.** Accepted.
 
@@ -1689,7 +1689,7 @@ server-side (`exportBundle`), one in the admin page (`exportBundleFrom`, which
 already holds the data). They can only drift through an *optional* added
 field — a new required field breaks both at compile time.
 
-## ADR 37. Opting in to the fork-PR checkout `pull_request_target` now guards
+## ADR 37. Opting in to the guarded fork-PR checkout
 
 **Status.** Accepted.
 
@@ -1814,7 +1814,7 @@ early exit in the ingest loop gets one. Events upgrading from an older poller
 read a status hash with no drop fields, which decodes as `0`/`null` rather
 than `NaN` (pinned by a test in `admin-store.test.ts`).
 
-## ADR 39. Enforcing HTTPS for `EVENT_URL` at server start, not at build or per request
+## ADR 39. Enforcing HTTPS for the event URL at server start, not at build or per request
 
 **Status.** Accepted.
 

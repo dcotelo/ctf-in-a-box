@@ -157,7 +157,7 @@ Stated plainly so it is not mistaken for an oversight:
 - **The scorer builds and runs contestant-submitted code.** It holds
   `docker.sock` to boot the app as a sibling container. That boundary is
   inherent to judging submitted code and predates every flag discussed here
-  — see [ADR 37](decisions.md#adr-37-opting-in-to-the-fork-pr-checkout-pull_request_target-now-guards).
+  — see [ADR 37](decisions.md#adr-37-opting-in-to-the-guarded-fork-pr-checkout).
 - **Contestants can see each other's scores.** The leaderboard is the point.
 - **Classic flags and quiz answer keys are stored in plaintext** (Redis:
   `ctf:classic:flag`, `ctf:quiz:key`) and are readable by every `/admin`
