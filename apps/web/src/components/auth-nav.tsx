@@ -8,7 +8,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { postSigninCallbackURL } from "@/lib/post-signin";
 import { eventConfig } from "@/lib/event-config";
@@ -49,6 +49,14 @@ export default function AuthNav() {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // Trigger + menu live inside this container, so a pointerdown anywhere
+  // outside it closes the menu — the same click-outside contract nav-dropdown
+  // uses. This REPLACES an earlier onBlur+setTimeout close (issue #222): that
+  // raced the menu-link click, unmounting the <Link> before the click landed
+  // in browsers that order blur/click differently (Brave), so the links did
+  // nothing. A pointerdown-outside listener never fires for a click INSIDE the
+  // menu, so a link navigates cleanly.
+  const menuRef = useRef<HTMLDivElement>(null);
   // Hydration guard. The server always renders the pending placeholder, but
   // useSession() is backed by a client store whose fetch can RESOLVE before
   // React hydrates (big pages, slow mains) — the first client render then
@@ -67,6 +75,26 @@ export default function AuthNav() {
   // Keyed by login so switching accounts cannot carry the previous viewer's
   // answer over. `null` = not asked yet.
   const [granted, setGranted] = useState<{ login: string; admin: boolean } | null>(null);
+
+  // Close on a pointerdown outside the menu, and on Escape. Only wired while
+  // the menu is open, so a closed menu subscribes to nothing.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   const login = (session?.user as { login?: string } | undefined)?.login;
   const baked = isBakedAdmin(login);
@@ -116,14 +144,13 @@ export default function AuthNav() {
   const showAdmin = baked || (granted !== null && granted.login === login && granted.admin);
 
   return (
-    <div className="relative flex-none">
+    <div ref={menuRef} className="relative flex-none">
       <button
         type="button"
         onClick={() => {
           setOpen((v) => !v);
           void ensureAdminChecked();
         }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-expanded={open}
         aria-haspopup="menu"
         className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
@@ -147,6 +174,7 @@ export default function AuthNav() {
           <Link
             href="/profile"
             role="menuitem"
+            onClick={() => setOpen(false)}
             className="block px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06] hover:text-white"
           >
             Profile
@@ -155,6 +183,7 @@ export default function AuthNav() {
             <Link
               href="/admin"
               role="menuitem"
+              onClick={() => setOpen(false)}
               className="block px-3 py-2 text-sm text-zinc-300 hover:bg-white/[0.06] hover:text-white"
             >
               Admin
