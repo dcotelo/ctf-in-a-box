@@ -548,7 +548,7 @@ card) stays the same, but each enabled module contributes its own tagline,
 hero paragraph, "what to expect" section and steps, so the home page always
 describes exactly the modules an event actually runs — a quiz-only event
 never advertises forking a target or opening a PR. See
-[docs/modules.md §5](modules.md#5-ui--presentation-contract) for the `home`
+[docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for the `home`
 block contract.
 
 `modules.secure-development.targets` is still the field that drives the
@@ -565,7 +565,7 @@ page for contestants, a Quiz section in `/admin` for authoring questions
 (prompt, choices, correct answer(s), points, order) and tuning its two
 retry-gate knobs, and quiz points added on top of the combined leaderboard —
 see [docs/operations.md](operations.md)'s "Quiz" section for the organizer
-walkthrough and [docs/modules.md §5](modules.md#5-ui--presentation-contract)
+walkthrough and [docs/modules.md §5](modules.md#section-5-ui--presentation-contract)
 for the underlying contract.
 
 **`secure-development` is not required — a single module is enough to run an
@@ -581,7 +581,7 @@ is therefore a supported event on its own: `/challenges` 404s (that route
 doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
 the landing page, the leaderboard, and `/profile` all compose from whatever
 modules *are* enabled instead of assuming `secure-development` is one of
-them. See [docs/modules.md §5](modules.md#5-ui--presentation-contract) for
+them. See [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for
 the UI composition contract and [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
 for why the missing-vs-unknown distinction is drawn where it is.
 

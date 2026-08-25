@@ -883,7 +883,7 @@ situations are not the same failure. A module this build knows about but
 that isn't configured for this event is a legitimate config choice — nothing
 for `sync` to poll. A module key this build has never heard of is a typo or
 a vertical that was never wired into this reader — the deliberate-
-registration model in [docs/modules.md §1.2](modules.md#1-module-identity--config-block)
+registration model in [docs/modules.md §1.2](modules.md#section-1-module-identity--config-block)
 means a new vertical is always a code change, never config alone, so an
 unrecognized key can't mean "a module I haven't heard of, ignore it."
 

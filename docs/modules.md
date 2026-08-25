@@ -39,7 +39,7 @@ higher-level split of what the control plane owns versus what a module
 supplies, see the [platform-and-modules table](architecture.md#platform-and-modules);
 the sections below are the enforceable contract behind it.
 
-## 1. Module identity & config block
+## Section 1. Module identity & config block
 
 1. MUST live under a kebab-case key in `event.yaml`'s top-level `modules:`
    map — one config block per module. Example, `secure-development`'s block
@@ -126,7 +126,7 @@ the sections below are the enforceable contract behind it.
    config-file fields and the runtime env vars that actually implement them
    in sync until the loader is extended to read them.
 
-## 2. Scoring ingestion contract (the hard boundary)
+## Section 2. Scoring ingestion contract (the hard boundary)
 
 1. MUST submit every score through the single writer: `POST /score` on the
    local scorer. `sync/src/submit.js` is the only write path this repo
@@ -170,7 +170,7 @@ the sections below are the enforceable contract behind it.
    => id !== c.id); // retry next tick`), and replays of an already-applied
    score are expected to be no-ops on the scorer side, not double-counts.
 
-## 3. Score transport options
+## Section 3. Score transport options
 
 1. **Push**: the scoring workflow POSTs directly to `${scorerUrl}/score`
    with a bearer token. Caddy only exposes the `/score` route externally
@@ -204,7 +204,7 @@ the sections below are the enforceable contract behind it.
    new `sync` adapter, not a config toggle. Propose it via an issue first;
    it changes the trust model, not just wiring.
 
-## 4. Leaderboard mapping
+## Section 4. Leaderboard mapping
 
 1. The scorer exposes `GET /leaderboard`; the local test fixture
    (`test/fixtures/mock-scorer.mjs`) returns `{leaderboard: [{author,
@@ -229,7 +229,7 @@ the sections below are the enforceable contract behind it.
    provenance (a contestant's recorded solve no longer maps to any current
    challenge). Treat catalogue IDs like a public API: add, don't rename.
 
-## 5. UI / presentation contract
+## Section 5. UI / presentation contract
 
 **Honesty constraint up front:** the vendored contestant app (`apps/web/`,
 see `apps/web/VENDORED.md`) now derives its module registry from `event.yaml`
@@ -657,7 +657,7 @@ of one module's shape.
    a reason to skip a check in its own API. See `docs/operations.md`'s
    "Known limitations" for the operator-facing note.
 
-## 6. Security requirements (non-negotiable)
+## Section 6. Security requirements (non-negotiable)
 
 1. Contestant code MUST run only inside sandboxed containers on an internal
    Docker network — never on the host, never with any token access. This
@@ -704,7 +704,7 @@ of one module's shape.
    each real stock target in CI. A challenge that passes against the stock
    app is a free point for every contestant and fails the build.
 
-## 7. Provisioning & lifecycle hooks
+## Section 7. Provisioning & lifecycle hooks
 
 **A module that needs no forks and no scored transport is a first-class
 citizen, not a lesser one.** `quiz` is the worked example: it satisfies this
@@ -776,7 +776,7 @@ satisfies this because every provisioned artifact (forked repo, mirrored
 image, installed workflow) lives entirely inside the disposable per-event
 org.
 
-## 8. Versioning
+## Section 8. Versioning
 
 Targets MUST be pinned to exact versions/digests — never `:latest`.
 `secure-development` inherits this from its upstream: the event org's fork
@@ -807,7 +807,7 @@ implementation of the scorer contract lives in this repo at `scorer/` —
 one image, serve + judge modes — and [docs/scorer.md](scorer.md) documents
 authoring a rubric and building your own image against it.)
 
-## 9. Adding a module: files you will touch
+## Section 9. Adding a module: files you will touch
 
 A new vertical is a code change, not config alone (§1.2). Today its definition
 is not yet co-located in one directory (a tracked follow-up — the scorer, sync,
@@ -860,7 +860,7 @@ Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
 this way — there is no target, no rubric, and no catalogue for the scorer to
 know about.
 
-## 10. Engagement-metrics contract (Insights)
+## Section 10. Engagement-metrics contract (Insights)
 
 The **Insights** tab (`GET /api/admin/metrics`, ADR 50) reports participation,
 per-challenge difficulty, solves over time and hint usage. It has **no

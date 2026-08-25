@@ -25,7 +25,7 @@ GitHub-mediated scoring, the worked example throughout this doc), `quiz`
 app — see [Quiz data flow](#quiz-data-flow) below), and `classic` (a
 jeopardy-style flag board, also scored entirely inside the app — see
 [Classic data flow](#classic-data-flow) below). See
-[docs/modules.md §5](modules.md#5-ui--presentation-contract) for what the two
+[docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for what the two
 app-side modules' UI contract still leaves open. An id outside
 the registry still fails the build loudly; the boundary is the
 [module contract](modules.md).
@@ -116,7 +116,7 @@ state; everything else that touches scores goes through it.
 2. A `pull_request_target` GitHub Action (rendered per target from the
    in-repo template `scorer/consumer-workflow.example.yml` by
    `setup/ctf-setup.sh org`, which commits it to each fork automatically, see
-   [docs/modules.md §6.1](modules.md#6-security-requirements-non-negotiable))
+   [docs/modules.md §6.1](modules.md#section-6-security-requirements-non-negotiable))
    runs in the *base* repo's context — where org secrets live — and scores
    the patch using the private `scorer` image, while the contestant's PR
    code runs sandboxed with no access to those secrets.
@@ -699,7 +699,7 @@ Secure Development, `listTeams()`, and then **six reads per contestant** —
 their quiz answers, classic solves, both attempt hashes, `firstTeamAt` off
 `ctf:user:<login>`, and their hint purchase times — batched 200 commands to a
 round trip. Nothing else; the module contract for those row shapes is
-[docs/modules.md §10](modules.md#10-engagement-metrics-contract-insights).
+[docs/modules.md §10](modules.md#section-10-engagement-metrics-contract-insights).
 
 **Who counts as a contestant** is the union of everyone on a team and everyone
 with points in any module — cheaper than `SCAN`ning `ctf:user:*`, which also
