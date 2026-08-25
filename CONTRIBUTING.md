@@ -42,6 +42,10 @@ exercises the stack end to end.
 5. CI must be green before merge. The CI workflow only runs jobs for the
    areas your PR touches (see `AGENTS.md` for how that gating works) — a
    push to `main` always runs everything as a safety net.
+6. **CodeRabbit review must pass too.** It reviews every PR automatically;
+   resolve every actionable comment before merge — apply the fix, or reply
+   with why it doesn't apply and mark the thread resolved. A reasoned
+   disagreement is fine; an ignored finding is not.
 
 ## Release process
 
