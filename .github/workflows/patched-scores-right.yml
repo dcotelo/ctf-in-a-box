@@ -43,6 +43,12 @@ on:
       - '.github/workflows/patched-scores-right.yml'
   workflow_dispatch:
 
+# Read-only: the job checks out the repo and runs the acceptance script in
+# containers; it never writes back. actions/checkout persists GITHUB_TOKEN in
+# the checkout, so cap its authority at contents:read (matching terraform.yml).
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
