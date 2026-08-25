@@ -11,8 +11,7 @@ how an organizer's `event.yaml` becomes the app's branding, and what the
 security model actually rests on. For *why* these choices were made instead
 of alternatives, see [docs/decisions.md](decisions.md). For the contract a
 new CTF vertical must satisfy, see [docs/modules.md](modules.md). For
-day-to-day operation, see
-[README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md).
+day-to-day operation, see [docs/operations.md](operations.md).
 
 ## Platform and modules
 
@@ -38,7 +37,7 @@ the registry still fails the build loudly; the boundary is the
 | **Team** registration, roster, join codes, the dedupe rollup, and the requirement that a contestant be on a team before anything scores (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
 | The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
-| The **admin panel** runtime overrides (freeze, hints, registration, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
+| The **admin panel** runtime overrides (freeze, hints, registration, module enablement, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
 | **Event config** schema, top-level (`event`, `github`, `admins`) baked into the app (build-time flow below). | Its `modules.<name>` config block and the loader/validator entry that recognizes it (contract §1). |
 
 Everything below — the services, the score data flow, the security model — is
@@ -72,7 +71,7 @@ scores flowing in from GitHub.
                           |               |
                           v               v
                     +-----------+   +-----------+
-                    |    srh    |<--|  scorer   |   private image; judges PRs;
+                    |    srh    |<--|  scorer   |   judges PRs;
                     | (Upstash- |   | (bearer-  |   GET /leaderboard, POST /score
                     |  REST     |   |  token    |
                     |  proxy;   |   |  authed)  |
@@ -105,7 +104,7 @@ state; everything else that touches scores goes through it.
 |---|---|---|
 | `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. |
 | `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. Event name/dates/targets are baked in at build time (see below). |
-| `scorer` | `${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}` — private image, mirrored into the event org by `setup/ctf-setup.sh org`. The kit ships its own engine at `scorer/` to build this image from (see [docs/scorer.md](scorer.md)). | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["poll", "push"]` — both ingest modes need it, unlike `sync`, which is `["poll"]` only — and a single-module event without `secure-development` never brings it up; see [ADR 26](decisions.md#26-compose-profiles-follow-the-enabled-modules). |
+| `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["poll", "push"]` — both ingest modes need it, unlike `sync`, which is `["poll"]` only — and a single-module event without `secure-development` never brings it up; see [ADR 26](decisions.md#26-compose-profiles-follow-the-enabled-modules). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:7-alpine` (digest-pinned, [ADR 51](decisions.md#51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)), `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
 | `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). Tolerates `modules.secure-development` being absent from `event.yaml` (e.g. a quiz-only event): it logs `no polled module enabled, nothing to do` and exits `0` rather than polling anything — `restart: on-failure` (not `unless-stopped`) is what keeps that clean exit from being restarted as if it were a crash. |
@@ -132,10 +131,11 @@ state; everything else that touches scores goes through it.
      `github-actions[bot]` containing a machine-readable marker,
      `<!-- ctf-score: {...} -->` (`sync/src/parse.js`'s `MARKER`).
 
-   `score-action`'s `leaderboard-url`/`leaderboard-token` inputs, which
-   push mode needs to know where and how to POST, are still an unlanded
-   upstream change
-   ([Status and upstream dependencies](operations.md#status-and-upstream-dependencies), item 2).
+   Where and how push mode POSTs comes from the org secrets
+   `LEADERBOARD_URL`/`LEADERBOARD_TOKEN`, read by the kit's own scoring
+   workflow (`scorer/consumer-workflow.example.yml`) — leave both unset for
+   poll mode
+   ([Status and upstream dependencies](operations.md#status-and-upstream-dependencies)).
 4. In poll mode, `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
    `fetchNewScoreComments` (`sync/src/github.js`), which fetches issue
    comments since the last cursor and **filters by comment author
@@ -439,7 +439,8 @@ hint-store's reveal, exactly the flag hashes' rule; its name lives in
 `categories` (one JSON array, the organizer's chosen display order), `solves:<login>` (a contestant's banked solves —
 `{points, at}`, points captured at solve time so a later re-price never
 rewrites history), `attempts:<login>` (every submission, right or wrong —
-`{attempts, lastAt, lastAtMs}`, the cooldown's own read), and three running
+`{attempts, firstAt, lastAt, lastAtMs}`, the cooldown's own read; `firstAt`
+is what Insights' time-to-solve is measured from), and three running
 aggregates: `points` and `solved` (per-login totals the leaderboard overlay
 reads with two `HGETALL`s regardless of board size) and `solvecount` (the
 per-challenge distinct-solver count the board displays, distinct by
@@ -586,6 +587,7 @@ without a rebuild:
   | `teamMaxMembers` | players per team (ADR 45) |
   | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
   | `registrationStartsAt` / `registrationEndsAt` | the team-registration window |
+  | `enabledModules` | the live module set (ADR 52) — absent means "use `event.yaml`'s baked set" |
 
   plus `updatedBy`/`updatedAt` and `resetAt` (the master-reset epoch `sync`
   honours — see below). Every reader applies **override-else-default**
@@ -594,9 +596,10 @@ without a rebuild:
 
   **The scheduled windows are enforced at READ time**, not by a scheduler on
   the box, and the same `outsideWindow` logic is implemented independently in
-  `apps/web/src/lib/admin-store.ts`, `scorer/src/store.js` and
-  `sync/src/redis.js`. Those three must agree; changing one alone silently
-  splits the event's idea of whether it is running.
+  `apps/web/src/lib/schedule-window.ts` (re-exported through
+  `admin-store.ts`), `scorer/src/store.js` and `sync/src/redis.js`. Those
+  three must agree; changing one alone silently splits the event's idea of
+  whether it is running.
 
   **`scoreCooldownMin` is the one setting a fork needs.** The Action enforcing
   it runs inside a contestant's repository and cannot reach this Redis, so it
@@ -620,8 +623,11 @@ without a rebuild:
   request-scoped reader is `lib/resolved-modules.ts`'s `getResolvedModules()`,
   which **fails open** (a settings-read error resolves to registry defaults,
   because a wrong display name is cosmetic where a wrong gate decision awards
-  points). Only the module's *name* is runtime: which modules are enabled
-  stays build-time `event.yaml` config.
+  points). Since ADR 52, **which modules are enabled is runtime too**: the
+  Event tab's per-module switches write `enabledModules` on this same hash,
+  `event.yaml`'s `modules:` is the starting set and the outage fallback
+  (`apps/web/src/lib/enabled-modules.ts`'s `getEnabledModuleIds()`), and the
+  title/blurb validation above is checked against the *live* set.
 - **`ctf:admin:admins`** (Redis SET, ADR 44) — logins granted admin at
   runtime, on top of the ones baked into the image from `event.yaml`. A set
   rather than a settings field because membership *is* the whole value.
@@ -796,7 +802,8 @@ all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,
 `ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
 `ctf:quiz:answered`, and
 `ctf:classic:solves:*`/`ctf:classic:attempts:*`/`ctf:classic:points`/
-`ctf:classic:solved`/`ctf:classic:solvecount` — keeps `ctf:admin:settings`
+`ctf:classic:solved`/`ctf:classic:solvecount`, and the activity log
+(`ctf:activity:log`) — keeps `ctf:admin:settings`
 and (deliberately) the organizer's authored content,
 `ctf:quiz:questions`/`ctf:quiz:key` and `ctf:classic:challenges`/
 `ctf:classic:flag`/`ctf:classic:flagnorm`/`ctf:classic:categories`, and
@@ -900,8 +907,8 @@ config — it's baked into the `app` image at build time:
 Changing `event.yaml` after the stack is already running requires an
 explicit rebuild of the `app` image (`docker compose --profile app build
 app`) — `docker compose up` alone won't pick up the edit, since Compose
-only rebuilds an image when told to (README, "Rebuilding the app after a
-config change").
+only rebuilds an image when told to ([hosting.md, "Rebuilding the app after
+a config change"](hosting.md#rebuilding-the-app-after-a-config-change)).
 
 ## Security model
 
@@ -924,30 +931,31 @@ config change").
   no `/score` route at all; nothing needs to reach the box from the
   internet. `caddy/Caddyfile.push` is the only Caddyfile that exposes
   `/score` externally, and only when the organizer opts into push mode.
-- **Private scorer image, per-event mirror.** The scorer image stays
-  private (it bakes in the rubric). `setup/ctf-setup.sh org` mirrors
-  whatever `SCORE_IMAGE` names — no default: the expected path is the
-  self-contained one, the in-repo engine `scorer/` plus your own private
-  rubric (see [docs/scorer.md](scorer.md)); the upstream
-  `ghcr.io/owasp-ctf/score:latest` works too but is private with no formal
-  access process yet (ask the OWASP-CTF maintainers) —
+- **Per-event scorer image mirror.** The stock rubric ships public (ADR 18
+  reversed ADR 17's private-by-default posture): the in-repo engine
+  `scorer/` bakes the vendored `rubric.owasp/` unless you build with your
+  own `RUBRIC_DIR` (see [docs/scorer.md](scorer.md)) — privacy is an option
+  for organizers who want it, not the norm. Either way,
+  `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names — no
+  default; the upstream `ghcr.io/owasp-ctf/score:latest` works too but is
+  private with no formal access process (ask the OWASP-CTF maintainers) —
   into the event org's own GHCR (`ghcr.io/$org/score:latest`) so forked
-  repos' Actions can pull it with their own `GITHUB_TOKEN`. Access control, not obfuscation, is the
-  actual defense — reverse-engineering the rubric out of the image is
-  assumed possible; the goal is to limit who can pull it, not to make it
-  unreadable.
+  repos' Actions can pull it with their own `GITHUB_TOKEN`. For a private
+  rubric, access control, not obfuscation, is the actual defense —
+  reverse-engineering the rubric out of the image is assumed possible; the
+  goal is to limit who can pull it, not to make it unreadable.
 - **Monotonic, idempotent-on-replay writes.** `scorer`'s `POST /score` is
   the single write path (`sync/src/submit.js` and push-mode Actions both
   land on it — there is no second writer). Delivery is at-least-once: on a
   submit failure, `sync`'s `tick()` un-marks the comment as seen and
   retries it next tick (`rs.seen = rs.seen.filter((id) => id !== c.id);`).
   A replayed already-applied score is expected to be a no-op on the scorer
-  side, not a double-count. The real (private) `scorer` image doesn't
-  accept bearer-token auth on `POST /score` yet — that's an unlanded
-  upstream change (see
-  [Status and upstream dependencies](operations.md#status-and-upstream-dependencies), item 1); the
-  offline mock scorer in `scripts/smoke.sh` is today's end-to-end proof of
-  this write path, not a live scorer.
+  side, not a double-count. The in-repo scorer's `POST /score` requires
+  bearer auth (`scorer/src/serve.js` — constant-time compare, refuses to
+  boot without a token); `scripts/smoke.sh` proves this write path end to
+  end offline, and no live event has exercised it against real GitHub yet
+  (see
+  [Status and upstream dependencies](operations.md#status-and-upstream-dependencies)).
 - **Redis is authenticated and unreachable from the app tier.** Redis runs
   with `requirepass` (`REDIS_PASSWORD`, generated by
   `setup/ctf-setup.sh secrets`), and compose reads that variable with `:?` so
@@ -1002,19 +1010,23 @@ config change").
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
 | Two-reader corpus | `setup/test/corpus/` (fixtures), asserted from both sides by `setup/test/module_readers.bats` and `sync/test/module-readers.differential.test.js` | That `ctf-setup.sh` and `sync/src/config.js` — two `modules:` parsers in two languages sharing no code — ACCEPT and REJECT the same `event.yaml` files, and extract the same targets. Each fixture records its verdict in its filename, so agreeing with the corpus is agreeing with each other. Covers block style at 2/4/8 spaces, flow style on one line and across several, quoted keys, interleaved comments, CRLF, block- and flow-sequence targets, a bare `modules:`, an absent one, unknown keys, merge keys, tabs and sequences where a mapping belongs. The bash side additionally asserts the organizer-visible behaviour (flow style really forks and renders; an unparseable block fails CLOSED in `org` and `doctor` rather than printing "nothing to do"). See [ADR 24](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one). |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
-| Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
+| Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "CTF-in-a-box"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
 | Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Builds the real app image bound to a `modules: { quiz: {} }` config (no `secure-development` at all), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. Separately brings up `sync` through the real `docker-compose.yml` against the same config and asserts it exits `0`, logs the clean no-op reason, and — sampled over several seconds — stays exited rather than being restarted. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile poll --profile app` must still contain both. |
+| Docker acceptance (classic-only) | `scripts/acceptance-classic-only.sh` | The classic module's sibling of the quiz-only script, following every one of its design decisions: builds the real app image bound to a `modules: { classic: {} }` config, seeds a challenge and a solve straight into Redis, and asserts `/flags` shows the challenge by title, `/challenges` 404s, `/leaderboard` shows the contestant's classic points by login, and the `--profile app` line-up contains no secure-development service. |
+| Vacuous-pass sweep | `scorer/tools/vacuous-sweep.mjs` | Points every target's rubric at an in-process HTTP stub that is UP but USELESS (three personalities: empty-200, not-found, server-error) and fails if any challenge passes — a challenge that "blocks the exploit" against a stub proves nothing. Must report 0; wired into CI only once the count reached 0/321. |
 
-CI (`.github/workflows/ci.yml`) carries seven jobs — `sync-tests`, `shell`
-(shellcheck + bats), `smoke`, `app` (vitest + `next build` +
-`acceptance-app.sh`), `scorer` (`node --test` + `acceptance-scorer.sh`),
-`quiz-only` (`acceptance-quiz-only.sh`), and `classic-only`
-(`acceptance-classic-only.sh`). A `changes` gate (native `git diff`,
-no third-party action) runs only the jobs whose area a PR touches; a push to
-`main` runs all seven. The heavier `stock-scores-zero` / `patched-scores-right`
-workflows are scoped to judge-relevant scorer inputs, so a leaderboard-only
-change doesn't spin up the per-target Maven/gradle builds.
+CI (`.github/workflows/ci.yml`) carries a `changes` gate (native `git diff`,
+no third-party action) plus nine gated jobs — `sync-tests`, `scorer`
+(`node --test` + `acceptance-scorer.sh`), `vacuous` (the sweep above),
+`shell` (shellcheck + bats, including `deploy/fly/`'s scripts and bats
+suite), `smoke`, `app` (vitest + `next build` + the `/` never-prerendered
+assertion + `acceptance-app.sh`), `quiz-only`, `classic-only`, and `docs`
+(Jekyll build + link/meta checks). The gate runs only the jobs whose area a
+PR touches; a push to `main` runs all nine. The heavier `stock-scores-zero` /
+`patched-scores-right` workflows are scoped to judge-relevant scorer inputs,
+so a leaderboard-only change doesn't spin up the per-target Maven/gradle
+builds.
 
 ## Names
 
