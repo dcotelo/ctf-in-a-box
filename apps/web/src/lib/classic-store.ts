@@ -588,6 +588,25 @@ export async function deleteChallenge(id: string): Promise<void> {
   if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);
 }
 
+/** Deletes ONLY the content keys — challenges, both flag hashes, categories,
+ *  and hints — never the run-state keys (points, solved, solvecount,
+ *  solves:&lt;login&gt;, attempts:&lt;login&gt;).
+ *
+ *  For a replace-all import: the caller wipes the board clean before writing
+ *  a fresh bundle over it, so a challenge dropped from the new bundle doesn't
+ *  linger from the old one. Contestant history and aggregates are
+ *  deliberately untouched, mirroring `deleteChallenge`'s contract — that is
+ *  the master reset's job (admin-store's `resetEvent`), not this one's. */
+export async function clearChallenges(): Promise<void> {
+  await upstashPipeline([
+    ["DEL", CHALLENGES_KEY],
+    ["DEL", FLAG_KEY],
+    ["DEL", FLAGNORM_KEY],
+    ["DEL", CATEGORIES_KEY],
+    ["DEL", HINTS_KEY],
+  ]);
+}
+
 type Solve = { points: number; at: string };
 type Attempt = { attempts: number; lastAt: string };
 

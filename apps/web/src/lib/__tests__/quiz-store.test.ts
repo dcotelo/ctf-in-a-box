@@ -14,6 +14,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
 
 import {
+  clearQuestions,
   deleteQuestion,
   getQuizTotals,
   getTeamQuizTotals,
@@ -426,6 +427,18 @@ describe("deleteQuestion", () => {
     expect(cmds).not.toContain("ctf:quiz:points");
     expect(cmds).not.toContain("ctf:quiz:answered");
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("clearQuestions", () => {
+  it("deletes only the content keys, never run state", async () => {
+    mocks.upstashPipeline.mockResolvedValue([]);
+    await clearQuestions();
+    const sent = mocks.upstashPipeline.mock.calls.at(-1)![0] as string[][];
+    const deleted = sent.filter((c) => c[0] === "DEL").flatMap((c) => c.slice(1));
+    expect(deleted).toEqual(expect.arrayContaining(["ctf:quiz:questions", "ctf:quiz:key"]));
+    expect(deleted).not.toContain("ctf:quiz:points");
+    expect(deleted).not.toContain("ctf:quiz:answered");
   });
 });
 

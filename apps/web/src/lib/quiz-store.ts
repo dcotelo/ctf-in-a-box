@@ -455,6 +455,21 @@ export async function deleteQuestion(id: string): Promise<void> {
   if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);
 }
 
+/** Deletes ONLY the content keys — questions and the answer key — never the
+ *  run-state keys (points, answered, answers:&lt;login&gt;, attempts:&lt;login&gt;).
+ *
+ *  For a replace-all import: the caller wipes the bank clean before writing a
+ *  fresh bundle over it, so a question dropped from the new bundle doesn't
+ *  linger from the old one. Contestant history and aggregates are
+ *  deliberately untouched, mirroring `deleteQuestion`'s contract — that is
+ *  the master reset's job (admin-store's `resetEvent`), not this one's. */
+export async function clearQuestions(): Promise<void> {
+  await upstashPipeline([
+    ["DEL", QUESTIONS_KEY],
+    ["DEL", KEY_KEY],
+  ]);
+}
+
 export type ViewerQuiz = {
   /** Correct answers only, keyed by question id. */
   answered: Record<string, { points: number; at: string }>;
