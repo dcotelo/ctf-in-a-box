@@ -75,7 +75,8 @@ instead of offering forms the routes would refuse.
 > at read time, so already-banked solves count from the moment the login is
 > on a team. That deferred-credit behavior is deliberate: refusing the score
 > at ingestion would lose it permanently (the poller marks the comment seen),
-> where banking it against the login only delays it. The sign-in steering
+> whereas banking the score against the login only delays credit. The
+> sign-in steering
 > above is what closes the gap in practice — it is the only enforcement
 > point this module's scoring path passes through — so it matters most for
 > events running Secure Development.
