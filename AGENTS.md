@@ -98,6 +98,16 @@ but the decline has to be on the record. Its pre-merge checks
 breaking-change docs, secrets in logs) encode invariants this repo has been
 burned by; a warning from one is a prompt to look, not a formality.
 
+**Always WAIT for CodeRabbit's re-review after every push, and check its
+comments — do not treat a PR as done on green CI alone.** CodeRabbit
+re-reviews each new commit, and a fix (or a fix to a fix) routinely draws a
+fresh finding: the branch is only clean when the *latest* commit has been
+reviewed and every actionable thread on it is resolved. So after each push,
+wait for the CodeRabbit check to report **Review completed** for that
+commit, then read what it left, before you call the PR ready or move on.
+"CI is green" is not "CodeRabbit is done" — the two are independent gates and
+CodeRabbit lands second.
+
 ## Conventions & gotchas
 
 These are real failure modes this project has hit — treat them as rules, not
