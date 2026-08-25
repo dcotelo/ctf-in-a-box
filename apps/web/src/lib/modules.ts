@@ -271,7 +271,7 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
       steps: (ctx) => [
         {
           title: "Pick a target",
-          body: `Choose from ${ctx.appCount} real, deliberately vulnerable OWASP ${ctx.appCount === 1 ? "app" : "apps"}: ${ctx.appList}.`,
+          body: `Choose from ${ctx.appCount} real, deliberately vulnerable ${ctx.appCount === 1 ? "app" : "apps"}: ${ctx.appList}.`,
         },
         {
           title: "Find the vulnerability",

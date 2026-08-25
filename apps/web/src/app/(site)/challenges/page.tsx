@@ -34,7 +34,7 @@ async function pageTitle(): Promise<string> {
 export async function generateMetadata(): Promise<Metadata> {
   return {
     title: await pageTitle(),
-    description: `${enabledApps.length} vulnerable OWASP ${enabledApps.length === 1 ? "app" : "apps"} to patch: ${appList}.`,
+    description: `${enabledApps.length} deliberately vulnerable ${enabledApps.length === 1 ? "app" : "apps"} to patch: ${appList}.`,
   };
 }
 
