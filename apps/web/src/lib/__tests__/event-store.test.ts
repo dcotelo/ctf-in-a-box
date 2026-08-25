@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as classicStore from "@/lib/classic-store";
+import * as quizStore from "@/lib/quiz-store";
+import * as adminStore from "@/lib/admin-store";
 
 const m = vi.hoisted(() => ({
   exportClassic: vi.fn(), exportQuiz: vi.fn(),
@@ -14,7 +17,7 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
   targets: [], modules: [{ id: "quiz" }],
 } }));
 
-import { exportEventBundle } from "@/lib/event-store";
+import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -62,5 +65,55 @@ describe("exportEventBundle", () => {
     for (const token of ["contestant-login", "team-slug", "ctf:team:", "ctf:user:", "ctf:admin:audit", "solvedAt"]) {
       expect(s).not.toContain(token);
     }
+  });
+});
+
+const bundleFixture = () => ({
+  version: 1, kind: "archive" as const,
+  event: { name: "Demo CTF" },
+  settings: { hintCost: 25, moduleOverrides: { classic: { title: "T" } }, enabledModuleIds: ["classic", "quiz"] },
+  classic: { version: 1 as const, categories: ["Web"], challenges: [] },
+  quiz: { version: 1 as const, questions: [] },
+});
+
+describe("importEventBundle", () => {
+  beforeEach(() => {
+    m.getAdminSettings.mockResolvedValue({ paused: true });
+    m.effectivePaused.mockReturnValue(true);
+    vi.mocked(classicStore.importBundle).mockResolvedValue({ created: 0, updated: 0, categories: 1 });
+    vi.mocked(quizStore.importBundle).mockResolvedValue({ created: 0, updated: 0 });
+    vi.mocked(adminStore.resetEvent).mockResolvedValue({ cleared: {}, resetAt: "x" });
+    vi.mocked(adminStore.updateAdminSettings).mockResolvedValue({} as Awaited<ReturnType<typeof adminStore.updateAdminSettings>>);
+  });
+
+  it("refuses to import into a live event", async () => {
+    m.effectivePaused.mockReturnValue(false);
+    await expect(importEventBundle(bundleFixture(), "alice")).rejects.toBeInstanceOf(EventLiveError);
+    expect(adminStore.resetEvent).not.toHaveBeenCalled();
+    expect(classicStore.clearChallenges).not.toHaveBeenCalled();
+  });
+
+  it("clears content before importing (true replace), then sweeps run state", async () => {
+    await importEventBundle(bundleFixture(), "alice");
+    expect(adminStore.resetEvent).toHaveBeenCalledWith("alice");
+    expect(classicStore.clearChallenges).toHaveBeenCalled();
+    expect(classicStore.importBundle).toHaveBeenCalled();
+    // clear must precede import
+    const clearOrder = vi.mocked(classicStore.clearChallenges).mock.invocationCallOrder[0];
+    const importOrder = vi.mocked(classicStore.importBundle).mock.invocationCallOrder[0];
+    expect(clearOrder).toBeLessThan(importOrder);
+  });
+
+  it("applies only policy settings, never schedule fields", async () => {
+    await importEventBundle(bundleFixture(), "alice");
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.hintCost).toBe(25);
+    expect("scoringStartsAt" in patch).toBe(false);
+    expect("paused" in patch).toBe(false);
+  });
+
+  it("names build-time branding in skipped", async () => {
+    const { skipped } = await importEventBundle(bundleFixture(), "alice");
+    expect(skipped.some((s) => /baked at build time|rebuild/i.test(s))).toBe(true);
   });
 });
