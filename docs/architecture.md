@@ -1030,12 +1030,7 @@ builds.
 
 ## Names
 
-Five spellings of "the project" are in play; they are not interchangeable:
-
-| Name | What it is |
-|---|---|
-| **CTF-in-a-box** | The product / brand (README, `dcotelo.github.io/ctf-in-a-box`). |
-| `owasp-ctf` | The local repo directory and the lowercase image namespace. |
-| `OWASP-CTF` | The GitHub **org** the targets are forked into (`github.org` default). |
-| `ghcr.io/owasp-ctf/score` | The scorer image path. The lowercase `owasp-ctf` here is a registry-namespace convenience, not the `OWASP-CTF` org; override `SCORE_IMAGE` to your own org's GHCR. |
-| `dc34-owasp-secure-development-ctf` | The upstream repo the rubrics are vendored from (see `scorer/rubric.owasp/PROVENANCE.md`). |
+Five spellings of "the project" are in play and they are not
+interchangeable — the table moved to the
+[glossary](glossary.md#the-projects-names), which also defines the terms
+(target, module, rubric, probe, marker, …) the rest of this doc uses.
