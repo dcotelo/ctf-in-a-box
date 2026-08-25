@@ -83,9 +83,9 @@ describe("landing page with no module home blocks", () => {
   // structural rather than cosmetic.
   it("renders no tagline line, and the blurb stands in for the missing intro", () => {
     // No home block means no tagline kicker above the headline: the h1
-    // follows the OWASP mark directly, with no <p> in between. Structural,
+    // opens the hero <main> directly, with no <p> in between. Structural,
     // not a class pin — a retracked restyle must not satisfy this.
-    expect(html).toMatch(/alt="OWASP"[^>]*\/?><h1/);
+    expect(html).toMatch(/<main[^>]*><h1/);
     expect(html).not.toMatch(/<p[^>]*>[^<]*<\/p><h1/);
     // The game card's body falls back to the module's blurb — the one
     // sentence every module has — never to authored copy it doesn't.

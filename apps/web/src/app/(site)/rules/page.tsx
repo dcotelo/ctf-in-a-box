@@ -148,7 +148,7 @@ export default async function RulesPage() {
       </div>
 
       <p className="text-sm leading-relaxed text-muted">
-        Stuck, or need an organizer? Find one at the OWASP CTF area
+        Stuck, or need an organizer? Find one at the {event.name} area
         {event.discordUrl && (
           <>
             , or ask in the{" "}
