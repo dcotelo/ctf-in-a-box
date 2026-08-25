@@ -21,7 +21,7 @@ import { useRef, useState } from "react";
 import type { PlayerSeries, SeriesPoint, TeamSeries } from "@/lib/leaderboard/types";
 
 const SERIES_COLORS = [
-  "#3987e5", // 1 blue
+  "#2563eb", // 1 blue
   "#d95926", // 2 orange
   "#199e70", // 3 aqua
   "#c98500", // 4 yellow
@@ -70,8 +70,9 @@ type PlottedLine = {
   key: string;
   label: string;
   color: string;
-  path: string | null; // null when there's only one point — a path would be degenerate
-  points: { x: number; y: number }[];
+  path: string;
+  /** The line's right-edge endpoint — the one emphasized marker per series. */
+  end: { x: number; y: number };
   /** Sorted-ascending raw (time-ms, cumulative-score) history — drives the
    *  hover tooltip's "score so far" lookup and the crosshair dot placement. */
   raw: { t: number; score: number }[];
@@ -82,7 +83,7 @@ type PlottedLine = {
  *  axis logic stay in one place regardless of what's being plotted.
  *  `noun` is the singular unit name used in the heading/legend copy
  *  ("contestant" or "team"). */
-function renderChart(entries: ChartSeries[], noun: string) {
+function renderChart(entries: ChartSeries[], noun: string, note?: string) {
   const withPoints = entries.filter((s) => s.points.length > 0);
   if (withPoints.length === 0) return null;
 
@@ -125,10 +126,22 @@ function renderChart(entries: ChartSeries[], noun: string) {
       .filter((p) => Number.isFinite(Date.parse(p.t)))
       .map((p) => ({ t: Date.parse(p.t), score: p.score }))
       .sort((a, b) => a.t - b.t);
-    const points = raw.map((p) => ({ x: x(p.t), y: y(p.score) }));
-    const path =
-      points.length >= 2 ? points.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ") : null;
-    return { key: s.key, label: s.label, color, path, points, raw };
+    // Cumulative score IS a step function (scoreAt, which the tooltip reads,
+    // says exactly this) — so the drawn line is a step too. The old straight
+    // diagonals drew scores nobody ever had, and disagreed with the tooltip
+    // riding the steps. Anchored at zero on the left edge and held flat to
+    // the right edge: every series starts where every team started and ends
+    // at the score it still has, instead of floating in from its first solve
+    // and truncating at its last.
+    const seg = [`M ${x(minT).toFixed(2)} ${y(0).toFixed(2)}`];
+    let prev = 0;
+    for (const p of raw) {
+      seg.push(`L ${x(p.t).toFixed(2)} ${y(prev).toFixed(2)}`);
+      seg.push(`L ${x(p.t).toFixed(2)} ${y(p.score).toFixed(2)}`);
+      prev = p.score;
+    }
+    seg.push(`L ${x(maxT).toFixed(2)} ${y(prev).toFixed(2)}`);
+    return { key: s.key, label: s.label, color, path: seg.join(" "), end: { x: x(maxT), y: y(prev) }, raw };
   });
 
   const foldedCount = Math.max(0, lines.length - SERIES_COLORS.length);
@@ -145,6 +158,7 @@ function renderChart(entries: ChartSeries[], noun: string) {
       maxT={maxT}
       maxScore={maxScore}
       noun={noun}
+      note={note}
     />
   );
 }
@@ -161,23 +175,6 @@ export function scoreAt(raw: { t: number; score: number }[], t: number): number 
   return s;
 }
 
-/** Linear-interpolated y for a line at plot-x `hx`, matching the drawn path,
- *  or null when `hx` is outside the line's own time span (so no dot rides an
- *  empty stretch). */
-function interpY(points: { x: number; y: number }[], hx: number): number | null {
-  if (points.length === 0) return null;
-  if (hx < points[0].x || hx > points[points.length - 1].x) return null;
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    if (hx >= a.x && hx <= b.x) {
-      const span = b.x - a.x || 1;
-      return a.y + ((hx - a.x) / span) * (b.y - a.y);
-    }
-  }
-  return points[points.length - 1].y;
-}
-
 /** The rendered chart with a hover crosshair + tooltip. Split out from
  *  renderChart so the hooks here always run (renderChart's degenerate branches
  *  return before reaching this), keeping the rules of hooks satisfied. */
@@ -190,6 +187,7 @@ function InteractiveChart({
   maxT,
   maxScore,
   noun,
+  note,
 }: {
   lines: PlottedLine[];
   foldedCount: number;
@@ -199,6 +197,7 @@ function InteractiveChart({
   maxT: number;
   maxScore: number;
   noun: string;
+  note?: string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -234,6 +233,11 @@ function InteractiveChart({
           {lines.length === 1 ? "" : "s"}
         </span>
       </div>
+      {/* What this chart does and does not plot. On a multi-module event the
+          series carries only the scorer's history, so its ceiling sits far
+          below the row totals — unlabeled, that reads as a broken chart
+          rather than a narrower one. */}
+      {note && <p className="text-xs leading-relaxed text-muted">{note}</p>}
 
       <div className="relative w-full overflow-x-auto">
         <svg
@@ -293,13 +297,15 @@ function InteractiveChart({
             </text>
           ))}
 
-          {/* X-axis labels */}
-          {xTicks.map((t) => (
+          {/* X-axis labels. The first and last tick sit on the plot's edges,
+              so a centered label would hang half outside the viewBox and
+              clip ("Aug 22, 11:0…") — anchor the ends inward instead. */}
+          {xTicks.map((t, i) => (
             <text
               key={`xtick-${t}`}
               x={x(t)}
               y={HEIGHT - MARGIN.bottom + 16}
-              textAnchor="middle"
+              textAnchor={i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle"}
               className="fill-current text-muted"
               fontSize={10}
             >
@@ -307,18 +313,15 @@ function InteractiveChart({
             </text>
           ))}
 
-          {/* Lines + end markers. Straight segments between solve events
-              (CTFd-style); a lone point renders only its marker — no
-              zero/one-vertex path, which would be a degenerate no-op line
-              anyway. */}
+          {/* Step lines + ONE emphasized endpoint marker per series. A dot at
+              every solve turned a busy hour into an unreadable caterpillar of
+              overlapping circles — the hover crosshair is the per-solve
+              readout; the resting render keeps only the line and where it
+              ended up. */}
           {lines.map((line) => (
             <g key={line.key}>
-              {line.path && (
-                <path d={line.path} fill="none" stroke={line.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-              )}
-              {line.points.map((p, idx) => (
-                <circle key={idx} cx={p.x} cy={p.y} r={4} fill={line.color} stroke="#16162a" strokeWidth={2} />
-              ))}
+              <path d={line.path} fill="none" stroke={line.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx={line.end.x} cy={line.end.y} r={4} fill={line.color} stroke="#16162a" strokeWidth={2} />
             </g>
           ))}
 
@@ -334,10 +337,12 @@ function InteractiveChart({
                 strokeWidth={1}
                 strokeDasharray="3 3"
               />
+              {/* Dots ride the STEP the line draws — same scoreAt the tooltip
+                  reads, so the marker and the number can never disagree. */}
               {lines.map((line) => {
-                const yy = interpY(line.points, hoverX);
-                if (yy == null) return null;
-                return <circle key={`h-${line.key}`} cx={hoverX} cy={yy} r={4.5} fill={line.color} stroke="#0d0d16" strokeWidth={2} />;
+                if (hoverT == null) return null;
+                const yy = y(scoreAt(line.raw, hoverT));
+                return <circle key={`h-${line.key}`} cx={hoverX} cy={yy} r={4.5} fill={line.color} stroke="#1a1a2e" strokeWidth={2} />;
               })}
             </g>
           )}
@@ -347,7 +352,7 @@ function InteractiveChart({
             positioned by the crosshair's horizontal fraction of the SVG. */}
         {hoverX != null && hoverT != null && (
           <div
-            className="pointer-events-none absolute top-2 z-10 w-max max-w-[240px] rounded-md border border-white/10 bg-[#0d0d16]/95 px-2.5 py-2 text-xs shadow-lg"
+            className="pointer-events-none absolute top-2 z-10 w-max max-w-[240px] rounded-md border border-white/10 bg-[#1a1a2e]/95 px-2.5 py-2 text-xs shadow-lg"
             style={{
               left: `${hoverPct}%`,
               transform: tooltipLeftSide ? "translateX(calc(-100% - 10px))" : "translateX(10px)",
@@ -398,14 +403,20 @@ function InteractiveChart({
 export default function ScoreTimeChart({
   series,
   teamSeries,
+  note,
 }: {
   series?: PlayerSeries[];
   teamSeries?: TeamSeries[];
+  /** One sentence on what the series does and does not include — rendered
+   *  under the heading. The leaderboard passes it on multi-module events,
+   *  where the plotted history is narrower than the totals beside it. */
+  note?: string;
 }) {
   if (teamSeries) {
     return renderChart(
       teamSeries.map((t) => ({ key: t.slug, label: t.name, points: t.points })),
       "team",
+      note,
     );
   }
   // No rubric (declarative-only deployment) or an older scorer that doesn't
@@ -414,5 +425,6 @@ export default function ScoreTimeChart({
   return renderChart(
     series.map((s) => ({ key: s.login, label: s.login, points: s.points })),
     "contestant",
+    note,
   );
 }

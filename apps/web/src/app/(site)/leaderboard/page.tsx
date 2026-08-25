@@ -13,7 +13,9 @@ import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { auth } from "@/lib/auth";
-import { isModuleEnabled } from "@/lib/modules";
+import DisplayBoard from "@/components/display-board";
+import { resolvePhase } from "@/components/phase-line";
+import { completedCount } from "@/lib/leaderboard/rank";
 import { event } from "@/lib/site";
 import { getResolvedModules } from "@/lib/resolved-modules";
 
@@ -22,17 +24,30 @@ export const metadata: Metadata = {
   description: `Live contestant standings for ${event.name}.`,
 };
 
-// "patched PRs" is secure-development's own vocabulary — the same vocabulary
-// the patched/non-patched columns and the "patched" sort key are gated on
-// inside <Leaderboard> (see `hasSecureDev` there), and that /profile already
-// gated the identical trio on. The board and its lede have to agree about
-// whether this event has a patch count at all; an event without one gets the
-// plain statement, which is true on every event including this one.
-const description = isModuleEnabled("secure-development")
-  ? "Live contestant rankings from patched PRs. Sign in with GitHub to highlight your own row and unlock your profile."
-  : "Live contestant rankings. Sign in with GitHub to highlight your own row and unlock your profile.";
+// One lede for every event shape. The old secure-development branch said
+// "rankings from patched PRs", which was false the moment a second module
+// was enabled — quiz answers and flags rank here too, and the board itself
+// folds every enabled module (issue #200, 1.4). A lede that names one
+// module's currency on a shared board misinforms; the plain statement is
+// true on every event including a secure-development-only one.
+//
+// The sign-in clause renders only for the visitor it applies to: telling a
+// signed-in contestant to "Sign in with GitHub" reads as broken state
+// detection (issue #200, 3.1 — the same fix the hint banner got). The page
+// already loads the session for the YOU-row highlight, so this costs
+// nothing.
+const BASE_DESCRIPTION = "Live contestant rankings from every enabled challenge board.";
+const SIGNED_OUT_CLAUSE = " Sign in with GitHub to highlight your own row and unlock your profile.";
 
-export default async function LeaderboardPage() {
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ display?: string }>;
+}) {
+  // ?display=1 is the projector surface: chrome-free top ten, viewport-scaled
+  // type, self-refreshing (display-board.tsx). Resolved first so the display
+  // render can skip nothing it needs and everything it doesn't.
+  const wantsDisplay = (await searchParams)?.display === "1";
   const source = getLeaderboardSource();
   // Penalties BEFORE module contributions: withModuleContributions
   // attributes each row's `points` into its per-module breakdown, so it has
@@ -46,7 +61,7 @@ export default async function LeaderboardPage() {
   // Team standings last: they only overlay membership onto sources with no
   // team concept, and read the entries as already scored and ranked.
   const [data, session, modules] = await Promise.all([
-    source.getLeaderboard().then(withHintPenalties).then(withModuleContributions).then(withTeamStandings),
+    source.getLeaderboard().then(withModuleContributions).then(withTeamStandings).then(withHintPenalties),
     auth.api.getSession({ headers: await headers() }),
     getResolvedModules(),
   ]);
@@ -54,6 +69,34 @@ export default async function LeaderboardPage() {
   // Pre-format relative times server-side so client and server render
   // identical markup (see src/lib/relative-time.ts).
   const generatedAtMs = Date.parse(data.generatedAt);
+
+  if (wantsDisplay) {
+    const phaseInfo = await resolvePhase();
+    // Teams when the event has them, individuals otherwise — the same
+    // primary view the interactive board defaults to.
+    const rows =
+      data.teams.length > 0
+        ? data.teams.slice(0, 10).map((t) => ({
+            key: t.slug,
+            rank: t.rank,
+            name: t.name,
+            points: t.points,
+          }))
+        : data.entries.slice(0, 10).map((e) => ({
+            key: e.login,
+            rank: e.rank,
+            name: e.login,
+            points: e.points,
+            solved: completedCount(e),
+          }));
+    return (
+      <DisplayBoard
+        rows={rows}
+        eventName={event.name}
+        phaseLabel={phaseInfo ? phaseInfo.phase : null}
+      />
+    );
+  }
   const entries = data.entries.map((entry) => ({
     ...entry,
     updatedAgo: entry.updatedAt ? formatRelativeTime(entry.updatedAt, generatedAtMs) : undefined,
@@ -64,7 +107,7 @@ export default async function LeaderboardPage() {
       <PageHeader
         eyebrow="Standings"
         title="Leaderboard"
-        description={description}
+        description={session ? BASE_DESCRIPTION : BASE_DESCRIPTION + SIGNED_OUT_CLAUSE}
       />
       {getLeaderboardSourceMode() === "mock" && <MockDataNotice />}
       {/* data.series/teamSeries pass straight through this spread — the

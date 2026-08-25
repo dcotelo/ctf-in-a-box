@@ -44,7 +44,7 @@ const LINK =
   `${BASE} ds-tap-24 border-[#2563eb]/40 text-[var(--accent-blue-link)] underline ` +
   "decoration-[color-mix(in_srgb,var(--accent-blue-link)_40%,transparent)] underline-offset-2 " +
   "transition-colors hover:border-[#2563eb]/70 hover:decoration-[var(--accent-blue-link)] " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
 export default function OwaspBadge({ code, className = "" }: { code: string; className?: string }) {
   const category = owaspCategory(code);

@@ -20,9 +20,9 @@ import QuizBoard, { type QuizQuestionView, type QuizStatus } from "@/components/
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
-import { isModuleEnabled } from "@/lib/modules";
-import { redirectIfTeamless } from "@/lib/require-team";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
+import { redirectIfTeamless } from "@/lib/require-team";
 import { getViewerQuiz, listQuestions, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN, type ViewerQuiz } from "@/lib/quiz-store";
 
 // `metadata` is a static export and cannot await Redis for the organizer's
@@ -74,7 +74,7 @@ function deriveStatus(
 }
 
 export default async function QuizPage() {
-  if (!isModuleEnabled("quiz")) notFound();
+  if (!(await isModuleLive("quiz"))) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
@@ -121,18 +121,22 @@ export default async function QuizPage() {
     ...deriveStatus(viewerQuiz.answered[q.id], viewerQuiz.attempts[q.id], maxAttempts, cooldownMs),
   }));
 
-  const answeredCount = viewQuestions.filter((q) => q.status === "answered").length;
-  // Per-VIEWER state, so it sits above the board rather than in the header:
-  // a page description says what the page is, and this says what *you* have
-  // done on it — two different things that were sharing one slot, with the
-  // organizer-controlled one losing.
-  const progress = login
-    ? `You've answered ${answeredCount} of ${questions.length} question${questions.length === 1 ? "" : "s"}.`
-    : "Sign in with GitHub to answer questions.";
+  // Per-VIEWER state, so it sits above the board rather than in the header.
+  // Signed in, the board's own progress strip (answered/total, points, bar)
+  // carries the count — a sentence saying the same numbers directly above it
+  // was the same fact twice, the duplication the classic board already
+  // removed. Only the signed-out prompt has no strip to defer to.
+  const progress = login ? null : "Sign in with GitHub to answer questions.";
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={blurb} />
+      {/* The eyebrow names WHAT THE PAGE LISTS, the title names the module —
+          eyebrow={moduleTitle} rendered the same words twice, stacked
+          ("QUIZ" over "Quiz"), which read as a template slip rather than a
+          kicker (issue #200, tier 4). Same pattern as /challenges' own
+          "Targets" eyebrow, and it stays accurate whatever the organizer
+          renames the module to. */}
+      <PageHeader eyebrow="Questions" title={moduleTitle} description={blurb} />
       {/* The progress line sits OUTSIDE the empty-state branch on purpose. It
           used to be the header description, which rendered whatever the
           question count was; moving it into the populated branch quietly took
@@ -141,7 +145,7 @@ export default async function QuizPage() {
           the visitor most worth telling, since signing in now is what lets
           them answer the moment questions appear. */}
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-zinc-400">{progress}</p>
+        {progress && <p className="text-sm text-zinc-400">{progress}</p>}
         {questions.length === 0 ? (
           <ModuleEmptyState
             message={

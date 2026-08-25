@@ -14,6 +14,7 @@
 //   src/lib/team-store.ts ............ team membership
 //   src/lib/quiz-store.ts ............ quiz answers and points
 //   src/lib/classic-store.ts ......... classic flag solves, attempts, points
+//   src/lib/activity-log.ts .......... organizer activity log (sign-ins, solves, team changes)
 //
 // Tone note: this page reads as reassuring because the underlying design
 // genuinely is careful — not the other way round. Don't add warmth here that
@@ -33,11 +34,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { isModuleEnabled } from "@/lib/modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { event } from "@/lib/site";
 
+// secure-development alone stays a module-scope constant: it is the one
+// module that is NOT runtime-toggleable (its targets are provisioning input,
+// not a flag — see the ADR), so baked and live can never disagree about it.
+// quiz and classic CAN be toggled mid-event, and this page's claims about
+// what is collected have to match what actually is, so they are read
+// per-request inside the component below.
 const secureDev = isModuleEnabled("secure-development");
-const quiz = isModuleEnabled("quiz");
-const classic = isModuleEnabled("classic");
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -111,7 +117,11 @@ const cookies: { name: string; what: string; life: string }[] = [
   },
 ];
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const liveModules = await getEnabledModuleIds();
+  const quiz = liveModules.has("quiz");
+  const classic = liveModules.has("classic");
+
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
@@ -198,6 +208,13 @@ export default function PrivacyPage() {
               <span className="text-white">Team membership</span>: the team&apos;s name, who
               created it, and the GitHub logins of its members.
             </>,
+            <>
+              <span className="text-white">An activity log for the organizers</span>: when you
+              signed in, when you solved something (recorded by its id, never the answer you
+              submitted), and team changes, keyed to your GitHub login. Only organizers can see
+              it, only the most recent few thousand entries are kept — older ones are
+              discarded automatically — and it holds no IP address or device data.
+            </>,
             ...(secureDev
               ? [
                   <>
@@ -235,9 +252,9 @@ export default function PrivacyPage() {
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
           All of it is keyed to a public GitHub username and nothing more: no email, no real
           name, no device or location data. It lives in an Upstash Redis instance run for this
-          event. Being straight with you: this competition data has
-          no automatic expiry today, so treat it as kept until the organizers clear it down
-          after the event. You can ask for yours sooner. See below.
+          event. Being straight with you: apart from the activity log&apos;s rolling cap, this
+          competition data has no automatic expiry today, so treat it as kept until the
+          organizers clear it down after the event. You can ask for yours sooner. See below.
         </p>
       </Card>
 

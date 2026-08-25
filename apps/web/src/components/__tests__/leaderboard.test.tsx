@@ -171,6 +171,60 @@ describe("Leaderboard", () => {
     // Player chart (not team chart) renders from `series`.
     expect(html).toMatch(/Top 2 contestants/);
   });
+
+  // The series is the scorer's history alone — quiz/classic points are
+  // stamped on as totals with no timeline — so on a multi-module event the
+  // chart's ceiling sits below the row totals. The chart must say so, or it
+  // reads as broken (issue #200, 2.3).
+  it("labels the chart with what it does not plot, on a multi-module event", () => {
+    const board = data({
+      series: [
+        {
+          login: "alice",
+          points: [
+            { t: "2026-08-01T00:00:00.000Z", score: 10 },
+            { t: "2026-08-01T04:00:00.000Z", score: 100 },
+          ],
+        },
+      ],
+    });
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    expect(html).toContain("Plots Secure Development scoring only");
+    expect(html).toContain("Quiz points count toward the totals below but are not charted.");
+  });
+
+  it("renders no chart note on a secure-development-only event", () => {
+    const board = data({
+      series: [
+        {
+          login: "alice",
+          points: [
+            { t: "2026-08-01T00:00:00.000Z", score: 10 },
+            { t: "2026-08-01T04:00:00.000Z", score: 100 },
+          ],
+        },
+      ],
+    });
+    const sdOnly: readonly ResolvedModule[] = [MODULES[0]];
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={sdOnly} />);
+    // On a one-module event the series IS the whole story — a note would
+    // qualify nothing.
+    expect(html).not.toContain("scoring only");
+  });
+
+  // Rank is breadth-first (compareStanding), so the top row is not
+  // necessarily the highest points — the rule has to be stated where the
+  // ranking is, or a contestant with the biggest PTS figure at #3 concludes
+  // the board is broken (issue #200, 2.1).
+  it("explains the breadth-first rank order under the sort chips", () => {
+    const board = data({
+      entries: [entry({ login: "alice" }), entry({ rank: 2, login: "bob", points: 80 })],
+    });
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    // Default sort is "rank", so the explainer is visible on first paint —
+    // the moment the confusion would otherwise start.
+    expect(html).toContain("Rank rewards breadth");
+  });
 });
 
 describe("per-challenge catalog", () => {
@@ -218,7 +272,7 @@ describe("per-challenge catalog", () => {
       },
     });
     const html = renderToStaticMarkup(<TeamRow team={withFlags} topPoints={150} isOpen onToggle={() => {}} />);
-    expect(html).toContain(">Flags<");
+    expect(html).toContain(">Target breakdown<");
     // Reuses the same collapsible AppChallengeList as the individual view, so
     // the per-target expand trigger renders under the target name (collapsed) —
     // and the count covers pending flags too (2 of 3, one still open).
@@ -231,7 +285,52 @@ describe("per-challenge catalog", () => {
 
   it("omits the flags section for a team without per-challenge data", () => {
     const html = renderToStaticMarkup(<TeamRow team={team()} topPoints={150} isOpen onToggle={() => {}} />);
-    expect(html).not.toContain(">Flags<");
+    expect(html).not.toContain(">Target breakdown<");
+  });
+
+  // The expansion exists to explain the team's total. Before this block, a
+  // team on a multi-module event found only the secure-development targets
+  // below — its quiz/classic points were IN the header figure and invisible
+  // in the breakdown (issue #200, 2.2).
+  it("shows each module's deduped contribution in the expanded team row", () => {
+    const withModules = team({
+      points: 278,
+      modules: {
+        quiz: { points: 200, completed: 3, lastActivityAt: null, detail: { kind: "quiz", answered: 3, total: 5, points: 200 } },
+        "secure-development": {
+          points: 8,
+          completed: 6,
+          lastActivityAt: null,
+          detail: { kind: "secure-development", apps: {} },
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <TeamRow team={withModules} topPoints={278} isOpen onToggle={() => {}} modules={MODULES} />,
+    );
+    expect(html).toContain("Quiz");
+    expect(html).toMatch(/200 pts/);
+    // Module vocabulary survives: questions are answered, challenges are
+    // patched — each module's own noun, never a shared "solved".
+    expect(html).toMatch(/3 answered/);
+    expect(html).toMatch(/6 patched/);
+  });
+
+  it("renders no module blocks on a single-module event — the total needs no split", () => {
+    const withModules = team({
+      modules: {
+        "secure-development": {
+          points: 150,
+          completed: 6,
+          lastActivityAt: null,
+          detail: { kind: "secure-development", apps: {} },
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <TeamRow team={withModules} topPoints={150} isOpen onToggle={() => {}} modules={[MODULES[0]]} />,
+    );
+    expect(html).not.toMatch(/6 solved/);
   });
 });
 

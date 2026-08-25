@@ -22,6 +22,28 @@ async function postTeam(path: string, body?: Record<string, string>): Promise<Te
   return data;
 }
 
+/** The two captain buttons that sit BESIDE an input — Rename and Transfer.
+ *
+ *  They are disabled until their field has a value, which means **disabled is
+ *  their resting state**: an organizer opening the team card sees them before
+ *  they see the input. Sharing the generic button style meant they arrived at
+ *  50% opacity on top of an already-dim `text-zinc-300`, and stopped reading
+ *  as controls at all — the reported symptom was "there is no rename option",
+ *  from someone looking straight at it.
+ *
+ *  So a disabled state here keeps its border and stays legible: dimmer than
+ *  live, still obviously a button, with a cursor that says why it will not
+ *  respond. The neighbouring buttons (Regenerate, Disband) are only disabled
+ *  while a request is in flight, so they never spend their idle life looking
+ *  like this and are deliberately left alone.
+ *
+ *  Same family of bug as the OWASP badges in #156: a control that is only
+ *  discoverable once you already know it is there is not discoverable. */
+const PAIRED_ACTION_CLASS =
+  "flex-none rounded-md border border-white/20 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 " +
+  "transition-colors hover:border-[#2563eb]/60 hover:bg-white/[0.06] hover:text-white " +
+  "disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
+
 export default function TeamCard({
   team,
   writesEnabled,
@@ -29,6 +51,7 @@ export default function TeamCard({
   isCaptain,
   captain,
   joinCode,
+  registrationOpen = true,
 }: {
   team: TeamInfo | null;
   writesEnabled: boolean;
@@ -42,6 +65,11 @@ export default function TeamCard({
   /** The team's current join code, when known (live mode only). Shown so any
    *  member — captain included — can share it to recruit teammates. */
   joinCode: string | null;
+  /** Resolved on the server (effectiveRegistrationOpen). When closed, the
+   *  teamless branch explains instead of rendering forms the routes would
+   *  refuse — the same read-and-explain the /join/<code> page does. Defaults
+   *  open, matching the routes' own fail-open settings read. */
+  registrationOpen?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -104,7 +132,7 @@ export default function TeamCard({
           </div>
 
           {displayCode && (
-            <div className="flex flex-col gap-2 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/10 px-3 py-2">
+            <div className="flex flex-col gap-2 rounded-md border border-[#2563eb]/30 bg-white/[0.06] px-3 py-2">
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-muted">Share this join code</p>
                 <p className="font-mono text-lg tracking-widest text-white">{displayCode}</p>
@@ -169,13 +197,13 @@ export default function TeamCard({
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   placeholder="New team name"
-                  className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                  className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
                 />
                 <button
                   type="button"
                   disabled={pending || !renameValue.trim()}
                   onClick={() => run(() => postTeam("/rename", { slug: team.slug, name: renameValue }))}
-                  className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+                  className={PAIRED_ACTION_CLASS}
                 >
                   Rename
                 </button>
@@ -186,7 +214,7 @@ export default function TeamCard({
                   <select
                     value={transferTarget}
                     onChange={(e) => setTransferTarget(e.target.value)}
-                    className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                    className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
                   >
                     <option value="">Transfer captain to…</option>
                     {otherMembers.map((member) => (
@@ -199,7 +227,7 @@ export default function TeamCard({
                     type="button"
                     disabled={pending || !transferTarget}
                     onClick={() => run(() => postTeam("/transfer", { slug: team.slug, to: transferTarget }))}
-                    className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+                    className={PAIRED_ACTION_CLASS}
                   >
                     Transfer
                   </button>
@@ -250,6 +278,17 @@ export default function TeamCard({
             </div>
           )}
         </div>
+      ) : !registrationOpen ? (
+        // Registration closed and the viewer has no team: forms would only
+        // collect a refusal from the routes, so explain instead (issue #217).
+        // The team requirement still holds — say both halves plainly.
+        <div className="mt-3 flex flex-col gap-2">
+          <p className="text-sm text-zinc-400">Team registration is closed for this event.</p>
+          <p className="text-xs text-muted">
+            A team is still required before anything you solve counts — find an organizer if you
+            arrived after registration closed.
+          </p>
+        </div>
       ) : (
         <div className="mt-3 flex flex-col gap-3">
           {/* Not "create or join a team to compete" any more: a team is now
@@ -270,13 +309,13 @@ export default function TeamCard({
                 value={joinValue}
                 onChange={(e) => setJoinValue(e.target.value)}
                 placeholder="Join code"
-                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
               />
               <button
                 type="button"
                 disabled={pending || !joinValue.trim()}
                 onClick={() => run(() => postTeam("/join", { code: joinValue }))}
-                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 disabled:opacity-50"
+                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
               >
                 Join
               </button>
@@ -293,13 +332,13 @@ export default function TeamCard({
                 value={createValue}
                 onChange={(e) => setCreateValue(e.target.value)}
                 placeholder="Team name"
-                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
               />
               <button
                 type="button"
                 disabled={pending || !createValue.trim()}
                 onClick={() => run(() => postTeam("", { name: createValue }))}
-                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 disabled:opacity-50"
+                className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
               >
                 Create
               </button>

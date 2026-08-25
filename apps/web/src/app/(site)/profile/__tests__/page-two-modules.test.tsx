@@ -54,6 +54,9 @@ vi.mock("next/navigation", async (importOriginal) => ({
 // page's two-module test uses.
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: { quiz: { title: "Round 1" } } }),
+  // The page reads the registration window for the team card's
+  // closed-state explanation (issue #217).
+  effectiveRegistrationOpen: () => true,
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
@@ -70,7 +73,13 @@ vi.mock("@/lib/hint-store", () => ({
   getHintPenalties: vi.fn(),
   HINTS_AVAILABLE: false,
 }));
-vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals,
+  listQuestions,
+  getTeamQuizTotals,
+  // The blocks' Show-N item list reads the viewer's own per-question map.
+  getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage from "@/app/(site)/profile/page";
@@ -102,7 +111,7 @@ describe("/profile on a two-module event", () => {
     const html = renderToStaticMarkup(await ProfilePage());
     expect(html).toContain(">4<"); // secure-development's per-app patched count (DVWA)
     expect(html).toContain("/ 6 patched");
-    expect(html).toContain("3 / 5"); // quiz answered / total
+    expect(html).toContain("/ 5 answered"); // quiz answered / total, via ProgressSummary
   });
 
   it("heads each block with that module's resolved title, in registry order", () => {

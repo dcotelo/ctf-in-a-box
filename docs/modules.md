@@ -45,7 +45,27 @@ the sections below are the enforceable contract behind it.
        score_ingest: poll             # poll | push
    ```
 
-2. MUST NOT expect dynamic/plugin-style registration in v1. **Three**
+2. MUST state whether it can be **enabled at runtime**. Presence in
+   `event.yaml`'s `modules:` is the STARTING set and the outage fallback, not
+   the live truth: organizers switch modules on and off from `/admin` during an
+   event, and the live set lives in `ctf:admin:settings`
+   ([ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
+
+   A module is runtime-toggleable only if **everything it needs already
+   exists** when the switch is flipped. Concretely, enabling it must require no
+   more than a route, a nav entry, a tab and data it keeps in Redis. If it
+   needs a **container** (`docker-compose.yml` profiles are chosen at
+   `up` time and the app cannot start one) or **provisioning** (forks, an App
+   installation, per-repo workflows — `ctf-setup.sh`'s work, holding a key the
+   web tier deliberately does not have, ADR 41), it is configured at setup and
+   its toggle must be **refused with the reason**, in both directions.
+   `secure-development` is the worked example of the second kind; `quiz` and
+   `classic` are the first.
+
+   Disabling MUST NOT delete a module's data. Re-enabling has to restore the
+   same board, or the toggle is a destructive action wearing a switch.
+
+3. MUST NOT expect dynamic/plugin-style registration in v1. **Three**
    independent readers parse the same `event.yaml`, and each enumerates the
    module keys it knows explicitly, failing on anything else: the poll
    service's config loader (`sync/src/config.js`), the app's build-time
@@ -91,7 +111,7 @@ the sections below are the enforceable contract behind it.
    A module is enabled by **being present** under `modules:` and disabled by
    being omitted. There is no `enabled:` key — a module MUST NOT invent one.
 
-3. A module's config block is free to define its own shape beyond
+4. A module's config block is free to define its own shape beyond
    `targets`. Note that in v1 `score_ingest` is documentation-of-intent
    inside `event.yaml` — neither reader acts on it. The actual
    poll/push switch is the separate `SCORE_INGEST` env var consumed by
@@ -333,16 +353,18 @@ third module isn't mistaken for a fully general n-module platform:
   contracts. Neither bundle carries its module's retry-gate settings: those
   are event policy, live-editable in `/admin`, and an import must never move
   them.
-- **`classic` still has no file attachments and no hints — plainly, not by
-  omission.** What's missing: a challenge's `description` is Markdown
-  text only, with nowhere to attach a downloadable file (an image, a pcap, a
-  binary) for a contestant to pull down; and the hint system
-  (`hintsEnabled`/`hintCost`/the two gating knobs) is wired to
-  `secure-development` targets alone — a classic challenge has no hint of
-  its own to buy, at any price. Both are scoped to later PRs in this same
-  series (attachments, then hints), not this one, and neither exists
-  anywhere in `classic-store.ts` or `admin-classic-controls.tsx` today for a
-  reader to find by trial and error.
+- **`classic` still has no file attachments — plainly, not by omission.**
+  A challenge's `description` is Markdown text only, with nowhere to attach
+  a downloadable file (an image, a pcap, a binary) for a contestant to pull
+  down. Attachments are scoped to a later PR in this same series (#186).
+- **`classic` HAS paid hints (issue #190).** An organizer attaches optional
+  hint text in the admin classic form (or a bundle's `hint` field); the text
+  is secret until purchased — its own hash, `ctf:classic:hints`, exactly the
+  flag hashes' storage rule — and contestants buy it on the challenge's own
+  page through the SAME reveal machinery, cost, gating knobs and penalty
+  fold as secure-development's hints. The anti-burner gate counts solves on
+  the whole classic board (categories are display groupings, not progress
+  domains).
 
 This section remains the contract a *new* module (forensics, api-security,
 cloud, …) must satisfy to plug into the same UI: it is now proven against
@@ -695,8 +717,28 @@ gets to skip sections that apply to it.
 `ctf-setup.sh` implements `secure-development`'s provisioning today
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):
 
-1. **Fork** each configured target from `OWASP-CTF/<repo>` into the event
-   org (`gh repo fork "OWASP-CTF/$r" --org "$org"`).
+1. **Fork** each configured target into the event org
+   (`gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name"`).
+
+   **`setup/targets.tsv` is the canonical source of both halves of that
+   command.** Its `upstream_repo` column names what is forked (`digininja/DVWA`,
+   `erev0s/VAmPI`, …, pinned to the `ref` column), and `prov_repo_name` — the
+   basename of that same column — names the fork. Nothing else decides a fork's
+   name; every other place that spells one out is a **copy**, and there are two
+   that matter: `sync/src/config.js`'s `REPO_NAMES`, which decides the repos the
+   poller reads score comments from, and `apps/web/src/lib/apps.ts`'s, which
+   builds the fork links contestants click.
+
+   Both copies are pinned to the tsv by a differential test on each side
+   (`sync/test/repo-names.differential.test.js`,
+   `apps/web/src/lib/__tests__/apps-repo-names.differential.test.ts`), and
+   `setup/test/ctf_setup.bats` pins the derivation itself. That matters because
+   the drift is silent in both directions: a wrong name gives contestants a fork
+   link that 404s, or — quieter — leaves the poller watching a repo nobody
+   opens PRs against, so scoring stops for that target while every service
+   still looks healthy. **A module adding a target adds it to `targets.tsv`
+   first**, and updates the copies to match; changing a copy alone is the bug
+   the tests exist to catch (issue #149).
 2. **Render + commit** the scoring workflow: `cmd_org` renders the in-repo
    template (`scorer/consumer-workflow.example.yml`) per target —
    substituting the event org, the target id, and a default `APP_URL` — and
@@ -772,6 +814,8 @@ build-time vendoring step first). Until then, a new module `<name>` with target
 | `scorer/entrypoints/<t>.sh` | the target's bring-up |
 | `scorer/rubric.owasp/<t>/` | the vendored rubric, with its catalogue at `tests/challenges/catalogue.<t>.json` |
 | `setup/ctf-setup.sh` | add `<name>` to `KNOWN_MODULES` |
+| `apps/web/src/lib/metrics-store.ts` | add `<name>` to the per-login read list, the `earnedRows` fold and the `modules` split, or Insights reports nothing for it (§10.4) |
+| `apps/web/src/lib/activity-keys.ts` | add a `<name>-solve` type and call `logActivity` from the module's submit route on FRESH solves only (id in `detail`, never the answer), or the admin Activity tab never sees the module |
 | `event.yaml.example` + README target table | document the target |
 
 Parity guards catch the most common drift: `scorer/test/targets.test.js`
@@ -791,7 +835,7 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 | `sync/src/config.js` | add `classic` to `KNOWN_MODULES` (tolerated so the shared `event.yaml` can't crash-loop the poller; `classic` never produces a score for `sync` to relay — §2) |
 | `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
 | `setup/ctf-setup.sh` | recognise the `classic` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz` (§7) |
-| `apps/web/src/lib/classic-keys.ts` | key names/builders, `normalizeFlag`, challenge-id generation — dependency-free, shared by the client-side admin form and the server-only store |
+| `apps/web/src/lib/classic-keys.ts` | key names/builders, the flag comparison forms (`normalizeFlag`, `caseSensitiveFlagForm`, `flagComparisonForm`), challenge-id generation — dependency-free, shared by the client-side admin form and the server-only store |
 | `apps/web/src/lib/classic-store.ts` | the module's own `ctf:classic:*` Redis store, its atomic flag-grading Lua script, and the admin/contestant secrecy split |
 | `apps/web/src/lib/markdown.ts` + `apps/web/src/components/markdown.tsx` | the restricted Markdown parser and its node-tree-to-React renderer for challenge descriptions |
 | `apps/web/src/app/api/classic/submit/route.ts` + `apps/web/src/app/api/admin/classic/route.ts` | the flag-submission and organizer-authoring wire contract |
@@ -804,3 +848,116 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
 this way — there is no target, no rubric, and no catalogue for the scorer to
 know about.
+
+## 10. Engagement-metrics contract (Insights)
+
+The **Insights** tab (`GET /api/admin/metrics`, ADR 50) reports participation,
+per-challenge difficulty, solves over time and hint usage. It has **no
+collection step and no write path of its own**: every figure is a read over
+keys the modules already maintain. That is the design constraint the rest of
+this section follows from — Insights can only report what a module already
+stores, in the shape it already stores it, and adding a metric is never a
+reason to add a tracking write.
+
+See [docs/operations.md](operations.md#organizer-admin-panel) for what each
+figure means to an organizer and [docs/architecture.md](architecture.md#engagement-metrics-adr-50)
+for the fold itself.
+
+### 10.1 What a module must store to be measurable
+
+Two per-login hashes, both keyed by **lowercased** GitHub login, both with the
+**item id** as the field. A module that keeps them gets the full per-challenge
+table for free; a module that keeps neither is still counted in participation
+and points, and appears nowhere else.
+
+| Hash | Field | Value | What it drives |
+|---|---|---|---|
+| `ctf:<module>:<earned>:<login>` — `ctf:quiz:answers:<login>`, `ctf:classic:solves:<login>` | item id | `{"points":<n>,"at":"<iso>"}` | `scored`, the solves-over-time timeline, per-challenge `solves`, and the numerator of `solveRate` |
+| `ctf:<module>:attempts:<login>` | item id | `{"attempts":<n>,"firstAt":"<iso>","lastAt":"<iso>","lastAtMs":<ms>}` | `attempted` and `stuck`, per-challenge `attempts`, `avgAttemptsToSolve`, `medianSecondsToSolve` |
+
+Plus one aggregate the leaderboard already requires:
+
+| Key | Field | Value | What it drives |
+|---|---|---|---|
+| `ctf:<module>:points` | login | integer | the per-module scorer split, and the per-team point sum |
+
+Three rules about those rows, each of which has cost this repo a wrong number:
+
+1. **`at` is when the item was EARNED**, not when the row was written. The
+   timeline buckets on it, so a row stamped at import or seed time moves a
+   solve to the wrong ten minutes.
+2. **`firstAt` is the FIRST attempt and is carried forward** across every
+   later attempt — both modules' Lua scripts re-read the existing row and keep
+   the original (`quiz-store.ts` / `classic-store.ts`, `if not firstAt then
+   firstAt = ARGV[…] end`). It is what makes time-to-solve knowable at all;
+   overwriting it each try silently turns every duration into zero.
+3. **The attempt row must survive the solve.** `avgAttemptsToSolve` and
+   `medianSecondsToSolve` are computed *after* the fact, by matching the
+   earned row against the attempt row for the same id. Clearing attempts on
+   success destroys both figures and leaves the challenge looking
+   first-try-easy.
+
+Parse attempt rows with **`apps/web/src/lib/attempt-row.ts`**, never with
+`Number(value)`. The row is JSON; `Number()` on it is `NaN`, which is how the
+Support tab reported "0 attempts" for every contestant for two releases
+without anything failing.
+
+### 10.2 Item ids are the join key
+
+Per-challenge stats are keyed `<module>:<item id>`, and the earned row and the
+attempt row are matched by that id. This is the same stability rule as §4.3 and
+for a second reason: renaming an id does not just orphan provenance, it splits
+one challenge into two rows in the difficulty table — one with attempts and no
+solves, one with solves and no attempts.
+
+Ids must also be **unique within the module**. They do not need to be unique
+across modules (the `<module>:` prefix separates them), but anything that
+matches rows across two namespaces must carry both parts of the key —
+`readSecureDevSolves` keeps the target in `<target>/<login>/<challengeId>`
+precisely because challenge ids are unique within a target's catalogue and
+nothing makes them unique between targets.
+
+### 10.3 A module with no per-item rows
+
+`secure-development` is this case, and it is a legitimate one. Its scores
+arrive from GitHub already judged: there is a timestamped solve
+(`ctf:solves:<target>`, field `<login>:<challengeId>`) but no attempt record,
+because the attempts happened in a fork the box deliberately does not measure.
+It therefore contributes to participation, points and hint ordering, and
+contributes **nothing** to the per-challenge difficulty table or the timeline.
+
+That absence is stated in the payload's own `caveats[]` rather than left to be
+inferred from an empty row. **A module that cannot supply a figure must make
+the gap visible, not render zero** — a blank cell reads as "no data", a zero
+reads as "measured, and none".
+
+### 10.4 Registration is NOT automatic
+
+Adding a module does not add it to Insights. `computeEventMetrics`
+(`apps/web/src/lib/metrics-store.ts`) names quiz and classic explicitly — the
+per-login read list, the `earnedRows` pair it folds, and the `modules` split in
+the response. A new module with both hashes still reports nothing until it is
+added in those three places.
+
+This is deliberate for now: the fold issues a fixed number of reads per
+contestant, and a registry-driven version would make that number depend on how
+many modules an event enables. It is a **known limitation**, recorded here so
+the next module author finds it in the contract rather than in an empty tab.
+
+### 10.5 What a module must NOT do
+
+- **Do not collect from forks.** A fork can report far more — pages opened,
+  time on a challenge, when someone gave up — and none of it credibly.
+  Authenticating a fork means a credential every contestant can read, so any
+  ingest endpoint is forgeable by the very people being measured. Engagement
+  numbers a participant can inflate are worse than numbers that are merely
+  incomplete. ADR 46's read-only, policy-only rule for `/api/public/scoring` is
+  the other side of the same boundary.
+- **Do not add a write purely to feed a metric.** If a figure needs a new
+  write, it needs a decision record first: every per-contestant field added is
+  one edit away from making an admin payload carry a login.
+- **Do not read a module's aggregate counter where a fold over per-login rows
+  will do.** `ctf:classic:solvecount` exists and would be a free classic-only
+  shortcut; the fold deliberately ignores it, because folding per-login rows
+  produces the same figure for **both** modules from one source. Reading both
+  invites the two to disagree with no way to tell which is right.

@@ -1,6 +1,7 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import { hasTeam } from "@/lib/team-store";
+import { TEAM_SETUP_PATH } from "@/lib/post-signin";
 
 /**
  * Page-level half of the team requirement (issue #153).
@@ -17,10 +18,10 @@ import { hasTeam } from "@/lib/team-store";
  * API routes and the sync-facing code also import.
  */
 
-/** Where a teamless contestant is sent. The `#team` fragment scrolls the
- *  profile straight to the team card rather than dropping them at the top of
- *  a page of stats with no clue why they are there. */
-export const TEAM_SETUP_PATH = "/profile#team";
+/** Where a teamless contestant is sent — owned by lib/post-signin.ts (the
+ *  pure module both this and the sign-in steering can import), re-exported
+ *  here for the existing importers. */
+export { TEAM_SETUP_PATH } from "@/lib/post-signin";
 
 /**
  * Redirects a signed-in contestant with no team to team setup.

@@ -57,7 +57,7 @@ chapter leads, workshop facilitators, security teams running an internal
 training day.
 
 <p align="center">
-  <img alt="Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category" src="docs/assets/demo.gif" width="820">
+  <img alt="Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's points at that instant, then expanding the leading team to its members and its per-target flags, each marked patched or open and linked to its OWASP category" src="docs/assets/demo.gif" width="820">
 </p>
 
 ## Quickstart
@@ -100,9 +100,11 @@ for a single-shot AWS deploy — `terraform apply` up, `terraform destroy` down.
 
 | Feature | What it means for you |
 |---|---|
-| **Team scoring** | Per-team standings with self-registration, captains and join codes. A flag solved by several teammates counts once (dedupe). Solo players are teams of one. |
+| **Team scoring** | Per-team standings with self-registration, captains, join codes and shareable `/join/<code>` invite links. A team is required to score; **Play solo** makes a team of one in a click. A flag solved by several teammates counts once (dedupe). |
 | **Live leaderboard + score-over-time graph** | A ranked team leaderboard with a CTFd-style graph drawn from real per-solve timestamps. |
-| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule the scoring and registration windows, toggle hints and their cost, author each module's content, and reset the event between rehearsals. |
+| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule the scoring and registration windows, toggle hints and their cost, set the team cap and the score cooldown, grant admin to co-organizers, author each module's content, and reset the event between rehearsals. All without a rebuild. |
+| **Live-event support** | Act on one contestant or one team instead of wiping the event: look someone up, reset their progress, delete them, or take over a team whose captain has disappeared. Every action audited with actor and target. |
+| **Engagement metrics** | Participation funnel, solves over time, per-challenge difficulty (solve rate, average tries, time-to-solve) and hint usage — folded out of data the box already stores. No telemetry is collected from contestants' forks. |
 | **Scoring pipeline** | A GitHub-Actions-fed pipeline (poll or push) with a single audited score writer — the transport for modules scored outside the app. Modules that grade in-app (quiz, classic) bank points directly and never touch it. |
 | **Poll or push** | Poll mode (default) has zero inbound network surface — works behind NAT, on a laptop, on venue wifi. Push mode is near-instant if you have a public URL. |
 | **One box, no cloud** | Runs from Docker Compose on a machine you already have, plus one free GitHub org. Nothing is billed, nothing phones home. |
@@ -126,12 +128,16 @@ for a single-shot AWS deploy — `terraform apply` up, `terraform destroy` down.
 
 | Feature | What it means for you |
 |---|---|
-| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge point values. Submissions are normalised before comparison, so casing and stray whitespace never cost someone a solve. |
+| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge point values. Submissions are trimmed and normalised, and casing is forgiven too — unless a flag is marked case-sensitive, which its card tells contestants. |
 | **Rich descriptions, bulk authoring** | Descriptions take a sanitised Markdown subset — links, formatting, code. Author one at a time in `/admin`, or import and export the whole board as a single JSON bundle. |
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](docs/assets/hero.jpg) | ![Challenge browser](docs/assets/challenges.jpg) |
+| ![A contestant's row expanded: per-module totals, then per-target progress with each challenge's patched or open state](docs/assets/hero.jpg) | ![The challenge browser: one card per vulnerable app, expandable to every challenge with its point value and OWASP category, searchable by challenge, app or OWASP code](docs/assets/challenges.jpg) |
+
+| Classic flag board | Quiz |
+|---|---|
+| ![The classic board: each flag card shows its point value and solve count, a case-sensitive badge where casing matters, and instant feedback on submit](docs/assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded on submit](docs/assets/quiz.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
 with seeded demo players. The app ships a fixed dark theme. The board ranks
@@ -203,8 +209,9 @@ Once the stack is up at your `EVENT_URL`:
   secure development (the score lands ~30 s later in poll mode), or answer and
   submit in the app for quiz and classic.
 - **Organizers** drive `/admin`: freeze the leaderboard, open and close team
-  registration, set the schedule, toggle hints, and author quiz questions and
-  classic challenges.
+  registration, set the schedule, toggle hints, grant admin to co-organizers,
+  author quiz questions and classic challenges — and, when one contestant gets
+  stuck, fix that one contestant rather than resetting the event.
 - **Watch the poller** with `docker compose logs -f sync` — poll mode only, and
   only with `secure-development` enabled (`sync` runs under the `poll`
   profile). All state lives in named Docker volumes, so a box reboot loses
@@ -240,7 +247,9 @@ in [docs/decisions.md](docs/decisions.md).
 |---|---|
 | [docs/hosting.md](docs/hosting.md) | Standing the kit up — prerequisites, poll vs push, the GitHub OAuth app, and event config |
 | [docs/aws.md](docs/aws.md) | Single-shot deploy on AWS — a Terraform module (`deploy/aws-terraform/`) for one ephemeral EC2 box: `apply` up, `destroy` down |
-| [docs/operations.md](docs/operations.md) | Running an event — teams, the admin panel, the quiz and classic organizer guides, verifying the kit, the local dev-stack, teardown, and status |
+| [docs/fly.md](docs/fly.md) | Deploy on fly.io — the whole stack as one Fly machine running the repo's own `docker-compose.yml` |
+| [docs/security-checklist.md](docs/security-checklist.md) | The one-page pre-event walk: what to check, in order, before contestants arrive |
+| [docs/operations.md](docs/operations.md) | Running an event — teams, the admin panel (including per-contestant support actions and engagement metrics), the quiz and classic organizer guides, verifying the kit, the local dev-stack, teardown, and status |
 | [docs/architecture.md](docs/architecture.md) | How the stack fits together — diagram, score data flow, security model, testing strategy |
 | [docs/scorer.md](docs/scorer.md) | The scorer engine: serve + judge modes, both rubric grammars, authoring and building |
 | [docs/modules.md](docs/modules.md) | The module contract — the platform/module boundary, and what a new module must provide to plug into the control plane |

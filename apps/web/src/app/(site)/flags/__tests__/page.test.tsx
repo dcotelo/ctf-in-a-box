@@ -19,6 +19,7 @@ const { isModuleEnabled, isAdminLogin, getSession, listChallenges, listCategorie
   }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // ClassicBoard (the client component this page renders) calls useRouter for
 // its post-submit refresh — needs a mock the same way quiz-board.test.tsx
@@ -83,15 +84,22 @@ describe("flags page view model", () => {
 
     const html = renderToStaticMarkup(await FlagsPage());
 
-    expect(html).toMatch(/solved.*earned 10 point/i);
-    expect(html).toMatch(/on cooldown/i);
-    expect(html).toMatch(/submit flag/i); // c3 (never attempted) still offers one
-    expect(html).toMatch(/solved 1 of 3 challenges/i);
+    // The grid shows STATE, not forms (issue #208): the solved tile is
+    // marked, every tile links to its own page, and the description/form
+    // moved there.
+    expect(html).toContain("(solved)");
+    expect(html).toContain('href="/flags/c1"');
+    expect(html).toContain('href="/flags/c2"');
+    expect(html).toContain('href="/flags/c3"');
+    expect(html).not.toMatch(/submit flag/i);
+    expect(html).not.toContain("d1"); // descriptions live on /flags/[id]
+    expect(html).toContain("/ 3 solved");
   });
 
   // The page and <ClassicBoard> each used to print their own count ("You've
-  // solved 1 of 3 challenges." above "1 of 3 solved."), which reads as a
-  // rendering bug. One statement of progress, from one place.
+  // solved 1 of 3 challenges." above "1 / 3 solved"), which reads as a
+  // rendering bug. One statement of progress, from one place — the grid's
+  // summary strip.
   it("states progress exactly once", async () => {
     isModuleEnabled.mockReturnValue(true);
     getSession.mockResolvedValue({ user: { login: "alice" } });
@@ -104,7 +112,9 @@ describe("flags page view model", () => {
 
     const html = renderToStaticMarkup(await FlagsPage());
 
-    expect(html.match(/\b\d+ of \d+\b/g)).toEqual(["1 of 3"]);
+    // The rail owns the count; the page-level sentence must not return.
+    expect(html).not.toMatch(/You&#x27;ve solved/);
+    expect(html.match(/\/ 3 solved/g)).toEqual(["/ 3 solved"]);
   });
 
   it("treats a signed-out visitor as having no progress and prompts sign-in instead of a submit control", async () => {
@@ -118,6 +128,8 @@ describe("flags page view model", () => {
     expect(getViewerClassic).not.toHaveBeenCalled();
     expect(html).toMatch(/sign in with github/i);
     expect(html).not.toContain("<button");
+    // And no personal summary — nothing personal to summarize.
+    expect(html).not.toContain("/ 1 solved");
   });
 
   it("shows an empty state with no challenges available", async () => {

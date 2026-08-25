@@ -113,6 +113,45 @@ describe("lookupUser", () => {
     expect((await lookupUser("octo")).secureDev.solves).toBe(1);
   });
 
+  it("sums attempts out of the JSON rows, not by coercing them to numbers", async () => {
+    // The attempts hash stores a JSON OBJECT per item, not a count. Summing it
+    // with `Number(value)` yields NaN — which, coerced through `|| 0`, made the
+    // support tab report "Attempts 0" for every contestant on every event, and
+    // report it confidently. Nothing caught it: while the demo seed wrote no
+    // attempt rows at all, zero WAS the right answer for seeded data, so the
+    // bug and the fixture agreed with each other.
+    //
+    // Upstash returns HGETALL as a flat [field, value, field, value] array.
+    const quizAttempts = [
+      "xss-basics",
+      JSON.stringify({ attempts: 2, firstAt: "2026-08-22T10:00:00Z", lastAt: "2026-08-22T10:06:00Z" }),
+      "csrf-defense",
+      JSON.stringify({ attempts: 3, firstAt: "2026-08-22T11:00:00Z", lastAt: "2026-08-22T11:09:00Z" }),
+    ];
+    const classicAttempts = [
+      "web-robots-only",
+      JSON.stringify({ attempts: 4, firstAt: "2026-08-22T12:00:00Z", lastAt: "2026-08-22T12:20:00Z" }),
+    ];
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(userHmget(null), [], quizAttempts, null, null, [], classicAttempts, null, null, 0, null),
+    );
+    mockNoSecureDevKeys();
+    const detail = await lookupUser("octocat");
+    expect(detail.quiz.attempts).toBe(5);
+    expect(detail.classic.attempts).toBe(4);
+  });
+
+  it("treats an unreadable attempt row as no attempts rather than throwing", async () => {
+    // A support lookup runs mid-event, on live data, when something has
+    // already gone wrong. One corrupt row must not take the whole lookup down.
+    const rows = ["good", JSON.stringify({ attempts: 2 }), "corrupt", "{not json", "empty", ""];
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(userHmget(null), [], rows, null, null, [], [], null, null, 0, null),
+    );
+    mockNoSecureDevKeys();
+    expect((await lookupUser("octocat")).quiz.attempts).toBe(2);
+  });
+
   it("marks the captain of their team", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce(
       replies(userHmget("red-team", "2026-08-22T10:00:00Z", "2026-08-20T09:00:00Z"), [], [], "10", "1", [], [], null, null, 0, null),

@@ -34,6 +34,7 @@ const { isModuleEnabled, getSession, listChallenges, listCategories, getSolveCou
 const captured: { challenges: Record<string, unknown>[] } = { challenges: [] };
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 // Runtime admin grants (issue #147) put a Redis read behind the page's
 // admin-link check for any signed-in viewer. Mocked to empty here: this suite
 // is about the view model's fields, and an unmocked SMEMBERS turns it into a
@@ -123,8 +124,12 @@ describe("/flags view model", () => {
 
     renderToStaticMarkup(await FlagsPage());
 
+    // `caseSensitive` joined this list in #193 and is public ON PURPOSE: the
+    // board has to tell a contestant that capitalisation matters, and knowing
+    // that reveals nothing about the answer. It is copied by name in the page's
+    // map like every other field here, which is what this test exists to force.
     expect(Object.keys(captured.challenges[0]).sort()).toEqual(
-      ["category", "description", "id", "points", "solveCount", "status", "title"].sort(),
+      ["caseSensitive", "category", "description", "id", "points", "solveCount", "status", "title"].sort(),
     );
   });
 });

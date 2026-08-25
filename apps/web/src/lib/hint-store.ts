@@ -7,6 +7,7 @@ import { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "./hint-defaul
 import { getAdminSettings } from "@/lib/admin-store";
 import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
 import { apps, appsById, type AppId } from "@/lib/apps";
+import { CLASSIC_HINTS_KEY, classicSolvesKey } from "@/lib/classic-keys";
 import { isModuleEnabled } from "@/lib/modules";
 import { userHintTimesKey } from "@/lib/team-keys";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
@@ -64,7 +65,11 @@ export const HINTS_AVAILABLE = Boolean(
 const SPENT_KEY = "ctf:hints:spent";
 const userHintsKey = (login: string) => `ctf:user:${login}:hints`;
 
-const hintHashKey = (app: AppId) => `hints:${app}`;
+/** Where a target's hint texts live. Secure-development hints sit in the
+ *  scorer-owned `hints:<app>` hashes; classic hints in the site-owned
+ *  `ctf:classic:hints` hash, written by classic-store's authoring path
+ *  (#190). One reveal/charge/penalty machinery serves both. */
+const hintHashKey = (target: HintTarget) => (target === "classic" ? CLASSIC_HINTS_KEY : `hints:${target}`);
 
 /** Catalogue ids look like "Challenge-5-Admin-Section" — reject anything
  *  weirder before it reaches Redis. */
@@ -72,6 +77,15 @@ const CHALLENGE_ID_RE = /^[\w.-]{1,128}$/;
 
 export function isAppId(value: string): value is AppId {
   return value in appsById;
+}
+
+/** Everything a hint can be bought against: a secure-development target, or
+ *  the classic board (whose hints are per-challenge but gated board-wide —
+ *  categories are display groupings, not progress domains). */
+export type HintTarget = AppId | "classic";
+
+export function isHintTarget(value: string): value is HintTarget {
+  return value === "classic" || isAppId(value);
 }
 
 // Charge-if-new + return the hint in one atomic script: SADD's return value
@@ -141,8 +155,14 @@ export async function getHintNotice(): Promise<{ active: boolean; cost: number }
  *  `ctf:solves:<target>` hash (fields are `<author>:<challengeId>`). Compared
  *  case-insensitively because GitHub logins are, while the stored field keeps
  *  whatever casing the PR author used. */
-async function countSolves(login: string, app: AppId): Promise<number> {
-  const [res] = await upstashPipeline([["HKEYS", `ctf:solves:${app}`]]);
+async function countSolves(login: string, target: HintTarget): Promise<number> {
+  // Classic: the anti-burner gate counts solves on the WHOLE board — the
+  // per-login solves hash has one field per solved challenge (#190).
+  if (target === "classic") {
+    const [res] = await upstashPipeline([["HLEN", classicSolvesKey(login)]]);
+    return Number(res.result) || 0;
+  }
+  const [res] = await upstashPipeline([["HKEYS", `ctf:solves:${target}`]]);
   const fields = Array.isArray(res.result) ? (res.result as string[]) : [];
   const prefix = `${login.toLowerCase()}:`;
   return fields.filter((f) => f.toLowerCase().startsWith(prefix)).length;
@@ -159,10 +179,13 @@ export type HintGate =
 /** Decides whether `login` may buy a hint on `app` right now. Both gates are
  *  evaluated at READ time (no scheduler on the box), matching how the freeze
  *  and registration windows work. */
-export async function hintGate(login: string, app: AppId): Promise<HintGate> {
-  // Hints are a Secure Development concept — the keys are per-challenge and a
-  // quiz has nothing to hint. Fail closed, consistent with the rest of this file.
-  if (!isModuleEnabled("secure-development")) return { allowed: false, reason: "disabled" };
+export async function hintGate(login: string, target: HintTarget): Promise<HintGate> {
+  // Per-target module gate, failing closed: a target whose module is off has
+  // nothing to sell. (The quiz has no hints by design — a question's hint is
+  // its choices.)
+  if (!isModuleEnabled(target === "classic" ? "classic" : "secure-development")) {
+    return { allowed: false, reason: "disabled" };
+  }
 
   const { enabled, minSolves, unlockAfterMin, scoringStartsAt } = await resolveHintConfig();
   if (!enabled) return { allowed: false, reason: "disabled" };
@@ -184,7 +207,7 @@ export async function hintGate(login: string, app: AppId): Promise<HintGate> {
   if (minSolves > 0) {
     let have: number;
     try {
-      have = await countSolves(login, app);
+      have = await countSolves(login, target);
     } catch (err) {
       console.error("hint gate: solve lookup failed:", err);
       return { allowed: false, reason: "no-progress", needed: minSolves, have: 0 };
@@ -195,16 +218,16 @@ export async function hintGate(login: string, app: AppId): Promise<HintGate> {
   return { allowed: true };
 }
 
-export async function revealHint(login: string, app: string, id: string): Promise<RevealResult> {
+export async function revealHint(login: string, target: string, id: string): Promise<RevealResult> {
   const { enabled, cost } = await resolveHintConfig();
   if (!enabled) return { ok: false, error: "Hints are not enabled" };
-  if (!isAppId(app)) return { ok: false, error: "Unknown app" };
+  if (!isHintTarget(target)) return { ok: false, error: "Unknown app" };
   if (!CHALLENGE_ID_RE.test(id)) return { ok: false, error: "Invalid challenge id" };
 
   // Gate BEFORE the charge script. Enforced here (not just in the route) so
   // every caller goes through it — the UI hides locked hints, but the API is
   // the boundary that actually decides.
-  const gate = await hintGate(login, app);
+  const gate = await hintGate(login, target);
   if (!gate.allowed) {
     if (gate.reason === "locked") {
       return { ok: false, forbidden: true, error: `Hints unlock at ${gate.unlocksAt}` };
@@ -223,8 +246,8 @@ export async function revealHint(login: string, app: string, id: string): Promis
   try {
     verdict = await upstashEval(
       REVEAL_SCRIPT,
-      [userHintsKey(login), SPENT_KEY, hintHashKey(app), userHintTimesKey(login)],
-      [id, `${app}/${id}`, login, cost, new Date().toISOString()],
+      [userHintsKey(login), SPENT_KEY, hintHashKey(target), userHintTimesKey(login)],
+      [id, `${target}/${id}`, login, cost, new Date().toISOString()],
     );
   } catch (err) {
     console.error("Hint reveal failed:", err);
@@ -244,13 +267,15 @@ export async function revealHint(login: string, app: string, id: string): Promis
 export type ViewerHints = {
   /** Bought hints with their texts, grouped by app and keyed by challenge id. */
   purchased: Partial<Record<AppId, Record<string, string>>>;
+  /** Bought CLASSIC hints, keyed by challenge id (#190). */
+  classic: Record<string, string>;
   /** Total penalty points. */
   spent: number;
   /** Hints bought. */
   count: number;
 };
 
-const NO_HINTS: ViewerHints = { purchased: {}, spent: 0, count: 0 };
+const NO_HINTS: ViewerHints = { purchased: {}, classic: {}, spent: 0, count: 0 };
 
 export async function getViewerHints(login: string): Promise<ViewerHints> {
   // Cheap capability check first — no credentials means no settings read.
@@ -264,25 +289,29 @@ export async function getViewerHints(login: string): Promise<ViewerHints> {
   const owned = (Array.isArray(members.result) ? (members.result as string[]) : []).flatMap((member) => {
     const slash = member.indexOf("/");
     if (slash === -1) return [];
-    const app = member.slice(0, slash);
-    return isAppId(app) ? [{ app, id: member.slice(slash + 1) }] : [];
+    const target = member.slice(0, slash);
+    return isHintTarget(target) ? [{ target, id: member.slice(slash + 1) }] : [];
   });
   const spent = Number(spentRes.result) || 0;
 
   const purchased: ViewerHints["purchased"] = {};
+  const classic: ViewerHints["classic"] = {};
   if (owned.length > 0) {
-    const texts = (await upstashPipeline(owned.map(({ app, id }) => ["HGET", hintHashKey(app), id]))).map(
+    const texts = (await upstashPipeline(owned.map(({ target, id }) => ["HGET", hintHashKey(target), id]))).map(
       ({ result }) => (typeof result === "string" && result ? result : null),
     );
-    owned.forEach(({ app, id }, i) => {
+    owned.forEach(({ target, id }, i) => {
       const text = texts[i];
       // A hint deleted after purchase just drops out of the reveal list.
-      if (text) (purchased[app] ??= {})[id] = text;
+      if (!text) return;
+      if (target === "classic") classic[id] = text;
+      else (purchased[target] ??= {})[id] = text;
     });
   }
 
   return {
     purchased,
+    classic,
     spent,
     count: owned.length,
   };
@@ -337,5 +366,21 @@ export async function getHintAvailability(): Promise<Partial<Record<AppId, strin
   } catch (err) {
     console.error("Hint availability fetch failed:", err);
     return {};
+  }
+}
+
+/** Which classic challenge ids have a hint — public shape (no text), for the
+ *  board's 💡 markers and the challenge page's purchase affordance. Degrades
+ *  to [] on any failure so the board renders without the hint layer. */
+export async function getClassicHintIds(): Promise<string[]> {
+  if (!HINTS_AVAILABLE) return [];
+  if (!isModuleEnabled("classic")) return [];
+  if (!(await resolveHintConfig()).enabled) return [];
+  try {
+    const [res] = await upstashPipeline([["HKEYS", CLASSIC_HINTS_KEY]]);
+    return Array.isArray(res.result) ? (res.result as string[]) : [];
+  } catch (err) {
+    console.error("Classic hint availability fetch failed:", err);
+    return [];
   }
 }

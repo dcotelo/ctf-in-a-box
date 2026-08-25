@@ -28,6 +28,20 @@ vi.mock("@/lib/event-config", () => ({
 }));
 
 vi.mock("server-only", () => ({}));
+// The redesigned landing reads the session (for the state-aware primary CTA),
+// the viewer's team, and — once the event is past registration — the top of
+// the leaderboard. These fixtures render signed-out with the board read
+// failing, which the page must tolerate by hiding the strip.
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
+vi.mock("@/lib/leaderboard/source", () => ({
+  getLeaderboardSource: () => ({
+    getLeaderboard: async () => {
+      throw new Error("no leaderboard in this fixture");
+    },
+  }),
+}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: {} }),
@@ -52,8 +66,8 @@ const html = await Home().then(renderToStaticMarkup);
 describe("landing page in a classic-only event", () => {
   it("still renders the platform frame", () => {
     expect(html).toContain("Flag Night");
-    expect(html).toContain("How to play");
-    expect(html).toContain("Track your progress live");
+    expect(html).toContain("How it works");
+    expect(html).toContain("Run this for your own group");
   });
 
   it("renders no patch/PR/fork copy", () => {
@@ -89,19 +103,22 @@ describe("landing page in a classic-only event", () => {
 
   it("renders the classic module's own copy instead", () => {
     expect(html).toContain("Find each flag and submit it for points.");
-    expect(html).toContain("Find it, submit it, get scored on the spot");
     expect(html).toContain("Browse the flags");
     expect(html).toContain('href="/flags"');
   });
 
-  it("renders classic's three steps", () => {
-    for (const title of ["Sign in with GitHub", "Pick a flag and go find it", "Submit it and get scored"]) {
-      expect(html).toContain(title);
-    }
+  // The numbered how-to steps left the landing page for How to play; the
+  // pitch renders the game card with the live flag count instead.
+  it("renders the game card, not the how-to steps", () => {
+    expect(html).toContain("The game");
+    expect(html).not.toContain("Pick a flag and go find it");
   });
 
-  it("states the case- and whitespace-insensitivity of grading, and never claims an attempt cap", () => {
-    expect(html).toContain("case-insensitive");
+  it("states the grading forgiveness WITH its case-sensitive exception, and never claims an attempt cap", () => {
+    // The unconditional "case-insensitive" claim shipped in v0.3.0 and was
+    // false the moment #194 landed per-flag case sensitivity — the lede must
+    // now carry the qualifier the board's own badge enforces (issue #200 1.3).
+    expect(html).toContain("unless a flag is marked case-sensitive");
     expect(html).not.toMatch(/\battempts? (remaining|left)\b/i);
   });
 

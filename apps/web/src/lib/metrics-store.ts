@@ -4,6 +4,7 @@ import { userKey, userHintTimesKey, HINTS_SPENT_KEY } from "@/lib/team-keys";
 import { QUIZ_POINTS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
 import { CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
 import { listTeams } from "@/lib/team-store";
+import { parseAttemptRow } from "@/lib/attempt-row";
 
 /**
  * Event engagement metrics (issue #169), computed ENTIRELY from data the box
@@ -111,21 +112,6 @@ function parseEarned(raw: unknown): Earned | null {
     return { points: v.points, at: v.at };
   } catch {
     return null;
-  }
-}
-
-function parseAttempts(raw: unknown): { attempts: number; firstAt: string | null } {
-  if (typeof raw !== "string") return { attempts: 0, firstAt: null };
-  try {
-    const v = JSON.parse(raw) as Record<string, unknown>;
-    return {
-      attempts: typeof v.attempts === "number" ? v.attempts : 0,
-      // Absent on rows written before the field existed, so every consumer
-      // has to tolerate null rather than assume a date.
-      firstAt: typeof v.firstAt === "string" && v.firstAt ? v.firstAt : null,
-    };
-  } catch {
-    return { attempts: 0, firstAt: null };
   }
 }
 
@@ -268,6 +254,9 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     { module: "quiz" | "classic"; solvers: number; attemptSum: number; durations: number[] }
   >();
   const attemptsById = new Map<string, { module: "quiz" | "classic"; attempts: number; attempters: number }>();
+  // Per-challenge "solved after buying its hint" counts, keyed like
+  // solvesById (`classic:<id>`) — fed by the hint-timing loop below (#190).
+  const hintHelpedById = new Map<string, number>();
   const pointsByLogin = new Map<string, number>();
 
   logins.forEach((login, i) => {
@@ -282,21 +271,35 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     // Did the hint arrive in time to help? A hint bought AFTER the solve
     // bought nothing, and counting the two together turns "hints are used"
     // into a claim that "hints help" — which the data would not support.
-    // Hints exist only for Secure Development today, so this compares against
-    // its solve times; the target stays in the key so two apps sharing a
+    // Secure-development slots compare against the scorer's solve times;
+    // classic slots (#190) against this login's own solve rows, already
+    // loaded above. The target stays in the key so two targets sharing a
     // challenge id cannot cross-match.
     for (const [slot, boughtAt] of hintTimes) {
       const slash = String(slot).indexOf("/");
       if (slash <= 0) continue;
       const target = String(slot).slice(0, slash);
       const challengeId = String(slot).slice(slash + 1);
-      const solvedAt = sdSolves.get(`${target}/${login}/${challengeId}`);
+      let solvedAt: string | undefined;
+      if (target === "classic") {
+        const row = classicSolves.find(([cid]) => cid === challengeId);
+        solvedAt = row ? parseEarned(row[1])?.at : undefined;
+      } else {
+        solvedAt = sdSolves.get(`${target}/${login}/${challengeId}`);
+      }
       if (!solvedAt) continue; // bought, never solved — neither before nor after
       const boughtMs = Date.parse(String(boughtAt));
       const solvedMs = Date.parse(solvedAt);
       if (Number.isNaN(boughtMs) || Number.isNaN(solvedMs)) continue;
-      if (boughtMs <= solvedMs) hintsBeforeSolve += 1;
-      else hintsAfterSolve += 1;
+      if (boughtMs <= solvedMs) {
+        hintsBeforeSolve += 1;
+        if (target === "classic") {
+          const key = `classic:${challengeId}`;
+          hintHelpedById.set(key, (hintHelpedById.get(key) ?? 0) + 1);
+        }
+      } else {
+        hintsAfterSolve += 1;
+      }
     }
 
     if (typeof firstTeamAt === "string" && firstTeamAt) everOnATeam += 1;
@@ -330,7 +333,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
         // after the fact — `firstAt` (issue #169) is what makes the duration
         // knowable at all; before it, only the LAST attempt had a time.
         const attemptRow = (mod === "quiz" ? quizAttempts : classicAttempts).find(([aid]) => aid === id);
-        const parsed = parseAttempts(attemptRow?.[1]);
+        const parsed = parseAttemptRow(attemptRow?.[1]);
         stat.attemptSum += Math.max(1, parsed.attempts);
         if (parsed.firstAt && !Number.isNaN(ms)) {
           const startedMs = Date.parse(parsed.firstAt);
@@ -348,7 +351,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       for (const [id, raw] of rows) {
         const key = `${mod}:${id}`;
         const stat = attemptsById.get(key) ?? { module: mod, attempts: 0, attempters: 0 };
-        stat.attempts += parseAttempts(raw).attempts;
+        stat.attempts += parseAttemptRow(raw).attempts;
         stat.attempters += 1;
         attemptsById.set(key, stat);
       }
@@ -379,7 +382,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
         solveRate: triers > 0 ? solves / triers : null,
         avgAttemptsToSolve: solves > 0 ? (solved as { attemptSum: number }).attemptSum / solves : null,
         medianSecondsToSolve: median(solved?.durations ?? []),
-        solvedAfterHint: 0, // quiz/classic have no hints; see `hints` below
+        solvedAfterHint: hintHelpedById.get(key) ?? 0, // classic per-challenge (#190); quiz has no hints
       };
     })
     .sort((a, b) => a.solves - b.solves || a.id.localeCompare(b.id));

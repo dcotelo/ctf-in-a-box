@@ -58,7 +58,12 @@ vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({ refresh: vi.fn() }),
 }));
-vi.mock("@/lib/admin-store", () => ({ getAdminSettings: async () => ({ moduleOverrides: {} }) }));
+vi.mock("@/lib/admin-store", () => ({
+  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // The page reads the registration window for the team card's
+  // closed-state explanation (issue #217).
+  effectiveRegistrationOpen: () => true,
+}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
 vi.mock("@/lib/team-store", () => ({
@@ -74,7 +79,13 @@ vi.mock("@/lib/hint-store", () => ({
   getHintPenalties: vi.fn(),
   HINTS_AVAILABLE: false,
 }));
-vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals,
+  listQuestions,
+  getTeamQuizTotals,
+  // The blocks' Show-N item list reads the viewer's own per-question map.
+  getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage, { metadata } from "@/app/(site)/profile/page";
@@ -104,7 +115,11 @@ beforeEach(() => {
 describe("/profile on a quiz-only event", () => {
   it("shows a quiz contribution block when the module is enabled", async () => {
     const html = renderToStaticMarkup(await ProfilePage());
-    expect(html).toContain("3 / 5");
+    // The block opens with the shared ProgressSummary (spans split the pair)…
+    expect(html).toContain("/ 5 answered");
+    // …and offers the Show-N item list (collapsed by default, same as the
+    // target cards' AppChallengeList).
+    expect(html).toContain("Show 5 questions");
   });
 
   // The list is enumerated, not sampled — see the file-level comment. This

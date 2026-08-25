@@ -19,6 +19,7 @@ const { requireAdmin, getAdminSettings, updateAdminSettings, getSyncStatus, getL
   }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", async (orig) => ({
   ...(await orig<typeof import("@/lib/admin-store")>()),

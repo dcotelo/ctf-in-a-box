@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { logActivity } from "@/lib/activity-log";
 import { TEAM_MAX_MEMBERS } from "@/lib/team-limits";
 import { outsideWindow } from "@/lib/admin-store";
 
@@ -294,6 +295,10 @@ export async function createTeam(login: string, name: string): Promise<TeamActio
   const verdict = await attemptCreate(login, trimmed, slug);
   if (verdict === "already-on-team") return { ok: false, error: "Leave your current team before creating one" };
   if (verdict === NAME_TAKEN) return { ok: false, error: `Team "${slug}" already exists. Join it instead` };
+  // Activity log (issue #212), success paths only, real writes only (the mock
+  // cookie path above records a browser-local choice, not an event fact).
+  // Fail-open — a lost log line never fails the mutation it describes.
+  await logActivity("team-create", login, slug);
   return { ok: true, team: slug };
 }
 
@@ -341,6 +346,7 @@ export async function createSoloTeam(login: string): Promise<TeamActionResult> {
     if (verdict === "already-on-team") {
       return { ok: false, error: "Leave your current team before creating one" };
     }
+    await logActivity("team-create", login, slug);
     return { ok: true, team: slug };
   }
   // Four collisions in a row is not a transient condition worth retrying at
@@ -375,6 +381,7 @@ export async function joinTeam(login: string, code: string): Promise<TeamActionR
   if (verdict === "not-found") return { ok: false, error: "That team no longer exists" };
   if (verdict === "full") return { ok: false, error: `Team is full (${maxMembers} players max)` };
   if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  await logActivity("team-join", login, slug);
   return { ok: true, team: slug };
 }
 
@@ -394,6 +401,9 @@ export async function leaveTeam(login: string): Promise<TeamActionResult> {
   if (verdict === "captain-must-transfer") {
     return { ok: false, error: "Transfer or disband before leaving" };
   }
+  // Includes the idempotent 'stale' verdict: either way this login stopped
+  // being on `slug`, which is the fact the log records.
+  await logActivity("team-leave", login, slug);
   return { ok: true, team: null };
 }
 
@@ -437,6 +447,7 @@ export async function renameTeam(captainLogin: string, slug: string, newName: st
   if (verdict === "not-captain") return { ok: false, error: "Only the team captain can do that" };
   if (verdict === "name-taken") return { ok: false, error: `Team "${newSlug}" already exists. Choose another name` };
   if (verdict !== "ok") return { ok: false, error: "Team update failed. Try again" };
+  await logActivity("team-rename", captainLogin, slug);
   return { ok: true, team: slug };
 }
 

@@ -86,7 +86,7 @@ export const apps: AppMeta[] = [
     id: "securityshepherd",
     name: "Security Shepherd",
     blurb: "Web and mobile security training platform with layered challenge levels.",
-    accent: "#14b8a6",
+    accent: "#8f8f9b",
     icon: "M12 3 4 9v12h16V9l-8-6ZM9 21v-6h6v6",
     repo: repoUrl("securityshepherd"),
     challengeCount: 40,

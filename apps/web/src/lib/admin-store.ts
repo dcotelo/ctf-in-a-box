@@ -4,8 +4,9 @@ import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
-  enabledModules,
+  bakedModuleIds,
   isModuleEnabled,
+  isModuleId,
   MODULE_TITLE_MAX,
   MODULE_BLURB_MAX,
   type ModuleId,
@@ -45,6 +46,7 @@ import {
   classicAttemptsKey,
   normalizeFlag,
 } from "@/lib/classic-keys";
+import { ACTIVITY_LOG_KEY } from "@/lib/activity-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 export const ADMIN_AUDIT_KEY = "ctf:admin:audit";
@@ -130,19 +132,24 @@ export type AdminSettings = {
   /** Organizer-authored title/blurb overrides, keyed by module id. Unknown or
    *  disabled module ids are dropped on read (see decodeSettings). */
   moduleOverrides: ModuleOverrides;
+  /** The modules this event actually serves, overriding `event.yaml`'s baked
+   *  set (issue #175). **Null means "no override" — use the baked set**, which
+   *  is what makes `event.yaml` the seed and the outage fallback rather than
+   *  the live truth.
+   *
+   *  Read here but not yet written by anything: the admin control that sets it
+   *  is the second half of #175. Unknown ids are dropped on read, so a module
+   *  removed from the registry cannot re-enable itself from stale state. */
+  enabledModuleIds: ModuleId[] | null;
 };
 
-/** True when a scheduled window puts `now` outside [startsAt, endsAt].
- *  Unparseable/absent bounds are ignored (treated as no bound) so a bad
- *  value can never wedge scoring off. Kept identical in scorer/store.js and
- *  sync/redis.js — change all three together. */
-export function outsideWindow(nowMs: number, startsAt: string | null, endsAt: string | null): boolean {
-  const s = startsAt ? Date.parse(startsAt) : NaN;
-  const e = endsAt ? Date.parse(endsAt) : NaN;
-  if (Number.isFinite(s) && nowMs < s) return true;
-  if (Number.isFinite(e) && nowMs > e) return true;
-  return false;
-}
+// The window check itself lives in schedule-window.ts (a dependency-free
+// leaf) so the /admin Event tab — a Client Component that cannot import this
+// server-only module — renders its "right now" readout from the SAME
+// implementation instead of a fourth copy of the three-reader contract.
+// Re-exported here so every existing caller and test is untouched.
+import { outsideWindow } from "@/lib/schedule-window";
+export { outsideWindow };
 
 /** Effective scoring freeze: the manual toggle OR the scheduled window. */
 export function effectivePaused(s: AdminSettings, nowMs: number = Date.now()): boolean {
@@ -186,6 +193,9 @@ export type SettingsPatch = {
   scoreCooldownMin?: number;
   teamMaxMembers?: number;
   teamRegistrationOpen?: boolean;
+  /** The modules this event serves. Replaces the set wholesale (issue #175);
+   *  see updateAdminSettings for the two things it refuses. */
+  enabledModules?: ModuleId[];
   // ISO instant to set the bound, or null/"" to clear it.
   scoringStartsAt?: string | null;
   scoringEndsAt?: string | null;
@@ -222,12 +232,17 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
   // module that has since been disabled must not resurface if it is
   // re-enabled under a different name.
   const moduleOverrides: ModuleOverrides = {};
-  const enabledIds = new Set(enabledModules.map((m) => m.id as string));
   for (const [field, value] of Object.entries(h)) {
     const m = MODULE_FIELD_RE.exec(field);
     if (!m) continue;
     const [, which, id] = m;
-    if (!enabledIds.has(id)) continue;
+    // Filtered against the REGISTRY, not against what event.yaml baked in.
+    // It used to drop overrides for anything outside the baked set, which was
+    // right while enablement was a build-time fact and wrong the moment it
+    // became a runtime one (issue #175): an organizer who enables classic and
+    // renames it would have had the rename silently dropped on every read.
+    // An id the registry does not know is still dropped — it can never render.
+    if (!isModuleId(id)) continue;
     const slot = (moduleOverrides[id as ModuleId] ??= {});
     if (which === "Title") slot.title = value;
     else slot.blurb = value;
@@ -252,11 +267,35 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     updatedBy: h.updatedBy ?? null,
     updatedAt: h.updatedAt ?? null,
     moduleOverrides,
+    enabledModuleIds: decodeEnabledModuleIds(h.enabledModules),
   };
+}
+
+/** Decodes the runtime enablement set: a comma-separated id list, or absent.
+ *
+ *  Returns null — "no override, use the baked set" — for absent, empty, and
+ *  for a value that survives filtering with nothing left. That last case is
+ *  the one worth stating: a stored set naming only ids the registry no longer
+ *  knows would otherwise decode to "enable nothing", turning a stale field
+ *  into a site with no content. Falling back to baked is the same fail-open
+ *  rule the rest of this resolution follows. */
+function decodeEnabledModuleIds(raw: string | undefined): ModuleId[] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  const ids = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(isModuleId);
+  return ids.length > 0 ? [...new Set(ids)] : null;
 }
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   const [res] = await upstashPipeline([["HGETALL", ADMIN_SETTINGS_KEY]]);
+  // A command-level failure resolves as { error } rather than rejecting.
+  // Decoding its missing result would silently serve DEFAULT settings (not
+  // paused, baked caps) with no log — so throw, making it behave exactly
+  // like the transport error every caller already handles with its own
+  // documented fail direction.
+  if (res.error) throw new Error(res.error);
   return decodeSettings(flatToObject(res.result));
 }
 
@@ -386,11 +425,48 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
         fields.push(k, iso);
         changed[k] = iso as unknown as boolean;
       }
+    } else if (k === "enabledModules") {
+      // Replaces the whole set rather than toggling one id: an organizer's
+      // intent is "these are the modules", and a per-id patch would let two
+      // admin tabs open at once race each other into a set neither chose.
+      if (!Array.isArray(v) || v.some((id) => !isModuleId(id))) {
+        throw new AdminValidationError(k, "enabledModules must be an array of known module ids");
+      }
+      const requested = [...new Set(v as ModuleId[])];
+
+      // Refusal 1: the last module. ADR 24 already refuses a present-but-empty
+      // `modules: {}` at build time, and the runtime analogue has to agree —
+      // otherwise the same configuration is legal through one door and illegal
+      // through the other. An event with nothing enabled is a contestant-facing
+      // site with no content and no explanation.
+      if (requested.length === 0) {
+        throw new AdminValidationError(k, "at least one module must stay enabled");
+      }
+
+      // Refusal 2: secure-development, in either direction. It is not a flag —
+      // it is compose profiles (`scorer` and `sync` are not running on an event
+      // that never enabled it, and the app cannot start containers) plus fork
+      // provisioning that only `ctf-setup.sh` can do, holding a GitHub App key
+      // the web tier deliberately does not have (ADR 41). Disabling is refused
+      // too: the scorer would keep ingesting scores for a module contestants
+      // can no longer see, which is a worse state than either end.
+      const sdId: ModuleId = "secure-development";
+      if (requested.includes(sdId) !== bakedModuleIds.includes(sdId)) {
+        throw new AdminValidationError(
+          k,
+          "secure-development is configured at setup, not at runtime — it needs its scorer and sync services and its provisioned forks",
+        );
+      }
+
+      fields.push(k, requested.join(","));
+      changed[k] = requested.join(",") as unknown as boolean;
     } else if (MODULE_FIELD_RE.test(k)) {
       const [, which, id] = MODULE_FIELD_RE.exec(k)!;
-      // Fail closed: an id that isn't an enabled module is a typo or a probe,
-      // never something to store quietly.
-      if (!enabledModules.some((m) => m.id === id)) {
+      // Fail closed: an id the registry does not know is a typo or a probe,
+      // never something to store quietly. Checked against the REGISTRY rather
+      // than the baked set for the same reason as the read path above — a
+      // module enabled at runtime is renameable like any other.
+      if (!isModuleId(id)) {
         throw new AdminValidationError(k, `unknown module: ${id}`);
       }
       if (typeof v !== "string") throw new AdminValidationError(k, `${k} must be a string`);
@@ -458,6 +534,10 @@ const RESET_PREFIXES: readonly [string, string][] = [
   ["classicPoints", CLASSIC_POINTS_KEY],
   ["classicSolved", CLASSIC_SOLVED_KEY],
   ["classicSolveCount", CLASSIC_SOLVECOUNT_KEY],
+  // The activity log (issue #212) is contestant PROGRESS in the same sense as
+  // solves — a record of what people did during the event — so a reset wipes
+  // it. Leaving it would let a "fresh" event open with last event's sign-ins.
+  ["activity", ACTIVITY_LOG_KEY],
 ];
 
 // SCAN (never KEYS — non-blocking) a prefix and DEL matches in batches until the
@@ -529,10 +609,26 @@ export async function resetEvent(actor: string): Promise<{ cleared: Record<strin
  * metrics fold guards against (an item earned before its own first attempt)
  * cannot arise here. Deriving a start time forwards could overshoot the earn
  * time and be silently dropped from the median instead of failing loudly.
+ *
+ * Every row gets a nonzero head start, INCLUDING a one-try row. Deriving
+ * `firstAt` from the gaps between tries alone means a first-try solve has
+ * `firstAt === lastAt`, and the Insights tab duly reported a median
+ * time-to-solve of **0s** — nobody has ever solved anything in zero seconds.
+ * A first try is not the moment the contestant met the challenge; the reading
+ * came first. So the head start is the time spent before the first submission,
+ * and the per-try gaps stack on top of it.
  */
-function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number): string {
+const DEMO_FIRST_TRY_MINUTES = 3;
+
+function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number, floorMs?: number): string {
   const lastAtMs = Date.parse(earnedAt);
-  const firstAt = new Date(lastAtMs - (tries - 1) * gapMinutes * 60_000).toISOString();
+  const elapsedMinutes = DEMO_FIRST_TRY_MINUTES + (tries - 1) * gapMinutes;
+  // Clamped to the seed window's start (the scoring open, when scheduled):
+  // an earnedAt just inside the window minus a retry gap otherwise lands a
+  // first attempt BEFORE scoring opened — the exact contradiction the window
+  // clamp exists to prevent.
+  const firstAtMs = Math.max(lastAtMs - elapsedMinutes * 60_000, floorMs ?? Number.NEGATIVE_INFINITY);
+  const firstAt = new Date(firstAtMs).toISOString();
   return JSON.stringify({ attempts: tries, firstAt, lastAt: earnedAt, lastAtMs });
 }
 
@@ -553,7 +649,26 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
 
   const cmds: (string | number)[][] = [];
-  const base = now - windowMs;
+  // The seed window: the last ~6h, CLAMPED to the scoring schedule when one
+  // is set — a fixture stamped before "scoring opens" puts a full race on the
+  // chart dated before the phase line says scoring existed, on exactly the
+  // demo an organizer inspects first. The window ends at now (or the scoring
+  // close, if that already passed) and starts no earlier than the scoring
+  // open. A schedule entirely in the future has no valid past instant to
+  // clamp to, so it falls back to the unclamped window — future-dated solves
+  // would be a worse lie than a mistimed one.
+  // Best-effort: a settings blip must not fail the seed — it just seeds
+  // unclamped, which is yesterday's behavior.
+  const settings = await getAdminSettings().catch(() => null);
+  const scoringStartMs = settings?.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
+  const scoringEndMs = settings?.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
+  let end = Number.isFinite(scoringEndMs) ? Math.min(now, scoringEndMs) : now;
+  let base = Math.max(end - windowMs, Number.isFinite(scoringStartMs) ? scoringStartMs : end - windowMs);
+  if (!(base < end)) {
+    base = now - windowMs;
+    end = now;
+  }
+  const spanMs = end - base;
   const n = DEMO_CONTESTANTS.length;
   // Spread EACH contestant's solves across the whole window (not a per-contestant
   // block), so every line rises throughout and they interleave. A per-contestant
@@ -565,13 +680,13 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     for (const [target, ids] of Object.entries(c.solves)) {
       for (const id of ids) {
         const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
-        const ts = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+        const ts = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
         cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
         j++;
       }
     }
   });
-  const createdAt = new Date(now - windowMs).toISOString();
+  const createdAt = new Date(base).toISOString();
   for (const t of DEMO_TEAMS) {
     cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);
     if (t.members.length > 0) cmds.push(["SADD", `ctf:team:${t.slug}:members`, ...t.members]);
@@ -618,7 +733,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const q = questionsById.get(questionId);
       if (!q) return; // fixture-consistency guard; should never trigger
       const frac = nAnswers > 0 ? (i + 0.5) / nAnswers : 0.5;
-      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      const at = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
       // Same shared recipe as the key above: a demo answer's banked
       // `choices` is always the question's full correct set (it's recorded
       // as correct), stored the same way GRADE_SCRIPT stores a live one.
@@ -632,7 +747,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
         "HSET",
         quizAttemptsKey(login),
         questionId,
-        demoAttemptRow(1 + (i % 3), at, 3 + (i % 7)),
+        demoAttemptRow(1 + (i % 3), at, 3 + (i % 7), base),
       ]);
 
       const agg = aggregates.get(login) ?? { points: 0, answered: 0 };
@@ -655,8 +770,8 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const answered = answeredBy.get(c.login) ?? new Set<string>();
       const missed = DEMO_QUESTIONS.find((q) => !answered.has(q.id));
       if (!missed) return;
-      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * windowMs).toISOString();
-      cmds.push(["HSET", quizAttemptsKey(c.login), missed.id, demoAttemptRow(1 + (ci % 2), at, 5 + (ci % 4))]);
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
+      cmds.push(["HSET", quizAttemptsKey(c.login), missed.id, demoAttemptRow(1 + (ci % 2), at, 5 + (ci % 4), base)]);
     });
 
     // Aggregates are written as the final absolute total (not HINCRBY'd),
@@ -706,14 +821,14 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const challenge = challengesById.get(challengeId);
       if (!challenge) return; // fixture-consistency guard; should never trigger
       const frac = nSolves > 0 ? (i + 0.5) / nSolves : 0.5;
-      const at = new Date(base + Math.min(0.999, frac) * windowMs).toISOString();
+      const at = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
       cmds.push(["HSET", classicSolvesKey(login), challengeId, JSON.stringify({ points: challenge.points, at })]);
       // Same reasoning as the quiz attempt row above: index-derived, not random.
       cmds.push([
         "HSET",
         classicAttemptsKey(login),
         challengeId,
-        demoAttemptRow(1 + ((i + 1) % 3), at, 2 + (i % 9)),
+        demoAttemptRow(1 + ((i + 1) % 3), at, 2 + (i % 9), base),
       ]);
 
       const agg = classicAggregates.get(login) ?? { points: 0, solved: 0 };
@@ -735,8 +850,8 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       const solved = solvedBy.get(c.login) ?? new Set<string>();
       const missed = DEMO_CHALLENGES.find((ch) => !solved.has(ch.id));
       if (!missed) return;
-      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * windowMs).toISOString();
-      cmds.push(["HSET", classicAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 3), at, 4 + (ci % 5))]);
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
+      cmds.push(["HSET", classicAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 3), at, 4 + (ci % 5), base)]);
     });
 
     // Aggregates written as the final absolute total (not HINCRBY'd), mirroring

@@ -2,6 +2,7 @@ import "server-only";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
 import { LOGIN_RE } from "@/lib/admin-admins";
+import { sumAttempts } from "@/lib/attempt-row";
 import {
   HINTS_SPENT_KEY,
   joinCodeKey,
@@ -110,13 +111,6 @@ function hashLen(result: unknown): number {
   return Array.isArray(result) ? Math.floor(result.length / 2) : 0;
 }
 
-function sumHashValues(result: unknown): number {
-  if (!Array.isArray(result)) return 0;
-  let total = 0;
-  for (let i = 1; i < result.length; i += 2) total += Number(result[i]) || 0;
-  return total;
-}
-
 /** SCAN every `ctf:solves:<target>` hash and count fields belonging to
  *  `login`. Fields are `<login>:<challengeId>`; a login cannot contain `:`
  *  (LOGIN_RE), so the prefix match is exact. */
@@ -198,12 +192,12 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
     quiz: {
       answered: Number(quizAnswered.result) || quizAnsweredCount,
       points: Number(quizPoints.result) || 0,
-      attempts: sumHashValues(quizAttempts.result),
+      attempts: sumAttempts(quizAttempts.result),
     },
     classic: {
       solved: Number(classicSolved.result) || classicSolvedCount,
       points: Number(classicPoints.result) || 0,
-      attempts: sumHashValues(classicAttempts.result),
+      attempts: sumAttempts(classicAttempts.result),
     },
     secureDev: { solves: secureDevSolves },
     hints: { bought: hintsBoughtCount, spent: Number(hintsSpent.result) || 0 },

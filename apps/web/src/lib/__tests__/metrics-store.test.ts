@@ -387,6 +387,29 @@ describe("hint ordering", () => {
     expect(m.hints.boughtAfterSolving).toBe(1);
   });
 
+  // #190: classic slots compare against the login's OWN solve rows, and the
+  // per-challenge stat gains a real solvedAfterHint figure.
+  it("orders a CLASSIC hint against the login's own solve time, per challenge", async () => {
+    mockStore({
+      logins: ["alice", "bob"],
+      perLogin: {
+        alice: {
+          classicSolves: { "web-robots-only": JSON.stringify({ points: 50, at: "2026-08-22T10:10:00Z" }) },
+          hintTimes: { "classic/web-robots-only": "2026-08-22T10:00:00Z" }, // before
+        },
+        bob: {
+          classicSolves: { "web-robots-only": JSON.stringify({ points: 50, at: "2026-08-22T10:10:00Z" }) },
+          hintTimes: { "classic/web-robots-only": "2026-08-22T10:20:00Z" }, // after
+        },
+      },
+    });
+    const m = await computeEventMetrics();
+    expect(m.hints.boughtBeforeSolving).toBe(1);
+    expect(m.hints.boughtAfterSolving).toBe(1);
+    const stat = m.challenges.find((c) => c.module === "classic" && c.id === "web-robots-only");
+    expect(stat?.solvedAfterHint).toBe(1);
+  });
+
   it("counts a hint bought and never solved as NEITHER", async () => {
     mockStore({
       logins: ["alice"],

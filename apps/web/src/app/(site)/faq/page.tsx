@@ -111,7 +111,7 @@ export default async function FaqPage() {
     ...fromModules("gettingStarted"),
     {
       q: "Can I compete solo?",
-      a: "Yes, and it's the default. Teams are optional: you can join or create one from your profile after signing in, up to four people.",
+      a: "Yes — hit Play solo on your profile for a one-click team of one. Scoring requires a team, so solo play is simply a team of one; you can also create or join a team of up to four.",
     },
     ...fromModules("prep"),
     ...fromModules("playing"),

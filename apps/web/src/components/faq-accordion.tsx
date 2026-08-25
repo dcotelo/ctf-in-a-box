@@ -66,11 +66,11 @@ export default function FaqAccordion({ items }: { items: QA[] }) {
               onClick={() => setOpen(isOpen ? null : i)}
               aria-expanded={isOpen}
               aria-controls={panelId}
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             >
               <span className="font-medium text-white">{item.q}</span>
               <svg
-                className={`flex-none transition-transform ${isOpen ? "rotate-45 text-[#2563eb]" : "text-zinc-400"}`}
+                className={`flex-none transition-transform ${isOpen ? "rotate-45 text-white" : "text-zinc-400"}`}
                 width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                 aria-hidden="true"
               >

@@ -16,6 +16,7 @@ const { isModuleEnabled, isAdminLogin, getSession, listQuestions, getViewerQuiz,
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // QuizBoard (the client component this page renders) calls useRouter for
 // its post-submit refresh — needs a mock the same way quiz-board.test.tsx
@@ -109,7 +110,8 @@ describe("quiz page view model", () => {
     expect(html).toMatch(/no attempts remaining/i);
     expect(html).toMatch(/on cooldown/i);
     expect(html).toMatch(/submit answer/i); // q4 (never attempted) still offers one
-    expect(html).toMatch(/answered 1 of 4 questions/i);
+    // The count lives in the board's progress strip now, not a sentence.
+    expect(html).toContain("/ 4 answered");
   });
 
   it("treats a signed-out visitor as having no progress and prompts sign-in instead of a submit control", async () => {
@@ -208,16 +210,18 @@ describe("quiz page blurb and progress line", () => {
     expect(html).toMatch(/<h1[^>]*>Round 1<\/h1><p[^>]*>Ten questions on the OWASP Top 10, one point each\.<\/p>/);
   });
 
-  it("still renders the per-viewer progress line — moved into the body, not dropped", async () => {
+  it("carries the viewer's progress in the board strip, once — the old sentence is gone", async () => {
     getSession.mockResolvedValue({ user: { login: "alice" } });
 
     const html = renderToStaticMarkup(await QuizPage());
 
-    expect(html).toMatch(/answered 0 of 4 questions/i);
-    // Below the header divider, i.e. genuinely relocated rather than still
-    // sitting in the description slot under a new name.
+    // The strip owns the count (answered/total + points); the sentence that
+    // used to restate the same numbers directly above it must not return.
+    expect(html).toContain("/ 4 answered");
+    expect(html).not.toMatch(/You&#x27;ve answered/);
+    // Below the header divider — viewer state stays out of the header slot.
     const dividerAt = html.indexOf("bg-gradient-to-r");
-    const progressAt = html.search(/You&#x27;ve answered 0 of 4 questions/);
+    const progressAt = html.indexOf("/ 4 answered");
     expect(dividerAt).toBeGreaterThan(-1);
     expect(progressAt).toBeGreaterThan(dividerAt);
   });

@@ -1,18 +1,34 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 import { GATE_COOKIE, isGateActive, verifyGateCookie } from "@/lib/gate";
-import { enabledModuleRoutes } from "@/lib/modules";
+import { ALL_MODULE_ROUTES } from "@/lib/modules";
 import { MUTATING_METHODS, originAllowed } from "@/lib/origin";
 
-/** The routes the pre-event gate stands in front of: every ENABLED module's
- *  own route, not the hardcoded `/challenges` this used to check.
+/** The routes the pre-event gate stands in front of: every module route the
+ *  registry knows about, **enabled or not**.
  *
  *  A gate that only knows one module's route protects nothing on an event
  *  running any other one — a quiz-only event shipped an "access password"
  *  screen with /quiz wide open behind it. Derived from the registry, so a
  *  module gets gated by being registered rather than by someone remembering
- *  to add it here. */
-const GATED_ROUTES = new Set(enabledModuleRoutes);
+ *  to add it here.
+ *
+ *  It gates the FULL registry rather than the enabled subset because
+ *  enablement became a runtime setting (issue #175), and this file is
+ *  middleware: it runs on every matched request, and `gate.ts` is deliberately
+ *  held to `node:crypto` so `next/headers` can never become reachable from
+ *  here (see gate-request.ts). Reading Redis to decide which routes to gate
+ *  would put a network call on that path and hand the gate a dependency that
+ *  can fail — to protect a module that, if the read failed, would be left
+ *  wide open. Gating the superset needs no read at all.
+ *
+ *  Gating a route whose module is switched off costs nothing: the page 404s on
+ *  its own either way, and pre-event the lock screen is what a visitor should
+ *  see regardless. It also stops the gate leaking which modules an event is
+ *  running before it starts. And it cannot loop — `/gate`'s own redirect keys
+ *  off `isGateActive()` and the cookie, never off this set, so a gated route
+ *  that 404s after unlocking is a 404, not a bounce. */
+const GATED_ROUTES = new Set(ALL_MODULE_ROUTES);
 
 /** better-auth's own endpoints, which run their own origin check against
  *  their own `trustedOrigins` config. Left alone deliberately: the OAuth flow

@@ -13,7 +13,7 @@ import OwaspBadge from "@/components/owasp-badge";
 const STATUS_STYLE: Record<ChallengeResult["status"], { dot: string; label: string }> = {
   patched: { dot: "#22c55e", label: "Patched" },
   open: { dot: "#e53e3e", label: "Open" },
-  missing: { dot: "#71717a", label: "Not attempted" },
+  missing: { dot: "#8f8f9b", label: "Not attempted" },
 };
 
 export default function AppChallengeList({ challenges }: { challenges: ChallengeResult[] }) {
@@ -25,7 +25,7 @@ export default function AppChallengeList({ challenges }: { challenges: Challenge
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+        className="flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
         <svg
           className={`transition-transform ${open ? "rotate-90" : ""}`}

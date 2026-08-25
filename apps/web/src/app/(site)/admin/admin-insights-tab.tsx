@@ -91,7 +91,7 @@ export default function AdminInsightsTab() {
           type="button"
           disabled={pending}
           onClick={() => void load()}
-          className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#2563eb]/90 disabled:opacity-50"
+          className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
         >
           {pending ? "Computing…" : metrics ? "Refresh" : "Compute metrics"}
         </button>

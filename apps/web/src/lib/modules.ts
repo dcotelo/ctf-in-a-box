@@ -322,6 +322,15 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
           body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress. The scorer credits points to the account that authors the pull request, so play from the same account you sign in with.",
         },
         {
+          // Scores for this module arrive from GitHub through the poller, so
+          // unlike quiz/classic there is no submission the box can refuse — a
+          // teamless patch is silently ingested against no team. That is why
+          // this step says "before you patch" instead of "or you'll be
+          // refused" (see the team requirement in docs/operations.md).
+          title: "Join a team, or play solo",
+          body: "Scoring is per team. From your profile: create a team, join one by code or invite link, or hit Play solo for a one-click team of one. Do it before you patch — your PRs are scored either way, but points earned while you're on no team count toward no team's total.",
+        },
+        {
           title: "Pick a target and a challenge",
           body: `Browse the ${ctx.appCount} vulnerable ${ctx.appCount === 1 ? "app" : "apps"} on the Challenges page: ${ctx.appList}. Each has dozens of independent challenges at different difficulty levels; pick any one to start.`,
         },
@@ -474,7 +483,7 @@ git push -u origin fix/<short-description>`,
       notes: [
         "Every push to an open PR re-runs the scorer, and the run evaluates your whole app, so you can keep stacking fixes on one branch or open a fresh PR per fix, whichever you prefer.",
         "Your best-ever result per challenge is what counts. A later fix always replaces an earlier miss; you can never lose points by trying.",
-        "Points are credited to the GitHub account that authored the PR. Team totals are the sum of what each member lands individually.",
+        "Points are credited to the GitHub account that authored the PR. A challenge patched by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
       ],
       scoring:
         "Every challenge is worth a fixed number of points based on difficulty, and harder vulnerabilities pay out more. Points are awarded the moment your PR’s regression test passes, and your best-ever result for each challenge is what counts, so a later fix always replaces an earlier miss. Your live total, per-app breakdown, and patched and non-patched counts are visible on your profile once you’re signed in.",
@@ -485,8 +494,14 @@ git push -u origin fix/<short-description>`,
     // patches, hints — which is exactly why none of them can stay in the
     // platform's own list.
     rules: (ctx) => ({
+      // The generic "your GitHub login is your identity" sentence lives in
+      // the platform's own Teams list now — three modules each restating it
+      // rendered as three near-identical adjacent bullets (issue #200,
+      // tier 4). This module keeps only the nuance the generic sentence
+      // cannot carry: points credit the PULL REQUEST'S author, which is not
+      // automatically the signed-in session.
       teams: [
-        "Your GitHub login is your identity for scoring. Submit every pull request from the account you signed in with.",
+        "Points for a patch credit the pull request's author — open every PR from the same GitHub account you sign in with, or your score lands on a row you can't see.",
       ],
       fairPlay: [
         `Only the ${ctx.appCount} challenge ${ctx.appCount === 1 ? "target" : "targets"} (${ctx.appList}) ${ctx.appCount === 1 ? "is" : "are"} in scope. Do not attack the CI scoring pipeline, the leaderboard, or other contestants' forks.`,
@@ -683,6 +698,10 @@ git push -u origin fix/<short-description>`,
           body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress, and nothing is graded for a signed-out visitor.",
         },
         {
+          title: "Join a team, or play solo",
+          body: "Scoring requires a team — answers don't count until you're on one, and the quiz page sends a teamless player to their profile first. From there: create a team, join one by code or invite link, or hit Play solo for a one-click team of one.",
+        },
+        {
           title: "Open the question set",
           body: "Every question the organizers have published is on the Quiz page, each one showing what it is worth. Take them in any order, at your own pace, and come back to the rest later.",
         },
@@ -698,16 +717,16 @@ git push -u origin fix/<short-description>`,
       notes: [
         "Every question carries its own point value, and says what it is worth before you answer it.",
         "Organizers can cap how many times a question may be attempted and make you wait between tries. The question tells you when it is on cooldown and when you have run out of attempts.",
-        "Points are credited to the GitHub account you signed in with. Team totals are the sum of what each member scores individually.",
+        "Points are credited to the GitHub account you signed in with. A question answered by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
       ],
       scoring:
         "Every question is worth a fixed number of points, set by the organizers when they author it. Points are awarded the moment a correct answer is submitted, graded against a stored answer key, so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
       cta: { href: "/quiz", label: "Take the quiz" },
     },
     rules: () => ({
-      teams: [
-        "Your GitHub login is your identity for scoring. Answer from the account you signed in with.",
-      ],
+      // No teams bullet: the identity rule is the platform's one sentence
+      // now, and quiz had no module-specific nuance to add to it.
+      teams: [],
       fairPlay: [
         "The published questions are the whole game. Do not attack the scoring pipeline, the leaderboard, or other contestants' accounts.",
         "Submit your own work. Don't publish answers for others to copy during the event.",
@@ -809,10 +828,11 @@ git push -u origin fix/<short-description>`,
     // is also just the word contestants actually use for one of these.
     //
     // Every claim below is checked against the implementation, same
-    // discipline as quiz's: `normalizeFlag` (classic-keys.ts) trims, NFC-
-    // normalizes and lowercases BOTH sides of the comparison, so matching is
-    // case-insensitive and ignores leading/trailing whitespace — say so,
-    // contestants ask. There is NO attempt cap anywhere in classic-store.ts's
+    // discipline as quiz's: `flagComparisonForm` (classic-keys.ts) trims and
+    // NFC-normalizes both sides, and lowercases them UNLESS the challenge is
+    // marked case-sensitive (issue #193; the board badges those) — so the
+    // case-insensitivity claim must always carry that qualifier. Stating it
+    // unconditionally shipped in v0.3.0 and contradicted the badge. There is NO attempt cap anywhere in classic-store.ts's
     // `evaluateGate`; it only ever refuses on paused/already-solved/cooldown,
     // never on a spent allowance, so never promise or imply one. There IS a
     // cooldown (`CLASSIC_COOLDOWN_SEC`, organizer-configurable in seconds via
@@ -829,7 +849,7 @@ git push -u origin fix/<short-description>`,
     home: {
       tagline: "Classic CTF",
       intro: () =>
-        "Find each flag and submit it for points. Every flag carries its own point value, grading happens the instant you submit, and matching is case-insensitive and ignores leading or trailing whitespace, so a stray capital or space never costs you a solve.",
+        "Find each flag and submit it for points. Every flag carries its own point value, grading happens the instant you submit, and matching ignores leading or trailing whitespace and — unless a flag is marked case-sensitive on its card — capitalisation too.",
       expect: {
         heading: "Find it, submit it, get scored on the spot",
         lede: "Each flag sits under a category and is worth a fixed number of points, and the board shows how many people have already solved it. There's no cap on attempts, though organizers can set a short cooldown between tries on the same flag. Matching is exact once it's normalized: case doesn't matter, and leading or trailing whitespace is stripped before it's compared.",
@@ -870,6 +890,10 @@ git push -u origin fix/<short-description>`,
           body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress, and nothing is graded for a signed-out visitor.",
         },
         {
+          title: "Join a team, or play solo",
+          body: "Scoring requires a team — flags don't count until you're on one, and the board sends a teamless player to their profile first. From there: create a team, join one by code or invite link, or hit Play solo for a one-click team of one.",
+        },
+        {
           title: "Open the board",
           body: "Every flag the organizers have published is on the Flags page, grouped by category. Each one shows what it's worth and how many people have already solved it. Work in any order, at your own pace.",
         },
@@ -879,22 +903,22 @@ git push -u origin fix/<short-description>`,
         },
         {
           title: "Submit it and get scored",
-          body: "Paste the flag into the box and submit. It's checked instantly: matching is case-insensitive and ignores leading or trailing whitespace, so an exact copy-paste with different casing still counts. There's no cap on how many times you can try, though organizers can set a short cooldown between submissions on the same flag.",
+          body: "Paste the flag into the box and submit. It's checked instantly: matching ignores leading or trailing whitespace, and casing too — unless the flag is marked case-sensitive, which its card tells you. There's no cap on how many times you can try, though organizers can set a short cooldown between submissions on the same flag.",
         },
       ],
       notes: [
         "Every flag carries its own point value, and shows what it's worth before you submit it, plus how many people have already solved it.",
         "There's no cap on attempts. Organizers can set a short cooldown between submissions on the same flag, and the board tells you when it's still counting down.",
-        "Points are credited to the GitHub account you signed in with. Team totals are the sum of what each member finds individually.",
+        "Points are credited to the GitHub account you signed in with. A flag found by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
       ],
       scoring:
-        "Every flag is worth a fixed number of points, set by whoever wrote it, and that value never changes as more people solve it. Points are awarded the instant a correct flag is submitted, matched case-insensitively and with leading or trailing whitespace ignored, so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
+        "Every flag is worth a fixed number of points, set by whoever wrote it, and that value never changes as more people solve it. Points are awarded the instant a correct flag is submitted — leading or trailing whitespace is ignored, and casing is too unless the flag is marked case-sensitive — so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
       cta: { href: "/flags", label: "Browse the flags" },
     },
     rules: () => ({
-      teams: [
-        "Your GitHub login is your identity for scoring. Submit flags from the account you signed in with.",
-      ],
+      // No teams bullet: the identity rule is the platform's one sentence
+      // now, and classic had no module-specific nuance to add to it.
+      teams: [],
       fairPlay: [
         "The published flags are the whole game. Do not attack the scoring pipeline, the leaderboard, or other contestants' accounts.",
         "Submit your own work. Don't publish flags or writeups for others to copy during the event.",
@@ -973,10 +997,30 @@ git push -u origin fix/<short-description>`,
   },
 };
 
-export const enabledModules: readonly ModuleDef[] = eventConfig.modules.map((cfg) => ({
-  ...REGISTRY[cfg.id],
-  targets: cfg.id === "secure-development" ? cfg.targets : [],
-}));
+/** A full `ModuleDef` for EVERY registered module, whether or not this event's
+ *  `event.yaml` names it.
+ *
+ *  Exists for runtime enablement (issue #175): a module switched on from
+ *  /admin was, by definition, not in the baked config, so there is no
+ *  `eventConfig.modules` entry to build its def from. Its registry entry plus
+ *  an empty target list is that def.
+ *
+ *  `targets` still comes from `event.yaml` where the organizer supplied it,
+ *  and only secure-development has any — which is the same reason that module
+ *  is NOT runtime-toggleable: a target list is provisioning input for
+ *  `ctf-setup.sh` (forks, the App install, per-fork workflows), not a flag the
+ *  web tier can conjure. See the ADR. */
+const MODULE_DEFS: Record<ModuleId, ModuleDef> = Object.fromEntries(
+  (Object.keys(REGISTRY) as ModuleId[]).map((id) => [
+    id,
+    {
+      ...REGISTRY[id],
+      targets: id === "secure-development" ? (eventConfig.modules.find((c) => c.id === id)?.targets ?? []) : [],
+    },
+  ]),
+) as Record<ModuleId, ModuleDef>;
+
+export const enabledModules: readonly ModuleDef[] = eventConfig.modules.map((cfg) => MODULE_DEFS[cfg.id]);
 
 export function isModuleEnabled(id: ModuleId): boolean {
   return enabledModules.some((m) => m.id === id);
@@ -1007,6 +1051,37 @@ export const enabledModuleRoutes: readonly string[] = enabledModules.flatMap((m)
 export const ALL_MODULE_ROUTES: readonly string[] = (
   Object.values(REGISTRY) as Omit<ModuleDef, "targets">[]
 ).flatMap((m) => (m.nav ? [m.nav.href] : []));
+
+/** Every module id the registry knows about, enabled or not — the vocabulary
+ *  a runtime enablement set is validated against (issue #175). Derived from
+ *  REGISTRY rather than restated, so registering a module cannot forget it. */
+export const ALL_MODULE_IDS: readonly ModuleId[] = Object.keys(REGISTRY) as ModuleId[];
+
+/** A registered module's def by id, enabled or not.
+ *
+ *  The registry accessors in `resolved-modules.ts` (`getModuleHome` and
+ *  friends) go through this rather than searching `enabledModules`. Searching
+ *  the BAKED list meant a module enabled at runtime resolved to `undefined`
+ *  for every one of them — it would get a route, a nav link and a tab, and
+ *  then render with no landing section, no how-to-play steps, no rules, no FAQ
+ *  and no terms. Enablement is the caller's question (they already iterate the
+ *  resolved list); this answers "what does the registry say about this id". */
+export function moduleDefById(id: ModuleId): ModuleDef | undefined {
+  return MODULE_DEFS[id];
+}
+
+/** Narrows an arbitrary string to a registered module id. Used on the way IN
+ *  from Redis: an id that is not in the registry has no route, no nav entry
+ *  and no tab, so honouring one would enable something that cannot render. */
+export function isModuleId(value: unknown): value is ModuleId {
+  return typeof value === "string" && (ALL_MODULE_IDS as readonly string[]).includes(value);
+}
+
+/** The ids `event.yaml` baked in — the fallback whenever the runtime set is
+ *  absent or unreadable. Deliberately NOT the source of truth once #175's
+ *  admin control exists: `event.yaml` seeds an event and catches a Redis
+ *  outage, and the live set is what the box actually serves. */
+export const bakedModuleIds: readonly ModuleId[] = enabledModules.map((m) => m.id);
 
 /** Organizer-authored, runtime overrides keyed by module id. Both fields are
  *  optional and an empty string means "no override" — see resolveModules. */
@@ -1073,12 +1148,37 @@ export type ResolvedModule = Omit<
   titleOverride?: string;
 };
 
+/** The module defs this event is serving, in the order they should render.
+ *
+ *  Ordering rule, and it is deliberate: **the baked order first**, filtered to
+ *  what is live, then anything enabled at runtime that `event.yaml` never
+ *  mentioned, in registry order. An organizer who listed their modules in a
+ *  particular order in `event.yaml` gets that order in the nav, exactly as
+ *  before — toggling a module off and back on must not silently reshuffle the
+ *  header. A runtime set has no order of its own, so newly-enabled modules
+ *  have to fall back to the registry's, and appending them keeps the change
+ *  additive rather than a reshuffle. */
+function moduleDefsFor(enabled: ReadonlySet<ModuleId>): readonly ModuleDef[] {
+  const baked = enabledModules.filter((m) => enabled.has(m.id));
+  const bakedIds = new Set(baked.map((m) => m.id));
+  const added = ALL_MODULE_IDS.filter((id) => enabled.has(id) && !bakedIds.has(id)).map((id) => MODULE_DEFS[id]);
+  return [...baked, ...added];
+}
+
 /** Merge registry defaults with organizer overrides. Pure — no I/O — so it is
  *  testable on its own and usable either side of the server boundary. An
  *  override for a module that isn't enabled has nothing to apply to and is
  *  simply absent from the result; an empty string is treated as unset so
- *  clearing a field in the admin UI restores the registry default. */
-export function resolveModules(overrides: ModuleOverrides): readonly ResolvedModule[] {
+ *  clearing a field in the admin UI restores the registry default.
+ *
+ *  `enabled` is the LIVE module set (issue #175). Omitting it means "use the
+ *  baked set", which is what every pure/client-side caller and every test
+ *  written before runtime enablement does — so this stays a drop-in. */
+export function resolveModules(
+  overrides: ModuleOverrides,
+  enabled?: ReadonlySet<ModuleId>,
+): readonly ResolvedModule[] {
+  const defs = enabled ? moduleDefsFor(enabled) : enabledModules;
   // Destructure the defaults OUT rather than spreading them through, so a
   // resolved module genuinely has no `displayName` to read by mistake — the
   // type and the runtime object agree. Every copy block — `home`, `guide`,
@@ -1090,7 +1190,7 @@ export function resolveModules(overrides: ModuleOverrides): readonly ResolvedMod
   // point, so the lint warning is silenced deliberately rather than worked
   // around by re-spreading and deleting.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return enabledModules.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, ...rest }) => {
+  return defs.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, ...rest }) => {
     const o = overrides[rest.id];
     // Computed once and carried through as `titleOverride`, so a consumer
     // with its own per-surface default (the nav label, /challenges' page

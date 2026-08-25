@@ -329,6 +329,17 @@ describe("quizGate", () => {
     expect(await quizGate("octocat", "q1")).toMatchObject({ allowed: false, reason: "exhausted" });
   });
 
+  it("fails OPEN when the SETTINGS read errors — a Redis blip must never look like a freeze", async () => {
+    // Mirrors classic's submitFlag: the pause/schedule check treats an
+    // unreadable settings hash as "not paused" (ADR 32), while the baked
+    // attempt cap still applies — the gate below proves it kept enforcing.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
+    gateReads(null, attemptRow(QUIZ_MAX_ATTEMPTS, new Date().toISOString()));
+    expect(await quizGate("octocat", "q1")).toMatchObject({ allowed: false, reason: "exhausted" });
+    consoleError.mockRestore();
+  });
+
   it("allows a fresh question with no prior attempts", async () => {
     gateReads(null, null);
     expect(await quizGate("octocat", "q1")).toEqual({ allowed: true });
@@ -369,6 +380,23 @@ describe("answerQuestion refusals", () => {
       retryAt: new Date(Date.parse(lastAt) + 5 * 60_000).toISOString(),
     });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("fails OPEN when the SETTINGS read errors — the submission still grades, on baked defaults", async () => {
+    // A Redis blip on the settings hash must never silently drop a live
+    // submission (ADR 32) — classic already behaves this way; the two
+    // modules' gates must agree. The script still receives real numbers to
+    // enforce: the baked cap and cooldown, not garbage from a failed read.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "20"]);
+    const result = await answerQuestion("octocat", "q1", ["a"]);
+    expect(result).toEqual({ ok: true, correct: true, points: 20 });
+    const [, , args] = mocks.upstashEval.mock.calls[0];
+    expect(args[4]).toBe(QUIZ_MAX_ATTEMPTS);
+    expect(args[5]).toBe(QUIZ_RETRY_AFTER_MIN * 60_000);
+    consoleError.mockRestore();
   });
 
   it("fails CLOSED (refuses) when the gate's lookup errors, reports 'unavailable' (not 'exhausted'), and never reaches the grading script", async () => {

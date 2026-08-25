@@ -33,7 +33,54 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
+  enabledModuleIds: null,
     });
+  });
+
+  it("throws on a resolved per-command error instead of decoding it as defaults", async () => {
+    // upstashPipeline resolves with { error } for a command-level failure —
+    // it only rejects on transport trouble. Decoding the missing result as an
+    // empty hash would silently serve default settings (not paused, baked
+    // caps) with no log, bypassing every caller's documented fail direction.
+    // Throwing makes a command error behave exactly like the transport error
+    // each caller already handles.
+    mocks.upstashPipeline.mockResolvedValue([{ error: "NOAUTH Authentication required." }]);
+    await expect(getAdminSettings()).rejects.toThrow("NOAUTH");
+  });
+
+  // Runtime module enablement (issue #175). Stored as a comma-separated id
+  // list; the decoder is what stands between a stale or hand-edited field and
+  // an event that serves nothing.
+  it("decodes a stored module set", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz,classic"] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz", "classic"]);
+  });
+
+  it("drops ids the registry does not know, keeping the rest", async () => {
+    // A module removed from the registry must not be able to re-enable itself
+    // out of stale state — it has no route, no nav entry and no tab, so
+    // honouring it would enable something that cannot render.
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz,not-a-module"] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz"]);
+  });
+
+  it("reads a set that filters down to nothing as NO OVERRIDE, not as nothing-enabled", async () => {
+    // The fail-open rule, at the decoder. A field naming only unknown ids has
+    // to mean "I can't use this, use the baked set" — decoding it to an empty
+    // array would hand the resolver a legitimate-looking "enable nothing" and
+    // 404 the whole event off one stale string.
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "not-a-module,also-not"] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toBeNull();
+  });
+
+  it("tolerates whitespace and duplicates", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", " quiz , quiz,  classic "] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz", "classic"]);
+  });
+
+  it("reads an empty string as no override", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "  "] }]);
+    expect((await getAdminSettings()).enabledModuleIds).toBeNull();
   });
 
   it("decodes a populated hash, treating overrides as present", async () => {
@@ -46,6 +93,8 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
+      // Absent from the hash => null => "no override, use the baked set".
+      enabledModuleIds: null,
     });
   });
 
@@ -63,6 +112,67 @@ describe("updateAdminSettings validation", () => {
 
   it("rejects an out-of-bound hint cost", async () => {
     await expect(updateAdminSettings({ hintCost: 999999 }, "alice")).rejects.toBeInstanceOf(AdminValidationError);
+  });
+
+  // Runtime module enablement (issue #175). This repo's baked event enables
+  // secure-development ONLY, which makes it the right fixture for both
+  // refusals: quiz/classic are the runtime additions, and SD is the module
+  // that must not move in either direction.
+  describe("enabledModules", () => {
+    it("accepts adding a module the baked config never mentioned", async () => {
+      mocks.upstashEval.mockResolvedValue([]);
+      await updateAdminSettings({ enabledModules: ["secure-development", "quiz"] }, "alice");
+      const args = mocks.upstashEval.mock.calls[0][2];
+      expect(args).toContain("secure-development,quiz");
+    });
+
+    it("refuses an empty set — an event has to serve something", async () => {
+      // ADR 24's runtime analogue. Build time already refuses `modules: {}`;
+      // if runtime did not, the same configuration would be legal through one
+      // door and illegal through the other.
+      await expect(updateAdminSettings({ enabledModules: [] }, "alice")).rejects.toBeInstanceOf(
+        AdminValidationError,
+      );
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses to DISABLE secure-development", async () => {
+      // Its scorer would keep ingesting scores for a module contestants can no
+      // longer see — a worse state than either end.
+      await expect(updateAdminSettings({ enabledModules: ["quiz"] }, "alice")).rejects.toBeInstanceOf(
+        AdminValidationError,
+      );
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses an unknown module id rather than storing it", async () => {
+      await expect(
+        updateAdminSettings({ enabledModules: ["secure-development", "not-a-module"] as never }, "alice"),
+      ).rejects.toBeInstanceOf(AdminValidationError);
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses a non-array", async () => {
+      await expect(
+        updateAdminSettings({ enabledModules: "quiz" as never }, "alice"),
+      ).rejects.toBeInstanceOf(AdminValidationError);
+    });
+
+    it("dedupes before storing", async () => {
+      mocks.upstashEval.mockResolvedValue([]);
+      await updateAdminSettings({ enabledModules: ["secure-development", "quiz", "quiz"] }, "alice");
+      expect(mocks.upstashEval.mock.calls[0][2]).toContain("secure-development,quiz");
+    });
+
+    it("never deletes a module's data — the patch writes one field", async () => {
+      // The toggle is a switch, not a delete: re-enabling must restore the
+      // same board. Nothing in this path may touch ctf:quiz:* or ctf:classic:*.
+      mocks.upstashEval.mockResolvedValue([]);
+      await updateAdminSettings({ enabledModules: ["secure-development"] }, "alice");
+      const [script, keys] = mocks.upstashEval.mock.calls[0];
+      expect(keys.every((k) => k.startsWith("ctf:admin:"))).toBe(true);
+      expect(script).not.toMatch(/quiz|classic/i);
+    });
   });
 
   it("rejects an unknown patch key", async () => {
@@ -219,7 +329,7 @@ describe("scheduled windows", () => {
     hintsMinSolves: null, hintsUnlockAfterMin: null,
     quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
-    updatedBy: null, updatedAt: null, moduleOverrides: {},
+    updatedBy: null, updatedAt: null, moduleOverrides: {}, enabledModuleIds: null,
   };
   const T = (iso: string) => Date.parse(iso);
 

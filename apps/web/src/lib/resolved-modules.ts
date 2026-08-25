@@ -3,8 +3,9 @@ import { cache } from "react";
 import { connection } from "next/server";
 import { getAdminSettings } from "@/lib/admin-store";
 import { buildNavLinks, buildNavGroups, type NavEntry, type NavLink } from "@/lib/site";
+import { bakedModuleIds } from "@/lib/enabled-modules";
 import {
-  enabledModules,
+  moduleDefById,
   resolveModules,
   type ModuleFaq,
   type ModuleGuide,
@@ -44,10 +45,12 @@ import {
  *  TTL or any cross-request cache here. */
 export const getResolvedModules = cache(async (): Promise<readonly ResolvedModule[]> => {
   await connection();
-  const overrides = await getAdminSettings()
-    .then((s) => s.moduleOverrides)
-    .catch(() => ({}));
-  return resolveModules(overrides);
+  // ONE read for both halves — the names and the live set come out of the same
+  // settings hash, so asking twice would double the cost of every render for
+  // nothing. Both halves fail open, and independently: a read failure gives
+  // registry names AND the baked module set.
+  const settings = await getAdminSettings().catch(() => null);
+  return resolveModules(settings?.moduleOverrides ?? {}, new Set(settings?.enabledModuleIds ?? bakedModuleIds));
 });
 
 /** The site nav, with organizer renames applied — the ONE accessor every
@@ -90,37 +93,41 @@ export async function getNavGroups(): Promise<NavEntry[]> {
  *  Callers must be Server Components: call `intro`/`steps` here and pass the
  *  resulting STRINGS down, never the `ModuleHome` itself. Pair a home block
  *  with its organizer-resolved name by looking both up by `id`. Returns
- *  `undefined` for a module that is disabled or has no home block. */
+ *  `undefined` only when the module has no home block — NOT when it is
+ *  disabled. Enablement is the caller's business and every caller already
+ *  iterates `getResolvedModules()`, which is filtered to the live set; making
+ *  this second, staler filter meant a runtime-enabled module rendered blank. */
 export function getModuleHome(id: ModuleId): ModuleHome | undefined {
-  return enabledModules.find((m) => m.id === id)?.home;
+  return moduleDefById(id)?.home;
 }
 
 /** A module's `/how-to-play` contribution. Same contract as `getModuleHome`:
  *  server-only, read straight from the registry, and its functions
  *  (`steps`, `example`) must be CALLED here so only strings travel onward. */
 export function getModuleGuide(id: ModuleId): ModuleGuide | undefined {
-  return enabledModules.find((m) => m.id === id)?.guide;
+  return moduleDefById(id)?.guide;
 }
 
 /** A module's `/rules` bullets. Itself a function of `RulesContext`, so it
  *  carries the same server-only contract as the other two accessors. */
 export function getModuleRules(id: ModuleId): ModuleRules | undefined {
-  return enabledModules.find((m) => m.id === id)?.rules;
+  return moduleDefById(id)?.rules;
 }
 
 /** A module's `/faq` questions and its `/terms` clauses. Functions of
  *  `OrgContext`, so the same server-only contract holds: call them in a Server
  *  Component and pass the resulting plain data down. */
 export function getModuleFaq(id: ModuleId): ModuleFaq | undefined {
-  return enabledModules.find((m) => m.id === id)?.faq;
+  return moduleDefById(id)?.faq;
 }
 
 export function getModuleTerms(id: ModuleId): ModuleTerms | undefined {
-  return enabledModules.find((m) => m.id === id)?.terms;
+  return moduleDefById(id)?.terms;
 }
 
 /** The line under a module's card in the 404's route directory. A function of
  *  the live target list, hence server-only like the rest. */
 export function getModuleRouteCard(id: ModuleId): ((ctx: RulesContext) => string) | undefined {
-  return enabledModules.find((m) => m.id === id)?.routeCard;
+  return moduleDefById(id)?.routeCard;
 }
+

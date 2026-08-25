@@ -30,6 +30,13 @@ export const CLASSIC_ID_RE = /^[\w-]{1,64}$/;
  *  storable value inside the plain-integer form the script can actually
  *  parse. */
 export const CLASSIC_POINTS_MAX = 100000;
+/** Paid-hint text per challenge (id -> text). SECRET until purchased — same
+ *  storage rule as the flag hashes: separate from the public challenge
+ *  record, so no list/read of `ctf:classic:challenges` can ever carry it.
+ *  Read and charged through hint-store's shared reveal machinery (#190). */
+export const CLASSIC_HINTS_KEY = "ctf:classic:hints";
+/** Cap for organizer-authored hint text. */
+export const CLASSIC_HINT_MAX = 1000;
 
 /** Caps on the category list. Categories are rendered as headings on a page
  *  every contestant loads, and the whole list is stored in one string value. */
@@ -49,7 +56,32 @@ export const CLASSIC_CATEGORIES_MAX = 50;
  *  a Lua-side normalization of any non-ASCII flag disagrees with this one and
  *  produces a challenge nobody can solve. */
 export function normalizeFlag(raw: string): string {
-  return raw.trim().normalize("NFC").toLowerCase();
+  return caseSensitiveFlagForm(raw).toLowerCase();
+}
+
+/** The comparison form for a CASE-SENSITIVE challenge (issue #193): the same
+ *  trim and NFC as above, WITHOUT the lowercasing.
+ *
+ *  Only the lowercasing is optional. Trimming stays because a trailing space a
+ *  contestant cannot see is not a wrong answer, and NFC stays because two
+ *  spellings that render identically must still compare equal — neither of
+ *  those is what "case-sensitive" is asking for.
+ *
+ *  `normalizeFlag` is defined in terms of this rather than beside it, so the
+ *  two forms cannot drift: any future change to trimming or Unicode handling
+ *  lands in both by construction. Both are still JS-only, for the Lua reason
+ *  above. */
+export function caseSensitiveFlagForm(raw: string): string {
+  return raw.trim().normalize("NFC");
+}
+
+/** The stored/compared form for a challenge, given its mode. THE one place
+ *  that decides which of the two applies — callers pass the challenge's flag
+ *  and its `caseSensitive` value and never branch themselves, because a
+ *  branch written twice is a branch that eventually disagrees, and the failure
+ *  it produces is "the correct flag is rejected". */
+export function flagComparisonForm(raw: string, caseSensitive: boolean | undefined): string {
+  return caseSensitive ? caseSensitiveFlagForm(raw) : normalizeFlag(raw);
 }
 
 const ID_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

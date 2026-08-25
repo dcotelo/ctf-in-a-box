@@ -8,11 +8,11 @@ title: CTF-in-a-box
 university, a high school, an OWASP chapter, a meetup, from one box and one
 free GitHub org.
 
-![Walkthrough of the contestant leaderboard: hovering the score-over-time graph to read every team's points at that instant, then expanding a team to its members and its per-target flags, each marked patched or open with its OWASP category](assets/demo.gif)
+![Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's score at that instant, then expanding the leading team to its members, its per-module totals and its per-target breakdown](assets/demo.gif)
 
-<sup>The real contestant app, recorded from <code>scripts/dev-stack up</code> with
-seeded demo players. Hover the graph to read every team's score at that moment;
-expand a team for its roster and its flags, patched and still open.</sup>
+<sup>The real contestant app with seeded demo players. Hover the graph to read
+every team's score at that moment; expand a team for its roster, what each
+module contributed, and its per-target breakdown.</sup>
 
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
@@ -47,7 +47,9 @@ scoring code to write.
 |---|---|
 | **Team scoring** | Per-team standings, self-registration, captains and join codes; shared flags dedupe so they count once. |
 | **Live leaderboard + graph** | A ranked team leaderboard with a CTFd-style score-over-time graph from real per-solve timestamps. |
-| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, author each module's content, reset between rehearsals. |
+| **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, set the team cap and score cooldown, grant admin to others, author each module's content, reset between rehearsals. |
+| **Live-event support** | Act on one contestant or one team without wiping the event: reset progress, delete a contestant, take over a captainless team. Every action audited with actor and target. |
+| **Engagement metrics** | Participation funnel, solves over time, per-challenge difficulty and hint usage — folded out of data the box already stores, with no telemetry from contestants' forks. |
 | **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport for modules graded outside the app. Quiz and Classic bank points directly and never touch it. |
 | **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
@@ -71,21 +73,25 @@ scoring code to write.
 
 | Feature | What it means for you |
 |---|---|
-| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge points. Submissions are normalised, so casing and stray whitespace never cost a solve. |
+| **Flags, checked instantly** | Organizer-authored challenges in categories with per-challenge points. Submissions are normalised, so stray whitespace never costs a solve — and casing does not either, unless a challenge is explicitly marked case-sensitive, which contestants are told on the card. |
 | **Rich descriptions, bulk authoring** | A sanitised Markdown subset for descriptions; author in `/admin` or import/export the whole board as one JSON bundle. |
 
 ## A closer look
 
 | Contestant breakdown | Challenge browser |
 |---|---|
-| ![A contestant's row expanded to its per-app breakdown and the per-challenge catalogue, each flag marked patched or open](assets/hero.jpg) | ![Challenge browser](assets/challenges.jpg) |
+| ![A contestant's row expanded: per-module totals, then the per-target progress with each challenge's patched or open state](assets/hero.jpg) | ![The challenge browser: one card per vulnerable app, expandable to every challenge with its point value and OWASP category, searchable by challenge, app or OWASP code](assets/challenges.jpg) |
 
-<sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
-with seeded demo players. The board ranks <strong>teams</strong> by default (above) and
-switches to individual standings (left); a flag solved by more than one teammate counts
-<strong>once</strong>, so a team's total is less than its members' scores added up.
-Branding is the neutral "OWASP CTF" default; the event name, targets, and links are
-event-config driven.</sup>
+| Classic flag board | Quiz |
+|---|---|
+| ![The classic board: challenges grouped by category as compact tiles — title, points, and a green check once solved — each opening the challenge's own page with the description and flag form](assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded the moment you submit](assets/quiz.jpg) |
+
+<sup>Captured from the contestant app with seeded demo players. The board ranks
+<strong>teams</strong> by default and switches to individual standings; anything
+solved by more than one teammate counts <strong>once</strong>, so a team's total
+can be less than its members' scores added up. Branding is the neutral
+"OWASP CTF" default; the event name, targets, and links are event-config
+driven.</sup>
 
 ## What organizers run
 
@@ -135,45 +141,82 @@ the poll-vs-push choice are in [Hosting](hosting.md).
 
 ## Teams
 
-Scoring is per team. Contestants self-register in the app — create a team to
-become its captain and get a join code, or join by code; a solo player is just
-a team of one. Captains manage the roster (rename, remove, transfer, disband,
-regenerate the code). The leaderboard ranks teams, each row expanding to its
+Scoring is per team, and **a team is required** — nothing a contestant solves
+counts until they are on one. Contestants self-register in the app: create a
+team to become its captain and get a join code, join by code, or hit **Play
+solo** for a one-click team of one. The join code doubles as a shareable
+`/join/<code>` link. Captains manage the roster (rename, remove, transfer,
+disband, regenerate the code). The leaderboard ranks teams, each row expanding to its
 members with their individual points — and a flag solved by several teammates
 counts **once**, so a team's total can be less than its members' scores added
 up. Organizers open or close registration from the admin panel. See
 [Operations](operations.md#teams).
 
+![An expanded team row on the leaderboard: member chips with each player's own points, one block per module showing what it contributed to the total, then the per-target breakdown](assets/leaderboard-team.jpg)
+
+<sup>A team row, expanded: who's on it, what each module contributed, and the
+per-target detail — the whole total accounted for in one place.</sup>
+
 ## Organizer admin panel
 
-Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` for a
-live status view (poller heartbeat, last error, leaderboard freshness) and
-runtime controls: a **freeze** switch that pauses ingestion — not fork Actions,
-so PRs keep getting judged, nothing is lost, only queued until you resume — an
-**open/close team registration** toggle, and a hint on/off + cost override.
+Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` — and
+from there **grant admin to anyone else**, without a rebuild. The panel is
+tabbed: **Event** (freeze, registration, the scoring and registration
+schedules, players per team, the score cooldown, demo seed, master reset),
+**Admins**, **Support**, **Activity**, **Insights**, then one tab per enabled
+module for its own knobs and its title/blurb.
+
+The **freeze** switch pauses ingestion, not fork Actions — PRs keep getting
+judged, nothing is lost, it is only queued until you resume.
+
+**Support** acts on one contestant or one team mid-event: look someone up,
+reset their progress, delete them, or take over a team whose captain has
+vanished. It exists because the master reset used to be the only destructive
+control, so a single stuck contestant meant choosing between doing nothing and
+wiping the event.
+
+**Activity** is the live event log — sign-ins, solves, and team changes,
+newest first, filterable by type and login. Entries name the challenge or
+team involved, never a flag or an answer, and only the most recent few
+thousand are kept.
+
+**Insights** reports engagement — participation funnel, solves over time, a
+hardest-first challenge table with solve rate and time-to-solve, and hint
+usage — computed entirely from data the box already stores. Nothing is
+collected from contestants' forks.
+
 Every change is recorded in a capped audit log. See
-[Operations](operations.md#organizer-admin-panel) for the full picture,
-including a known v1 limitation on the hint toggle's reach.
+[Operations](operations.md#organizer-admin-panel) for the full picture.
 
 ## Learn more
 
-- [Hosting](hosting.md) — prerequisites, poll vs push, the GitHub OAuth
-  app, and event config.
+Pick the doc for what you're doing right now:
+
+**Standing the kit up**
+
+- [Hosting](hosting.md) — the guided wizard, prerequisites, poll vs push, the
+  GitHub OAuth app, and event config.
 - [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
   box (`apply` up, `destroy` down).
 - [Deploy on fly.io](fly.md) — the whole stack as one Fly machine, running the
   repo's own `docker-compose.yml`, no box to administer (`deploy.sh` up,
   `fly apps destroy` down).
-- [Operations](operations.md) — teams, the admin panel, verifying the kit,
-  the local dev-stack, teardown, and live-scoring status. It also carries the
-  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
-  [Classic](operations.md#classic).
 - [Security checklist](security-checklist.md) — the one-page pre-event walk:
   HTTPS, secrets, the private scorer image and its per-fork grant, poll vs
   push, and the admins list.
-- [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
+
+**Running an event**
+
+- [Operations](operations.md) — teams, the admin panel, live-event support,
+  verifying the kit, the local dev-stack, and teardown. It also carries the
+  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
+  [Classic](operations.md#classic).
+
+**Under the hood**
+
 - [Architecture](architecture.md) — what runs where, how a score gets from a
   contestant's PR to the leaderboard.
+- [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
 - [Scorer](scorer.md) — both rubric grammars, building your own scorer image,
   and wiring the self-contained scoring workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the way

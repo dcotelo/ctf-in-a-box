@@ -12,6 +12,17 @@ dev-stack for clicking through the real experience, and the current status of
 live-GitHub scoring. For standing the kit up in the first place, see
 [docs/hosting.md](hosting.md).
 
+**On this page:**
+[Running an event](#running-an-event) ·
+[Teams](#teams) ·
+[Admin panel](#organizer-admin-panel) ·
+[Quiz](#quiz) ·
+[Classic](#classic) ·
+[Verifying it works](#verifying-it-works) ·
+[Local dev-stack](#local-dev-stack) ·
+[Known limitations](#known-limitations) ·
+[Status](#status-and-upstream-dependencies)
+
 ## Running an event
 
 **During:**
@@ -40,21 +51,35 @@ team to become its captain and get a join code, join an existing team by code,
 or hit **Play solo** for a one-click team of one named after their GitHub
 login. Everyone ends up on a team — a solo player is simply a team of one.
 
-The requirement is enforced in two places. The quiz and flag submission routes
-refuse a teamless login outright, which is the boundary that actually holds; on
-top of that, a signed-in contestant with no team who opens `/quiz` or `/flags`
-is sent to their profile's team card first, so nobody discovers the rule by
-answering a question and watching it not count. Organizers are exempt from the
-redirect — they open module pages to check that their content renders, which is
-not playing — but not from the submission check, since an organizer's points
-would fold into no team either.
+The requirement is enforced in three places, earliest first. **At sign-in**:
+every GitHub sign-in lands on a post-signin step that sends a contestant with
+no team straight to the team card — team setup is the first thing a new
+contestant completes, not something discovered later (a `/join/<code>` invite
+passes through untouched, since the invite *is* the team step). **At the
+module pages**: a signed-in contestant with no team who opens `/quiz` or
+`/flags` is sent to the team card too, so nobody who slipped past the first
+step discovers the rule by answering a question and watching it not count.
+**At the routes**: the quiz and flag submission routes refuse a teamless
+login outright — the boundary that actually holds. Organizers are exempt
+from both redirects — they sign in to check that their content renders,
+which is not playing — but not from the submission check, since an
+organizer's points would fold into no team either. If registration is
+closed when a teamless contestant reaches the team card, it explains that
+instead of offering forms the routes would refuse.
 
-> **Secure Development is the exception.** Its points arrive from GitHub
-> through the sync poller rather than through an app route, so there is no
-> submission for the box to refuse. A contestant who patches a fork while on no
-> team still has their score ingested against a login that belongs to no team,
-> and it contributes to no team total. Point contestants at the team card
-> before the event starts.
+> **Secure Development still has no route to refuse.** Its points arrive
+> from GitHub through the sync poller rather than through an app route, so a
+> contestant who patches a fork while on no team has their score ingested
+> against a login that belongs to no team, and it contributes to no team
+> total **until they join one** — team totals fold from current membership
+> at read time, so already-banked solves count from the moment the login is
+> on a team. That deferred-credit behavior is deliberate: refusing the score
+> at ingestion would lose it permanently (the poller marks the comment seen),
+> whereas banking the score against the login only delays credit. The
+> sign-in steering
+> above is what closes the gap in practice — it is the only enforcement
+> point this module's scoring path passes through — so it matters most for
+> events running Secure Development.
 
 Captains
 manage the roster from the app: rename the team, remove a member, transfer the
@@ -74,6 +99,11 @@ added together — the leaderboard dedupes shared solves rather than
 double-counting them. Organizers open or close the registration window from
 the admin panel below.
 
+![A contestant's profile: the header shows their points plus one done-out-of-available stat per enabled module, and the team card below carries the join code, invite link and captain controls](assets/profile.jpg)
+
+<sup>The profile is where teams live day to day: the join code and invite link
+to share, the captain's controls, and a header stat per enabled module.</sup>
+
 ## Organizer admin panel
 
 Anyone listed in `event.yaml`'s `admins` (checked case-insensitively against
@@ -86,11 +116,15 @@ needs a rebuild. Everyone else is granted from the panel itself, on the
 
 The controls are grouped into **tabs**: an **Event** tab for the settings that
 belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), an **Admins** tab, a **Support** tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
+seed, master reset), an **Admins** tab, a **Support** tab, an **Activity**
+tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
 module's name as the organizer has set it. A module's own knobs live in its own
-tab, so an event that doesn't run a module never sees its settings at all. The
-tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump to
-the ends). **Event is the default tab** on load, regardless of how many
+tab, so an event that doesn't run a module never sees its settings at all.
+
+![The admin panel's Event tab: the per-module switches, the freeze and team-registration toggles, the players-per-team cap, and the schedule fields with a live "right now: scoring is live" readout](assets/admin-event.jpg)
+
+The tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump
+to the ends). **Event is the default tab** on load, regardless of how many
 modules are enabled — unless the URL names another one (see the deep links
 below).
 
@@ -183,6 +217,55 @@ The panel offers:
   deferred), and push mode's `POST /score` returns `503` so a contestant's
   Action retries instead of silently dropping the submission. Un-pausing
   picks up right where it left off.
+- **Modules** (Event tab) — which modules this event serves, switchable
+  **during the event without a rebuild**. Switching one off removes its nav
+  link and stops its board resolving on everyone's next page load; switching it
+  on brings both back.
+
+  **It deletes nothing.** A disabled module's answers, solves, attempts and
+  points stay exactly where they are, so re-enabling restores the same board —
+  the toggle is a switch, not a delete. Use it to pull a broken board out of an
+  event without losing what contestants have already done.
+
+  Two things it refuses, both on purpose:
+
+  - **The last module.** An event has to serve something; a site with every
+    module off has no content and no explanation for the people looking at it.
+    The panel greys out that last switch rather than letting you find out from
+    an error.
+
+    "Last" counts **every live module, including the ones you cannot switch**.
+    On an event running Secure Development plus Quiz, Quiz is the last
+    *switchable* module but not the last live one — Secure Development is still
+    serving — so Quiz can be switched off and the event is left perfectly
+    legal. What makes a set legal is that something is live, not that something
+    switchable is.
+  - **Secure Development, in either direction.** It is configured at setup and
+    only there — it needs its `scorer` and `sync` services (which are not even
+    running on an event that never enabled it; see the profiles table in
+    [hosting](hosting.md)) and its provisioned forks, which only
+    `ctf-setup.sh` can create. Its row shows the reason instead of a control
+    that would always fail. See [ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+
+  **`event.yaml`'s `modules:` is now the starting set and the fallback, not the
+  live truth.** Editing it mid-event changes nothing until you rebuild — the
+  same trap `hints:` and `teams:` already have. If Redis is unreachable the app
+  falls back to that baked set rather than to "nothing enabled", so an outage
+  cannot blank the event.
+
+  **What a contestant sees.** The module's nav link disappears from the header
+  and the footer, and its route stops resolving — with a page that says the
+  module is switched off, that their link is fine, and that nothing they have
+  already solved is affected. It is deliberately not the generic "that page
+  doesn't exist, your link is wrong or out of date": their link was right, the
+  page was there a minute ago, and sending them to hunt for a better URL wastes
+  their time mid-event. `/challenges` says something different again, because
+  Secure Development is never switched off at runtime — there it reports that
+  the event does not run that module, and promises no return.
+
+  A newly enabled module's own **admin tab** appears on the next page load,
+  since the tab strip is rendered server-side.
+
 - **Team registration** — an open/close switch for the team-forming window.
   While closed, players cannot create or join teams (and captain roster
   mutations are blocked); existing teams keep their scores.
@@ -225,6 +308,17 @@ The panel offers:
   teammates is charged **twice** — hints are individually purchased, so
   redundant buying is the team's own coordination cost.
 
+- **Activity** (its own tab) — the live event log: sign-ins, quiz and
+  classic solves, and team create/join/leave/rename, newest first, with type
+  chips and a login filter. Backed by one capped Redis list
+  (`ctf:activity:log`, newest ~5,000 entries — older ones drop
+  automatically), written **fail-open** so a Redis blip can lose a log line
+  but never fail the sign-in or solve it describes. Entries carry the
+  challenge/question id or team slug — **never a flag, an answer, or hint
+  text** — and no IP or device data, which is what keeps the tab safe to
+  screen-share mid-event. Loaded on demand; the button doubles as refresh.
+  The master reset wipes it with the rest of the event's progress.
+
 - **Insights** (its own tab) — engagement metrics for the event, computed
   **entirely from data the box already stores**. Nothing is collected from
   contestants' forks, and no new tracking was added: quiz answers and classic
@@ -234,6 +328,9 @@ The panel offers:
 
   It is loaded on demand rather than on arrival — the fold is O(contestants),
   so the button doubles as the refresh. You get:
+
+  ![The Insights tab: the five participation figures, a ten-minute-bucket solve timeline, and the hardest-first challenge table with solves, attempts, solve rate, average tries and median time to solve per challenge](assets/admin-insights.jpg)
+
 
   - **Participation** — on a team / ever on a team / submitted / scored /
     **stuck** (submitted and never scored). The gap between the last two is the
@@ -250,6 +347,31 @@ The panel offers:
     how many hints were bought *before* the buyer solved the thing. A hint
     bought afterwards bought nothing, so that split is the difference between
     "hints are used" and "hints help".
+
+  **What each figure counts.** Several of these mean something narrower than
+  their label, and the narrow reading is the one that matters when you quote a
+  number at a closing ceremony:
+
+  | Figure | Counts | Does not count |
+  |---|---|---|
+  | **On a team** | Distinct logins on a team **right now** | Anyone who has since left |
+  | **Ever on a team** | Distinct logins that have **ever** joined one — survives leaving and switching | Signing in; that leaves no record at all |
+  | **Submitted** | Made at least one submission in any module | — |
+  | **Scored** | Earned at least one point-bearing item in any module, Secure Development included | Submissions that never landed a point |
+  | **Stuck** | Submitted **and never scored** | Anyone who has not submitted yet |
+  | **Solves** (per challenge) | Distinct contestants who earned it | Repeat submissions by the same person |
+  | **Attempts** (per challenge) | Every submission against it, right or wrong | Secure Development items, which do not appear in this table at all |
+  | **Solve rate** | solves ÷ **the people who tried it** | The rest of the event; this is not an event-wide difficulty figure |
+  | **Avg tries** | Mean attempts taken by the contestants who **did** solve it | Everyone still stuck on it — which is why a low rate and a low average can coexist |
+  | **Median time** | Median seconds from a contestant's **first attempt** to their solve | Items earned before `firstAt` existed; those carry no start time |
+  | **Team points** | The **sum** of each member's own totals | Nothing — and that is the catch: the leaderboard folds the **union** of their solves, so a challenge two teammates both solved counts once there and twice here |
+  | **Hints before solving** | Hints bought **before** the buyer earned that item | Hints bought afterwards, and hints for items never solved |
+
+  Solve rate can never exceed 100%: its denominator is the larger of "people
+  with an attempt row" and "people who solved it", because an earned row can
+  exist without an attempt row (the demo seed writes answers directly, and so
+  does any data predating the attempts hash). Dividing by attempt rows alone
+  once produced solve rates of 200% and 300% on a seeded event.
 
   The tab ends with **what these numbers do not measure**, and that list ships
   in the API payload too rather than living only here — a metric whose limits
@@ -278,6 +400,9 @@ The panel offers:
   action stays disabled until a lookup returns — seeing the score you are about
   to delete is the guard against resetting the wrong person from a
   half-remembered username while a room waits.
+
+  ![The Support tab after a contestant lookup: their team and captain status, when they first joined a team, points and solves per module, attempt count and hint spend, with the reset and delete controls beneath](assets/admin-support.jpg)
+
 
   From there: **reset progress** (clears their answers, solves, attempts and
   hints; keeps the account and the team), **delete contestant** (all of that
@@ -445,6 +570,12 @@ alongside Secure Development's patch challenges. It doesn't touch GitHub,
 the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#quiz-data-flow) for how it scores
 entirely inside the app.
+
+![The quiz as a contestant sees it: answered questions collapsed to what they earned, open ones showing their choices, remaining attempts and point value](assets/quiz.jpg)
+
+<sup>What a contestant sees: answered questions collapse to what they earned;
+open ones show their choices, the attempts they have left, and what a correct
+answer is worth.</sup>
 
 **Authoring** happens in `/admin`, under the Quiz module's section (see
 "Quiz controls" above): add a question with a prompt, pick **single choice**
@@ -646,6 +777,12 @@ GitHub, the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#classic-data-flow) for how it scores
 entirely inside the app.
 
+![The classic flag board: each card shows its point value and solve count, a case-sensitive badge where casing matters, and instant solved/not-quite feedback under the submission box](assets/flags.jpg)
+
+<sup>The board as a contestant sees it: every card says what it's worth and how
+many people have solved it, a badge marks the flags where casing matters, and
+grading answers the instant you submit.</sup>
+
 **Authoring** happens in `/admin`, under the Classic module's tab (see
 "Classic controls" above). Before adding a challenge you need at least one
 **category** — categories are a simple ordered list (add, reorder by
@@ -654,6 +791,25 @@ while no challenge still files under it; the panel tells you exactly how
 many challenges are blocking a removal. A challenge itself has a title, a
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
+
+![The Classic module's admin tab: the module's title and blurb, the submission cooldown, the ordered category list with move and remove controls, and the challenge list with drag-to-reorder, edit and delete](assets/admin-classic.jpg)
+
+<sup>The whole module is authored here — categories, challenges, cooldown,
+even the module's display name — live, with no rebuild.</sup>
+
+**Flag matching forgives what should be forgiven.** Submissions are trimmed
+and Unicode-normalised on both sides, and compared case-insensitively —
+copy-paste from a terminal picks up trailing spaces, accents can be typed two
+ways that look identical, and none of that is the skill being tested.
+
+**Case-sensitive flags** are the one exception, per challenge, off by default.
+Turn it on only when the capitalisation *is* the answer: a recovered password,
+a base64 string, a case-sensitive hash. Trimming and Unicode normalisation
+still apply — only the case-folding stops. Contestants see a **case-sensitive**
+badge on the challenge card, so nobody loses a solve to a shift key without
+being told; that the flag is case-sensitive gives away nothing about what it
+says. A challenge authored before this existed, or left unticked, grades
+exactly as it always did.
 
 **A flag is stored in plaintext, and it is visible to anyone with `/admin`
 access.** The flag input is masked by default (a Reveal toggle uncovers it,
@@ -688,12 +844,13 @@ challenge's own title to confirm (falling back to its id for a
 blank/whitespace-only title), the same pattern the quiz's delete and the
 master reset use.
 
-**Matching is case- and whitespace-insensitive, normalized identically on
-both the authoring and submission sides.** The stored flag is trimmed, then
-Unicode-NFC-normalized, then lowercased before comparison — every submitted
-flag goes through the same normalization before it's checked. A stray
-leading/trailing space or a different capitalization never costs a
-contestant a solve.
+**Matching is whitespace-insensitive and — by default — case-insensitive,
+normalized identically on both the authoring and submission sides.** The
+stored flag is trimmed, then Unicode-NFC-normalized, then lowercased before
+comparison — every submitted flag goes through the same normalization before
+it's checked, so a stray leading/trailing space never costs a contestant a
+solve, and neither does capitalization unless the challenge is marked
+**case-sensitive** (see above), in which case only the case-folding stops.
 
 **There is no cap on attempts — only a cooldown, and it is set in
 SECONDS.** The **Submission cooldown (sec)** field (`classicCooldownSec`,

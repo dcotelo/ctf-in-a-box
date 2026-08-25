@@ -80,6 +80,34 @@ describe("revealHint", () => {
     expect(result).toEqual({ ok: true, hint: "Check the admin route.", alreadyOwned: false, spent: 10 });
   });
 
+  // The classic target (#190): same charge machinery, its own hint hash and
+  // its own module gate. These pin the KEYS the script gets, because the key
+  // is the isolation — a classic purchase must never read a scorer hash.
+  it("reveals a classic hint from ctf:classic:hints, charged into the shared spend", async () => {
+    const store = await loadStore();
+    mocks.upstashEval.mockResolvedValueOnce(["charged", "Look at robots.txt.", 10]);
+    const result = await store.revealHint("octocat", "classic", "web-robots-only");
+    expect(result).toEqual({ ok: true, hint: "Look at robots.txt.", alreadyOwned: false, spent: 10 });
+    const [, keys, argv] = mocks.upstashEval.mock.calls[0];
+    expect(keys).toEqual([
+      "ctf:user:octocat:hints",
+      "ctf:hints:spent",
+      "ctf:classic:hints",
+      "ctf:hints:at:octocat",
+    ]);
+    expect(argv[1]).toBe("classic/web-robots-only");
+  });
+
+  it("gates classic hints on the CLASSIC module, not secure-development", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id: string) => id === "classic");
+    mocks.upstashEval.mockResolvedValueOnce(["charged", "text", 10]);
+    // classic on, secure-development off: classic reveals work…
+    await expect(store.revealHint("octocat", "classic", "web-robots-only")).resolves.toMatchObject({ ok: true });
+    // …and a secure-development reveal is refused.
+    await expect(store.revealHint("octocat", "juice-shop", "Challenge-1")).resolves.toMatchObject({ ok: false });
+  });
+
   it("returns an owned hint for free", async () => {
     const store = await loadStore();
     mocks.upstashEval.mockResolvedValueOnce(["owned", "Check the admin route.", "10"]);
@@ -197,7 +225,7 @@ describe("revealHint", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const off = await loadStore(false, { creds: true });
-      expect(await off.getViewerHints("octocat")).toEqual({ purchased: {}, spent: 0, count: 0 });
+      expect(await off.getViewerHints("octocat")).toEqual({ purchased: {}, classic: {}, spent: 0, count: 0 });
       expect(await off.getHintPenalties()).toEqual(new Map());
       expect(await off.getHintAvailability()).toEqual({});
       // The decisive assertions: no read was even attempted, by either client.
@@ -421,6 +449,7 @@ describe("getViewerHints", () => {
         "juice-shop": { "Challenge-5-Admin-Section": "Admin hint." },
         dvwa: { "brute-low": "Brute hint." },
       },
+      classic: {},
       spent: 20,
       count: 2,
     });
@@ -432,7 +461,7 @@ describe("getViewerHints", () => {
       .mockResolvedValueOnce([{ result: ["juice-shop/Challenge-Gone"] }, { result: "10" }])
       .mockResolvedValueOnce([{ result: null }]);
     const result = await store.getViewerHints("octocat");
-    expect(result).toEqual({ purchased: {}, spent: 10, count: 1 });
+    expect(result).toEqual({ purchased: {}, classic: {}, spent: 10, count: 1 });
   });
 
   it("skips malformed members and unknown apps", async () => {
@@ -442,13 +471,13 @@ describe("getViewerHints", () => {
       { result: null },
     ]);
     const result = await store.getViewerHints("octocat");
-    expect(result).toEqual({ purchased: {}, spent: 0, count: 0 });
+    expect(result).toEqual({ purchased: {}, classic: {}, spent: 0, count: 0 });
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
   });
 
   it("returns zeros when hints are not enabled", async () => {
     const store = await loadStore(false);
-    expect(await store.getViewerHints("octocat")).toEqual({ purchased: {}, spent: 0, count: 0 });
+    expect(await store.getViewerHints("octocat")).toEqual({ purchased: {}, classic: {}, spent: 0, count: 0 });
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 });

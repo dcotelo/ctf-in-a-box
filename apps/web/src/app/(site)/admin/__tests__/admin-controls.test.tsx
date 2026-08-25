@@ -42,8 +42,23 @@ const { enabledModules } = vi.hoisted(() => ({
 
 // MODULE_TITLE_MAX/MODULE_BLURB_MAX live in @/lib/modules (client-safe — see
 // that file's comment on why they aren't defined in admin-store.ts), so this
-// full-module mock has to supply them too.
-vi.mock("@/lib/modules", () => ({ enabledModules, MODULE_TITLE_MAX: 60, MODULE_BLURB_MAX: 200 }));
+// full-module mock has to supply them too. `ALL_MODULE_IDS`, `moduleDefById`
+// and `bakedModuleIds` came with runtime enablement (issue #175): the panel
+// builds its module toggle rows off the WHOLE registry, not the enabled
+// subset, so it can offer a disabled module's switch at all.
+vi.mock("@/lib/modules", () => ({
+  enabledModules,
+  bakedModuleIds: enabledModules.map((m) => m.id),
+  ALL_MODULE_IDS: ["secure-development", "quiz", "classic"],
+  moduleDefById: (id: string) =>
+    ({
+      "secure-development": { displayName: "Secure Development", description: "" },
+      quiz: { displayName: "Quiz", description: "Answer security questions for points." },
+      classic: { displayName: "Classic CTF", description: "" },
+    })[id],
+  MODULE_TITLE_MAX: 60,
+  MODULE_BLURB_MAX: 200,
+}));
 
 import AdminControls from "@/app/(site)/admin/admin-controls";
 
@@ -85,22 +100,24 @@ const settings: AdminSettings = {
   updatedBy: null,
   updatedAt: null,
   moduleOverrides: {},
+  enabledModuleIds: null,
 };
 
 describe("AdminControls tab shell", () => {
-  it("renders one tab per enabled module plus the four control-plane tabs", () => {
+  it("renders one tab per enabled module plus the five control-plane tabs", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     expect(html).toContain('role="tablist"');
     expect(html).toContain("Event");
     expect(html).toContain("Admins");
     expect(html).toContain("Support");
+    expect(html).toContain("Activity");
     expect(html).toContain("Insights");
     expect(html).toContain("Secure Development");
     expect(html).toContain("Quiz");
-    // Event + Admins + Support + Insights + the two modules. The four
-    // control-plane tabs are not modules, so all four are present regardless
-    // of what the event enables.
-    expect(html.match(/role="tab"/g)?.length).toBe(6);
+    // Event + Admins + Support + Activity + Insights + the two modules. The
+    // five control-plane tabs are not modules, so all five are present
+    // regardless of what the event enables.
+    expect(html.match(/role="tab"/g)?.length).toBe(7);
   });
 
   it("labels a module tab with its resolved title", () => {
@@ -112,9 +129,9 @@ describe("AdminControls tab shell", () => {
 
   it("renders every tab panel so only visibility is conditional", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(6);
-    // Exactly the five non-selected panels carry `hidden`.
-    expect(html.match(/hidden=""/g)?.length).toBe(5);
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(7);
+    // Exactly the six non-selected panels carry `hidden`.
+    expect(html.match(/hidden=""/g)?.length).toBe(6);
   });
 
   it("wires each tab to its panel for assistive tech", () => {
@@ -139,7 +156,7 @@ describe("AdminControls tab shell", () => {
   it("gives only the selected tab a reachable tabIndex (roving tabindex)", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     expect(html.match(/tabindex="0"/gi)?.length).toBe(1);
-    expect(html.match(/tabindex="-1"/gi)?.length).toBe(5);
+    expect(html.match(/tabindex="-1"/gi)?.length).toBe(6);
   });
 });
 
@@ -165,6 +182,36 @@ describe("AdminControls panel contents", () => {
     expect(eventPanel).toContain("Danger zone");
   });
 
+  // The schedule section states the EFFECTIVE state — toggle AND window,
+  // through the shared outsideWindow — so the organizer never computes it in
+  // their head from four datetime fields plus two toggles (issue #200, 3.3).
+  it("states whether scoring and registration are live right now", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    // Fixture: not paused, no windows, registration open — both live.
+    expect(eventPanel).toContain("Right now:");
+    expect(eventPanel).toContain("scoring is live");
+    expect(eventPanel).toContain("registration is open");
+  });
+
+  it("names WHY scoring is frozen — manual freeze vs a closed window", () => {
+    const manuallyFrozen = renderToStaticMarkup(
+      <AdminControls viewerLogin="organizer" initial={{ ...settings, paused: true }} modules={twoModules} />,
+    );
+    expect(panelFor(manuallyFrozen, "event")).toContain("scoring is frozen (manual)");
+
+    const windowClosed = renderToStaticMarkup(
+      <AdminControls
+        viewerLogin="organizer"
+        // A scoring window that ended long ago — the toggle is on, the
+        // window is what froze it, and the readout must say which.
+        initial={{ ...settings, scoringEndsAt: "2000-01-01T00:00:00.000Z" }}
+        modules={twoModules}
+      />,
+    );
+    expect(panelFor(windowClosed, "event")).toContain("scoring is frozen (outside its window)");
+  });
+
   it("renders the quiz module's settings and question authoring in its own panel", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");
@@ -178,9 +225,10 @@ describe("AdminControls panel contents", () => {
     const html = renderToStaticMarkup(
       <AdminControls viewerLogin="organizer" initial={settings} modules={twoModules.filter((m) => m.id !== "secure-development")} />,
     );
-    // Event + Admins + Support + Insights + quiz. The control-plane tabs
-    // survive a module being disabled, because none of them is a module tab.
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(5);
+    // Event + Admins + Support + Activity + Insights + quiz. The
+    // control-plane tabs survive a module being disabled, because none of
+    // them is a module tab.
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(6);
     expect(html).not.toContain("Hint cost");
     expect(() => panelFor(html, "secure-development")).toThrow();
   });
@@ -280,5 +328,51 @@ describe("numeric inputs advertise their default", () => {
     const overridden = { ...settings, hintCost: 42 } as AdminSettings;
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={overridden} modules={allModules} />);
     expect(html).toContain('value="42"');
+  });
+});
+
+// Runtime module enablement (issue #175) — the panel half.
+describe("module toggles", () => {
+  const render = (overrides: Partial<typeof settings> = {}) =>
+    renderToStaticMarkup(
+      <AdminControls viewerLogin="organizer" initial={{ ...settings, ...overrides }} modules={twoModules} />,
+    );
+
+  it("offers a row for every registry module, including one this event has OFF", () => {
+    // The whole point of the control is turning a module ON, so a module that
+    // is currently off still needs a visible switch. Keying the list off the
+    // enabled set would show only what is already running.
+    const html = render({ enabledModuleIds: ["secure-development"] });
+    expect(html).toContain("Classic CTF");
+    expect(html).toContain("Quiz");
+  });
+
+  it("shows secure-development as not toggleable, with the reason", () => {
+    // Not merely disabled: a dead control with no explanation reads as a bug.
+    const html = render();
+    expect(html).toMatch(/Configured at setup/);
+  });
+
+  it("says a disabled module's data survives, because that is the question an organizer has", () => {
+    expect(render()).toMatch(/deletes nothing|Nothing is deleted/i);
+  });
+
+  it("does NOT lock a toggleable module while a non-toggleable one is still live", () => {
+    // The bug this replaces: counting only TOGGLEABLE live modules locked quiz
+    // on a secure-development + quiz event, on the grounds that quiz was the
+    // last *switchable* module — while secure-development sat above it,
+    // enabled and serving. Disabling quiz there leaves a perfectly legal event,
+    // the server accepts it, and the UI used to refuse anyway.
+    const html = render({ enabledModuleIds: ["secure-development", "quiz"] });
+    expect(html).not.toContain("The only module left");
+  });
+
+  it("locks the last LIVE module instead of letting it be switched off", () => {
+    // Genuinely the last one: nothing else is enabled, so switching it off
+    // would leave the event serving nothing. The server refuses that (ADR 24's
+    // runtime analogue); a control that always errors is worse than one that
+    // explains itself.
+    const html = render({ enabledModuleIds: ["quiz"] });
+    expect(html).toContain("The only module left");
   });
 });

@@ -1,23 +1,11 @@
-// @testing-library/react is not a dependency of this repo and must not be
-// added just for this test. ClassicBoard has no effects that run during a
-// plain render, so renderToStaticMarkup is enough to check markup — same
-// pattern as quiz-board.test.tsx. useRouter is mocked since next/navigation's
-// real hook needs a router context. Anything gated behind a useState toggle
-// (submit feedback, pending text) never appears in this static render — these
-// tests only assert on the initial server-derived view.
-import { describe, expect, it, vi } from "vitest";
+// The classic board as a category-grouped tile grid (issue #208): tiles are
+// links to /flags/[id] carrying only title + points + solved state — the
+// description and the flag form live on the challenge's own page now. Static
+// renders are enough: the board is a Server Component with no interactivity.
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
-
-import ClassicBoard, {
-  ChallengeCard,
-  resultLine,
-  type ClassicChallengeView,
-  type Feedback,
-} from "@/components/classic-board";
+import ClassicBoard, { type ClassicChallengeView } from "@/components/classic-board";
 
 const web: ClassicChallengeView = {
   id: "web-sqli-101",
@@ -39,8 +27,8 @@ const crypto: ClassicChallengeView = {
   status: "unsolved",
 };
 
-describe("ClassicBoard", () => {
-  it("groups challenges under their category headings in the given order", () => {
+describe("ClassicBoard (tile grid)", () => {
+  it("groups tiles under their category headings in the given order", () => {
     const html = renderToStaticMarkup(
       <ClassicBoard categories={["Web", "Crypto"]} challenges={[web, crypto]} authenticated />,
     );
@@ -55,125 +43,98 @@ describe("ClassicBoard", () => {
     expect(html).not.toContain("Pwn");
   });
 
-  it("renders the description through the markdown renderer", () => {
+  // The tile IS the navigation: title + points, linking to the challenge's
+  // own page. No description, no form — those moved to /flags/[id].
+  it("renders each challenge as a linked tile with title and points, and nothing more", () => {
     const html = renderToStaticMarkup(
-      <ClassicBoard categories={["Web"]} challenges={[{ ...web, description: "**bold**" }]} authenticated />,
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated />,
     );
-    expect(html).toMatch(/<strong[^>]*>bold<\/strong>/);
+    expect(html).toContain('href="/flags/web-sqli-101"');
+    expect(html).toContain("SQLi 101");
+    expect(html).toContain("50 pts");
+    expect(html).not.toContain("Find the flag hidden behind a login form.");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("Submit flag");
+  });
+
+  // Availability is public (#190) — the tile says a hint EXISTS, the page
+  // sells it. Ids only, never text: hintIds is the public shape.
+  it("marks tiles whose challenge has a paid hint on offer", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated hintIds={["web-sqli-101"]} />,
+    );
+    expect(html).toContain("💡");
+    // The tile's aria-label OVERRIDES descendant text, so the emoji alone is
+    // invisible to a screen reader — the label must say it (CodeRabbit #210).
+    expect(html).toContain("50 points, paid hint available");
+    const without = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated />,
+    );
+    expect(without).not.toContain("💡");
+    expect(without).not.toContain("paid hint available");
+  });
+
+  it("URL-encodes a challenge id in the tile link", () => {
+    const odd = { ...web, id: "web/one two" };
+    const html = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[odd]} authenticated />,
+    );
+    expect(html).toContain('href="/flags/web%2Fone%20two"');
+  });
+
+  // A solved tile must LOOK solved and be announced — not just exist.
+  it("marks a solved tile visibly and for screen readers", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard
+        categories={["Web"]}
+        challenges={[{ ...web, status: "solved", earnedPoints: 50 }]}
+        authenticated
+      />,
+    );
+    expect(html).toContain("border-[#22c55e]/40");
+    expect(html).toContain("(solved)");
+  });
+
+  it("summarizes progress once, over the rendered set, for a signed-in viewer", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard
+        categories={["Web", "Crypto"]}
+        challenges={[{ ...web, status: "solved", earnedPoints: 50 }, crypto]}
+        authenticated
+      />,
+    );
+    expect(html).toContain("/ 2 solved");
+    expect(html).toContain("/ 125 pts");
+    // A challenge in an unlisted category must not inflate the totals — the
+    // CodeRabbit finding on the old rail, kept fixed on the grid.
+    const withStray = renderToStaticMarkup(
+      <ClassicBoard
+        categories={["Web"]}
+        challenges={[web, { ...crypto, category: "Hidden" }]}
+        authenticated
+      />,
+    );
+    expect(withStray).toContain("/ 1 solved");
+    expect(withStray).toContain("/ 50 pts");
+  });
+
+  it("shows no personal summary to a signed-out visitor", () => {
+    const html = renderToStaticMarkup(
+      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated={false} />,
+    );
+    expect(html).not.toContain("/ 1 solved");
+    // Tiles stay browsable.
+    expect(html).toContain("SQLi 101");
   });
 
   // Simulates an accidental leak — e.g. someone spreading a raw store record
   // (which DOES carry a flag) into props instead of building the public view
-  // model field by field. ClassicBoard must never echo such a field into
-  // markup even if it somehow arrived here.
+  // model field by field. The grid must never echo such a field into markup
+  // even if it somehow arrived here.
   it("never lets a flag reach the markup, even if props carried a leaked field", () => {
     const leaked = { ...web, flag: "CTF{leaked}", flagnorm: "ctf{leaked}" } as unknown as ClassicChallengeView;
     const html = renderToStaticMarkup(<ClassicBoard categories={["Web"]} challenges={[leaked]} authenticated />);
     expect(html).not.toContain("CTF{leaked}");
     expect(html).not.toContain("ctf{leaked}");
   });
-
-  it("shows a solved challenge without a submit control", () => {
-    const html = renderToStaticMarkup(
-      <ClassicBoard categories={["Web"]} challenges={[{ ...web, status: "solved", earnedPoints: 50 }]} authenticated />,
-    );
-    expect(html).toMatch(/solved/i);
-    expect(html).not.toContain("<input");
-    expect(html).not.toContain("<button");
-  });
-
-  // The retry instant is never printed: it renders as a live countdown that
-  // starts after hydration, so the server render shows a time-free
-  // placeholder. Reading a clock during render trips a hydration mismatch.
-  it("shows a cooldown without leaking the raw instant", () => {
-    const retryAt = "2026-08-19T12:34:56.000Z";
-    const html = renderToStaticMarkup(
-      <ClassicBoard categories={["Web"]} challenges={[{ ...web, status: "cooldown", retryAt }]} authenticated />,
-    );
-    expect(html).not.toContain(retryAt);
-    expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(html).toMatch(/cooldown/i);
-  });
-
-  it("prompts a signed-out visitor to sign in instead of offering a submit control", () => {
-    const html = renderToStaticMarkup(
-      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated={false} />,
-    );
-    expect(html).toMatch(/sign in with github/i);
-    expect(html).not.toContain("<button");
-  });
-
-  // The board used to carry its own "0 of 1 solved." on top of the page's
-  // "You've solved 0 of 1 challenge." — the same fact, twice, in two
-  // phrasings. The page owns that line now (flags/page.test.tsx asserts it
-  // renders exactly once, including on an empty board and for a signed-out
-  // visitor, which is the regression the board's copy was guarding).
-  it("prints no progress count of its own", () => {
-    const html = renderToStaticMarkup(
-      <ClassicBoard categories={["Web"]} challenges={[web]} authenticated={false} />,
-    );
-    expect(html).not.toMatch(/\d+ of \d+/);
-  });
-});
-
-describe("resultLine", () => {
-  const solved: ClassicChallengeView = { ...web, status: "solved", earnedPoints: 50 };
-
-  it("states a solved challenge's award once, from the durable status", () => {
-    expect(resultLine(solved, undefined)).toEqual({ kind: "success", text: "Solved — earned 50 points." });
-    expect(resultLine({ ...solved, earnedPoints: 1 }, undefined)?.text).toBe("Solved — earned 1 point.");
-  });
-
-  // The duplicate this exists to prevent: a fresh submission's feedback and
-  // the refreshed solved status both announcing the same points.
-  it("returns the fresh feedback INSTEAD of the status line, never both", () => {
-    const fresh: Feedback = { kind: "success", text: "Correct — +50 points." };
-    expect(resultLine(solved, fresh)).toEqual(fresh);
-  });
-
-  it("has nothing to say about an unsolved challenge with no feedback", () => {
-    expect(resultLine(web, undefined)).toBeNull();
-  });
-
-  it("passes a refusal or a wrong answer straight through", () => {
-    const wrong: Feedback = { kind: "error", text: "Not quite. Try again." };
-    expect(resultLine(web, wrong)).toEqual(wrong);
-  });
-
-  // #126, mirroring quiz-board.test.tsx. The two boards mirror each other
-  // deliberately, so a fix applied to one and not the other is the regression
-  // — this test is what makes that true rather than aspirational.
-  //
-  // Driven through ChallengeCard with a `feedback` prop for the same reason:
-  // resultLine returns null for a cooldown challenge until a submission
-  // produces feedback, and feedback is client state this repo cannot drive.
-  it("puts the outcome before its consequence, and both above the form (#126)", () => {
-    const cooling: ClassicChallengeView = {
-      ...web,
-      status: "cooldown",
-      retryAt: "2026-08-18T12:34:56.000Z",
-    };
-    const html = renderToStaticMarkup(
-      <ChallengeCard
-        challenge={cooling}
-        authenticated
-        value=""
-        pending={false}
-        feedback={{ kind: "error", text: "Not quite." }}
-        onChange={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    const outcome = html.indexOf("Not quite.");
-    const consequence = html.indexOf("On cooldown");
-    const form = html.indexOf("<input");
-
-    expect(outcome).toBeGreaterThan(-1);
-    expect(consequence).toBeGreaterThan(-1);
-    expect(form).toBeGreaterThan(-1);
-    expect(outcome).toBeLessThan(consequence);
-    expect(consequence).toBeLessThan(form);
-  });
-
 });

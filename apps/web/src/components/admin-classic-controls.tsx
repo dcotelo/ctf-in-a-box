@@ -91,7 +91,7 @@
 // comment in classic-store.ts). Clearing banked points is the master reset's
 // job. The confirm copy below says so in as many words; keep the two in step.
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 // Type-only import: `classic-store.ts` is `server-only`, but a `import type`
 // is fully erased at compile time — no runtime import ever reaches the
@@ -195,6 +195,12 @@ export type ChallengeDraft = {
   description: string;
   points: string;
   flag: string;
+  /** Compare the flag with capitalisation intact (issue #193). A plain boolean
+   *  rather than the string every other field here is: those are strings
+   *  because a number input can hold "" mid-edit, which a checkbox cannot. */
+  caseSensitive: boolean;
+  /** Optional paid-hint text (#190). Empty = no hint (saving clears it). */
+  hint: string;
 };
 
 /** The form's whole state: the editable draft plus the identity/position the
@@ -218,10 +224,12 @@ export type ChallengePayload = {
   points: number;
   order: number;
   flag: string;
+  caseSensitive?: boolean;
+  hint?: string;
 };
 
 export function emptyDraft(defaultCategory: string = ""): ChallengeDraft {
-  return { title: "", category: defaultCategory, description: "", points: "10", flag: "" };
+  return { title: "", category: defaultCategory, description: "", points: "10", flag: "", caseSensitive: false, hint: "" };
 }
 
 /** A brand-new challenge, positioned at the end of the list. No id: one is
@@ -235,8 +243,19 @@ export function newChallengeEditor(nextOrder: number, defaultCategory: string = 
  *  `Challenge`. Starting a typo fix with a blank flag box forces the
  *  organizer to retype the whole thing from memory, and a mistake there
  *  silently redefines what counts as solved for every contestant. */
-export function draftFromChallenge({ challenge: c, flag }: AdminChallenge): ChallengeDraft {
-  return { title: c.title, category: c.category, description: c.description, points: String(c.points), flag };
+export function draftFromChallenge({ challenge: c, flag, hint }: AdminChallenge): ChallengeDraft {
+  return {
+    title: c.title,
+    category: c.category,
+    description: c.description,
+    points: String(c.points),
+    flag,
+    hint: hint ?? "",
+    // Coerced, because the stored field is absent-when-false and a checkbox
+    // needs a real boolean — an `undefined` here makes React switch the input
+    // from controlled to uncontrolled the first time it is ticked.
+    caseSensitive: c.caseSensitive === true,
+  };
 }
 
 /** Opens an existing challenge for editing: its draft, plus the id and order
@@ -289,6 +308,14 @@ export function payloadFromEditor(
     points: Number(d.points),
     order: editor.order,
     flag: d.flag,
+    // The hint is ALWAYS sent: an emptied field is a deliberate clear, and
+    // the store deletes the row for an empty string (#190).
+    hint: d.hint,
+    // Sent only when true, matching the route's parser and the store's stored
+    // shape — one challenge has one representation whichever door it came
+    // through, so an unchanged challenge re-saved from this form produces a
+    // byte-identical record.
+    ...(d.caseSensitive ? { caseSensitive: true as const } : {}),
   };
 }
 
@@ -298,8 +325,11 @@ export function payloadFromEditor(
  *  the same validation and audit line) as an edit. Carries the row's own
  *  flag: the upsert endpoint requires `flag` as one of `CHALLENGE_KEYS`, and a
  *  reorder must not silently blank or rewrite it. */
-export function payloadFromRow({ challenge: c, flag }: AdminChallenge): ChallengePayload {
-  return { id: c.id, title: c.title, category: c.category, description: c.description, points: c.points, order: c.order, flag };
+export function payloadFromRow({ challenge: c, flag, hint }: AdminChallenge): ChallengePayload {
+  // The hint rides along for the same reason the flag does: a reorder
+  // re-saves the row through the same endpoint, and omitting the field would
+  // clear a hint the organizer never touched.
+  return { id: c.id, title: c.title, category: c.category, description: c.description, points: c.points, order: c.order, flag, hint: hint ?? "" };
 }
 
 /** Moves the row at `from` to index `to` and rewrites EVERY row's `order`
@@ -376,7 +406,7 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
   return {
     version: CLASSIC_BUNDLE_VERSION,
     categories: [...categories],
-    challenges: rows.map(({ challenge: c, flag }) => ({
+    challenges: rows.map(({ challenge: c, flag, hint }) => ({
       id: c.id,
       title: c.title,
       category: c.category,
@@ -384,6 +414,12 @@ export function exportBundleFrom(rows: readonly AdminChallenge[], categories: re
       points: c.points,
       order: c.order,
       flag,
+      // Present-only-when-set, mirroring the server's exportBundle exactly —
+      // this client-side path silently DROPPED both fields (CodeRabbit on
+      // #210 caught hint; caseSensitive had the same latent hole), and a
+      // re-import of such a bundle downgrades grading and deletes hints.
+      ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
+      ...(hint ? { hint } : {}),
     })),
   };
 }
@@ -476,12 +512,12 @@ export default function AdminClassicControls({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await parseJson<{ error?: string; challenge?: Challenge; flag?: string }>(res);
+      const data = await parseJson<{ error?: string; challenge?: Challenge; flag?: string; hint?: string | null }>(res);
       if (!res.ok || !data.challenge) return { ok: false, message: describeClassicError(res.status, data.error) };
       // The route echoes the STORED (trimmed) flag alongside the challenge;
       // falling back to the payload's own flag would leave the list holding
       // something the store never actually wrote.
-      return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag } };
+      return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag, hint: data.hint ?? null } };
     } catch {
       return { ok: false, message: "Couldn't reach the server — try again." };
     }
@@ -735,7 +771,7 @@ export default function AdminClassicControls({
           disabled={pending}
           onChange={(e) => setClassicCooldownSecInput(e.target.value)}
           onBlur={() => commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -792,13 +828,13 @@ export default function AdminClassicControls({
             placeholder="New category"
             disabled={categoryPending}
             onChange={(e) => setNewCategoryInput(e.target.value)}
-            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           />
           <button
             type="button"
             disabled={categoryPending || newCategoryInput.trim().length === 0}
             onClick={addCategory}
-            className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add category
           </button>
@@ -815,7 +851,7 @@ export default function AdminClassicControls({
               setFlagRevealed(false);
               setEditing(newChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
-            className="rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add challenge
           </button>
@@ -959,7 +995,7 @@ export default function AdminClassicControls({
               }}
               rows={6}
               placeholder="Paste a bundle's JSON here, or choose a file below."
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
             />
 
             <input
@@ -990,7 +1026,7 @@ export default function AdminClassicControls({
               </ul>
             )}
 
-            {importResult && <p className="text-xs text-[#7aa2ff]">{formatImportSummary(importResult)}</p>}
+            {importResult && <p className="text-xs text-white">{formatImportSummary(importResult)}</p>}
 
             <button
               type="button"
@@ -1083,8 +1119,22 @@ export function ChallengeForm({
   const isNew = editor.mode === "new";
   const valid = isDraftValid(draft, categories);
 
+  // The form opens BELOW the full challenge list, while the button that
+  // opens it sits above — on a board of a dozen challenges the click
+  // appeared to do nothing (issue #200, 3.4). Scroll it into view and put
+  // the cursor in the first editable field on every open. Keyed on which
+  // thing is being edited, not on mount alone, so clicking Edit on another
+  // row (same mounted form, new subject) counts as a fresh open — while a
+  // keystroke re-render does not re-steal the scroll position.
+  const formRef = useRef<HTMLDivElement>(null);
+  const editingKey = editor.mode === "edit" ? editor.id : "new";
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
+  }, [editingKey]);
+
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
         {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhraseFromTitle(draft.title, editor.id)}"`}
       </h4>
@@ -1115,7 +1165,7 @@ export function ChallengeForm({
           value={draft.title}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, title: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1126,7 +1176,7 @@ export function ChallengeForm({
             value={draft.category}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, category: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           >
             {!categories.includes(draft.category) && (
               <option value={draft.category} disabled>
@@ -1149,7 +1199,7 @@ export function ChallengeForm({
             value={draft.points}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
           />
         </label>
         {/* Position used to be a number input here. It is now set by
@@ -1168,7 +1218,7 @@ export function ChallengeForm({
           <button
             type="button"
             onClick={() => setFlagRevealed(!flagRevealed)}
-            className="ml-2 text-[#7aa2ff] hover:underline"
+            className="ml-2 text-white hover:underline"
           >
             {flagRevealed ? "Hide" : "Reveal"}
           </button>
@@ -1182,7 +1232,42 @@ export function ChallengeForm({
           value={draft.flag}
           disabled={pending}
           onChange={(e) => onChange({ ...draft, flag: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+        />
+      </label>
+
+      {/* Directly under the flag, because it changes what that flag MEANS —
+          not down with the presentation fields. */}
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={draft.caseSensitive}
+          disabled={pending}
+          onChange={(e) => onChange({ ...draft, caseSensitive: e.target.checked })}
+          className="mt-0.5 h-4 w-4 flex-none accent-[#2563eb]"
+        />
+        <span className="text-xs text-muted">
+          <span className="text-white">Case-sensitive flag</span>
+          <span className="block">
+            Off by default, which forgives the commonest contestant mistake. Turn it on only when the
+            capitalisation IS the answer — a recovered password, a base64 string. Contestants are told
+            on the challenge card, so nobody loses to a shift key without knowing why. Leading and
+            trailing spaces are still forgiven either way.
+          </span>
+        </span>
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-muted">
+          Hint (optional). Contestants pay the configured hint cost to reveal it — leave empty for no
+          hint. Secret until purchased, like the flag.
+        </span>
+        <textarea
+          value={draft.hint}
+          disabled={pending}
+          onChange={(e) => onChange({ ...draft, hint: e.target.value })}
+          rows={2}
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -1194,7 +1279,7 @@ export function ChallengeForm({
           onChange={(e) => onChange({ ...draft, description: e.target.value })}
           rows={4}
           maxLength={MARKDOWN_MAX}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 

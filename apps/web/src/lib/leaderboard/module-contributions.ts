@@ -5,7 +5,7 @@ import {
   listChallenges,
   type ClassicTotal,
 } from "@/lib/classic-store";
-import { isModuleEnabled } from "@/lib/modules";
+import { getEnabledModuleIds, isModuleLive } from "@/lib/enabled-modules";
 import { getQuizTotals, getTeamQuizTotalsBatch, listQuestions, type QuizTotal } from "@/lib/quiz-store";
 import { rankByStanding } from "./rank";
 import type { AppProgress, LeaderboardData, LeaderboardEntry, ModuleProgress, TeamStanding } from "./types";
@@ -25,12 +25,14 @@ import type { ModuleId } from "@/lib/modules";
  * attributing an app-side module would show zero, adding secure-development's
  * would double count.
  *
- * Runs AFTER withHintPenalties (see the pipeline comment in
- * `app/(site)/leaderboard/page.tsx`) so the attributed figure is the row's net,
- * post-penalty score — otherwise an expanded row shows a module total larger
- * than the header it sits under. This re-ranks UNCONDITIONALLY, so being last
- * in the pipeline is what makes the final order deterministic: withHintPenalties
- * returns early when hints are disabled and can't be relied on to produce it.
+ * Runs BEFORE withHintPenalties (see the pipeline comment in
+ * `app/(site)/leaderboard/page.tsx`): every module block shows its GROSS
+ * contribution, and the hint penalty nets the row's TOTAL exactly once, at
+ * the end — the −N hints marker beside the header is what reconciles the
+ * blocks against it. (Penalties used to run first, netting scorer points
+ * alone, which made hints free for any row whose points arrive here — a
+ * classic-only contestant, an upstash-path team.) This still re-ranks
+ * UNCONDITIONALLY; withHintPenalties re-ranks again after deducting.
  *
  * Individuals read each app-side module's aggregate counters (`getQuizTotals`
  * / `getClassicTotals` — two `HGETALL`s each, cost independent of board size,
@@ -60,34 +62,16 @@ import type { ModuleId } from "@/lib/modules";
  * `getQuizTotals`/`getClassicTotals` degrades to that module's absence from
  * the board, never to invented or zero-point rows.
  *
- * Hint penalties are applied by `withHintPenalties`, which runs BEFORE this and
- * so only ever sees the source's rows — a created row is never passed through
- * it. This has NO NUMERIC EFFECT and is not a gap: the penalty is subtracted
- * from SCORER points and floored at 0 (`Math.max(0, points - penalty)`), and a
- * created row has 0 scorer points, so the deduction would be
- * `max(0, 0 - penalty) === 0` either way — quiz points are ADDED after it in
- * both paths, so the same login lands on the same total whether or not it has
- * a scored row. The only difference is cosmetic: a created row shows no
- * "−N hints" transparency chip. It is also all but unreachable, since
- * `hintGate` requires solves that would have put the login on the scored
- * source in the first place (unless an organizer sets `hintsMinSolves: 0`).
- * The pipeline order is load-bearing and stays as it is.
- *
- * Team quiz/classic points are added HERE only when `data.capabilities.teams`
- * is already true, i.e. the source (mock/lambda) already provides deduped team
- * rows with real per-flag points — the same gate `secureDev` uses for
- * `capabilities.apps`. On the upstash and empty paths `capabilities.teams` is
- * false at this point (team membership hasn't been overlaid yet), so there is
- * nothing here to attach a team total to: `withTeamStandings` runs AFTER this
- * and SYNTHESISES the team rows from membership, then calls
- * `withTeamQuizPoints`/`withTeamClassicPoints` below on the rows it just
- * created. Same fold, same dedupe, applied where the rows actually exist
- * rather than by moving a pipeline stage.
+ * Hint penalties are applied by `withHintPenalties`, which runs AFTER this
+ * (the pipeline's last stage), so created rows and synthesised team rows are
+ * penalised like any other — the fix for hints being free on module-only
+ * events.
  */
 export async function withModuleContributions(data: LeaderboardData): Promise<LeaderboardData> {
-  const secureDev = isModuleEnabled("secure-development") && data.capabilities.apps;
-  const quizEnabled = isModuleEnabled("quiz");
-  const classicEnabled = isModuleEnabled("classic");
+  const liveModules = await getEnabledModuleIds();
+  const secureDev = liveModules.has("secure-development") && data.capabilities.apps;
+  const quizEnabled = liveModules.has("quiz");
+  const classicEnabled = liveModules.has("classic");
 
   // Both modules' reads are KICKED OFF before either is awaited, so a
   // two-module event overlaps them instead of paying for them back to back —
@@ -167,6 +151,30 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   // module whose batch read fails leaves the rows it would have touched
   // exactly as the previous step left them (missing points, never wrong ones).
   let teams = data.teams;
+  // secure-development is ATTRIBUTED for teams exactly as attributeEntry does
+  // for entries: at this point team.points holds only the scorer's GROSS
+  // score (hint penalties net the total later, as the pipeline's last
+  // stage), so the block's points are that number, not an addition.
+  // Without this, an expanded team row showed QUIZ and CLASSIC point chips
+  // while the secure-development share of the total appeared nowhere — a
+  // captain adding up the chips came out short and read it as a scoring bug.
+  if (secureDev && teams.length > 0) {
+    teams = teams.map((team) => {
+      const apps = team.apps;
+      if (!apps || Object.keys(apps).length === 0) return team;
+      const patched = Object.values(apps).reduce((n, app) => n + (app?.patched ?? 0), 0);
+      // Same nothing-to-show gate as every other module block: a team that
+      // hasn't scored here gets no chip, not a zero chip.
+      if (patched === 0 && team.points === 0) return team;
+      return {
+        ...team,
+        modules: {
+          ...(team.modules ?? {}),
+          "secure-development": secureDevelopmentModule(team.points, patched, null, apps),
+        },
+      };
+    });
+  }
   if (data.capabilities.teams && data.teams.length > 0) {
     if (quizEnabled) {
       try {
@@ -229,7 +237,7 @@ type Overlay = {
  * attribution keeps one owner and one dedupe rule — the union-by-question fold
  * in `getTeamQuizTotalsBatch`, never a sum of member aggregates. Calling it
  * from there rather than moving a pipeline stage is deliberate: the
- * `withHintPenalties → withModuleContributions → withTeamStandings` order is
+ * `withModuleContributions → withTeamStandings → withHintPenalties` order is
  * load-bearing (see the page's pipeline comment), and these rows simply do not
  * exist until the last of those runs.
  *
@@ -240,7 +248,7 @@ type Overlay = {
  * reason.
  */
 export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
-  if (!isModuleEnabled("quiz") || teams.length === 0) return teams;
+  if (!(await isModuleLive("quiz")) || teams.length === 0) return teams;
 
   // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
   // totals carry POINTS (and with them the team board's order), the question
@@ -273,7 +281,7 @@ export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamSta
  * classic outage must never cost a team its quiz points.
  */
 export async function withTeamClassicPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
-  if (!isModuleEnabled("classic") || teams.length === 0) return teams;
+  if (!(await isModuleLive("classic")) || teams.length === 0) return teams;
 
   // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
   // totals carry POINTS (and with them the team board's order), the challenge

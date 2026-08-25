@@ -1,0 +1,846 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit config for dcotelo/ctf-in-a-box.
+# Tuned for a PUBLIC, single-maintainer repo: high signal, low volume.
+#
+# Tuning principles applied here:
+#   1. Semantic and security linters ON; style and IaC-policy linters OFF.
+#      A style nit you scroll past trains you to scroll past the real one.
+#   2. Five pre-merge checks, not thirteen. Every pre-merge check emits a
+#      status row on EVERY PR, including "not applicable" — so each one costs
+#      vertical space whether or not it fires. Only invariants worth that
+#      permanent cost stay.
+#   3. Everything else moved into path_instructions, which fire inline, only
+#      when the path is in the diff, and cost nothing on unrelated PRs.
+#   4. Two invariants were deleted from here entirely because they belong in
+#      CI, not in a prompt — see "MOVED TO CI" at the bottom of this file.
+#
+# Expect roughly 5-15 comments on a normal PR. If a named check exceeds ~30%
+# false positives over your first ten PRs, tighten or delete it.
+
+enable_free_tier: true
+language: "en-US"
+
+# Max 250 chars, silently truncated beyond that.
+tone_instructions: >-
+  Be direct, with respect. Be concise. Assume positive intent. Flag actionable issues: bugs, security, logic errors, breaking changes, or a missing test for a security invariant. Skip style nits. No praise. Include a fix.
+
+early_access: true
+
+reviews:
+  auto_title_instructions: "Semantic PR title"
+
+  # chill = fewer, higher-signal comments. The single most effective volume
+  # control in this file. Do not flip to assertive without also cutting the
+  # path_instructions below.
+  profile: "chill"
+
+  request_changes_workflow: false
+
+  high_level_summary: true
+  review_status: true
+  poem: false
+  collapse_walkthrough: true
+  changed_files_summary: true
+  estimate_code_review_effort: true
+  sequence_diagrams: false
+  in_progress_fortune: false
+  abort_on_close: true
+
+  # Labels must already exist in the repo — CodeRabbit will not create them.
+  # Trimmed to four so setup is one minute, not ten:
+  #   security, breaking-change, infrastructure, documentation
+  suggested_labels: true
+  auto_apply_labels: true
+  labeling_instructions:
+    - label: "security"
+      instructions: >
+        Apply when the PR touches the admins allowlist, the scorer's token
+        compare, the sync trust filter or login grammar, the flag/answer-key
+        secrecy boundary, the Markdown renderer, the origin assertion, rate
+        limits, or a workflow running on pull_request_target.
+    - label: "breaking-change"
+      instructions: >
+        Apply when the PR changes the event.yaml schema, a registered module
+        id, a ctf:* Redis key name or value shape, the scorer's POST /score or
+        GET /leaderboard payloads, GET /api/public/scoring, or a ctf-setup.sh
+        subcommand or flag.
+    - label: "infrastructure"
+      instructions: >
+        Apply when the PR modifies docker-compose*.yml, a Dockerfile, the
+        Caddyfiles, .github/workflows/**, or Terraform.
+    - label: "documentation"
+      instructions: >
+        Apply when the PR changes docs/**, README.md, or the Jekyll site.
+
+  # Single maintainer.
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+
+  # Off: the semantic and security path_instructions already catch what
+  # matters here, and a slop verdict is noise on a single-maintainer repo.
+  slop_detection:
+    enabled: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - main
+    ignore_title_keywords:
+      - "[WIP]"
+      - "DO NOT REVIEW"
+      - "DO NOT MERGE"
+      - "[skip ci]"
+      - "[skip-review]"
+      - "[no-review]"
+      - "chore(release)"
+
+  # CodeRabbit does NOT auto-import .gitignore.
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/.next/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/coverage/**"
+    - "!apps/web/src/lib/event-config.generated.ts"
+    # Vendored from upstream and pinned to a commit; reviewing it as if it
+    # were hand-written is noise. PROVENANCE.md stays reviewable — a change to
+    # what was vendored, or from where, does need eyes.
+    # NOTE: verify the re-include survives the negation; glob ordering
+    # semantics vary. If it doesn't, drop the exclusion rather than lose it.
+    - "!scorer/rubric.owasp/**"
+    - "scorer/rubric.owasp/PROVENANCE.md"
+    - "!docs/_site/**"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.gif"
+    - "!**/*.ico"
+    - "!**/*.svg"
+    - "!**/CHANGELOG.md"
+    - "!**/.idea/**"
+
+  # Off: this repo's tests and docs carry deliberate conventions (no
+  # testing-library, the differential corpus, the ADR format) that generated
+  # content won't know about.
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+
+  # Inline, path-scoped guidance. This is where most of the value lives:
+  # zero cost on a PR that doesn't touch the path.
+  path_instructions:
+    - path: "sync/src/**/*.js"
+      instructions: |
+        Polls forked repos' PR comments and forwards trusted score payloads.
+        Processes attacker-influenced input — contestants control their fork
+        and their PR. Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Trust filter ordering — any parsing, JSON.parse, regex, or field access
+        on a comment body BEFORE the author is checked against
+        cfg.commentAuthor. A forged comment must be dropped before its content
+        is interpreted.
+
+        Login grammar weakening — any widening of the GITHUB_LOGIN pattern.
+        This value becomes a Redis key segment, so it must reject ':',
+        whitespace, control characters, and over-long input. If it changes, the
+        scorer's copy must change in the same PR.
+
+        Seen-cache keying — keying on comment id alone rather than id AND
+        updated_at. The scoring workflow EDITS one comment per target, so
+        id-only keying drops the edit carrying the real score.
+
+        Retry semantics — a submit failure that marks a comment seen or
+        advances the cursor without a 2xx. A 4xx is a permanent drop and must
+        be logged and counted; anything else retries.
+
+        Silent drops — a `continue`, early return, or swallowed catch in the
+        per-repo loop with no log line and no counter. Two real scoring outages
+        had this exact shape.
+
+        Fail-open direction — isPaused() and getResetAt() must fail OPEN on a
+        Redis error. A blip must never freeze ingestion or replay a reset.
+
+        Window logic — outsideWindow here has independent twins in
+        apps/web/src/lib/admin-store.ts and scorer/src/store.js. A change to
+        one needs the other two in the same PR.
+
+        State-file trust — treating parsed /state/state.json as having a valid
+        shape. It is validated and repaired field by field; `ingested` and
+        `resetAt` survive a repair that resets `repos`.
+
+    - path: "scorer/src/**/*.js"
+      instructions: |
+        The single audited writer for score state and the only service that
+        judges patches. Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Second writer — a write to score state outside POST /score, or a write
+        that is not monotonic and idempotent on replay. Delivery is
+        at-least-once; a replayed score is a no-op, never a double-count.
+
+        Token comparison — a bearer check that is not constant-time, or that
+        compares raw rather than hashed values.
+
+        Oracle leakage — contestant-visible output (PR comment, score payload,
+        HTTP error) carrying failing test names, assertion text, probe
+        internals, stack traces, or exploit payloads. Pass/fail and points
+        only.
+
+        Author validation — accepting an `author`, `target`, or `solved` value
+        not validated against the same grammar sync enforces, before it builds
+        a Redis key.
+
+        Pause handling — POST /score returns a retryable 503 while paused and
+        fails OPEN on a Redis error, matching sync. Same for the window check,
+        whose twins live in sync and the app.
+
+        Report format drift — the judge's report is parsed by score-action
+        regexes and by sync's MARKER. A shape change needs both pinned tests
+        updated in the same PR.
+
+    - path: "apps/web/src/lib/{quiz,classic}-{store,keys}.ts"
+      instructions: |
+        These hold the answer keys and flags. Flag
+        ⚠️ WARNING: <description> — <fix> for:
+
+        Secrecy boundary — a contestant-reachable function issuing a command
+        against ctf:quiz:key, ctf:classic:flag, ctf:classic:flagnorm, or
+        ctf:classic:hints before purchase.
+
+        Lua atomicity — moving the already-solved guard, attempt-cap check,
+        cooldown check, or price read out of the atomic script into the JS
+        pre-check. The pre-check is a cheap early-out; the script is the
+        authority and re-reads state at execution time.
+
+        Case handling in Lua — any string.lower, string.upper, or pattern match
+        on a flag or answer. Lua's case functions are ASCII-only and would
+        disagree with the JS normalizer, producing a challenge nobody can
+        solve. Normalization is JS-only, on both authoring and submission.
+
+        Flag pattern-matching — extracting a flag from JSON with a Lua pattern.
+        Flags contain braces, quotes, backslashes; compare whole strings.
+
+        Paired writes — writing ctf:classic:flag without ctf:classic:flagnorm
+        in the same pipeline, so a challenge could go live with a flagnorm from
+        a previous flag.
+
+        Fail direction — quiz and classic gates fail CLOSED on a lookup error
+        (don't grade what you can't verify) and OPEN on the pause/window check
+        (don't drop a submission a contestant is entitled to make).
+
+        Immutable ids — anything letting an edit rewrite an existing question
+        or challenge id. Rewriting one orphans banked points.
+
+        Historical points — recomputing banked points from a challenge's
+        current price. Points are captured at solve time.
+
+        Key hygiene — an open-coded `ctf:*` string instead of the shared
+        constant. A NEW key holding event-run state must also be added to the
+        master reset prefix list; organizer-authored content is deliberately
+        excluded and that intent should be stated. Changing the TYPE of a key
+        that may exist in a running event fails WRONGTYPE on first write —
+        introduce a new key instead.
+
+    - path: "apps/web/src/lib/leaderboard/**"
+      instructions: |
+        Composed by a fixed overlay pipeline. Flag
+        ⚠️ WARNING: <description> — <fix> for:
+
+        Pipeline order — reordering withModuleContributions →
+        withTeamStandings → withHintPenalties. Penalties run LAST so the final
+        all-module total nets exactly once; running the fold first makes hints
+        free for any row whose points arrive later.
+
+        Attributed vs added — secure-development points are ATTRIBUTED
+        (already inside entry.points); quiz and classic are ADDED
+        (entry.points += ...). Swapping the verbs double-counts or silently
+        loses points.
+
+        Team dedupe — summing members' aggregates instead of folding the union
+        of their solved items through foldTeamItems. Summing double-counts
+        anything two teammates both solved.
+
+        Per-team round trips — a read scaling with team count rather than
+        distinct member count. /leaderboard is dynamic and no-store, so this
+        bills one REST call per team per page view.
+
+        Coupled reads — a failed cosmetic read (a catalogue used only as a
+        denominator) costing points or changing ranking.
+
+        Empty source — a scorer-less event falling back to the mock source
+        rather than emptySource. Placeholder rows would be indistinguishable
+        from real standings on a board carrying real quiz or classic points.
+
+    - path: "apps/web/src/lib/{admin-store,admin-auth,resolved-modules,hint-store,rate-limit-store,gate-store}.ts"
+      instructions: |
+        Runtime-override and access-control layer. Flag
+        ⚠️ WARNING: <description> — <fix> for:
+
+        requireAdmin direction — must fail CLOSED; an unreachable store denies
+        rather than resolving to an empty list. Baked admins from event.yaml
+        are checked first without touching Redis and stay non-revocable at
+        runtime — they are the lockout recovery path.
+
+        Override precedence — every reader is override-else-default
+        (`settings.x ?? DEFAULT_X`), never the reverse.
+
+        Audit atomicity — a settings change written without its audit line in
+        the same script, or a support action not recording both actor and
+        target.
+
+        Window logic divergence — outsideWindow here has independent twins in
+        scorer/src/store.js and sync/src/redis.js. All three must change
+        together.
+
+        Units — classicCooldownSec is SECONDS; quizRetryAfterMin,
+        hintsUnlockAfterMin, scoreCooldownMin are MINUTES. Flag a new knob
+        whose name and unit disagree, or a conversion assuming a neighbour's
+        unit.
+
+        Reset scope — a prefix list that sweeps organizer-authored content
+        (questions, key, challenges, flag hashes, categories, admin settings).
+        A reset clears event-run state only.
+
+        Cap removal — AUDIT_CAP, ACTIVITY_LOG_MAX, MAX_CONTESTANTS bound
+        unbounded reads and writes. Flag removal, a large unjustified increase,
+        or a truncation not reported in `caveats`.
+
+    - path: "apps/web/src/app/api/**"
+      instructions: |
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Identity from the body — deriving `login` or any identity from the
+        request body, query string, or a header rather than the session.
+
+        Missing admin gate — a route reading per-contestant data (points,
+        attempts, hint spend, team membership, answer keys, flags, metrics)
+        without requireAdmin.
+
+        Oracle ordering — running the team check or pre-event gate AFTER
+        parsing or evaluating a submission, so the refusal reveals whether the
+        answer was correct. Refuse before the body is interpreted.
+
+        Public surface growth — GET /api/public/scoring is the only
+        unauthenticated route and is read-only policy. Flag any new
+        unauthenticated route, and anything letting a fork report facts to the
+        box rather than only read policy from it.
+
+        Origin assertion bypass — a mutating route opting out of the
+        same-origin check in src/proxy.ts, or a widening of the /api/auth/*
+        exclusion.
+
+        Rate-limit keying — keying a post-auth limit on IP rather than the
+        authenticated login. Caddy appends to x-forwarded-for, so IP is
+        spoofable.
+
+    - path: "apps/web/src/lib/markdown.ts"
+      instructions: |
+        Hand-rolled Markdown subset, deliberately not a library (see the ADR).
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Any dangerouslySetInnerHTML, innerHTML, or HTML-string return path. The
+        parser produces a typed node tree rendered into React elements, so
+        injected markup is structurally impossible rather than filtered.
+
+        Scheme allowlist weakening beyond http:, https:, mailto:. Control
+        characters and whitespace must be stripped BEFORE scheme parsing (so
+        `java\tscript:` cannot slip through), and scheme-relative `//host` must
+        stay rejected.
+
+        Raw HTML passthrough, attribute passthrough, or `data:` URI support.
+
+    - path: "{setup,scripts}/**/*.sh"
+      instructions: |
+        Organizer-facing shell. Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Missing `set -euo pipefail`, or an error path that exits 0.
+
+        Fail-open parsing — an unparseable or unexpected event.yaml resulting
+        in "nothing to do" rather than a loud non-zero exit. The org and doctor
+        subcommands fail CLOSED.
+
+        Secret exposure — echoing a token, App key, or REDIS_PASSWORD; passing
+        a secret as a command-line argument (visible in ps); writing one to a
+        file without restrictive permissions.
+
+        Non-idempotent provisioning — a step that breaks or duplicates on a
+        second run. ctf-setup.sh is expected to be re-runnable.
+
+        Generated secrets with insufficient entropy or a predictable source.
+
+        (shellcheck covers quoting; don't duplicate its findings.)
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        pull_request_target misuse — the scoring workflow template
+        (scorer/consumer-workflow.example.yml) uses pull_request_target
+        DELIBERATELY, so the judge runs in the base repo's context where the
+        org secrets live. Do NOT flag pull_request_target by itself, and do not
+        restate a zizmor finding about it. DO flag: a checkout of the PR head
+        ref in a secret-bearing job; a step that executes, builds, sources, or
+        installs contestant-supplied code in a secret-bearing job; a secret
+        interpolated into a `run:` string reachable by PR-controlled input; and
+        `${{ github.event.* }}` values interpolated into shell without quoting.
+
+        Action pinning — a third-party action by tag or branch rather than a
+        full commit SHA. First-party `actions/*` may use a tag if that's the
+        existing convention; flag a mix within one workflow.
+
+        Permissions — a workflow or job with no explicit `permissions:` block,
+        or write scopes it doesn't use.
+
+        The `changes` path gate — when this PR adds a source path, changes a
+        job's scope, or moves code between areas, check the gate still routes
+        that path to every job it can break. A change breaking a job the gate
+        won't run is this gate's characteristic failure.
+
+        Soft failures — `|| true`, `continue-on-error: true`, or a
+        non-failing step on anything that exists to prove correctness.
+
+        Dependabot coverage — a new manifest directory (package.json,
+        Dockerfile, Terraform) with no matching `updates:` entry in
+        .github/dependabot.yml. The digest-pinning ADR only holds if something
+        keeps bumping the pins.
+
+    - path: "{**/package.json,**/Dockerfile,**/*.tf,.github/dependabot.yml}"
+      instructions: |
+        Supply chain. Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Unpinned versions — npm/pnpm ranges (^, ~, *, >, >=, "latest"); a
+        Docker image on :latest, no tag, or a tag without a digest; a Terraform
+        provider or module with no version constraint. Digest pinning is a
+        documented decision here, so an unpinned image is a regression, not a
+        style choice. Warn if the matching lockfile (pnpm-lock.yaml,
+        package-lock.json, .terraform.lock.hcl) wasn't committed alongside.
+        This repo has several package.json files — check the one that changed.
+
+        Overrides — a new or changed "overrides"/"resolutions"/"pnpm.overrides"
+        entry with no explanation of why a transitive version is forced.
+
+        NEW dependency provenance — a dependency or base image that did not
+        exist on the base branch, with no reason given in the PR description.
+        Ask for: why it's needed and why nothing already here covers it (this
+        project prefers few dependencies and hand-rolled where the surface is
+        small); a typosquat comparison against the popular package with a
+        similar name; publisher age and maintainer count if it looks thin; and
+        whether it's runtime or dev-only — a new runtime dependency in
+        apps/web, sync, or scorer is a bigger decision. Do not flag
+        well-known packages merely for being new to this repo, and do not flag
+        Dependabot's own bumps of existing dependencies.
+
+        Install-time execution — a new preinstall/install/postinstall script; a
+        `curl ... | bash` in a Dockerfile, workflow, setup script, or Terraform
+        user_data; a local-exec/remote-exec provisioner fetching and running a
+        remote script. Prefer a pinned, checksum-verified download then a
+        separate execute step.
+
+        Terraform specifics — this is an ephemeral apply-up/destroy-down box,
+        so do NOT flag missing encryption at rest, backup retention, or flow
+        logs. DO flag: ingress wider than the event needs, secrets in plaintext
+        variables or user_data, a variable carrying a token without
+        `sensitive = true`, wildcard IAM actions or resources, and resources
+        that survive `destroy` and keep billing.
+
+    - path: "{docker-compose*.yml,caddy/Caddyfile*}"
+      instructions: |
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Network split — srh must remain the ONLY service on both networks, so
+        app, scorer and sync have no route to redis:6379 and cannot bypass
+        srh's bearer token. The backend network stays `internal`. Flag any
+        service gaining a second network, or redis being exposed.
+
+        Required-variable syntax — REDIS_PASSWORD and other secrets use
+        compose's `:?` form so a missing value fails bring-up rather than
+        quietly starting unauthenticated.
+
+        Profiles — a service's `profiles:` no longer matching the modules that
+        need it. scorer is ["poll","push"]; sync is ["poll"] only. A quiz-only
+        or classic-only event must never be required to pull the private
+        scorer image.
+
+        Caddyfile.poll gaining a /score route, or any route giving poll mode
+        inbound scoring surface. Push mode's /score route belongs only in
+        Caddyfile.push.
+
+        Restart policy — sync uses `restart: on-failure`, not
+        `unless-stopped`, so its clean exit-0 no-op on a module-less event
+        isn't restarted as if it crashed.
+
+    - path: "{sync,scorer}/test/**,apps/web/**/__tests__/**,setup/test/**,scripts/acceptance-*.sh,scripts/smoke.sh"
+      instructions: |
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Weak assertions — asserting only that a function was called, that a
+        result is truthy, or that nothing threw, where the point is a specific
+        value or a specific refusal.
+
+        Tautologies — computing the expected value with the same expression
+        production uses, or mocking the unit under test.
+
+        Missing fail-direction coverage — a gate's happy path with no companion
+        test injecting a store error and asserting its documented direction.
+
+        Time coupling — dependence on the machine's timezone, local midnight, a
+        DST boundary, or a real sleep. Cooldowns and windows use injected time.
+
+        Corpus asymmetry — a fixture in setup/test/corpus/ that only one of the
+        two readers asserts against. The corpus exists so the bash and JS
+        parsers agree; a one-sided fixture defeats it.
+
+        Vacuous acceptance assertions — one that would pass against an empty
+        page, a 200 with an error body, or a container that is merely up.
+
+    - path: "docs/**/*.md"
+      instructions: |
+        These docs are the spec and are published. They make unusually specific
+        claims — exact key names, regexes, defaults, caps, units, which reader
+        touches which key, CI job names, compose profiles, per-target totals.
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        A statement contradicted by code in this PR, with both lines cited.
+
+        A capability described as working that depends on an unlanded upstream
+        change, without that dependency stated.
+
+        A new ADR superseding an existing one without the superseded entry
+        marked, or an ADR numbering gap or reuse.
+
+        A heading rename breaking an anchor linked from another doc, README.md,
+        or the Jekyll site; a relative link that resolves on GitHub but not on
+        the Jekyll site, or vice versa.
+
+        Prose style, grammar, and line length are NOT in scope. Do not comment
+        on them.
+
+  # Five checks. Each costs a status row on every PR, so the bar is: an
+  # invariant whose violation is silent, expensive, and not caught by CI.
+  # All start at mode: warning. After ~10 PRs, escalate the first, third and
+  # fourth to mode: error and pair with request_changes_workflow: true.
+  pre_merge_checks:
+    description:
+      mode: warning
+    issue_assessment:
+      mode: "off"
+
+    custom_checks:
+      - name: "Contestant Secrecy Boundary"
+        mode: warning
+        instructions: |
+          The central security property: a contestant must never obtain a quiz
+          answer key, a classic flag, or unpurchased hint text through any
+          contestant-reachable path.
+
+          Trigger condition — the PR touches apps/web/src/lib/quiz-store.ts,
+          classic-store.ts, quiz-keys.ts, classic-keys.ts, hint-store.ts, any
+          route under apps/web/src/app/api/, any page or component rendering
+          questions, challenges, or the leaderboard, or the leaderboard overlay
+          pipeline. If it touches none of these, report Passed with the reason
+          "not applicable".
+
+          Flag ⚠️ WARNING: <description> — <fix> for:
+
+          A contestant-reachable function issuing a Redis command against
+          ctf:quiz:key, ctf:classic:flag, ctf:classic:flagnorm, or
+          ctf:classic:hints for an unpurchased hint.
+
+          A type reachable from a contestant-facing component gaining a field
+          that could carry a correct answer, a flag, or hint text.
+
+          An admin-only read (GET /api/admin/quiz, GET /api/admin/classic, the
+          metrics fold, support ops) losing requireAdmin or becoming reachable
+          from a contestant route.
+
+          A new field on the activity log's `detail`, an error message, or a
+          metrics payload that could carry a flag, an answer, hint text, or a
+          per-contestant identifier that wasn't there before.
+
+          A response that differs observably between "wrong answer" and
+          "refused for another reason", turning the refusal into an oracle.
+
+          Required with any such change: a test pinning the boundary from BOTH
+          sides — the store not issuing the command, and the rendered output
+          not carrying the value. One guard is not coverage.
+
+      - name: "Fail-Open vs Fail-Closed Direction"
+        mode: warning
+        instructions: |
+          Every gate here has a deliberate failure direction, and the
+          directions deliberately differ. An inversion is silent — it surfaces
+          only during a Redis blip in a live event.
+
+          Trigger condition — the PR adds or modifies a gate, guard, or
+          availability check, or a try/catch around a store read feeding one.
+          Otherwise report Passed with the reason "not applicable".
+
+          FAIL OPEN (a store error lets the action proceed) — the pause and
+          scheduled-window checks in app, scorer and sync; the no-team check on
+          scoring routes; getResolvedModules; the activity-log writer (a lost
+          log line must never fail the action it describes); the post-auth rate
+          limits on /api/team/join and /api/hints/reveal.
+
+          FAIL CLOSED (a store error refuses) — requireAdmin; the quiz
+          attempt/answer lookup; the classic cooldown lookup; the pre-event
+          gate throttle in gate-store; ctf-setup.sh's event.yaml parsing.
+
+          Flag ⚠️ WARNING: <description> — <fix> when a change inverts one of
+          these, when a NEW gate is added without its direction stated in a
+          comment and justified, or when a direction changes without a test
+          that injects a store error and asserts the new direction.
+
+      - name: "Unpinned Dependencies & Actions"
+        mode: warning
+        instructions: |
+          Trigger condition — only evaluate ecosystems whose manifest,
+          lockfile, Dockerfile, workflow, or Terraform file changed in this
+          diff. If none changed, report the standalone status Passed, not
+          Inconclusive, with "not applicable" as the reason text rather than
+          folding it into the status.
+
+          Flag ⚠️ WARNING: <description> — <fix> for:
+
+          npm/pnpm — a version using ^, ~, *, >, >=, or "latest"; a missing or
+          uncommitted lockfile alongside a manifest change. Several package.json
+          files exist (apps/web, sync, scorer); check the one that changed.
+
+          Docker — an image on :latest, no tag, or a tag without a digest. Also
+          an OS package install (apt-get install, apk add) with no per-package
+          version. Treat a backslash-continued RUN as one logical command, and
+          a package argument built from a shell or build-arg expansion as
+          unresolved.
+
+          GitHub Actions — a third-party action by tag or branch rather than a
+          full 40-character commit SHA.
+
+          Terraform — a provider or module with no pinned version constraint; a
+          missing or uncommitted .terraform.lock.hcl.
+
+          Any other manifest present in the diff — accept an exact version,
+          commit SHA, content digest, or local path as pinned; flag a
+          comparison operator, wildcard, range, branch reference, or
+          "latest"-style meta-version.
+
+      - name: "Breaking Change Documentation"
+        mode: warning
+        instructions: |
+          Flag ⚠️ WARNING: <description> — <fix> on a change to a published
+          contract without documentation:
+
+          event.yaml schema — removing or renaming a key, changing enum
+          membership (module ids, target ids), or making an optional key
+          required. event.yaml.example must change too.
+
+          Module contract — anything in docs/modules.md a third-party module
+          implements against.
+
+          Scorer HTTP surface — POST /score or GET /leaderboard shapes,
+          including fields the app treats as additive (`catalog`, `solvedIds`).
+          Removing an additive field breaks an older app; adding a required one
+          breaks an older scorer.
+
+          GET /api/public/scoring — consumed by an Action inside a contestant's
+          fork, which cannot be redeployed with the box. Breaking by default.
+
+          Redis key names or value shapes — an event mid-run has data under the
+          old names; say what happens to it.
+
+          ctf-setup.sh — removing or renaming a subcommand, flag, or prompt.
+
+          Environment and build args — removing or renaming EVENT_CONFIG_B64,
+          SCORE_INGEST, SCORE_IMAGE, LEADERBOARD_API_URL, LEADERBOARD_SOURCE,
+          UPSTASH_REDIS_REST_URL, DEMO_MODE, or similar.
+
+          Required: a "Breaking changes" section in the PR description saying
+          what changed and what an organizer or module author must update, plus
+          an upgrade note for an event already running.
+
+          Acceptable: additive fields with a documented fallback (the way
+          `catalog`/`solvedIds` degrade to counts on an older scorer);
+          backwards-compatible aliases; a deprecation period with a stated
+          removal version.
+
+      - name: "Secrets & Challenge Data in Logs"
+        mode: warning
+        instructions: |
+          Flag ⚠️ WARNING: <description> — <fix> on any line emitting a log,
+          stack trace, error message, PR comment, or admin-visible record that
+          may include:
+
+          Event secrets — the scorer bearer token, the SRH token, the GitHub
+          App private key or installation token, the OAuth client secret,
+          REDIS_PASSWORD, or a join code.
+
+          Challenge secrets — a flag (authored or normalized), a quiz answer
+          key, or hint text. Includes anything written to ctf:admin:audit or
+          ctf:activity:log, whose `detail` carries ids and slugs only, and
+          anything echoed back in an API error.
+
+          Full-object logging — console.log(req.body), JSON.stringify(payload),
+          an entire GitHub API response or comment body, where the payload
+          isn't explicitly allowlisted.
+
+          Unsanitized errors — an exception message or stack trace on a path
+          that may carry a submitted flag, an answer, a token, or a URL with a
+          token in it.
+
+          Base64 blobs — EVENT_CONFIG_B64, an Authorization header value, or
+          any long base64-looking string written to a log. Base64 is encoding,
+          not encryption. Acceptable: a short fingerprint (first 6 chars plus
+          length).
+
+          Acceptable: structured logging with explicit field allowlists,
+          redaction at the logger level, correlation ids not derived from a
+          login, and the deliberate per-repo tick summary reporting counts
+          rather than content.
+
+  # Rule applied here: semantic and security analysis ON, style and
+  # policy-template linters OFF. Style findings are exactly the comments you
+  # learn to scroll past, and scrolling past is the failure mode.
+  tools:
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    github-checks:
+      enabled: true
+    opengrep:
+      enabled: true
+    osvScanner:
+      enabled: true
+    trufflehog:
+      enabled: true
+    # Actions security auditing — directly relevant to the pull_request_target
+    # scoring workflow. Expect it to flag the template anyway; that's the tool,
+    # not the prompt. If it does so on every workflow PR, disable it and rely
+    # on the .github/workflows path instruction above.
+    zizmor:
+      enabled: true
+
+    # --- Off, deliberately ---
+    # Style-only on a doc-heavy repo: line length, heading style. High volume,
+    # near-zero signal.
+    markdownlint:
+      enabled: false
+    # Style-only; would fire on compose and workflow formatting. actionlint
+    # covers the semantic half.
+    yamllint:
+      enabled: false
+    # Grammar checking on docs dense with `flagnorm`, `ctf:quiz:key` and
+    # `pull_request_target`.
+    languagetool:
+      enabled: false
+    # Policy templates written for long-lived cloud infra. On an ephemeral
+    # apply-up/destroy-down box it would demand encryption at rest, backups and
+    # flow logs on every Terraform PR, and be wrong every time. The Terraform
+    # guidance in path_instructions covers what actually matters here.
+    checkov:
+      enabled: false
+    # Overlaps osvScanner for dependency CVEs and checkov for IaC misconfig.
+    trivy:
+      enabled: false
+    # Superseded by opengrep; would double-flag.
+    semgrep:
+      enabled: false
+    # No Java or C/C++.
+    fbinfer:
+      enabled: false
+    # Java/Apex/Visualforce only.
+    pmd:
+      enabled: false
+    # Contestant logins are public GitHub handles; would fire on fixture data.
+    presidio:
+      enabled: false
+    # No SKILL.md manifests or MCP configs here today.
+    skillspector:
+      enabled: false
+    # No OpenAPI spec. Enable if one is ever published for the scorer.
+    oasdiff:
+      enabled: false
+
+knowledge_base:
+  opt_out: false
+
+  web_search:
+    enabled: true
+
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/CLAUDE.md"
+      - "**/AGENTS.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      # The ADRs and the architecture doc are the actual house rules.
+      - "docs/**/*.md"
+
+  mcp:
+    usage: auto
+    disabled_servers: []
+
+  learnings:
+    scope: auto
+
+  # Issues carry real design context here and are referenced from the docs.
+  issues:
+    scope: auto
+
+  pull_requests:
+    scope: auto
+
+  # (removed — see note)
+  linked_repositories: []
+
+chat:
+  auto_reply: true
+  art: false
+  # Public repo — external contributors need to talk to the bot on their own
+  # PRs. With auto_review and enable_free_tier, this is what makes a drive-by
+  # contribution reviewable.
+  allow_non_org_members: true
+
+code_generation: {}
+
+issue_enrichment:
+  auto_enrich:
+    enabled: true
+  planning:
+    auto_planning:
+      enabled: true
+      labels:
+        - "ready-for-dev"
+  labeling:
+    auto_apply_labels: true
+
+# --- MOVED TO CI ---
+#
+# Two invariants were deliberately NOT written as checks here, because they
+# can be made deterministic and a deterministic gate beats a probabilistic
+# reviewer every time. Both are small:
+#
+# 1. outsideWindow agreement. A shared corpus of (now, startsAt, endsAt) cases
+#    with expected verdicts, asserted from all three implementations
+#    (apps/web/src/lib/admin-store.ts, scorer/src/store.js,
+#    sync/src/redis.js) — the same pattern setup/test/corpus/ already uses for
+#    the modules: parser. This is the single largest untested invariant in the
+#    repo and CodeRabbit will only catch it when two of the three files happen
+#    to be in the same diff.
+#
+# 2. Reset-list completeness. A test asserting every event-run key constant
+#    exported by the -keys modules appears in the master reset prefix list,
+#    with an explicit allowlist for the organizer-authored keys that are
+#    deliberately excluded. Adding a key then forgetting the reset entry is
+#    otherwise invisible until an organizer resets and finds stale state.
+#
+# A third worth considering: a type-level test (@ts-expect-error) asserting
+# AdminQuestion is not assignable to Question and AdminChallenge is not
+# assignable to Challenge. That turns the most important half of the secrecy
+# boundary from a review catch into a build failure.

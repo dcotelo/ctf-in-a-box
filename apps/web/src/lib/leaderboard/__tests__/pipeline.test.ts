@@ -1,15 +1,42 @@
 // The leaderboard page's fixed composition order:
-//   withHintPenalties → withModuleContributions → withTeamStandings
-// These tests pin the two properties that order exists to guarantee.
+//   withModuleContributions → withTeamStandings → withHintPenalties
+// These tests pin the properties that order exists to guarantee — above all
+// that the hint penalty nets the FINAL all-module total, exactly once. It
+// used to run FIRST, netting scorer points alone, which made hints free for
+// any row whose points arrive later: a quiz/classic-only contestant (row
+// created by module contributions) had nothing to deduct from.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderboardData } from "../types";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
+
+const mocks = vi.hoisted(() => ({
+  isModuleEnabled: vi.fn((id: string) => id === "secure-development"),
+  getQuizTotals: vi.fn(),
+  getTeamQuizTotalsBatch: vi.fn(),
+  listQuestions: vi.fn(),
+  getClassicTotals: vi.fn(),
+  getTeamClassicTotalsBatch: vi.fn(),
+  listChallenges: vi.fn(),
+}));
 vi.mock("@/lib/modules", () => ({
   enabledModules: [{ id: "secure-development", displayName: "Secure Development", description: "", targets: ["dvwa"] }],
-  isModuleEnabled: (id: string) => id === "secure-development",
+  isModuleEnabled: mocks.isModuleEnabled,
 }));
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals: mocks.getQuizTotals,
+  getTeamQuizTotalsBatch: mocks.getTeamQuizTotalsBatch,
+  listQuestions: mocks.listQuestions,
+}));
+vi.mock("@/lib/classic-store", () => ({
+  getClassicTotals: mocks.getClassicTotals,
+  getTeamClassicTotalsBatch: mocks.getTeamClassicTotalsBatch,
+  listChallenges: mocks.listChallenges,
+}));
+const teamStore = vi.hoisted(() => ({ listTeams: vi.fn() }));
+vi.mock("@/lib/team-store", () => ({ listTeams: teamStore.listTeams }));
 
 // Mutable so a single module graph can cover both the hints-off and hints-on
 // pipelines (vi.mock is hoisted and applies for the whole file).
@@ -22,6 +49,7 @@ vi.mock("@/lib/hint-store", () => ({
 }));
 
 import { withModuleContributions } from "../module-contributions";
+import { withTeamStandings } from "../team-standings";
 import { withHintPenalties } from "../hint-penalties";
 
 const base: LeaderboardData = {
@@ -34,36 +62,86 @@ const base: LeaderboardData = {
   capabilities: { apps: true, teams: false, challenges: false },
 };
 
-const pipeline = (data: LeaderboardData) => withHintPenalties(data).then(withModuleContributions);
+// The page's real order — ALL THREE stages, so a synthesised team row's
+// penalty behaviour is exercised too, not just entries'.
+const pipeline = (data: LeaderboardData) =>
+  withModuleContributions(data).then(withTeamStandings).then(withHintPenalties);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  hints.enabled = false;
+  hints.penalties = new Map();
+  mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development");
+  mocks.getQuizTotals.mockResolvedValue(new Map());
+  mocks.listQuestions.mockResolvedValue([]);
+  mocks.getClassicTotals.mockResolvedValue(new Map());
+  mocks.listChallenges.mockResolvedValue([]);
+  teamStore.listTeams.mockResolvedValue([]);
+});
 
 describe("leaderboard pipeline", () => {
   it("orders by combined standing even with hints disabled", async () => {
-    // getHintPenalties yields an empty map when hints are off, so the
-    // final order has to be withModuleContributions' doing — which is exactly
-    // why it runs LAST and re-ranks unconditionally.
-    hints.enabled = false;
     const out = await pipeline(base);
     expect(out.entries.map((e) => [e.login, e.rank])).toEqual([["ada", 1], ["bob", 2]]);
   });
 
-  it("attributes NET points to the module, so the module block matches the header", async () => {
-    // Regression: with the overlay running first, an expanded row showed
-    // header 20 pts / −10 hints above "SECURE DEVELOPMENT 30 pts".
+  it("shows module blocks GROSS and nets the penalty once, at the row level", async () => {
     hints.enabled = true;
     hints.penalties = new Map([["ada", 10]]);
-    try {
-      const out = await pipeline(base);
-      const ada = out.entries.find((e) => e.login === "ada")!;
-      expect(ada.points).toBe(20);
-      expect(ada.hintPenalty).toBe(10);
-      expect(ada.modules!["secure-development"]!.points).toBe(ada.points);
-      // …and every row, penalised or not, agrees with its own header.
-      for (const e of out.entries) {
-        expect(e.modules!["secure-development"]!.points).toBe(e.points);
-      }
-    } finally {
-      hints.enabled = false;
-      hints.penalties = new Map();
-    }
+    const out = await pipeline(base);
+    const ada = out.entries.find((e) => e.login === "ada")!;
+    // Header: net, with the marker that reconciles it against the block.
+    expect(ada.points).toBe(20);
+    expect(ada.hintPenalty).toBe(10);
+    // Block: gross — the −10 appears exactly once, on the row.
+    expect(ada.modules!["secure-development"]!.points).toBe(30);
+  });
+
+  it("re-ranks on the penalised totals", async () => {
+    hints.enabled = true;
+    // ada (30) buys 25 points of hints; bob (10, fewer solves) stays clean.
+    // compareStanding ranks breadth (patched) first, so ada still leads —
+    // pin the POINTS are netted and the order is recomputed by the overlay.
+    hints.penalties = new Map([["ada", 25]]);
+    const out = await pipeline(base);
+    const ada = out.entries.find((e) => e.login === "ada")!;
+    expect(ada.points).toBe(5);
+    expect(out.entries[0].rank).toBe(1);
+  });
+
+  // A team row SYNTHESISED by withTeamStandings (the upstash path: no source
+  // teams) is penalised on its members' spend like any other — the second
+  // row shape the old first-stage fold never saw.
+  it("charges a synthesised team row its members' hint spend", async () => {
+    mocks.isModuleEnabled.mockImplementation((id: string) => id === "quiz");
+    mocks.getQuizTotals.mockResolvedValue(new Map([["carol", { points: 100, answered: 4, lastAt: "2026-08-01T11:00:00.000Z" }]]));
+    mocks.getTeamQuizTotalsBatch.mockResolvedValue([{ points: 100, answered: 4, lastAt: "2026-08-01T11:00:00.000Z" }]);
+    mocks.listQuestions.mockResolvedValue([{}, {}, {}, {}]);
+    teamStore.listTeams.mockResolvedValue([{ slug: "solo-carol", name: "Solo Carol", members: ["carol"] }]);
+    hints.enabled = true;
+    hints.penalties = new Map([["carol", 30]]);
+
+    const out = await pipeline({ ...base, entries: [], capabilities: { apps: false, teams: false, challenges: false } });
+    const team = out.teams.find((t) => t.slug === "solo-carol")!;
+    expect(team.points).toBe(70); // 100 quiz − 30 hints
+    expect(team.hintPenalty).toBe(30);
+  });
+
+  // THE fix this order exists for: a contestant with no scorer row — their
+  // points exist only through module contributions — must still pay for
+  // hints. With the overlay first, their deduction was max(0, 0 − spend) on a
+  // row that didn't exist yet, i.e. nothing.
+  it("charges hint spend to a module-only contestant's created row", async () => {
+    mocks.isModuleEnabled.mockImplementation((id: string) => id === "quiz");
+    mocks.getQuizTotals.mockResolvedValue(new Map([["carol", { points: 100, answered: 4, lastAt: "2026-08-01T11:00:00.000Z" }]]));
+    mocks.listQuestions.mockResolvedValue([{}, {}, {}, {}]);
+    hints.enabled = true;
+    hints.penalties = new Map([["carol", 30]]);
+
+    const out = await pipeline({ ...base, entries: [], capabilities: { apps: false, teams: false, challenges: false } });
+    const carol = out.entries.find((e) => e.login === "carol")!;
+    expect(carol.points).toBe(70); // 100 quiz − 30 hints, NOT 100
+    expect(carol.hintPenalty).toBe(30);
+    expect(carol.modules!.quiz!.points).toBe(100); // the block stays gross
   });
 });

@@ -15,6 +15,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { Choice, QuestionType } from "@/lib/quiz-store";
+import ProgressSummary from "@/components/progress-summary";
 import { formatCompact, getRemaining, type Remaining } from "@/lib/countdown";
 
 /** Per-question progress, mutually exclusive. Every branch carries only
@@ -262,8 +263,33 @@ export default function QuizBoard({
     }
   }
 
+  // The board's own progress, from the same props the cards render — one
+  // source, no second count that can drift. `earnedPoints` (what the grade
+  // actually banked) rather than `points` (the sticker price), so a question
+  // deleted-and-recreated or re-priced mid-event still reads honestly.
+  const answeredCount = questions.filter((q) => q.status === "answered").length;
+  const earnedPoints = questions.reduce(
+    (n, q) => n + (q.status === "answered" ? q.earnedPoints : 0),
+    0,
+  );
+  const availablePoints = questions.reduce((n, q) => n + q.points, 0);
+
   return (
     <div className="flex flex-col gap-5">
+      {/* Progress strip — the shared shape (progress-summary.tsx), so this
+          board reads exactly like the classic rail and the challenge
+          browser: answered/total, earned/available, bar. */}
+      {authenticated && questions.length > 0 && (
+        <div className="rounded-lg border border-white/[0.06] bg-[#16162a] px-4 py-3">
+          <ProgressSummary
+            done={answeredCount}
+            total={questions.length}
+            noun="answered"
+            earned={earnedPoints}
+            available={availablePoints}
+          />
+        </div>
+      )}
       {questions.map((q) => (
         <QuestionCard
           key={q.id}
@@ -412,13 +438,11 @@ export function QuestionCard({
             type="button"
             onClick={onSubmit}
             disabled={submitDisabled({ onCooldown: false, cooledDown, pending, selectedCount: selected.length })}
-            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           >
             {pending ? "Submitting…" : "Submit answer"}
           </button>
-        ) : (
-          <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
-        ))}
+        ) : null)}
 
       {/* The cooldown's own submit control. It used to be hardcoded
           `disabled`, while `choicesDisabled` released the radios the moment
@@ -436,13 +460,11 @@ export function QuestionCard({
             type="button"
             onClick={onSubmit}
             disabled={submitDisabled({ onCooldown: true, cooledDown, pending, selectedCount: selected.length })}
-            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+            className="mt-3 rounded-md bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           >
             {pending ? "Submitting…" : "Submit answer"}
           </button>
-        ) : (
-          <p className="mt-3 text-xs text-muted">Sign in with GitHub to answer.</p>
-        ))}
+        ) : null)}
 
     </div>
   );

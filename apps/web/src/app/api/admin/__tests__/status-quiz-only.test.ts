@@ -23,6 +23,7 @@ const { requireAdmin, getAdminSettings, getSyncStatus, getLeaderboardSource, get
   }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));

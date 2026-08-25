@@ -13,7 +13,7 @@ import type { AppId } from "@/lib/apps";
 // changing the chip's visual box — the rows stack up to 110 deep, so the
 // visible size has to stay small. See globals.css.
 const CHIP =
-  "ds-tap-24 flex-none rounded border px-1 text-[10px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]";
+  "ds-tap-24 flex-none rounded border px-1 text-[10px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
 export default function HintButton({
   app,

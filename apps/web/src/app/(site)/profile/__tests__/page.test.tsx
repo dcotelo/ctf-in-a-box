@@ -16,6 +16,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 const {
   getSession,
   getUser,
+  getLeaderboard,
   getViewerTeam,
   getViewerHints,
   getHintPenalties,
@@ -27,6 +28,7 @@ const {
 } = vi.hoisted(() => ({
   getSession: vi.fn(),
   getUser: vi.fn(),
+  getLeaderboard: vi.fn(),
   getViewerTeam: vi.fn(),
   getViewerHints: vi.fn(),
   getHintPenalties: vi.fn(),
@@ -38,6 +40,7 @@ const {
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // TeamCard (rendered unconditionally by the profile page) calls useRouter —
 // same reason quiz/__tests__/page.test.tsx mocks it for QuizBoard.
@@ -46,7 +49,7 @@ vi.mock("next/navigation", async (importOriginal) => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
+vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser, getLeaderboard }) }));
 vi.mock("@/lib/team-store", () => ({
   getViewerTeam,
   // The page renders the cap through the same resolver joinTeam enforces
@@ -70,7 +73,13 @@ vi.mock("@/lib/modules", async (importOriginal) => ({
 // directly — these tests don't exercise the breakdown blocks, so an empty
 // list is enough to keep the page from rendering any.
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
-vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals,
+  listQuestions,
+  getTeamQuizTotals,
+  // The blocks' Show-N item list reads the viewer's own per-question map.
+  getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage from "@/app/(site)/profile/page";
@@ -150,6 +159,47 @@ describe("profile page points vs. the leaderboard row", () => {
   });
 });
 
+describe("profile team panel member rows", () => {
+  it("matches a roster member to their board row case-insensitively", async () => {
+    // The roster stores the spelling the team join recorded ("ada"); the
+    // board row carries the scorer's — the PR author's — spelling ("Ada").
+    // The join must not render a scoring teammate as 0 pts over casing,
+    // matching every other login join in the codebase.
+    isModuleEnabled.mockReturnValue(false);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getHintPenalties.mockResolvedValue(new Map());
+    getViewerTeam.mockResolvedValue({ slug: "red", name: "Red Team", members: ["ada"] });
+    const boardEntry: LeaderboardEntry = {
+      rank: 1,
+      login: "Ada",
+      team: "red",
+      points: 77,
+      patched: 1,
+      failed: 0,
+      total: 6,
+      apps: {},
+      updatedAt: null,
+    };
+    // capabilities.teams: true makes withTeamStandings a no-op, so the panel
+    // reads exactly this standing — the test is about the member join alone.
+    getLeaderboard.mockResolvedValue({
+      entries: [boardEntry],
+      teams: [{ rank: 1, slug: "red", name: "Red Team", captain: "ada", points: 200, members: ["ada"] }],
+      generatedAt: new Date().toISOString(),
+      capabilities: { apps: false, teams: true, challenges: false },
+    } satisfies LeaderboardData);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    // The member row shows Ada's 77 board points, not the 0 a case-sensitive
+    // find would fall back to.
+    expect(html).toContain("Team progress");
+    expect(html).toContain(">77<");
+  });
+});
+
 // Regression coverage for review round 1: the per-app points figure the
 // pre-module custom grid used to show ("DVWA 30 / 60 pts") was silently
 // dropped when the grid was replaced by AppBreakdown/ModuleDetail, and a
@@ -180,7 +230,7 @@ describe("profile per-module block content", () => {
     expect(html).toContain("/ 60 pts");
   });
 
-  it("nets hint spend into the secure-development module's own point total, matching the headline", async () => {
+  it("shows the module block GROSS and nets hint spend once, in the headline", async () => {
     isModuleEnabled.mockImplementation((id: string) => id === "secure-development" || id === "quiz");
     // Two resolved modules so `multiModule` is true and the per-module
     // heading (which carries the points figure under test) renders at all.
@@ -204,8 +254,38 @@ describe("profile per-module block content", () => {
 
     const html = renderToStaticMarkup(await ProfilePage());
 
-    // 40 raw - 10 hint spend = 30. NOT the raw 40.
-    expect(html).toContain(">30 pts<");
-    expect(html).not.toContain(">40 pts<");
+    // Module blocks are GROSS (40 raw), and the penalty nets the TOTAL
+    // exactly once — headline 30 (40 − 10) beside the −10 hints tile —
+    // matching the board's fold, which runs as the pipeline's LAST stage.
+    // Netting the block too double-counted the deduction visually, and the
+    // old scorer-only netting made hints free for module-only contestants.
+    expect(html).toContain('>40</span><span class="text-muted"> / 100 pts</span>');
+    expect(html).toContain(">30<"); // the headline points tile
+    expect(html).toContain("−10");
+  });
+});
+
+// The header used to be three secure-development figures (patched /
+// non-patched / total) and nothing else — a contestant whose points were
+// mostly quiz got a header describing a game they weren't playing, led by a
+// wall of not-done ("315 non-patched"). Issue #200, 2.4.
+describe("profile header stats", () => {
+  it("shows one done/available stat per enabled module and drops the non-patched wall", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "quiz" || id === "secure-development");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 2, lastAt: null }]]));
+    listQuestions.mockResolvedValue([{ points: 10 }, { points: 20 }, { points: 30 }] as never[]);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    // Quiz gets its own header stat, in its own vocabulary: 2 of 3 answered.
+    expect(html).toContain("answered");
+    expect(html).toMatch(/2<span[^>]*> \/ 3<\/span>/);
+    // Secure-development keeps its patched figure, now as done/available…
+    expect(html).toContain("patched");
+    // …and the standalone not-done headline is gone.
+    expect(html).not.toContain("non-patched");
   });
 });

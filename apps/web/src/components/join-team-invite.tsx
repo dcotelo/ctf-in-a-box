@@ -10,6 +10,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { postSigninCallbackURL } from "@/lib/post-signin";
 
 export default function JoinTeamInvite({
   code,
@@ -37,10 +38,14 @@ export default function JoinTeamInvite({
         onClick={() =>
           // Back to THIS page after GitHub, not to /profile: the code lives in
           // the path, so the round-trip preserves it without a cookie or a
-          // query parameter to lose.
-          authClient.signIn.social({ provider: "github", callbackURL: `/join/${encodeURIComponent(code)}` })
+          // query parameter to lose. The post-signin step passes /join/*
+          // through untouched — the invite IS the team step (issue #217).
+          authClient.signIn.social({
+            provider: "github",
+            callbackURL: postSigninCallbackURL(`/join/${encodeURIComponent(code)}`),
+          })
         }
-        className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-sm text-zinc-200 transition-colors hover:border-[#2563eb]/50 hover:text-white"
+        className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-sm text-zinc-200 transition-colors hover:border-[#2563eb]/45 hover:text-white"
       >
         <span className="text-[#22c55e]">$</span> sign-in --github
       </button>
@@ -51,7 +56,7 @@ export default function JoinTeamInvite({
     return (
       <p className="text-sm text-zinc-400">
         You are already on a team. Leave it from your{" "}
-        <a href="/profile" className="text-[#2563eb] hover:underline">
+        <a href="/profile" className="text-white hover:underline">
           profile
         </a>{" "}
         before joining another.
@@ -90,12 +95,12 @@ export default function JoinTeamInvite({
             setPending(false);
           }
         }}
-        className="self-start rounded-md border border-[#2563eb]/40 bg-[#2563eb]/10 px-4 py-2 font-mono text-sm text-white transition-colors hover:border-[#2563eb] disabled:opacity-40"
+        className="self-start rounded-md border border-[#2563eb]/40 bg-white/[0.06] px-4 py-2 font-mono text-sm text-white transition-colors hover:border-[#2563eb]/70 disabled:opacity-40"
       >
         {pending ? "Joining…" : `Join ${teamName}`}
       </button>
       {error && (
-        <p role="alert" className="text-sm text-[#f87171]">
+        <p role="alert" className="text-sm text-[#e53e3e]">
           {error}
         </p>
       )}

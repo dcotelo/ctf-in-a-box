@@ -1584,8 +1584,9 @@ wiz_event_yaml() {
   # Where each setting actually lives:
   #   hints    on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED), turned
   #            off in /admin — ADR 31.
-  #   teams    always available; /admin opens and closes registration. The
-  #            4-member cap is TEAM_MAX_MEMBERS in team-store.ts.
+  #   teams    always available; /admin opens and closes registration AND
+  #            sets the per-team member cap ("Players per team"). The 4 in
+  #            team-store.ts is only the default that field falls back to.
   #
   # A config written before this change still parses: the generator warns on
   # both keys rather than failing.
@@ -1665,9 +1666,15 @@ cmd_wizard() {
     # answer is the whole shape of the file. Re-asked until it names at least
     # one known module; under --dry-run the default always is one, so this
     # cannot spin.
+    #
+    # "start with", not "enable": quiz and classic are switchable from /admin
+    # during the event without a rebuild (ADR 52), so this answer is the
+    # STARTING set and the fallback, not a permanent decision. Secure
+    # Development genuinely is decided here — it needs services and forks that
+    # only setup can provision.
     ev_mods=""
     while [ -z "$ev_mods" ]; do
-      wiz_ask ev_reply "Modules to enable — subset of: $KNOWN_MODULES" "$(wiz_module_default)"
+      wiz_ask ev_reply "Modules to start with — subset of: $KNOWN_MODULES" "$(wiz_module_default)"
       if ! ev_mods="$(wiz_modules "$ev_reply")"; then
         ev_mods=""
         if [ "$DRY_RUN" -eq 1 ]; then exit 1; fi

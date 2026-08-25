@@ -79,4 +79,25 @@ describe("/how-to-play in a two-module event", () => {
     expect(html).toContain("gh repo fork OWASP-CTF/&lt;target&gt; --clone");
     expect(html).not.toContain("Login Admin");
   });
+
+  // The shared cards used to flatten every module's bullets into one
+  // anonymous list with near-duplicate lines, which read as a bug rather than
+  // as modules speaking for themselves (issue #200, tier 4). Each group now
+  // renders under its module's RESOLVED title — "Round 1", not "Quiz",
+  // proving the label honours an organizer rename.
+  it("labels each module's good-to-know group with its resolved title", () => {
+    const card = html.slice(html.indexOf("Good to know"), html.indexOf("How scoring works"));
+    expect(card).toContain("Secure Development");
+    expect(card).toContain("Round 1");
+    // Grouping labels the bullets — it must not drop any: one distinctive
+    // bullet per module survives.
+    expect(card).toContain("Your best-ever result per challenge is what counts.");
+    expect(card).toContain("Organizers can cap how many times a question may be attempted");
+  });
+
+  it("labels each module's scoring paragraph with its resolved title", () => {
+    const scoring = html.slice(html.indexOf("How scoring works"));
+    expect(scoring).toContain("Secure Development");
+    expect(scoring).toContain("Round 1");
+  });
 });

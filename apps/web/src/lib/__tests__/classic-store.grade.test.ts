@@ -110,13 +110,92 @@ describe("submitFlag normalization", () => {
     expect(storedNorm).toBe("ctf{caf\u00e9}");
   });
 
-  it("hands the script the normalized flag and NEVER the authored one", async () => {
+  it("hands the script only forms of the SUBMISSION, never anything from storage", async () => {
     await submitFlag("alice", "chal-1", "CTF{Flag}");
     const { argv, keys } = lastEval();
-    expect(argv).not.toContain("CTF{Flag}");
-    // ...and never points the script at the authored-flag hash either.
+
+    // Two flag arguments now, both derived from what the contestant typed:
+    // the case-insensitive form (the default) and the case-preserving one the
+    // script uses for a case-sensitive challenge (issue #193).
+    expect(argv[1]).toBe("ctf{flag}");
+    expect(argv[6]).toBe("CTF{Flag}");
+
+    // This test used to assert `argv` did not contain "CTF{Flag}" verbatim.
+    // That held only incidentally — the one form we sent happened to be
+    // lowercased — and it was never the property worth protecting. ARGV
+    // carries the CONTESTANT'S OWN INPUT, which they already know; the secret
+    // is the AUTHORED flag, and the invariant is that it never reaches the
+    // script at all. That is what the key assertions below check, and they are
+    // unchanged.
     expect(keys).not.toContain("ctf:classic:flag");
     expect(keys[2]).toBe("ctf:classic:flagnorm");
+  });
+});
+
+/** Upserts a challenge and returns the pipeline it wrote. Mirrors the
+ *  hand-rolled setup in the non-ASCII test above; extracted here because the
+ *  case-sensitivity cases all need the same two things — the stored comparison
+ *  form and the stored public record. */
+async function upsertAndCapture(
+  extra: { caseSensitive?: boolean },
+  flag: string,
+): Promise<(string | number)[][]> {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web"]) }]);
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { result: 1 }, { result: 1 }]);
+  await upsertChallenge(
+    { id: "chal-1", title: "T", category: "Web", description: "", points: 50, order: 1, ...extra },
+    flag,
+  );
+  return mocks.upstashPipeline.mock.calls.at(-1)![0] as (string | number)[][];
+}
+
+describe("case-sensitive challenges (issue #193)", () => {
+  it("stores a case-sensitive challenge's comparison form with case intact", async () => {
+    const cmds = await upsertAndCapture({ caseSensitive: true }, "CTF{Flag}");
+    const storedNorm = cmds.find((c) => c[1] === "ctf:classic:flagnorm")![3];
+    expect(storedNorm).toBe("CTF{Flag}");
+  });
+
+  it("still trims and NFC-normalizes a case-sensitive flag", async () => {
+    // Only the lowercasing is optional. A trailing space a contestant cannot
+    // see is not a wrong answer, and two spellings that render identically
+    // must still compare equal — neither is what "case-sensitive" asks for.
+    const cmds = await upsertAndCapture({ caseSensitive: true }, "  CTF{CAFE\u0301}  ");
+    const storedNorm = cmds.find((c) => c[1] === "ctf:classic:flagnorm")![3];
+    expect(storedNorm).toBe("CTF{CAF\u00c9}");
+  });
+
+  it("leaves a normal challenge lowercased, exactly as before", async () => {
+    const cmds = await upsertAndCapture({}, "CTF{Flag}");
+    const storedNorm = cmds.find((c) => c[1] === "ctf:classic:flagnorm")![3];
+    expect(storedNorm).toBe("ctf{flag}");
+  });
+
+  it("omits the field entirely when the challenge is not case-sensitive", async () => {
+    // Present-only-when-true, so a board with no case-sensitive challenge
+    // stores byte-identically to how it did before this feature existed.
+    const cmds = await upsertAndCapture({}, "CTF{Flag}");
+    const record = JSON.parse(String(cmds.find((c) => c[1] === "ctf:classic:challenges")![3]));
+    expect("caseSensitive" in record).toBe(false);
+  });
+
+  it("the script picks the case-preserving form only when the record says so", async () => {
+    await submitFlag("alice", "chal-1", "x");
+    const { script } = lastEval();
+    // Absence must mean insensitive: every challenge authored before this
+    // existed has no field, and must keep the forgiving comparison.
+    expect(script).toContain(`string.match(cRaw, '"caseSensitive":true[,}]')`);
+    expect(script).toContain("if caseSensitive then submitted = ARGV[7] end");
+  });
+
+  it("still never does case handling in Lua", async () => {
+    // The whole reason both forms are computed in JS and shipped in. A Lua
+    // string.lower would be ASCII-only and disagree with normalizeFlag on any
+    // non-ASCII flag, producing a challenge nobody can solve.
+    await submitFlag("alice", "chal-1", "x");
+    const { script } = lastEval();
+    expect(script).not.toContain("string.lower");
+    expect(script).not.toContain("string.upper");
   });
 });
 
@@ -287,7 +366,13 @@ describe("the grading script itself (text invariants)", () => {
     // braces, quotes and backslashes, so any in-script pattern match against a
     // blob containing one is an escaping bug.
     expect(script).toContain("local target = redis.call('HGET', KEYS[3], ARGV[1])");
-    expect(script).toContain("if target ~= ARGV[2] then");
+    // Compared against ONE whole value. Which submitted form that is now
+    // depends on the challenge (issue #193), so the comparison reads a local
+    // rather than ARGV[2] directly — but it is still a whole-value `~=`, and
+    // `target` itself is still never pattern-matched, which is the part that
+    // would be an escaping bug.
+    expect(script).toContain("if target ~= submitted then");
+    expect(script).toMatch(/local submitted = ARGV\[2\]/);
     expect(script).not.toContain('string.match(target');
   });
 

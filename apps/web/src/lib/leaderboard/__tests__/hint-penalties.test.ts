@@ -80,6 +80,28 @@ describe("withHintPenalties", () => {
     expect(result.entries.map((e) => e.login)).toEqual(["ada", "bob", "cyd"]);
   });
 
+  it("sums case-variant spend fields instead of keeping only the last", async () => {
+    // ctf:hints:spent accumulates historically: a case-only GitHub login
+    // rename mid-event leaves one person's spend split across two fields.
+    // The fold must charge all of it, not whichever field HGETALL yielded
+    // last.
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["Ada", 10], ["ada", 20]]));
+    const result = await withHintPenalties(data([entry("ada", 100)]));
+    expect(result.entries[0].points).toBe(70);
+    expect(result.entries[0].hintPenalty).toBe(30);
+  });
+
+  it("matches a penalty to its row case-insensitively, like every other login join", async () => {
+    // The scorer records the PR author's spelling of the login; the hint
+    // purchase records the session's. module-contributions already unions the
+    // two spellings into ONE row — the penalty must land on that row too, or
+    // a case disagreement makes the hints free on the scored row.
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["ada", 30]]));
+    const result = await withHintPenalties(data([entry("Ada", 100)]));
+    expect(result.entries[0].points).toBe(70);
+    expect(result.entries[0].hintPenalty).toBe(30);
+  });
+
   it("no-ops when nobody has bought hints", async () => {
     mocks.getHintPenalties.mockResolvedValueOnce(new Map());
     const base = data([entry("ada", 100)]);
@@ -148,6 +170,18 @@ describe("withHintPenalties — teams", () => {
     );
     expect(result.teams[0].points).toBe(200);
     expect(result.teams[0].hintPenalty).toBeUndefined();
+  });
+
+  it("charges a member's spend to the team case-insensitively", async () => {
+    // The roster stores the spelling the team join recorded; the spend hash
+    // stores the session's at purchase time. A disagreement must not exempt
+    // the team — the teams view is the DEFAULT board when teams exist.
+    mocks.getHintPenalties.mockResolvedValueOnce(new Map([["ada", 30]]));
+    const result = await withHintPenalties(
+      withTeams([entry("Ada", 100)], [team("red", 200, ["Ada"])]),
+    );
+    expect(result.teams[0].points).toBe(170);
+    expect(result.teams[0].hintPenalty).toBe(30);
   });
 
   it("charges a hint bought by two teammates twice — hints are per-person", async () => {

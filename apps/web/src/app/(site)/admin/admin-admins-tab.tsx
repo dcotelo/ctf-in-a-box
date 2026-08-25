@@ -98,19 +98,19 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             placeholder="github-login"
             autoComplete="off"
             spellCheck={false}
-            className="min-w-48 rounded-md border border-white/10 bg-[#0f0f1e] px-3 py-1.5 font-mono text-sm text-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+            className="min-w-48 rounded-md border border-white/10 bg-[#12121e] px-3 py-1.5 font-mono text-sm text-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           />
           <button
             type="submit"
             disabled={pending || input.trim() === ""}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-200 transition-colors hover:border-[#2563eb]/50 hover:text-white disabled:opacity-40"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-200 transition-colors hover:border-[#2563eb]/45 hover:text-white disabled:opacity-40"
           >
             Add admin
           </button>
         </form>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-[#f87171]">
+          <p role="alert" className="mt-3 text-sm text-[#e53e3e]">
             {error}
           </p>
         )}
@@ -146,7 +146,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
                   }
                   void mutate("DELETE", row.login);
                 }}
-                className="rounded-md border border-white/10 px-2 py-1 font-mono text-xs text-zinc-400 transition-colors hover:border-[#f87171]/50 hover:text-[#f87171] disabled:opacity-40"
+                className="rounded-md border border-white/10 px-2 py-1 font-mono text-xs text-zinc-400 transition-colors hover:border-[#e53e3e]/50 hover:text-[#e53e3e] disabled:opacity-40"
               >
                 Remove
               </button>

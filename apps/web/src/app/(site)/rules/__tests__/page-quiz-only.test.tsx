@@ -43,7 +43,7 @@ const html = await Rules().then(renderToStaticMarkup);
 
 describe("/rules in a quiz-only event", () => {
   it("keeps the platform-wide rules", () => {
-    expect(html).toContain("You can compete solo or as a team of up to four.");
+    expect(html).toContain("Scoring is per team, and you need one before anything you solve counts.");
     expect(html).toContain("Each person belongs to at most one team at a time.");
     expect(html).toContain("OWASP Code of Conduct");
     expect(html).toContain("Be excellent to the volunteers, organizers, and your fellow competitors.");
@@ -65,7 +65,7 @@ describe("/rules in a quiz-only event", () => {
 
   it("states the same rules in the quiz's own terms", () => {
     expect(html).toContain(
-      "Your GitHub login is your identity for scoring. Answer from the account you signed in with.",
+      "Your GitHub login is your identity for scoring — everything you submit counts for the account you signed in with.",
     );
     expect(html).toContain("The published questions are the whole game.");
     expect(html).toContain(

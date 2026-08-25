@@ -10,6 +10,8 @@ import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
   CLASSIC_CHALLENGES_KEY as CHALLENGES_KEY,
+  CLASSIC_HINTS_KEY as HINTS_KEY,
+  CLASSIC_HINT_MAX,
   CLASSIC_FLAG_KEY as FLAG_KEY,
   CLASSIC_FLAGNORM_KEY as FLAGNORM_KEY,
   CLASSIC_CATEGORIES_KEY as CATEGORIES_KEY,
@@ -19,6 +21,8 @@ import {
   classicSolvesKey as solvesKey,
   classicAttemptsKey as attemptsKey,
   normalizeFlag,
+  caseSensitiveFlagForm,
+  flagComparisonForm,
   CLASSIC_ID_RE,
   CLASSIC_POINTS_MAX,
   CLASSIC_CATEGORY_MAX_LEN,
@@ -145,6 +149,17 @@ export type Challenge = {
   description: string;
   points: number;
   order: number;
+  /** Compare this challenge's flag with case intact (issue #193). Absent means
+   *  false — the forgiving default every existing challenge already has.
+   *
+   *  PUBLIC on purpose, unlike the flag itself. The board has to tell a
+   *  contestant that case matters, or someone submits the right characters,
+   *  gets "Not quite", and has no way to work out why. Knowing that case
+   *  matters gives away nothing about the answer.
+   *
+   *  It is also what SUBMIT_SCRIPT reads to pick which form of the submission
+   *  to compare — see that script's comment. */
+  caseSensitive?: boolean;
 };
 
 /** One challenge as the ADMIN-GATED surface sees it: the public-safe record
@@ -161,6 +176,9 @@ export type Challenge = {
 export type AdminChallenge = {
   /** Byte-for-byte what `listChallenges` would have returned for this id. */
   challenge: Challenge;
+  /** Paid-hint text as authored (trimmed), or null when the challenge has no
+   *  hint. ADMIN SURFACES ONLY — contestants buy it through hint-store. */
+  hint: string | null;
   /** The flag AS AUTHORED (trimmed), exactly as `ctf:classic:flag` stores it.
    *  Empty only if the flag row is missing — a challenge in that state can
    *  never be solved, which is worth seeing in the edit form rather than
@@ -186,6 +204,16 @@ function parseChallenge(raw: string): Challenge | null {
       description: c.description,
       points: c.points,
       order: c.order,
+      // Carried back only when stored true, mirroring how it is written — an
+      // absent field must stay absent, not become `false`, so a record that
+      // predates #193 parses to exactly what it did before.
+      //
+      // This field is easy to leave out here and hard to notice missing:
+      // grading reads the stored JSON in Lua and never sees this object, so
+      // dropping it grades correctly while the board stops badging the
+      // challenge, the edit form unchecks its box, and `exportBundle` writes a
+      // backup that restores as case-INsensitive.
+      ...(c.caseSensitive === true ? { caseSensitive: true as const } : {}),
     };
   } catch {
     return null;
@@ -234,9 +262,10 @@ export async function listChallenges(): Promise<Challenge[]> {
  *  Both hashes are read in ONE pipeline, so the challenges and their flags
  *  come from the same instant. */
 export async function listChallengesForAdmin(): Promise<AdminChallenge[]> {
-  const [challengesRes, flagRes] = await upstashPipeline([
+  const [challengesRes, flagRes, hintRes] = await upstashPipeline([
     ["HGETALL", CHALLENGES_KEY],
     ["HGETALL", FLAG_KEY],
+    ["HGETALL", HINTS_KEY],
   ]);
 
   const flagFlat = Array.isArray(flagRes.result) ? (flagRes.result as string[]) : [];
@@ -244,10 +273,16 @@ export async function listChallengesForAdmin(): Promise<AdminChallenge[]> {
   for (let i = 0; i < flagFlat.length; i += 2) {
     if (typeof flagFlat[i + 1] === "string") flagById.set(flagFlat[i], flagFlat[i + 1]);
   }
+  const hintFlat = Array.isArray(hintRes.result) ? (hintRes.result as string[]) : [];
+  const hintById = new Map<string, string>();
+  for (let i = 0; i < hintFlat.length; i += 2) {
+    if (typeof hintFlat[i + 1] === "string") hintById.set(hintFlat[i], hintFlat[i + 1]);
+  }
 
   const rows = parseChallengeHash(challengesRes.result).map((challenge) => ({
     challenge,
     flag: flagById.get(challenge.id) ?? "",
+    hint: hintById.get(challenge.id) ?? null,
   }));
   rows.sort((a, b) => compareChallenges(a.challenge, b.challenge));
   return rows;
@@ -320,7 +355,7 @@ export async function setCategories(names: string[]): Promise<string[]> {
  *
  *  Returns what was STORED, as an `AdminChallenge`. Contestant-facing code
  *  never sees this value. */
-export async function upsertChallenge(c: Challenge, flag: string): Promise<AdminChallenge> {
+export async function upsertChallenge(c: Challenge, flag: string, hint?: string | null): Promise<AdminChallenge> {
   if (!CLASSIC_ID_RE.test(c.id)) throw new ClassicValidationError("id", `Invalid challenge id: ${c.id}`);
   if (typeof c.title !== "string" || !c.title.trim()) {
     throw new ClassicValidationError("title", "Challenge title is required");
@@ -345,17 +380,25 @@ export async function upsertChallenge(c: Challenge, flag: string): Promise<Admin
   if (typeof flag !== "string" || !flag.trim()) {
     throw new ClassicValidationError("flag", "Flag is required");
   }
+  if (hint != null && (typeof hint !== "string" || hint.length > CLASSIC_HINT_MAX)) {
+    throw new ClassicValidationError("hint", `Hint must be at most ${CLASSIC_HINT_MAX} characters`);
+  }
 
   const authored = flag.trim();
+  // The hint is written (or CLEARED — an empty/absent hint deletes the row)
+  // in the same pipeline as the challenge, into its own SECRET hash: the
+  // public record must never carry it, same storage rule as the flag pair.
+  const authoredHint = typeof hint === "string" && hint.trim() ? hint.trim() : null;
   const results = await upstashPipeline([
     ["HSET", CHALLENGES_KEY, c.id, JSON.stringify(c)],
     ["HSET", FLAG_KEY, c.id, authored],
-    ["HSET", FLAGNORM_KEY, c.id, normalizeFlag(flag)],
+    ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, c.caseSensitive)],
+    authoredHint ? ["HSET", HINTS_KEY, c.id, authoredHint] : ["HDEL", HINTS_KEY, c.id],
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
 
-  return { challenge: c, flag: authored };
+  return { challenge: c, flag: authored, hint: authoredHint };
 }
 
 /** Result of a bulk import: how many bundle rows were brand new vs. already
@@ -458,10 +501,23 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
       description: c.description,
       points: c.points,
       order: c.order,
+      // Only written when true, so a bundle without the field produces a
+      // record byte-identical to what it produced before #193 — the export /
+      // import round-trip test compares stored JSON, and an always-present
+      // `"caseSensitive":false` would break it while changing nothing.
+      ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
     };
     commands.push(["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)]);
     commands.push(["HSET", FLAG_KEY, c.id, c.flag.trim()]);
-    commands.push(["HSET", FLAGNORM_KEY, c.id, normalizeFlag(c.flag)]);
+    // Hint written-or-cleared, same as upsertChallenge: re-importing a bundle
+    // without the field removes a hint the earlier import created, so the
+    // round-trip stays faithful in both directions (#190).
+    const hint = typeof c.hint === "string" && c.hint.trim() ? c.hint.trim() : null;
+    commands.push(hint ? ["HSET", HINTS_KEY, c.id, hint] : ["HDEL", HINTS_KEY, c.id]);
+    // The comparison form follows the record that was just built, NOT the raw
+    // bundle field — they are the same value, and reading it from the record
+    // is what keeps them the same value if either ever gains a default.
+    commands.push(["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(c.flag, record.caseSensitive)]);
   }
   commands.push(["SET", CATEGORIES_KEY, JSON.stringify(unioned)]);
 
@@ -481,7 +537,7 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
  *  `ClassicBundleChallenge`. */
 export async function exportBundle(): Promise<ClassicBundle> {
   const [rows, categories] = await Promise.all([listChallengesForAdmin(), listCategories()]);
-  const challenges: ClassicBundleChallenge[] = rows.map(({ challenge, flag }) => ({
+  const challenges: ClassicBundleChallenge[] = rows.map(({ challenge, flag, hint }) => ({
     id: challenge.id,
     title: challenge.title,
     category: challenge.category,
@@ -489,6 +545,14 @@ export async function exportBundle(): Promise<ClassicBundle> {
     points: challenge.points,
     order: challenge.order,
     flag,
+    // Emitted only when true, so a board with no case-sensitive challenge
+    // exports byte-identically to how it did before #193 — an organizer
+    // diffing two exports should see the change they made, not a field that
+    // appeared on every row.
+    ...(challenge.caseSensitive ? { caseSensitive: true as const } : {}),
+    // Same only-when-set rule as caseSensitive: a hint-less board exports
+    // byte-identically to a pre-#190 one.
+    ...(hint ? { hint } : {}),
   }));
   return { version: CLASSIC_BUNDLE_VERSION, categories, challenges };
 }
@@ -518,6 +582,7 @@ export async function deleteChallenge(id: string): Promise<void> {
     ["HDEL", CHALLENGES_KEY, id],
     ["HDEL", FLAG_KEY, id],
     ["HDEL", FLAGNORM_KEY, id],
+    ["HDEL", HINTS_KEY, id],
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);
@@ -820,15 +885,26 @@ attempts = attempts + 1
 if not firstAt then firstAt = ARGV[3] end
 redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"firstAt":"' .. firstAt .. '","lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[6] .. '}')
 
-if target ~= ARGV[2] then
-  return {'incorrect', tostring(attempts)}
-end
-
+-- Fetched BEFORE the comparison, not after, because the record now decides
+-- WHICH submitted form to compare (issue #193) as well as what the solve is
+-- worth. Lua still performs no case handling of its own: both forms arrive
+-- already normalized from JS, and this only chooses between them.
 local cRaw = redis.call('HGET', KEYS[4], ARGV[1])
 local points = 0
+local caseSensitive = false
 if cRaw then
   local found = string.match(cRaw, '"points":(%-?%d+)[,}]')
   if found then points = tonumber(found) end
+  -- Absent means false: the field is only written when true, so every
+  -- challenge authored before this existed keeps the forgiving comparison.
+  if string.match(cRaw, '"caseSensitive":true[,}]') then caseSensitive = true end
+end
+
+local submitted = ARGV[2]
+if caseSensitive then submitted = ARGV[7] end
+
+if target ~= submitted then
+  return {'incorrect', tostring(attempts)}
 end
 redis.call('HSET', KEYS[2], ARGV[1], '{"points":' .. points .. ',"at":"' .. ARGV[3] .. '"}')
 redis.call('HINCRBY', KEYS[5], ARGV[4], points)
@@ -916,7 +992,20 @@ export async function submitFlag(login: string, challengeId: string, flag: strin
         SOLVECOUNT_KEY, // KEYS[6]
         SOLVED_KEY, // KEYS[7]
       ],
-      [challengeId, normalizeFlag(flag), nowIso, login, cooldownMs, now.getTime()],
+      // BOTH comparison forms go in, and the script picks. Normalizing on this
+      // side is non-negotiable (Lua's string.lower is ASCII-only — see the
+      // module header), but which form applies is a per-challenge fact the
+      // script is already holding when it decides. Sending both costs one
+      // short string and saves a round trip to read the mode first.
+      [
+        challengeId,
+        normalizeFlag(flag), // ARGV[2] — case-insensitive form (the default)
+        nowIso,
+        login,
+        cooldownMs,
+        now.getTime(),
+        caseSensitiveFlagForm(flag), // ARGV[7] — case preserved (issue #193)
+      ],
     );
   } catch (err) {
     console.error("Classic grading failed:", err);

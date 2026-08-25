@@ -35,7 +35,7 @@ the registry still fails the build loudly; the boundary is the
 |---|---|
 | The disposable per-event GitHub **org** and its lifecycle (`setup/ctf-setup.sh`). | The **targets** it forks/provisions per event, and its teardown equivalents (contract §7). |
 | **Auth** (GitHub OAuth sign-in) and the **admins** allowlist. | — (uses the platform's identity). |
-| **Team** registration, roster, join codes, dedupe rollup (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
+| **Team** registration, roster, join codes, the dedupe rollup, and the requirement that a contestant be on a team before anything scores (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
 | The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
 | The **admin panel** runtime overrides (freeze, hints, registration, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
@@ -177,8 +177,8 @@ state; everything else that touches scores goes through it.
    solved/total counts.
 9. Before rendering, the app composes the fetched `LeaderboardData` through a
    fixed pipeline (`app/(site)/leaderboard/page.tsx`):
-   `withHintPenalties` → `withModuleContributions` → `withTeamStandings`
-   (`src/lib/leaderboard/{hint-penalties,module-contributions,team-standings}.ts`).
+   `withModuleContributions` → `withTeamStandings` → `withHintPenalties`
+   (`src/lib/leaderboard/{module-contributions,team-standings,hint-penalties}.ts`).
    `withModuleContributions` attributes each row's points into a
    per-module `ModuleProgress` for every *enabled* module — `secure-development`
    is **attributed**, not added, since its points already came from the
@@ -187,13 +187,12 @@ state; everything else that touches scores goes through it.
    inside `entry.points` to begin with and both are **added** on top instead
    (`entry.points += quizTotal.points + classicTotal.points`) — see
    [Quiz data flow](#quiz-data-flow) and [Classic data flow](#classic-data-flow)
-   below. It runs *after* hints so it attributes the **net**
-   (post-penalty, floored) figure — attributing first would show an expanded
-   row a larger module total than the header above it — and it re-ranks
-   unconditionally, so being last is what makes the final order deterministic
-   (`withHintPenalties` no-ops when hints are disabled and can't be relied on
-   to produce it). Team rows pass through it untouched: nothing renders a
-   per-module team breakdown yet. Ranking
+   below. Hint penalties run **last**, netting the final all-module total
+   exactly once — module blocks everywhere show their *gross* contribution and
+   the row's `−N hints` marker is what reconciles them against the netted
+   header. (The fold used to run first, netting scorer points alone, which
+   made hints free for any row whose points arrive later: a classic- or
+   quiz-only contestant, or an upstash-path team.) Ranking
    itself (`src/lib/leaderboard/rank.ts`'s `compareStanding`) is: items
    completed **across modules** descending, then combined points descending,
    then earliest last-activity ascending, with a `patched`/`lastSolveAt`
@@ -400,9 +399,19 @@ paths (demo seed, master reset) are the one documented exception, reusing
   behind `requireAdmin`), so an organizer's edit form can show what they
   typed, casing included, instead of forcing a retype-from-memory on every
   typo fix.
-- `ctf:classic:flagnorm` — `normalizeFlag(flag)` (`classic-keys.ts`): trim,
-  then Unicode NFC-normalize, then lowercase. This is the ONLY value grading
-  ever compares against.
+- `ctf:classic:flagnorm` — the challenge's comparison form
+  (`flagComparisonForm` in `classic-keys.ts`): trim, then Unicode
+  NFC-normalize, then lowercase — **unless** the challenge is marked
+  `caseSensitive`, in which case the lowercasing is skipped and only trim and
+  NFC apply (issue #193). This is the ONLY value grading ever compares
+  against.
+
+  Which form applies is decided by the public challenge record, and the
+  grading script only *chooses* between two forms the submission path has
+  already computed in JS. That keeps the long-standing rule intact: no case
+  handling ever happens in Lua, whose `string.lower` is ASCII-only and would
+  disagree with JS on any non-ASCII flag — producing a challenge nobody can
+  solve.
 
 Both are written together in one Upstash pipeline call inside
 `upsertChallenge`, so they can never observably disagree — a challenge can
@@ -420,11 +429,14 @@ value and compares whole strings with Lua's `==` — a flag can contain
 braces, quotes, and backslashes, so it is never pattern-matched out of a
 JSON blob the way a points value is.
 
-**The full key layout is nine `ctf:classic:*` keys**, enumerated in
+**The full key layout is ten `ctf:classic:*` keys**, enumerated in
 `classic-store.ts`'s header comment: `challenges` (the public-safe hash
 contestants see — no field on it could carry a flag even by accident),
-`flag` and `flagnorm` (above), `categories` (one JSON array, the organizer's
-chosen display order), `solves:<login>` (a contestant's banked solves —
+`flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, per
+issue #190 — written by the admin form, SECRET until purchased through
+hint-store's reveal, exactly the flag hashes' rule; its name lives in
+`classic-keys.ts`),
+`categories` (one JSON array, the organizer's chosen display order), `solves:<login>` (a contestant's banked solves —
 `{points, at}`, points captured at solve time so a later re-price never
 rewrites history), `attempts:<login>` (every submission, right or wrong —
 `{attempts, lastAt, lastAtMs}`, the cooldown's own read), and three running
@@ -509,6 +521,48 @@ aggregate counters alone, mirroring `deleteQuestion`. Points already banked
 for a deleted challenge stay on the leaderboard; only the master reset
 clears them.
 
+## Contestant and team state
+
+- **`ctf:user:<login>`** — the contestant's own record: `team` (their current
+  slug), `joinedAt` (when they joined **that** team), and `firstTeamAt` (the
+  first time they were **ever** on a team). The two timestamps have
+  deliberately different lifetimes: `joinedAt` is cleared alongside `team` by
+  every path that clears it — leave, captain-remove, disband, admin override —
+  while `firstTeamAt` is written with `HSETNX` and survives all of them. ADR 49
+  explains why one field could not serve both: reusing `joinedAt` for the
+  engagement funnel would report every team-switcher's conversion at their
+  *latest* join.
+- **`ctf:team:<slug>`** — `name`, `captain`, `createdAt`, `joinCode`; with
+  **`ctf:team:<slug>:members`** (a SET) and **`ctf:joincode:<code>`** (the
+  reverse index that makes `/join/<code>` resolvable, ADR 45's shareable
+  invite).
+- **`ctf:user:<login>:hints`** — a SET of `<target>/<challengeId>` the
+  contestant bought, where `<target>` is a secure-development app id or the
+  literal `classic` (classic hints, issue #190; their text lives in
+  `ctf:classic:hints` — named in `classic-keys.ts`, not here — written by the
+  admin classic form and secret until purchased, exactly like the flag
+  hashes); **`ctf:hints:spent`** — a hash of
+  login → points spent, read by the leaderboard's per-team penalty fold;
+  **`ctf:hints:at:<login>`** — a hash of `<target>/<challengeId>` → ISO
+  purchase time. That last one is a *separate* key
+  rather than a conversion of the SET, because changing a live key's type would
+  fail `WRONGTYPE` on the first purchase after deploying. It sits under
+  `ctf:hints:` so the master reset's existing prefix already sweeps it.
+
+**A team is required to score** (ADR 47). `POST /api/quiz/answer` and
+`POST /api/classic/submit` refuse a teamless login with
+`403 { error: "no-team" }` — after the pre-event gate, before the store call,
+and (on the classic route) before the body is even parsed, so the refusal
+cannot become an oracle for whether a flag was correct. The page-level
+redirect to `/profile#team` is signposting on top of that, not the boundary.
+The check **fails open**: a Redis blip lets the submission through rather than
+dropping a correct answer.
+
+Key builders for all of the above live in `apps/web/src/lib/team-keys.ts` — a
+dependency-free module, the same pattern as `quiz-keys.ts`/`classic-keys.ts`,
+so readers that must not import the `server-only` store can still name the
+keys without open-coding the strings.
+
 ## Organizer admin panel (runtime overrides)
 
 `event.yaml`'s `admins` allowlist (checked case-insensitively against the
@@ -518,13 +572,38 @@ config above — this one *is* readable/writable while the stack is running,
 without a rebuild:
 
 - **`ctf:admin:settings`** (Redis hash, `apps/web/src/lib/admin-store.ts`) —
-  `paused` (two-state: `"1"` or absent — absent means false), `hintsEnabled`,
-  `hintCost`, `hintsMinSolves` and `hintsUnlockAfterMin` (three-state:
-  a value or absent — absent means "no override, use the build-time
-  default"), plus `updatedBy`/`updatedAt` and
-  `resetAt` (the master-reset epoch `sync` honours — see below). Every
-  reader applies **override-else-default** precedence (`s.hintsEnabled ??
-  HINT_DEFAULT_ENABLED`, `hint-store.ts`'s `resolveHintConfig`), never the reverse.
+  two-state `paused` (`"1"` or absent, absent meaning false) and
+  `teamRegistrationOpen`, plus a set of **three-state** knobs where a value or
+  its absence means "no override, use the build-time default":
+
+  | field | what it gates |
+  | --- | --- |
+  | `hintsEnabled`, `hintCost` | hints on/off and their price |
+  | `hintsMinSolves`, `hintsUnlockAfterMin` | the anti-burner gate and the time phase |
+  | `quizMaxAttempts`, `quizRetryAfterMin` | the quiz retry gate |
+  | `classicCooldownSec` | seconds between flag submissions on one challenge |
+  | `scoreCooldownMin` | minutes between SCORED runs on one PR (ADR 46) |
+  | `teamMaxMembers` | players per team (ADR 45) |
+  | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
+  | `registrationStartsAt` / `registrationEndsAt` | the team-registration window |
+
+  plus `updatedBy`/`updatedAt` and `resetAt` (the master-reset epoch `sync`
+  honours — see below). Every reader applies **override-else-default**
+  precedence (`s.hintsEnabled ?? HINT_DEFAULT_ENABLED`, `hint-store.ts`'s
+  `resolveHintConfig`), never the reverse.
+
+  **The scheduled windows are enforced at READ time**, not by a scheduler on
+  the box, and the same `outsideWindow` logic is implemented independently in
+  `apps/web/src/lib/admin-store.ts`, `scorer/src/store.js` and
+  `sync/src/redis.js`. Those three must agree; changing one alone silently
+  splits the event's idea of whether it is running.
+
+  **`scoreCooldownMin` is the one setting a fork needs.** The Action enforcing
+  it runs inside a contestant's repository and cannot reach this Redis, so it
+  pulls the value from **`GET /api/public/scoring`** — the kit's only
+  unauthenticated endpoint, deliberately read-only and carrying scoring
+  *policy* only. ADR 46 states the rule and ADR 50 generalises it: the box may
+  publish policy to a fork; a fork may not report facts to the box.
 
   Two field *families* live on the same hash, keyed by module id rather than
   fixed-name, so a third module needs no storage change:
@@ -543,9 +622,111 @@ without a rebuild:
   because a wrong display name is cosmetic where a wrong gate decision awards
   points). Only the module's *name* is runtime: which modules are enabled
   stays build-time `event.yaml` config.
+- **`ctf:admin:admins`** (Redis SET, ADR 44) — logins granted admin at
+  runtime, on top of the ones baked into the image from `event.yaml`. A set
+  rather than a settings field because membership *is* the whole value.
+  **Baked admins are not revocable here**: they are the recovery path if a
+  runtime grant goes wrong, so no sequence of clicks and no compromised admin
+  session can lock everyone out of `/admin`. `requireAdmin` checks the baked
+  list first, without touching Redis, and **fails closed** — an unreachable
+  store denies rather than resolving to an empty list.
+
 - **`ctf:admin:audit`** — a capped list (`AUDIT_CAP` = 500, `LPUSH`+`LTRIM`)
   of every settings change, written atomically with the change itself (one
-  Lua script, so a change can never land without its audit line).
+  Lua script, so a change can never land without its audit line). Support
+  actions (below) append here too, naming both the actor and the target.
+
+- **`ctf:activity:log`** (issue #212) — a capped list (`ACTIVITY_LOG_MAX` =
+  5000, `LPUSH`+`LTRIM` in one pipeline, so every write carries its own trim)
+  of contestant-facing events: sign-ins (recorded from better-auth's
+  after-hook on the OAuth callback), fresh quiz/classic solves, and team
+  create/join/leave/rename. Read only by the admin panel's **Activity** tab
+  (`GET /api/admin/activity`, admin-gated). Two invariants, both from
+  `activity-log.ts`: the writer **fails open** — it sits inside sign-in and
+  submission paths, and a lost log line must never fail the action it
+  describes — and the `detail` field carries **ids and slugs only, never
+  flags, answers, or hint text**. Wiped by the master reset alongside the
+  other progress keys; distinct from `ctf:admin:audit`, which records what
+  *organizers* changed.
+
+### Support operations (ADR 48)
+
+`POST`/`DELETE /api/admin/ops/user` and `/api/admin/ops/team`, behind
+`requireAdmin`, act on **one** contestant or **one** team: look up, reset
+progress, delete, remove from team, transfer captaincy, disband. They exist
+because the master reset was previously the only destructive control, so a
+single stuck contestant mid-event meant choosing between doing nothing and
+wiping the event.
+
+The `GET` is gated as hard as the writes — one named contestant's team,
+points, attempts and hint spend is precisely the read a non-admin must never
+have. The team overrides drop `team-store`'s captain guard (an organizer acts
+on a team they are not on) but keep the existence and membership checks
+*inside* the Lua, so an admin path is not the one that races a contestant
+clicking Leave.
+
+**Secure Development solves can be deleted but not kept deleted.** The scorer
+writes them with `HSETNX` so replays no-op, and the poller re-submits from PR
+comments — so a per-contestant reset clears them and the next re-score writes
+them back. `resetEvent` solves this globally by freezing and bumping `resetAt`;
+there is no per-login equivalent, so the API returns a **warning** instead of
+pretending. Quiz and classic writes originate in the app, so those deletes are
+final.
+
+### Engagement metrics (ADR 50)
+
+`GET /api/admin/metrics` (JSON, or `?format=csv` for the per-challenge table)
+folds the funnel, per-challenge difficulty, solves-over-time, module split and
+hint usage **entirely out of keys the modules already maintain**. There is no
+collection step and no new write path, and nothing is fetched from a fork —
+authenticating a fork means a credential every contestant can read, so
+fork-reported engagement would be forgeable by the contestants it measures.
+
+Admin-only permanently: the aggregates are harmless, but the payload is
+computed from per-contestant rows, so every field added later is one edit away
+from carrying a login. The response ships its own **caveats** array, because a
+metric whose limits travel separately from it gets quoted without them.
+
+**What it reads.** Three aggregate reads in one pipeline (`ctf:quiz:points`,
+`ctf:classic:points`, `ctf:hints:spent`), a `SCAN` of `ctf:solves:*` for
+Secure Development, `listTeams()`, and then **six reads per contestant** —
+their quiz answers, classic solves, both attempt hashes, `firstTeamAt` off
+`ctf:user:<login>`, and their hint purchase times — batched 200 commands to a
+round trip. Nothing else; the module contract for those row shapes is
+[docs/modules.md §10](modules.md#10-engagement-metrics-contract-insights).
+
+**Who counts as a contestant** is the union of everyone on a team and everyone
+with points in any module — cheaper than `SCAN`ning `ctf:user:*`, which also
+matches `ctf:user:<login>:hints`. Team membership is what makes `stuck`
+measurable: someone who attempted everything and solved nothing has no points
+row, so only their team knows they exist. That works because ADR 47 makes a
+team mandatory before anything scores. An event running without team writes
+would see only contestants who scored.
+
+**The fold is capped at 2000 contestants** (`MAX_CONTESTANTS`), far beyond
+what the kit targets — the cap exists so a runaway key space cannot turn an
+admin click into an unbounded read. When it bites it says so in `caveats`,
+because a silently truncated metric reads as a complete one.
+
+**On demand, never cached.** The fold is O(contestants), so it runs on the
+button rather than on arrival, and the button doubles as the refresh: an
+organizer re-reading it mid-event wants the current number, not one from a
+minute ago.
+
+**Aggregate counters are deliberately not read.** `ctf:classic:solvecount`
+would be a free classic-only shortcut for per-challenge solves, but folding
+each contestant's own rows produces the same figure for *both* modules from
+one source. Reading both would invite the two to disagree with no way to tell
+which was right.
+
+**The solve-rate denominator has a floor.** It is
+`max(people with an attempt row, people who solved it)`, not the attempt-row
+count alone: an earned row can exist without an attempt row, because the demo
+seed writes answers directly and anything predating the attempts hash has the
+same shape. Dividing by attempt rows alone produced solve rates of 200% and
+300% on a seeded event — nonsense on its face rather than a subtle
+inaccuracy — so the larger of the two is both the correct denominator and the
+floor that keeps the rate inside 0..1.
 - **`ctf:sync:status`** (Redis hash, written by `sync/src/redis.js`'s
   `writeStatus()` every tick) — `lastPollAt`, `ingested`, `dropped`,
   `lastDrop`, `reposPolled`, `paused`, `lastError`. This is `sync`'s

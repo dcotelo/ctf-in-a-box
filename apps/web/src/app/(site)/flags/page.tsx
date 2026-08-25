@@ -16,7 +16,8 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import ModuleEmptyState from "@/components/module-empty-state";
 import PageHeader from "@/components/page-header";
-import ClassicBoard, { type ClassicChallengeView, type ClassicStatus } from "@/components/classic-board";
+import ClassicBoard, { type ClassicChallengeView } from "@/components/classic-board";
+import { deriveStatus } from "./derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
@@ -28,9 +29,10 @@ import {
   listChallenges,
   type ViewerClassic,
 } from "@/lib/classic-store";
-import { isModuleEnabled } from "@/lib/modules";
-import { redirectIfTeamless } from "@/lib/require-team";
+import { isModuleLive } from "@/lib/enabled-modules";
+import { getClassicHintIds } from "@/lib/hint-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
+import { redirectIfTeamless } from "@/lib/require-team";
 
 const DEFAULT_TITLE = "Classic CTF";
 const DEFAULT_BLURB = "Find the flag, submit the string, take the points.";
@@ -46,39 +48,8 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-/** Derives this viewer's status for one challenge from the SAME solved/
- *  cooldown rule classic-store's `evaluateGate` enforces authoritatively at
- *  submit time — reimplemented here purely for display, using data this page
- *  already has (one `getViewerClassic` pipeline + the current admin
- *  settings) instead of an extra round trip per challenge. A stale or
- *  drifted read here is a display nit at worst: `submitFlag`'s Lua script
- *  re-checks both, atomically, against fresh state, and is the only thing
- *  that actually enforces the solved guard or the cooldown.
- *
- *  `now` defaults to `Date.now()` (read here, in a plain helper, rather than
- *  in the page component's own body) so the Server Component's render
- *  function stays a pure function of its props for React's rules. */
-function deriveStatus(
-  solve: ViewerClassic["solved"][string] | undefined,
-  attempt: ViewerClassic["attempts"][string] | undefined,
-  cooldownMs: number,
-  now: number = Date.now(),
-): ClassicStatus {
-  if (solve) return { status: "solved", earnedPoints: solve.points };
-
-  if (cooldownMs > 0 && attempt) {
-    const lastMs = Date.parse(attempt.lastAt);
-    if (Number.isFinite(lastMs)) {
-      const retryAtMs = lastMs + cooldownMs;
-      if (now < retryAtMs) return { status: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
-    }
-  }
-
-  return { status: "unsolved" };
-}
-
 export default async function FlagsPage() {
-  if (!isModuleEnabled("classic")) notFound();
+  if (!(await isModuleLive("classic"))) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
@@ -93,13 +64,14 @@ export default async function FlagsPage() {
   // below, so a redirect never follows work that was thrown away.
   await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
-  const [challenges, categories, solveCounts, viewerClassic, settings, modules] = await Promise.all([
+  const [challenges, categories, solveCounts, viewerClassic, settings, modules, hintIds] = await Promise.all([
     listChallenges(),
     listCategories(),
     getSolveCounts(),
     login ? getViewerClassic(login) : Promise.resolve<ViewerClassic>({ solved: {}, attempts: {} }),
     getAdminSettings(),
     getResolvedModules(),
+    getClassicHintIds(),
   ]);
 
   const mod = modules.find((m) => m.id === "classic");
@@ -121,27 +93,35 @@ export default async function FlagsPage() {
     description: c.description,
     points: c.points,
     solveCount: solveCounts.get(c.id) ?? 0,
+    // Listed explicitly, like every field above it — this map is deliberately
+    // NOT a spread of the store record, because a spread is how a flag leaks.
+    caseSensitive: c.caseSensitive,
     ...deriveStatus(viewerClassic.solved[c.id], viewerClassic.attempts[c.id], cooldownMs),
   }));
 
-  const solvedCount = viewChallenges.filter((c) => c.status === "solved").length;
-  // Per-VIEWER state, so it sits above the board rather than in the header —
-  // same reasoning as quiz/page.tsx's `progress` line: a page description
-  // says what the page is, this says what *you* have done on it.
-  const progress = login
-    ? `You've solved ${solvedCount} of ${challenges.length} challenge${challenges.length === 1 ? "" : "s"}.`
-    : "Sign in with GitHub to submit flags.";
+  // Per-VIEWER state, so it sits above the board rather than in the header.
+  // Signed in, the board's "Your run" rail carries the solved and point
+  // totals — a sentence restating the same numbers directly above it was the
+  // same fact twice (the duplication quiz/page.tsx also removed). Only the
+  // signed-out prompt has no rail to defer to.
+  const progress = login ? null : "Sign in with GitHub to submit flags.";
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow={moduleTitle} title={moduleTitle} description={blurb} />
+      {/* The eyebrow names WHAT THE PAGE LISTS, the title names the module —
+          eyebrow={moduleTitle} rendered the same words twice, stacked
+          ("QUIZ" over "Quiz"), which read as a template slip rather than a
+          kicker (issue #200, tier 4). Same pattern as /challenges' own
+          "Targets" eyebrow, and it stays accurate whatever the organizer
+          renames the module to. */}
+      <PageHeader eyebrow="Flag board" title={moduleTitle} description={blurb} />
       {/* The progress line sits OUTSIDE the empty-state branch on purpose —
           see quiz/page.tsx's identical note. Nesting it inside a
           `challenges.length > 0` branch would quietly take the "Sign in with
           GitHub" prompt away from a signed-out visitor looking at a board
           whose challenges haven't been authored yet. */}
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-zinc-400">{progress}</p>
+        {progress && <p className="text-sm text-zinc-400">{progress}</p>}
         {challenges.length === 0 ? (
           <ModuleEmptyState
             message={
@@ -152,7 +132,7 @@ export default async function FlagsPage() {
             authoring={viewerIsAdmin ? { href: "/admin?tab=classic", label: "Author challenges" } : null}
           />
         ) : (
-          <ClassicBoard categories={categories} challenges={viewChallenges} authenticated={Boolean(login)} />
+          <ClassicBoard categories={categories} challenges={viewChallenges} authenticated={Boolean(login)} hintIds={hintIds} />
         )}
       </div>
     </div>

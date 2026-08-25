@@ -57,7 +57,12 @@ vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({ refresh: vi.fn() }),
 }));
-vi.mock("@/lib/admin-store", () => ({ getAdminSettings: async () => ({ moduleOverrides: {} }) }));
+vi.mock("@/lib/admin-store", () => ({
+  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // The page reads the registration window for the team card's
+  // closed-state explanation (issue #217).
+  effectiveRegistrationOpen: () => true,
+}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
 vi.mock("@/lib/team-store", () => ({
@@ -73,7 +78,13 @@ vi.mock("@/lib/hint-store", () => ({
   getHintPenalties: vi.fn(),
   HINTS_AVAILABLE: false,
 }));
-vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotals }));
+vi.mock("@/lib/quiz-store", () => ({
+  getQuizTotals,
+  listQuestions,
+  getTeamQuizTotals,
+  // The blocks' Show-N item list reads the viewer's own per-question map.
+  getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage from "@/app/(site)/profile/page";

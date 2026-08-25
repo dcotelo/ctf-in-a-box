@@ -8,6 +8,14 @@ import type { LeaderboardData } from "./types";
  * the scorer's data is never mutated, so penalties survive re-scores. Scores
  * are floored at 0 and both boards are re-ranked.
  *
+ * THE PIPELINE'S LAST STAGE, deliberately: the penalty nets the FINAL
+ * all-module total. It used to run first, netting scorer points alone —
+ * which made hints free in every case where the row's points arrived later:
+ * a classic- or quiz-only contestant (row created by module contributions),
+ * and upstash-path teams (rows synthesised by team standings). Module blocks
+ * everywhere show GROSS module points; the penalty appears exactly once, at
+ * the row level, as the −N hints marker.
+ *
  * Applies to teams as well as individuals, because the teams view is the
  * DEFAULT board whenever teams exist: leaving team totals unpenalised would
  * make hints effectively free on the primary leaderboard, which is the whole
@@ -42,9 +50,23 @@ export async function withHintPenalties(data: LeaderboardData): Promise<Leaderbo
   }
   if (penalties.size === 0) return data;
 
+  // Logins are matched case-insensitively, like every other login join in
+  // this codebase (module-contributions, team-standings): the scorer records
+  // the PR author's spelling, the spend hash the session's at purchase time.
+  // A case disagreement must not exempt the row — the union fold upstream
+  // already merged the two spellings into ONE row, so the penalty has to land
+  // on it. Case-variant fields are SUMMED, not last-wins: the spend hash
+  // accumulates historically, so a case-only GitHub login rename mid-event
+  // leaves one person's spend split across two fields — all of it is theirs.
+  const byLogin = new Map<string, number>();
+  for (const [login, points] of penalties) {
+    const key = login.toLowerCase();
+    byLogin.set(key, (byLogin.get(key) ?? 0) + points);
+  }
+
   const entries = data.entries
     .map((entry, i) => {
-      const penalty = penalties.get(entry.login) ?? 0;
+      const penalty = byLogin.get(entry.login.toLowerCase()) ?? 0;
       return {
         // Original position breaks any tie compareStanding can't (equal
         // points and no lastSolveAt), keeping the source order.
@@ -60,7 +82,7 @@ export async function withHintPenalties(data: LeaderboardData): Promise<Leaderbo
 
   const teams = data.teams
     .map((team, i) => {
-      const penalty = team.members.reduce((sum, m) => sum + (penalties.get(m) ?? 0), 0);
+      const penalty = team.members.reduce((sum, m) => sum + (byLogin.get(m.toLowerCase()) ?? 0), 0);
       return {
         i,
         team:

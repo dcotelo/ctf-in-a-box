@@ -113,6 +113,7 @@ function seedFullBoard() {
       ),
     },
     { result: [FULL_BOARD_ID, "ctfbox{One}"] },
+    { result: [] },
   ]);
   mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web", "Crypto"]) }]);
 }
@@ -215,6 +216,27 @@ describe("listChallenges", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }]);
     expect(await listChallenges()).toEqual([]);
   });
+
+  // Grading reads the STORED JSON in Lua and never touches the parsed object,
+  // so a parser that drops `caseSensitive` still grades correctly — and the
+  // board silently stops telling the contestant the flag is case-sensitive.
+  // That is the one failure the board can explain for free (issue #193), so
+  // the read-back is asserted here rather than inferred from the write.
+  it("carries caseSensitive back off the stored record", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: "a", caseSensitive: true })) },
+    ]);
+    const [first] = await listChallenges();
+    expect(first.caseSensitive).toBe(true);
+  });
+
+  it("leaves caseSensitive absent on a record stored without it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: row(challenge({ id: "a" })) }]);
+    const [first] = await listChallenges();
+    // Absent, not `false`: the board renders the badge on truthiness, and the
+    // stored record omits the field entirely when it is off.
+    expect(first.caseSensitive).toBeUndefined();
+  });
 });
 
 describe("listChallengesForAdmin", () => {
@@ -222,18 +244,22 @@ describe("listChallengesForAdmin", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([
       { result: [...row(challenge({ id: "b", points: 100 })), ...row(challenge({ id: "a", points: 50 }))] },
       { result: ["a", "CTF{Aaa}", "b", "CTF{Bbb}"] },
+      { result: ["a", "Look closer."] },
     ]);
 
     const rows = await listChallengesForAdmin();
 
     expect(rows.map((r) => r.challenge.id)).toEqual(["a", "b"]);
     expect(rows.map((r) => r.flag)).toEqual(["CTF{Aaa}", "CTF{Bbb}"]);
+    // The hint rides back for the edit form too — absent = null (#190).
+    expect(rows.map((r) => r.hint)).toEqual(["Look closer.", null]);
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
     expect(pipelineCalls()[0]).toEqual([
       ["HGETALL", "ctf:classic:challenges"],
       // The AUTHORED flag, not the normalized one: an edit form must show the
       // organizer what they typed, casing included.
       ["HGETALL", "ctf:classic:flag"],
+      ["HGETALL", "ctf:classic:hints"],
     ]);
   });
 
@@ -241,18 +267,33 @@ describe("listChallengesForAdmin", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([
       { result: row(challenge({ id: "a" })) },
       { result: ["a", "CTF{secret}"] },
+      { result: [] },
     ]);
     const [first] = await listChallengesForAdmin();
     // The shape is load-bearing: `AdminChallenge` is deliberately not
     // assignable to `Challenge`, which is what makes handing an admin row to a
     // contestant-facing component a compile error rather than a leak.
-    expect(Object.keys(first)).toEqual(["challenge", "flag"]);
+    expect(Object.keys(first)).toEqual(["challenge", "flag", "hint"]);
     expect(JSON.stringify(first.challenge)).not.toContain("CTF{secret}");
   });
 
   it("reports a missing flag row as empty rather than hiding the challenge", async () => {
-    mocks.upstashPipeline.mockResolvedValueOnce([{ result: row(challenge({ id: "a" })) }, { result: [] }]);
-    expect(await listChallengesForAdmin()).toEqual([{ challenge: challenge({ id: "a" }), flag: "" }]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: row(challenge({ id: "a" })) }, { result: [] }, { result: [] }]);
+    expect(await listChallengesForAdmin()).toEqual([{ challenge: challenge({ id: "a" }), flag: "", hint: null }]);
+  });
+
+  // The edit form checks its box off this value. A parser that drops it hands
+  // the organizer an unchecked box for a case-sensitive challenge, and saving
+  // any other field then writes `caseSensitive: false` and re-normalizes the
+  // flag row — a silent downgrade with no warning and no way to notice.
+  it("carries caseSensitive back for the edit form", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: "a", caseSensitive: true })) },
+      { result: ["a", "CTF{Aaa}"] },
+      { result: [] },
+    ]);
+    const [first] = await listChallengesForAdmin();
+    expect(first.challenge.caseSensitive).toBe(true);
   });
 });
 
@@ -298,7 +339,9 @@ describe("upsertChallenge", () => {
     await upsertChallenge(base, "  CTF{Flag}  ");
     const [call] = pipelineCalls().slice(-1);
     const keys = call.map((c) => c[1]);
-    expect(keys).toEqual(["ctf:classic:challenges", "ctf:classic:flag", "ctf:classic:flagnorm"]);
+    // The hint row rides in the SAME pipeline (written or cleared) — the
+    // fourth key is #190's, and a hint-less upsert clears it.
+    expect(keys).toEqual(["ctf:classic:challenges", "ctf:classic:flag", "ctf:classic:flagnorm", "ctf:classic:hints"]);
   });
 
   it("stores the flag as authored and the normalized form separately", async () => {
@@ -322,7 +365,7 @@ describe("upsertChallenge", () => {
   it("returns what was stored, with the flag trimmed", async () => {
     categoriesReply(["Web"]);
     writeReply(3);
-    expect(await upsertChallenge(base, "  CTF{Flag}  ")).toEqual({ challenge: base, flag: "CTF{Flag}" });
+    expect(await upsertChallenge(base, "  CTF{Flag}  ")).toEqual({ challenge: base, flag: "CTF{Flag}", hint: null });
   });
 
   it("rejects a challenge whose category is not a known category", async () => {
@@ -381,6 +424,8 @@ describe("deleteChallenge", () => {
       ["HDEL", "ctf:classic:challenges", "chal-1"],
       ["HDEL", "ctf:classic:flag", "chal-1"],
       ["HDEL", "ctf:classic:flagnorm", "chal-1"],
+      // The hint row retires with its challenge (#190).
+      ["HDEL", "ctf:classic:hints", "chal-1"],
     ]);
     // Deliberately NOT the per-login solve/attempt hashes or the aggregate
     // counters — see deleteChallenge's contract.
@@ -559,6 +604,40 @@ describe("importBundle", () => {
     expect(JSON.stringify(record)).not.toContain("Secret");
   });
 
+  // The caseSensitive lesson (#196), applied on day one: grading/reveal read
+  // the STORED row, so these assert the write AND the read-back, not just
+  // that an upsert didn't throw.
+  it("writes a hint into its own secret hash, trimmed, and returns it", async () => {
+    const base = challenge();
+    categoriesReply(["Web"]);
+    writeReply(4);
+    const saved = await upsertChallenge(base, "CTF{Flag}", "  Look at robots.txt  ");
+    const [call] = pipelineCalls().slice(-1);
+    expect(call[3]).toEqual(["HSET", "ctf:classic:hints", base.id, "Look at robots.txt"]);
+    // Never into the public record.
+    expect(String(call[0][3])).not.toContain("robots.txt");
+    expect(saved.hint).toBe("Look at robots.txt");
+  });
+
+  it("clears the hint row when the hint is emptied or absent", async () => {
+    const base = challenge();
+    categoriesReply(["Web"]);
+    writeReply(4);
+    await upsertChallenge(base, "CTF{Flag}", "   ");
+    expect(pipelineCalls().slice(-1)[0][3]).toEqual(["HDEL", "ctf:classic:hints", base.id]);
+    categoriesReply(["Web"]);
+    writeReply(4);
+    const saved = await upsertChallenge(base, "CTF{Flag}");
+    expect(pipelineCalls().slice(-1)[0][3]).toEqual(["HDEL", "ctf:classic:hints", base.id]);
+    expect(saved.hint).toBeNull();
+  });
+
+  it("rejects a hint over the cap without touching Upstash", async () => {
+    const base = challenge();
+    categoriesReply(["Web"]);
+    await expect(upsertChallenge(base, "CTF{Flag}", "x".repeat(1001))).rejects.toThrow(ClassicValidationError);
+  });
+
   it("reports created vs updated against what already exists", async () => {
     seedChallenges(["web-one-ab12cd"]);
     const summary = await importBundle(twoRowBundle);
@@ -570,8 +649,11 @@ describe("importBundle", () => {
   it("leaves an existing challenge that the bundle does not mention untouched", async () => {
     seedChallenges(["legacy-zz99zz"]);
     await importBundle(twoRowBundle);
-    const deletedKeys = pipelineCalls().flat().filter((c) => c[0] === "HDEL");
-    expect(deletedKeys).toHaveLength(0);
+    // The only HDELs are hint CLEARS for the bundle's own hint-less rows —
+    // never a delete of a challenge the bundle does not mention.
+    const deleted = pipelineCalls().flat().filter((c) => c[0] === "HDEL");
+    expect(deleted.every((c) => c[1] === "ctf:classic:hints")).toBe(true);
+    expect(deleted.some((c) => String(c[2]).startsWith("legacy"))).toBe(false);
   });
 
   it("UNIONS categories, preserving existing order and appending new ones", async () => {
@@ -637,5 +719,32 @@ describe("exportBundle", () => {
     // Every challenge already exists, so nothing is created — this is the
     // property that makes export usable as a backup.
     expect(summary.created).toBe(0);
+  });
+
+  // An export that drops `caseSensitive` turns the documented backup path into
+  // a downgrade: re-importing it makes the challenge case-insensitive, and the
+  // bundle looks correct in every other field while it happens.
+  it("emits caseSensitive so a backup restores the same grading", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: FULL_BOARD_ID, caseSensitive: true })) },
+      { result: [FULL_BOARD_ID, "ctfbox{One}"] },
+      { result: [] },
+    ]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web"]) }]);
+    const bundle = await exportBundle();
+    expect(bundle.challenges[0].caseSensitive).toBe(true);
+  });
+
+  // Same downgrade risk as caseSensitive: an export that drops the hint makes
+  // the documented backup path silently delete every hint on re-import.
+  it("emits the hint so a backup restores it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: row(challenge({ id: FULL_BOARD_ID })) },
+      { result: [FULL_BOARD_ID, "ctfbox{One}"] },
+      { result: [FULL_BOARD_ID, "Look closer."] },
+    ]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web"]) }]);
+    const bundle = await exportBundle();
+    expect(bundle.challenges[0].hint).toBe("Look closer.");
   });
 });

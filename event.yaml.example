@@ -11,6 +11,13 @@ event:
 github:
   org: my-event-org                # disposable per-event org; also the fork org the app's challenge links point at
   oauth_client_id: Iv1.xxxx        # OAuth app client id (secret goes in .env)
+# The modules this event STARTS with, and the set it falls back to if Redis is
+# unreachable — not the live truth. Quiz and Classic can be switched on and off
+# from /admin during the event, without a rebuild (issue #175), and editing
+# this file mid-event changes nothing until you rebuild. Secure Development is
+# the exception: it is configured HERE and only here, because it needs its
+# scorer and sync services and its provisioned forks, none of which the app can
+# conjure. See docs/operations.md and ADR 52.
 modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
@@ -75,11 +82,15 @@ modules:
 # page, and the leaderboard all compose from whichever of `quiz`/`classic` is
 # enabled. See
 # docs/hosting.md's "Configuration" section and docs/modules.md §7.
-# v1 placeholders — not read at build time: team play is always on with a
-# fixed 4-member cap, and hints (ON by default, 10 points each) are tuned
-# entirely at runtime in /admin — enabled, cost, and the two gating knobs.
-# /admin is the only hint switch; there is no env var and this block is not
-# read.
-teams: { enabled: true, max_size: 4 }
-hints: { enabled: true }
-admins: [your-github-login]     # allowlist for /admin (status, freeze, hint controls) — case-insensitive
+# NOTE: there is deliberately no `teams:` or `hints:` block here.
+# Both used to live in this file and neither was ever read, which is worse than
+# it sounds: a config saying `hints: { enabled: false }` served hints anyway,
+# and one asking for `teams: { max_size: 6 }` got a cap of 4 — silently, in
+# both cases. They are runtime settings now (ADR 31, ADRs 44-45): team
+# registration, the per-team member cap, and every hint knob live in /admin.
+# The wizard stopped emitting them, and `generate-event-config.mjs` warns if it
+# finds them, so adding them back only earns a build warning.
+admins: [your-github-login]     # bootstrap allowlist for /admin — case-insensitive.
+                                # More admins are granted from the panel itself
+                                # (Admins tab) without a rebuild; these are the
+                                # ones baked in so somebody can get in first.

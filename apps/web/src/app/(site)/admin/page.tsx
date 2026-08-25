@@ -98,7 +98,7 @@ export default async function AdminPage({
                 ignore the colour. */}
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted">Dropped</dt>
-              <dd className={`font-mono tabular-nums ${sync.dropped > 0 ? "text-[#f6ad55]" : "text-white"}`}>
+              <dd className={`font-mono tabular-nums ${sync.dropped > 0 ? "text-[#d4a017]" : "text-white"}`}>
                 {sync.dropped}
               </dd>
             </div>
@@ -113,7 +113,7 @@ export default async function AdminPage({
             {sync.lastDrop && (
               <div className="col-span-2 sm:col-span-5">
                 <dt className="text-xs uppercase tracking-wide text-muted">Last drop</dt>
-                <dd className="font-mono text-xs text-[#f6ad55]">{sync.lastDrop}</dd>
+                <dd className="font-mono text-xs text-[#d4a017]">{sync.lastDrop}</dd>
               </div>
             )}
             {sync.lastError && (

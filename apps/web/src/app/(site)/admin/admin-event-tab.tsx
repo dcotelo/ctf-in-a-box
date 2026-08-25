@@ -9,8 +9,9 @@
 // `doReset`, `doSeed`) is owned by `admin-controls.tsx` and passed in, so the
 // shell stays the single writer of settings state across all tabs.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
+import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
 import type { CommitNumber, ConfirmState } from "./types";
@@ -42,8 +43,21 @@ function ScheduleField({
   disabled: boolean;
   onCommit: (iso: string | null) => void;
 }) {
-  const [input, setInput] = useState(toLocalInput(value));
-  // Re-sync when the applied value changes (another field's POST returns fresh settings).
+  // The datetime-local value is the VIEWER's wall clock, which the server
+  // cannot know: seeding the input from toLocalInput() during render made the
+  // server (UTC on the box) and the browser (viewer tz) disagree and threw a
+  // hydration error (#418) on every /admin load. So SSR renders the field
+  // empty and the real value lands after mount — the same
+  // render-nothing-until-mounted contract event-countdown uses. The effect
+  // also re-syncs when the applied value changes (another field's POST
+  // returning fresh settings), which the old one-shot useState never did.
+  const [input, setInput] = useState("");
+  useEffect(() => {
+    // Deferred so this reads as subscribing to the applied value rather than
+    // a render-time computation — satisfies react-hooks/set-state-in-effect.
+    const timeout = setTimeout(() => setInput(toLocalInput(value)), 0);
+    return () => clearTimeout(timeout);
+  }, [value]);
   const canonical = toLocalInput(value);
   return (
     <label className="flex items-center justify-between gap-3">
@@ -56,7 +70,7 @@ function ScheduleField({
         onBlur={() => {
           if (input !== canonical) onCommit(fromLocalInput(input));
         }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
       />
     </label>
   );
@@ -74,6 +88,22 @@ export type AdminEventTabProps = {
   teamMaxMembersInput: string;
   setTeamMaxMembersInput: (v: string) => void;
   commitNumber: CommitNumber;
+  /** Every module the registry knows about, with the name an organizer would
+   *  recognise and whether this event may toggle it (issue #175). Includes the
+   *  DISABLED ones — a switch you cannot see is not a switch. */
+  moduleChoices: readonly ModuleChoice[];
+  /** The ids live right now: the runtime set, or the baked one when no
+   *  override is stored. */
+  liveModuleIds: readonly string[];
+};
+
+export type ModuleChoice = {
+  id: string;
+  label: string;
+  /** False for secure-development, which is provisioning rather than a flag.
+   *  `reason` says so on the row instead of leaving a dead control. */
+  toggleable: boolean;
+  reason?: string;
 };
 
 export default function AdminEventTab({
@@ -88,7 +118,33 @@ export default function AdminEventTab({
   teamMaxMembersInput,
   setTeamMaxMembersInput,
   commitNumber,
+  moduleChoices,
+  liveModuleIds,
 }: AdminEventTabProps) {
+  const live = new Set(liveModuleIds);
+  // The last LIVE module cannot be switched off — the server refuses a set that
+  // would end up empty (ADR 24's runtime analogue), and a control that always
+  // errors is worse than one that explains itself.
+  //
+  // Counted over every live module, INCLUDING the ones that cannot be toggled.
+  // Counting only the toggleable ones was wrong: on an event running
+  // secure-development plus quiz, it locked quiz on the grounds that quiz was
+  // the last *switchable* module — while secure-development sat right above it,
+  // enabled and serving. The event would have been left with content, the
+  // server would have accepted the change, and the UI refused it anyway. What
+  // makes a set legal is that SOMETHING is live, not that something switchable
+  // is live.
+  const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
+  // Effective state for the schedule section's readout — the same
+  // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
+  // server-side, built on the shared outsideWindow. Client render time is an
+  // acceptable "now": the readout re-computes on every settings change, and
+  // an organizer parked on the tab across a boundary sees it on their next
+  // interaction.
+  const nowMs = Date.now();
+  const scoringLiveNow = !settings.paused && !outsideWindow(nowMs, settings.scoringStartsAt, settings.scoringEndsAt);
+  const registrationOpenNow =
+    settings.teamRegistrationOpen && !outsideWindow(nowMs, settings.registrationStartsAt, settings.registrationEndsAt);
   // No "Event" heading inside the panel: the old flat layout needed an <h3> to
   // separate this group from the module sections below it, but the tab strip is
   // that heading now (the panel is labelled by its own tab via
@@ -96,6 +152,54 @@ export default function AdminEventTab({
   // repeating it would just duplicate the tab's own label.
   return (
     <section className="flex flex-col gap-4">
+      <section className="flex flex-col gap-2 border-b border-white/[0.06] pb-4">
+        <div>
+          <h3 className="text-white">Modules</h3>
+          <p className="text-xs text-muted">
+            What this event serves. Switching one off hides its board and its nav link straight away —
+            it deletes nothing, so switching it back on restores the same answers, solves and points.
+          </p>
+        </div>
+        {moduleChoices.map((mod) => {
+          const on = live.has(mod.id);
+          const isLastOn = on && mod.toggleable && liveCount === 1;
+          const disabled = pending || !mod.toggleable || isLastOn;
+          return (
+            <label key={mod.id} className="flex items-center justify-between gap-3">
+              <span>
+                <span className={mod.toggleable ? "text-white" : "text-zinc-400"}>{mod.label}</span>
+                {!mod.toggleable && mod.reason && <span className="block text-xs text-muted">{mod.reason}</span>}
+                {isLastOn && (
+                  <span className="block text-xs text-muted">
+                    The only module left — an event has to serve something.
+                  </span>
+                )}
+              </span>
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={disabled}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  const ids = next
+                    ? [...live, mod.id]
+                    : [...live].filter((id) => id !== mod.id);
+                  setConfirm({
+                    title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
+                    body: next
+                      ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
+                      : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
+                    confirmLabel: next ? "Enable" : "Disable",
+                    onConfirm: () => apply({ enabledModules: ids }),
+                  });
+                }}
+                className="h-5 w-5 flex-none accent-[#2563eb] disabled:opacity-40"
+              />
+            </label>
+          );
+        })}
+      </section>
+
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className="text-white">Freeze scoring</span>
@@ -162,7 +266,7 @@ export default function AdminEventTab({
           disabled={pending}
           onChange={(e) => setTeamMaxMembersInput(e.target.value)}
           onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#2563eb]/60 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
         />
       </label>
 
@@ -175,6 +279,22 @@ export default function AdminEventTab({
             window — on top of the manual toggles above.
           </span>
         </div>
+        {/* The EFFECTIVE state, computed from the same fields this section
+            edits — manual toggle AND window, via the shared outsideWindow
+            (the app's copy of the three-reader contract). Without it the
+            organizer does that boolean in their head from four datetime
+            fields plus two toggles, mid-event (issue #200, 3.3). Client
+            render time is the "now"; it refreshes with every edit. */}
+        <p className="text-xs leading-relaxed">
+          <span className="uppercase tracking-wider text-muted">Right now: </span>
+          <span className={scoringLiveNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
+            scoring {scoringLiveNow ? "is live" : settings.paused ? "is frozen (manual)" : "is frozen (outside its window)"}
+          </span>
+          <span className="text-muted"> · </span>
+          <span className={registrationOpenNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
+            registration {registrationOpenNow ? "is open" : settings.teamRegistrationOpen ? "is closed (outside its window)" : "is closed (manual)"}
+          </span>
+        </p>
         <ScheduleField
           key={`ss-${settings.scoringStartsAt ?? ""}`}
           label="Scoring opens"
@@ -206,9 +326,9 @@ export default function AdminEventTab({
       </div>
 
       {demoMode && (
-        <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-[#2563eb]/[0.04] p-4">
+        <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
           <div>
-            <span className="text-[#7aa2ff]">Demo mode</span>
+            <span className="text-white">Demo mode</span>
             <span className="block text-xs text-muted">
               Populate the leaderboard with fake contestants, teams, and solves to
               preview the app. Injects real-challenge-id scores so points render.
@@ -226,7 +346,7 @@ export default function AdminEventTab({
                 onConfirm: doSeed,
               })
             }
-            className="self-start rounded-md border border-[#2563eb]/50 px-3 py-1.5 text-sm font-medium text-[#7aa2ff] hover:bg-[#2563eb]/10 disabled:opacity-50"
+            className="self-start rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Seed demo data
           </button>
@@ -265,7 +385,7 @@ export default function AdminEventTab({
         >
           Reset event data…
         </button>
-        {resetInfo && <p className="text-xs text-[#7dd3a0]">{resetInfo}</p>}
+        {resetInfo && <p className="text-xs text-[#22c55e]">{resetInfo}</p>}
       </div>
     </section>
   );

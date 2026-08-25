@@ -27,6 +27,7 @@
 // than quietly fixing.
 
 import {
+  CLASSIC_HINT_MAX,
   CLASSIC_ID_RE,
   CLASSIC_POINTS_MAX,
   CLASSIC_CATEGORY_MAX_LEN,
@@ -44,6 +45,13 @@ export type ClassicBundleChallenge = {
   points: number;
   order: number;
   flag: string;
+  /** Optional, absent meaning false — see `Challenge.caseSensitive`. Optional
+   *  rather than required so every bundle exported before #193 still imports,
+   *  which is the whole contract of a versioned bundle. */
+  caseSensitive?: boolean;
+  /** Optional paid-hint text (#190). Absent = no hint. Secret like `flag`:
+   *  a bundle is an ORGANIZER artifact and already carries every answer. */
+  hint?: string;
 };
 
 export type ClassicBundle = {
@@ -56,7 +64,17 @@ export type ImportError = { where: string; message: string };
 
 export type ParseResult = { ok: true; bundle: ClassicBundle } | { ok: false; errors: ImportError[] };
 
-const CHALLENGE_KEYS = ["id", "title", "category", "description", "points", "order", "flag"] as const;
+const CHALLENGE_KEYS = [
+  "id",
+  "title",
+  "category",
+  "description",
+  "points",
+  "order",
+  "flag",
+  "caseSensitive",
+  "hint",
+] as const;
 const CHALLENGE_KEY_SET = new Set<string>(CHALLENGE_KEYS);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -125,6 +143,24 @@ function validateChallenge(raw: unknown, index: number, categories: readonly str
   const id = raw.id;
   if (typeof id !== "string" || !CLASSIC_ID_RE.test(id)) {
     errors.push({ where: `${base}.id`, message: `Invalid challenge id: ${String(id)}` });
+  }
+
+  // Optional, and only a boolean when present. A string "true" is the shape a
+  // hand-edited bundle produces, and it would be truthy everywhere downstream
+  // — so it is refused here rather than silently making a challenge
+  // case-sensitive that its author did not mean to.
+  if (raw.caseSensitive !== undefined && typeof raw.caseSensitive !== "boolean") {
+    errors.push({ where: `${base}.caseSensitive`, message: "caseSensitive must be true or false" });
+  }
+
+  // Optional paid-hint text (#190): a non-empty string within the cap.
+  if (raw.hint !== undefined) {
+    if (typeof raw.hint !== "string" || !raw.hint.trim() || raw.hint.length > CLASSIC_HINT_MAX) {
+      errors.push({
+        where: `${base}.hint`,
+        message: `hint must be a non-empty string of at most ${CLASSIC_HINT_MAX} characters`,
+      });
+    }
   }
 
   const title = raw.title;

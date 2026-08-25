@@ -36,6 +36,40 @@ describe("TeamCard", () => {
     expect(html).not.toMatch(/create or join a team to compete/i);
   });
 
+  it("explains a closed registration window instead of rendering forms (issue #217)", () => {
+    // The routes are the enforcement; this is so a teamless contestant sent
+    // here after registration closed reads why, instead of three forms that
+    // refuse them one failed POST at a time.
+    const html = renderToStaticMarkup(
+      <TeamCard
+        team={null}
+        writesEnabled
+        maxMembers={4}
+        isCaptain={false}
+        captain={null}
+        joinCode={null}
+        registrationOpen={false}
+      />,
+    );
+    expect(html).toMatch(/registration is closed/i);
+    // The requirement is still stated — closed registration does not read as
+    // "teams are optional now".
+    expect(html).toMatch(/still required/i);
+    expect(html).not.toMatch(/join code/i);
+    expect(html).not.toMatch(/play solo/i);
+  });
+
+  it("keeps the forms when registration is open, including by default", () => {
+    // The prop defaults open, matching the routes' fail-open settings read —
+    // a settings blip must not hide the forms from a whole event.
+    const html = renderToStaticMarkup(
+      <TeamCard team={null} writesEnabled maxMembers={4} isCaptain={false} captain={null} joinCode={null} />,
+    );
+    expect(html).toMatch(/join code/i);
+    expect(html).toMatch(/play solo/i);
+    expect(html).not.toMatch(/registration is closed/i);
+  });
+
   it("shows Leave for a non-captain member and hides captain controls", () => {
     const html = renderToStaticMarkup(
       <TeamCard
@@ -72,5 +106,35 @@ describe("TeamCard", () => {
     expect(html).toMatch(/disband team/i);
     // The join code itself is surfaced prominently.
     expect(html).toContain("ab12cd");
+  });
+
+  it("gives the input-paired captain buttons a DESIGNED disabled state, not just a fade", () => {
+    // The assertion above (`/rename/i` appears in the markup) passed for the
+    // entire time this control was unusable. Rename and Transfer are disabled
+    // until their field has a value — so disabled is their RESTING state, the
+    // one a captain sees on arrival — and they were rendering as
+    // `text-zinc-300` at 50% opacity, which stopped reading as a button at
+    // all. The bug was reported as "there is no rename option" by someone
+    // looking straight at it.
+    //
+    // Presence is not discoverability. What this pins is that the disabled
+    // state is styled deliberately — it keeps a border and a legible text
+    // colour — rather than being the enabled style with the contrast taken
+    // out of it.
+    const html = renderToStaticMarkup(
+      <TeamCard
+        team={{ slug: "red-team", name: "Red Team", members: ["alice", "bob"] }}
+        writesEnabled
+        maxMembers={4}
+        isCaptain
+        captain="alice"
+        joinCode="ab12cd"
+      />,
+    );
+    const renameButton = html.slice(0, html.indexOf(">Rename<"));
+    const classAttr = renameButton.slice(renameButton.lastIndexOf('class="'));
+    expect(classAttr).toMatch(/disabled:border-/);
+    expect(classAttr).toMatch(/disabled:text-/);
+    expect(classAttr).not.toMatch(/disabled:opacity-50/);
   });
 });
