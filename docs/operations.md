@@ -283,9 +283,11 @@ The panel offers:
 
   Both fail **closed**: if the solve lookup errors, the hint is refused
   rather than handed out unverified. Denials return `403` with a message
-  naming what's missing. The gate also refuses outright when the
-  `secure-development` module is not enabled — hint keys are per-challenge,
-  so there is nothing for a quiz-only event to hint.
+  naming what's missing. The module check is **per target**: a hint on a
+  secure-development target requires that module enabled, a classic hint
+  requires `classic`, and each refuses outright when its module is off
+  (`hint-store.ts`'s `hintGate`). The quiz has no hints by design — a
+  question's hint is its choices.
 - **Hint penalties apply to teams too.** A team's displayed points are its
   scorer total minus the **sum** of its members' hint spend, floored at 0,
   and the team board re-ranks on the penalised figure (a `−N hints` chip
@@ -467,7 +469,9 @@ name falls back to **Event**.
 Every settings change is recorded in a capped audit log (who, when, what
 changed) alongside the setting itself. **Disruptive controls prompt for
 confirmation**: the freeze and team-registration toggles ask a one-click "are
-you sure?"; the master reset requires type-to-confirm.
+you sure?"; the master reset requires type-to-confirm — the event's name, or
+the literal `RESET` (both are accepted, so a renamed event can't lock its own
+reset).
 
 When the `quiz` module is enabled, the master reset also clears every
 contestant's quiz answers and attempts (and the two aggregate point/answered
@@ -879,8 +883,10 @@ own panel has an **Export challenges** button and an **Import a bundle**
 box (paste JSON, or choose a `.json` file) for authoring — or backing up —
 many challenges in one pass. A bundle is a single JSON object: a
 `categories` list, and a `challenges` array where each entry has exactly the
-fields the admin form itself collects, flag included. For example, a
-two-challenge, two-category bundle:
+fields the admin form itself collects, flag included — plus the form's two
+optional ones: `caseSensitive` (absent means false) and `hint` (absent means
+no hint; as secret as `flag` itself). For example, a two-challenge,
+two-category bundle:
 
 ```json
 {
@@ -903,7 +909,9 @@ two-challenge, two-category bundle:
       "description": "Decode the Base64 string to find the flag.",
       "points": 150,
       "order": 0,
-      "flag": "CTF{base64_is_not_encryption}"
+      "flag": "CTF{base64_is_not_encryption}",
+      "caseSensitive": true,
+      "hint": "The padding character is a giveaway."
     }
   ]
 }
@@ -947,11 +955,16 @@ issue or chat, or otherwise share it casually; treat it with the same care
 as `/admin` access itself, since a saved copy of the file protects nothing
 on its own.
 
-**What classic still doesn't do (in this PR):** no file attachments (a
-challenge's description is text only — nowhere to attach an image, a
-capture file, or a binary for contestants to download), and no hint system
-of its own (the hint gate and its knobs apply to secure-development targets
-only). Both are planned for later PRs in this series, not this one.
+**Classic has paid hints too** (#210, after the board itself shipped
+without them): a challenge can carry an optional `hint`, sold through the
+same paid-hint gate and knobs as secure-development targets — cost,
+minimum solves, unlock delay, and the penalty fold all work identically.
+See the hints section under [Organizer admin
+panel](#organizer-admin-panel).
+
+**What classic still doesn't do:** no file attachments — a challenge's
+description is text only, with nowhere to attach an image, a capture file,
+or a binary for contestants to download.
 
 ## Verifying it works
 
@@ -1024,13 +1037,16 @@ top of the leaderboard/challenge-browsing experience it gives you immediately.
 ## Known limitations
 
 **The pre-event gate's page block (`proxy.ts`) is page-only.** With
-`CHALLENGES_GATE_ENABLED=true`, every enabled module's own page route
-(`/challenges`, `/quiz`, `/flags`) redirects a visitor without a valid unlock
-cookie to `/gate`. That list is exact-match and it is *pages* — the proxy
-matcher deliberately does not widen over `/api/*` (doing so would put the
-gate in front of `/api/auth/*`, breaking the sign-in a contestant needs in
-order to pass the gate, and in front of `/api/gate` itself, and would answer
-API calls with a page redirect an API client can't act on).
+`CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` set in `.env`
+(compose passes both through to the app), every enabled module's own page
+route (`/challenges`, `/quiz`, `/flags`) redirects a visitor without a valid
+unlock cookie to `/gate`. That list is exact-match and it is *pages* — the
+gate deliberately does not widen over `/api/*`. (The proxy's matcher does
+carry `/api/:path*`, but only for the cross-origin write assertion; gating
+the APIs would put the gate in front of `/api/auth/*`, breaking the sign-in
+a contestant needs in order to pass the gate, and in front of `/api/gate`
+itself, and would answer API calls with a page redirect an API client can't
+act on.)
 
 Instead, the three module routes that bank points or leak challenge content
 — `POST /api/quiz/answer`, `POST /api/classic/submit`, and
@@ -1061,36 +1077,40 @@ moment in time, set the scoring window (or keep the event paused) as well as
 
 The kit is complete and tested offline: `scripts/smoke.sh` exercises the whole
 poll pipeline, `sync` has unit tests for parsing, cursors and idempotency, and
-every target's rubric is gated against its stock image. Real, live-GitHub
-scoring depends on two changes landing in other OWASP-CTF repos, plus items
-still open here:
+every target's rubric is gated against its stock image. The full live-GitHub
+scoring path now **ships in-kit** — the two changes this section used to wait
+on from other OWASP-CTF repos landed here instead:
 
-1. **upstream scorer** — a bearer-token auth mode for `POST /score` (accepting
-   `Authorization: Bearer <token>` as an alternative to Actions OIDC), so both
-   `sync` and push mode can authenticate without an OIDC provider.
-2. **`score-action`** — optional `leaderboard-url` / `leaderboard-token`
-   inputs, the scoring Action always emitting a machine-readable result
-   comment (pass/fail and points only, no exploit detail), and a cap on
-   scoring re-runs per PR.
-3. **rubric fidelity, Security Shepherd** — the vendored helper that decides
-   whether a challenge was solved (`extractSolutionKey`) accepts any 32-128
-   character hex run found in the response. At least one challenge
-   (`Challenge-10-IDOR-2`) echoes the attacker-supplied identifier — itself
-   pure hex — back into the page precisely when a *correct* patch blocks the
-   lookup, so the helper reads a "solution key" out of noise and the challenge
-   scores as unpatched however good the fix. The bias runs toward "not
-   patched", so the stock-scores-zero gate is unaffected and no contestant
-   gains a free point; the cost is that one Shepherd challenge can
-   under-credit a correct patch. The rubrics are vendored read-only, so the
-   fix belongs upstream: tighten the helper to require a result-key-shaped
-   match rather than any bare hex run.
+1. **Scorer bearer auth** — the in-repo engine's `POST /score` requires
+   `Authorization: Bearer <token>` (`scorer/src/serve.js`), checked
+   constant-time, and the scorer refuses to boot without a token — so both
+   `sync` and push mode authenticate without an OIDC provider.
+2. **The scoring workflow** — the kit's own
+   `scorer/consumer-workflow.example.yml` replaces the upstream
+   `score-action`: it always posts the machine-readable result comment
+   (pass/fail and points only, no exploit detail), reads the judge's report
+   only from `CTF_OUT_DIR` and only when the scorer step succeeded, and takes
+   the push-mode leaderboard URL and token as org secrets.
 
-`srh` (`hiett/serverless-redis-http`), the Upstash-compatible REST proxy in
-front of Redis, implements only a subset of Upstash's REST API — no path-style
-`GET /get/<key>` shortcut, for example. The app is wired to it today for real
-team-membership and hint-purchase data. What remains unverified is whether the
-app's Redis client stays inside that subset end to end (pipelining, `EVAL`).
+What "tested offline" honestly bounds: **no real event has yet driven real
+contestant PRs through real GitHub end to end.** Until one has, treat
+`scripts/smoke.sh` as the source of truth that the kit works.
 
-Until items 1 and 2 land, treat `scripts/smoke.sh` as the source of truth that
-the kit works; a live event additionally needs the scorer's bearer-auth mode
-to authenticate `sync` or push against a running scorer.
+Known limits, in the open:
+
+- **Security Shepherd result matching** carried a real under-crediting bug:
+  the vendored helper read an echoed 32-hex user id out of a refusal page and
+  called it a result key, so a correct patch scored ❌ on 29 of the target's
+  40 challenges. That is fixed in the vendored copy (#101) — a bare key must
+  now be 64–128 hex, and real keys match with their surrounding context. The
+  stated residual (see the matcher's own comment in
+  `scorer/rubric.owasp/securityshepherd/tests/helpers.js`): a refusal phrased
+  "isn't correct" or "never correct" — rather than "not correct" — would
+  still read as a solve. The bias runs the same safe direction as before:
+  it can under-credit a correct patch, never award a free point.
+- **srh subset** — `srh` (`hiett/serverless-redis-http`), the
+  Upstash-compatible REST proxy in front of Redis, implements only a subset
+  of Upstash's REST API (no path-style `GET /get/<key>` shortcut, for
+  example). The app is wired to it today for real team-membership and
+  hint-purchase data. What remains unverified is whether the app's Redis
+  client stays inside that subset end to end (pipelining, `EVAL`).
