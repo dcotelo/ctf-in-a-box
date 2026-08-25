@@ -77,9 +77,10 @@ reviews:
   suggested_reviewers: false
   auto_assign_reviewers: false
 
+  # Off: the semantic and security path_instructions already catch what
+  # matters here, and a slop verdict is noise on a single-maintainer repo.
   slop_detection:
-    enabled: true
-    label: "ai-slop"
+    enabled: false
 
   auto_review:
     enabled: true
