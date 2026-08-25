@@ -134,9 +134,13 @@ export default async function ProfilePage() {
       // The store's roster wins; the standing's member list covers the mock
       // fallback path where `team.members` arrives empty.
       const roster = team.members.length > 0 ? team.members : (teamStanding?.members ?? []);
+      // Matched case-insensitively, like every other login join in this
+      // codebase: the roster stores the spelling the team join recorded, the
+      // board row the scorer's (PR author) — a disagreement must not render
+      // a scoring teammate as 0 pts.
       teamMemberEntries = roster.map((member) => ({
         login: member,
-        entry: data.entries.find((e) => e.login === member) ?? null,
+        entry: data.entries.find((e) => e.login.toLowerCase() === member.toLowerCase()) ?? null,
       }));
     } catch {
       teamStanding = null;

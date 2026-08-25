@@ -50,9 +50,19 @@ export async function withHintPenalties(data: LeaderboardData): Promise<Leaderbo
   }
   if (penalties.size === 0) return data;
 
+  // Logins are matched case-insensitively, like every other login join in
+  // this codebase (module-contributions, team-standings): the scorer records
+  // the PR author's spelling, the spend hash the session's at purchase time.
+  // A case disagreement must not exempt the row — the union fold upstream
+  // already merged the two spellings into ONE row, so the penalty has to land
+  // on it. Collisions cannot happen (a login is unique case-insensitively on
+  // GitHub); the fold just makes the lookup and the union agree on one rule.
+  const byLogin = new Map<string, number>();
+  for (const [login, points] of penalties) byLogin.set(login.toLowerCase(), points);
+
   const entries = data.entries
     .map((entry, i) => {
-      const penalty = penalties.get(entry.login) ?? 0;
+      const penalty = byLogin.get(entry.login.toLowerCase()) ?? 0;
       return {
         // Original position breaks any tie compareStanding can't (equal
         // points and no lastSolveAt), keeping the source order.
@@ -68,7 +78,7 @@ export async function withHintPenalties(data: LeaderboardData): Promise<Leaderbo
 
   const teams = data.teams
     .map((team, i) => {
-      const penalty = team.members.reduce((sum, m) => sum + (penalties.get(m) ?? 0), 0);
+      const penalty = team.members.reduce((sum, m) => sum + (byLogin.get(m.toLowerCase()) ?? 0), 0);
       return {
         i,
         team:
