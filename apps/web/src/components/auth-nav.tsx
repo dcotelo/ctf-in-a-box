@@ -120,7 +120,16 @@ export default function AuthNav() {
     }
   }
 
-  if (!mounted || isPending) {
+  // Show the loading placeholder only before we have ANY session answer, not
+  // on every revalidation. `useSession()` flips `isPending` true each time its
+  // store refetches in the background, but keeps the last `session` data — so
+  // gating on `isPending` alone swapped the real avatar/menu for this
+  // non-interactive placeholder mid-session, and a click landing on that frame
+  // did nothing (the menu felt like it needed a second click). `!session`
+  // scopes the placeholder to the genuine no-data window: the first load
+  // (session still undefined) and a real sign-out. A background refetch keeps
+  // the cached session, so the menu stays put and clickable.
+  if (!mounted || (isPending && !session)) {
     return <div className="h-8 w-8 flex-none animate-pulse rounded-full bg-white/[0.06]" aria-hidden="true" />;
   }
 
