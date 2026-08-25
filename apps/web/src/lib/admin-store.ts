@@ -290,6 +290,12 @@ function decodeEnabledModuleIds(raw: string | undefined): ModuleId[] | null {
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   const [res] = await upstashPipeline([["HGETALL", ADMIN_SETTINGS_KEY]]);
+  // A command-level failure resolves as { error } rather than rejecting.
+  // Decoding its missing result would silently serve DEFAULT settings (not
+  // paused, baked caps) with no log — so throw, making it behave exactly
+  // like the transport error every caller already handles with its own
+  // documented fail direction.
+  if (res.error) throw new Error(res.error);
   return decodeSettings(flatToObject(res.result));
 }
 
