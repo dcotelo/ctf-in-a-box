@@ -1,0 +1,49 @@
+diff --git a/src/main/java/servlets/module/challenge/DirectObject2.java b/src/main/java/servlets/module/challenge/DirectObject2.java
+index b404b73..bb38f69 100644
+--- a/src/main/java/servlets/module/challenge/DirectObject2.java
++++ b/src/main/java/servlets/module/challenge/DirectObject2.java
+@@ -6,6 +6,9 @@ import java.io.PrintWriter;
+ import java.sql.Connection;
+ import java.sql.PreparedStatement;
+ import java.sql.ResultSet;
++import java.util.Arrays;
++import java.util.HashSet;
++import java.util.Set;
+ import java.util.Locale;
+ import java.util.ResourceBundle;
+ import javax.servlet.ServletException;
+@@ -79,13 +82,32 @@ public class DirectObject2 extends HttpServlet {
+         log.debug("Servlet root = " + ApplicationRoot);
+         String htmlOutput = new String();
+ 
++        // Authorization allowlist (fixes the insecure direct object reference).
++        // The picker on this challenge legitimately exposes five users; the
++        // result key lives in a sixth user deliberately kept OUT of it. Trusting
++        // the client-supplied userId let a tampered request read that hidden
++        // record — the IDOR. Only the five exposed ids may be resolved here; any
++        // other reference falls through to the same "not found" response an
++        // unknown id gets, without the protected record ever being queried.
++        final Set<String> ALLOWED_USER_IDS =
++            new HashSet<String>(
++                Arrays.asList(
++                    "c81e728d9d4c2f636f067f89cc14862c",
++                    "eccbc87e4b5ce2fe28308fd9f2a7baf3",
++                    "e4da3b7fbbce2345d7772b0674a318d5",
++                    "8f14e45fceea167a5a36dedd4bea2543",
++                    "6512bd43d9caa6e02c990b0a82652dca"));
++        boolean authorized = userId != null && ALLOWED_USER_IDS.contains(userId);
++
+         Connection conn =
+             Database.getChallengeConnection(ApplicationRoot, "directObjectRefChalTwo");
+         PreparedStatement prepstmt =
+             conn.prepareStatement("SELECT userName, privateMessage FROM users WHERE userId = ?");
+-        prepstmt.setString(1, userId);
++        // Query only an authorized reference; an empty string matches no seeded
++        // row, so an unauthorized request cannot reach the protected record.
++        prepstmt.setString(1, authorized ? userId : "");
+         ResultSet resultSet = prepstmt.executeQuery();
+-        if (resultSet.next()) {
++        if (authorized && resultSet.next()) {
+           log.debug("Found user: " + resultSet.getString(1));
+           String userName = resultSet.getString(1);
+           String privateMessage = resultSet.getString(2);

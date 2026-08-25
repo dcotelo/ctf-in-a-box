@@ -73,6 +73,8 @@ jobs:
             challenge: challenge-33-error-sqli-level-1
           - target: securityshepherd
             challenge: challenge-23-sqli-1
+          - target: securityshepherd
+            challenge: challenge-10-idor-2
     steps:
       - uses: actions/checkout@v7
       - name: Patched ${{ matrix.target }} fork must score exactly ${{ matrix.challenge }}
