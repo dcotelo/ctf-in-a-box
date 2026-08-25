@@ -907,8 +907,8 @@ config — it's baked into the `app` image at build time:
 Changing `event.yaml` after the stack is already running requires an
 explicit rebuild of the `app` image (`docker compose --profile app build
 app`) — `docker compose up` alone won't pick up the edit, since Compose
-only rebuilds an image when told to ([hosting.md, "Rebuilding the app after
-a config change"](hosting.md#rebuilding-the-app-after-a-config-change)).
+only rebuilds an image when told to
+([Rebuilding the app after a config change](hosting.md#rebuilding-the-app-after-a-config-change)).
 
 ## Security model
 

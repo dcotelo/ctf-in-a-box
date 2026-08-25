@@ -128,8 +128,8 @@ route). Push mode needs a public URL for the box plus org Actions secrets
 instead of poll's ~30s cadence. `event.yaml`'s
 `modules.secure-development.score_ingest` field only documents the
 organizer's intent — the operative switch is the `SCORE_INGEST` env var in
-`.env`, and nothing syncs the two ([hosting.md, "Poll vs
-push"](hosting.md#poll-vs-push)). Both modes authenticate against the
+`.env`, and nothing syncs the two
+([Poll vs push](hosting.md#poll-vs-push)). Both modes authenticate against the
 in-repo scorer's bearer-authed `POST /score`, and push mode's
 `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets are read by the kit's own
 scoring workflow — the two upstream dependencies this entry originally
