@@ -37,6 +37,17 @@ describe("getAdminSettings", () => {
     });
   });
 
+  it("throws on a resolved per-command error instead of decoding it as defaults", async () => {
+    // upstashPipeline resolves with { error } for a command-level failure —
+    // it only rejects on transport trouble. Decoding the missing result as an
+    // empty hash would silently serve default settings (not paused, baked
+    // caps) with no log, bypassing every caller's documented fail direction.
+    // Throwing makes a command error behave exactly like the transport error
+    // each caller already handles.
+    mocks.upstashPipeline.mockResolvedValue([{ error: "NOAUTH Authentication required." }]);
+    await expect(getAdminSettings()).rejects.toThrow("NOAUTH");
+  });
+
   // Runtime module enablement (issue #175). Stored as a comma-separated id
   // list; the decoder is what stands between a stale or hand-edited field and
   // an event that serves nothing.

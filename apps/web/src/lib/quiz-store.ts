@@ -646,11 +646,14 @@ type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;
  *  obviously-refused answer off the write path cheaply; GRADE_SCRIPT
  *  re-checks both, against state read fresh at script-execution time, and
  *  is what actually enforces them (see GRADE_SCRIPT's comment). */
-async function evaluateGate(settings: ResolvedAdminSettings, login: string, questionId: string): Promise<QuizGate> {
-  if (effectivePaused(settings)) return { allowed: false, reason: "paused" };
+async function evaluateGate(settings: ResolvedAdminSettings | null, login: string, questionId: string): Promise<QuizGate> {
+  // `settings` is null when the settings read itself failed — the pause/
+  // schedule check then fails OPEN (a null reads as "not paused"), matching
+  // classic-store's gate and the manual-freeze fail-open in scorer and sync.
+  if (settings && effectivePaused(settings)) return { allowed: false, reason: "paused" };
 
-  const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
-  const retryAfterMin = settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN;
+  const maxAttempts = settings?.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
+  const retryAfterMin = settings?.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN;
 
   let answered: { points: number; at: string } | null;
   let attempt: { attempts: number; lastAt: string } | null;
@@ -708,16 +711,30 @@ async function evaluateGate(settings: ResolvedAdminSettings, login: string, ques
  *  they have none left) turns a transient Redis blip into a support
  *  conversation about a wrong count. This is the OPPOSITE of the scoring
  *  freeze (`effectivePaused`), which fails OPEN so a Redis blip never drops
- *  a live submission — here, the safe failure is "no attempt", not "grade a
- *  possibly-replayed answer", but the caller must still be told the truth:
+ *  a live submission — a failed SETTINGS read therefore treats scoring as
+ *  live and falls back to the baked cap/cooldown, exactly like
+ *  classic-store's gate. Here, the safe failure is "no attempt", not "grade
+ *  a possibly-replayed answer", but the caller must still be told the truth:
  *  the check couldn't be completed, not that they're out of attempts.
  *
  *  This function is a cheap, non-atomic pre-check — see the note on
  *  `evaluateGate` above about why it is NOT what actually enforces the cap
  *  or cooldown against a race. */
 export async function quizGate(login: string, questionId: string): Promise<QuizGate> {
-  const settings = await getAdminSettings();
-  return evaluateGate(settings, login, questionId);
+  return evaluateGate(await readSettingsFailOpen(), login, questionId);
+}
+
+/** Fails OPEN: if the settings read blows up we treat scoring as live rather
+ *  than dropping a submission a contestant is entitled to make. The cap and
+ *  cooldown then fall back to the module defaults, which GRADE_SCRIPT still
+ *  enforces. Mirrors classic-store's submitFlag. */
+async function readSettingsFailOpen(): Promise<ResolvedAdminSettings | null> {
+  try {
+    return await getAdminSettings();
+  } catch (err) {
+    console.error("quiz: admin settings read failed, treating scoring as live:", err);
+    return null;
+  }
 }
 
 // Grades one submission and, on success, records everything it changes in a
@@ -864,7 +881,7 @@ export async function answerQuestion(login: string, questionId: string, choices:
     return { ok: false, reason: "invalid" };
   }
 
-  const settings = await getAdminSettings();
+  const settings = await readSettingsFailOpen();
   const gate = await evaluateGate(settings, login, questionId);
   if (!gate.allowed) {
     // Kept as its own branch (not folded into the passthrough below) so its
@@ -887,8 +904,8 @@ export async function answerQuestion(login: string, questionId: string, choices:
   // stored cutoff) and handed to the script as plain numbers — the script
   // combines them with the attempts row IT reads at execution time, so the
   // authoritative check is never working from data this call read earlier.
-  const maxAttempts = settings.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
-  const cooldownMs = (settings.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
+  const maxAttempts = settings?.quizMaxAttempts ?? QUIZ_MAX_ATTEMPTS;
+  const cooldownMs = (settings?.quizRetryAfterMin ?? QUIZ_RETRY_AFTER_MIN) * 60_000;
 
   let verdict: unknown;
   try {
