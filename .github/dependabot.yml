@@ -84,3 +84,14 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+
+  # The AWS module pins its provider (and any future modules); without this
+  # entry those pins never see an update PR — the only ecosystem in the repo
+  # that was left out.
+  - package-ecosystem: "terraform"
+    directory: "/deploy/aws-terraform"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
