@@ -56,7 +56,7 @@ the sections below are the enforceable contract behind it.
    `event.yaml`'s `modules:` is the STARTING set and the outage fallback, not
    the live truth: organizers switch modules on and off from `/admin` during an
    event, and the live set lives in `ctf:admin:settings`
-   ([ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
 
    A module is runtime-toggleable only if **everything it needs already
    exists** when the switch is flipped. Concretely, enabling it must require no
@@ -96,7 +96,7 @@ the sections below are the enforceable contract behind it.
    tolerates the latter: `if (!mod) return null;` when
    `modules.secure-development` itself is simply not configured, which is
    what lets a quiz-only event run `sync` to a clean exit instead of a
-   crash loop (see [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+   crash loop (see [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
    for why the line is drawn there). All three lists MUST stay in step,
    because all three read the same file: an id the app accepts and `sync`
    rejects crash-loops the poller and silently freezes the leaderboard, and
@@ -354,7 +354,7 @@ third module isn't mistaken for a fully general n-module platform:
   Either tab can export its content as a single versioned JSON bundle and
   import one back — upsert by id, never deletes; classic additionally unions
   its categories rather than replacing them. See
-  [ADR 36](decisions.md#36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
+  [ADR 36](decisions.md#adr-36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
   for why the two formats are deliberately the same, and
   [docs/operations.md](operations.md#quiz) /
   [docs/operations.md](operations.md#classic) for the organizer-facing

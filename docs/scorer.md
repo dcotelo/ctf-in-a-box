@@ -11,7 +11,7 @@ own scorer image from the engine in `scorer/`, and close the whole
 scoring loop with components in this repo. For where the scorer sits in the
 system, see [docs/architecture.md](architecture.md); for the contract it
 implements, see [docs/modules.md](modules.md) §2–3; for why the rubric ships
-public, see [decisions.md #18](decisions.md#18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public).
+public, see [decisions.md #18](decisions.md#adr-18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public).
 
 ## What the scorer is
 
@@ -71,9 +71,9 @@ the exact probe (special-casing the probe's payload string, hardcoding the
 expected status) without actually fixing the vulnerability. The kit accepts
 that exposure as a trade-off rather than treating it as a blocker: the
 vendored `rubric.owasp/` is public in this repo and is what a stock build
-bakes ([decisions.md #18](decisions.md#18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public),
+bakes ([decisions.md #18](decisions.md#adr-18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public),
 reversing the earlier posture in
-[#17](decisions.md#17-public-scorer-engine-private-rubric)). Two practical
+[#17](decisions.md#adr-17-public-scorer-engine-private-rubric)). Two practical
 consequences:
 
 - **Stock default:** the checks a contestant is scored against are readable

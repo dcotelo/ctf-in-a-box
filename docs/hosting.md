@@ -411,7 +411,7 @@ list is fixed when you run `up`: the app cannot start a `scorer` that was never
 brought up, so a runtime toggle would enable a module whose services are not
 there. Its forks are the other half of the same problem — only `ctf-setup.sh`
 can create those. See
-[ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+[ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
 
 So the `modules:` block below decides the profiles you need **and** decides
 Secure Development permanently; for Quiz and Classic it only decides what the
@@ -582,7 +582,7 @@ doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
 the landing page, the leaderboard, and `/profile` all compose from whatever
 modules *are* enabled instead of assuming `secure-development` is one of
 them. See [docs/modules.md §5](modules.md#5-ui--presentation-contract) for
-the UI composition contract and [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+the UI composition contract and [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
 for why the missing-vs-unknown distinction is drawn where it is.
 
 **Boot a quiz-only event with `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose --profile app up -d --build`**

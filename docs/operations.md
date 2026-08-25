@@ -231,7 +231,7 @@ The panel offers:
     running on an event that never enabled it; see the profiles table in
     [hosting](hosting.md)) and its provisioned forks, which only
     `ctf-setup.sh` can create. Its row shows the reason instead of a control
-    that would always fail. See [ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+    that would always fail. See [ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
 
   **`event.yaml`'s `modules:` is now the starting set and the fallback, not the
   live truth.** Editing it mid-event changes nothing until you rebuild — the
@@ -682,7 +682,7 @@ Beyond the admin form's one-question-at-a-time editing, the Quiz tab's own
 panel has an **Export questions** button and an **Import a bundle** box
 (paste JSON, or choose a `.json` file) for authoring — or backing up — a
 whole bank in one pass. This is the same bundle format the Classic module
-uses (see [ADR 36](decisions.md#36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)),
+uses (see [ADR 36](decisions.md#adr-36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)),
 so the rules below will look familiar if you have imported a flag board. A
 bundle is a single JSON object: a `version` and a `questions` array where
 each entry has exactly the fields the admin form itself collects, correct

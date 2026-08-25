@@ -151,7 +151,7 @@ Stated plainly so it is not mistaken for an oversight:
 - **The scorer builds and runs contestant-submitted code.** It holds
   `docker.sock` to boot the app as a sibling container. That boundary is
   inherent to judging submitted code and predates every flag discussed here
-  — see [ADR 37](decisions.md#37-opting-in-to-the-fork-pr-checkout-pull_request_target-now-guards).
+  — see [ADR 37](decisions.md#adr-37-opting-in-to-the-fork-pr-checkout-pull_request_target-now-guards).
 - **Contestants can see each other's scores.** The leaderboard is the point.
 - **Classic-module flags are stored in plaintext** and visible to anyone who
   reaches `/admin`. `/admin` access is the actual secrecy boundary — see

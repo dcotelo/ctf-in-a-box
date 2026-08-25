@@ -120,7 +120,7 @@ Containers inside one machine reach each other over `localhost`, on IPv4. That
 removes the problem instead of routing around it — and it is cheaper.
 
 Full reasoning, and the alternatives that lost, in
-[ADR 42](decisions.md#42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps).
+[ADR 42](decisions.md#adr-42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps).
 
 ## The three things that bite
 
