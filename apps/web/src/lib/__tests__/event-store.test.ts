@@ -116,4 +116,14 @@ describe("importEventBundle", () => {
     const { skipped } = await importEventBundle(bundleFixture(), "alice");
     expect(skipped.some((s) => /baked at build time|rebuild/i.test(s))).toBe(true);
   });
+
+  it("drops a null scalar policy field instead of forwarding it (a fresh export round-trip carries these)", async () => {
+    await importEventBundle(
+      { ...bundleFixture(), settings: { ...bundleFixture().settings, hintCost: null, teamMaxMembers: 6 } },
+      "alice",
+    );
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect("hintCost" in patch).toBe(false);
+    expect(patch.teamMaxMembers).toBe(6);
+  });
 });

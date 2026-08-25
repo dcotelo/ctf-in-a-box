@@ -165,6 +165,12 @@ function buildPolicyPatch(settings: EventPolicySettings): SettingsPatch {
       const ids = value as ModuleId[] | null | undefined;
       if (Array.isArray(ids) && ids.length > 0) patch.enabledModules = ids;
     } else {
+      // The 9 scalar policy fields are `X | null` on AdminSettings/the
+      // bundle (null = "no override"), but SettingsPatch types them
+      // non-nullable and updateAdminSettings throws on a null. Skip, same as
+      // the moduleOverrides/enabledModuleIds null guards above — forwarding
+      // null here would round-trip a fresh export straight into a throw.
+      if (value === null || value === undefined) continue;
       (patch as Record<string, unknown>)[field] = value;
     }
   }
