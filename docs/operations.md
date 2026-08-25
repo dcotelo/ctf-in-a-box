@@ -51,21 +51,29 @@ team to become its captain and get a join code, join an existing team by code,
 or hit **Play solo** for a one-click team of one named after their GitHub
 login. Everyone ends up on a team — a solo player is simply a team of one.
 
-The requirement is enforced in two places. The quiz and flag submission routes
-refuse a teamless login outright, which is the boundary that actually holds; on
-top of that, a signed-in contestant with no team who opens `/quiz` or `/flags`
-is sent to their profile's team card first, so nobody discovers the rule by
-answering a question and watching it not count. Organizers are exempt from the
-redirect — they open module pages to check that their content renders, which is
-not playing — but not from the submission check, since an organizer's points
-would fold into no team either.
+The requirement is enforced in three places, earliest first. **At sign-in**:
+every GitHub sign-in lands on a post-signin step that sends a contestant with
+no team straight to the team card — team setup is the first thing a new
+contestant completes, not something discovered later (a `/join/<code>` invite
+passes through untouched, since the invite *is* the team step). **At the
+module pages**: a signed-in contestant with no team who opens `/quiz` or
+`/flags` is sent to the team card too, so nobody who slipped past the first
+step discovers the rule by answering a question and watching it not count.
+**At the routes**: the quiz and flag submission routes refuse a teamless
+login outright — the boundary that actually holds. Organizers are exempt
+from both redirects — they sign in to check that their content renders,
+which is not playing — but not from the submission check, since an
+organizer's points would fold into no team either. If registration is
+closed when a teamless contestant reaches the team card, it explains that
+instead of offering forms the routes would refuse.
 
-> **Secure Development is the exception.** Its points arrive from GitHub
-> through the sync poller rather than through an app route, so there is no
-> submission for the box to refuse. A contestant who patches a fork while on no
-> team still has their score ingested against a login that belongs to no team,
-> and it contributes to no team total. Point contestants at the team card
-> before the event starts.
+> **Secure Development still has no route to refuse.** Its points arrive
+> from GitHub through the sync poller rather than through an app route, so a
+> contestant who patches a fork while on no team has their score ingested
+> against a login that belongs to no team, and it contributes to no team
+> total. The sign-in steering above is what covers this module — it is the
+> only enforcement point its scoring path passes through — so it matters
+> most for events running Secure Development.
 
 Captains
 manage the roster from the app: rename the team, remove a member, transfer the
