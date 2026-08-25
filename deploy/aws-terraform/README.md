@@ -26,6 +26,7 @@ Full walkthrough: [`docs/aws.md`](../../docs/aws.md).
    aws ssm put-parameter --type SecureString --name $P/BETTER_AUTH_SECRET     --value "$(openssl rand -base64 32)"
    aws ssm put-parameter --type SecureString --name $P/SRH_TOKEN              --value "$(openssl rand -hex 24)"
    aws ssm put-parameter --type SecureString --name $P/SCORER_TOKEN           --value "$(openssl rand -hex 24)"
+   aws ssm put-parameter --type SecureString --name $P/REDIS_PASSWORD         --value "$(openssl rand -hex 24)"
    aws ssm put-parameter --type SecureString --name $P/GITHUB_CLIENT_ID       --value "Ov23li..."
    aws ssm put-parameter --type SecureString --name $P/GITHUB_CLIENT_SECRET   --value "..."
    aws ssm put-parameter --type SecureString --name $P/GITHUB_APP_ID          --value "123456"
