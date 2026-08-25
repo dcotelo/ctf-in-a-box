@@ -53,10 +53,10 @@ The full scoring path ships in-kit — the scorer's bearer-authed `POST /score`,
 the self-contained scoring workflow for the forks, poll and push transport —
 and `scripts/smoke.sh` exercises the whole poll pipeline end to end against
 mocks. What has *not* happened yet is a real event driving real contestant
-PRs through real GitHub. Two known caveats, in the open: one Security
-Shepherd challenge can under-credit a correct patch (a vendored upstream
-helper matches too loosely — it never awards a free point, it can only
-withhold an earned one), and the app's Redis client has not been verified
+PRs through real GitHub. Two known caveats, in the open: the Security
+Shepherd result matcher has a stated residual limit (an unusually-phrased
+refusal can still read as a solve — it can under-credit a correct patch,
+never award a free point), and the app's Redis client has not been verified
 end-to-end against the srh proxy's subset of the Upstash REST API. Detail and
 current state: [Status and upstream
 dependencies](docs/operations.md#status-and-upstream-dependencies).
