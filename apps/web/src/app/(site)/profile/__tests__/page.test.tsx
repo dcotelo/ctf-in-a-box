@@ -16,6 +16,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 const {
   getSession,
   getUser,
+  getLeaderboard,
   getViewerTeam,
   getViewerHints,
   getHintPenalties,
@@ -27,6 +28,7 @@ const {
 } = vi.hoisted(() => ({
   getSession: vi.fn(),
   getUser: vi.fn(),
+  getLeaderboard: vi.fn(),
   getViewerTeam: vi.fn(),
   getViewerHints: vi.fn(),
   getHintPenalties: vi.fn(),
@@ -47,7 +49,7 @@ vi.mock("next/navigation", async (importOriginal) => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
+vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser, getLeaderboard }) }));
 vi.mock("@/lib/team-store", () => ({
   getViewerTeam,
   // The page renders the cap through the same resolver joinTeam enforces
@@ -154,6 +156,47 @@ describe("profile page points vs. the leaderboard row", () => {
 
     expect(getQuizTotals).not.toHaveBeenCalled();
     expect(html).toContain(">30<"); // 40 - 10, no quiz points added
+  });
+});
+
+describe("profile team panel member rows", () => {
+  it("matches a roster member to their board row case-insensitively", async () => {
+    // The roster stores the spelling the team join recorded ("ada"); the
+    // board row carries the scorer's — the PR author's — spelling ("Ada").
+    // The join must not render a scoring teammate as 0 pts over casing,
+    // matching every other login join in the codebase.
+    isModuleEnabled.mockReturnValue(false);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getHintPenalties.mockResolvedValue(new Map());
+    getViewerTeam.mockResolvedValue({ slug: "red", name: "Red Team", members: ["ada"] });
+    const boardEntry: LeaderboardEntry = {
+      rank: 1,
+      login: "Ada",
+      team: "red",
+      points: 77,
+      patched: 1,
+      failed: 0,
+      total: 6,
+      apps: {},
+      updatedAt: null,
+    };
+    // capabilities.teams: true makes withTeamStandings a no-op, so the panel
+    // reads exactly this standing — the test is about the member join alone.
+    getLeaderboard.mockResolvedValue({
+      entries: [boardEntry],
+      teams: [{ rank: 1, slug: "red", name: "Red Team", captain: "ada", points: 200, members: ["ada"] }],
+      generatedAt: new Date().toISOString(),
+      capabilities: { apps: false, teams: true, challenges: false },
+    } satisfies LeaderboardData);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    // The member row shows Ada's 77 board points, not the 0 a case-sensitive
+    // find would fall back to.
+    expect(html).toContain("Team progress");
+    expect(html).toContain(">77<");
   });
 });
 
