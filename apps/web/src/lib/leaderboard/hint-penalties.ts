@@ -55,10 +55,14 @@ export async function withHintPenalties(data: LeaderboardData): Promise<Leaderbo
   // the PR author's spelling, the spend hash the session's at purchase time.
   // A case disagreement must not exempt the row — the union fold upstream
   // already merged the two spellings into ONE row, so the penalty has to land
-  // on it. Collisions cannot happen (a login is unique case-insensitively on
-  // GitHub); the fold just makes the lookup and the union agree on one rule.
+  // on it. Case-variant fields are SUMMED, not last-wins: the spend hash
+  // accumulates historically, so a case-only GitHub login rename mid-event
+  // leaves one person's spend split across two fields — all of it is theirs.
   const byLogin = new Map<string, number>();
-  for (const [login, points] of penalties) byLogin.set(login.toLowerCase(), points);
+  for (const [login, points] of penalties) {
+    const key = login.toLowerCase();
+    byLogin.set(key, (byLogin.get(key) ?? 0) + points);
+  }
 
   const entries = data.entries
     .map((entry, i) => {
