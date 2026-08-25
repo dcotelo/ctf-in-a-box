@@ -1,0 +1,79 @@
+import { requireAdmin } from "@/lib/admin-auth";
+import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { parseEventBundle } from "@/lib/event-io";
+import { EventLiveError, exportEventBundle, importEventBundle } from "@/lib/event-store";
+import { upstashPipeline } from "@/lib/upstash";
+
+/**
+ * Organizer surface for whole-event archive export (GET) and import (POST).
+ * Gated by `requireAdmin` throughout, same as the module-scoped admin
+ * routes (`admin/classic/route.ts`, `admin/quiz/route.ts`) this mirrors.
+ *
+ * GET hands back the assembled bundle (see `exportEventBundle` in
+ * event-store.ts) as JSON, plus any `warnings` (Secure Development content
+ * excluded, event still live, ...) — the client builds the downloadable
+ * file from this response; the route itself never writes a file.
+ *
+ * POST carries the bundle as raw TEXT under the single key `import`, never a
+ * pre-parsed object — mirroring the classic/quiz admin routes' bulk-import
+ * shape — so this route re-parses and re-validates it with
+ * `parseEventBundle` (the same validator `event-io.ts` exposes to the
+ * client) before ever calling `importEventBundle`. `importEventBundle`
+ * itself refuses on a live event via `EventLiveError`, mapped here to 409.
+ */
+
+const IMPORT_KEYS = new Set(["import"]);
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function hasOnlyKeys(obj: Record<string, unknown>, allowed: Set<string>): boolean {
+  return Object.keys(obj).every((k) => allowed.has(k));
+}
+
+/** Appends one audit line, mirroring admin-store's / the classic admin
+ *  route's LPUSH+LTRIM pattern. Best-effort: an audit-write failure is
+ *  logged but never fails a request whose actual data write already
+ *  succeeded. */
+async function writeAudit(actor: string, action: string, detail: Record<string, unknown>): Promise<void> {
+  const audit = JSON.stringify({ at: new Date().toISOString(), by: actor, action, ...detail });
+  try {
+    await upstashPipeline([
+      ["LPUSH", ADMIN_AUDIT_KEY, audit],
+      ["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1],
+    ]);
+  } catch (err) {
+    console.error("[admin/event] audit write failed", err);
+  }
+}
+
+export async function GET(request: Request) {
+  const gate = await requireAdmin(request.headers);
+  if (!gate.ok) return Response.json({ error: "forbidden" }, { status: gate.status });
+
+  const { bundle, warnings } = await exportEventBundle();
+  return Response.json({ bundle, warnings });
+}
+
+export async function POST(request: Request) {
+  const gate = await requireAdmin(request.headers);
+  if (!gate.ok) return Response.json({ error: "forbidden" }, { status: gate.status });
+
+  const body = await request.json().catch(() => null);
+  if (!isPlainObject(body) || !hasOnlyKeys(body, IMPORT_KEYS) || typeof body.import !== "string") {
+    return Response.json({ error: "invalid request payload" }, { status: 400 });
+  }
+
+  const parsed = parseEventBundle(body.import);
+  if (!parsed.ok) return Response.json({ errors: parsed.errors }, { status: 400 });
+
+  try {
+    const { summary, skipped } = await importEventBundle(parsed.bundle, gate.login);
+    await writeAudit(gate.login, "event-import", { summary });
+    return Response.json({ summary, skipped });
+  } catch (e) {
+    if (e instanceof EventLiveError) return Response.json({ error: e.message }, { status: 409 });
+    throw e;
+  }
+}
