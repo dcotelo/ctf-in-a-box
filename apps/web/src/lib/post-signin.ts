@@ -27,10 +27,14 @@ export function postSigninCallbackURL(next: string): string {
 /** `next` comes back from the OAuth round-trip as a query parameter, i.e.
  *  attacker-influencable. Only a same-origin path survives: anything not
  *  starting with a single `/` (absolute URLs, `//host`, `/\host` — both of
- *  which browsers treat as protocol-relative) falls back to /profile. */
+ *  which browsers treat as protocol-relative) falls back to /profile — and
+ *  so does anything carrying tab/newline/CR, which the WHATWG URL parser
+ *  STRIPS before parsing, so a decoded `/%09/evil.example` would otherwise
+ *  re-collapse into protocol-relative `//evil.example` at resolve time. */
 export function sanitizeNext(raw: string | null | undefined): string {
   if (!raw || !raw.startsWith("/")) return "/profile";
   if (raw.startsWith("//") || raw.startsWith("/\\")) return "/profile";
+  if (/[\t\n\r]/.test(raw)) return "/profile";
   return raw;
 }
 

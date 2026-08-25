@@ -71,9 +71,14 @@ instead of offering forms the routes would refuse.
 > from GitHub through the sync poller rather than through an app route, so a
 > contestant who patches a fork while on no team has their score ingested
 > against a login that belongs to no team, and it contributes to no team
-> total. The sign-in steering above is what covers this module — it is the
-> only enforcement point its scoring path passes through — so it matters
-> most for events running Secure Development.
+> total **until they join one** — team totals fold from current membership
+> at read time, so already-banked solves count from the moment the login is
+> on a team. That deferred-credit behavior is deliberate: refusing the score
+> at ingestion would lose it permanently (the poller marks the comment seen),
+> where banking it against the login only delays it. The sign-in steering
+> above is what closes the gap in practice — it is the only enforcement
+> point this module's scoring path passes through — so it matters most for
+> events running Secure Development.
 
 Captains
 manage the roster from the app: rename the team, remove a member, transfer the

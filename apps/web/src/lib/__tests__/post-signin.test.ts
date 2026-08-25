@@ -36,6 +36,12 @@ describe("sanitizeNext", () => {
     ["//evil.example/"],
     ["/\\evil.example/"],
     ["quiz"],
+    // The URL parser strips tab/newline/CR BEFORE parsing, so these would
+    // re-collapse into protocol-relative //evil.example at resolve time.
+    ["/\t/evil.example"],
+    ["/\n/evil.example"],
+    ["/\r/evil.example"],
+    ["/quiz\t"],
   ])("falls back to /profile for %j", (raw) => {
     expect(sanitizeNext(raw as string | null | undefined)).toBe("/profile");
   });

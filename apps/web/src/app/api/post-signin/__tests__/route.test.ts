@@ -67,6 +67,14 @@ describe("GET /api/post-signin", () => {
     expect(url.pathname).toBe("/profile");
   });
 
+  it("refuses URL-parser whitespace that would re-collapse into another origin", async () => {
+    // /%09/evil.example decodes to "/\t/evil.example"; the URL parser strips
+    // the tab, leaving protocol-relative //evil.example.
+    const url = location(await GET(req("/\t/evil.example")));
+    expect(url.origin).toBe("http://box.test");
+    expect(url.pathname).toBe("/profile");
+  });
+
   it("lands home when there is no session", async () => {
     getSession.mockResolvedValue(null);
     const url = location(await GET(req("/quiz")));
