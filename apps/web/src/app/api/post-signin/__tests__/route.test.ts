@@ -19,11 +19,18 @@ import { GET } from "@/app/api/post-signin/route";
 const req = (next?: string) =>
   new Request(`http://box.test/api/post-signin${next ? `?next=${encodeURIComponent(next)}` : ""}`);
 
+// The Location MUST be a relative same-origin path, never an absolute URL:
+// behind a proxy `request.url` is the container-local origin (on Fly literally
+// localhost:3000), so an absolute redirect built from it sent sign-in to
+// localhost. Assert it's relative here, then resolve against the request
+// origin so the pathname/hash/origin checks below stay meaningful.
 const location = (res: Response) => {
   const url = res.headers.get("location");
   expect(res.status).toBe(302);
   expect(url).toBeTruthy();
-  return new URL(url as string);
+  expect(url as string).toMatch(/^\//); // relative path, not "http(s)://..." or "//host"
+  expect(url as string).not.toMatch(/^\/\//); // and not protocol-relative
+  return new URL(url as string, "http://box.test");
 };
 
 beforeEach(() => {
