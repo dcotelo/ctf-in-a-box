@@ -86,6 +86,18 @@ are scoped with their own `paths:` filters to judge-relevant scorer inputs
 rather than the full `scorer/` tree — they run real target containers, so
 they're reserved for changes that could actually move the score.
 
+**Every PR must also pass CodeRabbit review before merge, not just the CI
+jobs above.** CodeRabbit runs automatically on each PR (`.coderabbit.yaml`
+tunes it); treat its findings as a required gate. Resolve every actionable
+comment — apply the fix, or reply on the thread with the reason it does not
+apply and mark it resolved — and leave no unresolved actionable thread on a
+PR you intend to merge. A finding you disagree with is answered, not
+ignored: CodeRabbit is fallible and a reasoned decline is a valid outcome,
+but the decline has to be on the record. Its pre-merge checks
+(secrecy boundary, fail-open/closed direction, unpinned dependencies,
+breaking-change docs, secrets in logs) encode invariants this repo has been
+burned by; a warning from one is a prompt to look, not a formality.
+
 ## Conventions & gotchas
 
 These are real failure modes this project has hit — treat them as rules, not
