@@ -58,7 +58,12 @@ vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({ refresh: vi.fn() }),
 }));
-vi.mock("@/lib/admin-store", () => ({ getAdminSettings: async () => ({ moduleOverrides: {} }) }));
+vi.mock("@/lib/admin-store", () => ({
+  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // The page reads the registration window for the team card's
+  // closed-state explanation (issue #217).
+  effectiveRegistrationOpen: () => true,
+}));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
 vi.mock("@/lib/team-store", () => ({

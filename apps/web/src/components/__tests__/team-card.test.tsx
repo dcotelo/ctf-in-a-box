@@ -36,6 +36,40 @@ describe("TeamCard", () => {
     expect(html).not.toMatch(/create or join a team to compete/i);
   });
 
+  it("explains a closed registration window instead of rendering forms (issue #217)", () => {
+    // The routes are the enforcement; this is so a teamless contestant sent
+    // here after registration closed reads why, instead of three forms that
+    // refuse them one failed POST at a time.
+    const html = renderToStaticMarkup(
+      <TeamCard
+        team={null}
+        writesEnabled
+        maxMembers={4}
+        isCaptain={false}
+        captain={null}
+        joinCode={null}
+        registrationOpen={false}
+      />,
+    );
+    expect(html).toMatch(/registration is closed/i);
+    // The requirement is still stated — closed registration does not read as
+    // "teams are optional now".
+    expect(html).toMatch(/still required/i);
+    expect(html).not.toMatch(/join code/i);
+    expect(html).not.toMatch(/play solo/i);
+  });
+
+  it("keeps the forms when registration is open, including by default", () => {
+    // The prop defaults open, matching the routes' fail-open settings read —
+    // a settings blip must not hide the forms from a whole event.
+    const html = renderToStaticMarkup(
+      <TeamCard team={null} writesEnabled maxMembers={4} isCaptain={false} captain={null} joinCode={null} />,
+    );
+    expect(html).toMatch(/join code/i);
+    expect(html).toMatch(/play solo/i);
+    expect(html).not.toMatch(/registration is closed/i);
+  });
+
   it("shows Leave for a non-captain member and hides captain controls", () => {
     const html = renderToStaticMarkup(
       <TeamCard

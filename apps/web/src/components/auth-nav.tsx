@@ -10,6 +10,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { postSigninCallbackURL } from "@/lib/post-signin";
 import { eventConfig } from "@/lib/event-config";
 
 // Client-side admin check for menu VISIBILITY only. The allowlist is baked
@@ -99,7 +100,11 @@ export default function AuthNav() {
     return (
       <button
         type="button"
-        onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/profile" })}
+        onClick={() =>
+          // Through the post-signin step (issue #217): a teamless contestant
+          // meets the team card first; a teamed one lands on /profile as before.
+          authClient.signIn.social({ provider: "github", callbackURL: postSigninCallbackURL("/profile") })
+        }
         className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/50 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
         <span className="text-[#22c55e]">$</span> sign-in --github

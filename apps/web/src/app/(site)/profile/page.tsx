@@ -37,6 +37,7 @@ import { getQuizTotals, getViewerQuiz, listQuestions, type Question, type QuizTo
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib/team-store";
+import { getAdminSettings, effectiveRegistrationOpen } from "@/lib/admin-store";
 import { upstashPipeline } from "@/lib/upstash";
 import { event } from "@/lib/site";
 
@@ -88,7 +89,7 @@ export default async function ProfilePage() {
   // `resolvedModules` (organizer-renamed titles) is what drives the
   // per-module breakdown below off the enabled-module LIST rather than a
   // per-module branch — see the module block loop.
-  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, viewerQuiz, viewerClassic, resolvedModules, maxMembers] =
+  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, viewerQuiz, viewerClassic, resolvedModules, maxMembers, adminSettings] =
     await Promise.all([
       getLeaderboardSource().getUser(login),
       getViewerTeam(login),
@@ -107,6 +108,12 @@ export default async function ProfilePage() {
       // ADR 31 records from the hint toggle. It rides along in this existing
       // Promise.all, so it costs no extra round-trip.
       resolveTeamMaxMembers(),
+      // For the team card's registration-closed explanation. Same
+      // read-and-explain the /join/<code> page does: the team routes are the
+      // enforcement, this is so a teamless contestant sent here after
+      // registration closed reads why, instead of forms that refuse them.
+      // Fail-open like the routes' own reads: an error means "open".
+      getAdminSettings().catch(() => null),
     ]);
 
   // Live/mock team membership from the store wins; fall back to whatever the
@@ -419,6 +426,7 @@ export default async function ProfilePage() {
           isCaptain={isCaptain}
           captain={teamMeta.captain}
           joinCode={teamMeta.joinCode}
+          registrationOpen={adminSettings === null ? true : effectiveRegistrationOpen(adminSettings)}
         />
         {teamStanding && teamMemberEntries.length > 0 && (
           <TeamProgress

@@ -51,6 +51,7 @@ export default function TeamCard({
   isCaptain,
   captain,
   joinCode,
+  registrationOpen = true,
 }: {
   team: TeamInfo | null;
   writesEnabled: boolean;
@@ -64,6 +65,11 @@ export default function TeamCard({
   /** The team's current join code, when known (live mode only). Shown so any
    *  member — captain included — can share it to recruit teammates. */
   joinCode: string | null;
+  /** Resolved on the server (effectiveRegistrationOpen). When closed, the
+   *  teamless branch explains instead of rendering forms the routes would
+   *  refuse — the same read-and-explain the /join/<code> page does. Defaults
+   *  open, matching the routes' own fail-open settings read. */
+  registrationOpen?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -271,6 +277,17 @@ export default function TeamCard({
               </div>
             </div>
           )}
+        </div>
+      ) : !registrationOpen ? (
+        // Registration closed and the viewer has no team: forms would only
+        // collect a refusal from the routes, so explain instead (issue #217).
+        // The team requirement still holds — say both halves plainly.
+        <div className="mt-3 flex flex-col gap-2">
+          <p className="text-sm text-zinc-400">Team registration is closed for this event.</p>
+          <p className="text-xs text-muted">
+            A team is still required before anything you solve counts — find an organizer if you
+            arrived after registration closed.
+          </p>
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-3">

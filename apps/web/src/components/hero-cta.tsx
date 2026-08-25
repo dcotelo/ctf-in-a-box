@@ -5,10 +5,13 @@
 // `callbackURL` carries the visitor's intent across the OAuth redirect — a
 // signed-out visitor who clicked "Sign in and play" lands on the board, not
 // back on the marketing page (brief: "never lose someone's intended action
-// across the redirect").
+// across the redirect") — routed through the post-signin step, so a teamless
+// contestant meets the team card first (issue #217) and a teamed one still
+// lands exactly where they intended.
 
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
+import { postSigninCallbackURL } from "@/lib/post-signin";
 
 const PRIMARY =
   "inline-flex items-center gap-2 rounded-md bg-[#2563eb] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
@@ -31,7 +34,7 @@ export default function HeroCta({
         onClick={() => {
           // Surface a failed redirect start instead of leaving the CTA
           // silently idle; the OAuth flow itself navigates away on success.
-          void authClient.signIn.social({ provider: "github", callbackURL })
+          void authClient.signIn.social({ provider: "github", callbackURL: postSigninCallbackURL(callbackURL) })
             .then((result) => {
               if (result?.error) {
                 console.error("sign-in failed to start:", result.error);
