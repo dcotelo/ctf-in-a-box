@@ -26,6 +26,14 @@ each UI-only one, and resumes if you stop:
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
+Every discrete step is also its own subcommand — `check`, `secrets`, `org`,
+`render`, `upgrade`, `teardown`, `doctor`, `app-manifest`, `app-config`,
+`oauth-app`, `oauth-config` — with the global flags `--dry-run` (print
+mutating commands instead of running them), `--config <path>` (default
+`event.yaml`) and `--out <path>` (default `.env`, for `secrets`). The
+numbered sequence below names each one where it's used; `teardown` is covered
+in [operations.md](operations.md#running-an-event).
+
 ![The guided setup wizard in a terminal: an ASCII banner, then numbered steps prompting for each value inline with the matching GitHub URL shown alongside](assets/wizard.jpg)
 
 <sup>The wizard, mid-run: every value is asked for inline with the GitHub page
@@ -266,7 +274,7 @@ queryable) and shows ✅ once done — only the third is a blind reminder:
    Note that this includes forks that have **scored successfully many times**.
    Under the old workflow the pull happened inside `Run scorer`, where it
    cannot be read back separately, so a working grant is invisible to
-   `doctor` until that fork runs the v2 workflow once. ⚠️ here means *not
+   `doctor` until that fork runs the upgraded workflow once. ⚠️ here means *not
    observed*, never *not granted*. Re-triggering any existing PR on an
    upgraded fork (close, reopen) is enough to settle it.
 
@@ -314,15 +322,17 @@ That matters most for the changes you least want stranded — a security fix to
 The rendered workflow carries a version stamp copied from the template:
 
 ```
-# ctf-workflow-version: 1
+# ctf-workflow-version: 3
 ```
 
-`doctor` reports every fork's version against the kit's, and names the fix:
+`doctor` reports every fork's version against the kit's, and names the fix
+(sample output — the current template version is whatever the stamp above
+says in your checkout):
 
 ```
-scoring workflow version (template is v2):
-  juice-shop         ✅ v2
-  dvwa               ❌ v1 — stale (template v2); run: ./setup/ctf-setup.sh upgrade
+scoring workflow version (template is v3):
+  juice-shop         ✅ v3
+  dvwa               ❌ v2 — stale (template v3); run: ./setup/ctf-setup.sh upgrade
   webgoat            ❌ pre-versioning — provisioned before workflow stamping; run: ./setup/ctf-setup.sh upgrade
 ```
 
@@ -418,9 +428,9 @@ export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
 
 | `modules:` in your `event.yaml` | Command |
 |---|---|
-| `secure-development` (poll mode), with or without `quiz` | `docker compose --profile poll --profile app up -d --build` |
-| `secure-development` (push mode), with or without `quiz` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
-| `quiz` only | `docker compose --profile app up -d --build` |
+| `secure-development` (poll mode), with or without `quiz`/`classic` | `docker compose --profile poll --profile app up -d --build` |
+| `secure-development` (push mode), with or without `quiz`/`classic` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| `quiz` and/or `classic`, no `secure-development` | `docker compose --profile app up -d --build` |
 
 `ctf-setup.sh wizard` prints (and offers to run) the right one for the
 `event.yaml` you configured, so you do not have to pick by hand.
@@ -510,7 +520,7 @@ register the OAuth app on your personal account rather than the org.
 ## Configuration
 
 `event.yaml` uses a **modules** schema. Platform settings (`event`, `github`,
-`teams`, `hints`, `admins`) sit at the top level; challenge content is
+`admins`) sit at the top level; challenge content is
 namespaced under `modules.<name>`, one block per registered module id. Three
 ids are registered today:
 
@@ -599,11 +609,13 @@ on three different hostnames. Or let
 [the wizard](#quickstart-zero-to-a-scored-event) write the file from your
 answers, which is the same schema with none of the YAML. Only the modules you
 enable need their own settings: `modules.secure-development.targets` and
-`score_ingest` for that one, nothing for `quiz`. Team play is configured at the
-top level — `teams: { enabled: true, max_size: 4 }` in `event.yaml.example`.
-`hints: { enabled: true }` matches the running default — hints are on; neither
-key is read at build time. **Hints have exactly one switch: `/admin`'s hint
-controls**, a runtime override stored in Redis. It is live, survives restarts,
+`score_ingest` for that one, nothing for `quiz` or `classic`. There is
+deliberately **no `teams:` or `hints:` block** — both keys existed once,
+were never read, and were removed rather than left as documentation-of-intent
+(ADR 31's amendment; `generate-event-config.mjs` warns if it finds either).
+Team size is the `/admin` Event tab's "players per team" knob, and **hints
+have exactly one switch: `/admin`'s hint controls**, a runtime override
+stored in Redis. It is live, survives restarts,
 and governs everything — whether a hint can be bought, whether the challenges
 page offers the button, and whether the leaderboard shows hint penalties. There
 is no environment variable and no rebuild involved; see
