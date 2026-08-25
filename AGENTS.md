@@ -19,8 +19,8 @@ cd sync && npm ci && npm test
 
 ```sh
 cd scorer && npm ci && npm test
-./scripts/acceptance-scorer.sh
 node tools/vacuous-sweep.mjs      # the vacuous-pass gate — must report 0
+cd .. && ./scripts/acceptance-scorer.sh   # repo root — the script lives in scripts/
 ```
 
 **app** (contestant web app):
@@ -50,8 +50,10 @@ Check it after any build you run here.
 **shell / setup** (provisioning and automation scripts):
 
 ```sh
-shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh
+shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh \
+  deploy/fly/deploy.sh deploy/fly/render-compose.sh
 bats setup/test/
+bats deploy/fly/test/
 ```
 
 (CI additionally lints `scorer/entrypoints/*.sh` as POSIX `sh` fragments with
@@ -158,9 +160,10 @@ suggestions.
   `if: always()` without an outcome check — either reopens the score-forge.
 - **The pause/schedule contract lives in THREE readers — change them in
   lockstep.** `effectivePaused`/`outsideWindow` (freeze + scheduled scoring
-  window) is implemented independently in `apps/web/src/lib/admin-store.ts`,
-  `scorer/src/store.js`, and `sync/src/redis.js`; registration windows in
-  `team-store.ts`. They read the same `ctf:admin:settings` fields and must
+  window) is implemented independently in
+  `apps/web/src/lib/schedule-window.ts` (re-exported through
+  `admin-store.ts`), `scorer/src/store.js`, and `sync/src/redis.js`;
+  registration windows in `team-store.ts`. They read the same `ctf:admin:settings` fields and must
   agree. Manual-freeze reads fail **open** (a Redis blip must not drop live
   submissions); keep that.
 - **Do not commit `docs/superpowers/`.** It's gitignored planning/spec/plan

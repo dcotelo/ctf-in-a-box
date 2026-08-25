@@ -1,7 +1,8 @@
 ---
 title: Deploy on fly.io
-nav_order: 8
 ---
+
+[← Docs home](index.md)
 
 # Deploy on fly.io
 
@@ -20,11 +21,12 @@ what runs at the event is what you exercised locally.
 - [The three things that bite](#the-three-things-that-bite)
 - [Secrets](#secrets)
 - [The rendered compose file](#the-rendered-compose-file)
-- [Region and volumes](#region-and-volumes)
 - [Security differences from compose](#security-differences-from-compose)
 - [Cost and shape](#cost-and-shape)
 - [Tear down](#tear-down)
 - [CI](#ci)
+- [Who can read the secrets](#who-can-read-the-secrets)
+- [Images are pinned by digest](#images-are-pinned-by-digest)
 
 ## Prerequisites
 
