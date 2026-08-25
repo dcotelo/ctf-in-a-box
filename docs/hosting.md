@@ -380,11 +380,13 @@ choice for readers; nothing syncs the two, so keep them matching.
 | `poll` (default) | The `sync` service polls the org's target repos for score comments | a GitHub App installed on the event org (see below) — otherwise nothing extra; works behind NAT, on a laptop, anywhere | ~30 s |
 | `push` | The scoring Action POSTs the score directly to your box | A public URL; `SCORE_INGEST=push` and org Actions secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` | Near-instant |
 
-Poll mode is what `scripts/smoke.sh` proves working today. Push mode
-additionally depends on upstream item 2 in
-[Status and upstream dependencies](operations.md#status-and-upstream-dependencies)
-actually shipping, and Caddy only exposes the `/score` route externally when
-running with the `push` Caddyfile.
+Poll mode is what `scripts/smoke.sh` proves working today. Push mode's
+requirements ship in-kit — the scoring workflow reads the
+`LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets and the scorer's
+`POST /score` takes bearer auth (see
+[Status and upstream dependencies](operations.md#status-and-upstream-dependencies))
+— and Caddy only exposes the `/score` route externally when running with the
+`push` Caddyfile.
 
 Start the poll pipeline with `docker compose --profile poll --profile app up
 -d` — the `poll` profile brings up `sync` and the `scorer`, and `app` brings

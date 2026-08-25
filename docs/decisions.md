@@ -595,19 +595,22 @@ upstream image, verified by `scripts/acceptance-target.sh`: vampi 9,
 vulnerableapp 110, juice-shop 38, dvwa 55, webgoat 69, securityshepherd 40
 — 321 challenges, 668 points across the six.
 
-A known scoring-fidelity gap ships with this. Security Shepherd's vendored
-`extractSolutionKey` helper accepts any 32-128 character hex run found in
+A known scoring-fidelity gap shipped with this. Security Shepherd's vendored
+`extractSolutionKey` helper accepted any 32-128 character hex run found in
 the response. At least one challenge (`Challenge-10-IDOR-2`) echoes the
 attacker-supplied identifier — itself pure hex — back into the page
-precisely when a *correct* patch blocks the lookup, so the helper reads a
-"solution key" out of noise and the challenge scores as unpatched however
-good the fix. The bias runs toward "not patched," so the stock-scores-zero
-gate is unaffected and no contestant gains a free point; the cost is that
-one Shepherd challenge can under-credit a correct patch. The rubrics are
-vendored read-only, so the fix belongs upstream — tighten the helper to
-require a result-key-shaped match rather than any bare hex run. This is
-already recorded in `docs/operations.md`'s "Status and upstream dependencies" list; keep
-the two consistent.
+precisely when a *correct* patch blocks the lookup, so the helper read a
+"solution key" out of noise and the challenge scored as unpatched however
+good the fix. The bias ran toward "not patched," so the stock-scores-zero
+gate was unaffected and no contestant gained a free point; the cost was
+under-crediting a correct patch. **Since fixed in the vendored copy**
+(#101): the bare fallback now requires 64–128 hex and real keys match with
+their surrounding context, leaving only the matcher's stated residual (an
+"isn't correct"-phrased refusal still reads as a solve — same safe bias).
+The vendored-read-only discipline bent for that fix and #108's vacuous-pass
+work — a fact `scorer/rubric.owasp/PROVENANCE.md` should record. Current
+state lives in `docs/operations.md`'s "Status and upstream dependencies";
+keep the two consistent.
 
 ## ADR 19. Organizer admin panel: runtime override layer
 

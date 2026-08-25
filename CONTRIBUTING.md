@@ -53,11 +53,11 @@ agent-facing copy with the full gotcha list is
 # sync
 (cd sync && npm ci && npm test)
 
-# scorer — unit tests, the offline acceptance loop, and the vacuous-pass
-# gate, which points every rubric at a useless stub and must report 0
+# scorer — unit tests, the vacuous-pass gate (points every rubric at a
+# useless stub, must report 0), then the offline acceptance loop
 (cd scorer && npm ci && npm test)
-./scripts/acceptance-scorer.sh
 (cd scorer && node tools/vacuous-sweep.mjs)
+./scripts/acceptance-scorer.sh
 
 # app
 (cd apps/web && corepack pnpm install --frozen-lockfile && corepack pnpm test)
@@ -71,6 +71,8 @@ agent-facing copy with the full gotcha list is
 # shell
 shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh \
   deploy/fly/deploy.sh deploy/fly/render-compose.sh
+# entrypoint fragments are sourced POSIX sh, never run standalone
+shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
 bats setup/test/ && bats deploy/fly/test/
 
 # single-module compose bring-ups

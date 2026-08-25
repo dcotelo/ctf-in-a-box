@@ -260,7 +260,10 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
     home: {
       tagline: "Secure Development CTF",
       intro: (ctx) =>
-        `Break real vulnerabilities in ${ctx.appCount} OWASP training ${ctx.appCount === 1 ? "app" : "apps"}, patch them for real, and ship the fix as a GitHub pull request. CI validates your patch and scores it automatically. Practice the full secure development lifecycle, not just flag-hunting.`,
+        // "training apps", not "OWASP training apps": DVWA and VAmPI are
+        // community projects, and the hero must not claim otherwise (the
+        // targets section makes the same correction).
+        `Break real vulnerabilities in ${ctx.appCount} deliberately vulnerable training ${ctx.appCount === 1 ? "app" : "apps"}, patch them for real, and ship the fix as a GitHub pull request. CI validates your patch and scores it automatically. Practice the full secure development lifecycle, not just flag-hunting.`,
       expect: {
         heading: "This isn’t flag hunting. It’s the real fix workflow",
         lede: "Every challenge maps to a real, disclosed vulnerability class from the OWASP Top 10. You find it, patch it, and prove the fix with a passing regression test, the same loop a security engineer runs against a live codebase.",

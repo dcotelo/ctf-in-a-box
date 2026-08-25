@@ -88,6 +88,11 @@ modules, admins), baked into the app image at build time via
 `EVENT_CONFIG_B64`; `.env` is the box's secrets and its URL. One
 `event.yaml` deploys to any hostname because the URL deliberately lives only
 in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
+Its `modules:` list is the *starting* set, not the live truth: modules are
+switched at runtime from `/admin` (`enabledModules` on `ctf:admin:settings`,
+[ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup))
+with the baked set as the outage fallback — Secure Development's *targets*
+stay setup-configured, and no module toggle needs a rebuild.
 
 ## The project's names
 

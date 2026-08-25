@@ -68,7 +68,7 @@ describe("landing page with two modules enabled", () => {
   });
 
   it("renders both modules' hero intros", () => {
-    expect(html).toContain("Break real vulnerabilities in 1 OWASP training app");
+    expect(html).toContain("Break real vulnerabilities in 1 deliberately vulnerable training app");
     expect(html).toContain("Answer security questions for points.");
   });
 
