@@ -1,19 +1,40 @@
 diff --git a/src/main/java/servlets/module/challenge/DirectObject2.java b/src/main/java/servlets/module/challenge/DirectObject2.java
-index b404b73..a3ffc63 100644
+index b404b73..951176c 100644
 --- a/src/main/java/servlets/module/challenge/DirectObject2.java
 +++ b/src/main/java/servlets/module/challenge/DirectObject2.java
-@@ -79,13 +79,24 @@ public class DirectObject2 extends HttpServlet {
+@@ -6,8 +6,11 @@ import java.io.PrintWriter;
+ import java.sql.Connection;
+ import java.sql.PreparedStatement;
+ import java.sql.ResultSet;
++import java.util.Arrays;
++import java.util.HashSet;
+ import java.util.Locale;
+ import java.util.ResourceBundle;
++import java.util.Set;
+ import javax.servlet.ServletException;
+ import javax.servlet.http.HttpServlet;
+ import javax.servlet.http.HttpServletRequest;
+@@ -79,13 +82,33 @@ public class DirectObject2 extends HttpServlet {
          log.debug("Servlet root = " + ApplicationRoot);
          String htmlOutput = new String();
  
-+        // Authorization check (fixes the insecure direct object reference). This
-+        // endpoint may reveal the five users the challenge legitimately exposes
-+        // in its picker, but NOT the hidden user whose profile holds the result
-+        // key. Trusting the client-supplied userId let a tampered request read
-+        // that protected record directly — the IDOR. Refuse a direct reference
-+        // to it; the five exposed users still resolve, so a legitimate lookup is
-+        // unaffected.
-+        boolean authorized = !"c51ce410c124a10e0db5e4b97fc2af39".equals(userId);
++        // Authorization allowlist (fixes the insecure direct object reference).
++        // The picker on this challenge legitimately exposes five users; the
++        // result key lives in a sixth user deliberately kept OUT of it. Trusting
++        // the client-supplied userId let a tampered request read any other row,
++        // including that hidden one — the IDOR. Authorize ONLY the five exposed
++        // ids; anything else (null, the hidden id, an unknown value) falls
++        // through to the same "not found" response an unknown id gets, without
++        // the record ever being queried.
++        Set<String> allowedUserIds =
++            new HashSet<>(
++                Arrays.asList(
++                    "c81e728d9d4c2f636f067f89cc14862c",
++                    "eccbc87e4b5ce2fe28308fd9f2a7baf3",
++                    "e4da3b7fbbce2345d7772b0674a318d5",
++                    "8f14e45fceea167a5a36dedd4bea2543",
++                    "6512bd43d9caa6e02c990b0a82652dca"));
++        boolean authorized = userId != null && allowedUserIds.contains(userId);
 +
          Connection conn =
              Database.getChallengeConnection(ApplicationRoot, "directObjectRefChalTwo");
