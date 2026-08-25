@@ -406,25 +406,21 @@ target vanish with no per-page conditional logic.
 
 ## ADR 14. Neutral defaults; no DEF CON 34 in the platform
 
-**Status.** Accepted; amended — the neutral default name later moved from
-"OWASP CTF" to "CTF-in-a-box", because a bare build must not present itself
-under another organization's mark either. The principle (no event branding
-baked into the platform) is unchanged.
+**Status.** Accepted.
 
 **Context.** The vendored app's source (from `OWASP-CTF/ctf-owasp-org`)
 carried event-specific branding, copy, and links from the DEF CON 34 event
 it was built for.
 
 **Decision.** A zero-config build (no `EVENT_CONFIG`, no `EVENT_*` env
-vars) produces a neutral site: `DEFAULTS` in
-`generate-event-config.mjs` sets the name (originally "OWASP CTF", now
-"CTF-in-a-box" — see Status), empty
+vars) produces a neutral "OWASP CTF" site: `DEFAULTS` in
+`generate-event-config.mjs` sets `name: "OWASP CTF"`, empty
 theme/dates/location, `ctfStartsAt: null`, and all six targets enabled.
 DEF CON-specific fields and copy are removed, not defaulted to empty.
 
 **Consequences.** `scripts/acceptance-app.sh` asserts this as a regression
 guard: the default build must contain neither "DEF CON" (case-insensitive)
-nor leftover DC34 branding, and must show the neutral name. The platform is
+nor leftover DC34 branding, and must show "OWASP CTF." The platform is
 event-agnostic by construction — DC34 was one event that happened to be
 the app's original deployment, and its specifics are not baked in as
 "the" default anywhere in the generator or the catalogue.

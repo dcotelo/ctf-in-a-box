@@ -27,12 +27,14 @@ CONTRIBUTING/SECURITY/CoC (previously none), badges 7 → 3.
    `CHALLENGES_GATE_ENABLED`/`_PASSWORD` were documented knobs the app
    service never received; setting them did nothing. Plumbed through, gate
    pair added to `.env.example`. (`fix(compose)`)
-3. Branding (`fix(app)`): default event name "OWASP CTF" → "CTF-in-a-box",
-   the hardcoded OWASP-logo hero removed, the false "each app is an OWASP
-   project" line corrected (DVWA and VAmPI are community projects), the
-   five baked "the OWASP CTF area" strings now render `{event.name}`. Full
-   app suite green (2266 tests); `acceptance-app.sh`'s default-name
-   assertion updated.
+3. Branding (`fix(app)`, later partially reversed by owner decision): the
+   false "each app is an OWASP project" line corrected (DVWA and VAmPI are
+   community projects) and the five baked "the OWASP CTF area" strings now
+   render `{event.name}` — both kept. The default-name change
+   ("CTF-in-a-box") and the logo removal were **reverted on request**: the
+   bare-build identity is OWASP CTF with the OWASP mark, as before. The
+   non-affiliation disclaimers in README/glossary stay. Full app suite
+   green (2266 tests) in both states.
 4. `leaderboard/page.tsx` — the stale pipeline-order comment (argued
    penalties-first; the code folds them last) rewritten with the real
    rationale. The one authorized source-comment fix.

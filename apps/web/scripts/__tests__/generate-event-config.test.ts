@@ -22,9 +22,9 @@ function generate(env: Record<string, string>, yaml?: string) {
 }
 
 describe("generate-event-config", () => {
-  it("defaults are the kit's own neutral name with all six targets", () => {
+  it("defaults are neutral OWASP CTF with all six targets", () => {
     const out = generate({});
-    expect(out).toContain(`"name": "CTF-in-a-box"`);
+    expect(out).toContain(`"name": "OWASP CTF"`);
     expect(out).toContain(`"ctfStartsAt": null`);
     expect(out).not.toMatch(/DEF CON|DC34|Las Vegas/i);
     expect(out).toContain(`"githubOrg": "OWASP-CTF"`);

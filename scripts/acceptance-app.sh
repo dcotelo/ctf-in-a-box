@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Proves a kit event.yaml drives the vendored app: custom name + reduced
-# target set visible in the built app; default build is the kit's own neutral name.
+# target set visible in the built app; default build is neutral OWASP CTF.
 # Also proves the app's challenge fork links follow event.yaml's github.org
 # rather than a hardcoded OWASP-CTF (self-hosted contestants must fork the
 # org the kit actually created, not the upstream canonical one).
@@ -60,14 +60,14 @@ if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
   echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
 fi
 
-echo "--- default build is neutral (no DEF CON, name CTF-in-a-box)"
+echo "--- default build is neutral (no DEF CON, name OWASP CTF)"
 docker build -f apps/web/Dockerfile -t ctf-web:default-check . >/dev/null
 docker run -d --name web-default -p 3101:3000 \
   -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3101 ctf-web:default-check
 DEFAULT_HTML=$(wait_for_html http://localhost:3101/)
 DEFAULT_CHALLENGES_HTML=$(wait_for_html http://localhost:3101/challenges)
 if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build carries DC34"; exit 1; fi
-echo "$DEFAULT_HTML" | grep -q "CTF-in-a-box"
+echo "$DEFAULT_HTML" | grep -q "OWASP CTF"
 
 echo "--- default build's fork links fall back to OWASP-CTF"
 echo "$DEFAULT_CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"

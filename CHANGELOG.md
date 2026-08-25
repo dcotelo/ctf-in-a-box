@@ -22,8 +22,10 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 - Documentation overhaul: README rewritten (status above the fold, fair
   comparison, working no-GitHub quickstart), stale-doc drift fixed across
   the set, ADR/section anchors made renderer-stable, new troubleshooting
-  runbook and glossary, OWASP branding removed from the neutral defaults
-  (the bare-build event name is now "CTF-in-a-box").
+  runbook and glossary. The landing copy's false "each app is an OWASP
+  project" claim corrected and the baked "OWASP CTF area" strings now
+  follow `event.name`; the OWASP-CTF default branding (logo + "OWASP CTF"
+  event name) is kept.
 
 ## v0.3.0 — 2026-08-23
 

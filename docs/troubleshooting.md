@@ -39,7 +39,7 @@ interpolation failure inside a script that pipes compose's stderr to
 
 ## `/admin` 403s for every admin, or the site shows generic branding
 
-**Symptom.** The event name is "CTF-in-a-box" instead of yours, and nobody —
+**Symptom.** The event name is the stock "OWASP CTF" instead of yours, and nobody —
 including you — can open `/admin`.
 
 **Diagnosis.** The app image was built without `EVENT_CONFIG_B64`.

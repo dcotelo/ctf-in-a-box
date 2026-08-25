@@ -13,6 +13,7 @@
 // "use client" component — React's flight serializer rejects function-valued
 // props. That is also why `home` is reached via the server-only
 // `getModuleHome` rather than off a ResolvedModule; see lib/modules.ts.
+import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import EventCountdown from "@/components/event-countdown";
@@ -163,6 +164,16 @@ export default async function Home() {
       {/* Hero: the event, its games in one breath, ONE action. */}
       <div className="border-b border-white/[0.09] bg-[#1a1a2e]">
         <main className="mx-auto flex w-full max-w-5xl flex-col items-start gap-6 px-6 py-16 sm:py-24">
+          {/* OWASP brand mark — four of the six targets are OWASP projects
+              and the event format comes from the OWASP-CTF work. */}
+          <Image
+            src="/owasp-logo.png"
+            alt="OWASP"
+            width={200}
+            height={69}
+            priority
+            className="invert"
+          />
           {taglines && (
             <p className="font-mono text-xs uppercase tracking-[0.3em] text-[#14b8a6]">{taglines}</p>
           )}

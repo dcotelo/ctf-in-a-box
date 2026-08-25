@@ -91,11 +91,12 @@ in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyam
 
 ## The project's names
 
-Five spellings of "the project" are in play; they are not interchangeable:
+Six names orbit "the project"; they are not interchangeable:
 
 | Name | What it is |
 |---|---|
-| **CTF-in-a-box** | The product / brand (README, `dcotelo.github.io/ctf-in-a-box`) — and the neutral default event name a bare build shows. |
+| **CTF-in-a-box** | The product / brand (README, `dcotelo.github.io/ctf-in-a-box`). |
+| **OWASP CTF** | The default event name a bare build shows (real events set `event.name`). |
 | `owasp-ctf` | The local repo directory and the lowercase image namespace. |
 | `OWASP-CTF` | The GitHub **org** the canonical targets are forked into (`github.org` default). |
 | `ghcr.io/owasp-ctf/score` | The scorer image path. The lowercase `owasp-ctf` here is a registry-namespace convenience, not the `OWASP-CTF` org; override `SCORE_IMAGE` to your own org's GHCR. |

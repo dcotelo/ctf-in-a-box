@@ -173,7 +173,7 @@ describe("the hero standings strip", () => {
 
 describe("root metadata", () => {
   it("describes the event with the enabled modules' taglines", () => {
-    expect(metadata.description).toBe("CTF-in-a-box — Secure Development CTF.");
+    expect(metadata.description).toBe("OWASP CTF — Secure Development CTF.");
   });
 
   it("no longer hardcodes secure-development copy onto every page", () => {

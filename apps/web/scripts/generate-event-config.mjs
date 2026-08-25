@@ -9,9 +9,7 @@ import { parse as parseYaml } from "yaml";
 const TARGETS = ["juice-shop", "dvwa", "webgoat", "securityshepherd", "vulnerableapp", "vampi"];
 
 const DEFAULTS = {
-  // The kit's own name, not "OWASP CTF": a bare build must not present
-  // itself under another organization's mark. Real events set event.name.
-  name: "CTF-in-a-box",
+  name: "OWASP CTF",
   theme: "",
   dates: "",
   location: "",
