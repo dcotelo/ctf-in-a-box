@@ -440,6 +440,11 @@ describe("clearQuestions", () => {
     expect(deleted).not.toContain("ctf:quiz:points");
     expect(deleted).not.toContain("ctf:quiz:answered");
   });
+
+  it("surfaces a per-command pipeline error instead of swallowing it", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: 1 }, { error: "WRONGTYPE" }]);
+    await expect(clearQuestions()).rejects.toThrow(/WRONGTYPE/);
+  });
 });
 
 describe("getViewerQuiz", () => {

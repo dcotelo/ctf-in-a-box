@@ -464,10 +464,16 @@ export async function deleteQuestion(id: string): Promise<void> {
  *  deliberately untouched, mirroring `deleteQuestion`'s contract — that is
  *  the master reset's job (admin-store's `resetEvent`), not this one's. */
 export async function clearQuestions(): Promise<void> {
-  await upstashPipeline([
+  const results = await upstashPipeline([
     ["DEL", QUESTIONS_KEY],
     ["DEL", KEY_KEY],
   ]);
+  // This runs on the destructive replace-all path (event-store's
+  // importEventBundle) — a silently-swallowed per-command error here would
+  // leave stale content behind while the caller believes the bank is clean.
+  // Same discipline as deleteQuestion above: surface it instead.
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash DEL failed: ${failed.error}`);
 }
 
 export type ViewerQuiz = {

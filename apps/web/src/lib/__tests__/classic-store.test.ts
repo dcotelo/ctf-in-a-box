@@ -461,6 +461,17 @@ describe("clearChallenges", () => {
     expect(deleted).not.toContain("ctf:classic:solved");
     expect(deleted.some((k) => k.startsWith("ctf:classic:solves:"))).toBe(false);
   });
+
+  it("surfaces a per-command pipeline error instead of swallowing it", async () => {
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: 1 },
+      { error: "WRONGTYPE" },
+      { result: 1 },
+      { result: 1 },
+      { result: 1 },
+    ]);
+    await expect(clearChallenges()).rejects.toThrow(/WRONGTYPE/);
+  });
 });
 
 describe("getViewerClassic", () => {
