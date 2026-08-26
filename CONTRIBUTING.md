@@ -141,7 +141,12 @@ target containers and are path-scoped to judge-relevant scorer inputs.
 3. Run the relevant tests locally (above).
 4. Open a pull request against `main`. Fill in the PR template.
 5. CI must be green before merge. Only the jobs for areas your PR touches
-   run; a push to `main` always runs everything as a safety net.
+   run (see `AGENTS.md` for how that gating works); a push to `main` always
+   runs everything as a safety net.
+6. **CodeRabbit review must pass too.** It reviews every PR automatically;
+   resolve every actionable comment before merge — apply the fix, or reply
+   with why it doesn't apply and mark the thread resolved. A reasoned
+   disagreement is fine; an ignored finding is not.
 
 ## Proposing a new module
 

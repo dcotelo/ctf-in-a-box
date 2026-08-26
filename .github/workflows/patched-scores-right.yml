@@ -43,6 +43,12 @@ on:
       - '.github/workflows/patched-scores-right.yml'
   workflow_dispatch:
 
+# Read-only: the job checks out the repo and runs the acceptance script in
+# containers; it never writes back. actions/checkout persists GITHUB_TOKEN in
+# the checkout, so cap its authority at contents:read (matching terraform.yml).
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -73,6 +79,8 @@ jobs:
             challenge: challenge-33-error-sqli-level-1
           - target: securityshepherd
             challenge: challenge-23-sqli-1
+          - target: securityshepherd
+            challenge: challenge-10-idor-2
     steps:
       - uses: actions/checkout@v7
       - name: Patched ${{ matrix.target }} fork must score exactly ${{ matrix.challenge }}

@@ -54,6 +54,9 @@ vi.mock("next/navigation", async (importOriginal) => ({
 // page's two-module test uses.
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: { quiz: { title: "Round 1" } } }),
+  // The page reads the registration window for the team card's
+  // closed-state explanation (issue #217).
+  effectiveRegistrationOpen: () => true,
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));

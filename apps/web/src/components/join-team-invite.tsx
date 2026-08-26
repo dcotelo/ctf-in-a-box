@@ -10,6 +10,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { postSigninCallbackURL } from "@/lib/post-signin";
 
 export default function JoinTeamInvite({
   code,
@@ -37,8 +38,12 @@ export default function JoinTeamInvite({
         onClick={() =>
           // Back to THIS page after GitHub, not to /profile: the code lives in
           // the path, so the round-trip preserves it without a cookie or a
-          // query parameter to lose.
-          authClient.signIn.social({ provider: "github", callbackURL: `/join/${encodeURIComponent(code)}` })
+          // query parameter to lose. The post-signin step passes /join/*
+          // through untouched — the invite IS the team step (issue #217).
+          authClient.signIn.social({
+            provider: "github",
+            callbackURL: postSigninCallbackURL(`/join/${encodeURIComponent(code)}`),
+          })
         }
         className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-sm text-zinc-200 transition-colors hover:border-[#2563eb]/45 hover:text-white"
       >

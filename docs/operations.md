@@ -16,6 +16,7 @@ live-GitHub scoring. For standing the kit up in the first place, see
 [Running an event](#running-an-event) ·
 [Teams](#teams) ·
 [Admin panel](#organizer-admin-panel) ·
+[Archiving and replaying an event](#archiving-and-replaying-an-event) ·
 [Quiz](#quiz) ·
 [Classic](#classic) ·
 [Verifying it works](#verifying-it-works) ·
@@ -51,21 +52,35 @@ team to become its captain and get a join code, join an existing team by code,
 or hit **Play solo** for a one-click team of one named after their GitHub
 login. Everyone ends up on a team — a solo player is simply a team of one.
 
-The requirement is enforced in two places. The quiz and flag submission routes
-refuse a teamless login outright, which is the boundary that actually holds; on
-top of that, a signed-in contestant with no team who opens `/quiz` or `/flags`
-is sent to their profile's team card first, so nobody discovers the rule by
-answering a question and watching it not count. Organizers are exempt from the
-redirect — they open module pages to check that their content renders, which is
-not playing — but not from the submission check, since an organizer's points
-would fold into no team either.
+The requirement is enforced in three places, earliest first. **At sign-in**:
+every GitHub sign-in lands on a post-signin step that sends a contestant with
+no team straight to the team card — team setup is the first thing a new
+contestant completes, not something discovered later (a `/join/<code>` invite
+passes through untouched, since the invite *is* the team step). **At the
+module pages**: a signed-in contestant with no team who opens `/quiz` or
+`/flags` is sent to the team card too, so nobody who slipped past the first
+step discovers the rule by answering a question and watching it not count.
+**At the routes**: the quiz and flag submission routes refuse a teamless
+login outright — the boundary that actually holds. Organizers are exempt
+from both redirects — they sign in to check that their content renders,
+which is not playing — but not from the submission check, since an
+organizer's points would fold into no team either. If registration is
+closed when a teamless contestant reaches the team card, it explains that
+instead of offering forms the routes would refuse.
 
-> **Secure Development is the exception.** Its points arrive from GitHub
-> through the sync poller rather than through an app route, so there is no
-> submission for the box to refuse. A contestant who patches a fork while on no
-> team still has their score ingested against a login that belongs to no team,
-> and it contributes to no team total. Point contestants at the team card
-> before the event starts.
+> **Secure Development still has no route to refuse.** Its points arrive
+> from GitHub through the sync poller rather than through an app route, so a
+> contestant who patches a fork while on no team has their score ingested
+> against a login that belongs to no team, and it contributes to no team
+> total **until they join one** — team totals fold from current membership
+> at read time, so already-banked solves count from the moment the login is
+> on a team. That deferred-credit behavior is deliberate: refusing the score
+> at ingestion would lose it permanently (the poller marks the comment seen),
+> whereas banking the score against the login only delays credit. The
+> sign-in steering
+> above is what closes the gap in practice — it is the only enforcement
+> point this module's scoring path passes through — so it matters most for
+> events running Secure Development.
 
 Captains
 manage the roster from the app: rename the team, remove a member, transfer the
@@ -550,6 +565,81 @@ get a 403 — the access check fails **closed**, deliberately, and deliberately
 unlike the freeze read, which fails *open* so a Redis blip cannot drop live
 submissions. A baked admin still gets in, because that check never touches
 Redis at all — which is exactly when you most need the panel.
+
+## Archiving and replaying an event
+
+The **Event** tab carries an **Event archive** section (**Export event** /
+**Import a bundle**, backed by `GET`/`POST /api/admin/event`) for exporting
+the whole event as one JSON file, or replacing it wholesale from a
+previously exported one — publishing a finished event's content, or
+stamping out a repeat run of the same CTF, without re-authoring anything by
+hand.
+
+**What a bundle carries.** Classic and Quiz **content** — challenges, flags,
+categories, and quiz questions with their answer keys — plus **policy**
+settings: the hint controls (enabled, cost, and its two gating knobs), the
+quiz retry-gate knobs, Classic's submission cooldown, the re-run cooldown,
+the team-size cap and registration switch, module title/blurb overrides, and
+which modules are enabled. It also carries an informational **event
+identity** block — name, theme, dates, location — read from the running box
+at export time.
+
+**What it does not carry: contestant run state.** No teams, no users, no
+solves, no attempts, no hint purchases, no admin audit log. That is the
+whole security property that makes a bundle safe to hand out at all — it is
+authored content and policy, never who played or how they did.
+
+**Export** warns you of two things on the panel itself, before you do
+anything with the downloaded file:
+
+- if Secure Development is enabled, that its content — target repos, forks,
+  rubrics, the GitHub App installation — lives outside the box and is **not**
+  included in the bundle;
+- if scoring is currently **effectively live** — not manually paused, and
+  inside its scheduled scoring window (either one on its own makes scoring
+  not-live) — that you should not publish this bundle while contestants can
+  still play.
+
+**The exported file contains every flag and every quiz answer key, in
+plaintext.** Publishing a running event's bundle hands every contestant the
+whole answer sheet. Only publish an archive once the event is over, or
+before it starts as a fresh, unsolved seed — never while it is live, and
+treat the file with the same care as `/admin` access itself.
+
+**Import is replace-all, and it is destructive.** Confirming an import first
+validates and applies the file's policy settings, then runs the same reset
+the master reset button does — wiping every team, solve, attempt, and hint
+purchase — and replaces the entire Classic board and Quiz bank with exactly
+what the file contains. Settings go first and fail-fast: a bad or
+cross-box-incompatible settings block is rejected before anything is wiped,
+never after. It is **refused outright (`409`)** while scoring is
+**effectively live** — not manually paused, and inside its scheduled scoring
+window; manually pausing scoring is one way to make the event eligible for
+import, but so is simply being outside that window even with `paused`
+false. The panel gates the button behind two
+confirmations in sequence — a plain warning naming exactly what gets wiped,
+then a type-to-confirm phrase — so there is no single click that can fire
+it.
+
+**Import is not atomic — re-run it if it fails partway.** Once the settings
+have validated, the reset and the two content replacements run in sequence
+against Redis, and there is no cross-step transaction rolling them back: a
+storage error partway through can leave the event reset and only partially
+replaced. This is the same non-atomic property the master reset already has,
+and it is deliberately bounded — import only runs while scoring is not live,
+against an event you have chosen to overwrite. If an import errors, fix the
+storage problem and simply run it again: it is a full replace-all, so a
+second successful run overwrites whatever the failed one left behind.
+
+**Branding does not travel with the bundle.** Event name, logo, and theme
+are baked into the app image at **build time**, from `event.yaml` via
+`EVENT_CONFIG_B64` (see [docs/hosting.md](hosting.md)) — not stored in
+Redis, so an import cannot repaint them. Import still applies the file's
+module title/blurb overrides, and the response names branding explicitly
+among what it skipped, so "policy applied" is never mistaken for "everything
+applied." The bundle's own event-identity block records the source event's
+name, theme, dates, and location, so you have those values on hand when you
+rebuild with an updated `event.yaml` to match.
 
 ## Quiz
 
