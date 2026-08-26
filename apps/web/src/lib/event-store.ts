@@ -46,6 +46,15 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
   for (const field of EVENT_POLICY_FIELDS) {
     policySettings[field] = (settings as unknown as Record<string, unknown>)[field];
   }
+  // Overwrite with the RESOLVED module set (the same value `isEnabled` above
+  // decides inclusion from), never the raw `settings.enabledModuleIds` the
+  // loop just copied. That raw value is `undefined` whenever there is no
+  // runtime override (the common case), and JSON.stringify drops an
+  // `undefined` key entirely — silently losing both the source event's
+  // effective module selection on replay AND import's ability to report a
+  // Secure-Development module as `skipped` (its reconciliation only fires
+  // off a concrete array).
+  policySettings.enabledModuleIds = enabledModuleIds;
 
   const bundle: EventBundle = {
     version: EVENT_BUNDLE_VERSION,

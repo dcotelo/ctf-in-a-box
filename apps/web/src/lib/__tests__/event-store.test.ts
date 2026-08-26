@@ -71,6 +71,16 @@ describe("exportEventBundle", () => {
     expect(warnings.some((w) => /secure development/i.test(w))).toBe(true);
   });
 
+  it("exports the RESOLVED enabledModuleIds, not the raw possibly-undefined settings field (fixture's box falls back to eventConfig's baked modules)", async () => {
+    m.getAdminSettings.mockResolvedValue({ hintCost: 50, paused: true, enabledModuleIds: undefined });
+    const { bundle } = await exportEventBundle(new Date());
+    // The mocked eventConfig fixture bakes only `quiz` — with no runtime
+    // override, exportEventBundle falls back to that baked set to decide
+    // which modules to include, and bundle.settings.enabledModuleIds must
+    // carry that SAME resolved array rather than dropping the key.
+    expect(bundle.settings.enabledModuleIds).toEqual(["quiz"]);
+  });
+
   it("THE LEAK TEST: run-state tokens seeded into excluded settings fields never survive the allowlist", async () => {
     // exportEventBundle's ONLY allowlist decision for `settings` is the fixed
     // loop over EVENT_POLICY_FIELDS in the function body — it never reads any
