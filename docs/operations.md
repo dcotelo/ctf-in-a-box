@@ -591,8 +591,10 @@ anything with the downloaded file:
 - if Secure Development is enabled, that its content — target repos, forks,
   rubrics, the GitHub App installation — lives outside the box and is **not**
   included in the bundle;
-- if the event is currently live (not paused), that you should not publish
-  this bundle while contestants can still play.
+- if scoring is currently **effectively live** — not manually paused, and
+  inside its scheduled scoring window (either one on its own makes scoring
+  not-live) — that you should not publish this bundle while contestants can
+  still play.
 
 **The exported file contains every flag and every quiz answer key, in
 plaintext.** Publishing a running event's bundle hands every contestant the
@@ -606,8 +608,11 @@ the master reset button does — wiping every team, solve, attempt, and hint
 purchase — and replaces the entire Classic board and Quiz bank with exactly
 what the file contains. Settings go first and fail-fast: a bad or
 cross-box-incompatible settings block is rejected before anything is wiped,
-never after. It is **refused outright (`409`)** while the event is live or
-unpaused; pause scoring first. The panel gates the button behind two
+never after. It is **refused outright (`409`)** while scoring is
+**effectively live** — not manually paused, and inside its scheduled scoring
+window; manually pausing scoring is one way to make the event eligible for
+import, but so is simply being outside that window even with `paused`
+false. The panel gates the button behind two
 confirmations in sequence — a plain warning naming exactly what gets wiped,
 then a type-to-confirm phrase — so there is no single click that can fire
 it.
