@@ -6,6 +6,11 @@ import * as adminStore from "@/lib/admin-store";
 const m = vi.hoisted(() => ({
   exportClassic: vi.fn(), exportQuiz: vi.fn(),
   getAdminSettings: vi.fn(), effectivePaused: vi.fn(),
+  // A plain, mutated-in-place array (never reassigned) so `vi.mock`'s
+  // captured reference below stays live across tests — a test that wants a
+  // different baked set mutates its contents rather than pointing the mock
+  // at a new array.
+  bakedModuleIds: ["classic", "quiz"] as string[],
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/classic-store", () => ({ exportBundle: m.exportClassic, clearChallenges: vi.fn(), importBundle: vi.fn() }));
@@ -16,6 +21,15 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
   contactEmail: "org@example.com", admins: ["alice"], githubOrg: "org", discordUrl: "d",
   targets: [], modules: [{ id: "quiz" }],
 } }));
+// event-store.ts's own Finding-A reconciliation (`reconcileEnabledModuleIds`)
+// reads `bakedModuleIds` from `@/lib/modules`. Mocked directly (rather than
+// relying on the real modules.ts derived from the `@/lib/event-config` mock
+// above) so individual tests can set exactly which ids this "box" was built
+// with, independent of the unrelated eventConfig fixture other tests share.
+vi.mock("@/lib/modules", () => ({
+  bakedModuleIds: m.bakedModuleIds,
+  isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "secure-development"].includes(v),
+}));
 
 import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
 
@@ -116,6 +130,8 @@ describe("importEventBundle", () => {
   beforeEach(() => {
     m.getAdminSettings.mockResolvedValue({ paused: true });
     m.effectivePaused.mockReturnValue(true);
+    m.bakedModuleIds.length = 0;
+    m.bakedModuleIds.push("classic", "quiz");
     vi.mocked(classicStore.importBundle).mockResolvedValue({ created: 0, updated: 0, categories: 1 });
     vi.mocked(quizStore.importBundle).mockResolvedValue({ created: 0, updated: 0 });
     vi.mocked(adminStore.resetEvent).mockResolvedValue({ cleared: {}, resetAt: "x" });
@@ -184,5 +200,45 @@ describe("importEventBundle", () => {
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
     expect("hintCost" in patch).toBe(false);
     expect(patch.teamMaxMembers).toBe(6);
+  });
+
+  // Finding A: reconcile enabledModuleIds against the box's baked module set
+  // before it ever reaches updateAdminSettings, instead of letting a
+  // cross-SD import throw AdminValidationError (a 500 at the route).
+  it("reconciles a bundle's secure-development against a box that wasn't built with it, and names it in skipped", async () => {
+    // Baked set deliberately excludes secure-development — mirrors admin-store's
+    // own SD-refusal check, which is keyed only off secure-development
+    // membership, not the other module ids.
+    m.bakedModuleIds.length = 0;
+    m.bakedModuleIds.push("classic", "quiz");
+    const { skipped } = await importEventBundle(
+      {
+        ...bundleFixture(),
+        settings: { ...bundleFixture().settings, enabledModuleIds: ["classic", "quiz", "secure-development"] },
+      },
+      "alice",
+    );
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.enabledModules).toEqual(["classic", "quiz"]);
+    expect(skipped.some((s) => /secure.development/i.test(s))).toBe(true);
+  });
+
+  it("passes a set that already matches the box's baked modules through unchanged, with no extra skipped entry", async () => {
+    m.bakedModuleIds.length = 0;
+    m.bakedModuleIds.push("classic", "quiz");
+    const { skipped } = await importEventBundle(bundleFixture(), "alice");
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.enabledModules).toEqual(["classic", "quiz"]);
+    // Only the always-present branding notice — nothing module-related.
+    expect(skipped).toEqual([expect.stringMatching(/baked at build time|rebuild/i)]);
+  });
+
+  it("keeps secure-development enabled when the box is baked with it but the bundle's set omits it", async () => {
+    m.bakedModuleIds.length = 0;
+    m.bakedModuleIds.push("classic", "quiz", "secure-development");
+    const { skipped } = await importEventBundle(bundleFixture(), "alice");
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.enabledModules).toEqual(expect.arrayContaining(["classic", "quiz", "secure-development"]));
+    expect(skipped.some((s) => /secure development/i.test(s))).toBe(true);
   });
 });

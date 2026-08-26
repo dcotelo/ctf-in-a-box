@@ -91,4 +91,18 @@ describe("POST /api/admin/event", () => {
     const res = await POST(post({ import: validRaw }));
     expect(res.status).toBe(409);
   });
+  // Finding B: parseEventBundle only checks the bundle's policy keys against
+  // the allowlist, not their value types, so a wrong-typed value (e.g. a
+  // string hintCost) only surfaces once updateAdminSettings validates it,
+  // inside importEventBundle — as a real AdminValidationError, imported here
+  // (not mocked) the same way admin/__tests__/routes.test.ts does, so
+  // `err instanceof AdminValidationError` in the route matches for real.
+  it("maps an AdminValidationError from a bad-but-allowlisted field to 400, without auditing", async () => {
+    const { AdminValidationError } = await import("@/lib/admin-store");
+    h.importEventBundle.mockRejectedValue(new AdminValidationError("hintCost", "hintCost must be an integer"));
+    const res = await POST(post({ import: validRaw }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "hintCost must be an integer", field: "hintCost" });
+    expect(h.upstashPipeline).not.toHaveBeenCalled();
+  });
 });

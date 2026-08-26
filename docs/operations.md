@@ -600,11 +600,13 @@ whole answer sheet. Only publish an archive once the event is over, or
 before it starts as a fresh, unsolved seed — never while it is live, and
 treat the file with the same care as `/admin` access itself.
 
-**Import is replace-all, and it is destructive.** Confirming an import runs
-the same reset the master reset button does — wiping every team, solve,
-attempt, and hint purchase — then replaces the entire Classic board and Quiz
-bank with exactly what the file contains, before applying the file's policy
-settings. It is **refused outright (`409`)** while the event is live or
+**Import is replace-all, and it is destructive.** Confirming an import first
+validates and applies the file's policy settings, then runs the same reset
+the master reset button does — wiping every team, solve, attempt, and hint
+purchase — and replaces the entire Classic board and Quiz bank with exactly
+what the file contains. Settings go first and fail-fast: a bad or
+cross-box-incompatible settings block is rejected before anything is wiped,
+never after. It is **refused outright (`409`)** while the event is live or
 unpaused; pause scoring first. The panel gates the button behind two
 confirmations in sequence — a plain warning naming exactly what gets wiped,
 then a type-to-confirm phrase — so there is no single click that can fire

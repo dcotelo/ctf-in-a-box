@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/admin-auth";
-import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { ADMIN_AUDIT_KEY, AUDIT_CAP, AdminValidationError } from "@/lib/admin-store";
 import { parseEventBundle } from "@/lib/event-io";
 import { EventLiveError, exportEventBundle, importEventBundle } from "@/lib/event-store";
 import { upstashPipeline } from "@/lib/upstash";
@@ -20,6 +20,14 @@ import { upstashPipeline } from "@/lib/upstash";
  * `parseEventBundle` (the same validator `event-io.ts` exposes to the
  * client) before ever calling `importEventBundle`. `importEventBundle`
  * itself refuses on a live event via `EventLiveError`, mapped here to 409.
+ *
+ * `parseEventBundle` checks the bundle's policy keys against the
+ * `EVENT_POLICY_FIELDS` allowlist, but not their VALUE types — a hand-edited
+ * bundle can carry an allowlisted key with a wrong-typed value (e.g. a
+ * string `hintCost`), which only `updateAdminSettings` catches, throwing
+ * `AdminValidationError`. Mapped here to 400, the same status
+ * `admin/settings/route.ts` uses for the same error — never a 500, and never
+ * silently accepted.
  */
 
 const IMPORT_KEYS = new Set(["import"]);
@@ -74,6 +82,7 @@ export async function POST(request: Request) {
     return Response.json({ summary, skipped });
   } catch (e) {
     if (e instanceof EventLiveError) return Response.json({ error: e.message }, { status: 409 });
+    if (e instanceof AdminValidationError) return Response.json({ error: e.message, field: e.field }, { status: 400 });
     throw e;
   }
 }

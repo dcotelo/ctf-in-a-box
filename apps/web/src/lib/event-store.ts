@@ -4,14 +4,13 @@ import { exportBundle as exportQuiz, clearQuestions, importBundle as importQuiz 
 import { effectivePaused, getAdminSettings, resetEvent, updateAdminSettings, type SettingsPatch } from "@/lib/admin-store";
 import { eventConfig } from "@/lib/event-config";
 import { EVENT_BUNDLE_VERSION, EVENT_POLICY_FIELDS, type EventBundle, type EventPolicySettings } from "@/lib/event-io";
-import { isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
+import { bakedModuleIds, isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
 
 const SD_WARNING =
   "Secure Development is enabled — its content (target repos, forks, rubrics) is not in the box and is NOT included in this bundle.";
 const LIVE_WARNING = "This event is live — do not publish this bundle while contestants can still play.";
 const BRANDING_SKIPPED =
   "Event name, logo, and theme are baked at build time — rebuild with an updated event.yaml to fully repaint branding. Module title/blurb overrides were applied.";
-const SD_IMPORT_SKIPPED = "Secure Development content cannot be imported from a bundle.";
 
 /** Assembles a whole-EVENT archive bundle for export: event metadata + policy
  *  settings + each enabled content module's own bundle. This is an
@@ -118,7 +117,7 @@ export async function importEventBundle(
   // Apply (and validate) the settings patch BEFORE any destructive step. A
   // bad bundle throws `AdminValidationError` here, before `resetEvent` or any
   // clear/import has run — see the fail-fast note above.
-  const patch = buildPolicyPatch(bundle.settings);
+  const { patch, skipped: moduleSkipped } = buildPolicyPatch(bundle.settings);
   if (Object.keys(patch).length > 0) {
     await updateAdminSettings(patch, actor);
   }
@@ -142,13 +141,51 @@ export async function importEventBundle(
     summary.quiz = { created: q.created, updated: q.updated };
   }
 
-  const skipped: string[] = [BRANDING_SKIPPED];
-  const enabledModuleIds = bundle.settings.enabledModuleIds;
-  if (Array.isArray(enabledModuleIds) && enabledModuleIds.includes("secure-development")) {
-    skipped.push(SD_IMPORT_SKIPPED);
-  }
+  const skipped: string[] = [BRANDING_SKIPPED, ...moduleSkipped];
 
   return { summary, skipped };
+}
+
+const SD_ID: ModuleId = "secure-development";
+
+/** Reconciles a bundle's `enabledModuleIds` against the BOX's own baked
+ *  module set (`bakedModuleIds`, from `event.yaml`'s `modules:` at build
+ *  time) before it ever reaches `updateAdminSettings`. `updateAdminSettings`
+ *  throws `AdminValidationError` on any set whose `secure-development`
+ *  membership differs from `bakedModuleIds` in either direction
+ *  (admin-store.ts's "Refusal 2") — importing an SD-enabled event's archive
+ *  into a non-SD box, or a non-SD archive into an SD box, must not 500. It
+ *  should apply everything the box can actually serve and report the rest,
+ *  never throw.
+ *
+ *  - Drops any id the box was not built with — a module that cannot run
+ *    without its build-time config/services. `secure-development` is the
+ *    only module id that currently carries such a requirement (its own
+ *    scorer/sync services and provisioned forks), so in practice this only
+ *    ever drops that one id.
+ *  - If the box WAS built with `secure-development` but the reconciled set
+ *    doesn't carry it, `secure-development` is added back — admin-store
+ *    refuses to let an SD box ever end up with SD disabled at runtime (the
+ *    other direction of Refusal 2).
+ *
+ *  Either adjustment is reported back via `skipped` so the caller can
+ *  surface it; a set that already matches the box produces no messages. */
+function reconcileEnabledModuleIds(incoming: ModuleId[]): { ids: ModuleId[]; skipped: string[] } {
+  const skipped: string[] = [];
+  const kept = incoming.filter((id) => {
+    if (bakedModuleIds.includes(id)) return true;
+    skipped.push(`Module "${id}" cannot be imported — this box was not built with it, so it was dropped from enabled modules.`);
+    return false;
+  });
+
+  if (bakedModuleIds.includes(SD_ID) && !kept.includes(SD_ID)) {
+    skipped.push(
+      "This box was built with Secure Development, which cannot be disabled at runtime — it was kept enabled even though the bundle's enabled modules did not include it.",
+    );
+    return { ids: [...kept, SD_ID], skipped };
+  }
+
+  return { ids: kept, skipped };
 }
 
 /** Translates the bundle's `EVENT_POLICY_FIELDS` allowlist into the shape
@@ -161,9 +198,16 @@ export async function importEventBundle(
  *  `updateAdminSettings` reject it as an unknown setting. A `null`/empty
  *  value for either is treated as "nothing to apply" rather than forwarded —
  *  `enabledModules` in particular refuses an empty array (ADR 24's runtime
- *  analogue: an event can never end up with zero enabled modules). */
-function buildPolicyPatch(settings: EventPolicySettings): SettingsPatch {
+ *  analogue: an event can never end up with zero enabled modules).
+ *
+ *  `enabledModuleIds` is additionally reconciled against this box's baked
+ *  module set via `reconcileEnabledModuleIds` before landing in the patch —
+ *  see that function's doc comment. The reconciliation's own messages are
+ *  returned alongside the patch so `importEventBundle` can fold them into
+ *  its `skipped` array instead of letting a mismatch throw. */
+function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch; skipped: string[] } {
   const patch: SettingsPatch = {};
+  const skipped: string[] = [];
   for (const field of EVENT_POLICY_FIELDS) {
     if (!(field in settings)) continue;
     const value = settings[field];
@@ -177,7 +221,11 @@ function buildPolicyPatch(settings: EventPolicySettings): SettingsPatch {
       }
     } else if (field === "enabledModuleIds") {
       const ids = value as ModuleId[] | null | undefined;
-      if (Array.isArray(ids) && ids.length > 0) patch.enabledModules = ids;
+      if (Array.isArray(ids) && ids.length > 0) {
+        const reconciled = reconcileEnabledModuleIds(ids);
+        skipped.push(...reconciled.skipped);
+        if (reconciled.ids.length > 0) patch.enabledModules = reconciled.ids;
+      }
     } else {
       // The 9 scalar policy fields are `X | null` on AdminSettings/the
       // bundle (null = "no override"), but SettingsPatch types them
@@ -188,5 +236,5 @@ function buildPolicyPatch(settings: EventPolicySettings): SettingsPatch {
       (patch as Record<string, unknown>)[field] = value;
     }
   }
-  return patch;
+  return { patch, skipped };
 }
