@@ -1,8 +1,27 @@
 # Contributing to CTF-in-a-box
 
-Thanks for your interest in contributing. This document covers how the repo
-is laid out, how to build and test each piece, and the process for getting a
-change merged.
+Thanks for your interest in contributing. This document covers the dev
+environment, how to build and test each piece, what CI will hold you to, the
+testing conventions this repo deliberately keeps, and the process for getting
+a change merged.
+
+## Dev environment
+
+- **Node 22** across the board (`sync`, `scorer`, `apps/web` all pin it in
+  CI). `apps/web` uses **pnpm via corepack** (`corepack enable` once); the
+  other two are plain npm.
+- **Docker with Compose v2** for anything that brings containers up (smoke,
+  the acceptance scripts, the dev stack). `openssl` for secret generation.
+- `shellcheck` and `bats` for the shell layers.
+- The fastest way to see the real app with data on it:
+
+  ```sh
+  ./scripts/dev-stack up      # throwaway secrets, local builds, seeded demo board
+  ./scripts/dev-stack down
+  ```
+
+  It never touches a real `.env`. Sign-in/`/admin` need a real GitHub OAuth
+  app on top — `dev-stack up` prints exactly what to add.
 
 ## Repo layout
 
@@ -15,8 +34,9 @@ change merged.
 - **`setup/`** — `ctf-setup.sh` and the event provisioning flow. Bash,
   tested with `bats`.
 - **`deploy/`** — optional cloud deploy modules (e.g. `aws-terraform/`, a
-  single-shot EC2 box). CI-validated by its own Terraform workflow (fmt +
-  validate + test, never apply).
+  single-shot EC2 box; `fly/`, one Fly machine). CI-validated by its own
+  Terraform workflow (fmt + validate + test, never apply) and by the shell
+  job's shellcheck/bats coverage of `deploy/fly/`.
 - **`patches/`** — reference patches for the target apps, with their own
   [`README.md`](patches/README.md).
 - **`scripts/`** — the acceptance, smoke and dev-stack scripts. Bash; the
@@ -25,11 +45,92 @@ change merged.
 
 ## Building and testing
 
-The authoritative list of build/test/lint commands — matched exactly to what
-CI runs — lives in [`AGENTS.md`](AGENTS.md#buildtestlint). Read that before
-opening a PR; the short version is: each service has its own test command
-(`npm test`, `pnpm test`, `bats`, `shellcheck`), and `./scripts/smoke.sh`
-exercises the stack end to end.
+Each layer tests independently. These commands match what CI runs (the
+agent-facing copy with the full gotcha list is
+[`AGENTS.md`](AGENTS.md#buildtestlint)):
+
+```sh
+# sync
+(cd sync && npm ci && npm test)
+
+# scorer — unit tests, the vacuous-pass gate (points every rubric at a
+# useless stub, must report 0), then the offline acceptance loop
+(cd scorer && npm ci && npm test)
+(cd scorer && node tools/vacuous-sweep.mjs)
+./scripts/acceptance-scorer.sh
+
+# app
+(cd apps/web && corepack pnpm install --frozen-lockfile && corepack pnpm test)
+
+# app production build — CI also asserts .next/server/app/index.html does
+# NOT exist afterwards: `/` must never be statically prerendered
+(cd apps/web && BETTER_AUTH_SECRET=dummy-secret-32-characters-minimum \
+  BETTER_AUTH_URL=http://localhost corepack pnpm build)
+./scripts/acceptance-app.sh
+
+# shell
+shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh \
+  deploy/fly/deploy.sh deploy/fly/render-compose.sh
+# entrypoint fragments are sourced POSIX sh, never run standalone
+shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
+bats setup/test/ && bats deploy/fly/test/
+
+# single-module compose bring-ups
+./scripts/acceptance-quiz-only.sh
+./scripts/acceptance-classic-only.sh
+
+# the whole poll pipeline, end to end, offline
+./scripts/smoke.sh
+```
+
+Run the layers your change touches, plus `smoke.sh` for anything that crosses
+services.
+
+## What CI runs
+
+`.github/workflows/ci.yml` is a `changes` gate (native `git diff` path
+filtering) plus nine gated jobs — a job for an area your PR doesn't touch is
+*skipped*, and a push to `main` runs everything:
+
+| Job | Proves |
+|---|---|
+| `sync-tests` | Poller parsing, cursors, idempotency, config validation |
+| `scorer` | Rubric grammars, judge report format, serve auth, both solve stores; then the offline acceptance loop |
+| `vacuous` | No rubric check passes against an up-but-useless stub (0/321) |
+| `shell` | shellcheck + bats over `setup/`, `scripts/`, `deploy/fly/` |
+| `smoke` | The full poll pipeline against fixture services, including the forged-comment drop and the freeze hold |
+| `app` | vitest, the production build, the `/`-never-prerendered assertion, and the build-time config acceptance |
+| `quiz-only` / `classic-only` | A single app-side module runs a whole event alone, with no scorer to pull |
+| `docs` | The Jekyll site builds; link/meta checks |
+
+Two heavier workflows (`stock-scores-zero`, `patched-scores-right`) run real
+target containers and are path-scoped to judge-relevant scorer inputs.
+`terraform.yml` validates and *tests* `deploy/aws-terraform` —
+`userdata.tftest.hcl` renders the bring-up script at plan time, because
+`terraform validate` never inspects rendered template output.
+
+## Testing conventions this repo holds on purpose
+
+- **No testing-library.** UI decisions that need tests live in pure
+  functions, which get tested directly; drag handlers and DOM plumbing don't.
+- **Differential corpus fixtures.** Two parsers in two languages
+  (`ctf-setup.sh` and `sync/src/config.js` both read `event.yaml`) are held
+  together by a shared fixture corpus asserted from both sides
+  (`setup/test/corpus/`) — agreeing with the corpus is agreeing with each
+  other.
+- **Anti-vacuous discipline.** A test that "blocks the exploit" against an
+  app that wasn't up proves nothing. Assertions must be able to fail:
+  acceptance scripts assert on seeded names/logins reaching real rendered
+  HTML, and the vacuous sweep exists solely to catch this class.
+- **bats: the decisive assertion is the test's LAST statement.** A mid-test
+  `[[ ... ]]` or a non-final `! cmd | grep` does not gate the test (errexit
+  exemption); CI's shellcheck also flags `A && B || C` (SC2015).
+- **Decisions get ADRs.** If your change picks between real alternatives,
+  record it in [`docs/decisions.md`](docs/decisions.md) — context, decision,
+  consequences, status. Superseding an old ADR means marking the old one's
+  Status, never rewriting it.
+- **Docs ship with the change.** A behavior change that leaves
+  `docs/` describing the old behavior is not done.
 
 ## Pull request flow
 
@@ -37,31 +138,43 @@ exercises the stack end to end.
 2. Make your change. Keep commits scoped and use
    [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`,
    `fix:`, `docs:`, `test:`, `chore:`, `ci:`, ...).
-3. Run the relevant tests locally (see `AGENTS.md`).
+3. Run the relevant tests locally (above).
 4. Open a pull request against `main`. Fill in the PR template.
-5. CI must be green before merge. The CI workflow only runs jobs for the
-   areas your PR touches (see `AGENTS.md` for how that gating works) — a
-   push to `main` always runs everything as a safety net.
+5. CI must be green before merge. Only the jobs for areas your PR touches
+   run (see `AGENTS.md` for how that gating works); a push to `main` always
+   runs everything as a safety net.
 6. **CodeRabbit review must pass too.** It reviews every PR automatically;
    resolve every actionable comment before merge — apply the fix, or reply
    with why it doesn't apply and mark the thread resolved. A reasoned
    disagreement is fine; an ignored finding is not.
 
-## Release process
+## Proposing a new module
 
-**No release has been cut yet, and none should be tagged or published until
-the full end-to-end flow — fork, patch, score, leaderboard — has been
-validated (tracked separately as project work). Do not tag or publish a
-release before that validation is done.**
+Modules are the kit's extension point — a new CTF vertical (forensics,
+api-security, cloud, …) plugs into the same org/teams/leaderboard/admin
+spine. Before writing code:
 
-Once releases begin, the intended process is:
+1. Read [`docs/modules.md`](docs/modules.md) — the contract, with the three
+   shipped modules as worked examples. Section 9 lists the exact files a new
+   module touches.
+2. Open an issue describing the module: what a contestant does, how it's
+   graded, which transport it uses (in-app like quiz/classic, or
+   GitHub-mediated like secure-development), and what infrastructure it
+   needs.
+3. Expect the contract's non-negotiables to be held: sandboxed execution,
+   oracle discipline, a stock-scores-zero guard, and standalone-module
+   composition (your module must be able to run an event alone).
 
-- Versions follow [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-- Conventional Commits on `main` provide the changelog input: `feat:` implies
-  a minor bump, `fix:`/`docs:`/`chore:`/etc. imply a patch bump, and a
-  `BREAKING CHANGE:` footer (or `!` after the type) implies a major bump.
-- Releases are cut as GitHub Releases, tagged from `main`, with release
-  notes generated from the commit history since the previous tag.
+## Releases
+
+Versions follow [Semantic Versioning](https://semver.org/), cut as
+**repo-level annotated tags** from `main` (`v0.1.0`, `v0.2.0`, `v0.3.0` so
+far) with GitHub Releases generated from the Conventional Commit history —
+`feat:` implies minor, `fix:`/`docs:`/`chore:` imply patch, a
+`BREAKING CHANGE:` footer (or `!` after the type) implies major. The version
+is repo-level: `apps/web/package.json` tracks the current tag; `scorer` and
+`sync` deliberately carry no version field. [`CHANGELOG.md`](CHANGELOG.md)
+summarizes each release.
 
 ## AI-assisted contributions
 
@@ -78,3 +191,5 @@ AI- and agent-assisted pull requests are welcome. A few rules apply:
   the project's real conventions and gotchas (bash compatibility, shellcheck
   rules, bats assertion pitfalls, the stock-scores-zero invariant, and so
   on).
+
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) applies to all project spaces.

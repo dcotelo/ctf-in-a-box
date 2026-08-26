@@ -11,9 +11,67 @@ Context / Decision / Consequences. For how these decisions fit together as
 a running system, see [docs/architecture.md](architecture.md). For the
 contract a new CTF module must satisfy, see
 [docs/modules.md](modules.md). For operator-facing instructions, see
-[README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/README.md).
+[docs/operations.md](operations.md). Superseded or amended entries say so in
+their **Status** line; the record itself is never rewritten.
 
-## 1. Keep the GitHub fork/PR/Action flow — it is the pedagogy
+**Index:**
+
+- [ADR 1 — Keep the GitHub fork/PR/Action flow — it is the pedagogy](#adr-1-keep-the-github-forkpraction-flow--it-is-the-pedagogy)
+- [ADR 2 — Single docker-compose box; no Kubernetes in v1](#adr-2-single-docker-compose-box-no-kubernetes-in-v1)
+- [ADR 3 — Score transport: poll by default, push optional](#adr-3-score-transport-poll-by-default-push-optional)
+- [ADR 4 — SRH as the Upstash-REST proxy in front of local Redis](#adr-4-srh-as-the-upstash-rest-proxy-in-front-of-local-redis)
+- [ADR 5 — Single score writer: monotonic writes, at-least-once delivery](#adr-5-single-score-writer-monotonic-writes-at-least-once-delivery)
+- [ADR 6 — Poller trust model: author filter before parsing, grammar as key guard](#adr-6-poller-trust-model-author-filter-before-parsing-grammar-as-key-guard)
+- [ADR 7 — Oracle discipline: pass/fail and points only, never diagnostics](#adr-7-oracle-discipline-passfail-and-points-only-never-diagnostics)
+- [ADR 8 — Private scorer image and per-event mirror; access control over obfuscation](#adr-8-private-scorer-image-and-per-event-mirror-access-control-over-obfuscation)
+- [ADR 9 — Per-event disposable GitHub orgs; base-repo workflow isolation](#adr-9-per-event-disposable-github-orgs-base-repo-workflow-isolation)
+- [ADR 10 — `event.yaml`'s module namespace; deliberate, not dynamic, registration](#adr-10-eventyamls-module-namespace-deliberate-not-dynamic-registration)
+- [ADR 11 — Vendor the contestant app into `apps/web/`; upstream stays read-only](#adr-11-vendor-the-contestant-app-into-appsweb-upstream-stays-read-only)
+- [ADR 12 — Build-time config generation over runtime config](#adr-12-build-time-config-generation-over-runtime-config)
+- [ADR 13 — Closed `AppId` union; config selects a subset; unknown values fail the build](#adr-13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build)
+- [ADR 14 — Neutral defaults; no DEF CON 34 in the platform](#adr-14-neutral-defaults-no-def-con-34-in-the-platform)
+- [ADR 15 — Timezone-independent date display](#adr-15-timezone-independent-date-display)
+- [ADR 16 — Cursor rollback on partial batch failure in the sync poller](#adr-16-cursor-rollback-on-partial-batch-failure-in-the-sync-poller)
+- [ADR 17 — Public scorer engine, private rubric](#adr-17-public-scorer-engine-private-rubric)
+- [ADR 18 — Exec-probe rubrics for all six targets; the rubric ships public](#adr-18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public)
+- [ADR 19 — Organizer admin panel: runtime override layer](#adr-19-organizer-admin-panel-runtime-override-layer)
+- [ADR 20 — Landing-page frame is code; module content is contributed, not organizer-authored](#adr-20-landing-page-frame-is-code-module-content-is-contributed-not-organizer-authored)
+- [ADR 21 — Module identity resolution makes every page dynamic](#adr-21-module-identity-resolution-makes-every-page-dynamic)
+- [ADR 22 — Resolved modules are identity-only, deliberately](#adr-22-resolved-modules-are-identity-only-deliberately)
+- [ADR 23 — `/how-to-play` gets its own registry field, not a reuse of `home.steps`](#adr-23-how-to-play-gets-its-own-registry-field-not-a-reuse-of-homesteps)
+- [ADR 24 — Tolerating a missing module vs rejecting an unknown one](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+- [ADR 25 — Building a leaderboard with no scoring backend](#adr-25-building-a-leaderboard-with-no-scoring-backend)
+- [ADR 26 — Compose profiles follow the enabled modules](#adr-26-compose-profiles-follow-the-enabled-modules)
+- [ADR 27 — Two flag hashes rather than one](#adr-27-two-flag-hashes-rather-than-one)
+- [ADR 28 — A hand-rolled Markdown renderer rather than a library](#adr-28-a-hand-rolled-markdown-renderer-rather-than-a-library)
+- [ADR 29 — No attempt cap on flag submission](#adr-29-no-attempt-cap-on-flag-submission)
+- [ADR 30 — One shared team-dedupe fold](#adr-30-one-shared-team-dedupe-fold)
+- [ADR 31 — One hint switch: capability split from policy](#adr-31-one-hint-switch-capability-split-from-policy)
+- [ADR 32 — Scheduled windows, evaluated at read time in three readers](#adr-32-scheduled-windows-evaluated-at-read-time-in-three-readers)
+- [ADR 33 — Classic CTF: static exact-match flags, stored recoverably](#adr-33-classic-ctf-static-exact-match-flags-stored-recoverably)
+- [ADR 34 — Classic bulk import/export as a versioned, self-contained bundle](#adr-34-classic-bulk-importexport-as-a-versioned-self-contained-bundle)
+- [ADR 35 — Module composition: the contract a fourth module must satisfy](#adr-35-module-composition-the-contract-a-fourth-module-must-satisfy)
+- [ADR 36 — Quiz adopts classic's bundle format rather than inventing a second one](#adr-36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
+- [ADR 37 — Opting in to the guarded fork-PR checkout](#adr-37-opting-in-to-the-guarded-fork-pr-checkout)
+- [ADR 38 — Counting the poller's silent drops, and refusing to count the routine ones](#adr-38-counting-the-pollers-silent-drops-and-refusing-to-count-the-routine-ones)
+- [ADR 39 — Enforcing HTTPS for the event URL at server start, not at build or per request](#adr-39-enforcing-https-for-the-event-url-at-server-start-not-at-build-or-per-request)
+- [ADR 40 — CSRF assertion in the proxy, rate limits keyed on the login](#adr-40-csrf-assertion-in-the-proxy-rate-limits-keyed-on-the-login)
+- [ADR 41 — Authenticating Redis and cutting the app tier off from it](#adr-41-authenticating-redis-and-cutting-the-app-tier-off-from-it)
+- [ADR 42 — One Fly machine running the real compose file, not five Fly apps](#adr-42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps)
+- [ADR 43 — One URL, and it lives in `.env`, not `event.yaml`](#adr-43-one-url-and-it-lives-in-env-not-eventyaml)
+- [ADR 44 — Runtime admin grants, with the baked list as the recovery path](#adr-44-runtime-admin-grants-with-the-baked-list-as-the-recovery-path)
+- [ADR 45 — The team-member cap is an admin override, not a constant or a config key](#adr-45-the-team-member-cap-is-an-admin-override-not-a-constant-or-a-config-key)
+- [ADR 46 — The fork's Action pulls the scoring cooldown; the box does not push it](#adr-46-the-forks-action-pulls-the-scoring-cooldown-the-box-does-not-push-it)
+- [ADR 47 — A team is required to score, enforced at the route and signposted at the page](#adr-47-a-team-is-required-to-score-enforced-at-the-route-and-signposted-at-the-page)
+- [ADR 48 — Per-contestant support actions, and why they refuse some things](#adr-48-per-contestant-support-actions-and-why-they-refuse-some-things)
+- [ADR 49 — `firstTeamAt` records the funnel's conversion moment; `joinedAt` does not](#adr-49-firstteamat-records-the-funnels-conversion-moment-joinedat-does-not)
+- [ADR 50 — Metrics are computed from stored data; forks report nothing](#adr-50-metrics-are-computed-from-stored-data-forks-report-nothing)
+- [ADR 51 — Base images are digest-pinned, and dependabot is what keeps the pin honest](#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)
+- [ADR 52 — Modules are switched at runtime; Secure Development is configured at setup](#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)
+
+## ADR 1. Keep the GitHub fork/PR/Action flow — it is the pedagogy
+
+**Status.** Accepted.
 
 **Context.** The contestant loop could be simplified to "submit a diff" or
 "paste a patch" through the app itself, cutting out GitHub entirely.
@@ -32,7 +90,9 @@ fully controls. It also means the kit depends on GitHub Actions being
 available and configured correctly per target, which is what
 `setup/ctf-setup.sh org` exists to automate.
 
-## 2. Single docker-compose box; no Kubernetes in v1
+## ADR 2. Single docker-compose box; no Kubernetes in v1
+
+**Status.** Accepted.
 
 **Context.** A CTF event could run on a cluster for scale/HA.
 
@@ -48,7 +108,9 @@ lose scores. The tradeoff is no horizontal scaling or built-in HA — a
 single-chapter-sized event is the target load, not a multi-thousand-person
 conference CTF.
 
-## 3. Score transport: poll by default, push optional
+## ADR 3. Score transport: poll by default, push optional
+
+**Status.** Accepted.
 
 **Context.** The scoring Action needs to get a result from the event org
 back to the organizer's box, which may or may not have a public URL.
@@ -66,13 +128,17 @@ route). Push mode needs a public URL for the box plus org Actions secrets
 instead of poll's ~30s cadence. `event.yaml`'s
 `modules.secure-development.score_ingest` field only documents the
 organizer's intent — the operative switch is the `SCORE_INGEST` env var in
-`.env`, and nothing syncs the two (README, "Poll vs push"). Neither mode
-authenticates against a live scorer yet: both need the scorer's
-bearer-token auth mode, and push additionally needs `score-action`'s
-`leaderboard-url`/`leaderboard-token` inputs — both unlanded upstream
-changes tracked in `docs/operations.md`'s "Status and upstream dependencies".
+`.env`, and nothing syncs the two
+([Poll vs push](hosting.md#poll-vs-push)). Both modes authenticate against the
+in-repo scorer's bearer-authed `POST /score`, and push mode's
+`LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets are read by the kit's own
+scoring workflow — the two upstream dependencies this entry originally
+carried landed in-kit instead
+([Status](operations.md#status-and-upstream-dependencies)).
 
-## 4. SRH as the Upstash-REST proxy in front of local Redis
+## ADR 4. SRH as the Upstash-REST proxy in front of local Redis
+
+**Status.** Accepted.
 
 **Context.** The app's leaderboard/team/hint stores use an
 `@upstash/redis`-style REST client, which expects Upstash's hosted REST
@@ -92,7 +158,9 @@ subset directly against `srh`). Any future Redis usage in the app must
 stay within what `srh` actually supports; this is called out as an open
 verification item in `docs/operations.md`'s "Status and upstream dependencies".
 
-## 5. Single score writer: monotonic writes, at-least-once delivery
+## ADR 5. Single score writer: monotonic writes, at-least-once delivery
+
+**Status.** Accepted.
 
 **Context.** Two independent paths can produce a score for the same
 solve — poll's `sync` service and push mode's direct Action POST — and
@@ -112,7 +180,9 @@ more than once. That's fine because a replay of an already-applied score
 is required to be a no-op on the scorer side, not a double-count. A module
 implementer MUST NOT invent a second write path (`docs/modules.md §2.1`).
 
-## 6. Poller trust model: author filter before parsing, grammar as key guard
+## ADR 6. Poller trust model: author filter before parsing, grammar as key guard
+
+**Status.** Accepted.
 
 **Context.** Anyone can post a PR comment. The poller must not treat an
 attacker-authored comment as a legitimate score, and any value it forwards
@@ -137,11 +207,13 @@ transport a module adds must reproduce both checks, not just one
 (`docs/modules.md §3.2`: "trust here is entirely the GitHub-authenticated
 comment author, not anything in the payload"). The filter itself is
 proven today (`scripts/smoke.sh`'s forged-comment case); what it feeds —
-a bearer-authed `POST /score` against the real scorer — is not, pending
-the same upstream scorer auth mode noted in `docs/operations.md`'s "Status
-and upstream dependencies".
+the in-repo scorer's bearer-authed `POST /score` — is proven offline by the
+same smoke run, and awaits a first real live event
+([Status](operations.md#status-and-upstream-dependencies)).
 
-## 7. Oracle discipline: pass/fail and points only, never diagnostics
+## ADR 7. Oracle discipline: pass/fail and points only, never diagnostics
+
+**Status.** Accepted.
 
 **Context.** A scoring Action's output is visible to the contestant who
 triggered it (as a PR comment) and, in push mode, is the payload sent
@@ -158,7 +230,9 @@ image itself unreadable (see decision 8). Any new module's scoring
 workflow inherits this requirement; it is not something `secure-development`
 does uniquely.
 
-## 8. Private scorer image and per-event mirror; access control over obfuscation
+## ADR 8. Private scorer image and per-event mirror; access control over obfuscation
+
+**Status.** Accepted, premise since inverted: ADRs 17–18 made the stock rubric public, so the private image described here is now the optional private-rubric path, not the default.
 
 **Context.** The scorer image bakes in the challenge rubric. If it leaked
 publicly, contestants could read exactly what's being checked for.
@@ -181,7 +255,9 @@ principle: the goal is limiting who can pull it at all, not making the
 image itself unreadable — which pairs with oracle discipline (decision 7)
 as the actual leak-prevention layer.
 
-## 9. Per-event disposable GitHub orgs; `pull_request_target` isolation
+## ADR 9. Per-event disposable GitHub orgs; base-repo workflow isolation
+
+**Status.** Accepted.
 
 **Context.** Running a CTF against live GitHub repos means untrusted
 contestant code exists as real PR branches, and something must run
@@ -205,14 +281,16 @@ for an event MUST be archivable or revocable after the event"). `cmd_org` now
 commits the scoring workflow (`ctf-score.yml`) to each fork's `ctf` branch and
 disables the forks' inherited workflows automatically.
 
-## 10. `event.yaml`'s module namespace; deliberate, not dynamic, registration
+## ADR 10. `event.yaml`'s module namespace; deliberate, not dynamic, registration
 
-> **Amended by [#24](#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one).**
+**Status.** Accepted; amended by [ADR 24](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one) and [ADR 31](#adr-31-one-hint-switch-capability-split-from-policy).
+
+> **Amended by [#24](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one).**
 > This decision describes **two** enumerations to extend for a new module. There
 > are now **three**: `setup/ctf-setup.sh`'s `KNOWN_MODULES` joined them when
 > provisioning learned to skip a module set with no `secure-development`. The
 > reasoning below is unchanged — only the count is. See
-> [#32](#32-scheduled-windows-evaluated-at-read-time-in-three-readers) for the
+> [#32](#adr-32-scheduled-windows-evaluated-at-read-time-in-three-readers) for the
 > other place this kit duplicates a rule across independent readers on purpose.
 
 **Context.** The kit is meant to eventually support more than one CTF
@@ -222,7 +300,7 @@ vertical (forensics, API security, cloud, …) alongside
 **Decision.** Platform-level config (`event`, `github`, `teams`, `hints`,
 `admins`) sits at the top level of `event.yaml`
 (**amended** — `hints` and `teams` are gone; both were declared here and never
-read, see [#31](#31-one-hint-switch-capability-split-from-policy));
+read, see [#31](#adr-31-one-hint-switch-capability-split-from-policy));
 everything vertical-specific
 lives under a kebab-case key in `modules:` (`modules.secure-development`).
 Enablement is presence — a module is on because its key is there, off because
@@ -257,7 +335,9 @@ step rather than widening this one. `docs/modules.md` is explicit that the
 single-scored-module state is a v1 constraint, not a permanent architectural
 stance.
 
-## 11. Vendor the contestant app into `apps/web/`; upstream stays read-only
+## ADR 11. Vendor the contestant app into `apps/web/`; upstream stays read-only
+
+**Status.** Accepted.
 
 **Context.** The contestant app (`OWASP-CTF/ctf-owasp-org`) previously
 lived as an upstream image pulled at build/deploy time. Making it
@@ -277,7 +357,9 @@ provenance (exact upstream commit, date, reason) and states the intent to
 offer the delta back as a single PR once upstream write access opens —
 this is a deliberate, tracked fork, not an untracked copy-paste.
 
-## 12. Build-time config generation over runtime config
+## ADR 12. Build-time config generation over runtime config
+
+**Status.** Accepted.
 
 **Context.** Event identity (name, dates, targets, branding) needs to
 reach the app somehow. A runtime option (read `event.yaml` on every
@@ -300,7 +382,9 @@ build app`), not just a restart or a config hot-reload; README calls this
 out directly under "Rebuilding the app after a config change" so it isn't
 a surprise.
 
-## 13. Closed `AppId` union; config selects a subset; unknown values fail the build
+## ADR 13. Closed `AppId` union; config selects a subset; unknown values fail the build
+
+**Status.** Accepted.
 
 **Context.** The target catalogue (`juice-shop`, `dvwa`, `webgoat`,
 `securityshepherd`, `vulnerableapp`, `vampi`) is fixed for
@@ -320,7 +404,9 @@ config load — one contract, enforced twice, in the two places that read
 ∩ config, so nav, challenge list, and leaderboard columns for a disabled
 target vanish with no per-page conditional logic.
 
-## 14. Neutral defaults; no DEF CON 34 in the platform
+## ADR 14. Neutral defaults; no DEF CON 34 in the platform
+
+**Status.** Accepted.
 
 **Context.** The vendored app's source (from `OWASP-CTF/ctf-owasp-org`)
 carried event-specific branding, copy, and links from the DEF CON 34 event
@@ -339,7 +425,9 @@ event-agnostic by construction — DC34 was one event that happened to be
 the app's original deployment, and its specifics are not baked in as
 "the" default anywhere in the generator or the catalogue.
 
-## 15. Timezone-independent date display
+## ADR 15. Timezone-independent date display
+
+**Status.** Accepted.
 
 **Context.** `event.yaml`'s `event.start`/`event.end` are ISO 8601
 timestamps with an explicit offset (e.g.
@@ -363,7 +451,9 @@ the exact same `event.yaml` renders a different (and wrong, by one day in
 either direction) date depending on which CI runner or organizer laptop
 happened to build the image.
 
-## 16. Cursor rollback on partial batch failure in the sync poller
+## ADR 16. Cursor rollback on partial batch failure in the sync poller
+
+**Status.** Accepted.
 
 **Context.** Each poll tick fetches a batch of comments and may need to
 submit several scores to `scorer`. Some submissions in a batch can succeed
@@ -392,7 +482,9 @@ alternative — advancing the cursor past the whole batch regardless of a
 mid-batch failure — would guarantee the failed comment's score is silently
 dropped. Retry semantics were chosen over cursor precision.
 
-## 17. Public scorer engine, private rubric
+## ADR 17. Public scorer engine, private rubric
+
+**Status.** Superseded by [ADR 18](#adr-18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public) — the rubric now ships public.
 
 **Context.** The upstream scorer image (`ghcr.io/owasp-ctf/score`) is
 private with no formal access process — you have to ask the maintainers
@@ -437,7 +529,9 @@ M** challenges patched`, `not-recorded` marker) are deliberately preserved
 verbatim, so an upstream event could adopt this engine later without
 touching its existing tooling.
 
-## 18. Exec-probe rubrics for all six targets; the rubric ships public
+## ADR 18. Exec-probe rubrics for all six targets; the rubric ships public
+
+**Status.** Accepted.
 
 **Context.** Decision 17 split the scorer into a public engine and a
 private rubric, and shipped one instructive example (`juice-shop.yaml`,
@@ -501,21 +595,26 @@ upstream image, verified by `scripts/acceptance-target.sh`: vampi 9,
 vulnerableapp 110, juice-shop 38, dvwa 55, webgoat 69, securityshepherd 40
 — 321 challenges, 668 points across the six.
 
-A known scoring-fidelity gap ships with this. Security Shepherd's vendored
-`extractSolutionKey` helper accepts any 32-128 character hex run found in
+A known scoring-fidelity gap shipped with this. Security Shepherd's vendored
+`extractSolutionKey` helper accepted any 32-128 character hex run found in
 the response. At least one challenge (`Challenge-10-IDOR-2`) echoes the
 attacker-supplied identifier — itself pure hex — back into the page
-precisely when a *correct* patch blocks the lookup, so the helper reads a
-"solution key" out of noise and the challenge scores as unpatched however
-good the fix. The bias runs toward "not patched," so the stock-scores-zero
-gate is unaffected and no contestant gains a free point; the cost is that
-one Shepherd challenge can under-credit a correct patch. The rubrics are
-vendored read-only, so the fix belongs upstream — tighten the helper to
-require a result-key-shaped match rather than any bare hex run. This is
-already recorded in `docs/operations.md`'s "Status and upstream dependencies" list; keep
-the two consistent.
+precisely when a *correct* patch blocks the lookup, so the helper read a
+"solution key" out of noise and the challenge scored as unpatched however
+good the fix. The bias ran toward "not patched," so the stock-scores-zero
+gate was unaffected and no contestant gained a free point; the cost was
+under-crediting a correct patch. **Since fixed in the vendored copy**
+(#101): the bare fallback now requires 64–128 hex and real keys match with
+their surrounding context, leaving only the matcher's stated residual (an
+"isn't correct"-phrased refusal still reads as a solve — same safe bias).
+The vendored-read-only discipline bent for that fix and #108's vacuous-pass
+work — a fact `scorer/rubric.owasp/PROVENANCE.md` should record. Current
+state lives in `docs/operations.md`'s "Status and upstream dependencies";
+keep the two consistent.
 
-## 19. Organizer admin panel: runtime override layer
+## ADR 19. Organizer admin panel: runtime override layer
+
+**Status.** Accepted; the v1 read-path limitation noted below was resolved by [ADR 31](#adr-31-one-hint-switch-capability-split-from-policy), and scheduled windows arrived with [ADR 32](#adr-32-scheduled-windows-evaluated-at-read-time-in-three-readers).
 
 **Context.** Everything up to this point is either build-time config
 (`event.yaml`, decision 12) or a one-shot event of no return (a score
@@ -525,8 +624,10 @@ ingestion during an incident, or adjust hints — without a rebuild or a
 restart, and without giving up the kit's no-cloud, single-box posture.
 
 **Decision.** Add a small runtime-override layer living in the same Redis
-the rest of the kit already uses: `ctf:admin:settings` (a hash: `paused`,
-`hintsEnabled`, `hintCost`, plus `updatedBy`/`updatedAt`) and
+the rest of the kit already uses: `ctf:admin:settings` (a hash — at this
+entry's writing `paused`, `hintsEnabled`, `hintCost`, plus
+`updatedBy`/`updatedAt`; later decisions grew it to the full knob set
+inventoried in [architecture.md](architecture.md)'s settings table) and
 `ctf:admin:audit` (a capped list of every change, written atomically with
 the change via one Lua script — a setting can never land without its
 audit line). Every reader applies **override-else-default** precedence:
@@ -542,8 +643,11 @@ no new identity system.
 The headline control, **freeze, means freeze ingestion — not stop
 execution.** Pausing never touches fork Actions or GitHub: contestants'
 PRs keep getting judged and commented on exactly as before. In poll mode,
-`sync`'s `tick()` checks the pause flag first and skips the whole
-fetch/parse/submit loop while paused, leaving the per-repo cursor and ETag
+`sync`'s `tick()` checks the pause flag before the fetch/parse/submit loop
+(after the master-reset epoch, which must be honoured even while paused —
+[ADR 48](#adr-48-per-contestant-support-actions-and-why-they-refuse-some-things)'s
+rider explains why) and skips the whole
+loop while paused, leaving the per-repo cursor and ETag
 untouched — a queued score is deferred, never lost, and ingests normally
 on the next tick after the organizer clears the flag. In push mode,
 `scorer`'s `POST /score` returns `503` while paused, so a contestant's
@@ -567,7 +671,7 @@ reaching into it would mean the panel holding GitHub credentials with
 write scope beyond what anything else in the kit needs).
 
 **Known limitation, accepted rather than fixed in v1 — since RESOLVED by
-[#31](#31-one-hint-switch-capability-split-from-policy), which routed the
+[#31](#adr-31-one-hint-switch-capability-split-from-policy), which routed the
 three read paths below through `resolveHintConfig` and retired the env var
 entirely. The paragraph is kept as the record of what v1 shipped: the hint
 toggle was only live at the reveal boundary.** `resolveHintConfig()` (and therefore
@@ -593,7 +697,9 @@ that partiality must stay documented (README, this entry, and
 `docs/architecture.md`'s "Organizer admin panel" section) rather than
 implied to be complete.
 
-## 20. Landing-page frame is code; module content is contributed, not organizer-authored
+## ADR 20. Landing-page frame is code; module content is contributed, not organizer-authored
+
+**Status.** Accepted.
 
 **Context.** The landing page hardcoded `secure-development`'s own pitch — a
 tagline, a hero paragraph, four "how it works" steps, a "please use AI"
@@ -627,7 +733,9 @@ it. Because `home` carries no organizer-editable field, there is nothing on
 this page that needs HTML sanitisation, unlike the rejected alternative
 would have required.
 
-## 21. Module identity resolution makes every page dynamic
+## ADR 21. Module identity resolution makes every page dynamic
+
+**Status.** Accepted.
 
 **Context.** An organizer's title/blurb override for a module (decision 19's
 runtime-override layer, extended to module naming) has to show up in the
@@ -672,7 +780,9 @@ is deduped within one request — the root layout's nav and a page's own
 Redis round trip — and it still fails open on a settings-read error,
 rendering the registry-default nav rather than an empty one.
 
-## 22. Resolved modules are identity-only, deliberately
+## ADR 22. Resolved modules are identity-only, deliberately
+
+**Status.** Accepted.
 
 **Context.** A resolved module (registry defaults merged with the
 organizer's title/blurb override) is handed to both server code and Client
@@ -710,7 +820,9 @@ scan it recursively for any function value — including a compile-time
 assertion on the type itself — not just that today's consumers happen not to
 read them.
 
-## 23. `/how-to-play` gets its own registry field, not a reuse of `home.steps`
+## ADR 23. `/how-to-play` gets its own registry field, not a reuse of `home.steps`
+
+**Status.** Accepted.
 
 **Context.** Decision 20 composed the landing page from each module's `home`
 block. `/how-to-play` and `/rules` had the same defect and worse: ~29
@@ -755,7 +867,9 @@ inline), so the registry remains importable either side of the server
 boundary, and the new fields are stripped from `ResolvedModule` for the
 reason decision 22 gives.
 
-## 24. Tolerating a missing module vs rejecting an unknown one
+## ADR 24. Tolerating a missing module vs rejecting an unknown one
+
+**Status.** Accepted.
 
 **Context.** Two independent readers parse the same `event.yaml` for module
 keys and share no code: `sync/src/config.js` (JS, the poller) and
@@ -768,7 +882,7 @@ situations are not the same failure. A module this build knows about but
 that isn't configured for this event is a legitimate config choice — nothing
 for `sync` to poll. A module key this build has never heard of is a typo or
 a vertical that was never wired into this reader — the deliberate-
-registration model in [docs/modules.md §1.2](modules.md#1-module-identity--config-block)
+registration model in [docs/modules.md §1.2](modules.md#section-1-module-identity--config-block)
 means a new vertical is always a code change, never config alone, so an
 unrecognized key can't mean "a module I haven't heard of, ignore it."
 
@@ -859,7 +973,9 @@ enabled. That asymmetry is safe in the direction it points — the strict
 reader fails loudly at build time, it does not silently provision less — but
 it is the known gap to close if the corpus is ever extended to all three.
 
-## 25. Building a leaderboard with no scoring backend
+## ADR 25. Building a leaderboard with no scoring backend
+
+**Status.** Accepted.
 
 **Context.** `secure-development` disabled means there is no scorer, no
 lambda, and no Upstash scoring data for this event at all — every
@@ -922,7 +1038,9 @@ empty source's `getUser` also returns `null` unconditionally, which
 so the page renders the module blocks it can build on its own rather than
 gaining a second code path for "no backend at all."
 
-## 26. Compose profiles follow the enabled modules
+## ADR 26. Compose profiles follow the enabled modules
+
+**Status.** Accepted.
 
 **Context.** `docker-compose.yml` put `sync` behind `profiles: ["poll"]` but
 left `scorer` in the default (profile-less) set, and `app` carried
@@ -966,7 +1084,9 @@ line-up must contain no `scorer` and no `sync`, and the scored line-up must
 still contain both — a check the rest of that gate structurally could not
 make, since it builds the app by hand and brings `sync` up with `--no-deps`.
 
-## 27. Two flag hashes rather than one
+## ADR 27. Two flag hashes rather than one
+
+**Status.** Accepted.
 
 **Context.** The classic module's admin authoring surface needs to prefill
 an existing challenge's flag when an organizer opens it for editing — the
@@ -1013,7 +1133,9 @@ functions (`listChallengesForAdmin` for `flag`, the grading script alone for
 check rather than a discipline every future call site has to maintain by
 hand.
 
-## 28. A hand-rolled Markdown renderer rather than a library
+## ADR 28. A hand-rolled Markdown renderer rather than a library
+
+**Status.** Accepted.
 
 **Context.** A classic challenge's description is organizer-authored content
 that needs a little formatting — bold, italics, inline code, lists, a code
@@ -1060,7 +1182,9 @@ contestant's board uses — never a second implementation — so what an
 organizer sees while authoring is never a preview of something different
 from what ships.
 
-## 29. No attempt cap on flag submission
+## ADR 29. No attempt cap on flag submission
+
+**Status.** Accepted.
 
 **Context.** The quiz module enforces two retry-gate knobs together: a
 maximum attempt count per question and a cooldown between attempts, because
@@ -1103,7 +1227,9 @@ future need arises for a genuine per-challenge attempt limit, it is a new
 knob, not an extension of the cooldown — the two solve different problems
 and conflating them would blur which knob to reach for.
 
-## 30. One shared team-dedupe fold
+## ADR 30. One shared team-dedupe fold
+
+**Status.** Accepted.
 
 **Context.** Both `quiz` and `classic` need a team's total to be the
 **union** of what its members individually banked — never the sum, which
@@ -1145,7 +1271,9 @@ generic — each caller still translates it into its own domain language
 (`ClassicTotal`/`QuizTotal`) at the boundary, so nothing downstream of
 either store has to know the fold is shared.
 
-## 31. One hint switch: capability split from policy
+## ADR 31. One hint switch: capability split from policy
+
+**Status.** Accepted.
 
 **Context.** Hints had three things that looked like a switch, and none of
 them worked the way an organizer would expect.
@@ -1160,7 +1288,7 @@ switch that did reach the running app — governed only whether a hint could be
 **bought**: `getViewerHints`, `getHintPenalties` and `getHintAvailability`
 read a module-level env constant instead, so turning hints off left the hint
 buttons on the challenges page and the penalty column on the leaderboard.
-That last split is the limitation [#19](#19-organizer-admin-panel-runtime-override-layer)
+That last split is the limitation [#19](#adr-19-organizer-admin-panel-runtime-override-layer)
 recorded and deferred.
 
 The obvious repair — forward the env var through compose — would have made a
@@ -1228,7 +1356,7 @@ So the key is now gone rather than merely truthful: `setup/ctf-setup.sh` no
 longer emits it, and `generate-event-config.mjs` warns (never fails) when a
 config still carries one, naming `/admin` as where the setting lives. This
 also removes `hints` from the platform-level list in
-[#10](#10-eventyamls-module-namespace-deliberate-not-dynamic-registration),
+[#10](#adr-10-eventyamls-module-namespace-deliberate-not-dynamic-registration),
 which had it as top-level schema. Existing configs keep building.
 
 `teams:` went the same way in the same change, for the same reason and with
@@ -1237,7 +1365,8 @@ nobody, so `teams: { enabled: false, max_size: 6 }` got team play anyway,
 capped at 4. It is arguably the worse of the two: `max_size` is a *number*,
 which reads even more like configuration than a boolean does. Teams are always
 available; `/admin` opens and closes registration, and the cap is
-`TEAM_MAX_MEMBERS` in `team-store.ts`.
+`TEAM_MAX_MEMBERS` in `team-limits.ts` (an `/admin` override since
+[ADR 45](#adr-45-the-team-member-cap-is-an-admin-override-not-a-constant-or-a-config-key)).
 
 Deliberately not replaced by a build-time capability. Solo play already works
 and is the default — teams are opt-in per contestant — so a `teams.enabled`
@@ -1247,9 +1376,11 @@ is a real request and is tracked separately; if it lands it belongs in
 `/admin` on the `HINT_COST` pattern named above — a constant default with an
 override and no config key — not back in `event.yaml`.
 
-## 32. Scheduled windows, evaluated at read time in three readers
+## ADR 32. Scheduled windows, evaluated at read time in three readers
 
-**Context.** [#19](#19-organizer-admin-panel-runtime-override-layer) gave
+**Status.** Accepted.
+
+**Context.** [#19](#adr-19-organizer-admin-panel-runtime-override-layer) gave
 organizers a manual freeze. Manual is not enough for a real event: an
 organizer should be able to say "scoring opens at the keynote and closes at
 17:00" and then stop watching the clock. The same is true of the team-forming
@@ -1281,7 +1412,8 @@ I said so *and* we are inside the window". Both are the conservative reading
 of the organizer's two inputs.
 
 **Three readers, and they must change together.** `outsideWindow` is
-implemented independently in `apps/web/src/lib/admin-store.ts`,
+implemented independently in `apps/web/src/lib/schedule-window.ts`
+(re-exported through `admin-store.ts`),
 `scorer/src/store.js` and `sync/src/redis.js` — three languages-worth of
 runtime with no shared package between them — plus `team-store.ts` for the
 registration half. Each carries a comment saying so.
@@ -1310,7 +1442,9 @@ that misses the others produces an event where the app believes scoring is
 closed while the poller keeps ingesting, and the only signal is behavioural.
 The corpus tests that pin the `modules:` readers have no equivalent here.
 
-## 33. Classic CTF: static exact-match flags, stored recoverably
+## ADR 33. Classic CTF: static exact-match flags, stored recoverably
+
+**Status.** Accepted.
 
 **Context.** The `classic` module is the jeopardy format: a board of
 organizer-authored challenges, each hiding a string, graded the instant a
@@ -1365,7 +1499,7 @@ read boundary rather than by the storage format: `listChallenges` issues a
 single `HGETALL` against the public hash and never touches the flag hash at
 all, while `listChallengesForAdmin` reads both behind `requireAdmin`. That
 split, and the second normalised hash it needs, is
-[#27](#27-two-flag-hashes-rather-than-one).
+[#27](#adr-27-two-flag-hashes-rather-than-one).
 
 **Categories and per-challenge points are first-class**, stored as their own
 ordered list (`ctf:classic:categories`) rather than derived from the
@@ -1390,9 +1524,11 @@ The Lua-pattern coupling means the points cap and `SUBMIT_SCRIPT` are a pair:
 changing how the record is serialised, or how the script parses it, invalidates
 the other.
 
-## 34. Classic bulk import/export as a versioned, self-contained bundle
+## ADR 34. Classic bulk import/export as a versioned, self-contained bundle
 
-**Context.** [#33](#33-classic-ctf-static-exact-match-flags-stored-recoverably)
+**Status.** Accepted.
+
+**Context.** [#33](#adr-33-classic-ctf-static-exact-match-flags-stored-recoverably)
 gives organizers a board to author one challenge at a time. A real board is
 twenty to forty challenges, often carried between terms or drafted offline by
 someone who is not the person running the box.
@@ -1441,9 +1577,11 @@ at compile time.
 Version 1 has no migration path yet. The first bump has to add one, and the
 refusal above is what makes that safe to defer.
 
-## 35. Module composition: the contract a fourth module must satisfy
+## ADR 35. Module composition: the contract a fourth module must satisfy
 
-**Context.** [#25](#25-building-a-leaderboard-with-no-scoring-backend)
+**Status.** Accepted.
+
+**Context.** [#25](#adr-25-building-a-leaderboard-with-no-scoring-backend)
 introduced created rows and the ADDED-vs-ATTRIBUTED distinction, as a
 consequence of making a quiz-only board work at all.
 `classic` then needed the identical treatment, and the next module will too.
@@ -1478,8 +1616,8 @@ test suite and shows up as an empty expander at the event.
 
 **Consequences.** A new module touches more than its own files, and the set is
 knowable: the registry, the three `event.yaml` readers
-([#10](#10-eventyamls-module-namespace-deliberate-not-dynamic-registration), plus the third that
-[#24](#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one) added), the
+([#10](#adr-10-eventyamls-module-namespace-deliberate-not-dynamic-registration), plus the third that
+[#24](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one) added), the
 proxy's route matcher, the contribution overlay, and the detail renderer.
 `docs/modules.md` §9 is the checklist; this ADR is why the checklist has the
 entries it does.
@@ -1490,9 +1628,11 @@ cleanly — they are caught by tests that assert a module-only contestant appear
 on the board at all, which is why those tests exist and why they assert on a
 named login rather than on a row count.
 
-## 36. Quiz adopts classic's bundle format rather than inventing a second one
+## ADR 36. Quiz adopts classic's bundle format rather than inventing a second one
 
-**Context.** [#34](#34-classic-bulk-importexport-as-a-versioned-self-contained-bundle)
+**Status.** Accepted.
+
+**Context.** [#34](#adr-34-classic-bulk-importexport-as-a-versioned-self-contained-bundle)
 gave classic a bulk path. Quiz — the older module — never got one, so seeding a
 50-question bank meant 50 round trips through a form while an equivalent flag
 board pasted in as one file. That asymmetry existed for no reason beyond
@@ -1548,7 +1688,9 @@ server-side (`exportBundle`), one in the admin page (`exportBundleFrom`, which
 already holds the data). They can only drift through an *optional* added
 field — a new required field breaks both at compile time.
 
-## 37. Opting in to the fork-PR checkout `pull_request_target` now guards
+## ADR 37. Opting in to the guarded fork-PR checkout
+
+**Status.** Accepted.
 
 **Context.** `actions/checkout` began refusing to check out a fork's pull
 request from a `pull_request_target` workflow:
@@ -1563,8 +1705,10 @@ targets exercised on the test org (DVWA, WebGoat) failed identically and in
 seconds. The guard arrived through the floating `@v4` tag, so it reached
 already-provisioned events with no change on their side.
 
-**Decision.** Set `allow-unsafe-pr-checkout: true`, and bump the workflow to
-**v2** so [#43](#43-…)'s upgrade path carries it to live forks.
+**Decision.** Set `allow-unsafe-pr-checkout: true`, and bump the workflow
+version stamp so the
+[workflow upgrade path](hosting.md#upgrading-the-scoring-workflow) carries it
+to live forks.
 
 The flag's name describes the class of risk, not this workflow's posture. The
 danger `pull_request_target` creates is *executing* a fork's code in a job
@@ -1604,7 +1748,9 @@ digest-pinning first-party images); it would also have meant not receiving the
 guard, so it trades a loud break for a silent divergence from upstream's
 current advice.
 
-## 38. Counting the poller's silent drops, and refusing to count the routine ones
+## ADR 38. Counting the poller's silent drops, and refusing to count the routine ones
+
+**Status.** Accepted.
 
 **Context.** Two scoring bugs were found in one evening by running a single
 real PR end to end — the upserted-comment dedupe collision (ADR-adjacent, see
@@ -1667,7 +1813,9 @@ early exit in the ingest loop gets one. Events upgrading from an older poller
 read a status hash with no drop fields, which decodes as `0`/`null` rather
 than `NaN` (pinned by a test in `admin-store.test.ts`).
 
-## 39. Enforcing HTTPS for `EVENT_URL` at server start, not at build or per request
+## ADR 39. Enforcing HTTPS for the event URL at server start, not at build or per request
+
+**Status.** Accepted.
 
 **Context.** better-auth derives the session cookie's `Secure` flag from the
 scheme of its `baseURL`, which docker-compose sets from `EVENT_URL`. The
@@ -1719,7 +1867,9 @@ plain-HTTP proxy while `EVENT_URL` says `https://` still ships sniffable
 cookies, and nothing in the app can detect that. That case belongs to the
 organizer hardening checklist ([#44](https://github.com/dcotelo/ctf-in-a-box/issues/44)).
 
-## 40. CSRF assertion in the proxy, rate limits keyed on the login
+## ADR 40. CSRF assertion in the proxy, rate limits keyed on the login
+
+**Status.** Accepted.
 
 **Context.** The custom API routes (`/api/admin/*`, `/api/team/*`,
 `/api/hints/reveal`, `/api/quiz/answer`, `/api/classic/submit`) authenticate
@@ -1791,7 +1941,9 @@ request (which would make the window never end).
 one human: a contestant with two accounts gets two budgets, which is
 acceptable for what these protect.
 
-## 41. Authenticating Redis and cutting the app tier off from it
+## ADR 41. Authenticating Redis and cutting the app tier off from it
+
+**Status.** Accepted.
 
 **Context.** `redis` ran with no `requirepass` on a single flat compose
 network. Every service on that network could reach `redis:6379` directly —
@@ -1859,7 +2011,7 @@ The password is not defence against an organizer with shell on the box — they
 can read `.env`. It is defence against a compromised *service*, which is the
 threat that motivated it.
 
-## 42. One Fly machine running the real compose file, not five Fly apps
+## ADR 42. One Fly machine running the real compose file, not five Fly apps
 
 **Status.** Accepted. Supersedes the five-app arrangement introduced with
 `deploy/fly/`.
@@ -2023,7 +2175,7 @@ the host there follows an `@`. srh was left pointing at `redis`, reproducing
 the exact IPv6 failure this ADR exists to eliminate, and looking identical to
 it. Both URL forms are rewritten now, with a test for the userinfo one.
 
-## 43. One URL, and it lives in `.env`, not `event.yaml`
+## ADR 43. One URL, and it lives in `.env`, not `event.yaml`
 
 **Status.** Accepted.
 
@@ -2071,7 +2223,7 @@ structured contract shared by three readers (the app's generator,
 the generator's env-only path already demonstrates what flattening it costs:
 one module, no per-module settings, targets as a comma-separated string.
 
-## 44. Runtime admin grants, with the baked list as the recovery path
+## ADR 44. Runtime admin grants, with the baked list as the recovery path
 
 **Status.** Accepted. Implements issue #147.
 
@@ -2126,7 +2278,7 @@ would make it useless for the only question it answers. Menu visibility has
 never been the gate (`requireAdmin` is), so a failed check hides a link rather
 than granting one.
 
-## 45. The team-member cap is an admin override, not a constant or a config key
+## ADR 45. The team-member cap is an admin override, not a constant or a config key
 
 **Status.** Accepted. Implements issue #99, and applies ADR 31's rule to a
 second setting.
@@ -2175,7 +2327,7 @@ it fails the build outright. The stores re-export them, so server callers are
 unaffected. Same reasoning as `lib/admin-admins.ts` in ADR 44: what a module
 imports is part of its contract.
 
-## 46. The fork's Action pulls the scoring cooldown; the box does not push it
+## ADR 46. The fork's Action pulls the scoring cooldown; the box does not push it
 
 **Status.** Accepted. Implements issue #46.
 
@@ -2232,7 +2384,7 @@ template without bumping it leaves existing forks on the old workflow —
 silently keeping a cooldown the organizer can no longer change. A test now
 pins that the stamp is at least 3.
 
-## 47. A team is required to score, enforced at the route and signposted at the page
+## ADR 47. A team is required to score, enforced at the route and signposted at the page
 
 **Status.** Accepted.
 
@@ -2317,7 +2469,7 @@ it contributes to no team total. The gap is documented in
 the poller dropping or parking scores it cannot attribute, which is a larger
 decision about ingest semantics than this one.
 
-## 48. Per-contestant support actions, and why they refuse some things
+## ADR 48. Per-contestant support actions, and why they refuse some things
 
 **Status.** Accepted.
 
@@ -2363,7 +2515,7 @@ on a team they are not on — but they keep the existence and membership checks
 with a contestant clicking Leave would be the one unguarded path in the team
 surface.
 
-## Secure Development cannot be reset, only deferred
+### ADR 48 rider — Secure Development cannot be reset, only deferred
 
 This is the sharp edge, and it is a property of the ingest design rather than
 of this feature.
@@ -2387,7 +2539,7 @@ for a data-removal request. And the warning names the operator's actual move —
 close the PR, or freeze scoring first. Quiz and classic have no such issue:
 those writes originate in the app, so a delete is final.
 
-## The aggregates are not keyed alike
+### ADR 48 rider — The aggregates are not keyed alike
 
 Worth recording because it is invisible and it bit during implementation.
 Every per-login counter is a hash keyed by login — except one:
@@ -2415,7 +2567,7 @@ the `HDEL`-by-login never appears.
 comment admitting it. Open-coded keys are how two readers of the same data
 drift apart.
 
-## 49. `firstTeamAt` records the funnel's conversion moment; `joinedAt` does not
+## ADR 49. `firstTeamAt` records the funnel's conversion moment; `joinedAt` does not
 
 **Status.** Accepted.
 
@@ -2457,7 +2609,7 @@ so the sign-in→team gap is small — but "signed in and never made a team" is
 not countable today, and closing it means writing on an authenticated request
 path, which is a bigger decision than this one.
 
-## 50. Metrics are computed from stored data; forks report nothing
+## ADR 50. Metrics are computed from stored data; forks report nothing
 
 **Status.** Accepted.
 
@@ -2519,7 +2671,7 @@ them:
 after the reader shipped.** `firstAt` on each attempt row and a purchase time
 per hint — see the section below.
 
-## `firstAt` and hint purchase times
+### ADR 50 rider — `firstAt` and hint purchase times
 
 `firstAt` lives inside the attempt row's JSON, beside `attempts`/`lastAt`/
 `lastAtMs`. That row is REWRITTEN on every submission, so the first attempt's
@@ -2564,7 +2716,9 @@ export of chosen aggregates, never this endpoint with its guard removed.
 2000-contestant ceiling that reports itself in `caveats` when it truncates —
 a silently truncated metric reads as a complete one.
 
-## 51. Base images are digest-pinned, and dependabot is what keeps the pin honest
+## ADR 51. Base images are digest-pinned, and dependabot is what keeps the pin honest
+
+**Status.** Accepted.
 
 **Context.** The Dockerfiles and compose services named their bases by mutable
 tag — `node:22-alpine`, `redis:7-alpine`, `caddy:2-alpine`. A tag is a pointer
@@ -2609,7 +2763,9 @@ test scaffolding that exists for the length of one run and ships to nobody, and
 pinning them would add three more digests to maintain for no tamper-evidence
 anyone benefits from.
 
-## 52. Modules are switched at runtime; Secure Development is configured at setup
+## ADR 52. Modules are switched at runtime; Secure Development is configured at setup
+
+**Status.** Accepted.
 
 **Context.** Module *identity* has been runtime since the title/blurb overrides
 landed, but module *enablement* was baked: `event.yaml`'s `modules:` compiled

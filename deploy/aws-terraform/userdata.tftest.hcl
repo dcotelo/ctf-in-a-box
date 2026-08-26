@@ -80,6 +80,12 @@ run "missing_required_secrets_fail_closed" {
     condition     = strcontains(aws_instance.box.user_data, "req BETTER_AUTH_SECRET")
     error_message = "required secrets are not read through the fail-closed req() helper"
   }
+  # Compose reads REDIS_PASSWORD with `:?` — a .env without it fails the whole
+  # bring-up at interpolation. It shipped missing from this script once.
+  assert {
+    condition     = strcontains(aws_instance.box.user_data, "req REDIS_PASSWORD")
+    error_message = "REDIS_PASSWORD must be fetched fail-closed — docker-compose.yml reads it with :? and refuses to start without it"
+  }
   assert {
     condition     = strcontains(aws_instance.box.user_data, "opt GITHUB_APP_INSTALLATION_ID")
     error_message = "the optional installation id should use opt(), which tolerates absence"

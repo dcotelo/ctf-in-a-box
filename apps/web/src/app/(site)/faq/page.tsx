@@ -123,7 +123,7 @@ export default async function FaqPage() {
       q: "Where do I ask for help during the event?",
       a: (
         <>
-          Find an organizer at the OWASP CTF area
+          Find an organizer at the {event.name} area
           {event.discordUrl && (
             <>
               , or join the{" "}
@@ -152,7 +152,7 @@ export default async function FaqPage() {
         description={
           <>
             Quick answers to the things contestants ask most. Still stuck? Find an organizer at
-            the OWASP CTF area
+            the {event.name} area
             {event.discordUrl && (
               <>
                 , or ask in the{" "}

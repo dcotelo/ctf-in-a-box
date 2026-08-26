@@ -6,6 +6,12 @@ title: Module contract
 
 # Module contract
 
+**For module authors.** Read this for the contract a new vertical must
+satisfy; read [scorer.md](scorer.md) for authoring rubrics inside the
+existing `secure-development` module (the far more common task); read
+[architecture.md](architecture.md)'s quiz/classic data flows for a worked
+example of an app-side module end to end.
+
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
@@ -25,14 +31,15 @@ module (forensics, api-security, cloud, …) must satisfy to plug in, with
 module that actually exercises the GitHub-mediated scoring contract (§2–3,
 §6–8) that `quiz` and `classic` deliberately bypass.
 
-The platform sections of `event.yaml` (`event`, `github`, `teams`, `hints`,
-`admins`) are shared. Everything module-specific — target list, challenge
+The platform sections of `event.yaml` (`event`, `github`, `admins`) are
+shared (there is deliberately no `teams:` or `hints:` block — see ADR 31's
+amendment; both are `/admin` runtime knobs). Everything module-specific — target list, challenge
 catalogue, scoring transport — lives under `modules.<name>`. For the
 higher-level split of what the control plane owns versus what a module
 supplies, see the [platform-and-modules table](architecture.md#platform-and-modules);
 the sections below are the enforceable contract behind it.
 
-## 1. Module identity & config block
+## Section 1. Module identity & config block
 
 1. MUST live under a kebab-case key in `event.yaml`'s top-level `modules:`
    map — one config block per module. Example, `secure-development`'s block
@@ -49,7 +56,7 @@ the sections below are the enforceable contract behind it.
    `event.yaml`'s `modules:` is the STARTING set and the outage fallback, not
    the live truth: organizers switch modules on and off from `/admin` during an
    event, and the live set lives in `ctf:admin:settings`
-   ([ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
 
    A module is runtime-toggleable only if **everything it needs already
    exists** when the switch is flipped. Concretely, enabling it must require no
@@ -89,7 +96,7 @@ the sections below are the enforceable contract behind it.
    tolerates the latter: `if (!mod) return null;` when
    `modules.secure-development` itself is simply not configured, which is
    what lets a quiz-only event run `sync` to a clean exit instead of a
-   crash loop (see [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+   crash loop (see [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
    for why the line is drawn there). All three lists MUST stay in step,
    because all three read the same file: an id the app accepts and `sync`
    rejects crash-loops the poller and silently freezes the leaderboard, and
@@ -134,7 +141,7 @@ the sections below are the enforceable contract behind it.
    what it could not carry (an export-time warning, and an import-time
    `skipped` entry) rather than silently omitting it.
 
-## 2. Scoring ingestion contract (the hard boundary)
+## Section 2. Scoring ingestion contract (the hard boundary)
 
 1. MUST submit every score through the single writer: `POST /score` on the
    local scorer. `sync/src/submit.js` is the only write path this repo
@@ -178,7 +185,7 @@ the sections below are the enforceable contract behind it.
    => id !== c.id); // retry next tick`), and replays of an already-applied
    score are expected to be no-ops on the scorer side, not double-counts.
 
-## 3. Score transport options
+## Section 3. Score transport options
 
 1. **Push**: the scoring workflow POSTs directly to `${scorerUrl}/score`
    with a bearer token. Caddy only exposes the `/score` route externally
@@ -212,7 +219,7 @@ the sections below are the enforceable contract behind it.
    new `sync` adapter, not a config toggle. Propose it via an issue first;
    it changes the trust model, not just wiring.
 
-## 4. Leaderboard mapping
+## Section 4. Leaderboard mapping
 
 1. The scorer exposes `GET /leaderboard`; the local test fixture
    (`test/fixtures/mock-scorer.mjs`) returns `{leaderboard: [{author,
@@ -237,7 +244,7 @@ the sections below are the enforceable contract behind it.
    provenance (a contestant's recorded solve no longer maps to any current
    challenge). Treat catalogue IDs like a public API: add, don't rename.
 
-## 5. UI / presentation contract
+## Section 5. UI / presentation contract
 
 **Honesty constraint up front:** the vendored contestant app (`apps/web/`,
 see `apps/web/VENDORED.md`) now derives its module registry from `event.yaml`
@@ -272,9 +279,10 @@ now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`, rendering
 (`apps/web/src/app/(site)/flags/`, rendering `components/classic-board.tsx`);
 the leaderboard pipeline's
 `withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
-attributes `secure-development`'s scorer-sourced points (net of hint
-penalties — it runs after `withHintPenalties`) into a per-module
-`ModuleProgress`, and now *also* computes `quiz`'s and `classic`'s points
+attributes `secure-development`'s scorer-sourced *gross* points (hint
+penalties fold last, netting the final all-module total once — the module
+blocks show gross, the row's `−N hints` marker reconciles them) into a
+per-module `ModuleProgress`, and now *also* computes `quiz`'s and `classic`'s points
 app-side and adds them into the combined total (never attributes them — the
 scorer never sees a quiz question or a captured flag, so there is nothing of
 theirs to attribute from) — see
@@ -292,11 +300,11 @@ built off the same `ModuleDetail` renderer as the leaderboard rather than a
 second one — the page's headline total was already net and correct before
 this, what it was missing was the per-module breakdown behind it; the admin
 panel
-(`admin-controls.tsx`) is a tab shell — one **Event** tab for the
+(`app/(site)/admin/admin-controls.tsx`) is a tab shell — one **Event** tab for the
 control-plane settings that belong to the platform itself, then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
 the four hint controls living in Secure
-Development's tab (`admin-secure-dev-tab.tsx`), the quiz's two retry-gate
+Development's tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
 question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's, and
 classic's submission-cooldown knob plus its full challenge/category
@@ -305,7 +313,7 @@ so the generic "No settings for this module yet." fallback that a module
 tab renders when it defines no controls is, today, dead code for all three
 shipped modules; it stays wired for whatever module ships next with no
 settings of its own. Every module tab opens with an identity editor
-(`admin-module-identity.tsx`) for that module's title/blurb override (item 1
+(`app/(site)/admin/admin-module-identity.tsx`) for that module's title/blurb override (item 1
 above); this is the same organizer-resolved name rendered in the tab label
 itself, the nav, and the module's own page header — plus the leaderboard block
 and the landing-page section heading on a *multi-module* event, both of which
@@ -361,7 +369,7 @@ third module isn't mistaken for a fully general n-module platform:
   Either tab can export its content as a single versioned JSON bundle and
   import one back — upsert by id, never deletes; classic additionally unions
   its categories rather than replacing them. See
-  [ADR 36](decisions.md#36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
+  [ADR 36](decisions.md#adr-36-quiz-adopts-classics-bundle-format-rather-than-inventing-a-second-one)
   for why the two formats are deliberately the same, and
   [docs/operations.md](operations.md#quiz) /
   [docs/operations.md](operations.md#classic) for the organizer-facing
@@ -619,12 +627,14 @@ of one module's shape.
    end up silently un-gated. `proxy-quiz-only.test.ts` and
    `proxy-disabled-module.test.ts` pin what it then *does* with them.
 
-   Know what this is and is not. `proxy.ts`'s matcher is **page-only and
+   Know what this is and is not. The gate's route set is **page-only and
    exact-match**: it protects the module's page, not any deeper path under
    it, and it deliberately does **not** widen over `/api/*` — that would put
    the gate in front of `/api/auth/*` (breaking the sign-in a contestant
    needs in order to pass the gate) and `/api/gate` itself, and would answer
-   API calls with a page *redirect*, which an API client can't act on.
+   API calls with a page *redirect*, which an API client can't act on. (The
+   matcher literal itself also carries `/api/:path*`, but that entry serves
+   the cross-origin write assertion, not the gate.)
 
    Instead, the three module routes that bank points or leak challenge
    content call a small server-side check of their own,
@@ -662,13 +672,13 @@ of one module's shape.
    a reason to skip a check in its own API. See `docs/operations.md`'s
    "Known limitations" for the operator-facing note.
 
-## 6. Security requirements (non-negotiable)
+## Section 6. Security requirements (non-negotiable)
 
 1. Contestant code MUST run only inside sandboxed containers on an internal
    Docker network — never on the host, never with any token access. This
    is the `pull_request_target` pattern `secure-development` uses: the
    scoring workflow runs in the base (org) repo's context, where the org
-   `GITHUB_TOKEN` (needed to pull the private scorer image and read org
+   `GITHUB_TOKEN` (needed to pull the org-mirrored scorer image and read org
    secrets) lives, while the untrusted PR code under test executes in a
    sandboxed container on an internal Docker network with no access to
    that token — the isolation pattern the kit's own consumer workflow
@@ -683,19 +693,19 @@ of one module's shape.
 2. **Oracle discipline**: contestant-visible output (PR comment, push/poll
    payload) MUST be pass/fail plus points only — never failing-test names,
    assertion messages, or exploit payloads. Verbose diagnostics stay in the
-   private workflow log, visible to org admins only. This is the cheapest
-   real defense of the scorer image's secrecy; an information-rich comment
-   is a worse oracle leak than someone reverse-engineering the image
-   itself.
+   private workflow log, visible to org admins only. This holds whether or
+   not the rubric is private (the stock one ships public — ADR 18): an
+   information-rich comment tells a contestant exactly which check to game,
+   which is a worse oracle leak than the rubric text itself.
 
 3. Scoring re-runs per submission MUST be rate-capped (e.g. N re-scores per
    PR per hour), so a contestant cannot brute-force the scorer's judgment
    with rapid speculative pushes. (`secure-development`'s shipped consumer
    workflow, `scorer/consumer-workflow.example.yml`, enforces this itself
    with a per-PR `concurrency` group plus a `COOLDOWN_MINUTES` gate; the
-   upstream `score-action` path still doesn't — see `README.md`'s "Status /
-   upstream dependencies". Any new module's scoring workflow MUST ship its
-   own cap regardless.)
+   upstream `score-action` path still doesn't — see
+   [Status and upstream dependencies](operations.md#status-and-upstream-dependencies).
+   Any new module's scoring workflow MUST ship its own cap regardless.)
 
 4. **Stock-scores-zero invariant**: an unpatched, stock copy of a target
    MUST score 0. A module MUST ship a guard (a test or CI check) that
@@ -709,7 +719,7 @@ of one module's shape.
    each real stock target in CI. A challenge that passes against the stock
    app is a free point for every contestant and fails the build.
 
-## 7. Provisioning & lifecycle hooks
+## Section 7. Provisioning & lifecycle hooks
 
 **A module that needs no forks and no scored transport is a first-class
 citizen, not a lesser one.** `quiz` is the worked example: it satisfies this
@@ -781,7 +791,7 @@ satisfies this because every provisioned artifact (forked repo, mirrored
 image, installed workflow) lives entirely inside the disposable per-event
 org.
 
-## 8. Versioning
+## Section 8. Versioning
 
 Targets MUST be pinned to exact versions/digests — never `:latest`.
 `secure-development` inherits this from its upstream: the event org's fork
@@ -803,15 +813,16 @@ module MUST pin its targets the same way and MUST NOT configure any target
 or scoring dependency (image, base repo, library) to float on `:latest` or
 an unpinned branch.
 
-(Note: the *scorer* image itself is currently referenced as
-`ghcr.io/owasp-ctf/score:latest` in `docker-compose.yml`/`.env` — that is a
-platform-level convenience for v1, not a module-authored target, and is a
-separate concern from target version pinning above. The reference
+(Note: the *scorer* image is whatever `SCORE_IMAGE` names — your own build;
+`docker-compose.yml` keeps `ghcr.io/owasp-ctf/score:latest` only as a
+parse-time fallback the kit does not assume access to. Either way it is a
+platform-level concern, not a module-authored target, and separate from the
+target version pinning above. The reference
 implementation of the scorer contract lives in this repo at `scorer/` —
 one image, serve + judge modes — and [docs/scorer.md](scorer.md) documents
 authoring a rubric and building your own image against it.)
 
-## 9. Adding a module: files you will touch
+## Section 9. Adding a module: files you will touch
 
 A new vertical is a code change, not config alone (§1.2). Today its definition
 is not yet co-located in one directory (a tracked follow-up — the scorer, sync,
@@ -864,7 +875,7 @@ Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
 this way — there is no target, no rubric, and no catalogue for the scorer to
 know about.
 
-## 10. Engagement-metrics contract (Insights)
+## Section 10. Engagement-metrics contract (Insights)
 
 The **Insights** tab (`GET /api/admin/metrics`, ADR 50) reports participation,
 per-challenge difficulty, solves over time and hint usage. It has **no
@@ -887,7 +898,7 @@ and points, and appears nowhere else.
 
 | Hash | Field | Value | What it drives |
 |---|---|---|---|
-| `ctf:<module>:<earned>:<login>` — `ctf:quiz:answers:<login>`, `ctf:classic:solves:<login>` | item id | `{"points":<n>,"at":"<iso>"}` | `scored`, the solves-over-time timeline, per-challenge `solves`, and the numerator of `solveRate` |
+| `ctf:<module>:<earned>:<login>` — `ctf:quiz:answers:<login>`, `ctf:classic:solves:<login>` | item id | `{"points":<n>,"at":"<iso>"}` — the fields the fold reads; a module may store more (quiz rows also carry `choices`) | `scored`, the solves-over-time timeline, per-challenge `solves`, and the numerator of `solveRate` |
 | `ctf:<module>:attempts:<login>` | item id | `{"attempts":<n>,"firstAt":"<iso>","lastAt":"<iso>","lastAtMs":<ms>}` | `attempted` and `stuck`, per-challenge `attempts`, `avgAttemptsToSolve`, `medianSecondsToSolve` |
 
 Plus one aggregate the leaderboard already requires:

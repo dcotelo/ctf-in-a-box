@@ -2,8 +2,10 @@
 
 ## Supported versions
 
-No versioned release has been cut yet. The `main` branch is the only
-supported line — please report issues against the latest commit on `main`.
+Releases are cut as repo-level tags (`v0.1.0`, `v0.2.0`, `v0.3.0`, …), but
+only the latest release and the `main` branch are supported — fixes land on
+`main` and ride the next tag; nothing is backported. Please report issues
+against the latest commit on `main`.
 
 ## Before you run an event
 
@@ -52,6 +54,20 @@ Examples of what's in scope: authentication or authorization bypass in the
 web app, a way to forge or replay a score submission, a way to escalate
 outside your own team's data, secrets handling issues, or a supply-chain
 concern in the kit's own build/CI pipeline.
+
+## Known properties, stated so they are not re-reported
+
+- **Classic-module flags and quiz answer keys are stored in plaintext** in
+  Redis (`ctf:classic:flag`, `ctf:quiz:key`) and are **readable by every
+  `/admin` user** — the admin edit forms return them verbatim, deliberately,
+  so an organizer can fix a typo'd flag mid-event. Contestant-facing code
+  paths never read either key. The secrecy boundary is `/admin` membership
+  and Redis access, not encryption; organizers should grant admin
+  accordingly. A bypass that exposes these keys to a **non-admin** is very
+  much in scope.
+- **The scorer runs contestant-submitted code** inside sandboxed containers —
+  judging submitted code is the product. An escape from that sandbox is in
+  scope; the fact that it executes submissions is not.
 
 ## Response expectations
 

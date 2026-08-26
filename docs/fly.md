@@ -1,7 +1,8 @@
 ---
 title: Deploy on fly.io
-nav_order: 8
 ---
+
+[← Docs home](index.md)
 
 # Deploy on fly.io
 
@@ -20,11 +21,12 @@ what runs at the event is what you exercised locally.
 - [The three things that bite](#the-three-things-that-bite)
 - [Secrets](#secrets)
 - [The rendered compose file](#the-rendered-compose-file)
-- [Region and volumes](#region-and-volumes)
 - [Security differences from compose](#security-differences-from-compose)
 - [Cost and shape](#cost-and-shape)
 - [Tear down](#tear-down)
 - [CI](#ci)
+- [Who can read the secrets](#who-can-read-the-secrets)
+- [Images are pinned by digest](#images-are-pinned-by-digest)
 
 ## Prerequisites
 
@@ -120,7 +122,7 @@ Containers inside one machine reach each other over `localhost`, on IPv4. That
 removes the problem instead of routing around it — and it is cheaper.
 
 Full reasoning, and the alternatives that lost, in
-[ADR 42](decisions.md#42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps).
+[ADR 42](decisions.md#adr-42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps).
 
 ## The three things that bite
 

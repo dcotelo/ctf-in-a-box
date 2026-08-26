@@ -96,7 +96,7 @@ export default function CodeOfConductPage() {
             <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#e53e3e]" />
             <span>
               <span className="font-semibold text-white">For anything CTF-specific</span>: find
-              an organizer at the OWASP CTF area
+              an organizer at the {event.name} area
               {event.discordUrl && (
                 <>
                   , or message the organizers in the{" "}

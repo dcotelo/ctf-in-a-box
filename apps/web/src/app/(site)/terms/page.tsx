@@ -157,7 +157,7 @@ export default async function TermsPage() {
       </div>
 
       <p className="text-sm leading-relaxed text-muted">
-        Questions about any of this? Ask an organizer at the OWASP CTF area
+        Questions about any of this? Ask an organizer at the {event.name} area
         {event.discordUrl && (
           <>
             {" "}or in the{" "}

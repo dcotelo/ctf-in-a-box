@@ -22,7 +22,7 @@ submitted code is the product.
 | 1 | `EVENT_URL` is `https://` | Organizer session cookie sniffable → admin takeover |
 | 2 | `BETTER_AUTH_SECRET` is the generated one | Session cookies forgeable → any identity |
 | 3 | `REDIS_PASSWORD` is set and unique | Compose refuses to start (fails closed) |
-| 4 | Scorer image is private, forks granted Read | Rubric readable; or scoring fails on every PR |
+| 4 | Org's scorer image private, forks granted Read | Scoring fails on every PR; a private rubric leaks |
 | 5 | Sync GitHub App is private and least-privilege | Third parties can install your event's App |
 | 6 | Poll mode unless you need push | Push exposes `/score` to the internet |
 | 7 | `admins:` lists only real organizers | `/admin` can freeze scoring and wipe the event |
@@ -83,13 +83,19 @@ Two things follow that are worth knowing rather than acting on:
 This protects against a compromised *service*. It is no defence against
 someone with shell on the box, who can read `.env`.
 
-## 4. Keep the scorer image private, and grant each fork Read
+## 4. Keep the org's scorer image private, and grant each fork Read
 
-The image bakes in the rubric. Keep `ghcr.io/<org>/score` **private** and
-grant each fork Read under the package's *Manage Actions access*.
+Keep `ghcr.io/<org>/score` **private** and grant each fork Read under the
+package's *Manage Actions access* — the grant flow is what the provisioning
+assumes, and it is what makes scoring work at all.
 
-Access control is the actual defence — reverse-engineering the rubric out of
-the image is assumed possible; the goal is to limit who can pull it.
+On secrecy, know which case you are in: the **stock rubric ships public**
+([ADR 18](decisions.md#adr-18-exec-probe-rubrics-for-all-six-targets-the-rubric-ships-public)),
+so for a stock event the private package protects the grant flow, not a
+secret. If you baked your **own private rubric**, the package's privacy is
+its only shield — and access control is the actual defence:
+reverse-engineering a rubric out of a pulled image is assumed possible; the
+goal is to limit who can pull it.
 
 **This is the one manual step with no API**, and it fails as a `docker pull`
 error inside a scoring run, which reads like a scoring bug rather than a
@@ -151,8 +157,45 @@ Stated plainly so it is not mistaken for an oversight:
 - **The scorer builds and runs contestant-submitted code.** It holds
   `docker.sock` to boot the app as a sibling container. That boundary is
   inherent to judging submitted code and predates every flag discussed here
-  — see [ADR 37](decisions.md#37-opting-in-to-the-fork-pr-checkout-pull_request_target-now-guards).
+  — see [ADR 37](decisions.md#adr-37-opting-in-to-the-guarded-fork-pr-checkout).
 - **Contestants can see each other's scores.** The leaderboard is the point.
-- **Classic-module flags are stored in plaintext** and visible to anyone who
-  reaches `/admin`. `/admin` access is the actual secrecy boundary — see
+- **Classic flags and quiz answer keys are stored in plaintext** (Redis:
+  `ctf:classic:flag`, `ctf:quiz:key`) and are readable by every `/admin`
+  user — the admin edit forms return them verbatim, deliberately, so an
+  organizer can fix a typo'd flag mid-event. `/admin` access (and Redis
+  access) is the actual secrecy boundary; decide who gets admin
+  accordingly. Contestant-facing paths never touch either key. See
   [Operations → Classic](operations.md#classic).
+
+## The operational half
+
+Security aside, the checks that save an event, in the order to run them:
+
+**The week before:**
+
+- [ ] `./scripts/smoke.sh` passes on the box (proves the kit end to end,
+  offline).
+- [ ] Secure Development only: **score one real PR per target** — it is the
+  only way to observe the image grant (check 4) and the fork's workflow
+  version (`./setup/ctf-setup.sh doctor` for both).
+- [ ] Rehearse with `scripts/dev-stack up`, then master-reset. The reset
+  keeps your authored quiz questions and classic challenges; **export both
+  bundles anyway** (each module's admin tab) — the export is the
+  disaster-recovery path, and it contains every answer in plaintext, so
+  treat the file like `/admin` access.
+- [ ] Sign in as each organizer and confirm `/admin` loads — this catches a
+  misspelled `admins:` entry and the missing-`EVENT_CONFIG_B64` build in one
+  step.
+
+**The morning of:**
+
+- [ ] Set the scoring and registration windows (or plan to flip the freeze
+  by hand) — the password gate, if you use it, is a curtain, not a lock.
+- [ ] Confirm hint knobs (cost, minimum solves, unlock delay) are what you
+  announced.
+- [ ] Poll mode: `docker compose logs -f sync` shows a clean tick.
+
+**During:** [operations.md](operations.md) is the panel guide;
+[troubleshooting.md](troubleshooting.md) is the symptom-first runbook —
+skim its headings now so you know what it covers before you need it at
+9pm.

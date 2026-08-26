@@ -90,7 +90,7 @@ describe("landing page with secure-development enabled", () => {
 
   it("renders the module's hero intro with the live target count", () => {
     expect(html).toContain(
-      "Break real vulnerabilities in 6 OWASP training apps, patch them for real, and ship the fix as a GitHub pull request.",
+      "Break real vulnerabilities in 6 deliberately vulnerable training apps, patch them for real, and ship the fix as a GitHub pull request.",
     );
   });
 

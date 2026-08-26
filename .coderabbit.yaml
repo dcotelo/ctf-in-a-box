@@ -501,6 +501,19 @@ reviews:
         Vacuous acceptance assertions — one that would pass against an empty
         page, a 200 with an error body, or a container that is merely up.
 
+    - path: "{.coderabbit.yaml,docs/reviewing.md}"
+      instructions: |
+        These two files are a documented lockstep pair: docs/reviewing.md is
+        the reader-facing review guideline and this config is its
+        machine-enforced subset (the doc's own Section 3 says so). Flag
+        ⚠️ WARNING: <description> — <fix> when a PR changes one file's review
+        RULES — a path instruction, a pre-merge check, an invariant, a fail
+        direction, a "what not to flag" entry — without a corresponding change
+        in the other, and without the PR description stating why the change is
+        legitimately one-sided. Typo, formatting, and comment-only edits are
+        one-sided by nature and are fine. A guideline the bot doesn't enforce,
+        or a bot rule no document explains, is how the two drift apart.
+
     - path: "docs/**/*.md"
       instructions: |
         These docs are the spec and are published. They make unusually specific

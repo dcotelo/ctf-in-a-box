@@ -26,6 +26,14 @@ each UI-only one, and resumes if you stop:
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
+Every discrete step is also its own subcommand — `check`, `secrets`, `org`,
+`render`, `upgrade`, `teardown`, `doctor`, `app-manifest`, `app-config`,
+`oauth-app`, `oauth-config` — with the global flags `--dry-run` (print
+mutating commands instead of running them), `--config <path>` (default
+`event.yaml`) and `--out <path>` (default `.env`, for `secrets`). The
+numbered sequence below names each one where it's used; `teardown` is covered
+in [operations.md](operations.md#running-an-event).
+
 ![The guided setup wizard in a terminal: an ASCII banner, then numbered steps prompting for each value inline with the matching GitHub URL shown alongside](assets/wizard.jpg)
 
 <sup>The wizard, mid-run: every value is asked for inline with the GitHub page
@@ -266,7 +274,7 @@ queryable) and shows ✅ once done — only the third is a blind reminder:
    Note that this includes forks that have **scored successfully many times**.
    Under the old workflow the pull happened inside `Run scorer`, where it
    cannot be read back separately, so a working grant is invisible to
-   `doctor` until that fork runs the v2 workflow once. ⚠️ here means *not
+   `doctor` until that fork runs the upgraded workflow once. ⚠️ here means *not
    observed*, never *not granted*. Re-triggering any existing PR on an
    upgraded fork (close, reopen) is enough to settle it.
 
@@ -314,15 +322,17 @@ That matters most for the changes you least want stranded — a security fix to
 The rendered workflow carries a version stamp copied from the template:
 
 ```
-# ctf-workflow-version: 1
+# ctf-workflow-version: 3
 ```
 
-`doctor` reports every fork's version against the kit's, and names the fix:
+`doctor` reports every fork's version against the kit's, and names the fix
+(sample output — the current template version is whatever the stamp above
+says in your checkout):
 
 ```
-scoring workflow version (template is v2):
-  juice-shop         ✅ v2
-  dvwa               ❌ v1 — stale (template v2); run: ./setup/ctf-setup.sh upgrade
+scoring workflow version (template is v3):
+  juice-shop         ✅ v3
+  dvwa               ❌ v2 — stale (template v3); run: ./setup/ctf-setup.sh upgrade
   webgoat            ❌ pre-versioning — provisioned before workflow stamping; run: ./setup/ctf-setup.sh upgrade
 ```
 
@@ -370,11 +380,13 @@ choice for readers; nothing syncs the two, so keep them matching.
 | `poll` (default) | The `sync` service polls the org's target repos for score comments | a GitHub App installed on the event org (see below) — otherwise nothing extra; works behind NAT, on a laptop, anywhere | ~30 s |
 | `push` | The scoring Action POSTs the score directly to your box | A public URL; `SCORE_INGEST=push` and org Actions secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` | Near-instant |
 
-Poll mode is what `scripts/smoke.sh` proves working today. Push mode
-additionally depends on upstream item 2 in
-[Status and upstream dependencies](operations.md#status-and-upstream-dependencies)
-actually shipping, and Caddy only exposes the `/score` route externally when
-running with the `push` Caddyfile.
+Poll mode is what `scripts/smoke.sh` proves working today. Push mode's
+requirements ship in-kit — the scoring workflow reads the
+`LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets and the scorer's
+`POST /score` takes bearer auth (see
+[Status and upstream dependencies](operations.md#status-and-upstream-dependencies))
+— and Caddy only exposes the `/score` route externally when running with the
+`push` Caddyfile.
 
 Start the poll pipeline with `docker compose --profile poll --profile app up
 -d` — the `poll` profile brings up `sync` and the `scorer`, and `app` brings
@@ -401,7 +413,7 @@ list is fixed when you run `up`: the app cannot start a `scorer` that was never
 brought up, so a runtime toggle would enable a module whose services are not
 there. Its forks are the other half of the same problem — only `ctf-setup.sh`
 can create those. See
-[ADR 52](decisions.md#52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+[ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
 
 So the `modules:` block below decides the profiles you need **and** decides
 Secure Development permanently; for Quiz and Classic it only decides what the
@@ -418,9 +430,9 @@ export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
 
 | `modules:` in your `event.yaml` | Command |
 |---|---|
-| `secure-development` (poll mode), with or without `quiz` | `docker compose --profile poll --profile app up -d --build` |
-| `secure-development` (push mode), with or without `quiz` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
-| `quiz` only | `docker compose --profile app up -d --build` |
+| `secure-development` (poll mode), with or without `quiz`/`classic` | `docker compose --profile poll --profile app up -d --build` |
+| `secure-development` (push mode), with or without `quiz`/`classic` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| `quiz` and/or `classic`, no `secure-development` | `docker compose --profile app up -d --build` |
 
 `ctf-setup.sh wizard` prints (and offers to run) the right one for the
 `event.yaml` you configured, so you do not have to pick by hand.
@@ -510,7 +522,7 @@ register the OAuth app on your personal account rather than the org.
 ## Configuration
 
 `event.yaml` uses a **modules** schema. Platform settings (`event`, `github`,
-`teams`, `hints`, `admins`) sit at the top level; challenge content is
+`admins`) sit at the top level; challenge content is
 namespaced under `modules.<name>`, one block per registered module id. Three
 ids are registered today:
 
@@ -538,7 +550,7 @@ card) stays the same, but each enabled module contributes its own tagline,
 hero paragraph, "what to expect" section and steps, so the home page always
 describes exactly the modules an event actually runs — a quiz-only event
 never advertises forking a target or opening a PR. See
-[docs/modules.md §5](modules.md#5-ui--presentation-contract) for the `home`
+[docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for the `home`
 block contract.
 
 `modules.secure-development.targets` is still the field that drives the
@@ -555,7 +567,7 @@ page for contestants, a Quiz section in `/admin` for authoring questions
 (prompt, choices, correct answer(s), points, order) and tuning its two
 retry-gate knobs, and quiz points added on top of the combined leaderboard —
 see [docs/operations.md](operations.md)'s "Quiz" section for the organizer
-walkthrough and [docs/modules.md §5](modules.md#5-ui--presentation-contract)
+walkthrough and [docs/modules.md §5](modules.md#section-5-ui--presentation-contract)
 for the underlying contract.
 
 **`secure-development` is not required — a single module is enough to run an
@@ -571,8 +583,8 @@ is therefore a supported event on its own: `/challenges` 404s (that route
 doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
 the landing page, the leaderboard, and `/profile` all compose from whatever
 modules *are* enabled instead of assuming `secure-development` is one of
-them. See [docs/modules.md §5](modules.md#5-ui--presentation-contract) for
-the UI composition contract and [the ADR](decisions.md#24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+them. See [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for
+the UI composition contract and [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
 for why the missing-vs-unknown distinction is drawn where it is.
 
 **Boot a quiz-only event with `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose --profile app up -d --build`**
@@ -599,11 +611,13 @@ on three different hostnames. Or let
 [the wizard](#quickstart-zero-to-a-scored-event) write the file from your
 answers, which is the same schema with none of the YAML. Only the modules you
 enable need their own settings: `modules.secure-development.targets` and
-`score_ingest` for that one, nothing for `quiz`. Team play is configured at the
-top level — `teams: { enabled: true, max_size: 4 }` in `event.yaml.example`.
-`hints: { enabled: true }` matches the running default — hints are on; neither
-key is read at build time. **Hints have exactly one switch: `/admin`'s hint
-controls**, a runtime override stored in Redis. It is live, survives restarts,
+`score_ingest` for that one, nothing for `quiz` or `classic`. There is
+deliberately **no `teams:` or `hints:` block** — both keys existed once,
+were never read, and were removed rather than left as documentation-of-intent
+(ADR 31's amendment; `generate-event-config.mjs` warns if it finds either).
+Team size is the `/admin` Event tab's "players per team" knob, and **hints
+have exactly one switch: `/admin`'s hint controls**, a runtime override
+stored in Redis. It is live, survives restarts,
 and governs everything — whether a hint can be bought, whether the challenges
 page offers the button, and whether the leaderboard shows hint penalties. There
 is no environment variable and no rebuild involved; see

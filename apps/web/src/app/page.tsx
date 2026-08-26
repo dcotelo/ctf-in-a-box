@@ -164,7 +164,8 @@ export default async function Home() {
       {/* Hero: the event, its games in one breath, ONE action. */}
       <div className="border-b border-white/[0.09] bg-[#1a1a2e]">
         <main className="mx-auto flex w-full max-w-5xl flex-col items-start gap-6 px-6 py-16 sm:py-24">
-          {/* OWASP brand mark — the event runs on OWASP projects and says so. */}
+          {/* OWASP brand mark — four of the six targets are OWASP projects
+              and the event format comes from the OWASP-CTF work. */}
           <Image
             src="/owasp-logo.png"
             alt="OWASP"
@@ -321,7 +322,9 @@ export default async function Home() {
         )}
 
         {/* The targets, when secure-development plays: six deliberately
-            vulnerable OWASP apps are the evaluator's proof this is real. */}
+            vulnerable open-source apps are the evaluator's proof this is
+            real. Not all are OWASP projects (DVWA and VAmPI aren't), so the
+            copy below must not say they are. */}
         {secureDevelopment && (
           <section className="flex flex-col gap-6">
             <div className="flex flex-col gap-3">
@@ -334,7 +337,7 @@ export default async function Home() {
                   : `${enabledTotalChallenges} challenges up for grabs`}
               </h2>
               <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
-                Each app is a well-known, deliberately vulnerable OWASP project. Points scale with
+                Each app is a well-known, deliberately vulnerable open-source project. Points scale with
                 difficulty, and the deeper flaws in {topAppsList} pay out the most.
               </p>
             </div>

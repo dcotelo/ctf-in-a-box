@@ -49,17 +49,16 @@ export default async function LeaderboardPage({
   // render can skip nothing it needs and everything it doesn't.
   const wantsDisplay = (await searchParams)?.display === "1";
   const source = getLeaderboardSource();
-  // Penalties BEFORE module contributions: withModuleContributions
-  // attributes each row's `points` into its per-module breakdown, so it has
-  // to see the already-deducted (and floored) net figure — running it first
-  // stamps gross module points onto a row whose header shows net, and the
-  // expanded row then contradicts itself. Ordering is safe either way and
-  // strictly safer this way: the module overlay re-ranks UNCONDITIONALLY on
-  // combined standing (breadth across modules, then points, then activity),
-  // so running it last means the final order is always its doing, never
-  // withHintPenalties' — which returns early when hints are disabled.
-  // Team standings last: they only overlay membership onto sources with no
-  // team concept, and read the entries as already scored and ranked.
+  // Penalties fold LAST: withModuleContributions attributes (and, for the
+  // app-side modules, adds) each row's gross per-module points, and
+  // withTeamStandings folds rows into teams — only then does
+  // withHintPenalties net the final all-module total, exactly once. Module
+  // blocks everywhere show their gross contribution; the row's "−N hints"
+  // marker is what reconciles them against the netted header. Running the
+  // fold earlier netted scorer points alone, which made hints free for any
+  // row whose points arrive later — a classic- or quiz-only contestant, or
+  // an upstash-path team. Same story in docs/architecture.md, step 9 of the
+  // score data flow.
   const [data, session, modules] = await Promise.all([
     source.getLeaderboard().then(withModuleContributions).then(withTeamStandings).then(withHintPenalties),
     auth.api.getSession({ headers: await headers() }),
