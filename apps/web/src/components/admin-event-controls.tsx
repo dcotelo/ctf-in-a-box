@@ -61,6 +61,11 @@ export type AdminEventControlsProps = {
    *  `initialChallenges`/`initialQuestions` on the sibling panels. Always ""
    *  in production; the textarea is otherwise empty on every real mount. */
   initialImportText?: string;
+  /** When false, the internal "Event archive" heading + description are
+   *  hidden — for embedding inside a disclosure whose summary already titles
+   *  the section (the Event tab's danger zone). Defaults to true so the
+   *  standalone/tested render is unchanged. */
+  showHeading?: boolean;
 };
 
 /** Maps a `/api/admin/event` response to organizer-facing copy, distinguishing
@@ -155,7 +160,7 @@ async function parseJson<T>(res: Response): Promise<T> {
  *  in order. */
 type ImportStage = "idle" | "warn" | "confirm";
 
-export default function AdminEventControls({ initialImportText = "" }: AdminEventControlsProps = {}) {
+export default function AdminEventControls({ initialImportText = "", showHeading = true }: AdminEventControlsProps = {}) {
   const [exportPending, setExportPending] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportWarnings, setExportWarnings] = useState<string[] | null>(null);
@@ -275,12 +280,16 @@ export default function AdminEventControls({ initialImportText = "" }: AdminEven
   const replaceConfirm = importReplaceConfirm();
 
   return (
-    <div className="flex flex-col gap-4 border-t border-white/[0.06] pt-4">
-      <h3 className="text-sm font-semibold text-white">Event archive</h3>
-      <p className="text-xs text-muted">
-        Export the whole event — Classic and Quiz content plus event policy settings — as one JSON file, or replace
-        it wholesale from a previously exported file.
-      </p>
+    <div className="flex flex-col gap-4">
+      {showHeading && (
+        <>
+          <h3 className="text-sm font-semibold text-white">Event archive</h3>
+          <p className="text-xs text-muted">
+            Export the whole event — Classic and Quiz content plus event policy settings — as one JSON file, or replace
+            it wholesale from a previously exported file.
+          </p>
+        </>
+      )}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
