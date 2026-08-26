@@ -371,8 +371,8 @@ export default function AdminControls({
               teamMaxMembersInput={teamMaxMembersInput}
               setTeamMaxMembersInput={setTeamMaxMembersInput}
               commitNumber={commitNumber}
-          moduleChoices={MODULE_CHOICES}
-          liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
+              moduleChoices={MODULE_CHOICES}
+              liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
             />
           ) : tab.id === ADMINS_TAB ? (
             <AdminAdminsTab viewerLogin={viewerLogin} />

@@ -119,6 +119,21 @@ the sections below are the enforceable contract behind it.
    config-file fields and the runtime env vars that actually implement them
    in sync until the loader is extended to read them.
 
+5. MUST state whether it is **Archivable**: whether its content is wholly
+   self-contained in Redis, and therefore carried whole by the whole-event
+   archive bundle (`GET`/`POST /api/admin/event`, `event-store.ts`; see
+   `docs/operations.md`'s
+   ["Archiving and replaying an event"](operations.md#archiving-and-replaying-an-event)
+   for the organizer-facing contract). `quiz` and `classic` are: their whole
+   catalogue — questions/choices/answer keys, or challenges/categories/flags
+   — lives in Redis and round-trips through their own `exportBundle`/
+   `importBundle` (`quiz-store.ts`/`classic-store.ts`), which the event
+   bundle composes directly. `secure-development` is **not**: its content is
+   target repos, forks, rubrics and the GitHub App installation, none of
+   which live in the box, so a bundle assembled while it is enabled names
+   what it could not carry (an export-time warning, and an import-time
+   `skipped` entry) rather than silently omitting it.
+
 ## 2. Scoring ingestion contract (the hard boundary)
 
 1. MUST submit every score through the single writer: `POST /score` on the

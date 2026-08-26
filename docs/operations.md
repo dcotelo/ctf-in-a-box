@@ -16,6 +16,7 @@ live-GitHub scoring. For standing the kit up in the first place, see
 [Running an event](#running-an-event) ·
 [Teams](#teams) ·
 [Admin panel](#organizer-admin-panel) ·
+[Archiving and replaying an event](#archiving-and-replaying-an-event) ·
 [Quiz](#quiz) ·
 [Classic](#classic) ·
 [Verifying it works](#verifying-it-works) ·
@@ -560,6 +561,81 @@ get a 403 — the access check fails **closed**, deliberately, and deliberately
 unlike the freeze read, which fails *open* so a Redis blip cannot drop live
 submissions. A baked admin still gets in, because that check never touches
 Redis at all — which is exactly when you most need the panel.
+
+## Archiving and replaying an event
+
+The **Event** tab carries an **Event archive** section (**Export event** /
+**Import a bundle**, backed by `GET`/`POST /api/admin/event`) for exporting
+the whole event as one JSON file, or replacing it wholesale from a
+previously exported one — publishing a finished event's content, or
+stamping out a repeat run of the same CTF, without re-authoring anything by
+hand.
+
+**What a bundle carries.** Classic and Quiz **content** — challenges, flags,
+categories, and quiz questions with their answer keys — plus **policy**
+settings: the hint controls (enabled, cost, and its two gating knobs), the
+quiz retry-gate knobs, Classic's submission cooldown, the re-run cooldown,
+the team-size cap and registration switch, module title/blurb overrides, and
+which modules are enabled. It also carries an informational **event
+identity** block — name, theme, dates, location — read from the running box
+at export time.
+
+**What it does not carry: contestant run state.** No teams, no users, no
+solves, no attempts, no hint purchases, no admin audit log. That is the
+whole security property that makes a bundle safe to hand out at all — it is
+authored content and policy, never who played or how they did.
+
+**Export** warns you of two things on the panel itself, before you do
+anything with the downloaded file:
+
+- if Secure Development is enabled, that its content — target repos, forks,
+  rubrics, the GitHub App installation — lives outside the box and is **not**
+  included in the bundle;
+- if scoring is currently **effectively live** — not manually paused, and
+  inside its scheduled scoring window (either one on its own makes scoring
+  not-live) — that you should not publish this bundle while contestants can
+  still play.
+
+**The exported file contains every flag and every quiz answer key, in
+plaintext.** Publishing a running event's bundle hands every contestant the
+whole answer sheet. Only publish an archive once the event is over, or
+before it starts as a fresh, unsolved seed — never while it is live, and
+treat the file with the same care as `/admin` access itself.
+
+**Import is replace-all, and it is destructive.** Confirming an import first
+validates and applies the file's policy settings, then runs the same reset
+the master reset button does — wiping every team, solve, attempt, and hint
+purchase — and replaces the entire Classic board and Quiz bank with exactly
+what the file contains. Settings go first and fail-fast: a bad or
+cross-box-incompatible settings block is rejected before anything is wiped,
+never after. It is **refused outright (`409`)** while scoring is
+**effectively live** — not manually paused, and inside its scheduled scoring
+window; manually pausing scoring is one way to make the event eligible for
+import, but so is simply being outside that window even with `paused`
+false. The panel gates the button behind two
+confirmations in sequence — a plain warning naming exactly what gets wiped,
+then a type-to-confirm phrase — so there is no single click that can fire
+it.
+
+**Import is not atomic — re-run it if it fails partway.** Once the settings
+have validated, the reset and the two content replacements run in sequence
+against Redis, and there is no cross-step transaction rolling them back: a
+storage error partway through can leave the event reset and only partially
+replaced. This is the same non-atomic property the master reset already has,
+and it is deliberately bounded — import only runs while scoring is not live,
+against an event you have chosen to overwrite. If an import errors, fix the
+storage problem and simply run it again: it is a full replace-all, so a
+second successful run overwrites whatever the failed one left behind.
+
+**Branding does not travel with the bundle.** Event name, logo, and theme
+are baked into the app image at **build time**, from `event.yaml` via
+`EVENT_CONFIG_B64` (see [docs/hosting.md](hosting.md)) — not stored in
+Redis, so an import cannot repaint them. Import still applies the file's
+module title/blurb overrides, and the response names branding explicitly
+among what it skipped, so "policy applied" is never mistaken for "everything
+applied." The bundle's own event-identity block records the source event's
+name, theme, dates, and location, so you have those values on hand when you
+rebuild with an updated `event.yaml` to match.
 
 ## Quiz
 

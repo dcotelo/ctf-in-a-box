@@ -25,6 +25,7 @@ import {
   CLASSIC_CATEGORY_MAX_LEN,
   CLASSIC_POINTS_MAX,
   ClassicValidationError,
+  clearChallenges,
   deleteChallenge,
   exportBundle,
   getClassicTotals,
@@ -438,6 +439,38 @@ describe("deleteChallenge", () => {
   it("rejects a malformed id without touching Upstash", async () => {
     await expect(deleteChallenge("../etc")).rejects.toThrow(ClassicValidationError);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
+describe("clearChallenges", () => {
+  it("deletes only the content keys, never run state", async () => {
+    mocks.upstashPipeline.mockResolvedValue([]);
+    await clearChallenges();
+    const sent = mocks.upstashPipeline.mock.calls.at(-1)![0] as string[][];
+    const deleted = sent.filter((c) => c[0] === "DEL").flatMap((c) => c.slice(1));
+    expect(deleted).toEqual(
+      expect.arrayContaining([
+        "ctf:classic:challenges",
+        "ctf:classic:flag",
+        "ctf:classic:flagnorm",
+        "ctf:classic:categories",
+        "ctf:classic:hints",
+      ]),
+    );
+    expect(deleted).not.toContain("ctf:classic:points");
+    expect(deleted).not.toContain("ctf:classic:solved");
+    expect(deleted.some((k) => k.startsWith("ctf:classic:solves:"))).toBe(false);
+  });
+
+  it("surfaces a per-command pipeline error instead of swallowing it", async () => {
+    mocks.upstashPipeline.mockResolvedValue([
+      { result: 1 },
+      { error: "WRONGTYPE" },
+      { result: 1 },
+      { result: 1 },
+      { result: 1 },
+    ]);
+    await expect(clearChallenges()).rejects.toThrow(/WRONGTYPE/);
   });
 });
 
