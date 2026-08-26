@@ -34,7 +34,6 @@ import { ALL_MODULE_IDS, bakedModuleIds, moduleDefById, type ModuleId, type Reso
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
-import AdminEventControls from "@/components/admin-event-controls";
 import AdminAdminsTab from "./admin-admins-tab";
 import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
@@ -360,29 +359,21 @@ export default function AdminControls({
           hidden={active !== tab.id}
         >
           {tab.id === EVENT_TAB ? (
-            <>
-              <AdminEventTab
-                settings={settings}
-                pending={pending}
-                demoMode={demoMode}
-                resetInfo={resetInfo}
-                apply={apply}
-                setConfirm={setConfirm}
-                doReset={doReset}
-                doSeed={doSeed}
-                teamMaxMembersInput={teamMaxMembersInput}
-                setTeamMaxMembersInput={setTeamMaxMembersInput}
-                commitNumber={commitNumber}
-                moduleChoices={MODULE_CHOICES}
-                liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
-              />
-              {/* Whole-event archive export/import (issue: event-archive-bundle
-                  task 6). Lives here rather than under either module's own tab:
-                  it spans BOTH Classic and Quiz content plus policy settings —
-                  the same "control-plane, not module-specific" reasoning that
-                  already places master reset and demo seed on this tab. */}
-              <AdminEventControls />
-            </>
+            <AdminEventTab
+              settings={settings}
+              pending={pending}
+              demoMode={demoMode}
+              resetInfo={resetInfo}
+              apply={apply}
+              setConfirm={setConfirm}
+              doReset={doReset}
+              doSeed={doSeed}
+              teamMaxMembersInput={teamMaxMembersInput}
+              setTeamMaxMembersInput={setTeamMaxMembersInput}
+              commitNumber={commitNumber}
+              moduleChoices={MODULE_CHOICES}
+              liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
+            />
           ) : tab.id === ADMINS_TAB ? (
             <AdminAdminsTab viewerLogin={viewerLogin} />
           ) : tab.id === SUPPORT_TAB ? (

@@ -14,6 +14,7 @@ import type { AdminSettings } from "@/lib/admin-store";
 import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
+import AdminEventControls from "@/components/admin-event-controls";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
@@ -386,6 +387,15 @@ export default function AdminEventTab({
           Reset event data…
         </button>
         {resetInfo && <p className="text-xs text-[#22c55e]">{resetInfo}</p>}
+
+        {/* Whole-event archive export/import (issue: event-archive-bundle).
+            Lives inside the danger zone: an import is a replace-all that runs
+            the same wipe as the master reset above, so it belongs beside it
+            rather than as a neutral panel. Export is grouped with it as the
+            other half of the same archive control. */}
+        <div className="mt-1 border-t border-[#e53e3e]/20 pt-3">
+          <AdminEventControls />
+        </div>
       </div>
     </section>
   );
