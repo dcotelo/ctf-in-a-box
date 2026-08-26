@@ -219,3 +219,7 @@ suggestions.
   poll vs push, OAuth app, event config.
 - [`docs/decisions.md`](docs/decisions.md) — numbered ADRs recording why the
   kit is built this way instead of the alternatives.
+- [`docs/reviewing.md`](docs/reviewing.md) — the review guideline: the
+  invariants a PR review must verify (secrecy boundary, Lua authority,
+  fail directions, anti-vacuous tests) and the ADR-settled choices not to
+  re-flag. `.coderabbit.yaml` is its machine-enforced subset.

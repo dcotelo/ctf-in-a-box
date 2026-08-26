@@ -25,6 +25,7 @@ example).
 
 **Contributing or reviewing security?**
 [CONTRIBUTING](../CONTRIBUTING.md) →
+[reviewing](reviewing.md) (what a PR review here must verify — and not flag) →
 [architecture](architecture.md) (the security model and testing strategy) →
 [decisions](decisions.md) (the ADRs) →
 [SECURITY](../SECURITY.md) (reporting).
