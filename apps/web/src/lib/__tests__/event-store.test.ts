@@ -57,12 +57,48 @@ describe("exportEventBundle", () => {
     expect(warnings.some((w) => /secure development/i.test(w))).toBe(true);
   });
 
-  it("THE LEAK TEST: no contestant login, team, solve, or audit appears anywhere in the serialized bundle", async () => {
-    // exportEventBundle only ever calls the content exporters above; assert by
-    // scanning the serialized string for seeded run-state tokens.
+  it("THE LEAK TEST: run-state tokens seeded into excluded settings fields never survive the allowlist", async () => {
+    // exportEventBundle's ONLY allowlist decision for `settings` is the fixed
+    // loop over EVENT_POLICY_FIELDS in the function body — it never reads any
+    // other AdminSettings field, and never spreads the settings object
+    // wholesale. The previous version of this test scanned the serialized
+    // bundle for tokens that were never present anywhere in the mocked
+    // return values in the first place, so it passed just as well with the
+    // allowlist deleted (a naive `{...settings}` spread would have passed
+    // too, trivially — nothing in the fixture ever held those strings).
+    //
+    // Fix: seed canary tokens into AdminSettings fields that are real
+    // (readable off the mocked getAdminSettings() return value) but EXCLUDED
+    // from EVENT_POLICY_FIELDS — schedule/actor bookkeeping fields
+    // (`updatedBy`, `updatedAt`, `scoringStartsAt`, `scoringEndsAt`) that
+    // event-io.ts's header says must never round-trip through an archive. A
+    // naive `{...settings}` spread WOULD surface these; assert they still
+    // don't appear, which now genuinely exercises the field-by-field
+    // allowlist instead of an absence of test data.
+    //
+    // "ctf:admin:audit" and "solvedAt" are dropped from the original token
+    // list: neither is introducible through anything exportEventBundle
+    // actually reads (getAdminSettings(), eventConfig, or the content
+    // modules' own exportBundle()). The audit log lives under a wholly
+    // separate Redis key (`ctf:admin:audit`) this function's call graph never
+    // touches, and solve timestamps are guarded by classic-store's/
+    // quiz-store's own exportBundle() never reading solves/attempts
+    // (asserted in classic-store.test.ts/quiz-store.test.ts) rather than by
+    // anything in this function. Keeping them here would be an assertion
+    // that can never fail no matter what this file's allowlist logic does.
+    m.getAdminSettings.mockResolvedValue({
+      hintCost: 50,
+      teamMaxMembers: 4,
+      enabledModuleIds: ["classic", "quiz"],
+      paused: true,
+      updatedBy: "contestant-login",
+      updatedAt: "team-slug-owner",
+      scoringStartsAt: "ctf:team:owl-squad",
+      scoringEndsAt: "ctf:user:42-marker",
+    });
     const { bundle } = await exportEventBundle(new Date());
     const s = JSON.stringify(bundle);
-    for (const token of ["contestant-login", "team-slug", "ctf:team:", "ctf:user:", "ctf:admin:audit", "solvedAt"]) {
+    for (const token of ["contestant-login", "team-slug", "ctf:team:", "ctf:user:"]) {
       expect(s).not.toContain(token);
     }
   });
