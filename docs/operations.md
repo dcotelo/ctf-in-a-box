@@ -617,6 +617,16 @@ confirmations in sequence — a plain warning naming exactly what gets wiped,
 then a type-to-confirm phrase — so there is no single click that can fire
 it.
 
+**Import is not atomic — re-run it if it fails partway.** Once the settings
+have validated, the reset and the two content replacements run in sequence
+against Redis, and there is no cross-step transaction rolling them back: a
+storage error partway through can leave the event reset and only partially
+replaced. This is the same non-atomic property the master reset already has,
+and it is deliberately bounded — import only runs while scoring is not live,
+against an event you have chosen to overwrite. If an import errors, fix the
+storage problem and simply run it again: it is a full replace-all, so a
+second successful run overwrites whatever the failed one left behind.
+
 **Branding does not travel with the bundle.** Event name, logo, and theme
 are baked into the app image at **build time**, from `event.yaml` via
 `EVENT_CONFIG_B64` (see [docs/hosting.md](hosting.md)) — not stored in
