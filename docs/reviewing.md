@@ -18,7 +18,7 @@ failure scenario ("inputs/state → wrong output"), not a vibe. Prefer the
 smallest fix that closes the failure. A reviewer finding you disagree with
 is answered on the thread with the reason, never ignored — a reasoned
 decline on the record is a valid outcome (see
-[CONTRIBUTING](../CONTRIBUTING.md) and `AGENTS.md`'s CodeRabbit gate).
+[CONTRIBUTING](https://github.com/dcotelo/ctf-in-a-box/blob/main/CONTRIBUTING.md) and `AGENTS.md`'s CodeRabbit gate).
 
 ## Section 1. The invariants a review protects
 
@@ -166,7 +166,7 @@ ADR, not the code.
   logs). CodeRabbit review is a required merge gate; the workflow rules —
   wait for the re-review after every push, resolve every actionable thread,
   decline on the record — are in `AGENTS.md` and
-  [CONTRIBUTING](../CONTRIBUTING.md).
+  [CONTRIBUTING](https://github.com/dcotelo/ctf-in-a-box/blob/main/CONTRIBUTING.md).
 - CI (`.github/workflows/ci.yml`) — the per-area jobs, the vacuous-sweep
   gate, and the acceptance scripts, which are the strongest anti-vacuous
   layer in the repo.
