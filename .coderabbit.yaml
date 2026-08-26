@@ -105,13 +105,16 @@ reviews:
     - "!**/build/**"
     - "!**/coverage/**"
     - "!apps/web/src/lib/event-config.generated.ts"
-    # Vendored from upstream and pinned to a commit; reviewing it as if it
-    # were hand-written is noise. PROVENANCE.md stays reviewable — a change to
-    # what was vendored, or from where, does need eyes.
-    # NOTE: verify the re-include survives the negation; glob ordering
-    # semantics vary. If it doesn't, drop the exclusion rather than lose it.
-    - "!scorer/rubric.owasp/**"
-    - "scorer/rubric.owasp/PROVENANCE.md"
+    # NOTE: every entry here must stay negated (a `!` exclusion). CodeRabbit
+    # treats ANY positive (non-negated) pattern as an allowlist: the moment one
+    # appears, every path that doesn't match it becomes "included by none" and
+    # its review is silently SKIPPED. A prior re-include of
+    # `scorer/rubric.owasp/PROVENANCE.md` (paired with a `!scorer/rubric.owasp/**`
+    # exclusion) did exactly that — it flipped the whole repo into allowlist mode
+    # and skipped review on every apps/web PR. The rubric.owasp tree is vendored
+    # and pinned, so reviewing it is minor noise; per that block's own fallback
+    # ("drop the exclusion rather than lose it"), both lines were removed so the
+    # filter stays exclusion-only.
     - "!docs/_site/**"
     - "!**/*.png"
     - "!**/*.jpg"
