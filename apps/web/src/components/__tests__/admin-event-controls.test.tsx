@@ -95,8 +95,23 @@ describe("AdminEventControls", () => {
   });
 
   it("shows client-side validation errors for an invalid pasted bundle", () => {
+    // `{"version":1}` satisfies the version check (EVENT_BUNDLE_VERSION is 1)
+    // but fails every other top-level check in parseEventBundle (event-io.ts):
+    // kind, event, settings are all missing, and neither classic nor quiz is
+    // present. That last failure emits the fragment "carries no modules" —
+    // asserted here specifically because it appears ONLY inside a rendered
+    // <li> from `clientErrors`, never in this component's always-on
+    // boilerplate copy (unlike "kind"/"archive"/"event"/"settings", which the
+    // panel's own static prose already contains regardless of whether any
+    // error list renders at all — the previous version of this assertion
+    // passed unconditionally for exactly that reason).
+    const parsed = parseEventBundle('{"version":1}');
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) throw new Error("unreachable");
+    expect(parsed.errors.some((e) => e.message.includes("carries no modules"))).toBe(true);
+
     const html = renderToStaticMarkup(<AdminEventControls initialImportText='{"version":1}' />);
-    expect(html).toMatch(/kind|archive|event|settings/i);
+    expect(html).toMatch(/carries no modules/i);
   });
 });
 
