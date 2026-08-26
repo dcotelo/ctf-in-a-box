@@ -156,6 +156,16 @@ describe("importEventBundle", () => {
     expect(clearOrder).toBeLessThan(importOrder);
   });
 
+  it("clears BOTH content stores on replace, even when the bundle carries only one module (a quiz-only archive must still wipe stale classic content already on the target)", async () => {
+    const quizOnly = bundleFixture();
+    delete (quizOnly as { classic?: unknown }).classic;
+    await importEventBundle(quizOnly, "alice");
+    expect(classicStore.clearChallenges).toHaveBeenCalled();
+    expect(classicStore.importBundle).not.toHaveBeenCalled();
+    expect(quizStore.clearQuestions).toHaveBeenCalled();
+    expect(quizStore.importBundle).toHaveBeenCalled();
+  });
+
   it("applies only policy settings, never schedule fields", async () => {
     await importEventBundle(bundleFixture(), "alice");
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];

@@ -76,11 +76,18 @@ export type EventImportSummary = {
 };
 
 /** Replace-all import of a whole-EVENT archive bundle. Destructive: it wipes
- *  run state (`resetEvent`) and then REPLACES each content module present in
- *  the bundle (clear, then import — never the reverse, or a stale challenge
- *  the bundle doesn't carry would survive the "replace"). Refuses outright on
- *  a live event (see `EventLiveError`) — this must never run while
- *  contestants can still play.
+ *  run state (`resetEvent`) and then REPLACES the box's content. Both
+ *  archivable content stores (classic, quiz) are cleared unconditionally —
+ *  not only the ones present in the bundle — and only then is each section
+ *  actually present in the bundle imported (clear-both, then import-present
+ *  — never the reverse, or a stale challenge the bundle doesn't carry would
+ *  survive the "replace"). This is "replace-all into a box to replay THIS
+ *  event": a quiz-only archive must leave the box with NO classic content,
+ *  not the target's pre-existing classic content still sitting there ready
+ *  to resurface if classic is later re-enabled. A module absent from the
+ *  bundle ends up cleared but not re-imported — empty, matching the source.
+ *  Refuses outright on a live event (see `EventLiveError`) — this must never
+ *  run while contestants can still play.
  *
  *  Only `EVENT_POLICY_FIELDS` keys present in `bundle.settings` are applied
  *  to admin settings; schedule/run fields (`paused`, `scoringStartsAt`, etc.)
@@ -127,16 +134,23 @@ export async function importEventBundle(
   // exists.
   await resetEvent(actor);
 
+  // Replace-ALL: both archivable content stores are cleared regardless of
+  // which module sections this bundle carries. A quiz-only archive must wipe
+  // any classic content already on the target (and vice-versa) — this is a
+  // replace of the box's whole content state to match the archive, not a
+  // merge, so stale content from a module absent in the bundle must not
+  // resurface later if that module gets re-enabled.
+  await clearChallenges();
+  await clearQuestions();
+
   const summary: EventImportSummary = {};
 
   if (bundle.classic) {
-    await clearChallenges();
     const c = await importClassic(bundle.classic);
     summary.classic = { created: c.created, updated: c.updated };
   }
 
   if (bundle.quiz) {
-    await clearQuestions();
     const q = await importQuiz(bundle.quiz);
     summary.quiz = { created: q.created, updated: q.updated };
   }
