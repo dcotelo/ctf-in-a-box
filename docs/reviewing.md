@@ -54,14 +54,20 @@ submission.
 each gate takes on a storage error is chosen, documented, and tested — a
 diff that flips one silently is a bug even when it looks like hardening:
 
-| Gate | Direction on error | Why |
-|---|---|---|
-| Freeze / scoring-window reads (app, scorer, sync) | **OPEN** | a Redis blip must not drop live submissions (ADR 32) |
-| Grading lookups (does this challenge/question exist, what is its key) | **CLOSED** | don't grade what you can't verify |
-| Admin allowlist reads (`requireAdmin`) | **CLOSED** | an unreachable datastore denies, never grants |
-| Hint purchase (spend) | **CLOSED** | never charge on uncertainty |
-| `ctf-setup.sh` `check_step` | **CLOSED** | a `gh` error is never "already satisfied" |
-| Audit-log writes | **best-effort** | an audit failure is logged, never fails the request that already committed |
+Every row carries its anchors so the claim is checkable against the code —
+a row whose direction cannot be traced to an implementation and a test is a
+row to distrust. The rows still missing a test anchor are tracked in
+[issue #232](https://github.com/dcotelo/ctf-in-a-box/issues/232).
+
+| Gate | Direction on error | Why | Implemented · tested |
+|---|---|---|---|
+| Freeze / scoring-window reads (app, scorer, sync) | **OPEN** | a Redis blip must not drop live submissions (ADR 32) | `classic-store.ts` + `quiz-store.ts` gate reads · `classic-store.grade.test.ts` / `quiz-store.grade.test.ts` fail-OPEN pins; `sync/src/redis.js` (comments its direction); `scorer/src/store.js` `isPaused` (direction right, silent — #232) |
+| Grading lookups (does this challenge/question exist, what is its key) | **CLOSED** | don't grade what you can't verify | `classic-store.ts` `submitFlag` / `quiz-store.ts` `answerQuestion` lookup paths · error paths exercised in the grade test files |
+| Admin allowlist reads (`requireAdmin`) | **CLOSED** | an unreachable datastore denies, never grants | `admin-auth.ts` (the fail-closed branch is commented) · `admin-auth.test.ts` |
+| Hint purchase (spend) | **CLOSED** | never charge on uncertainty | `hint-store.ts` `revealHint` · direction untested — #232 |
+| Team registration window read | **undecided** | no stated direction today; behavior differs by error shape | `team-store.ts` `isRegistrationClosed` · needs a decision + test — #232 |
+| `ctf-setup.sh` `check_step` | **CLOSED** | a `gh` error is never "already satisfied" | `setup/ctf-setup.sh` `check_step` · `setup/test/ctf_setup.bats` ("fails closed when gh api errors") |
+| Audit-log writes | **best-effort** | an audit failure is logged, never fails the request that already committed | `writeAudit` in each `api/admin/*` route · route tests assert success without a completed audit write |
 
 **4. Tests must be able to fail.** The recurring failure mode in this repo
 is the vacuous pass: an assertion satisfiable whether or not the code under
@@ -170,4 +176,7 @@ ADR, not the code.
 - CI (`.github/workflows/ci.yml`) — the per-area jobs, the vacuous-sweep
   gate, and the acceptance scripts, which are the strongest anti-vacuous
   layer in the repo.
-- This page — the reader-facing rationale. Keep the three in lockstep.
+- This page — the reader-facing rationale. Keep the three in lockstep: a
+  `.coderabbit.yaml` path instruction covers this page and the config as a
+  pair, so a PR changing one side's rules without the other draws a warning
+  rather than relying on memory.
