@@ -90,6 +90,17 @@ export type EventImportSummary = {
  *  Secure Development content are outside what a bundle can carry at all —
  *  both are reported back in `skipped` rather than silently dropped.
  *
+ *  Fail-fast ordering: the settings patch is built and applied FIRST, right
+ *  after the live-guard and before anything destructive. `updateAdminSettings`
+ *  VALIDATES the patch and throws `AdminValidationError` on a bad one (e.g. an
+ *  `enabledModuleIds` naming a module the box wasn't built with, or any
+ *  invalid module id) — applying it before `resetEvent`/clear/import means a
+ *  malformed bundle is rejected with NOTHING destructive done yet, instead of
+ *  failing after the board has already been wiped and half-replaced.
+ *  `resetEvent` is safe to run after: it keeps `ctf:admin:settings` (see its
+ *  own doc comment in admin-store.ts) — it only freezes scoring and bumps the
+ *  reset epoch — so it can never clobber the policy fields just written.
+ *
  *  The caller (the route) owns writing the `event-import` audit entry, the
  *  same split classic/quiz import routes already use. */
 export async function importEventBundle(
@@ -102,6 +113,14 @@ export async function importEventBundle(
   const settings = await getAdminSettings();
   if (!effectivePaused(settings, now.getTime())) {
     throw new EventLiveError("Refusing to import into a live event — pause scoring first.");
+  }
+
+  // Apply (and validate) the settings patch BEFORE any destructive step. A
+  // bad bundle throws `AdminValidationError` here, before `resetEvent` or any
+  // clear/import has run — see the fail-fast note above.
+  const patch = buildPolicyPatch(bundle.settings);
+  if (Object.keys(patch).length > 0) {
+    await updateAdminSettings(patch, actor);
   }
 
   // Sweep run-state before touching content, so a mid-import failure never
@@ -121,11 +140,6 @@ export async function importEventBundle(
     await clearQuestions();
     const q = await importQuiz(bundle.quiz);
     summary.quiz = { created: q.created, updated: q.updated };
-  }
-
-  const patch = buildPolicyPatch(bundle.settings);
-  if (Object.keys(patch).length > 0) {
-    await updateAdminSettings(patch, actor);
   }
 
   const skipped: string[] = [BRANDING_SKIPPED];

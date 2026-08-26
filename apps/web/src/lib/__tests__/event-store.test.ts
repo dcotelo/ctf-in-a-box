@@ -112,6 +112,29 @@ describe("importEventBundle", () => {
     expect("paused" in patch).toBe(false);
   });
 
+  // Fail-fast ordering, the point of Finding 1: the settings patch is
+  // validated and applied BEFORE anything destructive runs, so a bad bundle
+  // (updateAdminSettings throwing AdminValidationError) is rejected with
+  // nothing wiped or half-replaced yet.
+  it("applies the settings patch before resetEvent/clear (fail-fast order)", async () => {
+    await importEventBundle(bundleFixture(), "alice");
+    const settingsOrder = vi.mocked(adminStore.updateAdminSettings).mock.invocationCallOrder[0];
+    const resetOrder = vi.mocked(adminStore.resetEvent).mock.invocationCallOrder[0];
+    const clearOrder = vi.mocked(classicStore.clearChallenges).mock.invocationCallOrder[0];
+    expect(settingsOrder).toBeLessThan(resetOrder);
+    expect(settingsOrder).toBeLessThan(clearOrder);
+  });
+
+  it("rejects a bad bundle before anything destructive runs, when updateAdminSettings throws", async () => {
+    vi.mocked(adminStore.updateAdminSettings).mockRejectedValueOnce(new Error("AdminValidationError: bad module id"));
+    await expect(importEventBundle(bundleFixture(), "alice")).rejects.toThrow(/bad module id/);
+    expect(adminStore.resetEvent).not.toHaveBeenCalled();
+    expect(classicStore.clearChallenges).not.toHaveBeenCalled();
+    expect(classicStore.importBundle).not.toHaveBeenCalled();
+    expect(quizStore.clearQuestions).not.toHaveBeenCalled();
+    expect(quizStore.importBundle).not.toHaveBeenCalled();
+  });
+
   it("names build-time branding in skipped", async () => {
     const { skipped } = await importEventBundle(bundleFixture(), "alice");
     expect(skipped.some((s) => /baked at build time|rebuild/i.test(s))).toBe(true);
