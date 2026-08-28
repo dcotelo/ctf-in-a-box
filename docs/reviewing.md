@@ -169,7 +169,10 @@ ADR, not the code.
 - `.coderabbit.yaml` — path-scoped instructions carrying the invariants
   above to the file level, and the pre-merge checks (secrecy boundary,
   fail-direction, unpinned dependencies, breaking-change docs, secrets in
-  logs). CodeRabbit review is a required merge gate; the workflow rules —
+  logs). Three of the five — secrecy boundary, unpinned dependencies,
+  breaking-change docs — run at `mode: error` with the request-changes
+  workflow on, so a violation blocks rather than warns; the other two stay
+  warnings. CodeRabbit review is a required merge gate; the workflow rules —
   wait for the re-review after every push, resolve every actionable thread,
   decline on the record — are in `AGENTS.md` and
   [CONTRIBUTING](https://github.com/dcotelo/ctf-in-a-box/blob/main/CONTRIBUTING.md).
