@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
 
+# Least privilege: every job here only checks out and tests — nothing writes
+# back to the repo, posts comments, or mints packages. The workflow-level
+# default keeps a future job from silently inheriting the org default.
+permissions:
+  contents: read
+
 jobs:
   # Decide which areas a PR actually touches so only the relevant jobs run.
   # Native `git diff` — no third-party action — keeps this self-contained. A push
