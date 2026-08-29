@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
 
+# Least privilege: every job here only checks out and tests — nothing writes
+# back to the repo, posts comments, or mints packages. The workflow-level
+# default keeps a future job from silently inheriting the org default.
+permissions:
+  contents: read
+
 jobs:
   # Decide which areas a PR actually touches so only the relevant jobs run.
   # Native `git diff` — no third-party action — keeps this self-contained. A push
@@ -51,7 +57,12 @@ jobs:
             # guard that would catch the drift stays silent on the exact commit
             # that causes it.
             echo "app=$(m "^apps/web/|^setup/targets\.tsv$|^scripts/acceptance-app\.sh$CI")"
-            echo "scorer=$(m "^scorer/|^scripts/acceptance-scorer\.sh$CI")"
+            # sync/src/parse.js rides the scorer filter too:
+            # acceptance-scorer.sh imports the REAL parser as the one live
+            # cross-check of the marker/grammar contract, so a sync-only PR
+            # that changes the grammar must run the suite that proves the
+            # scorer still agrees with it.
+            echo "scorer=$(m "^scorer/|^sync/src/parse\.js$|^scripts/acceptance-scorer\.sh$CI")"
             # The modules: reader contract is shared between sync and
             # ctf-setup.sh: setup/test/corpus/ is one corpus asserted from
             # BOTH sides (sync/test/module-readers.differential.test.js and
@@ -63,7 +74,13 @@ jobs:
             # deploy/fly is here because its checks ARE shell: a bats suite
             # plus a shellcheck'd deploy script. There is no `terraform
             # validate` equivalent for fly.toml to give it its own job.
-            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^deploy/fly/|^sync/Dockerfile$|^scorer/entrypoint$CI")"
+            # scorer/consumer-workflow.example.yml is here because the bats
+            # suite pins that file's security posture (the unsafe-checkout
+            # opt-in, persist-credentials: false, the workflow version) — a PR
+            # "hardening" the template must run the suite that guards it.
+            # docker-compose.yml is here because fly.bats renders and asserts
+            # on the REAL compose file, not a fixture.
+            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^deploy/fly/|^sync/Dockerfile$|^docker-compose\.yml$|^scorer/consumer-workflow\.example\.yml$|^scorer/entrypoint$CI")"
             # `^sync/` is here because smoke runs the REAL sync service —
             # docker-compose.smoke.yml overrides only its env and the mounted
             # event.yaml. It is the one end-to-end proof the poll pipeline
@@ -76,7 +93,10 @@ jobs:
             # replaces the scorer with test/fixtures/mock-scorer.mjs
             # (`image: !reset null`), so no scorer source change can affect
             # this job. It has its own suites.
-            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^sync/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow$CI")"
+            # test/fixtures/ is here because docker-compose.smoke.yml builds
+            # BOTH mock services (mock-github, mock-scorer) from it — a fixture
+            # change is a smoke-behavior change nothing else runs.
+            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^sync/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow|^test/fixtures/$CI")"
             # Quiz-only spans BOTH areas it proves compose end to end: the app
             # (module gating, /quiz, /leaderboard) and sync (the exits-0
             # contract), plus docker-compose.yml itself (sync's restart

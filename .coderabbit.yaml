@@ -35,7 +35,10 @@ reviews:
   # path_instructions below.
   profile: "chill"
 
-  request_changes_workflow: false
+  # true so the error-mode pre-merge checks below submit a request-changes
+  # review (a blocking state) rather than a comment — the ratchet the
+  # pre_merge_checks header planned once the config had survived ~10 PRs.
+  request_changes_workflow: true
 
   high_level_summary: true
   review_status: true
@@ -538,8 +541,9 @@ reviews:
 
   # Five checks. Each costs a status row on every PR, so the bar is: an
   # invariant whose violation is silent, expensive, and not caught by CI.
-  # All start at mode: warning. After ~10 PRs, escalate the first, third and
-  # fourth to mode: error and pair with request_changes_workflow: true.
+  # The first, third and fourth run at mode: error (paired with
+  # request_changes_workflow: true above) — the ratchet planned at adoption,
+  # pulled once the config had survived 15+ PRs. The other two stay warnings.
   pre_merge_checks:
     description:
       mode: warning
@@ -548,7 +552,7 @@ reviews:
 
     custom_checks:
       - name: "Contestant Secrecy Boundary"
-        mode: warning
+        mode: error
         instructions: |
           The central security property: a contestant must never obtain a quiz
           answer key, a classic flag, or unpurchased hint text through any
@@ -612,7 +616,7 @@ reviews:
           that injects a store error and asserts the new direction.
 
       - name: "Unpinned Dependencies & Actions"
-        mode: warning
+        mode: error
         instructions: |
           Trigger condition — only evaluate ecosystems whose manifest,
           lockfile, Dockerfile, workflow, or Terraform file changed in this
@@ -644,7 +648,7 @@ reviews:
           "latest"-style meta-version.
 
       - name: "Breaking Change Documentation"
-        mode: warning
+        mode: error
         instructions: |
           Flag ⚠️ WARNING: <description> — <fix> on a change to a published
           contract without documentation:
