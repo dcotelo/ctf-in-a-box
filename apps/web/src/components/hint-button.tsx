@@ -6,7 +6,7 @@
 // loaded from GET /api/hints display identically. Signed-out visitors get a
 // disabled lock teaser — the actual gate is the authenticated API route.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppId } from "@/lib/apps";
 
 // ds-tap-24 grows the pointer target to the WCAG 2.5.8 minimum without
@@ -31,6 +31,21 @@ export default function HintButton({
 }) {
   const [state, setState] = useState<"idle" | "confirm" | "pending" | "error">("idle");
   const [error, setError] = useState("");
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  // Pressing the chip swaps it for the confirm/cancel pair, which unmounts the
+  // button that was focused. The browser does not move focus to a replacement
+  // — the focus fixup rule drops it on <body> — so a keyboard user pressed
+  // "reveal", got a confirmation they were no longer anywhere near, and had to
+  // Tab from the top of a page that runs to 110 challenge rows. Focus the
+  // control that is now the point of the interaction.
+  //
+  // Not run for "pending": that state re-renders the SAME button rather than
+  // mounting a new one, so focus is already where it belongs and re-focusing
+  // would fight a user who tabbed to Cancel mid-flight.
+  useEffect(() => {
+    if (state === "confirm") confirmRef.current?.focus();
+  }, [state]);
 
   if (!signedIn) {
     return (
@@ -72,6 +87,7 @@ export default function HintButton({
           {state === "pending" ? "Revealing hint…" : `Confirm: spend ${cost} points on this hint.`}
         </span>
         <button
+          ref={confirmRef}
           type="button"
           onClick={reveal}
           disabled={state === "pending"}

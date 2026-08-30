@@ -37,6 +37,7 @@ export default function ConfirmModal({
   const [typed, setTyped] = useState("");
 
   const panelRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus management for a modal dialog (WAI-ARIA "Dialog (Modal)"). The
   // markup already claimed `aria-modal="true"`, but nothing enforced it: Tab
@@ -47,11 +48,10 @@ export default function ConfirmModal({
   //
   // Three things happen here, in the order the pattern calls for:
   //
-  //   1. Focus moves INTO the dialog on mount. The typed-phrase input already
-  //      autoFocuses when there is one; the plain confirm mode had no focus
-  //      target at all, so focus stayed on a trigger that is now behind the
-  //      overlay and a screen reader announced nothing. Falls back to the
-  //      panel itself (tabIndex={-1}) when the dialog has no controls yet.
+  //   1. Focus moves INTO the dialog on mount — the typed-phrase input when
+  //      there is one, otherwise the panel itself (tabIndex={-1}) so the
+  //      dialog's name is announced. Before this, focus stayed on a trigger
+  //      that is now behind the overlay and a screen reader said nothing.
   //   2. Tab and Shift+Tab wrap within the dialog's own focusables.
   //   3. Focus returns to whatever opened the dialog when it unmounts, so a
   //      keyboard operator resumes where they were rather than at the top of
@@ -59,13 +59,17 @@ export default function ConfirmModal({
   //
   // The dialog is mounted only while open (see the note on ConfirmModalProps),
   // so mount/unmount IS open/close and these can be plain mount effects.
+  //   1'. The input is focused HERE rather than with React's `autoFocus`,
+  //      and the difference is load-bearing. `autoFocus` is applied while
+  //      React commits the node — before this passive effect runs — so by the
+  //      time the line below reads `document.activeElement` it would already
+  //      be the input, not the control that opened the dialog. The cleanup
+  //      would then "restore" focus to an element being unmounted, and focus
+  //      would land on <body>: the exact failure this effect exists to
+  //      prevent, hidden behind code that looks like it works.
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    // Let autoFocus win when the typed-phrase input is present; otherwise put
-    // focus on the panel so the dialog's name is announced.
-    if (!panelRef.current?.contains(document.activeElement)) {
-      panelRef.current?.focus();
-    }
+    (inputRef.current ?? panelRef.current)?.focus();
     return () => opener?.focus?.();
   }, []);
 
@@ -141,7 +145,7 @@ export default function ConfirmModal({
               Type <code className="rounded bg-white/10 px-1 text-white">{requireType}</code> to confirm
             </span>
             <input
-              autoFocus
+              ref={inputRef}
               value={typed}
               disabled={pending}
               onChange={(e) => setTyped(e.target.value)}
