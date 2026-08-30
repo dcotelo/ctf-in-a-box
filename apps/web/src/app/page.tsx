@@ -163,7 +163,7 @@ export default async function Home() {
 
       {/* Hero: the event, its games in one breath, ONE action. */}
       <div className="border-b border-white/[0.09] bg-[#1a1a2e]">
-        <main className="mx-auto flex w-full max-w-5xl flex-col items-start gap-6 px-6 py-16 sm:py-24">
+        <main id="main-content" className="mx-auto flex w-full max-w-5xl flex-col items-start gap-6 px-6 py-16 sm:py-24">
           {/* OWASP brand mark — four of the six targets are OWASP projects
               and the event format comes from the OWASP-CTF work. */}
           <Image

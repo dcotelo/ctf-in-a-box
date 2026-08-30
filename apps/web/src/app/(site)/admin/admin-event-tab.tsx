@@ -71,7 +71,7 @@ function ScheduleField({
         onBlur={() => {
           if (input !== canonical) onCommit(fromLocalInput(input));
         }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       />
     </label>
   );
@@ -267,7 +267,7 @@ export default function AdminEventTab({
           disabled={pending}
           onChange={(e) => setTeamMaxMembersInput(e.target.value)}
           onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         />
       </label>
 

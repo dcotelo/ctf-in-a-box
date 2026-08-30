@@ -30,7 +30,7 @@ type UserDetail = {
 };
 
 const FIELD =
-  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
+  "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 // Both action styles carry a DESIGNED disabled state, not an opacity fade.
 // Every control on this tab is disabled at rest (nothing is actionable until
 // a lookup returns or both team fields are filled), so the disabled state is

@@ -54,6 +54,24 @@ export default async function RootLayout({
       className={`${poppins.variable} ${barlow.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        {/* Skip link (WCAG 2.4.1). The header carries the wordmark, up to six
+            module links, a dropdown and the auth control, so a keyboard or
+            switch user had to tab through all of it on EVERY page before
+            reaching the content — the bypass block is the whole remedy for
+            that. Hidden until focused, then pinned over the sticky header so
+            it isn't painted underneath it.
+
+            It targets `#main-content`, which every main element in this app
+            sets: the shared `(site)` layout, the landing page, the 404, and
+            the error boundary each render their own. The parity is asserted
+            in `app/__tests__/loading-and-errors.test.tsx` — a bypass link
+            that lands nowhere still renders, and still looks fine. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[#2563eb] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:outline-2 focus:outline-offset-2 focus:outline-[#d4a017]"
+        >
+          Skip to content
+        </a>
         <SiteHeader navLinks={navLinks} />
         {children}
         <VisitBeacon />

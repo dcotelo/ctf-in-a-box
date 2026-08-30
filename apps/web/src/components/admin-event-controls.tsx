@@ -333,7 +333,7 @@ export default function AdminEventControls({ initialImportText = "", showHeading
           }}
           rows={6}
           placeholder="Paste an event bundle's JSON here, or choose a file below."
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         />
 
         <input

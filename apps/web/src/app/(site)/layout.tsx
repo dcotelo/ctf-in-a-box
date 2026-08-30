@@ -25,7 +25,7 @@ export default async function SiteLayout({
     <>
       {/* The event's state, on every content page — see phase-line.tsx. */}
       {phaseLine}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
+      <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
         {children}
       </main>
       <SiteFooter navLinks={await getNavLinks()} />

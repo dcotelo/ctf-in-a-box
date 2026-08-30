@@ -68,13 +68,19 @@ export default function HintButton({
   if (state === "confirm" || state === "pending") {
     return (
       <span className="flex flex-none items-center gap-1">
+        <span className="sr-only" role="status">
+          {state === "pending" ? "Revealing hint…" : `Confirm: spend ${cost} points on this hint.`}
+        </span>
         <button
           type="button"
           onClick={reveal}
           disabled={state === "pending"}
           className={`${CHIP} border-[#d4a017]/60 text-[#d4a017] hover:bg-[#d4a017]/10 disabled:opacity-50`}
         >
-          {state === "pending" ? "…" : `−${cost} pts ✓`}
+          <span aria-hidden="true">{state === "pending" ? "…" : `−${cost} pts ✓`}</span>
+          <span className="sr-only">
+            {state === "pending" ? "Revealing" : `Confirm, spend ${cost} points`}
+          </span>
         </button>
         <button
           type="button"
@@ -94,13 +100,25 @@ export default function HintButton({
       type="button"
       onClick={() => setState("confirm")}
       title={state === "error" ? `${error} (click to retry)` : `Reveal hint for ${cost} points`}
+      aria-label={
+        state === "error"
+          ? `${error}. Retry revealing this hint for ${cost} points`
+          : `Reveal hint for ${cost} points`
+      }
       className={`${CHIP} ${
         state === "error"
           ? "border-[#e53e3e]/60 text-[#e53e3e] hover:bg-[#e53e3e]/10"
           : "border-white/10 text-muted hover:border-[#d4a017]/60 hover:text-[#d4a017]"
       }`}
     >
-      {state === "error" ? "⚠ retry" : `💡 −${cost}`}
+      <span aria-hidden="true">{state === "error" ? "⚠ retry" : `💡 −${cost}`}</span>
+      {/* The failure is also announced once, politely: the chip's own name
+          only reaches a screen reader if the user happens to be on it. */}
+      {state === "error" && (
+        <span className="sr-only" role="status">
+          {error}
+        </span>
+      )}
     </button>
   );
 }

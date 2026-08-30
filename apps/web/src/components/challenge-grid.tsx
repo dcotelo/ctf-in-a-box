@@ -40,7 +40,7 @@ function matchChallenge(c: CatalogChallenge, q: string): boolean {
 }
 
 const SELECT =
-  "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
+  "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
 export default function ChallengeGrid({
   apps,
@@ -237,7 +237,7 @@ export default function ChallengeGrid({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search challenges or OWASP codes"
             aria-label="Search challenges"
-            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           />
         </div>
         <label className="sr-only" htmlFor="filter-target">Target</label>
@@ -363,46 +363,62 @@ export default function ChallengeGrid({
                 </div>
               )}
               {isOpen && (
-              <ul className="grid grid-cols-1 gap-x-8 px-4 pb-3 pt-2 md:grid-cols-2">
-                {rows.map((c) => {
-                  const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
-                  const ownedText = purchased[app.id]?.[c.id];
-                  const hasHint = hints[app.id]?.includes(c.id) ?? false;
-                  return (
-                    <li key={c.id} className="flex flex-col gap-1 border-b border-white/[0.04] py-2">
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          aria-hidden
-                          className={`h-2 w-2 flex-none rounded-full ${
-                            isSolved ? "bg-[#22c55e]" : "border border-[#8f8f9b]/50"
-                          }`}
-                        />
-                        <span
-                          className={`min-w-0 flex-1 truncate text-sm ${
-                            isSolved ? "text-zinc-500" : "text-zinc-300"
-                          }`}
-                          title={c.description}
-                        >
-                          {c.description}
-                          {isSolved && <span className="sr-only"> (patched)</span>}
-                        </span>
-                        <span className="flex-none font-mono text-xs tabular-nums text-muted">
-                          {c.points} {c.points === 1 ? "pt" : "pts"}
-                        </span>
-                        {hasHint && !ownedText && (
-                          <HintButton app={app.id} id={c.id} cost={hintCost} signedIn={signedIn} onPurchased={onPurchased} />
+                <>
+                {/* The repo link in the card's header row is `hidden
+                    sm:inline` — there is no room for it beside the title at
+                    320px — which left a phone with no route to the target's
+                    code at all. The expanded panel has the width, so the link
+                    lives here for the narrow layout and there for the wide
+                    one, never both. */}
+                <a
+                  href={app.repo}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ds-link mx-4 mb-1 mt-2 block w-fit font-mono text-xs sm:hidden"
+                >
+                  {app.repo.replace("https://github.com/", "")}
+                </a>
+                <ul className="grid grid-cols-1 gap-x-8 px-4 pb-3 pt-2 md:grid-cols-2">
+                  {rows.map((c) => {
+                    const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
+                    const ownedText = purchased[app.id]?.[c.id];
+                    const hasHint = hints[app.id]?.includes(c.id) ?? false;
+                    return (
+                      <li key={c.id} className="flex flex-col gap-1 border-b border-white/[0.04] py-2">
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            aria-hidden
+                            className={`h-2 w-2 flex-none rounded-full ${
+                              isSolved ? "bg-[#22c55e]" : "border border-[#8f8f9b]/50"
+                            }`}
+                          />
+                          <span
+                            className={`min-w-0 flex-1 truncate text-sm ${
+                              isSolved ? "text-zinc-500" : "text-zinc-300"
+                            }`}
+                            title={c.description}
+                          >
+                            {c.description}
+                            {isSolved && <span className="sr-only"> (patched)</span>}
+                          </span>
+                          <span className="flex-none font-mono text-xs tabular-nums text-muted">
+                            {c.points} {c.points === 1 ? "pt" : "pts"}
+                          </span>
+                          {hasHint && !ownedText && (
+                            <HintButton app={app.id} id={c.id} cost={hintCost} signedIn={signedIn} onPurchased={onPurchased} />
+                          )}
+                          {c.owasp && <OwaspBadge code={c.owasp.code} />}
+                        </div>
+                        {ownedText && (
+                          <p className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">
+                            💡 {ownedText}
+                          </p>
                         )}
-                        {c.owasp && <OwaspBadge code={c.owasp.code} />}
-                      </div>
-                      {ownedText && (
-                        <p className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">
-                          💡 {ownedText}
-                        </p>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                      </li>
+                    );
+                  })}
+                    </ul>
+                </>
               )}
             </section>
             );

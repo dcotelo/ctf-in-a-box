@@ -43,10 +43,17 @@ export default function ClassicHint({ id, cost }: { id: string; cost: number }) 
     }
   }
 
+  // Announced, because this text REPLACES the button that was focused: without
+  // a live region the click consumed points and produced silence for a
+  // screen-reader user, with focus dropped to the document body.
   if (text) {
     return (
-      <p className="rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-3 py-2 text-sm leading-relaxed text-[#d4a017]/90">
-        💡 {text}
+      <p
+        role="status"
+        className="rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-3 py-2 text-sm leading-relaxed text-[#d4a017]/90"
+      >
+        <span aria-hidden="true">💡</span> <span className="sr-only">Hint: </span>
+        {text}
       </p>
     );
   }
@@ -59,9 +66,19 @@ export default function ClassicHint({ id, cost }: { id: string; cost: number }) 
         disabled={pending}
         className="w-fit rounded-md border border-[#d4a017]/40 px-3 py-1.5 text-sm text-[#d4a017] transition-colors hover:bg-[#d4a017]/10 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
-        {pending ? "Revealing…" : `💡 Reveal hint (−${cost} pts)`}
+        {pending ? (
+          "Revealing…"
+        ) : (
+          <>
+            <span aria-hidden="true">💡</span> Reveal hint (−{cost} pts)
+          </>
+        )}
       </button>
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && (
+        <p role="alert" className="text-xs text-[#e53e3e]">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

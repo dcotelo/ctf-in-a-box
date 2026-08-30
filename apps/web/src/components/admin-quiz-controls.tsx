@@ -688,7 +688,7 @@ export default function AdminQuizControls({
           disabled={pending}
           onChange={(e) => setQuizMaxAttemptsInput(e.target.value)}
           onBlur={() => commitNumber("quizMaxAttempts", quizMaxAttemptsInput, setQuizMaxAttemptsInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         />
       </label>
 
@@ -708,7 +708,7 @@ export default function AdminQuizControls({
           disabled={pending}
           onChange={(e) => setQuizRetryAfterInput(e.target.value)}
           onBlur={() => commitNumber("quizRetryAfterMin", quizRetryAfterInput, setQuizRetryAfterInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         />
       </label>
 
@@ -860,7 +860,7 @@ export default function AdminQuizControls({
               }}
               rows={6}
               placeholder="Paste a bundle's JSON here, or choose a file below."
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             />
 
             <input
@@ -1040,7 +1040,7 @@ function QuestionForm({
           disabled={pending}
           onChange={(e) => onChange({ ...draft, prompt: e.target.value })}
           rows={2}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         />
       </label>
 
@@ -1051,7 +1051,7 @@ function QuestionForm({
             value={draft.type}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, type: e.target.value as QuestionType, correct: [] })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           >
             <option value="single">Single choice</option>
             <option value="multi">Multiple choice</option>
@@ -1065,7 +1065,7 @@ function QuestionForm({
             value={draft.points}
             disabled={pending}
             onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           />
         </label>
         {/* Position used to be a number input here. It is now set by dragging
@@ -1098,14 +1098,14 @@ function QuestionForm({
               placeholder="choice id"
               disabled={pending}
               onChange={(e) => setChoice(i, { id: e.target.value })}
-              className="w-24 flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+              className="w-24 flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             />
             <input
               value={c.label}
               placeholder="label"
               disabled={pending}
               onChange={(e) => setChoice(i, { label: e.target.value })}
-              className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+              className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
             />
             <button
               type="button"
