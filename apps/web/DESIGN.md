@@ -47,11 +47,24 @@ redesign, what reverted, and the rules that keep the two coherent.
 - **`.ds-card` hover** = border brighten + the original accent glow.
 - **`.ds-skeleton` + `components/skeleton.tsx`** — the route-loading atom.
   Every page reads Redis at request time, so a nav click used to sit on the
-  old page with no acknowledgement; each route now ships a `loading.tsx`
-  built from `SkeletonPage` / `SkeletonHeader` / `Skeleton`, shaped like the
-  page it stands in for so the swap fills in rather than jumps. `SkeletonPage`
-  carries the one `role="status"` announcement — a client-side route change
-  moves no focus and says nothing on its own.
+  old page with no acknowledgement; the heavy routes (leaderboard, profile,
+  admin) ship a `loading.tsx` built from `SkeletonPage` / `SkeletonHeader` /
+  `Skeleton`, shaped like the page it stands in for so the swap fills in
+  rather than jumps. `SkeletonPage` carries the one `role="status"`
+  announcement — a client-side route change moves no focus and says nothing
+  on its own.
+
+  **A `loading.tsx` must never cover a route that can `notFound()`.** A
+  Suspense fallback starts the response body, so the status is already sent
+  by the time the page runs and a later `notFound()` streams a soft 404 with
+  status **200**. The module routes (`/challenges`, `/quiz`, `/flags`) 404 by
+  design on an event that has those modules switched off, and the quiz-only
+  and classic-only acceptance scripts assert exactly that — a group-wide
+  `(site)/loading.tsx` turned every one of those 404s into a 200 and failed
+  both. Hence: no group-level loading state, and none on a module route. The
+  rule is derived and asserted in `app/__tests__/loading-and-errors.test.tsx`
+  rather than left as a comment, because which routes can 404 changes as
+  modules come and go.
 - **Skip link** — `Skip to content` in the root layout, hidden until focused,
   targeting the `#main-content` every `<main>` in the app now sets (WCAG
   2.4.1). The header runs to a wordmark, up to six module links, a dropdown

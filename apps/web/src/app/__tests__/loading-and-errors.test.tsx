@@ -54,11 +54,37 @@ describe("skip link", () => {
 describe("loading states", () => {
   const loadingFiles = files.filter((f) => f.endsWith("loading.tsx"));
 
-  it("covers the content routes", () => {
-    // The `(site)` group's own loading.tsx is the floor — it catches any route
-    // that never got a tailored one, so this asserts the floor exists rather
-    // than enumerating the routes above it.
-    expect(loadingFiles.map(rel)).toContain("(site)/loading.tsx");
+  it("never covers a route that has to be able to 404", () => {
+    // THE constraint on where a loading.tsx may go, and it is not obvious:
+    // a Suspense fallback starts the response body, which means the headers
+    // (and the status) are already sent by the time the page runs. A
+    // `notFound()` after that cannot set a 404 — it streams a soft 404 with
+    // status 200 instead (the vendored loading.js docs say so under "Status
+    // Codes": "Place notFound() before those boundaries").
+    //
+    // That is not cosmetic here. A quiz-only or classic-only event switches
+    // the other modules off and their routes MUST 404; the acceptance scripts
+    // assert exactly that, and a group-wide `(site)/loading.tsx` turned every
+    // one of those 404s into a 200. Which routes can 404 changes as modules
+    // come and go, so this derives the answer instead of listing it.
+    const offenders = loadingFiles.filter((file) => {
+      const segment = file.slice(0, file.lastIndexOf("/"));
+      return walk(segment).some(
+        (f) => f.endsWith("page.tsx") && readFileSync(f, "utf8").includes("notFound()"),
+      );
+    });
+    expect(offenders.map(rel)).toEqual([]);
+  });
+
+  it("still covers the routes where the wait is worst", () => {
+    // The three heaviest reads in the app, none of which can 404. Named
+    // explicitly because the point of the feature is that THESE acknowledge a
+    // click — a test that only asserts the constraint above passes with every
+    // loading state deleted.
+    const covered = loadingFiles.map(rel);
+    expect(covered).toContain("(site)/leaderboard/loading.tsx");
+    expect(covered).toContain("(site)/profile/loading.tsx");
+    expect(covered).toContain("(site)/admin/loading.tsx");
   });
 
   it("announces itself on every route that has one", async () => {
