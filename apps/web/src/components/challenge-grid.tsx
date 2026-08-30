@@ -19,7 +19,7 @@
 // one summary card per target from the static counts — filters would have
 // nothing to filter.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import HintButton from "@/components/hint-button";
 import OwaspBadge from "@/components/owasp-badge";
 import ProgressSummary from "@/components/progress-summary";
@@ -37,6 +37,12 @@ function matchChallenge(c: CatalogChallenge, q: string): boolean {
     (c.owasp?.code.toLowerCase().includes(q) ?? false) ||
     (c.owasp?.label.toLowerCase().includes(q) ?? false)
   );
+}
+
+/** DOM id of one row's revealed hint text. Shared by the element and by the
+ *  post-purchase focus move, so the two cannot drift apart. */
+function hintTextId(app: AppId, id: string): string {
+  return `hint-text-${app}-${id}`;
 }
 
 const SELECT =
@@ -109,10 +115,30 @@ export default function ChallengeGrid({
     };
   }, [signedIn]);
 
+  // A successful reveal unmounts the HintButton the user just pressed and
+  // renders the hint text in its place, so the focused element disappears and
+  // the browser drops focus on <body> — the row this contestant was working
+  // is gone from under them, on a list that runs to 110 rows. HintButton can
+  // only manage focus within itself; this swap happens HERE, so the focus move
+  // has to happen here too.
+  //
+  // Keyed by app+id rather than a ref: the revealed paragraph is rendered deep
+  // inside the row map, and threading a ref down to one row of many is more
+  // machinery than reading it back off the element that was just rendered.
+  const justPurchased = useRef<string | null>(null);
+
   const onPurchased = (app: AppId, id: string, text: string, spentNow: number) => {
+    justPurchased.current = hintTextId(app, id);
     setPurchased((prev) => ({ ...prev, [app]: { ...(prev[app] ?? {}), [id]: text } }));
     setSpent(spentNow);
   };
+
+  useEffect(() => {
+    const target = justPurchased.current;
+    if (!target) return;
+    justPurchased.current = null;
+    document.getElementById(target)?.focus();
+  }, [purchased]);
 
   const solvedSets = useMemo(() => {
     const out = new Map<AppId, Set<string>>();
@@ -410,8 +436,14 @@ export default function ChallengeGrid({
                           {c.owasp && <OwaspBadge code={c.owasp.code} />}
                         </div>
                         {ownedText && (
-                          <p className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">
-                            💡 {ownedText}
+                          <p
+                            id={hintTextId(app.id, c.id)}
+                            tabIndex={-1}
+                            className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+                          >
+                            <span aria-hidden="true">💡</span>{" "}
+                            <span className="sr-only">Hint: </span>
+                            {ownedText}
                           </p>
                         )}
                       </li>

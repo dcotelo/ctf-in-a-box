@@ -38,6 +38,28 @@ describe("focus follows a replaced control", () => {
     expect(src).toMatch(/state === "confirm"\) confirmRef/);
   });
 
+  it("hint-button focuses the retry chip when a reveal fails", () => {
+    // The confirm/cancel pair unmounts and the retry chip mounts in its place,
+    // which is the same replaced-while-focused case one state later. Easy to
+    // miss precisely because the first transition is already handled.
+    const src = read("hint-button.tsx");
+    expect(src).toMatch(/state === "error"\) chipRef\.current\?\.focus\(\)/);
+  });
+
+  it("challenge-grid focuses the hint text a purchase reveals", () => {
+    // The success path leaves hint-button entirely: the parent swaps the
+    // button for the revealed text, so the focus move has to live where the
+    // swap does. The id is shared between the element and the focus call
+    // through one helper so the two cannot drift apart.
+    const src = read("challenge-grid.tsx");
+    expect(src).toMatch(/function hintTextId\(/);
+    expect(src).toMatch(/id=\{hintTextId\(app\.id, c\.id\)\}/);
+    expect(src).toMatch(/tabIndex=\{-1\}/);
+    expect(src).toMatch(/document\.getElementById\(target\)\?\.focus\(\)/);
+    // Keyed off the purchase, not run on every render.
+    expect(src).toMatch(/justPurchased\.current = hintTextId\(app, id\)/);
+  });
+
   it("confirm-modal captures the opener before it focuses anything", () => {
     const src = read("confirm-modal.tsx");
     // The ordering IS the fix. React applies `autoFocus` during commit, before
