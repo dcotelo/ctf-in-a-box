@@ -57,6 +57,24 @@ function hmac(key: string, data: string): Buffer {
   return createHmac("sha256", key).update(data, "utf8").digest();
 }
 
+/** Refuses a missing or empty signing key, and THROWS rather than returning a
+ *  falsy verdict.
+ *
+ *  `createHmac('sha256', '')` does not throw — it happily produces a valid
+ *  digest over the empty key, which anyone can guess. A token signed that way
+ *  verifies, so an empty key would let anyone mint a token naming any `sub`,
+ *  and identity is the one thing the box owns. `AdminAiChallenge.signingKey`
+ *  is `""` for a legacy row that was written before its key was minted, so
+ *  this is a value that really can reach here.
+ *
+ *  A throw, not `false`: a caller with no key has a BUG, and reporting it as
+ *  "bad signature" would hide it behind a refusal that looks routine. */
+function requireKey(key: string): void {
+  if (typeof key !== "string" || key.length === 0) {
+    throw new Error("ai-token: a non-empty signing key is required (an empty key produces a forgeable token)");
+  }
+}
+
 /** Constant-time compare that tolerates a length mismatch. `timingSafeEqual`
  *  THROWS on differing lengths, so a truncated signature would surface as a
  *  500 instead of a refusal — and the length itself is not a secret. */
@@ -66,6 +84,7 @@ function equalBytes(a: Buffer, b: Buffer): boolean {
 }
 
 export function signToken(claims: AiTokenClaims, key: string): string {
+  requireKey(key);
   const signingInput = `${encode({ ...HEADER, kid: claims.aud })}.${encode(claims)}`;
   return `${signingInput}.${hmac(key, signingInput).toString("base64url")}`;
 }
@@ -84,6 +103,7 @@ export function verifyToken(
   key: string,
   opts: { audience?: string; nowSec?: number } = {},
 ): AiTokenCheck {
+  requireKey(key);
   if (typeof token !== "string") return { ok: false, error: "malformed" };
   const parts = token.split(".");
   if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return { ok: false, error: "malformed" };
@@ -129,6 +149,7 @@ function decodeClaims(segment: string): AiTokenClaims | null {
  *  `<timestamp>.<raw body>`. The timestamp is INSIDE the signed material, so a
  *  captured request cannot be replayed later under a fresh header. */
 export function signEventBody(key: string, tsSec: number, rawBody: string): string {
+  requireKey(key);
   return `sha256=${hmac(key, `${tsSec}.${rawBody}`).toString("hex")}`;
 }
 
@@ -136,6 +157,7 @@ export function signEventBody(key: string, tsSec: number, rawBody: string): stri
  *  before hashing changes whitespace and key order and breaks every real
  *  integrator. */
 export function verifyEventSignature(key: string, tsSec: number, rawBody: string, header: string): boolean {
+  requireKey(key);
   if (typeof header !== "string" || !header.startsWith("sha256=")) return false;
   const provided = Buffer.from(header.slice("sha256=".length), "hex");
   return equalBytes(provided, hmac(key, `${tsSec}.${rawBody}`));

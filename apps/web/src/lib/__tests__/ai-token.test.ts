@@ -129,6 +129,42 @@ describe("event body signatures", () => {
   });
 });
 
+describe("an empty signing key", () => {
+  // `createHmac('sha256', '')` does NOT throw — it returns a perfectly valid
+  // digest over a key anyone can guess, so a token signed with "" verifies and
+  // anyone can mint one naming any `sub`. `AdminAiChallenge.signingKey` really
+  // is "" for a legacy keyless row, so this input can reach here. Each throw
+  // sits next to the same call with a real key, which must still work.
+  const body = '{"token":"x"}';
+
+  it("makes signToken throw instead of minting a forgeable token", () => {
+    expect(() => signToken(claims(), "")).toThrow(/signing key/i);
+    expect(typeof signToken(claims(), KEY)).toBe("string");
+  });
+
+  it("makes verifyToken throw rather than report a routine 'invalid-signature'", () => {
+    const token = signToken(claims(), KEY);
+    expect(() => verifyToken(token, "", { nowSec: NOW })).toThrow(/signing key/i);
+    expect(verifyToken(token, KEY, { nowSec: NOW }).ok).toBe(true);
+  });
+
+  it("makes signEventBody throw", () => {
+    expect(() => signEventBody("", NOW, body)).toThrow(/signing key/i);
+    expect(signEventBody(KEY, NOW, body).startsWith("sha256=")).toBe(true);
+  });
+
+  it("makes verifyEventSignature throw rather than silently return false", () => {
+    const sig = signEventBody(KEY, NOW, body);
+    expect(() => verifyEventSignature("", NOW, body, sig)).toThrow(/signing key/i);
+    expect(verifyEventSignature(KEY, NOW, body, sig)).toBe(true);
+  });
+
+  it("refuses a missing key as firmly as an empty string", () => {
+    expect(() => signToken(claims(), undefined as unknown as string)).toThrow(/signing key/i);
+    expect(() => verifyToken("a.b.c", null as unknown as string)).toThrow(/signing key/i);
+  });
+});
+
 describe("withinSkew", () => {
   it("accepts inside the window and rejects stale AND future timestamps", () => {
     expect(withinSkew(NOW, NOW)).toBe(true);
