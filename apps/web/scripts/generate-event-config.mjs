@@ -87,6 +87,7 @@ const MODULE_VALIDATORS = {
   }),
   quiz: () => ({ id: "quiz" }),
   classic: () => ({ id: "classic" }),
+  ai: () => ({ id: "ai" }),
 };
 
 function validateModules(modules) {

@@ -4,7 +4,7 @@
 import type { AppId } from "@/lib/apps";
 import { eventConfig } from "@/lib/event-config";
 
-export type ModuleId = "secure-development" | "quiz" | "classic";
+export type ModuleId = "secure-development" | "quiz" | "classic" | "ai";
 
 /** Context handed to a module's home-page copy so it can interpolate live
  *  facts (target counts, app names) without importing them itself. */
@@ -997,6 +997,18 @@ git push -u origin fix/<short-description>`,
       ],
     }),
     routeCard: () => "Every flag the organizers have published.",
+  },
+  ai: {
+    id: "ai",
+    displayName: "AI Challenges",
+    description: "Prompt-injection and guardrail challenges hosted outside the box, scored inside it.",
+    // No `nav` yet: /ai does not exist until the pages PR, and the field is
+    // optional exactly for a module in this state (see ModuleDef.nav). Adding
+    // it now would put a 404 in the menu the moment the module is enabled.
+    //
+    // No `home`/`guide`/`rules`/`faq`/`terms` yet either, for the same reason:
+    // this module's copy makes claims about a board and a launcher that do not
+    // exist yet, and copy is checked against the implementation in this repo.
   },
 };
 

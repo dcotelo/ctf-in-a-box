@@ -7,7 +7,8 @@ export type SecureDevelopmentConfig = {
   scoreIngest: "poll" | "push";
 };
 export type QuizConfig = { id: "quiz" };
-export type ModuleConfig = SecureDevelopmentConfig | QuizConfig;
+export type AiConfig = { id: "ai" };
+export type ModuleConfig = SecureDevelopmentConfig | QuizConfig | AiConfig;
 
 export type EventConfig = {
   name: string;
