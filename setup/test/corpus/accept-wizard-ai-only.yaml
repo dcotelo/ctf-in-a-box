@@ -1,6 +1,6 @@
 # targets:
 event:
-  name: "OWASP Chapter AI CTF"
+  name: "OWASP Chapter AI Night"
 github:
   org: my-event-org
 modules:
