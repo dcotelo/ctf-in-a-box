@@ -2,19 +2,29 @@ import "server-only";
 export { AI_COOLDOWN_SEC } from "./ai-defaults";
 
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
+import { generateSigningKey } from "@/lib/ai-token";
+import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashPipeline } from "@/lib/upstash";
 import {
   AI_CATEGORIES_KEY as CATEGORIES_KEY,
+  AI_CATEGORIES_MAX,
+  AI_CATEGORY_MAX_LEN,
   AI_CHALLENGES_KEY as CHALLENGES_KEY,
   AI_FLAG_KEY as FLAG_KEY,
+  AI_FLAGNORM_KEY as FLAGNORM_KEY,
   AI_HINTS_KEY as HINTS_KEY,
+  AI_HINT_MAX,
+  AI_ID_RE,
   AI_POINTS_KEY as POINTS_KEY,
+  AI_POINTS_MAX,
   AI_SIGNKEY_KEY as SIGNKEY_KEY,
   AI_SOLVECOUNT_KEY as SOLVECOUNT_KEY,
   AI_SOLVED_KEY as SOLVED_KEY,
   aiAttemptsKey as attemptsKey,
   aiSolvesKey as solvesKey,
+  flagComparisonForm,
   isAiMode,
+  validateUrlTemplate,
   type AiMode,
 } from "@/lib/ai-keys";
 
@@ -299,4 +309,145 @@ export async function getTeamAiTotalsBatch(teams: readonly (readonly string[])[]
     const { points, completed, lastAt } = foldTeamItems(members.map((login) => results[indexByLogin.get(login) ?? -1]));
     return { points, solved: completed, lastAt };
   });
+}
+
+/** Replaces the category list. Names are trimmed and deduped, and ORDER IS
+ *  CONTENT — it is the order the board renders headings in, which is why this
+ *  is one JSON array in a string key rather than a Redis set. */
+export async function setAiCategories(names: string[]): Promise<string[]> {
+  if (!Array.isArray(names)) throw new AiValidationError("categories", "Categories must be a list");
+  const cleaned: string[] = [];
+  for (const raw of names) {
+    if (typeof raw !== "string") throw new AiValidationError("categories", "Category names must be strings");
+    const name = raw.trim();
+    if (!name) continue;
+    if (name.length > AI_CATEGORY_MAX_LEN) {
+      throw new AiValidationError("categories", `Category names must be at most ${AI_CATEGORY_MAX_LEN} characters`);
+    }
+    if (!cleaned.includes(name)) cleaned.push(name);
+  }
+  if (cleaned.length > AI_CATEGORIES_MAX) {
+    throw new AiValidationError("categories", `At most ${AI_CATEGORIES_MAX} categories`);
+  }
+  const [res] = await upstashPipeline([["SET", CATEGORIES_KEY, JSON.stringify(cleaned)]]);
+  if (res.error) throw new Error(`Upstash SET failed: ${res.error}`);
+  return cleaned;
+}
+
+export type AiUpsertSecrets = { flag?: string; hint?: string | null };
+
+/** Creates or updates one challenge, and guarantees it has a signing key.
+ *
+ *  The key is minted ONLY when the challenge has none. An edit must never
+ *  rotate silently: the organizer has already pasted that key into an external
+ *  system, and a rename that invalidated it would break a live integration
+ *  with no message anywhere saying why. Rotation is its own explicit call.
+ *
+ *  A `mode: "event"` challenge stores no flag at all — both flag hashes are
+ *  DELETED rather than left holding a stale value that a later mode change
+ *  would silently resurrect. */
+export async function upsertAiChallenge(c: AiChallenge, secrets: AiUpsertSecrets = {}): Promise<AdminAiChallenge> {
+  if (!AI_ID_RE.test(c.id)) throw new AiValidationError("id", `Invalid challenge id: ${c.id}`);
+  if (typeof c.title !== "string" || !c.title.trim()) {
+    throw new AiValidationError("title", "Challenge title is required");
+  }
+  if (!isAiMode(c.mode)) throw new AiValidationError("mode", `Unknown mode: ${String(c.mode)}`);
+
+  const categories = await listAiCategories();
+  if (!categories.includes(c.category)) {
+    throw new AiValidationError("category", `Unknown category: ${c.category}`);
+  }
+  if (typeof c.description !== "string" || c.description.length > MARKDOWN_MAX) {
+    throw new AiValidationError("description", `Description must be at most ${MARKDOWN_MAX} characters`);
+  }
+  // Points are read back INSIDE AWARD_SCRIPT by matching a plain integer — a
+  // non-integer would either silently award 0 or corrupt HINCRBY mid-script,
+  // after the solve row had already been written, with no way to roll back.
+  if (!Number.isInteger(c.points) || c.points < 0 || c.points > AI_POINTS_MAX) {
+    throw new AiValidationError("points", `Challenge points must be an integer in [0, ${AI_POINTS_MAX}]`);
+  }
+
+  const template = validateUrlTemplate(c.urlTemplate);
+  if (!template.ok) throw new AiValidationError("urlTemplate", template.reason);
+
+  const graded = c.mode !== "event";
+  const flag = typeof secrets.flag === "string" ? secrets.flag.trim() : "";
+  if (graded && !flag) {
+    throw new AiValidationError("flag", "A flag is required unless the challenge is event-only");
+  }
+  const hint = secrets.hint;
+  if (hint != null && (typeof hint !== "string" || hint.length > AI_HINT_MAX)) {
+    throw new AiValidationError("hint", `Hint must be at most ${AI_HINT_MAX} characters`);
+  }
+  const authoredHint = typeof hint === "string" && hint.trim() ? hint.trim() : null;
+
+  const [existingKeyRes] = await upstashPipeline([["HGET", SIGNKEY_KEY, c.id]]);
+  const signingKey = typeof existingKeyRes.result === "string" && existingKeyRes.result
+    ? existingKeyRes.result
+    : generateSigningKey();
+
+  const record: AiChallenge = { ...c, urlTemplate: template.value };
+  const results = await upstashPipeline([
+    ["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)],
+    graded ? ["HSET", FLAG_KEY, c.id, flag] : ["HDEL", FLAG_KEY, c.id],
+    graded
+      ? ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, c.caseSensitive)]
+      : ["HDEL", FLAGNORM_KEY, c.id],
+    authoredHint ? ["HSET", HINTS_KEY, c.id, authoredHint] : ["HDEL", HINTS_KEY, c.id],
+    ["HSET", SIGNKEY_KEY, c.id, signingKey],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
+
+  return { challenge: record, flag: graded ? flag : "", hint: authoredHint, signingKey };
+}
+
+/** Mints a NEW signing key for an existing challenge. The old key stops
+ *  working immediately — there is no grace window, so the panel warns before
+ *  calling this. Refuses on an unknown challenge rather than creating an
+ *  orphan key row nothing will ever read. */
+export async function rotateAiSigningKey(id: string): Promise<string> {
+  if (!AI_ID_RE.test(id)) throw new AiValidationError("id", `Invalid challenge id: ${id}`);
+  const [existing] = await upstashPipeline([["HGET", CHALLENGES_KEY, id]]);
+  if (typeof existing.result !== "string") {
+    throw new AiValidationError("id", `Unknown challenge: ${id}`);
+  }
+  const key = generateSigningKey();
+  const [res] = await upstashPipeline([["HSET", SIGNKEY_KEY, id, key]]);
+  if (res.error) throw new Error(`Upstash HSET failed: ${res.error}`);
+  return key;
+}
+
+/** Deletes a challenge and every secret hanging off it. A swallowed error here
+ *  would leave a live signing key for a challenge nobody can see, so failures
+ *  are surfaced rather than ignored. Solve rows are deliberately NOT rewritten
+ *  — history keeps what it earned, exactly as classic's delete does. */
+export async function deleteAiChallenge(id: string): Promise<void> {
+  if (!AI_ID_RE.test(id)) throw new AiValidationError("id", `Invalid challenge id: ${id}`);
+  const results = await upstashPipeline([
+    ["HDEL", CHALLENGES_KEY, id],
+    ["HDEL", FLAG_KEY, id],
+    ["HDEL", FLAGNORM_KEY, id],
+    ["HDEL", HINTS_KEY, id],
+    ["HDEL", SIGNKEY_KEY, id],
+    ["HDEL", SOLVECOUNT_KEY, id],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);
+}
+
+/** Wipes the whole ai catalogue — the destructive replace-all path used by the
+ *  master reset. Surfaces per-command errors for the same reason as above. */
+export async function clearAiChallenges(): Promise<void> {
+  const results = await upstashPipeline([
+    ["DEL", CHALLENGES_KEY],
+    ["DEL", FLAG_KEY],
+    ["DEL", FLAGNORM_KEY],
+    ["DEL", HINTS_KEY],
+    ["DEL", SIGNKEY_KEY],
+    ["DEL", CATEGORIES_KEY],
+    ["DEL", SOLVECOUNT_KEY],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash DEL failed: ${failed.error}`);
 }
