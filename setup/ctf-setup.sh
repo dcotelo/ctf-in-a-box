@@ -873,7 +873,7 @@ yaml_targets() {
 # fork-based provisioning), an UNKNOWN key is still a hard error. Only
 # secure-development has anything here to fork/render/check; quiz is scored
 # entirely app-side.
-KNOWN_MODULES="secure-development quiz classic"
+KNOWN_MODULES="secure-development quiz classic ai"
 
 # Top-level keys directly under `modules:`, one per line. Exit status is part
 # of the contract: nonzero means "could not parse", NOT "no modules" — every
