@@ -16,6 +16,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
 
 import {
+  claimAiNonce,
+  getAiSigningKey,
   getAiSolveCounts,
   getAiTotals,
   getTeamAiTotalsBatch,
@@ -24,6 +26,7 @@ import {
   listAiChallenges,
   listAiChallengesForAdmin,
 } from "@/lib/ai-store";
+import { AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
 
 const pipelineCalls = (): (string | number)[][][] =>
   mocks.upstashPipeline.mock.calls.map((call) => call[0] as (string | number)[][]);
@@ -104,6 +107,84 @@ describe("listAiChallengesForAdmin", () => {
     expect(await listAiChallengesForAdmin()).toEqual([
       { challenge: CHALLENGE, flag: "", hint: null, signingKey: "" },
     ]);
+  });
+});
+
+describe("getAiSigningKey", () => {
+  it("reads ONE field of ONE hash — never the other three secrets", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "aik_secret" }]);
+
+    expect(await getAiSigningKey(CHALLENGE.id)).toBe("aik_secret");
+
+    // The whole point of this function over listAiChallengesForAdmin: a route
+    // that needs one key must not pull every flag and every key in the event
+    // into a request handler that answers the public internet.
+    expect(pipelineCalls()).toEqual([[["HGET", "ctf:ai:signkey", CHALLENGE.id]]]);
+    const named = JSON.stringify(pipelineCalls());
+    for (const key of ["ctf:ai:flag", "ctf:ai:flagnorm", "ctf:ai:hints", "ctf:ai:challenges"]) {
+      expect(named).not.toContain(key);
+    }
+  });
+
+  it("returns null — never '' — for a missing row, a non-string reply or a bad id", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }]);
+    expect(await getAiSigningKey(CHALLENGE.id)).toBeNull();
+
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }]);
+    expect(await getAiSigningKey(CHALLENGE.id)).toBeNull();
+
+    // An empty stored key is a KEYLESS row, not a usable key: ai-token.ts
+    // throws on "" precisely because an empty HMAC key is guessable.
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "" }]);
+    expect(await getAiSigningKey(CHALLENGE.id)).toBeNull();
+
+    expect(await getAiSigningKey("bad id!")).toBeNull();
+    expect(pipelineCalls()).toHaveLength(3); // the bad id cost no round trip
+  });
+});
+
+describe("claimAiNonce", () => {
+  // This is the single check between a captured signed request and unlimited
+  // re-awards, so it fails CLOSED — the deliberate opposite of the pause gate.
+  it("claims a fresh jti atomically with SET NX EX", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "OK" }]);
+
+    expect(await claimAiNonce("jti-1")).toBe(true);
+
+    const [[cmd]] = pipelineCalls();
+    expect(cmd[0]).toBe("SET");
+    expect(cmd[1]).toBe("ctf:ai:nonce:jti-1");
+    // NX (claim-or-lose in ONE round trip; a GET-then-SET would let two copies
+    // of the same captured request both see "not seen yet") and a TTL.
+    expect(cmd.slice(3)).toEqual(["NX", "EX", AI_NONCE_TTL_SEC]);
+  });
+
+  it("refuses a replay — a null reply means someone else already claimed it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }]);
+    expect(await claimAiNonce("jti-1")).toBe(false);
+  });
+
+  it("fails CLOSED when Redis throws", async () => {
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
+    expect(await claimAiNonce("jti-1")).toBe(false);
+  });
+
+  it("fails CLOSED on a per-command error", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "ERR syntax" }]);
+    expect(await claimAiNonce("jti-1")).toBe(false);
+  });
+
+  it("fails CLOSED on any reply it does not recognise", async () => {
+    for (const result of [1, "ok", true, {}, [], undefined]) {
+      mocks.upstashPipeline.mockResolvedValueOnce([{ result }]);
+      expect(await claimAiNonce("jti-1")).toBe(false);
+    }
+  });
+
+  it("refuses an empty or non-string jti without a round trip", async () => {
+    expect(await claimAiNonce("")).toBe(false);
+    expect(await claimAiNonce(undefined as unknown as string)).toBe(false);
+    expect(pipelineCalls()).toHaveLength(0);
   });
 });
 

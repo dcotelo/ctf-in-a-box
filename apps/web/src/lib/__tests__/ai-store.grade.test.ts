@@ -180,4 +180,20 @@ describe("awardAiEvent", () => {
     });
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
+
+  // The two directions of the mode gate. The graded path is refused for an
+  // event-only challenge by accident (no `flagnorm` row -> 'missing'); the
+  // mirror is not accidental, it is the guard below.
+  it("refuses an event asserted against a mode:\"flag\" challenge, as its own reason", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["mode"]);
+    expect(await awardAiEvent("alice", "guardrail-cd34ef")).toEqual({ ok: false, reason: "wrong-mode" });
+  });
+
+  it("does not report a mode refusal as 'invalid' — the two are different bugs", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["missing"]);
+    expect(await awardAiEvent("alice", "guardrail-cd34ef")).toEqual({ ok: false, reason: "invalid" });
+  });
 });
+

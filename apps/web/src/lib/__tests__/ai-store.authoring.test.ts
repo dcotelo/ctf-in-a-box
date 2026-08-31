@@ -175,17 +175,25 @@ describe("rotateAiSigningKey", () => {
 });
 
 describe("deleteAiChallenge", () => {
-  it("removes the record and every secret that hangs off it", async () => {
-    writeReply(6);
+  it("removes the record and every secret that hangs off it — and NO aggregate", async () => {
+    writeReply(5);
     await deleteAiChallenge(CHALLENGE.id);
+    // Exactly classic's five-key delete contract. `ctf:ai:solvecount` is
+    // deliberately absent: recreating the id (which upsertAiChallenge allows)
+    // would restart the counter at 0 while every prior solver still holds a
+    // solve row, and AWARD_SCRIPT's already-solved guard means none of them can
+    // ever re-increment it — a board permanently reading "0 solvers" on a
+    // challenge dozens of people solved. Un-awarding is the master reset's job.
     expect(pipelineCalls()[0]).toEqual([
       ["HDEL", "ctf:ai:challenges", CHALLENGE.id],
       ["HDEL", "ctf:ai:flag", CHALLENGE.id],
       ["HDEL", "ctf:ai:flagnorm", CHALLENGE.id],
       ["HDEL", "ctf:ai:hints", CHALLENGE.id],
       ["HDEL", "ctf:ai:signkey", CHALLENGE.id],
-      ["HDEL", "ctf:ai:solvecount", CHALLENGE.id],
     ]);
+    expect(JSON.stringify(pipelineCalls()[0])).not.toContain("ctf:ai:solvecount");
+    expect(JSON.stringify(pipelineCalls()[0])).not.toContain("ctf:ai:points");
+    expect(JSON.stringify(pipelineCalls()[0])).not.toContain("ctf:ai:solved");
   });
 
   it("surfaces a failed delete instead of leaving a live key behind", async () => {
