@@ -381,10 +381,23 @@ export async function upsertAiChallenge(c: AiChallenge, secrets: AiUpsertSecrets
   }
   const authoredHint = typeof hint === "string" && hint.trim() ? hint.trim() : null;
 
-  const [existingKeyRes] = await upstashPipeline([["HGET", SIGNKEY_KEY, c.id]]);
-  const signingKey = typeof existingKeyRes.result === "string" && existingKeyRes.result
-    ? existingKeyRes.result
-    : generateSigningKey();
+  // Minting a key is a check-then-act, so it has to be done with an atomic
+  // HSETNX rather than a separate HGET-then-HSET: two concurrent creates (or
+  // edits of a legacy keyless row) could otherwise both observe "no key yet"
+  // and each mint a different key, with the later write winning silently —
+  // the losing caller would return a key that was never persisted, exactly
+  // the broken-integration failure mode this function exists to prevent.
+  // HSETNX either plants the candidate (fresh row) or is a no-op (a key
+  // already exists); the follow-up HGET in the SAME pipeline reads back
+  // whichever key actually won, so every racer converges on one value.
+  const candidateKey = generateSigningKey();
+  const [, effectiveKeyRes] = await upstashPipeline([
+    ["HSETNX", SIGNKEY_KEY, c.id, candidateKey],
+    ["HGET", SIGNKEY_KEY, c.id],
+  ]);
+  const signingKey = typeof effectiveKeyRes.result === "string" && effectiveKeyRes.result
+    ? effectiveKeyRes.result
+    : candidateKey;
 
   const record: AiChallenge = { ...c, urlTemplate: template.value };
   const results = await upstashPipeline([

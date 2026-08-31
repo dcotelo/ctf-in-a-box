@@ -10,6 +10,7 @@ vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipelin
 
 import {
   AiValidationError,
+  clearAiChallenges,
   deleteAiChallenge,
   rotateAiSigningKey,
   setAiCategories,
@@ -24,9 +25,15 @@ const pipelineCalls = (): (string | number)[][][] =>
 function categoriesReply(names: string[]) {
   mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(names) }]);
 }
-/** Next reply: `HGET ctf:ai:signkey <id>` — upsert checks for an existing key. */
-function signingKeyReply(key: string | null) {
-  mocks.upstashPipeline.mockResolvedValueOnce([{ result: key }]);
+/** Next reply: `HSETNX ctf:ai:signkey <id> <candidate>` followed by
+ *  `HGET ctf:ai:signkey <id>`, in ONE pipeline — the atomic mint-or-preserve.
+ *  `hgetResult` is the value every racer converges on: it is what actually
+ *  ended up persisted, regardless of whether THIS call's own HSETNX planted
+ *  it or lost to a concurrent one. The HSETNX reply itself is never inspected
+ *  by the code (only the follow-up HGET is), so its value here is a
+ *  placeholder. */
+function signingKeyReply(hgetResult: string | null) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { result: hgetResult }]);
 }
 function writeReply(n: number) {
   mocks.upstashPipeline.mockResolvedValueOnce(Array.from({ length: n }, () => ({ result: 1 })));
@@ -133,6 +140,20 @@ describe("upsertAiChallenge", () => {
 
     expect(pipelineCalls()[2]).toContainEqual(["HSET", "ctf:ai:flagnorm", CHALLENGE.id, "CTF{Leak}"]);
   });
+
+  it("converges on the persisted key when two mints race — the loser must return what was actually saved, not its own discarded candidate", async () => {
+    categoriesReply(["Injection"]);
+    // HSETNX loses this race (another caller's mint already won); HGET
+    // reports the key that ACTUALLY ended up persisted. The candidate this
+    // call generated internally must never surface anywhere.
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 0 }, { result: "aik_winner" }]);
+    writeReply(5);
+
+    const row = await upsertAiChallenge(CHALLENGE, { flag: "CTF{leak}" });
+
+    expect(row.signingKey).toBe("aik_winner");
+    expect(pipelineCalls()[2]).toContainEqual(["HSET", "ctf:ai:signkey", CHALLENGE.id, "aik_winner"]);
+  });
 });
 
 describe("rotateAiSigningKey", () => {
@@ -170,6 +191,27 @@ describe("deleteAiChallenge", () => {
   it("surfaces a failed delete instead of leaving a live key behind", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ error: "boom" }]);
     await expect(deleteAiChallenge(CHALLENGE.id)).rejects.toThrow(/boom/);
+  });
+});
+
+describe("clearAiChallenges", () => {
+  it("wipes every content key in one pipeline", async () => {
+    writeReply(7);
+    await clearAiChallenges();
+    expect(pipelineCalls()[0]).toEqual([
+      ["DEL", "ctf:ai:challenges"],
+      ["DEL", "ctf:ai:flag"],
+      ["DEL", "ctf:ai:flagnorm"],
+      ["DEL", "ctf:ai:hints"],
+      ["DEL", "ctf:ai:signkey"],
+      ["DEL", "ctf:ai:categories"],
+      ["DEL", "ctf:ai:solvecount"],
+    ]);
+  });
+
+  it("surfaces a failed clear instead of leaving stale content behind", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "boom" }]);
+    await expect(clearAiChallenges()).rejects.toThrow(/boom/);
   });
 });
 
