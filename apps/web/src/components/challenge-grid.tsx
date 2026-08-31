@@ -19,7 +19,7 @@
 // one summary card per target from the static counts — filters would have
 // nothing to filter.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import HintButton from "@/components/hint-button";
 import OwaspBadge from "@/components/owasp-badge";
 import ProgressSummary from "@/components/progress-summary";
@@ -39,8 +39,14 @@ function matchChallenge(c: CatalogChallenge, q: string): boolean {
   );
 }
 
+/** DOM id of one row's revealed hint text. Shared by the element and by the
+ *  post-purchase focus move, so the two cannot drift apart. */
+function hintTextId(app: AppId, id: string): string {
+  return `hint-text-${app}-${id}`;
+}
+
 const SELECT =
-  "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none";
+  "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
 export default function ChallengeGrid({
   apps,
@@ -109,10 +115,30 @@ export default function ChallengeGrid({
     };
   }, [signedIn]);
 
+  // A successful reveal unmounts the HintButton the user just pressed and
+  // renders the hint text in its place, so the focused element disappears and
+  // the browser drops focus on <body> — the row this contestant was working
+  // is gone from under them, on a list that runs to 110 rows. HintButton can
+  // only manage focus within itself; this swap happens HERE, so the focus move
+  // has to happen here too.
+  //
+  // Keyed by app+id rather than a ref: the revealed paragraph is rendered deep
+  // inside the row map, and threading a ref down to one row of many is more
+  // machinery than reading it back off the element that was just rendered.
+  const justPurchased = useRef<string | null>(null);
+
   const onPurchased = (app: AppId, id: string, text: string, spentNow: number) => {
+    justPurchased.current = hintTextId(app, id);
     setPurchased((prev) => ({ ...prev, [app]: { ...(prev[app] ?? {}), [id]: text } }));
     setSpent(spentNow);
   };
+
+  useEffect(() => {
+    const target = justPurchased.current;
+    if (!target) return;
+    justPurchased.current = null;
+    document.getElementById(target)?.focus();
+  }, [purchased]);
 
   const solvedSets = useMemo(() => {
     const out = new Map<AppId, Set<string>>();
@@ -237,7 +263,7 @@ export default function ChallengeGrid({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search challenges or OWASP codes"
             aria-label="Search challenges"
-            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           />
         </div>
         <label className="sr-only" htmlFor="filter-target">Target</label>
@@ -363,46 +389,68 @@ export default function ChallengeGrid({
                 </div>
               )}
               {isOpen && (
-              <ul className="grid grid-cols-1 gap-x-8 px-4 pb-3 pt-2 md:grid-cols-2">
-                {rows.map((c) => {
-                  const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
-                  const ownedText = purchased[app.id]?.[c.id];
-                  const hasHint = hints[app.id]?.includes(c.id) ?? false;
-                  return (
-                    <li key={c.id} className="flex flex-col gap-1 border-b border-white/[0.04] py-2">
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          aria-hidden
-                          className={`h-2 w-2 flex-none rounded-full ${
-                            isSolved ? "bg-[#22c55e]" : "border border-[#8f8f9b]/50"
-                          }`}
-                        />
-                        <span
-                          className={`min-w-0 flex-1 truncate text-sm ${
-                            isSolved ? "text-zinc-500" : "text-zinc-300"
-                          }`}
-                          title={c.description}
-                        >
-                          {c.description}
-                          {isSolved && <span className="sr-only"> (patched)</span>}
-                        </span>
-                        <span className="flex-none font-mono text-xs tabular-nums text-muted">
-                          {c.points} {c.points === 1 ? "pt" : "pts"}
-                        </span>
-                        {hasHint && !ownedText && (
-                          <HintButton app={app.id} id={c.id} cost={hintCost} signedIn={signedIn} onPurchased={onPurchased} />
+                <>
+                {/* The repo link in the card's header row is `hidden
+                    sm:inline` — there is no room for it beside the title at
+                    320px — which left a phone with no route to the target's
+                    code at all. The expanded panel has the width, so the link
+                    lives here for the narrow layout and there for the wide
+                    one, never both. */}
+                <a
+                  href={app.repo}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ds-link mx-4 mb-1 mt-2 block w-fit font-mono text-xs sm:hidden"
+                >
+                  {app.repo.replace("https://github.com/", "")}
+                </a>
+                <ul className="grid grid-cols-1 gap-x-8 px-4 pb-3 pt-2 md:grid-cols-2">
+                  {rows.map((c) => {
+                    const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
+                    const ownedText = purchased[app.id]?.[c.id];
+                    const hasHint = hints[app.id]?.includes(c.id) ?? false;
+                    return (
+                      <li key={c.id} className="flex flex-col gap-1 border-b border-white/[0.04] py-2">
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            aria-hidden
+                            className={`h-2 w-2 flex-none rounded-full ${
+                              isSolved ? "bg-[#22c55e]" : "border border-[#8f8f9b]/50"
+                            }`}
+                          />
+                          <span
+                            className={`min-w-0 flex-1 truncate text-sm ${
+                              isSolved ? "text-zinc-500" : "text-zinc-300"
+                            }`}
+                            title={c.description}
+                          >
+                            {c.description}
+                            {isSolved && <span className="sr-only"> (patched)</span>}
+                          </span>
+                          <span className="flex-none font-mono text-xs tabular-nums text-muted">
+                            {c.points} {c.points === 1 ? "pt" : "pts"}
+                          </span>
+                          {hasHint && !ownedText && (
+                            <HintButton app={app.id} id={c.id} cost={hintCost} signedIn={signedIn} onPurchased={onPurchased} />
+                          )}
+                          {c.owasp && <OwaspBadge code={c.owasp.code} />}
+                        </div>
+                        {ownedText && (
+                          <p
+                            id={hintTextId(app.id, c.id)}
+                            tabIndex={-1}
+                            className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+                          >
+                            <span aria-hidden="true">💡</span>{" "}
+                            <span className="sr-only">Hint: </span>
+                            {ownedText}
+                          </p>
                         )}
-                        {c.owasp && <OwaspBadge code={c.owasp.code} />}
-                      </div>
-                      {ownedText && (
-                        <p className="ml-[18px] rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-2 py-1 text-[11px] leading-relaxed text-[#d4a017]/90">
-                          💡 {ownedText}
-                        </p>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+                      </li>
+                    );
+                  })}
+                    </ul>
+                </>
               )}
             </section>
             );

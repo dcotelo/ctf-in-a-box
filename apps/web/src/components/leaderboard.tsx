@@ -175,9 +175,9 @@ export function EntryRow({
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+        className="w-full rounded-lg p-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:p-4"
       >
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <RankChip rank={entry.rank} />
           <Avatar login={entry.login} />
 
@@ -195,6 +195,19 @@ export function EntryRow({
                 </span>
               )}
             </div>
+            {/* The ranking figure, restated for the narrow layout. The
+                right-hand `solved` column is a `hidden sm:block`, so below
+                640px the board dropped the one number that explains its own
+                ordering — the exact gap the comment on that column describes
+                closing on desktop, left open on the screen most contestants
+                read the board on. Restated here rather than unhiding the
+                column because at 320px the row already carries a rank chip,
+                an avatar, a login, a team tag and the points. */}
+            <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted sm:hidden">
+              {solved}
+              {solvedTotal !== null && <span className="text-zinc-500"> / {solvedTotal}</span>}{" "}
+              solved
+            </p>
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
@@ -203,7 +216,7 @@ export function EntryRow({
             </div>
           </div>
 
-          <div className="flex flex-none items-center gap-5 text-right">
+          <div className="flex flex-none items-center gap-3 text-right sm:gap-5">
             <div>
               <p className="font-mono text-xl font-bold tabular-nums text-white">
                 {entry.points.toLocaleString("en-US")}
@@ -298,12 +311,18 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="w-full rounded-lg p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+        className="w-full rounded-lg p-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:p-4"
       >
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <RankChip rank={team.rank} />
           <div className="min-w-0 flex-1">
             <span className="truncate font-medium text-white">{team.name}</span>
+            {/* Same reason as the contestant row: `members` is a
+                `hidden sm:block` on the right, so a phone lost the only
+                indication of how large the team behind a score is. */}
+            <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted sm:hidden">
+              {team.members.length} member{team.members.length === 1 ? "" : "s"}
+            </p>
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
@@ -311,7 +330,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
               />
             </div>
           </div>
-          <div className="flex flex-none items-center gap-5 text-right">
+          <div className="flex flex-none items-center gap-3 text-right sm:gap-5">
             <div>
               <p className="font-mono text-xl font-bold tabular-nums text-white">
                 {team.points.toLocaleString("en-US")}
@@ -570,7 +589,7 @@ export default function Leaderboard({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={view === "individual" ? "Search contestants…" : "Search teams…"}
             aria-label="Search leaderboard"
-            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+            className="w-full rounded-md border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           />
         </div>
 

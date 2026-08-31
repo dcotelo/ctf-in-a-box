@@ -6,7 +6,7 @@
 // loaded from GET /api/hints display identically. Signed-out visitors get a
 // disabled lock teaser — the actual gate is the authenticated API route.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppId } from "@/lib/apps";
 
 // ds-tap-24 grows the pointer target to the WCAG 2.5.8 minimum without
@@ -31,6 +31,32 @@ export default function HintButton({
 }) {
   const [state, setState] = useState<"idle" | "confirm" | "pending" | "error">("idle");
   const [error, setError] = useState("");
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+
+  // Pressing the chip swaps it for the confirm/cancel pair, which unmounts the
+  // button that was focused. The browser does not move focus to a replacement
+  // — the focus fixup rule drops it on <body> — so a keyboard user pressed
+  // "reveal", got a confirmation they were no longer anywhere near, and had to
+  // Tab from the top of a page that runs to 110 challenge rows. Focus the
+  // control that is now the point of the interaction.
+  //
+  // The same applies to the transition OUT of "confirm": a failed reveal
+  // unmounts the confirm/cancel pair and mounts the retry chip in its place,
+  // which is another replaced-while-focused element and another trip to
+  // <body>. (The success path leaves this component entirely — the parent
+  // swaps it for the revealed hint — and is handled where that swap happens,
+  // in challenge-grid.tsx.)
+  //
+  // Not run for "pending": that state re-renders the SAME button rather than
+  // mounting a new one, so focus is already where it belongs and re-focusing
+  // would fight a user who tabbed to Cancel mid-flight. Not run for "idle"
+  // either — reaching it means the user pressed Cancel, and the browser keeps
+  // focus sensibly there; forcing it would also steal focus on first mount.
+  useEffect(() => {
+    if (state === "confirm") confirmRef.current?.focus();
+    if (state === "error") chipRef.current?.focus();
+  }, [state]);
 
   if (!signedIn) {
     return (
@@ -68,13 +94,20 @@ export default function HintButton({
   if (state === "confirm" || state === "pending") {
     return (
       <span className="flex flex-none items-center gap-1">
+        <span className="sr-only" role="status">
+          {state === "pending" ? "Revealing hint…" : `Confirm: spend ${cost} points on this hint.`}
+        </span>
         <button
+          ref={confirmRef}
           type="button"
           onClick={reveal}
           disabled={state === "pending"}
           className={`${CHIP} border-[#d4a017]/60 text-[#d4a017] hover:bg-[#d4a017]/10 disabled:opacity-50`}
         >
-          {state === "pending" ? "…" : `−${cost} pts ✓`}
+          <span aria-hidden="true">{state === "pending" ? "…" : `−${cost} pts ✓`}</span>
+          <span className="sr-only">
+            {state === "pending" ? "Revealing" : `Confirm, spend ${cost} points`}
+          </span>
         </button>
         <button
           type="button"
@@ -91,16 +124,29 @@ export default function HintButton({
 
   return (
     <button
+      ref={chipRef}
       type="button"
       onClick={() => setState("confirm")}
       title={state === "error" ? `${error} (click to retry)` : `Reveal hint for ${cost} points`}
+      aria-label={
+        state === "error"
+          ? `${error}. Retry revealing this hint for ${cost} points`
+          : `Reveal hint for ${cost} points`
+      }
       className={`${CHIP} ${
         state === "error"
           ? "border-[#e53e3e]/60 text-[#e53e3e] hover:bg-[#e53e3e]/10"
           : "border-white/10 text-muted hover:border-[#d4a017]/60 hover:text-[#d4a017]"
       }`}
     >
-      {state === "error" ? "⚠ retry" : `💡 −${cost}`}
+      <span aria-hidden="true">{state === "error" ? "⚠ retry" : `💡 −${cost}`}</span>
+      {/* The failure is also announced once, politely: the chip's own name
+          only reaches a screen reader if the user happens to be on it. */}
+      {state === "error" && (
+        <span className="sr-only" role="status">
+          {error}
+        </span>
+      )}
     </button>
   );
 }

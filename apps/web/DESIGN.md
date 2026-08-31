@@ -29,7 +29,13 @@ redesign, what reverted, and the rules that keep the two coherent.
 ## Enhancements over stock-original (keep these)
 
 - **Amber focus rings** (`outline-[#d4a017]`) everywhere — one focus color,
-  visibly distinct from both the blue accent and the grounds.
+  visibly distinct from both the blue accent and the grounds. Text inputs
+  used to be the exception: they swapped the ring for a 1px amber border
+  tint (`focus-visible:outline-none`), which is a weaker indicator than
+  anything else in the app and made "everywhere" untrue. They now show the
+  ring *and* keep the border tint. The one remaining `outline-none` is the
+  confirm dialog's panel, which is a `tabIndex={-1}` programmatic focus
+  target Tab never reaches — its controls each keep their ring.
 - **`.ds-link`** underlined inline links in `--accent-blue-link`; color
   alone can't carry the affordance inside body text (WCAG 1.4.1).
 - **`.ds-tap-24`** grown pointer targets on dense chip rows (WCAG 2.5.8).
@@ -39,6 +45,39 @@ redesign, what reverted, and the rules that keep the two coherent.
   neutralized under `prefers-reduced-motion`. The old scanline/pulse-glow
   loops stay retired.
 - **`.ds-card` hover** = border brighten + the original accent glow.
+- **`.ds-skeleton` + `components/skeleton.tsx`** — the route-loading atom.
+  Every page reads Redis at request time, so a nav click used to sit on the
+  old page with no acknowledgement; the heavy routes (leaderboard, profile,
+  admin) ship a `loading.tsx` built from `SkeletonPage` / `SkeletonHeader` /
+  `Skeleton`, shaped like the page it stands in for so the swap fills in
+  rather than jumps. `SkeletonPage` carries the one `role="status"`
+  announcement — a client-side route change moves no focus and says nothing
+  on its own.
+
+  **A `loading.tsx` must never cover a route that can `notFound()`.** A
+  Suspense fallback starts the response body, so the status is already sent
+  by the time the page runs and a later `notFound()` streams a soft 404 with
+  status **200**. The module routes (`/challenges`, `/quiz`, `/flags`) 404 by
+  design on an event that has those modules switched off, and the quiz-only
+  and classic-only acceptance scripts assert exactly that — a group-wide
+  `(site)/loading.tsx` turned every one of those 404s into a 200 and failed
+  both. Hence: no group-level loading state, and none on a module route. The
+  rule is derived and asserted in `app/__tests__/loading-and-errors.test.tsx`
+  rather than left as a comment, because which routes can 404 changes as
+  modules come and go.
+- **Skip link** — `Skip to content` in the root layout, hidden until focused,
+  targeting the `#main-content` every `<main>` in the app now sets (WCAG
+  2.4.1). The header runs to a wordmark, up to six module links, a dropdown
+  and the auth control; that was the tab cost of reaching any page's content.
+- **Error boundaries** — `app/error.tsx` (branded, keeps the chrome, offers
+  `retry()` first and prints the digest an organizer can grep for) and
+  `app/global-error.tsx` (the root layout itself failed, so no CSS and no
+  fonts — every colour there is inline on purpose). Note the prop is
+  `retry`, not the `reset` older App Router code uses: this app vendors
+  Next 16.3, where `retry` re-fetches the segment's data and `reset` only
+  re-renders the same failed children. These catch render faults, not a store
+  outage — the Redis reads fail open, and a leaderboard with `redis`/`srh`
+  stopped still returns 200 with the page intact.
 
 ## The two system shapes (kept from the redesign)
 
@@ -68,3 +107,10 @@ counts). All `next/font`, self-hosted.
   pending/attention/focus.
 - Event copy stays `event.yaml`-driven; the `$ owasp-ctf` wordmark is the
   kit's brand and the one deliberate exception.
+- **A number the board ranks by is never `hidden sm:`-only.** The
+  leaderboard's `solved` / `members` columns are desktop-only for width
+  reasons, so both rows restate them as a compact line under the name below
+  640px — the phone is where most contestants read the board, and hiding the
+  figure that explains the ordering there re-opens the exact gap those
+  columns were added to close. Same rule put the target's repo link into the
+  expanded challenge card for narrow screens.

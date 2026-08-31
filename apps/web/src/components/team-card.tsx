@@ -197,7 +197,7 @@ export default function TeamCard({
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   placeholder="New team name"
-                  className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+                  className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                 />
                 <button
                   type="button"
@@ -214,7 +214,7 @@ export default function TeamCard({
                   <select
                     value={transferTarget}
                     onChange={(e) => setTransferTarget(e.target.value)}
-                    className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+                    className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
                   >
                     <option value="">Transfer captain to…</option>
                     {otherMembers.map((member) => (
@@ -309,7 +309,7 @@ export default function TeamCard({
                 value={joinValue}
                 onChange={(e) => setJoinValue(e.target.value)}
                 placeholder="Join code"
-                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
               />
               <button
                 type="button"
@@ -332,7 +332,7 @@ export default function TeamCard({
                 value={createValue}
                 onChange={(e) => setCreateValue(e.target.value)}
                 placeholder="Team name"
-                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-none"
+                className="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
               />
               <button
                 type="button"
@@ -365,7 +365,16 @@ export default function TeamCard({
         </div>
       )}
 
-      {error && <p className="mt-2 text-xs text-[#e53e3e]">{error}</p>}
+      {/* role="alert" so a rejected create/join/leave is announced. This is
+          the only feedback the action produces — the form does not move focus
+          — so without it the button click was silent for a screen reader and
+          the team simply never appeared. Matches gate-form.tsx and
+          join-team-invite.tsx, which already announce theirs. */}
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-[#e53e3e]">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

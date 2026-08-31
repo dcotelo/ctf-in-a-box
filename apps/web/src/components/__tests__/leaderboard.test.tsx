@@ -376,4 +376,36 @@ describe("per-module breakdown", () => {
     expect(html).toContain("Round 1");
     expect(html).not.toContain(">Quiz<");
   });
+  // ── narrow layout ──────────────────────────────────────────────────────
+  //
+  // The right-hand `solved` and `members` columns are `hidden sm:block` —
+  // there is no room for them beside the rank chip, avatar, login, team tag
+  // and points at 320px. That left a phone with no view of the figure the
+  // board RANKS by, which is the exact gap the `solved` column was added to
+  // close on desktop. Both rows now restate it under the name below 640px.
+  //
+  // Asserted through the rendered markup (the `sm:hidden` line and the number
+  // together) rather than by eye: a CSS-only regression here is invisible on
+  // the machine of whoever makes it, and shows up only on the screen most
+  // contestants read the board on.
+
+  it("restates the solved count for narrow screens, where the column is hidden", () => {
+    const e = entry({ patched: 8, total: 12 });
+    const html = renderToStaticMarkup(
+      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen={false} onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
+    );
+    const narrow = html.match(/<p class="[^"]*sm:hidden[^"]*">(.*?)<\/p>/);
+    expect(narrow, "no sm:hidden line in the row").not.toBeNull();
+    expect(narrow?.[1]).toMatch(/solved/);
+    expect(narrow?.[1]).toContain("8");
+  });
+
+  it("restates a team's member count for narrow screens", () => {
+    const html = renderToStaticMarkup(
+      <TeamRow team={team({ members: ["alice", "bob", "carol"] })} topPoints={150} isOpen={false} onToggle={() => {}} />,
+    );
+    const narrow = html.match(/<p class="[^"]*sm:hidden[^"]*">(.*?)<\/p>/);
+    expect(narrow, "no sm:hidden line in the team row").not.toBeNull();
+    expect(narrow?.[1]).toMatch(/3 members/);
+  });
 });
