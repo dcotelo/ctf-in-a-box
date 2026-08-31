@@ -531,8 +531,12 @@ export async function deleteAiChallenge(id: string): Promise<void> {
  *  reset. `resetEvent`'s `RESET_PREFIXES` deliberately KEEPS the catalogue, and
  *  wiring this into it would destroy the organizer's challenges, every flag and
  *  every signing key mid-event, breaking every deployed external integration
- *  with no recovery. Contestant history and aggregates are deliberately
- *  untouched, mirroring `deleteAiChallenge`'s contract.
+ *  with no recovery. Contestant HISTORY is deliberately untouched — solve and
+ *  attempt rows survive, as they do through `deleteAiChallenge`. Note the one
+ *  place this is broader than that function: it DOES clear `ctf:ai:solvecount`,
+ *  per the first paragraph. That is a per-challenge counter for a catalogue
+ *  that is about to be replaced wholesale, not a per-login aggregate — the
+ *  per-login ones (`ctf:ai:points`, `ctf:ai:solved`) survive here too.
  *
  *  Surfaces per-command errors for the same reason as above. */
 export async function clearAiChallenges(): Promise<void> {

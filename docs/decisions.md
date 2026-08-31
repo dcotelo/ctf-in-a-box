@@ -312,7 +312,7 @@ dynamic/plugin-style loading in v1.
 
 **Consequences.** An organizer who writes `modules.forensics: {...}` today
 gets a loud startup failure (`event.yaml: unknown module: forensics (known
-modules: secure-development, quiz, classic)`), not a silently ignored block.
+modules: secure-development, quiz, classic, ai)`), not a silently ignored block.
 Adding a real second module is a code change, not a config-only addition, but
 the two enumerations play different roles and both must be extended:
 
