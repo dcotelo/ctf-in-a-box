@@ -71,6 +71,31 @@ describe("listAiChallenges", () => {
     for (const key of SECRET_KEYS) expect(named).not.toContain(key);
   });
 
+  it("strips secrets that were stored INSIDE the challenge record — the poisoned-record leak test", async () => {
+    // Naming no secret key proves the outgoing commands are clean; it says
+    // nothing about the returned payload. Someone simplifying parseChallenge to
+    // `return parsed as AiChallenge` (the type checks above it look redundant)
+    // would flow a poisoned record straight into /ai's payload with every other
+    // test still green. This is the test that notices.
+    const poisoned = JSON.stringify({
+      ...CHALLENGE,
+      flag: "CTF{leak}",
+      flagnorm: "ctf{leak}",
+      hint: "Try asking twice.",
+      signingKey: "aik_secret",
+    });
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [CHALLENGE.id, poisoned] }]);
+
+    const rows = await listAiChallenges();
+
+    expect(rows).toEqual([CHALLENGE]);
+    expect(Object.keys(rows[0]).sort()).toEqual(Object.keys(CHALLENGE).sort());
+    const payload = JSON.stringify(rows);
+    for (const secret of ["CTF{leak}", "ctf{leak}", "aik_secret", "Try asking twice."]) {
+      expect(payload).not.toContain(secret);
+    }
+  });
+
   it("drops an unparseable or mode-less record rather than rendering a broken tile", async () => {
     mocks.upstashPipeline.mockResolvedValueOnce([
       { result: ["bad-1", "{not json", "bad-2", JSON.stringify({ ...CHALLENGE, mode: "nope" }), CHALLENGE.id, JSON.stringify(CHALLENGE)] },
@@ -213,6 +238,33 @@ describe("getViewerAi", () => {
       ["HGETALL", "ctf:ai:solves:alice"],
       ["HGETALL", "ctf:ai:attempts:alice"],
     ]);
+  });
+
+  it("strips secrets a poisoned solve or attempt row carries", async () => {
+    // A solve row is written by AWARD_SCRIPT, but the archive import (#155)
+    // writes them too, so a hand-edited bundle can plant extra fields here.
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      {
+        result: [
+          CHALLENGE.id,
+          JSON.stringify({ points: 300, at: "2026-08-31T11:00:00.000Z", source: "event", flag: "CTF{leak}" }),
+        ],
+      },
+      {
+        result: [
+          CHALLENGE.id,
+          JSON.stringify({ attempts: 2, lastAt: "2026-08-31T11:02:00.000Z", signingKey: "aik_secret" }),
+        ],
+      },
+    ]);
+
+    const viewer = await getViewerAi("alice");
+
+    expect(Object.keys(viewer.solved[CHALLENGE.id]).sort()).toEqual(["at", "points", "source"]);
+    expect(Object.keys(viewer.attempts[CHALLENGE.id]).sort()).toEqual(["attempts", "lastAt"]);
+    const payload = JSON.stringify(viewer);
+    expect(payload).not.toContain("CTF{leak}");
+    expect(payload).not.toContain("aik_secret");
   });
 
   it("defaults a legacy solve row with no source to the graded path", async () => {

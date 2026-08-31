@@ -33,6 +33,13 @@ function cleanGateReply() {
   mocks.upstashPipeline.mockResolvedValueOnce([{ result: null }, { result: null }]);
 }
 
+/** The script, KEYS and ARGV of the most recent `upstashEval`. */
+function lastEval(): { script: string; keys: string[]; argv: (string | number)[] } {
+  const calls = mocks.upstashEval.mock.calls;
+  const [script, keys, argv] = calls[calls.length - 1] as [string, string[], (string | number)[]];
+  return { script, keys, argv };
+}
+
 beforeEach(() => {
   mocks.upstashEval.mockReset();
   mocks.upstashPipeline.mockReset();
@@ -197,3 +204,141 @@ describe("awardAiEvent", () => {
   });
 });
 
+// Mirrors classic-store.grade.test.ts's "the grading script itself" block.
+// upstashEval is mocked, so nothing here executes Lua — these pin the SHAPE of
+// the script the store hands to Redis, which is the only thing that makes the
+// module's docstrings about ordering and secrecy true rather than aspirational.
+// Without them the script could be rewritten to spend an attempt on the event
+// path, to increment the counters before the already-solved guard, to
+// lowercase in Lua, or to be handed `ctf:ai:flag` instead of `ctf:ai:flagnorm`,
+// and every other test in this file would still pass.
+describe("the award script itself (text invariants)", () => {
+  it("guards the already-solved check before ANY write and gates the counters behind the correctness check", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "x");
+    const { script } = lastEval();
+
+    const missing = script.indexOf("'missing'");
+    const guard = script.indexOf("HEXISTS");
+    const modeGuard = script.indexOf("'mode'");
+    const cooldownReturn = script.indexOf("'cooldown'");
+    const attemptsWrite = script.indexOf("HSET', KEYS[1]");
+    const incorrectReturn = script.indexOf("'incorrect'");
+    const solveWrite = script.indexOf("HSET', KEYS[2]");
+    const pointsIncr = script.indexOf("HINCRBY', KEYS[5]");
+    const solvedIncr = script.indexOf("HINCRBY', KEYS[7]");
+    const solveCountIncr = script.indexOf("HINCRBY', KEYS[6]");
+    for (const idx of [
+      missing,
+      guard,
+      modeGuard,
+      cooldownReturn,
+      attemptsWrite,
+      incorrectReturn,
+      solveWrite,
+      pointsIncr,
+      solvedIncr,
+      solveCountIncr,
+    ]) {
+      expect(idx).toBeGreaterThan(-1);
+    }
+
+    expect(missing).toBeLessThan(guard);
+    // Every refusal is decided before anything is written. The mode gate in
+    // particular must not cost the caller an attempt, and the cooldown
+    // re-check must precede the attempt spend — a refusal writes nothing.
+    expect(guard).toBeLessThan(modeGuard);
+    expect(modeGuard).toBeLessThan(cooldownReturn);
+    expect(cooldownReturn).toBeLessThan(attemptsWrite);
+    expect(attemptsWrite).toBeLessThan(incorrectReturn);
+    expect(incorrectReturn).toBeLessThan(solveWrite);
+    // Because the already-solved guard precedes every increment, a login can
+    // never bump the per-challenge solve counter twice — which is what makes
+    // getAiSolveCounts distinct-by-construction.
+    expect(guard).toBeLessThan(pointsIncr);
+    expect(guard).toBeLessThan(solvedIncr);
+    expect(guard).toBeLessThan(solveCountIncr);
+    expect(solveWrite).toBeLessThan(pointsIncr);
+    expect(pointsIncr).toBeLessThan(solvedIncr);
+    expect(solvedIncr).toBeLessThan(solveCountIncr);
+  });
+
+  it("confines the flag comparison to the graded branch — the event path compares nothing", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "x");
+    const { script } = lastEval();
+
+    // The graded branch runs from `if ARGV[8] == '1' then` to the `end` at
+    // column 0; every nested `end` inside it is indented, so "\nend\n" finds
+    // the closing one and nothing else.
+    const start = script.indexOf("if ARGV[8] == '1' then");
+    expect(start).toBeGreaterThan(-1);
+    const close = script.indexOf("\nend\n", start);
+    expect(close).toBeGreaterThan(start);
+    const graded = script.slice(start, close);
+    const afterGraded = script.slice(close);
+
+    // The flag lives ONLY inside the graded branch.
+    expect(graded).toContain("local target = redis.call('HGET', KEYS[3], ARGV[1])");
+    expect(graded).toContain("if target ~= submitted then");
+    expect(afterGraded).not.toContain("KEYS[3]");
+    expect(afterGraded).not.toContain("~=");
+    // ...and the attempt spend does too: a signed event has no wrong answer,
+    // so it must never consume one.
+    expect(afterGraded).not.toContain("KEYS[1]");
+    // The whole flag value is compared, never pattern-matched out of a blob —
+    // a flag routinely contains braces, quotes and backslashes.
+    expect(script).not.toContain("string.match(target");
+  });
+
+  it("refuses a mode:\"flag\" challenge on the event path, off the record it already holds", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "400"]);
+    await awardAiEvent("alice", "guardrail-cd34ef");
+    const { script } = lastEval();
+
+    // ARGV[8] == '0' is the event path. Anchored with a trailing [,}] like the
+    // points match, and read off `cRaw` — no caller string is interpolated.
+    expect(script).toContain(`if ARGV[8] == '0' and string.match(cRaw, '"mode":"flag"[,}]') then return {'mode'} end`);
+    // It must be specific to "flag": "event" and "both" go through.
+    expect(script).not.toContain(`'"mode":"event"`);
+    expect(script).not.toContain(`'"mode":"both"`);
+  });
+
+  it("never normalizes in Lua — string.lower is ASCII-only and would disagree with normalizeFlag", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "x");
+    expect(lastEval().script).not.toContain("string.lower");
+    expect(lastEval().script).not.toContain("string.upper");
+  });
+
+  it("is handed ctf:ai:flagnorm and NEVER ctf:ai:flag or ctf:ai:signkey", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "x");
+    const { keys } = lastEval();
+
+    // Element-wise, not substring: "ctf:ai:flag" IS a prefix of
+    // "ctf:ai:flagnorm", so a JSON.stringify().not.toContain() check here
+    // would be unsatisfiable and prove nothing.
+    expect(keys).toContain("ctf:ai:flagnorm");
+    expect(keys).not.toContain("ctf:ai:flag");
+    expect(keys).not.toContain("ctf:ai:signkey");
+    expect(keys).not.toContain("ctf:ai:hints");
+  });
+
+  it("hands the event path the same KEYS — no flag hash appears there either", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "400"]);
+    await awardAiEvent("alice", "guardrail-cd34ef");
+    const { keys, argv } = lastEval();
+    expect(keys).not.toContain("ctf:ai:flag");
+    expect(keys).not.toContain("ctf:ai:signkey");
+    // Both comparison forms are empty on this path — there is nothing to grade.
+    expect(argv[1]).toBe("");
+    expect(argv[6]).toBe("");
+  });
+});
