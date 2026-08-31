@@ -15,7 +15,7 @@ example of an app-side module end to end.
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
-ships three registered modules: `secure-development` (the OWASP Secure
+ships three playable registered modules: `secure-development` (the OWASP Secure
 Development CTF patch-the-vulnerability format: fork target app, find + patch
 the vuln, PR back, GitHub Actions scores the patch), `quiz` (a self-paced
 single/multi-select question bank, authored in `/admin` and scored entirely
@@ -24,7 +24,11 @@ inside the app — no GitHub, `sync`, or `scorer` involvement at all), and
 hiding a flag, graded the instant a contestant submits a matching string —
 scored entirely inside the app exactly like `quiz`, with no GitHub/`sync`/
 `scorer` involvement either; §5 covers what its UI contract satisfies and
-what it still doesn't, for both app-side modules). This document is
+what it still doesn't, for both app-side modules). A fourth id, `ai`
+(externally hosted AI/LLM challenges), is registered in the same enum and
+accepted by every reader of `event.yaml`, but only its contract and store
+layer have shipped — it has no contestant route, no nav entry and no admin
+section yet, so enabling it changes nothing a contestant can see. This document is
 the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
 `secure-development` as the worked example throughout, since it is the one
@@ -254,9 +258,9 @@ through the generator, `apps/web/scripts/generate-event-config.mjs`, which
 emits a structured `modules` array plus a derived back-compat `targets` array)
 to a `ModuleDef` — display name, description, and nav entry are code-side
 registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
-entirely config-driven. Three ids are registered today, and — as of this
-work — **all three are real, working modules**, not one module plus
-registry-proving placeholders: `secure-development` (targets, catalogue,
+entirely config-driven. Four ids are registered today, three of them
+**real, working modules** rather than registry-proving placeholders:
+`secure-development` (targets, catalogue,
 GitHub-mediated scoring — the worked example throughout this document),
 `quiz` (a self-paced single/multi-select question bank, scored entirely
 inside the app — see
@@ -266,15 +270,23 @@ authoring/retry-knob guide), and `classic` (a jeopardy-style flag board,
 also scored entirely inside the app — see
 [docs/architecture.md#classic-data-flow](architecture.md#classic-data-flow)
 for its data flow and `docs/operations.md`'s "Classic" section for the
-organizer-facing authoring/cooldown guide). An id outside the
+organizer-facing authoring/cooldown guide). The fourth, `ai`, is the honest
+exception: it is registered and selectable (the wizard offers it, and all
+three `event.yaml` readers accept `ai: {}`), but only its contract and store
+layer have shipped — it has no contestant route, no nav entry and no admin
+section, so an event that enables it looks exactly as it did before. It is
+here as the *contract* half of a module landing in stages, not as a claim
+that the module is playable. An id outside the
 registry still fails the build loudly (`generate-event-config.mjs`'s
 `validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
 `src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
-header iff that module is enabled *and* defines a `nav` — all three modules do
-now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`, rendering
+header iff that module is enabled *and* defines a `nav` — the three playable
+modules do now (`ai` deliberately defines none, which is what keeps a route
+that does not exist out of the menu),
+`quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`, rendering
 `components/quiz-board.tsx`) and `classic`'s pointing at `/flags`
 (`apps/web/src/app/(site)/flags/`, rendering `components/classic-board.tsx`);
 the leaderboard pipeline's
