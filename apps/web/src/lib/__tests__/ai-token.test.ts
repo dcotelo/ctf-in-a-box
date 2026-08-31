@@ -3,6 +3,7 @@
 // was broken all along proves nothing.
 import { describe, expect, it } from "vitest";
 
+import { AI_EVENT_SKEW_SEC, AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
 import {
   AI_KEY_PREFIX,
   decodeTokenUnverified,
@@ -172,5 +173,20 @@ describe("withinSkew", () => {
     expect(withinSkew(NOW - 301, NOW)).toBe(false);
     expect(withinSkew(NOW + 301, NOW)).toBe(false);
     expect(withinSkew(Number.NaN, NOW)).toBe(false);
+  });
+
+  it("stays acceptable for a full 2*skew after a maximally future-skewed event is first seen — the nonce TTL has to outlast that", () => {
+    // The widest replay window the pair of constants can produce: an event
+    // stamped a full skew in the FUTURE is accepted the moment it arrives...
+    const ts = NOW + AI_EVENT_SKEW_SEC;
+    expect(withinSkew(ts, NOW)).toBe(true);
+    // ...and is STILL inside its own window a further skew later.
+    const lastAcceptable = ts + AI_EVENT_SKEW_SEC;
+    expect(withinSkew(ts, lastAcceptable)).toBe(true);
+    expect(withinSkew(ts, lastAcceptable + 1)).toBe(false);
+    // So the nonce claimed at NOW must still be remembered at `lastAcceptable`.
+    // A TTL of exactly 2 * skew expires it AT that second, leaving the captured
+    // request replayable in the gap.
+    expect(NOW + AI_NONCE_TTL_SEC).toBeGreaterThan(lastAcceptable);
   });
 });

@@ -25,9 +25,15 @@ export const AI_PROGRESS_MAX = 50;
  *  one, or a signer with a fast clock could mint requests replayable later. */
 export const AI_EVENT_SKEW_SEC = 300;
 
-/** How long a spent event `jti` is remembered. Must exceed 2 * skew, or a
- *  request could become replayable while still inside its own window. */
-export const AI_NONCE_TTL_SEC = 600;
+/** How long a spent event `jti` is remembered. Must EXCEED 2 * skew, or a
+ *  request could become replayable while still inside its own window: an event
+ *  stamped a full skew in the future is accepted now AND is still inside its
+ *  own acceptance window a further skew later, so a TTL of exactly 2 * skew
+ *  forgets the nonce at the very moment the captured request is still valid.
+ *
+ *  Derived from `AI_EVENT_SKEW_SEC` rather than written as a literal so the
+ *  two can never drift apart: widening the skew widens this automatically. */
+export const AI_NONCE_TTL_SEC = 2 * AI_EVENT_SKEW_SEC + 1;
 
 /** Hard cap on a signed event body, in bytes, checked before the raw bytes are
  *  hashed. */
