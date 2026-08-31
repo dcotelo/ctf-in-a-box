@@ -100,6 +100,23 @@ export class AiValidationError extends Error {
   }
 }
 
+/** The ONLY thing this module is allowed to hand `console.error`.
+ *
+ *  Never the caught value itself. The award path calls `upstashEval` with the
+ *  submitted flag AND the stored flag's comparison form as ARGV, so a client
+ *  or driver that decorates its errors with the request it failed on — an
+ *  attached `command`, `body` or `cause`, or a serialized argument list — turns
+ *  one `console.error(err)` into the event's flags in the log. A rejected
+ *  promise can also be an arbitrary value, not an `Error` at all.
+ *
+ *  So: name and message, both capped, and nothing else. No stack (it is the
+ *  part most likely to carry interpolated arguments), no own properties, and
+ *  no `String(err)` on a non-`Error` — a thrown string could BE the flag. */
+function errorLabel(err: unknown): string {
+  if (!(err instanceof Error)) return "non-Error throw";
+  return `${err.name}: ${err.message}`.slice(0, 200);
+}
+
 function parseChallenge(raw: string): AiChallenge | null {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -230,12 +247,14 @@ export async function claimAiNonce(jti: string): Promise<boolean> {
       ["SET", nonceKey(jti), new Date().toISOString(), "NX", "EX", AI_NONCE_TTL_SEC],
     ]);
     if (res.error) {
-      console.error("ai nonce: claim failed:", res.error);
+      // Redis' own error text, capped — never the command, whose arguments
+      // include the caller's `jti`.
+      console.error("ai nonce: claim failed (redis error):", String(res.error).slice(0, 200));
       return false;
     }
     return res.result === "OK";
   } catch (err) {
-    console.error("ai nonce: claim failed:", err);
+    console.error("ai nonce: claim failed (transport):", errorLabel(err));
     return false;
   }
 }
@@ -423,6 +442,16 @@ export async function upsertAiChallenge(c: AiChallenge, secrets: AiUpsertSecrets
   if (!Number.isInteger(c.points) || c.points < 0 || c.points > AI_POINTS_MAX) {
     throw new AiValidationError("points", `Challenge points must be an integer in [0, ${AI_POINTS_MAX}]`);
   }
+  // `order` is checked for the same reason, and the failure it prevents is
+  // WORSE than a bad `points`. `parseChallenge` drops any record whose order is
+  // not a number, so a NaN (which `JSON.stringify` writes as `null`) or any
+  // other non-integer arriving here at runtime persists a row that BOTH
+  // `listAiChallenges` and `listAiChallengesForAdmin` skip — an invisible,
+  // uneditable challenge whose `ctf:ai:flag` and `ctf:ai:signkey` rows stay
+  // live and which AWARD_SCRIPT still grades.
+  if (!Number.isInteger(c.order)) {
+    throw new AiValidationError("order", "Challenge order must be an integer");
+  }
 
   const template = validateUrlTemplate(c.urlTemplate);
   if (!template.ok) throw new AiValidationError("urlTemplate", template.reason);
@@ -447,14 +476,26 @@ export async function upsertAiChallenge(c: AiChallenge, secrets: AiUpsertSecrets
   // HSETNX either plants the candidate (fresh row) or is a no-op (a key
   // already exists); the follow-up HGET in the SAME pipeline reads back
   // whichever key actually won, so every racer converges on one value.
+  //
+  // That pipeline is the ONLY thing this function writes to SIGNKEY_KEY. The
+  // write pipeline below deliberately carries no `HSET ctf:ai:signkey`: it
+  // would be a second, later write of a value read before it, and
+  // `rotateAiSigningKey` can commit in between — the HSET would then put the
+  // REVOKED key back, silently, with nothing anywhere saying the rotation was
+  // undone. HSETNX has already guaranteed the row exists, so there is nothing
+  // left for it to do but lose that race.
   const candidateKey = generateSigningKey();
   const [, effectiveKeyRes] = await upstashPipeline([
     ["HSETNX", SIGNKEY_KEY, c.id, candidateKey],
     ["HGET", SIGNKEY_KEY, c.id],
   ]);
-  const signingKey = typeof effectiveKeyRes.result === "string" && effectiveKeyRes.result
-    ? effectiveKeyRes.result
-    : candidateKey;
+  // No fallback to `candidateKey`. If the HGET is unusable we do not know
+  // which key is live — the candidate may have lost the HSETNX race — and
+  // returning it would hand the organizer a key to paste into an external
+  // system that the box will never accept. An error is the honest answer.
+  if (effectiveKeyRes.error) throw new Error(`Upstash HGET failed: ${effectiveKeyRes.error}`);
+  const signingKey = typeof effectiveKeyRes.result === "string" ? effectiveKeyRes.result : "";
+  if (!signingKey) throw new Error("Upstash HGET returned no signing key for this challenge");
 
   const record: AiChallenge = { ...c, urlTemplate: template.value };
   const results = await upstashPipeline([
@@ -464,7 +505,6 @@ export async function upsertAiChallenge(c: AiChallenge, secrets: AiUpsertSecrets
       ? ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, c.caseSensitive)]
       : ["HDEL", FLAGNORM_KEY, c.id],
     authoredHint ? ["HSET", HINTS_KEY, c.id, authoredHint] : ["HDEL", HINTS_KEY, c.id],
-    ["HSET", SIGNKEY_KEY, c.id, signingKey],
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
@@ -594,7 +634,7 @@ async function evaluateGate(
     solve = parseJsonValue(solveRes.result, extractSolve);
     attempt = parseJsonValue(attemptRes.result, extractAttempt);
   } catch (err) {
-    console.error("ai gate: solve/attempt lookup failed:", err);
+    console.error("ai gate: solve/attempt lookup failed:", errorLabel(err));
     return { allowed: false, reason: "unavailable" };
   }
 
@@ -721,7 +761,7 @@ async function resolveSettings(): Promise<{ settings: ResolvedAdminSettings | nu
   try {
     settings = await getAdminSettings();
   } catch (err) {
-    console.error("ai: admin settings read failed, treating scoring as live:", err);
+    console.error("ai: admin settings read failed, treating scoring as live:", errorLabel(err));
   }
   return { settings, cooldownSec: AI_COOLDOWN_SEC };
 }
@@ -782,7 +822,7 @@ async function runAward(
     );
     return readVerdict(verdict);
   } catch (err) {
-    console.error("ai grading failed:", err);
+    console.error("ai grading failed:", errorLabel(err));
     return { ok: false, reason: "error" };
   }
 }

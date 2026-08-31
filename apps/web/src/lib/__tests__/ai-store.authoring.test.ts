@@ -31,9 +31,18 @@ function categoriesReply(names: string[]) {
  *  ended up persisted, regardless of whether THIS call's own HSETNX planted
  *  it or lost to a concurrent one. The HSETNX reply itself is never inspected
  *  by the code (only the follow-up HGET is), so its value here is a
- *  placeholder. */
+ *  placeholder.
+ *
+ *  `null` means "this call's own HSETNX won" — a fresh create. The HGET then
+ *  ECHOES the candidate the code just planted, because that is what a real
+ *  pipeline does: both commands run against the same row, in order. Replying
+ *  `null` there would model a Redis that forgets a write it just accepted, and
+ *  a fixture like that would let a caller-side fallback pass for correct. */
 function signingKeyReply(hgetResult: string | null) {
-  mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { result: hgetResult }]);
+  mocks.upstashPipeline.mockImplementationOnce(async (commands: (string | number)[][]) => [
+    { result: 1 },
+    { result: hgetResult ?? String(commands[0][3]) },
+  ]);
 }
 function writeReply(n: number) {
   mocks.upstashPipeline.mockResolvedValueOnce(Array.from({ length: n }, () => ({ result: 1 })));
@@ -59,7 +68,7 @@ describe("upsertAiChallenge", () => {
   it("mints a signing key on create and writes every hash in one pipeline", async () => {
     categoriesReply(["Injection"]);
     signingKeyReply(null);
-    writeReply(5);
+    writeReply(4);
 
     const row = await upsertAiChallenge(CHALLENGE, { flag: "CTF{leak}" });
 
@@ -67,31 +76,36 @@ describe("upsertAiChallenge", () => {
     expect(row.flag).toBe("CTF{leak}");
     expect(row.signingKey.startsWith("aik_")).toBe(true);
 
+    // The key is NOT written here. `HSETNX` in the previous pipeline already
+    // planted it; a second, later write of a value read before it is what
+    // `rotateAiSigningKey` would lose a race to (see the rotate-race test).
     const writes = pipelineCalls()[2];
     expect(writes).toEqual([
       ["HSET", "ctf:ai:challenges", CHALLENGE.id, JSON.stringify(CHALLENGE)],
       ["HSET", "ctf:ai:flag", CHALLENGE.id, "CTF{leak}"],
       ["HSET", "ctf:ai:flagnorm", CHALLENGE.id, "ctf{leak}"],
       ["HDEL", "ctf:ai:hints", CHALLENGE.id],
-      ["HSET", "ctf:ai:signkey", CHALLENGE.id, row.signingKey],
     ]);
+    expect(JSON.stringify(writes)).not.toContain("ctf:ai:signkey");
   });
 
   it("keeps the existing key on edit — an edit that rotated silently would break a live integration", async () => {
     categoriesReply(["Injection"]);
     signingKeyReply("aik_existing");
-    writeReply(5);
+    writeReply(4);
 
     const row = await upsertAiChallenge({ ...CHALLENGE, title: "Renamed" }, { flag: "CTF{leak}" });
 
     expect(row.signingKey).toBe("aik_existing");
-    expect(JSON.stringify(pipelineCalls()[2])).toContain("aik_existing");
+    // The preserved key is what the caller is TOLD, not something re-asserted
+    // against Redis — the row already holds it.
+    expect(JSON.stringify(pipelineCalls()[2])).not.toContain("ctf:ai:signkey");
   });
 
   it("stores an event-only challenge with no flag at all", async () => {
     categoriesReply(["Injection"]);
     signingKeyReply(null);
-    writeReply(5);
+    writeReply(4);
 
     const row = await upsertAiChallenge({ ...CHALLENGE, mode: "event" }, {});
 
@@ -131,10 +145,28 @@ describe("upsertAiChallenge", () => {
     );
   });
 
+  it("rejects a non-integer order — a stored NaN would make the challenge invisible while its signing key stayed live", async () => {
+    // `parseChallenge` drops any record whose `order` is not a number, and
+    // `JSON.stringify(NaN)` writes `null`. Persisting one would produce a
+    // challenge that neither lister returns (so nobody can see or edit it)
+    // whose `ctf:ai:flag` and `ctf:ai:signkey` rows are still live and which
+    // AWARD_SCRIPT still grades. Refuse it on the way in.
+    categoriesReply(["Injection"]);
+    await expect(upsertAiChallenge({ ...CHALLENGE, order: Number.NaN }, { flag: "f" })).rejects.toThrow(
+      AiValidationError,
+    );
+    categoriesReply(["Injection"]);
+    await expect(upsertAiChallenge({ ...CHALLENGE, order: 1.5 }, { flag: "f" })).rejects.toThrow(
+      AiValidationError,
+    );
+    // Nothing was written: the two calls each stopped after their categories read.
+    expect(pipelineCalls()).toHaveLength(2);
+  });
+
   it("stores the case-sensitive comparison form when the challenge asks for it", async () => {
     categoriesReply(["Injection"]);
     signingKeyReply(null);
-    writeReply(5);
+    writeReply(4);
 
     await upsertAiChallenge({ ...CHALLENGE, caseSensitive: true }, { flag: "CTF{Leak}" });
 
@@ -147,12 +179,62 @@ describe("upsertAiChallenge", () => {
     // reports the key that ACTUALLY ended up persisted. The candidate this
     // call generated internally must never surface anywhere.
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: 0 }, { result: "aik_winner" }]);
-    writeReply(5);
+    writeReply(4);
 
     const row = await upsertAiChallenge(CHALLENGE, { flag: "CTF{leak}" });
 
     expect(row.signingKey).toBe("aik_winner");
-    expect(pipelineCalls()[2]).toContainEqual(["HSET", "ctf:ai:signkey", CHALLENGE.id, "aik_winner"]);
+    expect(JSON.stringify(pipelineCalls()[2])).not.toContain("ctf:ai:signkey");
+  });
+
+  it("refuses rather than guessing when the effective key cannot be read — returning the discarded candidate would hand the organizer a key the box never accepted", async () => {
+    categoriesReply(["Injection"]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { error: "READONLY" }]);
+
+    await expect(upsertAiChallenge(CHALLENGE, { flag: "CTF{leak}" })).rejects.toThrow(/HGET/);
+    // And it stops there: no record is written against a key nobody can name.
+    expect(pipelineCalls()).toHaveLength(2);
+
+    // Same refusal when the reply is merely unusable rather than an error.
+    categoriesReply(["Injection"]);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }, { result: null }]);
+    await expect(upsertAiChallenge(CHALLENGE, { flag: "CTF{leak}" })).rejects.toThrow(/signing key/);
+    expect(pipelineCalls()).toHaveLength(4);
+  });
+
+  it("does not resurrect a key that rotated between the mint pipeline and the write pipeline", async () => {
+    // The whole point of dropping the trailing `HSET ctf:ai:signkey` from the
+    // write pipeline. `rotateAiSigningKey` commits in the window between
+    // upsert's two round trips; a write pipeline that re-asserted the key it
+    // read first would put the REVOKED key back, silently, and the organizer
+    // would keep grading with a key they had explicitly retired.
+    const signkeys = new Map<string, string>([[CHALLENGE.id, "aik_preRotation"]]);
+    let rotated = false;
+
+    mocks.upstashPipeline.mockImplementation(async (commands: (string | number)[][]) =>
+      commands.map((cmd) => {
+        const [op, key, field, value] = cmd.map(String);
+        if (op === "GET" && key === "ctf:ai:categories") return { result: JSON.stringify(["Injection"]) };
+        if (key !== "ctf:ai:signkey") return { result: 1 };
+        if (op === "HSETNX") return { result: signkeys.has(field) ? 0 : (signkeys.set(field, value), 1) };
+        if (op === "HSET") return { result: (signkeys.set(field, value), 1) };
+        if (op === "HGET") {
+          const current = signkeys.get(field) ?? null;
+          // The rotate lands the instant upsert has finished reading. Anything
+          // upsert writes after this point is writing a stale value.
+          if (!rotated) {
+            rotated = true;
+            signkeys.set(field, "aik_rotated");
+          }
+          return { result: current };
+        }
+        return { result: 1 };
+      }),
+    );
+
+    await upsertAiChallenge(CHALLENGE, { flag: "CTF{leak}" });
+
+    expect(signkeys.get(CHALLENGE.id)).toBe("aik_rotated");
   });
 });
 

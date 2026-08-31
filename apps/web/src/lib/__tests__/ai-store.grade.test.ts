@@ -342,3 +342,37 @@ describe("the award script itself (text invariants)", () => {
     expect(argv[6]).toBe("");
   });
 });
+
+describe("grading failures never reach the log with the request attached", () => {
+  it("logs a fixed diagnostic and the error's name/message — not the error object, whose own fields can carry the flag", async () => {
+    const FLAG = "CTF{do-not-log-me}";
+    // A driver that decorates its rejection with the request it failed on is
+    // the whole danger: `upstashEval`'s ARGV carries BOTH the submitted flag
+    // and its comparison form, so one `console.error(err)` writes the event's
+    // flags to the log. The error's own `message` says nothing about them.
+    const decorated = Object.assign(new Error("Upstash EVAL failed: ERR timeout"), {
+      command: ["EVAL", "...", FLAG, FLAG.toLowerCase()],
+      cause: new Error(`while sending ${FLAG}`),
+    });
+    cleanGateReply();
+    mocks.upstashEval.mockRejectedValueOnce(decorated);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      expect(await submitAiFlag("alice", "prompt-leak-ab12cd", FLAG)).toEqual({ ok: false, reason: "error" });
+
+      // Anti-vacuous: the failure really did reach the logger, and said so.
+      expect(spy).toHaveBeenCalledTimes(1);
+      const logged = spy.mock.calls[0] as unknown[];
+      expect(String(logged[0])).toContain("ai grading failed");
+      expect(logged.some((arg) => arg instanceof Error)).toBe(false);
+      const rendered = logged.map((arg) => JSON.stringify(arg)).join(" ");
+      expect(rendered).not.toContain(FLAG);
+      expect(rendered).not.toContain(FLAG.toLowerCase());
+      // What IS kept: enough to tell one failure from another.
+      expect(rendered).toContain("ERR timeout");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
