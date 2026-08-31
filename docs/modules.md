@@ -81,7 +81,7 @@ the sections below are the enforceable contract behind it.
    enforced by `check_known_modules`). In `sync`:
 
    ```js
-   export const KNOWN_MODULES = ["secure-development", "quiz", "classic"];
+   export const KNOWN_MODULES = ["secure-development", "quiz", "classic", "ai"];
    const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
    if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
    ```

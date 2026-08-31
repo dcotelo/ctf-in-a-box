@@ -40,7 +40,7 @@ in [operations.md](operations.md#running-an-event).
 it comes from, and the run resumes wherever you stopped.</sup>
 
 **The modules question drives the rest of the wizard.** It offers the module
-ids this build knows (`secure-development quiz classic`) and then asks only
+ids this build knows (`secure-development quiz classic ai`) and then asks only
 what the ones you picked actually need:
 
 | You enable | The wizard asks | The wizard skips |
@@ -560,7 +560,7 @@ three readers of `event.yaml` — the app's generator
 (`apps/web/scripts/generate-event-config.mjs`), the poll service's config
 loader (`sync/src/config.js`'s `KNOWN_MODULES`), and the provisioning
 script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) — recognize
-`secure-development`, `quiz`, and `classic` as known ids and reject anything
+`secure-development`, `quiz`, `classic` and `ai` as known ids and reject anything
 else loudly.
 Adding `quiz:` turns on a real second module: a "Quiz" nav link and a `/quiz`
 page for contestants, a Quiz section in `/admin` for authoring questions
