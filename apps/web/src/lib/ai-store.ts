@@ -1,10 +1,12 @@
 import "server-only";
 export { AI_COOLDOWN_SEC } from "./ai-defaults";
 
+import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { AI_COOLDOWN_SEC } from "@/lib/ai-defaults";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { generateSigningKey } from "@/lib/ai-token";
 import { MARKDOWN_MAX } from "@/lib/markdown";
-import { upstashPipeline } from "@/lib/upstash";
+import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
   AI_CATEGORIES_KEY as CATEGORIES_KEY,
   AI_CATEGORIES_MAX,
@@ -22,8 +24,10 @@ import {
   AI_SOLVED_KEY as SOLVED_KEY,
   aiAttemptsKey as attemptsKey,
   aiSolvesKey as solvesKey,
+  caseSensitiveFlagForm,
   flagComparisonForm,
   isAiMode,
+  normalizeFlag,
   validateUrlTemplate,
   type AiMode,
 } from "@/lib/ai-keys";
@@ -463,4 +467,264 @@ export async function clearAiChallenges(): Promise<void> {
   ]);
   const failed = results.find((r) => r.error);
   if (failed) throw new Error(`Upstash DEL failed: ${failed.error}`);
+}
+
+// Mirrors classic-store.ts's local alias exactly: admin-store.ts exports the
+// concrete `AdminSettings` type, not a `ResolvedAdminSettings` name, so this
+// derives it from `getAdminSettings`'s own return type instead of importing a
+// type that does not exist there.
+type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;
+
+type AiGate =
+  | { allowed: true }
+  | { allowed: false; reason: "paused" | "solved" | "cooldown" | "unavailable"; retryAt?: string };
+
+/** The cheap, NON-ATOMIC pre-check.
+ *
+ *  - The pause/schedule check fails OPEN (`settings` null reads as not paused):
+ *    a Redis blip must never silently drop a live submission. Same fail-open
+ *    the scorer and sync poller implement.
+ *  - The solve/attempt lookup fails CLOSED with its OWN reason, "unavailable" —
+ *    never "cooldown". Reporting an unverifiable lookup as a fact about the
+ *    contestant's attempts turns a blip into a support argument.
+ *
+ *  AWARD_SCRIPT re-checks the already-solved guard and the cooldown against
+ *  state read at execution time and is what actually enforces them. */
+async function evaluateGate(
+  settings: ResolvedAdminSettings | null,
+  login: string,
+  challengeId: string,
+  cooldownSec: number,
+): Promise<AiGate> {
+  if (settings && effectivePaused(settings)) return { allowed: false, reason: "paused" };
+
+  let solve: Solve | null;
+  let attempt: Attempt | null;
+  try {
+    const [solveRes, attemptRes] = await upstashPipeline([
+      ["HGET", solvesKey(login), challengeId],
+      ["HGET", attemptsKey(login), challengeId],
+    ]);
+    if (solveRes.error) throw new Error(solveRes.error);
+    if (attemptRes.error) throw new Error(attemptRes.error);
+    solve = parseJsonValue(solveRes.result, extractSolve);
+    attempt = parseJsonValue(attemptRes.result, extractAttempt);
+  } catch (err) {
+    console.error("ai gate: solve/attempt lookup failed:", err);
+    return { allowed: false, reason: "unavailable" };
+  }
+
+  if (solve) return { allowed: false, reason: "solved" };
+
+  if (cooldownSec > 0 && attempt) {
+    const lastMs = Date.parse(attempt.lastAt);
+    if (Number.isFinite(lastMs)) {
+      const retryAtMs = lastMs + cooldownSec * 1000;
+      if (Date.now() < retryAtMs) {
+        return { allowed: false, reason: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
+// Awards one solve and records everything it changes atomically. BOTH solve
+// paths run this script: ARGV[8] is '1' for a graded flag submission and '0'
+// for a signed event, which is the ONLY difference between them. Sharing one
+// script is deliberate — two scripts would eventually disagree about the
+// already-solved guard, and that guard is what makes the solve counter
+// distinct-by-construction.
+//
+//   1. HGET the challenge record. Missing -> {'missing'} (bad/deleted id).
+//   2. HEXISTS the solve row BEFORE any write -> {'already'}, nothing touched.
+//   3. Graded only: re-check the cooldown WITHOUT writing, then spend an
+//      attempt, then compare. The cooldown arrives as ARGV (the CURRENT admin
+//      setting, resolved on every call — never a stored cutoff) and is combined
+//      with the attempts row the script reads at execution time.
+//   4. Award: solve row + the three counters.
+//
+// The points match is anchored with a trailing [,}] so it can only match a
+// complete "points":<int> pair. Nothing here lowercases anything: Lua's
+// string.lower is ASCII-only and would disagree with the JS recipe on any
+// non-ASCII flag, producing a challenge nobody can solve.
+//
+// ARGV[9] (the solve source) is interpolated into stored JSON, so it must only
+// ever be a module-internal literal — never caller input.
+const AWARD_SCRIPT = `
+local cRaw = redis.call('HGET', KEYS[4], ARGV[1])
+if not cRaw then return {'missing'} end
+if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end
+
+local points = 0
+local caseSensitive = false
+local found = string.match(cRaw, '"points":(%-?%d+)[,}]')
+if found then points = tonumber(found) end
+if string.match(cRaw, '"caseSensitive":true[,}]') then caseSensitive = true end
+
+if ARGV[8] == '1' then
+  local target = redis.call('HGET', KEYS[3], ARGV[1])
+  if not target then return {'missing'} end
+
+  local cooldownMs = tonumber(ARGV[5])
+  local nowMs = tonumber(ARGV[6])
+  local attemptsRaw = redis.call('HGET', KEYS[1], ARGV[1])
+  local attempts = 0
+  local lastAtMs = nil
+  local firstAt = nil
+  if attemptsRaw then
+    local foundAttempts = string.match(attemptsRaw, '"attempts":(%d+)[,}]')
+    if foundAttempts then attempts = tonumber(foundAttempts) end
+    local foundLastAtMs = string.match(attemptsRaw, '"lastAtMs":(%d+)[,}]')
+    if foundLastAtMs then lastAtMs = tonumber(foundLastAtMs) end
+    firstAt = string.match(attemptsRaw, '"firstAt":"([^"]*)"')
+  end
+
+  if cooldownMs > 0 and lastAtMs and nowMs < (lastAtMs + cooldownMs) then
+    return {'cooldown', tostring(lastAtMs + cooldownMs)}
+  end
+
+  attempts = attempts + 1
+  if not firstAt then firstAt = ARGV[3] end
+  redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"firstAt":"' .. firstAt .. '","lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[6] .. '}')
+
+  local submitted = ARGV[2]
+  if caseSensitive then submitted = ARGV[7] end
+  if target ~= submitted then return {'incorrect', tostring(attempts)} end
+end
+
+redis.call('HSET', KEYS[2], ARGV[1], '{"points":' .. points .. ',"at":"' .. ARGV[3] .. '","source":"' .. ARGV[9] .. '"}')
+redis.call('HINCRBY', KEYS[5], ARGV[4], points)
+redis.call('HINCRBY', KEYS[7], ARGV[4], 1)
+redis.call('HINCRBY', KEYS[6], ARGV[1], 1)
+return {'correct', tostring(points)}`;
+
+export type AiSubmitResult =
+  // `already` is a correct solve that awarded nothing FURTHER — `points: 0`
+  // because this call banked nothing, NOT because the challenge is worthless.
+  // Callers must render the two apart.
+  | { ok: true; correct: true; points: number; already?: boolean; dryRun?: true }
+  | { ok: true; correct: false }
+  | { ok: false; reason: "paused" | "solved" | "cooldown"; retryAt?: string }
+  | { ok: false; reason: "unavailable" | "invalid" | "error" };
+
+/** Resolves the settings and the current cooldown, failing OPEN on a settings
+ *  error — a Redis blip must not drop a submission a contestant is entitled to
+ *  make. The cooldown then falls back to the module default, which the script
+ *  still enforces.
+ *
+ *  PR 4 adds the organizer override (`aiCooldownSec` on `ResolvedAdminSettings`,
+ *  beside `classicCooldownSec`) and changes the last line to
+ *  `settings?.aiCooldownSec ?? AI_COOLDOWN_SEC`. It is the constant alone here
+ *  because the settings type does not carry the field yet, and casting around
+ *  a type to pretend it does is how a setting ends up silently ignored. */
+async function resolveSettings(): Promise<{ settings: ResolvedAdminSettings | null; cooldownSec: number }> {
+  let settings: ResolvedAdminSettings | null = null;
+  try {
+    settings = await getAdminSettings();
+  } catch (err) {
+    console.error("ai: admin settings read failed, treating scoring as live:", err);
+  }
+  return { settings, cooldownSec: AI_COOLDOWN_SEC };
+}
+
+function gateToResult(gate: Exclude<AiGate, { allowed: true }>): AiSubmitResult {
+  if (gate.reason === "unavailable") return { ok: false, reason: "unavailable" };
+  return gate.retryAt ? { ok: false, reason: gate.reason, retryAt: gate.retryAt } : { ok: false, reason: gate.reason };
+}
+
+function readVerdict(verdict: unknown): AiSubmitResult {
+  const [status, value] = Array.isArray(verdict) ? (verdict as unknown[]) : [];
+  if (status === "missing") return { ok: false, reason: "invalid" };
+  if (status === "cooldown") {
+    return { ok: false, reason: "cooldown", retryAt: new Date(Number(value)).toISOString() };
+  }
+  if (status === "incorrect") return { ok: true, correct: false };
+  if (status === "already") return { ok: true, correct: true, points: 0, already: true };
+  if (status === "correct") return { ok: true, correct: true, points: Number(value) || 0 };
+  return { ok: false, reason: "error" };
+}
+
+/** Runs AWARD_SCRIPT. `grade` decides whether the flag comparison happens at
+ *  all; `source` is a module-internal literal written into the solve row. */
+async function runAward(
+  login: string,
+  challengeId: string,
+  flag: string,
+  cooldownSec: number,
+  grade: boolean,
+  source: AiSolveSource,
+): Promise<AiSubmitResult> {
+  const now = new Date();
+  try {
+    const verdict = await upstashEval(
+      AWARD_SCRIPT,
+      [
+        attemptsKey(login), // KEYS[1]
+        solvesKey(login), // KEYS[2]
+        FLAGNORM_KEY, // KEYS[3] — the normalized flag; ctf:ai:flag is never
+        //                          handed to the script at all
+        CHALLENGES_KEY, // KEYS[4]
+        POINTS_KEY, // KEYS[5]
+        SOLVECOUNT_KEY, // KEYS[6]
+        SOLVED_KEY, // KEYS[7]
+      ],
+      [
+        challengeId, // ARGV[1]
+        grade ? normalizeFlag(flag) : "", // ARGV[2] — case-insensitive form
+        now.toISOString(), // ARGV[3]
+        login, // ARGV[4]
+        cooldownSec * 1000, // ARGV[5]
+        now.getTime(), // ARGV[6]
+        grade ? caseSensitiveFlagForm(flag) : "", // ARGV[7] — case preserved
+        grade ? "1" : "0", // ARGV[8]
+        source, // ARGV[9] — literal, never caller input
+      ],
+    );
+    return readVerdict(verdict);
+  } catch (err) {
+    console.error("ai grading failed:", err);
+    return { ok: false, reason: "error" };
+  }
+}
+
+/** Grades `flag` against an ai challenge and, on success, records the solve
+ *  and every total atomically. Never returns the flag itself — `AiSubmitResult`
+ *  has no field for one. */
+export async function submitAiFlag(login: string, challengeId: string, flag: string): Promise<AiSubmitResult> {
+  if (!AI_ID_RE.test(challengeId)) return { ok: false, reason: "invalid" };
+  if (typeof flag !== "string" || !flag.trim()) return { ok: false, reason: "invalid" };
+
+  const { settings, cooldownSec } = await resolveSettings();
+  const gate = await evaluateGate(settings, login, challengeId, cooldownSec);
+  if (!gate.allowed) return gateToResult(gate);
+
+  return runAward(login, challengeId, flag, cooldownSec, true, "flag");
+}
+
+/** Records a solve asserted by the external side. The CALLER (the route) is
+ *  responsible for having verified the signature, the token, the challenge's
+ *  mode and the replay nonce before this is reached — this function's job
+ *  starts at the pause/schedule gate.
+ *
+ *  `dryRun` runs every gate and writes NOTHING, so an organizer can test a
+ *  live integration without awarding points. Its answer is advisory by
+ *  definition: the real path re-checks the same conditions inside the script. */
+export async function awardAiEvent(
+  login: string,
+  challengeId: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<AiSubmitResult> {
+  if (!AI_ID_RE.test(challengeId)) return { ok: false, reason: "invalid" };
+
+  const { settings, cooldownSec } = await resolveSettings();
+  // A signed event has no wrong answer, so the cooldown never applies to it —
+  // passing 0 keeps a contestant's flag-path cooldown from blocking a solve
+  // the external system already granted.
+  const gate = await evaluateGate(settings, login, challengeId, 0);
+  if (!gate.allowed) return gateToResult(gate);
+
+  if (opts.dryRun) return { ok: true, correct: true, points: 0, dryRun: true };
+
+  return runAward(login, challengeId, "", cooldownSec, false, "event");
 }
