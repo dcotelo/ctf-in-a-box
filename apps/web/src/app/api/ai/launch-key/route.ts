@@ -1,4 +1,4 @@
-import { aiJson, aiPreflight } from "@/lib/ai-http";
+import { aiJson, aiPreflight, aiRoute } from "@/lib/ai-http";
 import { getAiLaunchPublicKey } from "@/lib/ai-store";
 import { launchKeyId } from "@/lib/ai-token";
 
@@ -21,6 +21,13 @@ import { launchKeyId } from "@/lib/ai-token";
  * Cacheable for a few minutes: the key changes only on an explicit rotation,
  * and a short TTL means a rotation reaches integrators without a stampede on
  * every token verification.
+ *
+ * FAILS CLOSED via `aiRoute`: if the store read throws, the answer is 503
+ * `{error:"unavailable"}`, never an empty or partial key. Handing one back
+ * would have every integrator cache a value that verifies nothing, and the
+ * failure would surface later as "all tokens are invalid" with no obvious
+ * cause. The wrapper is also what keeps the CORS headers on that 503, so a
+ * browser-side integrator can read the status at all.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,20 +36,12 @@ export function OPTIONS() {
   return aiPreflight("GET, OPTIONS");
 }
 
-export async function GET() {
-  let publicKey: string;
-  try {
-    publicKey = await getAiLaunchPublicKey();
-  } catch {
-    // Fail CLOSED. Handing back an empty or partial key would have every
-    // integrator cache a value that verifies nothing, and the failure would
-    // surface later as "all tokens are invalid" with no obvious cause.
-    return aiJson({ error: "unavailable" }, 503);
-  }
+export const GET = aiRoute(async (): Promise<Response> => {
+  const publicKey = await getAiLaunchPublicKey();
 
   return aiJson(
     { alg: "Ed25519", kid: launchKeyId(publicKey), publicKey },
     200,
     { "Cache-Control": "public, max-age=300" },
   );
-}
+});

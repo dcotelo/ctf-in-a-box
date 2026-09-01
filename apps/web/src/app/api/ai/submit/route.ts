@@ -1,5 +1,5 @@
 import { AI_ID_RE } from "@/lib/ai-keys";
-import { aiAwardResponse, aiJson, aiPreflight, readRawBody } from "@/lib/ai-http";
+import { aiAwardResponse, aiJson, aiPreflight, aiRoute, readRawBody } from "@/lib/ai-http";
 import { getAiLaunchPublicKey, listAiChallenges, submitAiFlag } from "@/lib/ai-store";
 import { decodeTokenUnverified, verifyLaunchToken } from "@/lib/ai-token";
 import { consumeRateLimit, RATE_LIMITS } from "@/lib/rate-limit-store";
@@ -57,8 +57,12 @@ const ALLOWED_METHODS = "POST, OPTIONS";
  * before `submitAiFlag` is called, and `submitAiFlag` itself never carries
  * the flag back in its result — there is no field here to leak a submitted or
  * stored flag through.
+ *
+ * Wrapped in `aiRoute`, so a store read that THROWS (an Upstash blip) leaves
+ * here as a CORS-readable 503 `{error:"unavailable"}` rather than a bare 500
+ * an external caller cannot even see the status of.
  */
-export async function POST(request: Request): Promise<Response> {
+export const POST = aiRoute(async (request: Request): Promise<Response> => {
   const body = await readRawBody(request);
   if (!body.ok) return aiJson({ error: "invalid-request" }, 400);
 
@@ -104,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const result = await submitAiFlag(claims.sub, aud, flag);
   return aiAwardResponse(result);
-}
+});
 
 export async function OPTIONS(): Promise<Response> {
   return aiPreflight(ALLOWED_METHODS);

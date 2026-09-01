@@ -1,4 +1,4 @@
-// Shared HTTP plumbing for the ai module's three routes.
+// Shared HTTP plumbing for the ai module's four routes.
 //
 // Not `server-only` and deliberately store-free: this is header and body
 // handling, nothing more. The one `ai-store.ts` import below is type-only
@@ -38,6 +38,51 @@ export function aiPreflight(methods: string): Response {
     status: 204,
     headers: { ...AI_CORS_HEADERS, "Access-Control-Allow-Methods": methods },
   });
+}
+
+/** The ONLY thing this file is allowed to hand `console.error` — a local copy
+ *  of `ai-store.ts`'s discipline, kept local because this file is deliberately
+ *  store-free (its one `ai-store` import is type-only).
+ *
+ *  Never the caught value itself. A store failure on these paths can be
+ *  decorated by the driver with the request it failed on, and the ai award
+ *  path's Redis arguments include the submitted flag AND the stored flag's
+ *  comparison form — so one `console.error(err)` turns an outage into the
+ *  event's flags in the log. Name and message, both capped, nothing else: no
+ *  stack (the part most likely to carry interpolated arguments), no own
+ *  properties, and no `String(err)` on a non-`Error`, because a thrown string
+ *  could BE the flag. */
+function errorLabel(err: unknown): string {
+  if (!(err instanceof Error)) return "non-Error throw";
+  return `${err.name}: ${err.message}`.slice(0, 200);
+}
+
+/** Wraps a route handler so nothing it THROWS escapes as a bare 500.
+ *
+ *  This exists because `upstashPipeline` throws on any non-2xx or transport
+ *  failure, and the store readers these routes call propagate it. Uncaught,
+ *  Next.js answers 500 with NO CORS headers — so a browser-side integrator's
+ *  `fetch` fails at the CORS layer with no readable status, and an Upstash blip
+ *  mid-event reads as "your CORS is broken". Every response from these routes
+ *  must be readable cross-origin, refusals included; that is the same reason
+ *  `aiJson` puts the headers on 4xx.
+ *
+ *  Fails CLOSED with the spec's store-failure row: 503 `{error:"unavailable"}`.
+ *  It converts THROWN errors only — a handler that returns a response has
+ *  already decided, and this wrapper never touches it.
+ *
+ *  Not a place to put security decisions: those stay visible in the route. */
+export function aiRoute<Args extends unknown[]>(
+  handler: (...args: Args) => Response | Promise<Response>,
+): (...args: Args) => Promise<Response> {
+  return async (...args: Args): Promise<Response> => {
+    try {
+      return await handler(...args);
+    } catch (err) {
+      console.error("ai route: unhandled failure:", errorLabel(err));
+      return aiJson({ error: "unavailable" }, 503);
+    }
+  };
 }
 
 export type RawBody =
