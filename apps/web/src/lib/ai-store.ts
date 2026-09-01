@@ -1,0 +1,959 @@
+import "server-only";
+export { AI_COOLDOWN_SEC } from "./ai-defaults";
+
+import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { AI_COOLDOWN_SEC, AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
+import { foldTeamItems } from "@/lib/leaderboard/team-fold";
+import { generateLaunchKeyPair, generateSigningKey, type AiLaunchKeyPair } from "@/lib/ai-token";
+import { MARKDOWN_MAX } from "@/lib/markdown";
+import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import {
+  AI_CATEGORIES_KEY as CATEGORIES_KEY,
+  AI_CATEGORIES_MAX,
+  AI_CATEGORY_MAX_LEN,
+  AI_CHALLENGES_KEY as CHALLENGES_KEY,
+  AI_FLAG_KEY as FLAG_KEY,
+  AI_FLAGNORM_KEY as FLAGNORM_KEY,
+  AI_HINTS_KEY as HINTS_KEY,
+  AI_HINT_MAX,
+  AI_ID_RE,
+  AI_LAUNCHKEY_KEY as LAUNCHKEY_KEY,
+  AI_POINTS_KEY as POINTS_KEY,
+  AI_POINTS_MAX,
+  AI_SIGNKEY_KEY as SIGNKEY_KEY,
+  AI_SOLVECOUNT_KEY as SOLVECOUNT_KEY,
+  AI_SOLVED_KEY as SOLVED_KEY,
+  aiAttemptsKey as attemptsKey,
+  aiNonceKey as nonceKey,
+  aiSolvesKey as solvesKey,
+  caseSensitiveFlagForm,
+  flagComparisonForm,
+  isAiMode,
+  normalizeFlag,
+  validateUrlTemplate,
+  type AiMode,
+} from "@/lib/ai-keys";
+
+/**
+ * The ai (externally hosted AI/LLM challenge) module. This file is the only
+ * place that touches `ctf:ai:*` during normal contestant and authoring
+ * activity. The one documented exception, as in classic: `admin-store.ts`'s
+ * demo seed and master reset reuse the key names from `ai-keys.ts` directly.
+ *
+ * Secrecy boundary — a CONTESTANT boundary, with FOUR secret hashes rather
+ * than classic's three, plus one secret string:
+ *
+ *   - `listAiChallenges` (CONTESTANT path) issues no command against
+ *     `ctf:ai:flag`, `ctf:ai:flagnorm`, `ctf:ai:hints`, `ctf:ai:signkey` or
+ *     `ctf:ai:launchkey`, and `AiChallenge` has no field any of them could ride
+ *     in.
+ *   - `listAiChallengesForAdmin` (behind `requireAdmin`) reads all four hashes
+ *     and returns them in an `AdminAiChallenge` shape that is deliberately NOT
+ *     assignable to `AiChallenge`, so handing an admin row to a
+ *     contestant-facing component is a compile error rather than a leak.
+ *   - `getAiSigningKey` is the ONE per-challenge key reader a route may call:
+ *     one field of one hash. A route that needs a key must never reach for the
+ *     admin lister instead — see that function's own docstring.
+ *   - `getAiLaunchKeys` returns the module-wide launch keypair and is
+ *     MINT-SIDE ONLY. A route that merely needs to VERIFY a token calls
+ *     `getAiLaunchPublicKey`, which hands back the public half alone.
+ *
+ * `ctf:ai:launchkey`'s private half is the most dangerous secret in the module.
+ * A flag lets its holder claim one solve; an event signing key lets its holder
+ * assert solves on ONE challenge for players who already hold a box-minted
+ * token; the launch PRIVATE key lets its holder mint identity itself, naming
+ * any user on any challenge. Treat any code path that could carry it — or a
+ * flag, or an event key — into a contestant payload as a critical bug.
+ */
+
+/** Public-safe challenge record. Never carries a flag, a hint or a key. */
+export type AiChallenge = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  points: number;
+  order: number;
+  /** Which solve paths are live for this challenge (see `AiMode`). PUBLIC:
+   *  the page has to know whether to render a flag input at all. */
+  mode: AiMode;
+  /** The organizer's launch template, containing `{token}`. PUBLIC: it is
+   *  rendered into an anchor the contestant clicks. */
+  urlTemplate: string;
+  /** Compare this challenge's flag with case intact. Absent means false —
+   *  the forgiving default, same rule as classic. */
+  caseSensitive?: boolean;
+};
+
+/** The ADMIN-gated surface: the public record and its three secrets, side by
+ *  side but in SEPARATE fields. Not assignable to `AiChallenge` on purpose. */
+export type AdminAiChallenge = {
+  challenge: AiChallenge;
+  /** The flag AS AUTHORED. Empty when the challenge is event-only, or when
+   *  the row is missing — worth seeing in the edit form either way. */
+  flag: string;
+  hint: string | null;
+  /** ADMIN SURFACES ONLY. Empty only for a record written before its key was
+   *  minted, which the panel renders as "no key yet — rotate to mint one". */
+  signingKey: string;
+};
+
+export class AiValidationError extends Error {
+  field: string;
+  constructor(field: string, message: string) {
+    super(message);
+    this.name = "AiValidationError";
+    this.field = field;
+  }
+}
+
+/** The ONLY thing this module is allowed to hand `console.error`.
+ *
+ *  Never the caught value itself. The award path calls `upstashEval` with the
+ *  submitted flag AND the stored flag's comparison form as ARGV, so a client
+ *  or driver that decorates its errors with the request it failed on — an
+ *  attached `command`, `body` or `cause`, or a serialized argument list — turns
+ *  one `console.error(err)` into the event's flags in the log. A rejected
+ *  promise can also be an arbitrary value, not an `Error` at all.
+ *
+ *  So: name and message, both capped, and nothing else. No stack (it is the
+ *  part most likely to carry interpolated arguments), no own properties, and
+ *  no `String(err)` on a non-`Error` — a thrown string could BE the flag. */
+function errorLabel(err: unknown): string {
+  if (!(err instanceof Error)) return "non-Error throw";
+  return `${err.name}: ${err.message}`.slice(0, 200);
+}
+
+function parseChallenge(raw: string): AiChallenge | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const c = parsed as Record<string, unknown>;
+    if (typeof c.id !== "string") return null;
+    if (typeof c.title !== "string") return null;
+    if (typeof c.category !== "string") return null;
+    if (typeof c.description !== "string") return null;
+    if (typeof c.points !== "number") return null;
+    if (typeof c.order !== "number") return null;
+    // A record whose mode does not parse is DROPPED rather than defaulted: a
+    // wrong default here would either hide a flag input the challenge needs or
+    // offer one it cannot grade.
+    if (!isAiMode(c.mode)) return null;
+    if (typeof c.urlTemplate !== "string") return null;
+    return {
+      id: c.id,
+      title: c.title,
+      category: c.category,
+      description: c.description,
+      points: c.points,
+      order: c.order,
+      mode: c.mode,
+      urlTemplate: c.urlTemplate,
+      // Carried back only when stored true, mirroring how it is written.
+      ...(c.caseSensitive === true ? { caseSensitive: true as const } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Board reading order: cheapest first, then the organizer's `order`, then id
+ *  as a stable tiebreak. Same rule as classic's. */
+function compareChallenges(a: AiChallenge, b: AiChallenge): number {
+  return a.points - b.points || a.order - b.order || a.id.localeCompare(b.id);
+}
+
+function parseChallengeHash(flat: unknown): AiChallenge[] {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out: AiChallenge[] = [];
+  for (let i = 0; i < arr.length; i += 2) {
+    const parsed = parseChallenge(arr[i + 1]);
+    if (parsed) out.push(parsed);
+  }
+  return out;
+}
+
+function hashToMap(flat: unknown): Map<string, string> {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out = new Map<string, string>();
+  for (let i = 0; i < arr.length; i += 2) {
+    if (typeof arr[i + 1] === "string") out.set(arr[i], arr[i + 1]);
+  }
+  return out;
+}
+
+/** All ai challenges in board order. The ONLY list function a
+ *  contestant-facing route or the leaderboard may call. */
+export async function listAiChallenges(): Promise<AiChallenge[]> {
+  const [res] = await upstashPipeline([["HGETALL", CHALLENGES_KEY]]);
+  const challenges = parseChallengeHash(res.result);
+  challenges.sort(compareChallenges);
+  return challenges;
+}
+
+/** The same list WITH each challenge's flag, hint and signing key — for the
+ *  `requireAdmin`-gated authoring surface ONLY. All four hashes in one
+ *  pipeline, so they come from the same instant. */
+export async function listAiChallengesForAdmin(): Promise<AdminAiChallenge[]> {
+  const [challengesRes, flagRes, hintRes, keyRes] = await upstashPipeline([
+    ["HGETALL", CHALLENGES_KEY],
+    ["HGETALL", FLAG_KEY],
+    ["HGETALL", HINTS_KEY],
+    ["HGETALL", SIGNKEY_KEY],
+  ]);
+  const flagById = hashToMap(flagRes.result);
+  const hintById = hashToMap(hintRes.result);
+  const keyById = hashToMap(keyRes.result);
+
+  const rows = parseChallengeHash(challengesRes.result).map((challenge) => ({
+    challenge,
+    flag: flagById.get(challenge.id) ?? "",
+    hint: hintById.get(challenge.id) ?? null,
+    signingKey: keyById.get(challenge.id) ?? "",
+  }));
+  rows.sort((a, b) => compareChallenges(a.challenge, b.challenge));
+  return rows;
+}
+
+/** ONE challenge's signing key. This is the ONLY key reader a route may call.
+ *
+ *  `listAiChallengesForAdmin` is NOT that function, even though it is the other
+ *  thing that returns a key. It `HGETALL`s all four secret hashes, so calling
+ *  it to answer "what is challenge X's key?" pulls every flag and every signing
+ *  key in the event into a local variable — and the routes that need a key are
+ *  the cross-origin, cookie-blind, unauthenticated ones. One `console.error`
+ *  over the result, or one error-echoing 503, would dump the whole secret set
+ *  to the public internet. This reads exactly one field of exactly one hash.
+ *
+ *  `null` means "no usable key": a bad id, a missing row, or a reply that is
+ *  not a string. Callers must refuse on `null` — never fall back to `""`, which
+ *  `ai-token.ts` rejects outright because an empty HMAC key is guessable. */
+export async function getAiSigningKey(id: string): Promise<string | null> {
+  if (!AI_ID_RE.test(id)) return null;
+  const [res] = await upstashPipeline([["HGET", SIGNKEY_KEY, id]]);
+  return typeof res.result === "string" && res.result ? res.result : null;
+}
+
+function parseLaunchKeys(raw: unknown): AiLaunchKeyPair | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { publicKey, privateKey } = parsed as Record<string, unknown>;
+    if (typeof publicKey !== "string" || !publicKey) return null;
+    if (typeof privateKey !== "string" || !privateKey) return null;
+    return { publicKey, privateKey };
+  } catch {
+    return null;
+  }
+}
+
+/** The module-wide Ed25519 launch keypair, minted on first use.
+ *
+ *  SERVER-ONLY and MINT-SIDE ONLY. The private half names users: whoever holds
+ *  it can mint a token for anybody, so it must never reach a response, a log or
+ *  a client bundle. A caller that only needs to CHECK a token wants
+ *  `getAiLaunchPublicKey` instead.
+ *
+ *  The first write is a check-then-act, so it is done with an atomic `SET NX`
+ *  followed by a `GET` in the SAME pipeline — the same lesson as the signing
+ *  key's `HSETNX` mint. Two concurrent first uses would otherwise each generate
+ *  a different keypair and the later write would win silently, leaving the
+ *  losing caller minting tokens with a private key that was never persisted:
+ *  every one of them would fail verification against the public key the box
+ *  actually publishes, and nothing anywhere would say why.
+ *
+ *  So the value RETURNED is always the one read back, never the local
+ *  candidate. If the read-back is unusable we do not know which pair is live,
+ *  and an error is the honest answer.
+ *
+ *  A stored-but-corrupt record throws rather than being overwritten: silently
+ *  minting a fresh pair over it would invalidate every launch token already in
+ *  a contestant's browser, mid-event, with no message anywhere. */
+export async function getAiLaunchKeys(): Promise<AiLaunchKeyPair> {
+  const [existing] = await upstashPipeline([["GET", LAUNCHKEY_KEY]]);
+  if (existing.error) throw new Error(`Upstash GET failed: ${existing.error}`);
+  // `null` (no key yet) is the ONLY reply that mints. A present-but-unparseable
+  // value falls through to the SET NX below, which is a no-op against it, and
+  // then fails on the read-back — loudly, without destroying anything.
+  if (existing.result !== null && existing.result !== undefined) {
+    const found = parseLaunchKeys(existing.result);
+    if (found) return found;
+    throw new Error("ai launch keys: the stored keypair is unusable (refusing to overwrite it)");
+  }
+
+  const candidate = generateLaunchKeyPair();
+  const [, persistedRes] = await upstashPipeline([
+    ["SET", LAUNCHKEY_KEY, JSON.stringify(candidate), "NX"],
+    ["GET", LAUNCHKEY_KEY],
+  ]);
+  if (persistedRes.error) throw new Error(`Upstash GET failed: ${persistedRes.error}`);
+  const persisted = parseLaunchKeys(persistedRes.result);
+  if (!persisted) throw new Error("Upstash GET returned no usable ai launch keypair");
+  return persisted;
+}
+
+/** The PUBLIC half alone — safe to serve, and meant to be. Publishing it is
+ *  what lets a key-holding backend AND a pure static SPA verify a launch token
+ *  without either of them being able to mint one.
+ *
+ *  It reads the same record as `getAiLaunchKeys` (there is only one), so it
+ *  mints the pair on first use too; it just never lets the private half out of
+ *  this module. */
+export async function getAiLaunchPublicKey(): Promise<string> {
+  return (await getAiLaunchKeys()).publicKey;
+}
+
+/** Claims a signed event's `jti` exactly once, and reports whether THIS caller
+ *  is the one that got it. `false` means "refuse this request".
+ *
+ *  Fails CLOSED, which is the DELIBERATE OPPOSITE of the pause gate above: a
+ *  Redis error, a `null` (the key was already there), or any reply this does
+ *  not recognise all return `false`. The pause check fails open because a blip
+ *  must not drop a submission a contestant is entitled to make; this one cannot
+ *  afford that, because it is the single check standing between a captured
+ *  signed request and unlimited re-awards. "I cannot prove this is fresh" and
+ *  "this is a replay" have to reach the caller as the same answer.
+ *
+ *  `SET ... NX EX` is one atomic round trip on purpose. A GET-then-SET would
+ *  let two copies of the same captured request both observe "not seen yet". */
+export async function claimAiNonce(jti: string): Promise<boolean> {
+  if (typeof jti !== "string" || !jti) return false;
+  try {
+    const [res] = await upstashPipeline([
+      ["SET", nonceKey(jti), new Date().toISOString(), "NX", "EX", AI_NONCE_TTL_SEC],
+    ]);
+    if (res.error) {
+      // Redis' own error text, capped — never the command, whose arguments
+      // include the caller's `jti`.
+      console.error("ai nonce: claim failed (redis error):", String(res.error).slice(0, 200));
+      return false;
+    }
+    return res.result === "OK";
+  } catch (err) {
+    console.error("ai nonce: claim failed (transport):", errorLabel(err));
+    return false;
+  }
+}
+
+/** The organizer's category display order. Absent or unparseable reads as an
+ *  empty list — a board with no categories yet, not an error. */
+export async function listAiCategories(): Promise<string[]> {
+  const [res] = await upstashPipeline([["GET", CATEGORIES_KEY]]);
+  if (typeof res.result !== "string") return [];
+  try {
+    const parsed = JSON.parse(res.result) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((n): n is string => typeof n === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** How the solve was earned. `flag` is the default for any row written before
+ *  this field existed. */
+export type AiSolveSource = "flag" | "event";
+type Solve = { points: number; at: string; source: AiSolveSource };
+type Attempt = { attempts: number; lastAt: string };
+
+function extractSolve(v: Record<string, unknown>): Solve | null {
+  if (typeof v.points !== "number" || typeof v.at !== "string") return null;
+  return { points: v.points, at: v.at, source: v.source === "event" ? "event" : "flag" };
+}
+
+function extractAttempt(v: Record<string, unknown>): Attempt | null {
+  if (typeof v.attempts !== "number" || typeof v.lastAt !== "string") return null;
+  return { attempts: v.attempts, lastAt: v.lastAt };
+}
+
+function parseHashEntries<T>(flat: unknown, extract: (parsed: Record<string, unknown>) => T | null): Record<string, T> {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out: Record<string, T> = {};
+  for (let i = 0; i < arr.length; i += 2) {
+    const value = parseJsonValue(arr[i + 1], extract);
+    if (value !== null) out[arr[i]] = value;
+  }
+  return out;
+}
+
+function parseJsonValue<T>(raw: unknown, extract: (parsed: Record<string, unknown>) => T | null): T | null {
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return extract(parsed as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
+export type ViewerAi = {
+  solved: Record<string, Solve>;
+  attempts: Record<string, Attempt>;
+};
+
+/** One caller's ai progress. Two HGETALLs in one pipeline against that login's
+ *  own hashes — no secret key is touched. */
+export async function getViewerAi(login: string): Promise<ViewerAi> {
+  const [solvesRes, attemptsRes] = await upstashPipeline([
+    ["HGETALL", solvesKey(login)],
+    ["HGETALL", attemptsKey(login)],
+  ]);
+  return {
+    solved: parseHashEntries(solvesRes.result, extractSolve),
+    attempts: parseHashEntries(attemptsRes.result, extractAttempt),
+  };
+}
+
+function parseCounterHash(flat: unknown): Map<string, number> {
+  const arr = Array.isArray(flat) ? (flat as string[]) : [];
+  const out = new Map<string, number>();
+  for (let i = 0; i < arr.length; i += 2) {
+    const n = Number(arr[i + 1]);
+    if (Number.isFinite(n)) out.set(arr[i], n);
+  }
+  return out;
+}
+
+/** Distinct solvers per challenge — distinct by construction, because
+ *  AWARD_SCRIPT's already-solved guard runs before any increment. */
+export async function getAiSolveCounts(): Promise<Map<string, number>> {
+  const [res] = await upstashPipeline([["HGETALL", SOLVECOUNT_KEY]]);
+  return parseCounterHash(res.result);
+}
+
+export type AiTotal = { points: number; solved: number; lastAt: string | null };
+
+/** Per-login totals off the two aggregate hashes: two round trips regardless
+ *  of board size. `lastAt` is always null — neither aggregate carries a
+ *  timestamp, and deriving one would reintroduce the per-login cost this
+ *  function exists to avoid. */
+export async function getAiTotals(): Promise<Map<string, AiTotal>> {
+  const [pointsRes, solvedRes] = await upstashPipeline([
+    ["HGETALL", POINTS_KEY],
+    ["HGETALL", SOLVED_KEY],
+  ]);
+  const points = parseCounterHash(pointsRes.result);
+  const solved = parseCounterHash(solvedRes.result);
+
+  const totals = new Map<string, AiTotal>();
+  for (const login of new Set([...points.keys(), ...solved.keys()])) {
+    totals.set(login, { points: points.get(login) ?? 0, solved: solved.get(login) ?? 0, lastAt: null });
+  }
+  return totals;
+}
+
+/** A TEAM's total is the UNION of challenges its members solved, never the sum
+ *  of member aggregates — summing double counts a challenge two teammates both
+ *  solved, and the aggregates have no memory of WHICH challenges contributed.
+ *  One pipeline for the whole board; a login on two teams is fetched once. */
+export async function getTeamAiTotalsBatch(teams: readonly (readonly string[])[]): Promise<AiTotal[]> {
+  const indexByLogin = new Map<string, number>();
+  for (const members of teams) {
+    for (const login of members) {
+      if (!indexByLogin.has(login)) indexByLogin.set(login, indexByLogin.size);
+    }
+  }
+  const logins = [...indexByLogin.keys()];
+  if (logins.length === 0) return teams.map(() => ({ points: 0, solved: 0, lastAt: null }));
+
+  const results = await upstashPipeline(logins.map((login) => ["HGETALL", solvesKey(login)]));
+  return teams.map((members) => {
+    const { points, completed, lastAt } = foldTeamItems(members.map((login) => results[indexByLogin.get(login) ?? -1]));
+    return { points, solved: completed, lastAt };
+  });
+}
+
+/** Replaces the category list. Names are trimmed and deduped, and ORDER IS
+ *  CONTENT — it is the order the board renders headings in, which is why this
+ *  is one JSON array in a string key rather than a Redis set. */
+export async function setAiCategories(names: string[]): Promise<string[]> {
+  if (!Array.isArray(names)) throw new AiValidationError("categories", "Categories must be a list");
+  const cleaned: string[] = [];
+  for (const raw of names) {
+    if (typeof raw !== "string") throw new AiValidationError("categories", "Category names must be strings");
+    const name = raw.trim();
+    if (!name) continue;
+    if (name.length > AI_CATEGORY_MAX_LEN) {
+      throw new AiValidationError("categories", `Category names must be at most ${AI_CATEGORY_MAX_LEN} characters`);
+    }
+    if (!cleaned.includes(name)) cleaned.push(name);
+  }
+  if (cleaned.length > AI_CATEGORIES_MAX) {
+    throw new AiValidationError("categories", `At most ${AI_CATEGORIES_MAX} categories`);
+  }
+  const [res] = await upstashPipeline([["SET", CATEGORIES_KEY, JSON.stringify(cleaned)]]);
+  if (res.error) throw new Error(`Upstash SET failed: ${res.error}`);
+  return cleaned;
+}
+
+export type AiUpsertSecrets = { flag?: string; hint?: string | null };
+
+/** Creates or updates one challenge, and guarantees it has a signing key.
+ *
+ *  The key is minted ONLY when the challenge has none. An edit must never
+ *  rotate silently: the organizer has already pasted that key into an external
+ *  system, and a rename that invalidated it would break a live integration
+ *  with no message anywhere saying why. Rotation is its own explicit call.
+ *
+ *  A `mode: "event"` challenge stores no flag at all — both flag hashes are
+ *  DELETED rather than left holding a stale value that a later mode change
+ *  would silently resurrect. */
+export async function upsertAiChallenge(c: AiChallenge, secrets: AiUpsertSecrets = {}): Promise<AdminAiChallenge> {
+  if (!AI_ID_RE.test(c.id)) throw new AiValidationError("id", `Invalid challenge id: ${c.id}`);
+  if (typeof c.title !== "string" || !c.title.trim()) {
+    throw new AiValidationError("title", "Challenge title is required");
+  }
+  if (!isAiMode(c.mode)) throw new AiValidationError("mode", `Unknown mode: ${String(c.mode)}`);
+
+  const categories = await listAiCategories();
+  if (!categories.includes(c.category)) {
+    throw new AiValidationError("category", `Unknown category: ${c.category}`);
+  }
+  if (typeof c.description !== "string" || c.description.length > MARKDOWN_MAX) {
+    throw new AiValidationError("description", `Description must be at most ${MARKDOWN_MAX} characters`);
+  }
+  // Points are read back INSIDE AWARD_SCRIPT by matching a plain integer — a
+  // non-integer would either silently award 0 or corrupt HINCRBY mid-script,
+  // after the solve row had already been written, with no way to roll back.
+  if (!Number.isInteger(c.points) || c.points < 0 || c.points > AI_POINTS_MAX) {
+    throw new AiValidationError("points", `Challenge points must be an integer in [0, ${AI_POINTS_MAX}]`);
+  }
+  // `order` is checked for the same reason, and the failure it prevents is
+  // WORSE than a bad `points`. `parseChallenge` drops any record whose order is
+  // not a number, so a NaN (which `JSON.stringify` writes as `null`) or any
+  // other non-integer arriving here at runtime persists a row that BOTH
+  // `listAiChallenges` and `listAiChallengesForAdmin` skip — an invisible,
+  // uneditable challenge whose `ctf:ai:flag` and `ctf:ai:signkey` rows stay
+  // live and which AWARD_SCRIPT still grades.
+  if (!Number.isInteger(c.order)) {
+    throw new AiValidationError("order", "Challenge order must be an integer");
+  }
+
+  const template = validateUrlTemplate(c.urlTemplate);
+  if (!template.ok) throw new AiValidationError("urlTemplate", template.reason);
+
+  const graded = c.mode !== "event";
+  const flag = typeof secrets.flag === "string" ? secrets.flag.trim() : "";
+  if (graded && !flag) {
+    throw new AiValidationError("flag", "A flag is required unless the challenge is event-only");
+  }
+  const hint = secrets.hint;
+  if (hint != null && (typeof hint !== "string" || hint.length > AI_HINT_MAX)) {
+    throw new AiValidationError("hint", `Hint must be at most ${AI_HINT_MAX} characters`);
+  }
+  const authoredHint = typeof hint === "string" && hint.trim() ? hint.trim() : null;
+
+  // Minting a key is a check-then-act, so it has to be done with an atomic
+  // HSETNX rather than a separate HGET-then-HSET: two concurrent creates (or
+  // edits of a legacy keyless row) could otherwise both observe "no key yet"
+  // and each mint a different key, with the later write winning silently —
+  // the losing caller would return a key that was never persisted, exactly
+  // the broken-integration failure mode this function exists to prevent.
+  // HSETNX either plants the candidate (fresh row) or is a no-op (a key
+  // already exists); the follow-up HGET in the SAME pipeline reads back
+  // whichever key actually won, so every racer converges on one value.
+  //
+  // That pipeline is the ONLY thing this function writes to SIGNKEY_KEY. The
+  // write pipeline below deliberately carries no `HSET ctf:ai:signkey`: it
+  // would be a second, later write of a value read before it, and
+  // `rotateAiSigningKey` can commit in between — the HSET would then put the
+  // REVOKED key back, silently, with nothing anywhere saying the rotation was
+  // undone. HSETNX has already guaranteed the row exists, so there is nothing
+  // left for it to do but lose that race.
+  const candidateKey = generateSigningKey();
+  const [, effectiveKeyRes] = await upstashPipeline([
+    ["HSETNX", SIGNKEY_KEY, c.id, candidateKey],
+    ["HGET", SIGNKEY_KEY, c.id],
+  ]);
+  // No fallback to `candidateKey`. If the HGET is unusable we do not know
+  // which key is live — the candidate may have lost the HSETNX race — and
+  // returning it would hand the organizer a key to paste into an external
+  // system that the box will never accept. An error is the honest answer.
+  if (effectiveKeyRes.error) throw new Error(`Upstash HGET failed: ${effectiveKeyRes.error}`);
+  const signingKey = typeof effectiveKeyRes.result === "string" ? effectiveKeyRes.result : "";
+  if (!signingKey) throw new Error("Upstash HGET returned no signing key for this challenge");
+
+  const record: AiChallenge = { ...c, urlTemplate: template.value };
+  const results = await upstashPipeline([
+    ["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)],
+    graded ? ["HSET", FLAG_KEY, c.id, flag] : ["HDEL", FLAG_KEY, c.id],
+    graded
+      ? ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, c.caseSensitive)]
+      : ["HDEL", FLAGNORM_KEY, c.id],
+    authoredHint ? ["HSET", HINTS_KEY, c.id, authoredHint] : ["HDEL", HINTS_KEY, c.id],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
+
+  return { challenge: record, flag: graded ? flag : "", hint: authoredHint, signingKey };
+}
+
+/** Mints a NEW signing key for an existing challenge. The old key stops
+ *  working immediately — there is no grace window, so the panel warns before
+ *  calling this. Refuses on an unknown challenge rather than creating an
+ *  orphan key row nothing will ever read. */
+export async function rotateAiSigningKey(id: string): Promise<string> {
+  if (!AI_ID_RE.test(id)) throw new AiValidationError("id", `Invalid challenge id: ${id}`);
+  const [existing] = await upstashPipeline([["HGET", CHALLENGES_KEY, id]]);
+  if (typeof existing.result !== "string") {
+    throw new AiValidationError("id", `Unknown challenge: ${id}`);
+  }
+  const key = generateSigningKey();
+  const [res] = await upstashPipeline([["HSET", SIGNKEY_KEY, id, key]]);
+  if (res.error) throw new Error(`Upstash HSET failed: ${res.error}`);
+  return key;
+}
+
+/** Deletes a challenge and every secret hanging off it — the record and the
+ *  four secret hashes, nothing else. A swallowed error here would leave a live
+ *  signing key for a challenge nobody can see, so failures are surfaced rather
+ *  than ignored.
+ *
+ *  NO aggregate is touched, exactly as `deleteChallenge` in classic-store.ts:
+ *  solve rows keep what they earned, and `ctf:ai:solvecount` keeps its count.
+ *  Clearing banked progress is the master reset's job (admin-store's
+ *  `resetEvent`), not this one's. Dropping the solvecount row here would be a
+ *  half-cascade with a permanent failure mode: recreate the id (which
+ *  `upsertAiChallenge` allows) and the counter restarts at 0 while every prior
+ *  solver still holds a solve row, so AWARD_SCRIPT's already-solved guard means
+ *  none of them can ever re-increment it — the board would show "0 solvers" on
+ *  a challenge dozens of people demonstrably solved. Because the aggregates
+ *  outlive the challenge, a login can hold more solves than the challenge list
+ *  has entries; the leaderboard overlay clamps the denominator for exactly that
+ *  reason. */
+export async function deleteAiChallenge(id: string): Promise<void> {
+  if (!AI_ID_RE.test(id)) throw new AiValidationError("id", `Invalid challenge id: ${id}`);
+  const results = await upstashPipeline([
+    ["HDEL", CHALLENGES_KEY, id],
+    ["HDEL", FLAG_KEY, id],
+    ["HDEL", FLAGNORM_KEY, id],
+    ["HDEL", HINTS_KEY, id],
+    ["HDEL", SIGNKEY_KEY, id],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash HDEL failed: ${failed.error}`);
+}
+
+/** Deletes ONLY the content keys — challenges, both flag hashes, the signing
+ *  keys, hints and categories — plus `ctf:ai:solvecount`, which is a per-
+ *  CHALLENGE counter that a catalogue-wide wipe legitimately zeroes. Never the
+ *  per-login run state (`ctf:ai:points`, `ctf:ai:solved`, `solves:<login>`,
+ *  `attempts:<login>`).
+ *
+ *  For a replace-all import: the caller wipes the board clean before writing a
+ *  fresh bundle over it, so a challenge dropped from the new bundle doesn't
+ *  linger from the old one. That caller is `event-store.ts`'s archive import
+ *  (the same one that calls classic's `clearChallenges`) — it is NOT the master
+ *  reset. `resetEvent`'s `RESET_PREFIXES` deliberately KEEPS the catalogue, and
+ *  wiring this into it would destroy the organizer's challenges, every flag and
+ *  every signing key mid-event, breaking every deployed external integration
+ *  with no recovery. Contestant HISTORY is deliberately untouched — solve and
+ *  attempt rows survive, as they do through `deleteAiChallenge`. Note the one
+ *  place this is broader than that function: it DOES clear `ctf:ai:solvecount`,
+ *  per the first paragraph. That is a per-challenge counter for a catalogue
+ *  that is about to be replaced wholesale, not a per-login aggregate — the
+ *  per-login ones (`ctf:ai:points`, `ctf:ai:solved`) survive here too.
+ *
+ *  `ctf:ai:launchkey` is NOT touched either, and that is deliberate. It is
+ *  module-wide identity material, not catalogue content: dropping it here would
+ *  silently rotate the module's public key on every archive import, breaking
+ *  every deployed verifier and invalidating every token already in a
+ *  contestant's browser — for a wipe that was only ever meant to replace the
+ *  challenge list.
+ *
+ *  Surfaces per-command errors for the same reason as above. */
+export async function clearAiChallenges(): Promise<void> {
+  const results = await upstashPipeline([
+    ["DEL", CHALLENGES_KEY],
+    ["DEL", FLAG_KEY],
+    ["DEL", FLAGNORM_KEY],
+    ["DEL", HINTS_KEY],
+    ["DEL", SIGNKEY_KEY],
+    ["DEL", CATEGORIES_KEY],
+    ["DEL", SOLVECOUNT_KEY],
+  ]);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash DEL failed: ${failed.error}`);
+}
+
+// Mirrors classic-store.ts's local alias exactly: admin-store.ts exports the
+// concrete `AdminSettings` type, not a `ResolvedAdminSettings` name, so this
+// derives it from `getAdminSettings`'s own return type instead of importing a
+// type that does not exist there.
+type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;
+
+type AiGate =
+  | { allowed: true }
+  | { allowed: false; reason: "paused" | "solved" | "cooldown" | "unavailable"; retryAt?: string };
+
+/** The cheap, NON-ATOMIC pre-check.
+ *
+ *  - The pause/schedule check fails OPEN (`settings` null reads as not paused):
+ *    a Redis blip must never silently drop a live submission. Same fail-open
+ *    the scorer and sync poller implement.
+ *  - The solve/attempt lookup fails CLOSED with its OWN reason, "unavailable" —
+ *    never "cooldown". Reporting an unverifiable lookup as a fact about the
+ *    contestant's attempts turns a blip into a support argument.
+ *
+ *  AWARD_SCRIPT re-checks the already-solved guard and the cooldown against
+ *  state read at execution time and is what actually enforces them. */
+async function evaluateGate(
+  settings: ResolvedAdminSettings | null,
+  login: string,
+  challengeId: string,
+  cooldownSec: number,
+): Promise<AiGate> {
+  if (settings && effectivePaused(settings)) return { allowed: false, reason: "paused" };
+
+  let solve: Solve | null;
+  let attempt: Attempt | null;
+  try {
+    const [solveRes, attemptRes] = await upstashPipeline([
+      ["HGET", solvesKey(login), challengeId],
+      ["HGET", attemptsKey(login), challengeId],
+    ]);
+    if (solveRes.error) throw new Error(solveRes.error);
+    if (attemptRes.error) throw new Error(attemptRes.error);
+    solve = parseJsonValue(solveRes.result, extractSolve);
+    attempt = parseJsonValue(attemptRes.result, extractAttempt);
+  } catch (err) {
+    console.error("ai gate: solve/attempt lookup failed:", errorLabel(err));
+    return { allowed: false, reason: "unavailable" };
+  }
+
+  if (solve) return { allowed: false, reason: "solved" };
+
+  if (cooldownSec > 0 && attempt) {
+    const lastMs = Date.parse(attempt.lastAt);
+    if (Number.isFinite(lastMs)) {
+      const retryAtMs = lastMs + cooldownSec * 1000;
+      if (Date.now() < retryAtMs) {
+        return { allowed: false, reason: "cooldown", retryAt: new Date(retryAtMs).toISOString() };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
+// Awards one solve and records everything it changes atomically. BOTH solve
+// paths run this script: ARGV[8] is '1' for a graded flag submission and '0'
+// for a signed event, which is the ONLY difference between them. Sharing one
+// script is deliberate — two scripts would eventually disagree about the
+// already-solved guard, and that guard is what makes the solve counter
+// distinct-by-construction.
+//
+//   1. HGET the challenge record. Missing -> {'missing'} (bad/deleted id).
+//   2. HEXISTS the solve row BEFORE any write -> {'already'}, nothing touched.
+//   3. Event only: refuse a challenge the organizer authored as mode "flag"
+//      -> {'mode'}. The graded path is refused for an event-only challenge
+//      ACCIDENTALLY (there is no `flagnorm` row, so step 4 returns {'missing'});
+//      without this line the mirror did not hold, because the event path never
+//      looks at a flag hash and so had nothing to trip over. PR 2's route
+//      checks the mode first; this is the copy that cannot be bypassed by a
+//      missed check or a later reorder. Matched off `cRaw`, the record the
+//      script already holds — no caller string is interpolated — and anchored
+//      with a trailing [,}] like the points match, for the same reason.
+//   4. Graded only: re-check the cooldown WITHOUT writing, then spend an
+//      attempt, then compare. The cooldown arrives as ARGV (the CURRENT admin
+//      setting, resolved on every call — never a stored cutoff) and is combined
+//      with the attempts row the script reads at execution time.
+//   5. Award: solve row + the three counters.
+//
+// The points match is anchored with a trailing [,}] so it can only match a
+// complete "points":<int> pair. Nothing here lowercases anything: Lua's
+// string.lower is ASCII-only and would disagree with the JS recipe on any
+// non-ASCII flag, producing a challenge nobody can solve.
+//
+// ARGV[9] (the solve source) is interpolated into stored JSON, so it must only
+// ever be a module-internal literal — never caller input.
+const AWARD_SCRIPT = `
+local cRaw = redis.call('HGET', KEYS[4], ARGV[1])
+if not cRaw then return {'missing'} end
+if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end
+
+local points = 0
+local caseSensitive = false
+local found = string.match(cRaw, '"points":(%-?%d+)[,}]')
+if found then points = tonumber(found) end
+if string.match(cRaw, '"caseSensitive":true[,}]') then caseSensitive = true end
+
+if ARGV[8] == '0' and string.match(cRaw, '"mode":"flag"[,}]') then return {'mode'} end
+
+if ARGV[8] == '1' then
+  local target = redis.call('HGET', KEYS[3], ARGV[1])
+  if not target then return {'missing'} end
+
+  local cooldownMs = tonumber(ARGV[5])
+  local nowMs = tonumber(ARGV[6])
+  local attemptsRaw = redis.call('HGET', KEYS[1], ARGV[1])
+  local attempts = 0
+  local lastAtMs = nil
+  local firstAt = nil
+  if attemptsRaw then
+    local foundAttempts = string.match(attemptsRaw, '"attempts":(%d+)[,}]')
+    if foundAttempts then attempts = tonumber(foundAttempts) end
+    local foundLastAtMs = string.match(attemptsRaw, '"lastAtMs":(%d+)[,}]')
+    if foundLastAtMs then lastAtMs = tonumber(foundLastAtMs) end
+    firstAt = string.match(attemptsRaw, '"firstAt":"([^"]*)"')
+  end
+
+  if cooldownMs > 0 and lastAtMs and nowMs < (lastAtMs + cooldownMs) then
+    return {'cooldown', tostring(lastAtMs + cooldownMs)}
+  end
+
+  attempts = attempts + 1
+  if not firstAt then firstAt = ARGV[3] end
+  redis.call('HSET', KEYS[1], ARGV[1], '{"attempts":' .. attempts .. ',"firstAt":"' .. firstAt .. '","lastAt":"' .. ARGV[3] .. '","lastAtMs":' .. ARGV[6] .. '}')
+
+  local submitted = ARGV[2]
+  if caseSensitive then submitted = ARGV[7] end
+  if target ~= submitted then return {'incorrect', tostring(attempts)} end
+end
+
+redis.call('HSET', KEYS[2], ARGV[1], '{"points":' .. points .. ',"at":"' .. ARGV[3] .. '","source":"' .. ARGV[9] .. '"}')
+redis.call('HINCRBY', KEYS[5], ARGV[4], points)
+redis.call('HINCRBY', KEYS[7], ARGV[4], 1)
+redis.call('HINCRBY', KEYS[6], ARGV[1], 1)
+return {'correct', tostring(points)}`;
+
+export type AiSubmitResult =
+  // `already` is a correct solve that awarded nothing FURTHER — `points: 0`
+  // because this call banked nothing, NOT because the challenge is worthless.
+  // Callers must render the two apart.
+  | { ok: true; correct: true; points: number; already?: boolean; dryRun?: true }
+  | { ok: true; correct: false }
+  | { ok: false; reason: "paused" | "solved" | "cooldown"; retryAt?: string }
+  // `wrong-mode`: a signed event was asserted against a challenge the organizer
+  // authored as `mode: "flag"`. Refused by AWARD_SCRIPT itself, so it holds
+  // even if a route forgets to check.
+  | { ok: false; reason: "unavailable" | "invalid" | "error" | "wrong-mode" };
+
+/** Resolves the settings and the current cooldown, failing OPEN on a settings
+ *  error — a Redis blip must not drop a submission a contestant is entitled to
+ *  make. The cooldown then falls back to the module default, which the script
+ *  still enforces.
+ *
+ *  PR 4 adds the organizer override (`aiCooldownSec` on `ResolvedAdminSettings`,
+ *  beside `classicCooldownSec`) and changes the last line to
+ *  `settings?.aiCooldownSec ?? AI_COOLDOWN_SEC`. It is the constant alone here
+ *  because the settings type does not carry the field yet, and casting around
+ *  a type to pretend it does is how a setting ends up silently ignored. */
+async function resolveSettings(): Promise<{ settings: ResolvedAdminSettings | null; cooldownSec: number }> {
+  let settings: ResolvedAdminSettings | null = null;
+  try {
+    settings = await getAdminSettings();
+  } catch (err) {
+    console.error("ai: admin settings read failed, treating scoring as live:", errorLabel(err));
+  }
+  return { settings, cooldownSec: AI_COOLDOWN_SEC };
+}
+
+function gateToResult(gate: Exclude<AiGate, { allowed: true }>): AiSubmitResult {
+  if (gate.reason === "unavailable") return { ok: false, reason: "unavailable" };
+  return gate.retryAt ? { ok: false, reason: gate.reason, retryAt: gate.retryAt } : { ok: false, reason: gate.reason };
+}
+
+function readVerdict(verdict: unknown): AiSubmitResult {
+  const [status, value] = Array.isArray(verdict) ? (verdict as unknown[]) : [];
+  if (status === "missing") return { ok: false, reason: "invalid" };
+  if (status === "mode") return { ok: false, reason: "wrong-mode" };
+  if (status === "cooldown") {
+    return { ok: false, reason: "cooldown", retryAt: new Date(Number(value)).toISOString() };
+  }
+  if (status === "incorrect") return { ok: true, correct: false };
+  if (status === "already") return { ok: true, correct: true, points: 0, already: true };
+  if (status === "correct") return { ok: true, correct: true, points: Number(value) || 0 };
+  return { ok: false, reason: "error" };
+}
+
+/** Runs AWARD_SCRIPT. `grade` decides whether the flag comparison happens at
+ *  all; `source` is a module-internal literal written into the solve row. */
+async function runAward(
+  login: string,
+  challengeId: string,
+  flag: string,
+  cooldownSec: number,
+  grade: boolean,
+  source: AiSolveSource,
+): Promise<AiSubmitResult> {
+  const now = new Date();
+  try {
+    const verdict = await upstashEval(
+      AWARD_SCRIPT,
+      [
+        attemptsKey(login), // KEYS[1]
+        solvesKey(login), // KEYS[2]
+        FLAGNORM_KEY, // KEYS[3] — the normalized flag; ctf:ai:flag is never
+        //                          handed to the script at all
+        CHALLENGES_KEY, // KEYS[4]
+        POINTS_KEY, // KEYS[5]
+        SOLVECOUNT_KEY, // KEYS[6]
+        SOLVED_KEY, // KEYS[7]
+      ],
+      [
+        challengeId, // ARGV[1]
+        grade ? normalizeFlag(flag) : "", // ARGV[2] — case-insensitive form
+        now.toISOString(), // ARGV[3]
+        login, // ARGV[4]
+        cooldownSec * 1000, // ARGV[5]
+        now.getTime(), // ARGV[6]
+        grade ? caseSensitiveFlagForm(flag) : "", // ARGV[7] — case preserved
+        grade ? "1" : "0", // ARGV[8]
+        source, // ARGV[9] — literal, never caller input
+      ],
+    );
+    return readVerdict(verdict);
+  } catch (err) {
+    console.error("ai grading failed:", errorLabel(err));
+    return { ok: false, reason: "error" };
+  }
+}
+
+/** Grades `flag` against an ai challenge and, on success, records the solve
+ *  and every total atomically. Never returns the flag itself — `AiSubmitResult`
+ *  has no field for one. */
+export async function submitAiFlag(login: string, challengeId: string, flag: string): Promise<AiSubmitResult> {
+  if (!AI_ID_RE.test(challengeId)) return { ok: false, reason: "invalid" };
+  if (typeof flag !== "string" || !flag.trim()) return { ok: false, reason: "invalid" };
+
+  const { settings, cooldownSec } = await resolveSettings();
+  const gate = await evaluateGate(settings, login, challengeId, cooldownSec);
+  if (!gate.allowed) return gateToResult(gate);
+
+  return runAward(login, challengeId, flag, cooldownSec, true, "flag");
+}
+
+/** Records a solve asserted by the external side. The CALLER (the route) is
+ *  responsible for having verified the signature, the token and the replay
+ *  nonce (`claimAiNonce`) before this is reached — this function's job starts
+ *  at the pause/schedule gate.
+ *
+ *  The route SHOULD check the mode too, and report it properly; but it is not
+ *  the only thing that does. AWARD_SCRIPT refuses a `mode: "flag"` challenge on
+ *  this path itself (`{ ok: false, reason: "wrong-mode" }`), so a missed check
+ *  or a later reorder cannot turn every flag-mode challenge into something any
+ *  key holder can assert.
+ *
+ *  `dryRun` runs every gate and writes NOTHING, so an organizer can test a
+ *  live integration without awarding points. Its answer is advisory by
+ *  definition: the real path re-checks the same conditions inside the script. */
+export async function awardAiEvent(
+  login: string,
+  challengeId: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<AiSubmitResult> {
+  if (!AI_ID_RE.test(challengeId)) return { ok: false, reason: "invalid" };
+
+  const { settings, cooldownSec } = await resolveSettings();
+  // A signed event has no wrong answer, so the cooldown never applies to it —
+  // passing 0 keeps a contestant's flag-path cooldown from blocking a solve
+  // the external system already granted.
+  const gate = await evaluateGate(settings, login, challengeId, 0);
+  if (!gate.allowed) return gateToResult(gate);
+
+  if (opts.dryRun) return { ok: true, correct: true, points: 0, dryRun: true };
+
+  return runAward(login, challengeId, "", cooldownSec, false, "event");
+}

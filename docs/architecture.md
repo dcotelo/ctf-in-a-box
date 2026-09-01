@@ -876,7 +876,7 @@ config — it's baked into the `app` image at build time:
    (see
    [decisions.md #13](decisions.md#adr-13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build)).
    It validates every key under `event.yaml`'s `modules:` map against a fixed
-   set of registered ids (today: `secure-development`, `quiz`, `classic`) and
+   set of registered ids (today: `secure-development`, `quiz`, `classic`, `ai`) and
    emits a structured `modules` array (one entry per registered, enabled id)
    plus a derived back-compat `targets` array — `secure-development`'s
    `targets` list, or `[]` if that module isn't enabled — so existing `targets`
@@ -892,8 +892,10 @@ config — it's baked into the `app` image at build time:
    comes from config, display metadata lives in code — and `site.ts`'s
    `moduleNavLinks`/`buildNavLinks` splice a module's nav entry into the flat
    list iff that module is enabled and defines one (`nav` is optional in the
-   registry type, so a future module with no contestant route would
-   contribute no link; all three registered today define one). The header and
+   registry type, so a module with no contestant route contributes no link —
+   `secure-development`, `quiz` and `classic` each define one, and `ai` is
+   registered and selectable but deliberately defines none until its
+   contestant route exists, so enabling it today adds no menu entry). The header and
    the footer diverge from there: the footer (`getNavLinks`) always renders
    that flat list, but the header (`getNavGroups`) collapses it further —
    exactly one module still renders as a plain link, but two or more collapse

@@ -198,6 +198,19 @@ WIZ_DATES='  start: 2026-10-01T09:00:00-03:00
   diff -u want.yaml got.yaml
 }
 
+@test "corpus: the wizard still emits exactly the ai-only fixture" {
+  # An id in KNOWN_MODULES is OFFERED by the wizard and accepted by
+  # wiz_modules, but it is wiz_event_yaml that has to be able to WRITE it. The
+  # three tests above cover the other modules and every other wizard test runs
+  # --dry-run, which returns before the emitter — so `ai` was offered and then
+  # hard-failed at the write step with the organizer's answers already given.
+  # This is the test that closes that gap for good.
+  wiz_emit "OWASP Chapter AI Night" "" my-event-org \
+    "ai" "" poll "your-github-login" > got.yaml
+  sed '/^# targets:/d' "$CORPUS/accept-wizard-ai-only.yaml" > want.yaml
+  diff -u want.yaml got.yaml
+}
+
 @test "corpus: the wizard still emits exactly the both-modules fixture" {
   wiz_emit "OWASP Chapter CTF" "$WIZ_DATES" my-event-org \
     "secure-development quiz" "juice-shop, dvwa" push "your-github-login alice" > got.yaml

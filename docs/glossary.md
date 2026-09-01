@@ -17,9 +17,10 @@ as opposed to the challenge content plugged into it. The boundary is the
 [module contract](modules.md).
 
 **Module** — a CTF vertical plugged into the control plane: its own
-challenges, scoring logic, and provisioning. Three ship today:
-`secure-development`, `quiz`, `classic`. Any subset runs alone or together.
-See [modules.md](modules.md).
+challenges, scoring logic, and provisioning. Four ids are registered:
+`secure-development`, `quiz`, `classic` and `ai`. Any subset runs alone or
+together — though `ai` ships only its contract and store layer so far, with no
+contestant route yet. See [modules.md](modules.md).
 
 **Target** — one deliberately vulnerable app the Secure Development module
 scores (Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI).

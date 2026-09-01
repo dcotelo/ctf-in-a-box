@@ -84,7 +84,7 @@ test("a typo'd secure-development key is rejected, not treated as satisfied", ()
 });
 
 test("KNOWN_MODULES lists the ids sync tolerates", () => {
-  assert.deepEqual(KNOWN_MODULES, ["secure-development", "quiz", "classic"]);
+  assert.deepEqual(KNOWN_MODULES, ["secure-development", "quiz", "classic", "ai"]);
 });
 
 test("rejects a missing modules section entirely (not the same as an empty one)", () => {

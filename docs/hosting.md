@@ -40,7 +40,7 @@ in [operations.md](operations.md#running-an-event).
 it comes from, and the run resumes wherever you stopped.</sup>
 
 **The modules question drives the rest of the wizard.** It offers the module
-ids this build knows (`secure-development quiz classic`) and then asks only
+ids this build knows (`secure-development quiz classic ai`) and then asks only
 what the ones you picked actually need:
 
 | You enable | The wizard asks | The wizard skips |
@@ -48,7 +48,8 @@ what the ones you picked actually need:
 | `secure-development` | targets, `score_ingest` (poll/push) | — |
 | `quiz` only | nothing extra | targets, score ingest, the scorer image, the poll GitHub App, and org fork-provisioning |
 | `classic` only | nothing extra | the same set `quiz` only skips |
-| both | targets, `score_ingest` | — |
+| `ai` only | nothing extra | the same set `quiz` only skips |
+| any combination including `secure-development` | targets, `score_ingest` | — |
 
 A quiz-only event is never asked to pick vulnerable apps it will never fork,
 and the `event.yaml` it writes has **no `secure-development` block at all** —
@@ -59,6 +60,12 @@ an existing config defaults the modules question to what that file already
 declares, so a resumed run never silently switches your event to a different
 shape. At least one module must be enabled — an answer naming none (or an id
 this build doesn't know) is re-asked rather than written.
+
+**`ai` is offered but not yet playable.** The wizard accepts it and writes
+`ai: {}`, and every reader of `event.yaml` recognizes it — but this release
+ships only the module's contract and store layer. There is no `/ai` route, no
+nav entry and no admin section behind it yet, so enabling `ai` today changes
+nothing a contestant can see. Leave it out until the release that adds them.
 
 The rest of this section is the same sequence as explicit commands, for when
 you'd rather drive it yourself or script it. Each step is either a
@@ -523,7 +530,7 @@ register the OAuth app on your personal account rather than the org.
 
 `event.yaml` uses a **modules** schema. Platform settings (`event`, `github`,
 `admins`) sit at the top level; challenge content is
-namespaced under `modules.<name>`, one block per registered module id. Three
+namespaced under `modules.<name>`, one block per registered module id. Four
 ids are registered today:
 
 ```yaml
@@ -535,7 +542,24 @@ modules:
                                     # app-side — see docs/operations.md's "Quiz"
   classic: {}                     # jeopardy-style flag board, scored app-side
                                     # — see docs/operations.md's "Classic"
+  ai: {}                          # externally hosted AI/LLM challenges.
+                                    # REGISTERED AND SELECTABLE, BUT NOT YET
+                                    # PLAYABLE: this release ships the module's
+                                    # contract and store layer only — no /ai
+                                    # route, no nav entry, no admin section.
+                                    # Enabling it changes nothing a contestant
+                                    # can see until a later release adds them.
 ```
+
+**`ai` is new to the module-id enum in this release, and adding it breaks
+nothing.** The set of accepted ids only grew: every `event.yaml` that was
+valid before is still valid, and an event already running needs no change and
+no Redis migration — it keeps whatever `modules:` block it was built with.
+Enabling `ai` is opt-in and, like every other module change, takes effect on a
+rebuild (`event.yaml` is baked into the `app` image, not read at runtime).
+Module authors and anything that switches exhaustively over the module id —
+`apps/web/src/lib/modules.ts`'s `ModuleId`, `event-config.ts`, the three
+`KNOWN_MODULES` readers — must now handle `"ai"`.
 
 **A module is enabled by being present.** There is no `enabled:` key: a
 module is live because its key appears under `modules:`, and disabled because
@@ -560,7 +584,7 @@ three readers of `event.yaml` — the app's generator
 (`apps/web/scripts/generate-event-config.mjs`), the poll service's config
 loader (`sync/src/config.js`'s `KNOWN_MODULES`), and the provisioning
 script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) — recognize
-`secure-development`, `quiz`, and `classic` as known ids and reject anything
+`secure-development`, `quiz`, `classic` and `ai` as known ids and reject anything
 else loudly.
 Adding `quiz:` turns on a real second module: a "Quiz" nav link and a `/quiz`
 page for contestants, a Quiz section in `/admin` for authoring questions

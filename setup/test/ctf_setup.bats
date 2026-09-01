@@ -702,7 +702,7 @@ modules:
 YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic [quiz]'
+  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic ai [quiz]'
   [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
   [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
 }
@@ -734,7 +734,7 @@ modules:
 YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic [secure-development quiz]'
+  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic ai [secure-development quiz]'
 }
 
 @test "wizard: a quiz-only event skips the scorer image and poll App steps" {

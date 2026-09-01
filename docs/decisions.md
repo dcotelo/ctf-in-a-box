@@ -68,6 +68,7 @@ their **Status** line; the record itself is never rewritten.
 - [ADR 50 — Metrics are computed from stored data; forks report nothing](#adr-50-metrics-are-computed-from-stored-data-forks-report-nothing)
 - [ADR 51 — Base images are digest-pinned, and dependabot is what keeps the pin honest](#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)
 - [ADR 52 — Modules are switched at runtime; Secure Development is configured at setup](#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)
+- [ADR 53 — ai launch tokens are asymmetric; event signatures stay symmetric](#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric)
 
 ## ADR 1. Keep the GitHub fork/PR/Action flow — it is the pedagogy
 
@@ -312,7 +313,7 @@ dynamic/plugin-style loading in v1.
 
 **Consequences.** An organizer who writes `modules.forensics: {...}` today
 gets a loud startup failure (`event.yaml: unknown module: forensics (known
-modules: secure-development, quiz, classic)`), not a silently ignored block.
+modules: secure-development, quiz, classic, ai)`), not a silently ignored block.
 Adding a real second module is a code change, not a config-only addition, but
 the two enumerations play different roles and both must be extended:
 
@@ -2847,3 +2848,120 @@ destination, where the lock screen is the one page a pre-event crowd hammers
 and should make no settings read at all. `/privacy` did become dynamic — its
 claims about what is collected have to match what actually is, and
 under-disclosure is the wrong direction to be wrong in.
+
+## ADR 53. ai launch tokens are asymmetric; event signatures stay symmetric
+
+**Status.** Accepted.
+
+**Context.** An `ai` challenge is hosted outside the box. Two signatures make
+that work: the box mints a per-user **launch token** the contestant carries to
+the external site, and the external backend may POST a signed **solve event**
+back. The first design gave both jobs one key — the per-challenge
+`ctf:ai:signkey` — chosen deliberately so that a backend holding that key could
+*verify* the token it had been handed and *sign* its events with the same
+secret. One key, both directions, nothing to distribute.
+
+That is a hole, not a trade-off, and it is inherent to a symmetric MAC:
+**verify-power is mint-power**. A backend holding a challenge's event key could
+mint a launch token naming any `sub`, and a route that took `claims.sub` and
+handed it to `awardAiEvent` would award points to a contestant who had never
+opened the challenge — or to one who does not play at all. Every key holder is
+an organizer's third-party integration, which is exactly the party the design
+says identity is withheld from. The module's own threat notes claimed a leaked
+key "cannot invent users"; as built, that was backwards.
+
+Found by review on [#241](https://github.com/dcotelo/ctf-in-a-box/pull/241),
+before any route existed to exploit it.
+
+**Decision.** **Split the two by key type, not by key count.**
+
+- **Launch tokens are EdDSA (Ed25519)**, signed with a **module-wide private
+  key** the box alone holds, stored as a PEM pair in `ctf:ai:launchkey`. The
+  public half is published.
+- **Event signatures stay HMAC-SHA256** over the raw request body, keyed by the
+  unchanged **per-challenge** `ctf:ai:signkey`.
+
+This keeps what the original choice was *for* and drops what it cost. The reason
+symmetric was picked — so an integrator can verify the token — survives and gets
+better: a public key is publishable, so a key-holding backend **and a pure
+static SPA with no secret at all** can both verify, where before only the former
+could. What does not survive is minting: nothing an external party holds
+produces a token the box accepts.
+
+Three properties fall out, and each is pinned by a test:
+
+- **`audience` is required**, in the type and at runtime, and a caller that
+  omits it gets every token refused rather than any token accepted. One keypair
+  now covers the module, so `aud` is the only thing separating a token for
+  challenge A from one for challenge B — and these routes are unauthenticated
+  and cookie-blind, where a silently-skipped check has no second line of
+  defence.
+- **The token's `alg` header is never read.** Ed25519 is hard-coded and asserted
+  against the *key*, which is not attacker-controlled. Algorithm confusion is
+  the precise class of bug this ADR exists to close; re-introducing an `alg`
+  switch re-opens it.
+- **The old HS256 `signToken`/`verifyToken` are deleted, not deprecated.**
+  Leaving a symmetric minting function beside the asymmetric one is how the hole
+  comes back at the hands of someone reaching for the nearer import.
+
+**Rejected.**
+
+- **One symmetric key for both** — the status quo, and the hole itself. Its one
+  merit (an integrator can verify) is fully preserved by the public key, so
+  there is nothing left on its side of the ledger.
+- **Two symmetric keys** — a separate box-only HMAC secret for launch tokens.
+  It closes the specific attack and is a smaller change. Rejected because it
+  forfeits the property that made the original choice attractive: an integrator
+  can no longer verify the token at all, since the key that checks it is the key
+  that mints it and can never be shared. A static SPA would be left decoding
+  unverified claims forever. Ed25519 costs the same round trips and strictly
+  dominates.
+- **A launch keypair per challenge** — `aud` already scopes a token to one
+  challenge, so per-challenge keys add key management without adding a boundary,
+  and they multiply the public keys an integrator must fetch by the size of the
+  catalogue.
+- **A minted-`jti` registry** — record every token the box mints and accept only
+  a `jti` that is in it. This closes forgery with no crypto change at all, and
+  was rejected on cost and failure direction: it puts a Redis write on every
+  challenge-page render and a Redis read on every submission, it needs a TTL
+  policy that must outlive the token, and the registry read has to fail
+  *closed* — so a Redis blip stops every solve on the module, in exchange for a
+  property a signature scheme gives for free and statelessly.
+- **JWKS with key rotation** — the shape this grows into, deferred. One key and
+  one publishable PEM is enough while there is one box and one module; the `kid`
+  is already a public-key thumbprint, so the upgrade is additive.
+
+**Consequences.**
+
+**The box now holds a private key it must not leak, and that key is the module's
+crown jewel.** An event signing key lets its holder assert a solve on one
+challenge for a player who already holds a box-minted token. The launch private
+key mints identity itself: any user, any challenge. It therefore joins the
+contestant secrecy boundary alongside `ctf:ai:flag` and `ctf:ai:signkey` — no
+contestant-path read names `ctf:ai:launchkey`, the store's public-half reader
+exists precisely so a route never has to load the private half, and the
+poisoned-record leak tests cover it exactly as they cover the flag.
+
+**The public key is safe to publish, and publishing it is the point.** It is
+served unauthenticated. That is not a concession; it is what lets an integrator
+verify without the box handing any secret to a browser.
+
+**The threat note is now true rather than aspirational.** A leaked event key
+proves the sender and can invent nobody — the sentence the first draft asserted
+and the code did not support.
+
+**Minting is atomic and the pair is never silently replaced.** First use writes
+with `SET NX` and reads back in the same pipeline, returning the *persisted*
+value, so two concurrent mints converge and a losing racer never signs with a
+key whose public half the box does not publish. A stored-but-corrupt record
+throws rather than being overwritten: minting over it would invalidate every
+token already sitting in a contestant's browser, mid-event, with nothing
+anywhere saying why. For the same reason `clearAiChallenges` — the archive
+import's catalogue wipe — deliberately leaves it alone. It is module identity,
+not catalogue content.
+
+**Rotation is a real operation with a real blast radius.** Rotating an event key
+breaks one integration until it is redeployed. Rotating the launch keypair
+invalidates every live token at once and changes the published public key under
+every deployed verifier. The two are not the same button and must not be offered
+as though they were.
