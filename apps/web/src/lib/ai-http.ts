@@ -5,6 +5,7 @@
 // `ai-store.ts` itself, so the security decisions stay visible in the route
 // rather than hiding behind a helper.
 import { AI_EVENT_BODY_MAX } from "@/lib/ai-defaults";
+import type { AiSubmitResult } from "@/lib/ai-store";
 
 /** CORS for the ai routes, and ONLY these routes.
  *
@@ -72,4 +73,47 @@ export async function readRawBody(request: Request): Promise<RawBody> {
   } catch {
     return { ok: false, error: "invalid-json" };
   }
+}
+
+/** Status code for each `AiSubmitResult` refusal reason. A `Record` keyed on
+ *  the exact union — adding a reason to the store's type without adding it
+ *  here is a compile error, not a silently-500 refusal. */
+const REFUSAL_STATUS: Record<Extract<AiSubmitResult, { ok: false }>["reason"], number> = {
+  paused: 403,
+  solved: 409,
+  cooldown: 429,
+  unavailable: 503,
+  invalid: 400,
+  error: 503,
+  // Refused by AWARD_SCRIPT itself even when a route's own mode check misses
+  // it (see ai-store.ts's `submitAiFlag`/`awardAiEvent` docs) — same status
+  // the routes use for their own pre-check.
+  "wrong-mode": 409,
+};
+
+/** Turns one `AiSubmitResult` — from `submitAiFlag` or `awardAiEvent` — into
+ *  the wire response, with CORS headers attached via `aiJson`. Shared by both
+ *  award routes so a correct solve, a wrong flag and every refusal look
+ *  identical no matter which path produced the result.
+ *
+ *  Never carries the flag: `AiSubmitResult` has no field for one, so there is
+ *  nothing here to leak even by accident. `already` always rides along on a
+ *  correct solve — defaulted to `false` rather than omitted — so a caller
+ *  never has to treat a missing key as "false" itself. */
+export function aiAwardResponse(result: AiSubmitResult): Response {
+  if (result.ok) {
+    if (!result.correct) return aiJson({ correct: false });
+    const body: Record<string, unknown> = {
+      correct: true,
+      points: result.points,
+      already: result.already ?? false,
+    };
+    if (result.dryRun) body.dryRun = true;
+    return aiJson(body);
+  }
+
+  const status = REFUSAL_STATUS[result.reason];
+  const body: Record<string, unknown> = { error: result.reason };
+  if (result.reason === "cooldown" && result.retryAt) body.retryAt = result.retryAt;
+  return aiJson(body, status);
 }
