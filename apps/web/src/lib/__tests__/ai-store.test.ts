@@ -334,6 +334,15 @@ describe("claimAiNonce", () => {
     expect(await claimAiNonce(undefined as unknown as string)).toBe(false);
     expect(pipelineCalls()).toHaveLength(0);
   });
+
+  it("refuses a jti that is not a plain short token, before any Redis call", async () => {
+    // The jti arrives inside a request body and becomes part of a Redis key
+    // name. Unbounded input there is an unbounded key.
+    for (const bad of ["", "x".repeat(129), "has space", "colon:sep", "sl/ash"]) {
+      expect(await claimAiNonce(bad)).toBe(false);
+    }
+    expect(pipelineCalls()).toHaveLength(0);
+  });
 });
 
 describe("listAiCategories", () => {

@@ -17,6 +17,7 @@ import {
   AI_HINTS_KEY as HINTS_KEY,
   AI_HINT_MAX,
   AI_ID_RE,
+  AI_JTI_RE,
   AI_LAUNCHKEY_KEY as LAUNCHKEY_KEY,
   AI_POINTS_KEY as POINTS_KEY,
   AI_POINTS_MAX,
@@ -316,9 +317,14 @@ export async function getAiLaunchPublicKey(): Promise<string> {
  *  "this is a replay" have to reach the caller as the same answer.
  *
  *  `SET ... NX EX` is one atomic round trip on purpose. A GET-then-SET would
- *  let two copies of the same captured request both observe "not seen yet". */
+ *  let two copies of the same captured request both observe "not seen yet".
+ *
+ *  A malformed `jti` (not `AI_JTI_RE`) is refused before any Redis call, same
+ *  as a replay — fail closed, same direction as the rest of this function. The
+ *  value arrives inside a request body and becomes part of a Redis key name,
+ *  so an unbounded one is an unbounded key. */
 export async function claimAiNonce(jti: string): Promise<boolean> {
-  if (typeof jti !== "string" || !jti) return false;
+  if (typeof jti !== "string" || !AI_JTI_RE.test(jti)) return false;
   try {
     const [res] = await upstashPipeline([
       ["SET", nonceKey(jti), new Date().toISOString(), "NX", "EX", AI_NONCE_TTL_SEC],

@@ -60,6 +60,11 @@ export const aiNonceKey = (jti: string) => `${AI_NONCE_PREFIX}${jti}`;
  *  write, API boundary). */
 export const AI_ID_RE = /^[\w-]{1,64}$/;
 
+/** A token's `jti`, which becomes part of a Redis key name in the replay
+ *  guard. Base64url characters only, bounded length — the value arrives
+ *  inside a request body, and an unbounded one is an unbounded key. */
+export const AI_JTI_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
 /** Upper bound on a challenge's point value. NOT cosmetic: `AWARD_SCRIPT`
  *  reads points back out of the challenge JSON with an anchored plain-integer
  *  match, and at >=1e21 JavaScript serialises `1e+21`, which the pattern
