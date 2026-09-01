@@ -105,16 +105,68 @@ export type RawBody =
  *  this path, which is why the raw form is returned rather than left to the
  *  caller to re-read (a `Request` body can only be consumed once).
  *
- *  The cap is measured in BYTES and checked BEFORE `JSON.parse`, so an
- *  oversized body is never parsed and never hashed. */
+ *  The cap is measured in BYTES and enforced WHILE READING, so an oversized
+ *  body is never fully buffered, never parsed and never hashed.
+ *
+ *  That ordering matters more than it looks. This runs BEFORE the token check
+ *  and before the rate limiter — it has to, since the token is IN the body —
+ *  so it is the one thing on these routes an unauthenticated caller can reach
+ *  at will. `request.text()` would buffer the whole payload before anyone
+ *  looked at its size, and a handful of concurrent multi-megabyte POSTs from
+ *  a stranger would then allocate up to the framework's own limit apiece with
+ *  nothing here to stop them. Two cheaper gates instead:
+ *
+ *    1. a declared `Content-Length` over the cap is refused without the
+ *       stream being touched at all;
+ *    2. a body with no (or a lying) `Content-Length` is read chunk by chunk
+ *       and abandoned — reader cancelled, buffers dropped — the moment the
+ *       running total crosses the cap, so at most one chunk beyond it is ever
+ *       held.
+ *
+ *  The decode is the spec's UTF-8 decode (`TextDecoder`, BOM-stripping,
+ *  replacement on invalid sequences), which is exactly what `Request.text()`
+ *  does — the returned `raw` must stay byte-for-byte what `text()` produced,
+ *  because the event route HMACs it. */
 export async function readRawBody(request: Request): Promise<RawBody> {
-  let raw: string;
+  // Gate 1: the declared length. A stranger claiming megabytes is refused on
+  // the header alone, before a single byte of the stream is pulled. Only a
+  // well-formed decimal count is trusted to refuse — anything else falls
+  // through to the streaming gate, which measures rather than believes.
+  const declared = request.headers.get("content-length");
+  if (declared !== null && /^\d+$/.test(declared.trim())) {
+    if (Number(declared.trim()) > AI_EVENT_BODY_MAX) return { ok: false, error: "too-large" };
+  }
+
+  const body = request.body;
+  // No stream at all. The old `request.text()` turned this into an empty
+  // string and then a `JSON.parse` failure; same refusal, one step earlier.
+  if (body === null) return { ok: false, error: "invalid-json" };
+
+  // Gate 2: measure as it arrives. `Content-Length` is the caller's claim,
+  // and a chunked request need not make one.
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
-    raw = await request.text();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > AI_EVENT_BODY_MAX) {
+        await reader.cancel();
+        return { ok: false, error: "too-large" };
+      }
+      chunks.push(value);
+    }
   } catch {
+    // An unreadable body — the same refusal the old `request.text()` catch
+    // produced. The cancel is best-effort: the stream is already broken.
+    await reader.cancel().catch(() => {});
     return { ok: false, error: "invalid-json" };
   }
-  if (Buffer.byteLength(raw, "utf8") > AI_EVENT_BODY_MAX) return { ok: false, error: "too-large" };
+
+  const raw = new TextDecoder().decode(Buffer.concat(chunks));
 
   try {
     const parsed = JSON.parse(raw) as unknown;
