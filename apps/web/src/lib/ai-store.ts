@@ -4,7 +4,7 @@ export { AI_COOLDOWN_SEC } from "./ai-defaults";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
 import { AI_COOLDOWN_SEC, AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
-import { generateSigningKey } from "@/lib/ai-token";
+import { generateLaunchKeyPair, generateSigningKey, type AiLaunchKeyPair } from "@/lib/ai-token";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
@@ -17,6 +17,7 @@ import {
   AI_HINTS_KEY as HINTS_KEY,
   AI_HINT_MAX,
   AI_ID_RE,
+  AI_LAUNCHKEY_KEY as LAUNCHKEY_KEY,
   AI_POINTS_KEY as POINTS_KEY,
   AI_POINTS_MAX,
   AI_SIGNKEY_KEY as SIGNKEY_KEY,
@@ -40,23 +41,29 @@ import {
  * demo seed and master reset reuse the key names from `ai-keys.ts` directly.
  *
  * Secrecy boundary — a CONTESTANT boundary, with FOUR secret hashes rather
- * than classic's three:
+ * than classic's three, plus one secret string:
  *
  *   - `listAiChallenges` (CONTESTANT path) issues no command against
- *     `ctf:ai:flag`, `ctf:ai:flagnorm`, `ctf:ai:hints` or `ctf:ai:signkey`,
- *     and `AiChallenge` has no field any of them could ride in.
- *   - `listAiChallengesForAdmin` (behind `requireAdmin`) reads all four and
- *     returns them in an `AdminAiChallenge` shape that is deliberately NOT
+ *     `ctf:ai:flag`, `ctf:ai:flagnorm`, `ctf:ai:hints`, `ctf:ai:signkey` or
+ *     `ctf:ai:launchkey`, and `AiChallenge` has no field any of them could ride
+ *     in.
+ *   - `listAiChallengesForAdmin` (behind `requireAdmin`) reads all four hashes
+ *     and returns them in an `AdminAiChallenge` shape that is deliberately NOT
  *     assignable to `AiChallenge`, so handing an admin row to a
  *     contestant-facing component is a compile error rather than a leak.
- *   - `getAiSigningKey` is the ONE key reader a route may call: one field of
- *     one hash. A route that needs a key must never reach for the admin lister
- *     instead — see that function's own docstring.
+ *   - `getAiSigningKey` is the ONE per-challenge key reader a route may call:
+ *     one field of one hash. A route that needs a key must never reach for the
+ *     admin lister instead — see that function's own docstring.
+ *   - `getAiLaunchKeys` returns the module-wide launch keypair and is
+ *     MINT-SIDE ONLY. A route that merely needs to VERIFY a token calls
+ *     `getAiLaunchPublicKey`, which hands back the public half alone.
  *
- * `ctf:ai:signkey` is the most dangerous of the four. A flag lets its holder
- * claim one solve; a signing key lets its holder ASSERT solves on that
- * challenge for every player who has opened it. Treat any code path that could
- * carry it into a contestant payload as a critical bug.
+ * `ctf:ai:launchkey`'s private half is the most dangerous secret in the module.
+ * A flag lets its holder claim one solve; an event signing key lets its holder
+ * assert solves on ONE challenge for players who already hold a box-minted
+ * token; the launch PRIVATE key lets its holder mint identity itself, naming
+ * any user on any challenge. Treat any code path that could carry it — or a
+ * flag, or an event key — into a contestant payload as a critical bug.
  */
 
 /** Public-safe challenge record. Never carries a flag, a hint or a key. */
@@ -225,6 +232,76 @@ export async function getAiSigningKey(id: string): Promise<string | null> {
   if (!AI_ID_RE.test(id)) return null;
   const [res] = await upstashPipeline([["HGET", SIGNKEY_KEY, id]]);
   return typeof res.result === "string" && res.result ? res.result : null;
+}
+
+function parseLaunchKeys(raw: unknown): AiLaunchKeyPair | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { publicKey, privateKey } = parsed as Record<string, unknown>;
+    if (typeof publicKey !== "string" || !publicKey) return null;
+    if (typeof privateKey !== "string" || !privateKey) return null;
+    return { publicKey, privateKey };
+  } catch {
+    return null;
+  }
+}
+
+/** The module-wide Ed25519 launch keypair, minted on first use.
+ *
+ *  SERVER-ONLY and MINT-SIDE ONLY. The private half names users: whoever holds
+ *  it can mint a token for anybody, so it must never reach a response, a log or
+ *  a client bundle. A caller that only needs to CHECK a token wants
+ *  `getAiLaunchPublicKey` instead.
+ *
+ *  The first write is a check-then-act, so it is done with an atomic `SET NX`
+ *  followed by a `GET` in the SAME pipeline — the same lesson as the signing
+ *  key's `HSETNX` mint. Two concurrent first uses would otherwise each generate
+ *  a different keypair and the later write would win silently, leaving the
+ *  losing caller minting tokens with a private key that was never persisted:
+ *  every one of them would fail verification against the public key the box
+ *  actually publishes, and nothing anywhere would say why.
+ *
+ *  So the value RETURNED is always the one read back, never the local
+ *  candidate. If the read-back is unusable we do not know which pair is live,
+ *  and an error is the honest answer.
+ *
+ *  A stored-but-corrupt record throws rather than being overwritten: silently
+ *  minting a fresh pair over it would invalidate every launch token already in
+ *  a contestant's browser, mid-event, with no message anywhere. */
+export async function getAiLaunchKeys(): Promise<AiLaunchKeyPair> {
+  const [existing] = await upstashPipeline([["GET", LAUNCHKEY_KEY]]);
+  if (existing.error) throw new Error(`Upstash GET failed: ${existing.error}`);
+  // `null` (no key yet) is the ONLY reply that mints. A present-but-unparseable
+  // value falls through to the SET NX below, which is a no-op against it, and
+  // then fails on the read-back — loudly, without destroying anything.
+  if (existing.result !== null && existing.result !== undefined) {
+    const found = parseLaunchKeys(existing.result);
+    if (found) return found;
+    throw new Error("ai launch keys: the stored keypair is unusable (refusing to overwrite it)");
+  }
+
+  const candidate = generateLaunchKeyPair();
+  const [, persistedRes] = await upstashPipeline([
+    ["SET", LAUNCHKEY_KEY, JSON.stringify(candidate), "NX"],
+    ["GET", LAUNCHKEY_KEY],
+  ]);
+  if (persistedRes.error) throw new Error(`Upstash GET failed: ${persistedRes.error}`);
+  const persisted = parseLaunchKeys(persistedRes.result);
+  if (!persisted) throw new Error("Upstash GET returned no usable ai launch keypair");
+  return persisted;
+}
+
+/** The PUBLIC half alone — safe to serve, and meant to be. Publishing it is
+ *  what lets a key-holding backend AND a pure static SPA verify a launch token
+ *  without either of them being able to mint one.
+ *
+ *  It reads the same record as `getAiLaunchKeys` (there is only one), so it
+ *  mints the pair on first use too; it just never lets the private half out of
+ *  this module. */
+export async function getAiLaunchPublicKey(): Promise<string> {
+  return (await getAiLaunchKeys()).publicKey;
 }
 
 /** Claims a signed event's `jti` exactly once, and reports whether THIS caller
@@ -577,6 +654,13 @@ export async function deleteAiChallenge(id: string): Promise<void> {
  *  per the first paragraph. That is a per-challenge counter for a catalogue
  *  that is about to be replaced wholesale, not a per-login aggregate — the
  *  per-login ones (`ctf:ai:points`, `ctf:ai:solved`) survive here too.
+ *
+ *  `ctf:ai:launchkey` is NOT touched either, and that is deliberate. It is
+ *  module-wide identity material, not catalogue content: dropping it here would
+ *  silently rotate the module's public key on every archive import, breaking
+ *  every deployed verifier and invalidating every token already in a
+ *  contestant's browser — for a wipe that was only ever meant to replace the
+ *  challenge list.
  *
  *  Surfaces per-command errors for the same reason as above. */
 export async function clearAiChallenges(): Promise<void> {

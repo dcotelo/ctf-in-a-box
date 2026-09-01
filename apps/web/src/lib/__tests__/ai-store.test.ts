@@ -1,9 +1,11 @@
 // Read paths for the ai store — and above all, the secrecy boundary. Four
 // SECRET hashes hang off this module (`ctf:ai:flag`, `ctf:ai:flagnorm`,
-// `ctf:ai:hints`, `ctf:ai:signkey`), and the signing key is the worst of them
-// to leak: one leaked key lets its holder assert solves on that challenge for
-// anyone who has opened it. The contestant path must issue no command that
-// even NAMES those keys.
+// `ctf:ai:hints`, `ctf:ai:signkey`) plus one secret string
+// (`ctf:ai:launchkey`), and the launch key's PRIVATE half is the worst of the
+// five to leak: an event signing key lets its holder assert solves on one
+// challenge for players who already hold a box-minted token, but the launch
+// private key mints identity itself and can name anybody. The contestant path
+// must issue no command that even NAMES those keys.
 //
 // Authoring (upsert/rotate/delete) lives in ai-store.authoring.test.ts and
 // grading in ai-store.grade.test.ts — the latter needs a partial
@@ -17,6 +19,8 @@ vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipelin
 
 import {
   claimAiNonce,
+  getAiLaunchKeys,
+  getAiLaunchPublicKey,
   getAiSigningKey,
   getAiSolveCounts,
   getAiTotals,
@@ -32,7 +36,11 @@ const pipelineCalls = (): (string | number)[][][] =>
   mocks.upstashPipeline.mock.calls.map((call) => call[0] as (string | number)[][]);
 
 /** Every key name a contestant-facing read must never touch. */
-const SECRET_KEYS = ["ctf:ai:flag", "ctf:ai:flagnorm", "ctf:ai:hints", "ctf:ai:signkey"];
+const SECRET_KEYS = ["ctf:ai:flag", "ctf:ai:flagnorm", "ctf:ai:hints", "ctf:ai:signkey", "ctf:ai:launchkey"];
+
+/** A stand-in for the launch private key, in the poisoned-record tests. Any
+ *  contestant payload containing this string is a critical bug. */
+const LEAKED_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----leak-----END PRIVATE KEY-----";
 
 const CHALLENGE = {
   id: "prompt-leak-ab12cd",
@@ -83,6 +91,7 @@ describe("listAiChallenges", () => {
       flagnorm: "ctf{leak}",
       hint: "Try asking twice.",
       signingKey: "aik_secret",
+      launchPrivateKey: LEAKED_PRIVATE_KEY,
     });
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: [CHALLENGE.id, poisoned] }]);
 
@@ -91,7 +100,7 @@ describe("listAiChallenges", () => {
     expect(rows).toEqual([CHALLENGE]);
     expect(Object.keys(rows[0]).sort()).toEqual(Object.keys(CHALLENGE).sort());
     const payload = JSON.stringify(rows);
-    for (const secret of ["CTF{leak}", "ctf{leak}", "aik_secret", "Try asking twice."]) {
+    for (const secret of ["CTF{leak}", "ctf{leak}", "aik_secret", "Try asking twice.", LEAKED_PRIVATE_KEY]) {
       expect(payload).not.toContain(secret);
     }
   });
@@ -146,7 +155,7 @@ describe("getAiSigningKey", () => {
     // into a request handler that answers the public internet.
     expect(pipelineCalls()).toEqual([[["HGET", "ctf:ai:signkey", CHALLENGE.id]]]);
     const named = JSON.stringify(pipelineCalls());
-    for (const key of ["ctf:ai:flag", "ctf:ai:flagnorm", "ctf:ai:hints", "ctf:ai:challenges"]) {
+    for (const key of ["ctf:ai:flag", "ctf:ai:flagnorm", "ctf:ai:hints", "ctf:ai:challenges", "ctf:ai:launchkey"]) {
       expect(named).not.toContain(key);
     }
   });
@@ -165,6 +174,120 @@ describe("getAiSigningKey", () => {
 
     expect(await getAiSigningKey("bad id!")).toBeNull();
     expect(pipelineCalls()).toHaveLength(3); // the bad id cost no round trip
+  });
+});
+
+describe("getAiLaunchKeys", () => {
+  const PAIR = { publicKey: "-----BEGIN PUBLIC KEY-----stored", privateKey: "-----BEGIN PRIVATE KEY-----stored" };
+
+  /** Replies to the first `GET ctf:ai:launchkey`. */
+  function storedReply(result: unknown) {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result }]);
+  }
+  /** Replies to the mint pipeline: `SET ... NX` then `GET`, in that order.
+   *  `persisted` is what the GET reads back — the value that actually WON,
+   *  which may not be this caller's candidate. `null` means this caller's own
+   *  SET NX won, so the GET echoes the candidate it just planted; a real
+   *  pipeline runs both commands against the same key in order, and a fixture
+   *  that replied `null` there would model a Redis that forgets a write it just
+   *  accepted — letting a caller-side fallback pass for correct. */
+  function mintReply(persisted: string | null) {
+    mocks.upstashPipeline.mockImplementationOnce(async (commands: (string | number)[][]) => [
+      { result: persisted === null ? "OK" : null },
+      { result: persisted ?? String(commands[0][2]) },
+    ]);
+  }
+
+  it("returns a stored pair without minting or writing anything", async () => {
+    storedReply(JSON.stringify(PAIR));
+
+    expect(await getAiLaunchKeys()).toEqual(PAIR);
+
+    // ONE round trip, and no SET anywhere in it. A read that rewrote the key
+    // would rotate the module's identity on every page render.
+    expect(pipelineCalls()).toEqual([[["GET", "ctf:ai:launchkey"]]]);
+  });
+
+  it("mints an Ed25519 pair on first use with SET NX, and returns the PERSISTED value", async () => {
+    storedReply(null);
+    mintReply(null);
+
+    const pair = await getAiLaunchKeys();
+
+    expect(pair.privateKey).toContain("BEGIN PRIVATE KEY");
+    expect(pair.publicKey).toContain("BEGIN PUBLIC KEY");
+    const [, mint] = pipelineCalls();
+    // NX in the SAME pipeline as the read-back: claim-or-lose in one round
+    // trip, then read whichever pair actually won.
+    expect(mint[0][0]).toBe("SET");
+    expect(mint[0][1]).toBe("ctf:ai:launchkey");
+    expect(mint[0][3]).toBe("NX");
+    expect(mint[1]).toEqual(["GET", "ctf:ai:launchkey"]);
+    expect(JSON.parse(String(mint[0][2]))).toEqual(pair);
+  });
+
+  it("converges on the WINNER's pair when two mints race, never on its own candidate", async () => {
+    // The losing racer: its SET NX was a no-op, and the pair it generated
+    // locally was never persisted. Returning that candidate would have the box
+    // minting tokens signed with a private key whose public half it does not
+    // publish — every one of them failing verification, with nothing saying why.
+    const winner = { publicKey: "-----BEGIN PUBLIC KEY-----winner", privateKey: "-----BEGIN PRIVATE KEY-----winner" };
+    storedReply(null);
+    mintReply(JSON.stringify(winner));
+
+    const pair = await getAiLaunchKeys();
+
+    expect(pair).toEqual(winner);
+    // And specifically NOT the candidate this call generated and offered.
+    const candidate = JSON.parse(String(pipelineCalls()[1][0][2])) as typeof winner;
+    expect(candidate.privateKey).not.toBe(pair.privateKey);
+  });
+
+  it("throws rather than returning a pair the read-back could not confirm", async () => {
+    storedReply(null);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: "OK" }, { error: "ERR down" }]);
+    await expect(getAiLaunchKeys()).rejects.toThrow(/GET failed/i);
+
+    storedReply(null);
+    mintReply("{not json");
+    await expect(getAiLaunchKeys()).rejects.toThrow(/no usable ai launch keypair/i);
+
+    // A half-record is no better than none: a pair missing either half cannot
+    // both mint and be verified against.
+    storedReply(null);
+    mintReply(JSON.stringify({ publicKey: PAIR.publicKey }));
+    await expect(getAiLaunchKeys()).rejects.toThrow(/no usable ai launch keypair/i);
+  });
+
+  it("refuses to overwrite a stored-but-corrupt record", async () => {
+    // Minting over it would invalidate every launch token already sitting in a
+    // contestant's browser, mid-event, silently.
+    storedReply("{not json");
+    await expect(getAiLaunchKeys()).rejects.toThrow(/refusing to overwrite/i);
+    expect(pipelineCalls()).toHaveLength(1);
+  });
+
+  it("surfaces a failed initial read instead of minting a second keypair over it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "ERR down" }]);
+    await expect(getAiLaunchKeys()).rejects.toThrow(/GET failed/i);
+    expect(pipelineCalls()).toHaveLength(1);
+  });
+});
+
+describe("getAiLaunchPublicKey", () => {
+  it("hands back the public half ALONE — the private half never leaves the store", async () => {
+    const PAIR = { publicKey: "-----BEGIN PUBLIC KEY-----ok", privateKey: "-----BEGIN PRIVATE KEY-----secret" };
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(PAIR) }]);
+
+    const published = await getAiLaunchPublicKey();
+
+    // A future route serves this verbatim, so the assertion is on the returned
+    // VALUE, not on a field name: returning the whole record (or the private
+    // key by mistake) is the failure this catches.
+    expect(published).toBe(PAIR.publicKey);
+    expect(typeof published).toBe("string");
+    expect(published).not.toContain("PRIVATE");
+    expect(published).not.toContain(PAIR.privateKey);
   });
 });
 
@@ -247,7 +370,13 @@ describe("getViewerAi", () => {
       {
         result: [
           CHALLENGE.id,
-          JSON.stringify({ points: 300, at: "2026-08-31T11:00:00.000Z", source: "event", flag: "CTF{leak}" }),
+          JSON.stringify({
+            points: 300,
+            at: "2026-08-31T11:00:00.000Z",
+            source: "event",
+            flag: "CTF{leak}",
+            launchPrivateKey: LEAKED_PRIVATE_KEY,
+          }),
         ],
       },
       {
@@ -265,6 +394,7 @@ describe("getViewerAi", () => {
     const payload = JSON.stringify(viewer);
     expect(payload).not.toContain("CTF{leak}");
     expect(payload).not.toContain("aik_secret");
+    expect(payload).not.toContain(LEAKED_PRIVATE_KEY);
   });
 
   it("defaults a legacy solve row with no source to the graded path", async () => {

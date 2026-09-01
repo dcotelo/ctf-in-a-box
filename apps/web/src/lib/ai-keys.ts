@@ -23,9 +23,25 @@ export const AI_CATEGORIES_KEY = "ctf:ai:categories";
 export const AI_FLAG_KEY = "ctf:ai:flag";
 /** SECRET: the only value grading ever compares against. */
 export const AI_FLAGNORM_KEY = "ctf:ai:flagnorm";
-/** SECRET: per-challenge signing key. Leaking one lets its holder assert
- *  solves on that challenge — treat it exactly like the flag hashes. */
+/** SECRET: per-challenge EVENT signing key, symmetric. Leaking one lets its
+ *  holder assert solves on that challenge for users who already hold a
+ *  box-minted launch token — treat it exactly like the flag hashes. It cannot
+ *  mint a launch token; that is what `AI_LAUNCHKEY_KEY` is for. */
 export const AI_SIGNKEY_KEY = "ctf:ai:signkey";
+/** HALF SECRET: one JSON `{ publicKey, privateKey }` holding the MODULE-WIDE
+ *  Ed25519 launch keypair, PEM-encoded.
+ *
+ *  The private half is the most dangerous secret in the module — it mints
+ *  identity, so its holder can name ANY user — and so this string key sits
+ *  inside the same contestant secrecy boundary as the flag and signkey hashes:
+ *  no contestant-path read may name it. The public half is PUBLIC BY DESIGN and
+ *  meant to be served, which is why `ai-store.ts` exposes a reader for it
+ *  alone.
+ *
+ *  Module-wide rather than per challenge: a token's `aud` already scopes it to
+ *  one challenge, and one publishable public key is far simpler for an
+ *  integrator than one per challenge. See ADR 53. */
+export const AI_LAUNCHKEY_KEY = "ctf:ai:launchkey";
 /** SECRET until purchased, like classic's. */
 export const AI_HINTS_KEY = "ctf:ai:hints";
 export const AI_POINTS_KEY = "ctf:ai:points";
