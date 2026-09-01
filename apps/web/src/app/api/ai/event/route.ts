@@ -1,0 +1,102 @@
+import { aiAwardResponse, aiJson, aiPreflight, readRawBody } from "@/lib/ai-http";
+import { AI_ID_RE } from "@/lib/ai-keys";
+import { awardAiEvent, claimAiNonce, getAiLaunchPublicKey, getAiSigningKey, listAiChallenges } from "@/lib/ai-store";
+import { decodeTokenUnverified, verifyEventSignature, verifyLaunchToken, withinSkew } from "@/lib/ai-token";
+import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit-store";
+import { hasTeam } from "@/lib/team-store";
+
+/**
+ * Records a solve ASSERTED by an externally hosted challenge's backend.
+ *
+ * TWO PROOFS, NEITHER SUFFICIENT ALONE. The HMAC signature over the raw body
+ * proves the SENDER is the real challenge backend (it holds that challenge's
+ * symmetric signing key). The launch token proves WHO is playing — it is
+ * Ed25519 and only the box holds the private half, so a backend cannot mint
+ * one naming a player who never opened the challenge. A leaked signing key
+ * therefore cannot invent users; a leaked token cannot sign.
+ *
+ * COOKIE-BLIND, like the module's other routes: no session is read, so a
+ * cross-site POST carries no ambient credential and CSRF is out of scope by
+ * construction. `proxy.ts` exempts this prefix from its same-origin assertion
+ * for that reason.
+ *
+ * `solvedAt` in the body is ADVISORY. The awarded time is the box's own
+ * clock, so an external system cannot backdate itself onto a first blood.
+ */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export function OPTIONS() {
+  return aiPreflight("POST, OPTIONS");
+}
+
+export async function POST(request: Request) {
+  // 1. Raw bytes first — the signature covers exactly what arrived.
+  const body = await readRawBody(request);
+  if (!body.ok) return aiJson({ error: "invalid-request" }, 400);
+
+  const token = typeof body.parsed.token === "string" ? body.parsed.token : "";
+  const challengeId = typeof body.parsed.challengeId === "string" ? body.parsed.challengeId : "";
+  const dryRun = body.parsed.dryRun === true;
+  if (!token || !AI_ID_RE.test(challengeId)) return aiJson({ error: "invalid-request" }, 400);
+
+  // 2. The challenge, and whether this path is live for it.
+  const challenge = (await listAiChallenges()).find((c) => c.id === challengeId);
+  if (!challenge) return aiJson({ error: "unknown-challenge" }, 404);
+  if (challenge.mode === "flag") return aiJson({ error: "wrong-mode" }, 409);
+
+  const signingKey = await getAiSigningKey(challengeId);
+  if (!signingKey) return aiJson({ error: "unknown-challenge" }, 404);
+
+  // 3. Signature BEFORE token: a caller who cannot prove it is the backend
+  //    learns nothing about the token it presented.
+  const tsRaw = (request.headers.get("x-ctf-timestamp") ?? "").trim();
+  const ts = Number(tsRaw);
+  const signature = request.headers.get("x-ctf-signature") ?? "";
+  if (!tsRaw || !Number.isFinite(ts)) return aiJson({ error: "stale-request" }, 401);
+  if (!verifyEventSignature(signingKey, ts, body.raw, signature)) {
+    return aiJson({ error: "invalid-signature" }, 401);
+  }
+
+  // 4. Clock skew, both directions.
+  if (!withinSkew(ts, Math.floor(Date.now() / 1000))) return aiJson({ error: "stale-request" }, 401);
+
+  // 5. Who is playing. The audience check is what stops a token minted for a
+  //    cheap challenge being replayed against an expensive one.
+  const verified = verifyLaunchToken(token, await getAiLaunchPublicKey(), { audience: challengeId });
+  if (!verified.ok) {
+    return aiJson({ error: verified.error === "expired" ? "expired" : "invalid-token" }, 401);
+  }
+  const login = verified.claims.sub;
+
+  // 6. Budget, charged before any write.
+  const { bucket, limit, windowSeconds } = RATE_LIMITS.aiEvent;
+  const budget = await consumeRateLimit(bucket, login, limit, windowSeconds);
+  if (!budget.allowed) {
+    return aiJson({ error: "rate-limited" }, 429, { "Retry-After": String(budget.retryAfterSeconds) });
+  }
+
+  // 7. Replay. Claimed BEFORE the award — claiming after would let a replayed
+  //    request award twice under a race. Skipped entirely for a dry run,
+  //    because a claimed nonce is a write and would burn the organizer's jti.
+  if (!dryRun && !(await claimAiNonce(verified.claims.jti))) {
+    return aiJson({ error: "replay" }, 409);
+  }
+
+  // 8. Team membership, route-level and fail-open, as on /submit.
+  if (!(await hasTeam(login))) return aiJson({ error: "no-team" }, 403);
+
+  // 9. The award itself, atomic in the store.
+  const result = await awardAiEvent(login, challengeId, { dryRun });
+
+  if (dryRun) {
+    const wouldAward = result.ok && result.correct === true;
+    return aiJson({
+      dryRun: true,
+      wouldAward,
+      verdict: wouldAward ? "would-award" : result.ok ? "would-refuse" : result.reason,
+      checks: ["body", "challenge", "mode", "signature", "timestamp", "token", "rate-limit", "team", "schedule"],
+    });
+  }
+  return aiAwardResponse(result);
+}

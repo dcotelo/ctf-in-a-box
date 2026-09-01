@@ -1,9 +1,11 @@
 // Shared HTTP plumbing for the ai module's three routes.
 //
 // Not `server-only` and deliberately store-free: this is header and body
-// handling, nothing more. Each route composes it with `ai-token.ts` and
-// `ai-store.ts` itself, so the security decisions stay visible in the route
-// rather than hiding behind a helper.
+// handling, nothing more. The one `ai-store.ts` import below is type-only
+// (`AiSubmitResult`) and erased at compile, so it carries no store access.
+// Each route composes this file with `ai-token.ts` and `ai-store.ts` itself,
+// so the security decisions stay visible in the route rather than hiding
+// behind a helper.
 import { AI_EVENT_BODY_MAX } from "@/lib/ai-defaults";
 import type { AiSubmitResult } from "@/lib/ai-store";
 

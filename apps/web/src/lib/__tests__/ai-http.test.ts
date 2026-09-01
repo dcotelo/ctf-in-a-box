@@ -4,7 +4,7 @@
 // older sibling.
 import { describe, expect, it } from "vitest";
 
-import { AI_CORS_HEADERS, aiJson, aiPreflight, readRawBody } from "@/lib/ai-http";
+import { AI_CORS_HEADERS, aiAwardResponse, aiJson, aiPreflight, readRawBody } from "@/lib/ai-http";
 import { AI_EVENT_BODY_MAX } from "@/lib/ai-defaults";
 
 const post = (body: string) => new Request("http://x/api/ai/event", { method: "POST", body });
@@ -70,5 +70,22 @@ describe("readRawBody", () => {
     expect(await readRawBody(post("{not json"))).toEqual({ ok: false, error: "invalid-json" });
     expect(await readRawBody(post('"a string"'))).toEqual({ ok: false, error: "invalid-json" });
     expect(await readRawBody(post("null"))).toEqual({ ok: false, error: "invalid-json" });
+  });
+});
+
+describe("aiAwardResponse", () => {
+  it("maps a wrong-mode refusal to 409, the same status the routes use for their own pre-check", async () => {
+    // `AWARD_SCRIPT` refuses a signed event against a flag-only challenge on
+    // its own, even if a route's mode check missed it — this is that path
+    // reaching the wire.
+    const res = aiAwardResponse({ ok: false, reason: "wrong-mode" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "wrong-mode" });
+  });
+
+  it("carries dryRun through a correct-solve result without altering its status", async () => {
+    const res = aiAwardResponse({ ok: true, correct: true, points: 0, dryRun: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ correct: true, points: 0, already: false, dryRun: true });
   });
 });
