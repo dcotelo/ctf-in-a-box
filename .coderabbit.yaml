@@ -325,16 +325,25 @@ reviews:
 
         Missing admin gate — a route reading per-contestant data (points,
         attempts, hint spend, team membership, answer keys, flags, metrics)
-        without requireAdmin.
+        without requireAdmin. Carve-out: a route reading ONLY the
+        authenticated caller's OWN row, where that identity is
+        cryptographically bound — a verified launch token's `sub`, or a
+        session login — is self-service, not an admin surface; GET
+        /api/ai/state is the example. Reading ANY OTHER contestant's data
+        still requires requireAdmin.
 
         Oracle ordering — running the team check or pre-event gate AFTER
         parsing or evaluating a submission, so the refusal reveals whether the
         answer was correct. Refuse before the body is interpreted.
 
-        Public surface growth — GET /api/public/scoring is the only
-        unauthenticated route and is read-only policy. Flag any new
-        unauthenticated route, and anything letting a fork report facts to the
-        box rather than only read policy from it.
+        Public surface growth — GET /api/public/scoring and GET
+        /api/ai/launch-key are the ONLY sanctioned unauthenticated routes.
+        Both must stay read-only, policy out and never facts in, with nothing
+        secret in the payload: launch-key publishes the launch PUBLIC key, its
+        `kid` and the algorithm, and the private half is import-forbidden by
+        the ai contract test. Flag any OTHER new unauthenticated route, any
+        secret appearing in either payload, and anything letting a fork report
+        facts to the box rather than only read policy from it.
 
         Origin assertion bypass — a mutating route opting out of the
         same-origin check in src/proxy.ts, or a widening of the /api/auth/*
