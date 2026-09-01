@@ -100,14 +100,30 @@ const ROUTES = {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AI_API_DIR = path.join(__dirname, "..");
 
-/** Every route directory that actually exists under `app/api/ai/` — read off
- *  the filesystem, so a route added without touching this file is a FAILURE
- *  here rather than an untested endpoint. Anything with a `route.ts` counts;
- *  `__tests__` and friends do not. */
-const DISCOVERED_ROUTES: string[] = readdirSync(AI_API_DIR, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && existsSync(path.join(AI_API_DIR, entry.name, "route.ts")))
-  .map((entry) => entry.name)
-  .sort();
+/** Every `route.ts` that actually exists under `app/api/ai/`, walked
+ *  RECURSIVELY — read off the filesystem, so a route added without touching
+ *  this file is a FAILURE here rather than an untested endpoint. The
+ *  identifier is the path relative to `app/api/ai/` with the `route.ts`
+ *  segment dropped (e.g. `foo/bar/route.ts` -> `foo/bar`), so a nested route
+ *  is named distinctly from a top-level one rather than colliding with it. A
+ *  one-level `readdirSync` would miss anything nested — outside this
+ *  enumeration, the cookie-blindness grep, the admin-reader grep and the 503
+ *  family below, while still enjoying the proxy's `/api/ai/` CSRF exemption
+ *  by prefix. `__tests__` and friends never contain a `route.ts` themselves,
+ *  so no exclusion is needed for them. */
+function discoverRoutes(dir: string, prefix = ""): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const childDir = path.join(dir, entry.name);
+    const id = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (existsSync(path.join(childDir, "route.ts"))) found.push(id);
+    found.push(...discoverRoutes(childDir, id));
+  }
+  return found;
+}
+
+const DISCOVERED_ROUTES: string[] = discoverRoutes(AI_API_DIR).sort();
 
 const SOURCE: Record<string, string> = Object.fromEntries(
   DISCOVERED_ROUTES.map((name) => [name, readFileSync(path.join(AI_API_DIR, name, "route.ts"), "utf8")]),

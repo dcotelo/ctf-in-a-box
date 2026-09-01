@@ -20,11 +20,14 @@ vi.mock("@/lib/ai-store", () => ({
 import { GET, OPTIONS } from "@/app/api/ai/launch-key/route";
 
 const PUBLIC_PEM = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAn3ucqIwaK//zm/i15crO7vM+glf/le0cAR1nN/Dyy+8=\n-----END PUBLIC KEY-----\n";
-/** A real-looking Ed25519 private PEM, planted so the leak test below has
- *  something to leak. The launch private key mints identity itself and can
- *  name anybody, so it is the worst secret in the module to publish. */
+/** A fixture planted so the leak test below has something to leak — an
+ *  obviously fake marker rather than a structurally valid PKCS8 body, so it
+ *  cannot trip a secret scanner. It only needs to look like private key
+ *  material to a substring check; nothing here ever parses it as one. The
+ *  launch private key mints identity itself and can name anybody, so it is
+ *  the worst secret in the module to publish. */
 const PRIVATE_PEM =
-  "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIL9CMYzP4nQvWfRxN0F0uJ2eXk1Rp8mQqTt6a0oZ1bJx\n-----END PRIVATE KEY-----\n";
+  "-----BEGIN PRIVATE KEY-----\nNOT-A-REAL-KEY-launch-private-half-fixture\n-----END PRIVATE KEY-----\n";
 
 beforeEach(() => {
   mocks.getAiLaunchPublicKey.mockReset();
