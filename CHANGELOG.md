@@ -8,24 +8,73 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
-- Classic CTF grew a tile-grid board with per-challenge pages (#208) and
-  paid hints through the same gate and penalty fold as secure-development
-  (#190).
-- Admin activity log: login timestamps plus a filterable event stream on a
-  new Activity tab (#213).
-- A contestant-facing copy/UX truth pass (#200 tiers 1–4): honest claims,
-  state-aware affordances, every module accounted for on the leaderboard
-  and profile.
-- Audit fixes: quiz freeze reads fail open like classic (#215), hint
-  penalties and roster rows match case-insensitively (#216), signing out of
-  a session-gated page redirects home (#214).
-- Documentation overhaul: README rewritten (status above the fold, fair
-  comparison, working no-GitHub quickstart), stale-doc drift fixed across
-  the set, ADR/section anchors made renderer-stable, new troubleshooting
-  runbook and glossary. The landing copy's false "each app is an OWASP
-  project" claim corrected and the baked "OWASP CTF area" strings now
-  follow `event.name`; the OWASP-CTF default branding (logo + "OWASP CTF"
-  event name) is kept.
+_Nothing yet._
+
+## v0.4.0 — 2026-09-01
+
+A playable Classic CTF, an event you can carry somewhere else, and a
+front end that tells the truth.
+
+- **Classic CTF** became a board rather than a form: a category-grouped tile
+  grid with a dedicated page per challenge (#208), and **paid hints** sold
+  through the same gate, price and penalty machinery as secure-development
+  (#190). The hint penalty nets the FINAL total as the scoring pipeline's
+  last stage, so a hint bought against one module can never be discounted by
+  another module's points.
+- **Event archive**: export a whole event — catalogues, teams, solves,
+  settings — to a JSON bundle and import it back (#155). An event is now
+  portable between boxes, and a finished one can be kept without keeping its
+  infrastructure.
+- **Teams first.** Team setup is the first step after sign-in (#219), rather
+  than something a contestant discovers after their first solve banks into no
+  team total.
+- **Admin activity log**: login timestamps plus a filterable event stream on
+  a new Activity tab (#213) — the mid-event question "did anyone sign in
+  yet?" answered without a Redis console.
+- **Visual identity**: the original navy/blue terminal look enhanced rather
+  than replaced, with progress displays that read at a glance (#207).
+- **Accessibility and resilience**: per-route loading states, error
+  boundaries that keep a failure inside the segment that caused it, a skip
+  link, focus handling that survives a control being replaced, and mobile
+  fixes (#240).
+- **A contestant-facing copy/UX truth pass** (#200, tiers 1–4): honest
+  claims, state-aware affordances, an effective-state readout, and every
+  module accounted for on the leaderboard and profile.
+- **Audit and correctness fixes**: quiz freeze reads fail open like classic
+  (#215); hint penalties and roster rows match case-insensitively (#216);
+  signing out of a session-gated page redirects home (#214); classic carries
+  `caseSensitive` back out of the store, so a case-sensitive challenge stays
+  badged and exports correctly (#196); a challenge page's 404 now attaches to
+  the right boundary and says which of its two causes fired (#208
+  follow-ups).
+- **Sign-in and navigation fixes**: post-signin redirects are relative rather
+  than derived from `request.url`, fixing a localhost bounce (#227); the
+  avatar menu survives session revalidation (#228); the user menu closes
+  reliably and its links work in Brave (#223).
+- **Documentation overhaul** (#218): README rewritten (status above the fold,
+  a fair comparison, a working no-GitHub quickstart), stale-doc drift fixed
+  across the set, ADR and section anchors made renderer-stable, a new
+  troubleshooting runbook and glossary, and an explanation of how Insights
+  computes each figure (#198). The landing copy's false "each app is an OWASP
+  project" claim is corrected and the baked "OWASP CTF area" strings now
+  follow `event.name`; the OWASP-CTF default branding is kept.
+- **Review and CI**: a tuned CodeRabbit configuration carrying this repo's
+  own invariants as pre-merge checks (#220, #225, #236), with the
+  breaking-change documentation check demoted to a warning after it blocked a
+  PR on a stale snapshot of its own description (#242); cross-area CI
+  path-filter edges closed so a touched area can no longer skip its jobs
+  (#236); every fork-repo-name reader pinned to `setup/targets.tsv` (#199);
+  a reference patch for Security Shepherd's `Challenge-10-IDOR-2` (#221).
+- **Dependencies**: Redis 8-alpine, the Next.js group, and
+  `github/codeql-action` v4.
+
+No breaking changes: no `event.yaml` key, `ctf:*` Redis key, scorer payload
+or `ctf-setup.sh` flag changed shape. An event running v0.3.0 upgrades by
+redeploying — which also moves Redis from 7-alpine to 8-alpine. Redis 8 reads
+a 7 AOF dataset, and the compose file keeps it on the named `redis-data`
+volume, so scores survive the container being replaced. Pause the event from
+`/admin` before redeploying a live one, and do not bring the stack down with
+`-v` — that removes the volume, which is the one action here that loses data.
 
 ## v0.3.0 — 2026-08-23
 
