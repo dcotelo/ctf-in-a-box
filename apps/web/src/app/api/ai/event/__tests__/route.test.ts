@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   listAiChallenges: vi.fn(),
   awardAiEvent: vi.fn(),
   claimAiNonce: vi.fn(),
+  releaseAiNonce: vi.fn(),
   consumeRateLimit: vi.fn(),
   hasTeam: vi.fn(),
 }));
@@ -30,6 +31,7 @@ vi.mock("@/lib/ai-store", () => ({
   listAiChallenges: mocks.listAiChallenges,
   awardAiEvent: mocks.awardAiEvent,
   claimAiNonce: mocks.claimAiNonce,
+  releaseAiNonce: mocks.releaseAiNonce,
 }));
 vi.mock("@/lib/rate-limit-store", async (orig) => ({
   ...(await orig<typeof import("@/lib/rate-limit-store")>()),
@@ -70,6 +72,7 @@ function allGatesOpen(sub = "alice") {
   mocks.verifyLaunchToken.mockReturnValue({ ok: true, claims: { sub, aud: CHAL, jti: "nonce-1" } });
   mocks.consumeRateLimit.mockResolvedValue({ allowed: true });
   mocks.claimAiNonce.mockResolvedValue(true);
+  mocks.releaseAiNonce.mockResolvedValue(undefined);
   mocks.hasTeam.mockResolvedValue(true);
   mocks.awardAiEvent.mockResolvedValue({ ok: true, correct: true, points: 400 });
 }
@@ -94,6 +97,12 @@ describe("POST /api/ai/event", () => {
     // that is not the verified login would all still leave every OTHER
     // assertion in this suite green.
     expect(mocks.verifyLaunchToken).toHaveBeenCalledWith("t", "-----BEGIN PUBLIC KEY-----test", { audience: CHAL });
+    // WHICH challenge's signing key was fetched. The mock answers "aik_key"
+    // for any input, so without this pin a careless edit — a cached key, or
+    // the first challenge's — would let a holder of ANY challenge's event key
+    // assert solves on EVERY challenge, and every other assertion here would
+    // still be green.
+    expect(mocks.getAiSigningKey).toHaveBeenCalledWith(CHAL);
     expect(mocks.claimAiNonce).toHaveBeenCalledWith("nonce-1");
     expect(mocks.consumeRateLimit).toHaveBeenCalledWith("ai-event", "alice", 60, 60);
     expect(mocks.hasTeam).toHaveBeenCalledWith("alice");
@@ -295,6 +304,60 @@ describe("POST /api/ai/event", () => {
       expect(res.status, reason).toBe(status);
       expect(await res.json()).toEqual({ error: reason });
     }
+  });
+
+  it("releases the nonce when the award does not land, so the retry is not a permanent replay", async () => {
+    // The nonce is claimed BEFORE the award (it has to be). If the award then
+    // refuses, the jti is spent on nothing — and the integrator's retry, which
+    // is the standard reaction to a 5xx, would read `409 replay` forever. A
+    // backend-driven integration holds ONE token per launch and could never
+    // land that solve.
+    for (const reason of ["paused", "unavailable", "error", "solved", "invalid", "wrong-mode"] as const) {
+      allGatesOpen();
+      mocks.awardAiEvent.mockResolvedValue({ ok: false, reason });
+      await POST(signed(bodyFor()));
+      expect(mocks.releaseAiNonce, reason).toHaveBeenCalledWith("nonce-1");
+    }
+  });
+
+  it("does NOT release the nonce on a successful award", async () => {
+    // That award HAPPENED — the nonce's whole job is stopping its replay.
+    allGatesOpen();
+    const res = await POST(signed(bodyFor()));
+    expect(res.status).toBe(200);
+    expect(mocks.releaseAiNonce).not.toHaveBeenCalled();
+  });
+
+  it("does NOT release the nonce on an already-solved award", async () => {
+    // `already: true` is still `ok: true`: the solve is banked, and handing the
+    // jti back would open a replay window on a challenge already scored.
+    allGatesOpen();
+    mocks.awardAiEvent.mockResolvedValue({ ok: true, correct: true, points: 400, already: true });
+    const res = await POST(signed(bodyFor()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ correct: true, points: 400, already: true });
+    expect(mocks.releaseAiNonce).not.toHaveBeenCalled();
+  });
+
+  it("never releases on a dryRun — there was no nonce to give back", async () => {
+    allGatesOpen();
+    mocks.awardAiEvent.mockResolvedValue({ ok: false, reason: "paused" });
+    await POST(signed(bodyFor({ dryRun: true })));
+    expect(mocks.claimAiNonce).not.toHaveBeenCalled();
+    expect(mocks.releaseAiNonce).not.toHaveBeenCalled();
+  });
+
+  it("releases AFTER the award, never before it", async () => {
+    // Ordering is the safety property: claim -> award -> release. A release
+    // that raced the award would hand the jti back while the write was still
+    // in flight.
+    allGatesOpen();
+    const order: string[] = [];
+    mocks.claimAiNonce.mockImplementation(async () => (order.push("claim"), true));
+    mocks.awardAiEvent.mockImplementation(async () => (order.push("award"), { ok: false, reason: "unavailable" }));
+    mocks.releaseAiNonce.mockImplementation(async () => void order.push("release"));
+    await POST(signed(bodyFor()));
+    expect(order).toEqual(["claim", "award", "release"]);
   });
 
   it("rate limits per token subject, before claiming a nonce", async () => {

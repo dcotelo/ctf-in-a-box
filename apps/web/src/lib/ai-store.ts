@@ -324,7 +324,13 @@ export async function getAiLaunchPublicKey(): Promise<string> {
  *  value arrives inside a request body and becomes part of a Redis key name,
  *  so an unbounded one is an unbounded key. */
 export async function claimAiNonce(jti: string): Promise<boolean> {
-  if (typeof jti !== "string" || !AI_JTI_RE.test(jti)) return false;
+  if (typeof jti !== "string" || !AI_JTI_RE.test(jti)) {
+    // No value logged — the jti is caller-supplied and becomes a key name. The
+    // diagnostic matters because if a future minter's jti alphabet ever drifts
+    // from `AI_JTI_RE`, the only other symptom is "every event is a replay".
+    console.error("ai nonce: refused a malformed jti");
+    return false;
+  }
   try {
     const [res] = await upstashPipeline([
       ["SET", nonceKey(jti), new Date().toISOString(), "NX", "EX", AI_NONCE_TTL_SEC],
@@ -339,6 +345,43 @@ export async function claimAiNonce(jti: string): Promise<boolean> {
   } catch (err) {
     console.error("ai nonce: claim failed (transport):", errorLabel(err));
     return false;
+  }
+}
+
+/** Gives a claimed `jti` back, for the caller that claimed it and then could
+ *  not use it. One `DEL` on the nonce key.
+ *
+ *  WHY THIS IS NOT A REPLAY HOLE. The nonce's only job is to stop the replay of
+ *  an award that HAPPENED. `/api/ai/event` claims before awarding (it must —
+ *  claiming after would let two copies of one captured request both award), so a
+ *  refusal from `awardAiEvent` leaves a jti spent on nothing. The integrator
+ *  holds ONE token per launch and its retry — standard on a 5xx — would then
+ *  read `409 replay` forever. Releasing is safe because `AWARD_SCRIPT` is
+ *  idempotent (a retry that lands twice answers `already: true`) and every
+ *  signature, token, skew, budget and team check re-runs on the retry.
+ *
+ *  NEVER THROWS, and returns nothing to check. The caller is already on a
+ *  refusal path answering the integrator; a failed release only means the
+ *  nonce sits until its TTL and the integrator re-launches, which is strictly
+ *  better than turning a store blip into a 500. Errors are swallowed with a
+ *  redacted log, same discipline as `claimAiNonce`.
+ *
+ *  A malformed `jti` is refused before any Redis call — same `AI_JTI_RE` guard,
+ *  same reason: the value becomes part of a key name. */
+export async function releaseAiNonce(jti: string): Promise<void> {
+  if (typeof jti !== "string" || !AI_JTI_RE.test(jti)) {
+    console.error("ai nonce: refused to release a malformed jti");
+    return;
+  }
+  try {
+    const [res] = await upstashPipeline([["DEL", nonceKey(jti)]]);
+    if (res.error) {
+      // Redis' own error text, capped — never the command, whose arguments
+      // include the caller's `jti`.
+      console.error("ai nonce: release failed (redis error):", String(res.error).slice(0, 200));
+    }
+  } catch (err) {
+    console.error("ai nonce: release failed (transport):", errorLabel(err));
   }
 }
 

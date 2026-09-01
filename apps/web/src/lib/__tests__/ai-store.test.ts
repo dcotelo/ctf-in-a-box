@@ -29,6 +29,7 @@ import {
   listAiCategories,
   listAiChallenges,
   listAiChallengesForAdmin,
+  releaseAiNonce,
 } from "@/lib/ai-store";
 import { AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
 
@@ -330,18 +331,103 @@ describe("claimAiNonce", () => {
   });
 
   it("refuses an empty or non-string jti without a round trip", async () => {
-    expect(await claimAiNonce("")).toBe(false);
-    expect(await claimAiNonce(undefined as unknown as string)).toBe(false);
-    expect(pipelineCalls()).toHaveLength(0);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await claimAiNonce("")).toBe(false);
+      expect(await claimAiNonce(undefined as unknown as string)).toBe(false);
+      expect(pipelineCalls()).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("refuses a jti that is not a plain short token, before any Redis call", async () => {
     // The jti arrives inside a request body and becomes part of a Redis key
     // name. Unbounded input there is an unbounded key.
-    for (const bad of ["", "x".repeat(129), "has space", "colon:sep", "sl/ash"]) {
-      expect(await claimAiNonce(bad)).toBe(false);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const bad of ["", "x".repeat(129), "has space", "colon:sep", "sl/ash"]) {
+        expect(await claimAiNonce(bad)).toBe(false);
+      }
+      expect(pipelineCalls()).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
     }
-    expect(pipelineCalls()).toHaveLength(0);
+  });
+
+  it("SAYS SO when it refuses a malformed jti, without logging the value", async () => {
+    // If a future minter's jti alphabet ever drifts from `AI_JTI_RE`, the only
+    // other symptom is "every event is a replay" with no diagnostic at all.
+    // The value itself stays out of the log: it is caller-supplied.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await claimAiNonce("has space")).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const logged = spy.mock.calls[0] as unknown[];
+      expect(String(logged[0])).toContain("malformed jti");
+      expect(logged.map((arg) => JSON.stringify(arg)).join(" ")).not.toContain("has space");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("releaseAiNonce", () => {
+  // Gives a claimed jti back when the award it guarded did NOT land. The nonce
+  // only ever needed to stop the replay of an award that HAPPENED, and a spent
+  // jti otherwise turns the integrator's retry — standard on a 5xx — into
+  // `409 replay` forever, with one token per launch to spend.
+  it("deletes exactly the nonce key for that jti", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }]);
+
+    await releaseAiNonce("jti-1");
+
+    expect(pipelineCalls()).toEqual([[["DEL", "ctf:ai:nonce:jti-1"]]]);
+  });
+
+  it("names no secret key while doing it", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }]);
+    await releaseAiNonce("jti-1");
+    const rendered = JSON.stringify(pipelineCalls());
+    for (const key of SECRET_KEYS) expect(rendered).not.toContain(key);
+  });
+
+  it("NEVER throws — the caller is already answering a refusal", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
+      await expect(releaseAiNonce("jti-1")).resolves.toBeUndefined();
+
+      mocks.upstashPipeline.mockResolvedValueOnce([{ error: "ERR syntax" }]);
+      await expect(releaseAiNonce("jti-1")).resolves.toBeUndefined();
+
+      // Anti-vacuous: both failures really did reach the logger, and neither
+      // handed it the error object — whose own fields carry the failed command.
+      expect(spy).toHaveBeenCalledTimes(2);
+      for (const call of spy.mock.calls as unknown[][]) {
+        expect(String(call[0])).toContain("release failed");
+        expect(call.some((arg) => arg instanceof Error)).toBe(false);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses a malformed or non-string jti before any Redis call", async () => {
+    // Same `AI_JTI_RE` guard as the claim, same reason: the value becomes part
+    // of a key name, so an unbounded one is an unbounded key.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const bad of ["", "x".repeat(129), "has space", "colon:sep", "sl/ash"]) {
+        await releaseAiNonce(bad);
+      }
+      await releaseAiNonce(undefined as unknown as string);
+      expect(pipelineCalls()).toHaveLength(0);
+      const rendered = spy.mock.calls.flat().map((arg) => JSON.stringify(arg)).join(" ");
+      expect(rendered).not.toContain("has space");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

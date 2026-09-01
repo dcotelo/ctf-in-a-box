@@ -1,6 +1,9 @@
-import { aiAwardResponse, aiJson, aiPreflight, readRawBody } from "@/lib/ai-http";
+import { aiAwardResponse, aiJson, aiPreflight, aiRoute, readRawBody } from "@/lib/ai-http";
 import { AI_ID_RE } from "@/lib/ai-keys";
-import { awardAiEvent, claimAiNonce, getAiLaunchPublicKey, getAiSigningKey, listAiChallenges } from "@/lib/ai-store";
+// Kept on ONE line deliberately: contract.test.ts's cookie-blindness and
+// secret-reader greps run over `import` LINES, and a wrapped list would need
+// the join-then-match treatment noted there.
+import { awardAiEvent, claimAiNonce, getAiLaunchPublicKey, getAiSigningKey, listAiChallenges, releaseAiNonce } from "@/lib/ai-store";
 import { verifyEventSignature, verifyLaunchToken, withinSkew } from "@/lib/ai-token";
 import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit-store";
 import { hasTeam } from "@/lib/team-store";
@@ -22,6 +25,10 @@ import { hasTeam } from "@/lib/team-store";
  *
  * `solvedAt` in the body is ADVISORY. The awarded time is the box's own
  * clock, so an external system cannot backdate itself onto a first blood.
+ *
+ * Wrapped in `aiRoute`, so a store read that THROWS (an Upstash blip) leaves
+ * here as a CORS-readable 503 `{error:"unavailable"}` rather than a bare 500
+ * an external caller cannot even see the status of.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +37,7 @@ export function OPTIONS() {
   return aiPreflight("POST, OPTIONS");
 }
 
-export async function POST(request: Request) {
+export const POST = aiRoute(async (request: Request): Promise<Response> => {
   // 1. Raw bytes first — the signature covers exactly what arrived.
   const body = await readRawBody(request);
   if (!body.ok) return aiJson({ error: "invalid-request" }, 400);
@@ -107,5 +114,20 @@ export async function POST(request: Request) {
       checks: ["body", "challenge", "mode", "signature", "timestamp", "token", "rate-limit", "team", "schedule"],
     });
   }
+
+  // 10. The nonce guards the replay of an award that HAPPENED. If the award did
+  //     NOT land — paused, unavailable, a store error — the jti is spent for
+  //     nothing, and the integrator's retry (standard on a 5xx) would get
+  //     `409 replay` forever: a backend-driven integration holds ONE token per
+  //     launch and could never land that solve. So release it.
+  //
+  //     Safe because `AWARD_SCRIPT` is idempotent — a retry that lands twice
+  //     answers `already: true` rather than paying twice — and every auth check
+  //     above re-runs on the retry, so releasing grants no bypass. `ok: true`
+  //     (including `already`) keeps the nonce: that award DID happen.
+  //     `releaseAiNonce` never throws; a failed release just means the
+  //     integrator re-launches.
+  if (!result.ok) await releaseAiNonce(verified.claims.jti);
+
   return aiAwardResponse(result);
-}
+});
