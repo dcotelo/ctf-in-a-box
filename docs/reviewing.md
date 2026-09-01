@@ -123,6 +123,33 @@ features past green tests three times.
 (empty `admins`, generic branding). Review anything touching build or
 deploy scripts for a path that could run the app build with the arg unset.
 
+**11. The public surface is a named list, not a shape.** Exactly two routes
+may answer without a session or a verified launch token: `GET
+/api/public/scoring` and `GET /api/ai/launch-key`. Both earn the exemption
+the same way — read-only, policy out and never facts in, nothing secret in
+the response — so a third unauthenticated route doesn't inherit the
+exemption by resembling one that has it; it needs its own case. `launch-key`
+is the sharpest test of the "nothing secret" half: it exists to publish the
+launch token's public key, `kid`, and algorithm so an external integrator can
+verify a token without holding a credential, and the finding to watch for is
+the private half (or any per-challenge signing key) drifting into that same
+payload — the ai contract test's import ban is what makes that a compile-time
+impossibility rather than a promise.
+
+**12. `requireAdmin` gates per-contestant data by default; self-service reads
+are the one carve-out, and it's narrow.** A route returning points,
+attempts, hint spend, team membership, answer keys, flags, or metrics needs
+`requireAdmin` unless it reads *only* the row belonging to the caller who is
+asking — and "the caller" has to be established cryptographically, not
+trusted from the request: a verified launch token's `sub`, or a session
+login, never a client-supplied id, header, or query parameter standing in
+for one. `GET /api/ai/state` is the shape that qualifies — it derives its
+subject from a signature-verified token (`verifyLaunchToken(...).claims.sub`)
+before it reads anything. A route that reads "my own row" by trusting an
+unverified field isn't self-service; it's the admin gate with the identity
+check removed, and it still needs `requireAdmin` or a real bound identity to
+pass review.
+
 ## Section 2. What not to flag
 
 Deliberate decisions, each with the ADR that settled it. Re-raising one
