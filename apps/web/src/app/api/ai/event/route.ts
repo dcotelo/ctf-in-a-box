@@ -1,7 +1,7 @@
 import { aiAwardResponse, aiJson, aiPreflight, readRawBody } from "@/lib/ai-http";
 import { AI_ID_RE } from "@/lib/ai-keys";
 import { awardAiEvent, claimAiNonce, getAiLaunchPublicKey, getAiSigningKey, listAiChallenges } from "@/lib/ai-store";
-import { decodeTokenUnverified, verifyEventSignature, verifyLaunchToken, withinSkew } from "@/lib/ai-token";
+import { verifyEventSignature, verifyLaunchToken, withinSkew } from "@/lib/ai-token";
 import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit-store";
 import { hasTeam } from "@/lib/team-store";
 
@@ -37,8 +37,17 @@ export async function POST(request: Request) {
 
   const token = typeof body.parsed.token === "string" ? body.parsed.token : "";
   const challengeId = typeof body.parsed.challengeId === "string" ? body.parsed.challengeId : "";
-  const dryRun = body.parsed.dryRun === true;
   if (!token || !AI_ID_RE.test(challengeId)) return aiJson({ error: "invalid-request" }, 400);
+
+  // `dryRun` means do-not-write. A present-but-non-boolean value (a templated
+  // integration sending the STRING "true", say) must refuse rather than fall
+  // through to `false` — that direction fails toward a real award and a
+  // burned jti, exactly backwards for a field whose whole point is safety.
+  const dryRunRaw = body.parsed.dryRun;
+  if (dryRunRaw !== undefined && typeof dryRunRaw !== "boolean") {
+    return aiJson({ error: "invalid-request" }, 400);
+  }
+  const dryRun = dryRunRaw === true;
 
   // 2. The challenge, and whether this path is live for it.
   const challenge = (await listAiChallenges()).find((c) => c.id === challengeId);

@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   verifyLaunchToken: vi.fn(),
-  decodeTokenUnverified: vi.fn(),
   verifyEventSignature: vi.fn(),
   getAiSigningKey: vi.fn(),
   getAiLaunchPublicKey: vi.fn(),
@@ -23,7 +22,6 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/ai-token", async (orig) => ({
   ...(await orig<typeof import("@/lib/ai-token")>()),
   verifyLaunchToken: mocks.verifyLaunchToken,
-  decodeTokenUnverified: mocks.decodeTokenUnverified,
   verifyEventSignature: mocks.verifyEventSignature,
 }));
 vi.mock("@/lib/ai-store", () => ({
@@ -90,6 +88,15 @@ describe("POST /api/ai/event", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ correct: true, points: 400, already: false });
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    // Every security-critical argument, pinned. A wrong audience source (the
+    // token's own `aud` instead of the URL's challengeId), a wrong nonce
+    // subject (challengeId instead of the token's `jti`), or a rate-limit key
+    // that is not the verified login would all still leave every OTHER
+    // assertion in this suite green.
+    expect(mocks.verifyLaunchToken).toHaveBeenCalledWith("t", "-----BEGIN PUBLIC KEY-----test", { audience: CHAL });
+    expect(mocks.claimAiNonce).toHaveBeenCalledWith("nonce-1");
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith("ai-event", "alice", 60, 60);
+    expect(mocks.hasTeam).toHaveBeenCalledWith("alice");
     expect(mocks.awardAiEvent).toHaveBeenCalledWith("alice", CHAL, { dryRun: false });
   });
 
@@ -143,8 +150,10 @@ describe("POST /api/ai/event", () => {
     }
   });
 
-  it("accepts a timestamp inside the window in both directions", async () => {
-    for (const ts of [NOW_SEC - 299, NOW_SEC + 299]) {
+  it("accepts a timestamp inside the window in both directions, boundary included", async () => {
+    // `withinSkew` is `<=`, so exactly ±300 must still be accepted — not just
+    // comfortably inside it.
+    for (const ts of [NOW_SEC - 299, NOW_SEC + 299, NOW_SEC - 300, NOW_SEC + 300]) {
       allGatesOpen();
       expect((await POST(signed(bodyFor(), ts))).status, String(ts)).toBe(200);
     }
@@ -174,6 +183,10 @@ describe("POST /api/ai/event", () => {
     const res = await POST(signed(bodyFor()));
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "wrong-mode" });
+    // Pins the mode gate ABOVE the signature check, not merely somewhere
+    // before the award — the same ordering the 404 test pins for the
+    // unknown-challenge gate.
+    expect(mocks.verifyEventSignature).not.toHaveBeenCalled();
     expect(mocks.awardAiEvent).not.toHaveBeenCalled();
   });
 
@@ -232,6 +245,30 @@ describe("POST /api/ai/event", () => {
     const res = await POST(signed(bodyFor({ dryRun: true })));
     expect(res.status).toBe(401);
     expect(mocks.awardAiEvent).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-boolean dryRun rather than treating it as false", async () => {
+    // `dryRun` means do-not-write. Falling through to `false` on a truthy
+    // non-boolean (a templated integration sending the STRING "true") would
+    // fail toward a real award and a burned jti — backwards for a safety
+    // field.
+    for (const value of ["true", 1]) {
+      allGatesOpen();
+      const res = await POST(signed(bodyFor({ dryRun: value })));
+      expect(res.status, JSON.stringify(value)).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid-request" });
+      expect(mocks.verifyEventSignature).not.toHaveBeenCalled();
+      expect(mocks.awardAiEvent).not.toHaveBeenCalled();
+    }
+  });
+
+  it("treats an explicit dryRun: false, and an absent dryRun, as a real award", async () => {
+    for (const over of [{ dryRun: false }, {}]) {
+      allGatesOpen();
+      const res = await POST(signed(bodyFor(over)));
+      expect(res.status, JSON.stringify(over)).toBe(200);
+      expect(mocks.awardAiEvent).toHaveBeenCalledWith("alice", CHAL, { dryRun: false });
+    }
   });
 
   it("refuses a teamless solver", async () => {
