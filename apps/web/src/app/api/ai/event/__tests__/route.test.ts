@@ -280,12 +280,17 @@ describe("POST /api/ai/event", () => {
     }
   });
 
-  it("refuses a teamless solver", async () => {
+  it("refuses a teamless solver without spending the nonce", async () => {
     allGatesOpen();
     mocks.hasTeam.mockResolvedValue(false);
     const res = await POST(signed(bodyFor()));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "no-team" });
+    // The team check runs BEFORE the nonce claim precisely so a teamless
+    // refusal never spends the jti — otherwise a solver who joins a team and
+    // retries the SAME launch token would get `409 replay` for the token's
+    // whole TTL instead of a real shot at the award.
+    expect(mocks.claimAiNonce).not.toHaveBeenCalled();
     expect(mocks.awardAiEvent).not.toHaveBeenCalled();
   });
 

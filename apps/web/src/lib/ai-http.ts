@@ -20,6 +20,13 @@ export const AI_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-CTF-Timestamp, X-CTF-Signature",
   "Access-Control-Max-Age": "86400",
+  // `Retry-After` is not a CORS-safelisted response header — without an
+  // explicit expose, browser JS reads `null` off a 429/503 and has no
+  // backoff hint even though the header is on the wire. Only this one: an
+  // integrator's own script is the only reader that needs it, and nothing
+  // else on these responses is worth exposing beyond what browsers already
+  // safelist.
+  "Access-Control-Expose-Headers": "Retry-After",
 };
 
 /** A JSON response carrying the CORS headers. Every response from these

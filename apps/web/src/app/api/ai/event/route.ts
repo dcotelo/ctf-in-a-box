@@ -92,15 +92,20 @@ export const POST = aiRoute(async (request: Request): Promise<Response> => {
     return aiJson({ error: "rate-limited" }, 429, { "Retry-After": String(budget.retryAfterSeconds) });
   }
 
-  // 7. Replay. Claimed BEFORE the award — claiming after would let a replayed
-  //    request award twice under a race. Skipped entirely for a dry run,
-  //    because a claimed nonce is a write and would burn the organizer's jti.
+  // 7. Team membership, route-level and fail-open, as on /submit. Checked
+  //    BEFORE the nonce claim: a teamless refusal must not spend the jti — a
+  //    solver who joins a team and retries the SAME launch token would
+  //    otherwise get `409 replay` for the token's whole TTL.
+  if (!(await hasTeam(login))) return aiJson({ error: "no-team" }, 403);
+
+  // 8. Replay. Claimed immediately before the award — any earlier (e.g. above
+  //    the team check) would spend the jti on a refusal that never awarded;
+  //    any later would let a replayed request award twice under a race.
+  //    Skipped entirely for a dry run, because a claimed nonce is a write and
+  //    would burn the organizer's jti.
   if (!dryRun && !(await claimAiNonce(verified.claims.jti))) {
     return aiJson({ error: "replay" }, 409);
   }
-
-  // 8. Team membership, route-level and fail-open, as on /submit.
-  if (!(await hasTeam(login))) return aiJson({ error: "no-team" }, 403);
 
   // 9. The award itself, atomic in the store.
   const result = await awardAiEvent(login, challengeId, { dryRun });

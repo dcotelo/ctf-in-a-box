@@ -24,6 +24,14 @@ describe("CORS", () => {
     }
   });
 
+  it("exposes Retry-After, and nothing else, to cross-origin JS", () => {
+    // Retry-After is not CORS-safelisted, so without this a browser reads
+    // `null` off a 429/503 and gets no backoff hint despite the header being
+    // on the wire. Pinned to exactly one value: a growing expose list is a
+    // capability creeping onto a CORS `*` endpoint.
+    expect(AI_CORS_HEADERS["Access-Control-Expose-Headers"]).toBe("Retry-After");
+  });
+
   it("puts the CORS headers on every JSON response, error responses included", () => {
     const res = aiJson({ error: "invalid-token" }, 401);
     expect(res.status).toBe(401);
