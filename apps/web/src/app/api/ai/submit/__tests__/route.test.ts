@@ -197,7 +197,10 @@ describe("POST /api/ai/submit", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("30");
     expect(mocks.submitAiFlag).not.toHaveBeenCalled();
-    expect(mocks.consumeRateLimit).toHaveBeenCalledWith("ai-submit", "alice", expect.any(Number), expect.any(Number));
+    // The literal budget, not `expect.any(Number)` — all three token-authed
+    // routes pin theirs the same way, so a route that borrows a sibling's
+    // limit is a failure rather than an unnoticed loosening.
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith("ai-submit", "alice", 60, 60);
   });
 
   it("rejects a malformed body, an empty flag and an oversized flag", async () => {

@@ -14,11 +14,22 @@
 //      challenge, wrong mode, teamless, rate limit) produces the SAME
 //      `{ error: "<slug>" }` slug everywhere it can occur;
 //   4. every route opts out of prerendering the same way;
-//   5. and — the invariant this file exists for — no route's SOURCE FILE
+//   5. a store outage answers 503 `{error:"unavailable"}` on every route,
+//      CORS headers attached — never a bare 500 an external caller cannot even
+//      read the status of;
+//   6. and — the invariant this file exists for — no route's SOURCE FILE
 //      imports a cookie/session primitive, or an admin-only store reader,
 //      structurally rather than behaviourally. A future edit that adds a
 //      session read fails here even if its own route test still passes.
-import { readFileSync } from "node:fs";
+//
+// THE ROUTE SET IS DISCOVERED, NOT LISTED. `DISCOVERED_ROUTES` below reads
+// `app/api/ai/`'s directory entries and the suite asserts it EQUALS the
+// enumerated `ROUTES` map. Without that, the cookie-blindness argument is only
+// as strong as somebody remembering to extend a hardcoded list: a later
+// `app/api/ai/hint/route.ts` calling `auth.api.getSession` would be
+// CSRF-exempt by prefix, cookie-authenticated and CORS `*` — a live hole —
+// and this file would stay green because the new route was never added to it.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   submitAiFlag: vi.fn(),
   awardAiEvent: vi.fn(),
   claimAiNonce: vi.fn(),
+  releaseAiNonce: vi.fn(),
   getViewerAi: vi.fn(),
   consumeRateLimit: vi.fn(),
   hasTeam: vi.fn(),
@@ -52,6 +64,7 @@ vi.mock("@/lib/ai-store", () => ({
   submitAiFlag: mocks.submitAiFlag,
   awardAiEvent: mocks.awardAiEvent,
   claimAiNonce: mocks.claimAiNonce,
+  releaseAiNonce: mocks.releaseAiNonce,
   getViewerAi: mocks.getViewerAi,
 }));
 vi.mock("@/lib/rate-limit-store", async (orig) => ({
@@ -85,12 +98,20 @@ const ROUTES = {
 } as const;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SOURCE = {
-  submit: readFileSync(path.join(__dirname, "../submit/route.ts"), "utf8"),
-  event: readFileSync(path.join(__dirname, "../event/route.ts"), "utf8"),
-  state: readFileSync(path.join(__dirname, "../state/route.ts"), "utf8"),
-  "launch-key": readFileSync(path.join(__dirname, "../launch-key/route.ts"), "utf8"),
-} as const;
+const AI_API_DIR = path.join(__dirname, "..");
+
+/** Every route directory that actually exists under `app/api/ai/` — read off
+ *  the filesystem, so a route added without touching this file is a FAILURE
+ *  here rather than an untested endpoint. Anything with a `route.ts` counts;
+ *  `__tests__` and friends do not. */
+const DISCOVERED_ROUTES: string[] = readdirSync(AI_API_DIR, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && existsSync(path.join(AI_API_DIR, entry.name, "route.ts")))
+  .map((entry) => entry.name)
+  .sort();
+
+const SOURCE: Record<string, string> = Object.fromEntries(
+  DISCOVERED_ROUTES.map((name) => [name, readFileSync(path.join(AI_API_DIR, name, "route.ts"), "utf8")]),
+);
 
 /** Just the `import ...` lines from a route source file. Several of these
  *  routes deliberately NAME the readers/primitives they refuse to import, in
@@ -98,20 +119,22 @@ const SOURCE = {
  *  `getAiLaunchKeys()` to say it calls the public accessor instead). A plain
  *  substring check over the whole file would flag that prose as if it were a
  *  real import, so every source-grep assertion below runs over the import
- *  lines alone. */
+ *  lines alone.
+ *
+ *  Leading whitespace is tolerated. A MULTI-LINE (e.g. Prettier-wrapped)
+ *  import list would still slip past this line-by-line matcher — it would need
+ *  joining continuation lines onto their `import` before matching — so the
+ *  routes keep their store imports on one line and say so where they do. */
 function importLines(src: string): string {
   return src
     .split("\n")
-    .filter((line) => /^import\s/.test(line))
+    .filter((line) => /^\s*import\s/.test(line))
     .join("\n");
 }
 
-const IMPORTS = {
-  submit: importLines(SOURCE.submit),
-  event: importLines(SOURCE.event),
-  state: importLines(SOURCE.state),
-  "launch-key": importLines(SOURCE["launch-key"]),
-} as const;
+const IMPORTS: Record<string, string> = Object.fromEntries(
+  DISCOVERED_ROUTES.map((name) => [name, importLines(SOURCE[name])]),
+);
 
 function tokenIsGood(sub = "alice") {
   mocks.decodeTokenUnverified.mockReturnValue({ sub, aud: CHAL, jti: "n1" });
@@ -147,6 +170,27 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.useRealTimers());
+
+describe("ai module contract: the enumeration covers every route that exists", () => {
+  it("every route directory under app/api/ai is in this file's ROUTES map", () => {
+    // The proxy exemption for `/api/ai/` is safe BECAUSE nothing under it
+    // reads a cookie — and that argument is only as strong as this
+    // enumeration. A fifth route must fail this suite until someone
+    // consciously adds it to every assertion family below, rather than
+    // shipping CSRF-exempt, CORS `*` and unchecked.
+    expect(DISCOVERED_ROUTES).toEqual([...Object.keys(ROUTES)].sort());
+  });
+
+  it("read a real source file for each of them", () => {
+    // Anti-vacuous: an empty discovery, or an unreadable file, would make
+    // every source-grep family below pass by having nothing to check.
+    expect(DISCOVERED_ROUTES.length).toBeGreaterThan(0);
+    for (const name of DISCOVERED_ROUTES) {
+      expect(SOURCE[name], name).toContain("export const dynamic");
+      expect(IMPORTS[name], name).toContain('from "@/lib/ai-http"');
+    }
+  });
+});
 
 describe("ai module contract: CORS preflight", () => {
   it.each(Object.keys(ROUTES) as (keyof typeof ROUTES)[])("%s answers a 204 preflight with Allow-Origin: *", async (name) => {
@@ -326,6 +370,68 @@ describe("ai module contract: shared error slugs agree across routes", () => {
   });
 });
 
+describe("ai module contract: a store outage is a readable 503 on every route", () => {
+  // `upstashPipeline` THROWS on any non-2xx or transport failure, and the
+  // store readers these routes call propagate it. Uncaught, Next answers 500
+  // with NO CORS headers — so an external SPA's fetch to `/api/ai/state`
+  // fails at the CORS layer with no readable status, and an Upstash blip
+  // mid-event has the integrator debugging a CORS problem while the box
+  // reports nothing. `aiRoute` is what makes the spec's "store failure → 503
+  // {error:'unavailable'}" row true on all four.
+  const FLAG = "CTF{do-not-log-me}";
+  /** A rejection decorated the way a real driver decorates one: with the
+   *  command it failed on, whose ARGV on the award path carries the flag. */
+  const outage = () =>
+    Object.assign(new Error("Upstash pipeline failed: ERR max daily requests"), {
+      command: ["EVAL", "...", FLAG],
+      cause: new Error(`while sending ${FLAG}`),
+    });
+
+  /** Each route's earliest store-touching call, invoked with every gate open
+   *  so the ONLY reason a 503 can appear is the throw. */
+  const CALL: Record<keyof typeof ROUTES, () => Promise<Response>> = {
+    submit: () => SubmitRoute.POST(postSubmit({ token: "t", flag: "CTF{x}" })),
+    event: () => EventRoute.POST(postEvent(JSON.stringify({ token: "t", challengeId: CHAL }))),
+    state: () => StateRoute.GET(getState("t")),
+    "launch-key": () => LaunchKeyRoute.GET(),
+  };
+
+  it.each(Object.keys(ROUTES) as (keyof typeof ROUTES)[])(
+    "%s answers 503 unavailable with Allow-Origin: * when a store read throws",
+    async (name) => {
+      tokenIsGood();
+      mocks.getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
+      mocks.getAiSigningKey.mockResolvedValue("aik_key");
+      mocks.verifyEventSignature.mockReturnValue(true);
+      mocks.claimAiNonce.mockResolvedValue(true);
+      // The first store read each route makes. Rejecting the whole set keeps
+      // this honest whichever one a route reaches for first.
+      mocks.getAiLaunchPublicKey.mockRejectedValue(outage());
+      mocks.listAiChallenges.mockRejectedValue(outage());
+
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const res = await CALL[name]();
+        expect(res.status).toBe(503);
+        expect(await res.json()).toEqual({ error: "unavailable" });
+        expect(res.headers.get("access-control-allow-origin")).toBe("*");
+        expect(res.headers.get("access-control-allow-credentials")).toBeNull();
+
+        // Anti-vacuous, and the redaction discipline from `ai-store.ts`: the
+        // failure DID reach the logger, and nothing it logged is an Error
+        // object — whose own fields carry the request, and the flag with it.
+        expect(spy).toHaveBeenCalled();
+        for (const call of spy.mock.calls as unknown[][]) {
+          expect(call.some((arg) => arg instanceof Error)).toBe(false);
+          expect(call.map((arg) => JSON.stringify(arg)).join(" ")).not.toContain(FLAG);
+        }
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+});
+
 describe("ai module contract: build-time exports", () => {
   it.each(Object.keys(ROUTES) as (keyof typeof ROUTES)[])("%s opts out of prerendering the same way", (name) => {
     const route = ROUTES[name];
@@ -341,7 +447,7 @@ describe("ai module contract: structural cookie-blindness", () => {
   // edit even if that edit's own route test still passes.
   const FORBIDDEN_IMPORTS = ['"@/lib/auth"', "'@/lib/auth'", '"next/headers"', "'next/headers'", '"@/lib/gate-request"', "'@/lib/gate-request'"];
 
-  it.each(Object.keys(IMPORTS) as (keyof typeof IMPORTS)[])("%s imports no cookie/session primitive", (name) => {
+  it.each(DISCOVERED_ROUTES)("%s imports no cookie/session primitive", (name) => {
     const imports = IMPORTS[name];
     for (const needle of FORBIDDEN_IMPORTS) {
       expect(imports).not.toContain(needle);
@@ -354,16 +460,18 @@ describe("ai module contract: no route reaches for an admin-only secret reader",
   // `importLines` above) — launch-key's own doc comment names
   // `getAiLaunchKeys()` in prose precisely to say it does NOT call it, and a
   // whole-file substring check would misread that as a violation.
-  it.each(Object.keys(IMPORTS) as (keyof typeof IMPORTS)[])("%s never imports getAiLaunchKeys or listAiChallengesForAdmin", (name) => {
+  it.each(DISCOVERED_ROUTES)("%s never imports getAiLaunchKeys or listAiChallengesForAdmin", (name) => {
     const imports = IMPORTS[name];
     expect(imports).not.toContain("getAiLaunchKeys");
     expect(imports).not.toContain("listAiChallengesForAdmin");
   });
 
   it("only event/route.ts imports getAiSigningKey — the one per-challenge secret reader a route may call", () => {
+    // Over the DISCOVERED set, so a new route that reaches for a challenge's
+    // signing key fails here without anyone editing this assertion.
     expect(IMPORTS.event).toContain("getAiSigningKey");
-    expect(IMPORTS.submit).not.toContain("getAiSigningKey");
-    expect(IMPORTS.state).not.toContain("getAiSigningKey");
-    expect(IMPORTS["launch-key"]).not.toContain("getAiSigningKey");
+    for (const name of DISCOVERED_ROUTES.filter((n) => n !== "event")) {
+      expect(IMPORTS[name], name).not.toContain("getAiSigningKey");
+    }
   });
 });

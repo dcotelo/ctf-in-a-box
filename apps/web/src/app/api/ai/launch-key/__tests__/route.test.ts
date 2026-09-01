@@ -5,18 +5,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getAiLaunchPublicKey: vi.fn(),
+  getAiLaunchKeys: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/ai-store", () => ({ getAiLaunchPublicKey: mocks.getAiLaunchPublicKey }));
+// BOTH accessors are on the mocked module on purpose — see the leak test
+// below. The private half must be REACHABLE from here, or the assertions that
+// it never reaches the wire cannot fail under the mutation they name.
+vi.mock("@/lib/ai-store", () => ({
+  getAiLaunchPublicKey: mocks.getAiLaunchPublicKey,
+  getAiLaunchKeys: mocks.getAiLaunchKeys,
+}));
 
 import { GET, OPTIONS } from "@/app/api/ai/launch-key/route";
 
 const PUBLIC_PEM = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAn3ucqIwaK//zm/i15crO7vM+glf/le0cAR1nN/Dyy+8=\n-----END PUBLIC KEY-----\n";
+/** A real-looking Ed25519 private PEM, planted so the leak test below has
+ *  something to leak. The launch private key mints identity itself and can
+ *  name anybody, so it is the worst secret in the module to publish. */
+const PRIVATE_PEM =
+  "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIL9CMYzP4nQvWfRxN0F0uJ2eXk1Rp8mQqTt6a0oZ1bJx\n-----END PRIVATE KEY-----\n";
 
 beforeEach(() => {
   mocks.getAiLaunchPublicKey.mockReset();
+  mocks.getAiLaunchKeys.mockReset();
   mocks.getAiLaunchPublicKey.mockResolvedValue(PUBLIC_PEM);
+  mocks.getAiLaunchKeys.mockResolvedValue({ publicKey: PUBLIC_PEM, privateKey: PRIVATE_PEM });
 });
 
 describe("GET /api/ai/launch-key", () => {
@@ -47,14 +61,22 @@ describe("GET /api/ai/launch-key", () => {
   });
 
   it("cannot leak the private half even if the store hands one over", async () => {
-    // This route reads the PUBLIC accessor by construction. The test plants a
-    // private key in the reply anyway: if someone ever swaps the call for
-    // `getAiLaunchKeys()`, the payload must still carry only the public half.
-    mocks.getAiLaunchPublicKey.mockResolvedValue(PUBLIC_PEM);
+    // This route reads the PUBLIC accessor by construction. The private half is
+    // genuinely REACHABLE from here anyway: the mocked `@/lib/ai-store` also
+    // exposes `getAiLaunchKeys()` returning a real-looking private PEM (see
+    // the mock above). So if someone ever swaps the call — or spreads the pair
+    // into the payload — the private key really does flow and these assertions
+    // bite. Anti-vacuous check first: there really is private material to leak.
+    expect(PRIVATE_PEM).toContain("PRIVATE KEY");
+
     const text = await (await GET()).text();
-    for (const forbidden of ["PRIVATE KEY", "privateKey", "aik_"]) {
+    for (const forbidden of ["PRIVATE KEY", "privateKey", "aik_", PRIVATE_PEM]) {
       expect(text).not.toContain(forbidden);
     }
+    // And the pair was never even fetched: the public accessor is the only one
+    // this route touches.
+    expect(mocks.getAiLaunchPublicKey).toHaveBeenCalled();
+    expect(mocks.getAiLaunchKeys).not.toHaveBeenCalled();
   });
 
   it("is cacheable, but not for long — a rotation must reach integrators", async () => {

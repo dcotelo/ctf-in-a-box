@@ -32,6 +32,10 @@ import { GET, OPTIONS } from "@/app/api/ai/state/route";
 
 const CHAL = "prompt-leak-ab12cd";
 const OTHER = "guardrail-cd34ef";
+/** A stand-in for the launch private key, planted in the poisoned-record test.
+ *  Any contestant payload containing this string is a critical bug — mirrors
+ *  `ai-store.test.ts`'s constant of the same name. */
+const LEAKED_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----leak-----END PRIVATE KEY-----";
 
 const bearer = (token: string) =>
   new Request("http://x/api/ai/state", { headers: { authorization: `Bearer ${token}` } });
@@ -103,10 +107,31 @@ describe("GET /api/ai/state", () => {
   it("carries no secret, even when a poisoned record reaches the lister", async () => {
     tokenIsGood();
     mocks.listAiChallenges.mockResolvedValue([
-      { id: CHAL, points: 300, mode: "both", flag: "CTF{leak}", flagnorm: "ctf{leak}", signingKey: "aik_x" },
+      {
+        id: CHAL,
+        points: 300,
+        mode: "both",
+        flag: "CTF{leak}",
+        flagnorm: "ctf{leak}",
+        signingKey: "aik_x",
+        // The launch key's PRIVATE half — the worst of the module's secrets to
+        // publish, because it mints identity itself and can name anybody. It
+        // was missing from this plant, so the markers below had nothing to
+        // catch.
+        privateKey: LEAKED_PRIVATE_KEY,
+      },
     ]);
     const text = await (await GET(bearer("t"))).text();
-    for (const secret of ["CTF{leak}", "ctf{leak}", "aik_x", "flagnorm", "signingKey"]) {
+    for (const secret of [
+      "CTF{leak}",
+      "ctf{leak}",
+      "aik_x",
+      "flagnorm",
+      "signingKey",
+      "PRIVATE KEY",
+      "privateKey",
+      LEAKED_PRIVATE_KEY,
+    ]) {
       expect(text).not.toContain(secret);
     }
   });
@@ -139,6 +164,17 @@ describe("GET /api/ai/state", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("12");
     expect(mocks.getViewerAi).not.toHaveBeenCalled();
+  });
+
+  it("keys the rate limit on the VERIFIED subject, with this route's own budget", async () => {
+    // The mutation that stays green without this: `consumeRateLimit(bucket,
+    // token, ...)`. It defeats the per-user limit entirely — every launch gets
+    // a fresh budget — and puts a ~1-2 KB attacker-supplied string into a
+    // Redis key name. The literal budget is pinned too, so a route that
+    // silently borrows /submit's is a failure, not a shrug.
+    tokenIsGood();
+    await GET(bearer("a-token-that-is-not-the-subject"));
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith("ai-state", "alice", 120, 60);
   });
 
   it("answers a preflight advertising GET", async () => {
