@@ -118,16 +118,28 @@ const ROUTE_FILENAMES = ["route.ts", "route.js"] as const;
  *  by prefix. `__tests__` and friends never contain a route handler
  *  themselves, so no exclusion is needed for them. The matched FILENAME rides
  *  along so the source read below opens the file that was actually found
- *  rather than assuming the `.ts` spelling. */
+ *  rather than assuming the `.ts` spelling.
+ *
+ *  Every call — including the root one, `discoverRoutes(AI_API_DIR)` with
+ *  `prefix` defaulted to `""` — checks the DIRECTORY ITSELF for a route file
+ *  before recursing into its children. That root check matters on its own:
+ *  a hypothetical `app/api/ai/route.ts` (the exact path `/api/ai`, no
+ *  trailing segment) would be invisible to every family below without it —
+ *  AND it sits in a different CSRF situation than everything else this file
+ *  enumerates. The proxy's exemption is `AI_PREFIX = "/api/ai/"`, WITH the
+ *  trailing slash; `/api/ai` doesn't match that prefix, so such a route would
+ *  be CSRF-checked like any non-ai route while every id this function finds
+ *  normally (`submit`, `event/...`, etc.) is exempt. The discovery has to see
+ *  a root handler precisely because its situation differs from the rest. */
 function discoverRoutes(dir: string, prefix = ""): { id: string; file: string }[] {
   const found: { id: string; file: string }[] = [];
+  for (const file of ROUTE_FILENAMES) {
+    if (existsSync(path.join(dir, file))) found.push({ id: prefix, file });
+  }
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const childDir = path.join(dir, entry.name);
     const id = prefix ? `${prefix}/${entry.name}` : entry.name;
-    for (const file of ROUTE_FILENAMES) {
-      if (existsSync(path.join(childDir, file))) found.push({ id, file });
-    }
     found.push(...discoverRoutes(childDir, id));
   }
   return found;

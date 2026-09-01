@@ -173,6 +173,28 @@ describe("readRawBody", () => {
     expect(spy.reads).toBe(AI_EVENT_BODY_MAX / 1024 + 1);
   });
 
+  it("still reports too-large when reader.cancel() itself rejects", async () => {
+    // `cancel()` can reject per the Web Streams spec. An unguarded await on
+    // it would send that rejection to the catch block below the cap check
+    // and misreport a too-large body as invalid-json instead.
+    const chunk = enc.encode("x".repeat(1024));
+    let reads = 0;
+    const stream = {
+      getReader: () => ({
+        read: async () => {
+          const i = reads++;
+          return i < 32
+            ? { done: false as const, value: chunk }
+            : { done: true as const, value: undefined };
+        },
+        cancel: async () => {
+          throw new Error("cancel rejected");
+        },
+      }),
+    } as unknown as ReadableStream<Uint8Array>;
+    expect(await readRawBody(fakeRequest(stream))).toEqual({ ok: false, error: "too-large" });
+  });
+
   it("refuses a body whose stream throws mid-read", async () => {
     // The old implementation caught `request.text()` rejecting; the streaming
     // read must refuse the same way rather than escaping as a throw the route

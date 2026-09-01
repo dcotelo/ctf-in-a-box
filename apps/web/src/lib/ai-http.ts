@@ -154,7 +154,11 @@ export async function readRawBody(request: Request): Promise<RawBody> {
       if (!value) continue;
       total += value.byteLength;
       if (total > AI_EVENT_BODY_MAX) {
-        await reader.cancel();
+        // Best-effort, same as the catch block below: `cancel()` can itself
+        // reject per the Web Streams spec, and an unguarded await would send
+        // that rejection to the `catch` above — reporting "invalid-json" for
+        // a body that was actually refused for being too large.
+        await reader.cancel().catch(() => {});
         return { ok: false, error: "too-large" };
       }
       chunks.push(value);
