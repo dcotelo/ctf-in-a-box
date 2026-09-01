@@ -100,33 +100,44 @@ const ROUTES = {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AI_API_DIR = path.join(__dirname, "..");
 
-/** Every `route.ts` that actually exists under `app/api/ai/`, walked
+/** Both filenames Next.js accepts for a route handler. A `route.js` under
+ *  this prefix is as much a live endpoint as a `route.ts` — matching only the
+ *  TypeScript spelling would let one ship outside every family below while
+ *  still CSRF-exempt by prefix and CORS `*`. */
+const ROUTE_FILENAMES = ["route.ts", "route.js"] as const;
+
+/** Every route handler that actually exists under `app/api/ai/`, walked
  *  RECURSIVELY — read off the filesystem, so a route added without touching
  *  this file is a FAILURE here rather than an untested endpoint. The
- *  identifier is the path relative to `app/api/ai/` with the `route.ts`
+ *  identifier is the path relative to `app/api/ai/` with the `route.*`
  *  segment dropped (e.g. `foo/bar/route.ts` -> `foo/bar`), so a nested route
  *  is named distinctly from a top-level one rather than colliding with it. A
  *  one-level `readdirSync` would miss anything nested — outside this
  *  enumeration, the cookie-blindness grep, the admin-reader grep and the 503
  *  family below, while still enjoying the proxy's `/api/ai/` CSRF exemption
- *  by prefix. `__tests__` and friends never contain a `route.ts` themselves,
- *  so no exclusion is needed for them. */
-function discoverRoutes(dir: string, prefix = ""): string[] {
-  const found: string[] = [];
+ *  by prefix. `__tests__` and friends never contain a route handler
+ *  themselves, so no exclusion is needed for them. The matched FILENAME rides
+ *  along so the source read below opens the file that was actually found
+ *  rather than assuming the `.ts` spelling. */
+function discoverRoutes(dir: string, prefix = ""): { id: string; file: string }[] {
+  const found: { id: string; file: string }[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const childDir = path.join(dir, entry.name);
     const id = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (existsSync(path.join(childDir, "route.ts"))) found.push(id);
+    for (const file of ROUTE_FILENAMES) {
+      if (existsSync(path.join(childDir, file))) found.push({ id, file });
+    }
     found.push(...discoverRoutes(childDir, id));
   }
   return found;
 }
 
-const DISCOVERED_ROUTES: string[] = discoverRoutes(AI_API_DIR).sort();
+const DISCOVERED_FILES = discoverRoutes(AI_API_DIR).sort((a, b) => a.id.localeCompare(b.id));
+const DISCOVERED_ROUTES: string[] = DISCOVERED_FILES.map(({ id }) => id);
 
 const SOURCE: Record<string, string> = Object.fromEntries(
-  DISCOVERED_ROUTES.map((name) => [name, readFileSync(path.join(AI_API_DIR, name, "route.ts"), "utf8")]),
+  DISCOVERED_FILES.map(({ id, file }) => [id, readFileSync(path.join(AI_API_DIR, id, file), "utf8")]),
 );
 
 /** Just the `import ...` lines from a route source file. Several of these
