@@ -47,7 +47,10 @@ function tokenIsGood(sub = "alice") {
     { id: OTHER, points: 400, mode: "event", title: "Guardrail" },
   ]);
   mocks.getViewerAi.mockResolvedValue({
-    solved: { [CHAL]: { points: 300, at: "2026-08-31T11:00:00.000Z", source: "flag" } },
+    // Deliberately less than the challenge's current 300: this pins that the
+    // top-level total sums the SOLVE-TIME price (200), not today's re-priced
+    // value, while the progress row below still reflects the CURRENT price.
+    solved: { [CHAL]: { points: 200, at: "2026-08-31T11:00:00.000Z", source: "flag" } },
     attempts: {},
   });
 }
@@ -63,8 +66,12 @@ describe("GET /api/ai/state", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       sub: "alice",
-      points: 300,
+      // The total honours history: it is the solve-time price (200), not the
+      // challenge's current price (300).
+      points: 200,
       progress: [
+        // The board shows today's price: the CHAL row's points is 300 (the
+        // challenge's current value), even though the solve banked 200.
         { id: CHAL, points: 300, solved: true, solvedAt: "2026-08-31T11:00:00.000Z" },
         { id: OTHER, points: 400, solved: false, solvedAt: null },
       ],
