@@ -541,9 +541,14 @@ reviews:
 
   # Five checks. Each costs a status row on every PR, so the bar is: an
   # invariant whose violation is silent, expensive, and not caught by CI.
-  # The first, third and fourth run at mode: error (paired with
+  # The first and third run at mode: error (paired with
   # request_changes_workflow: true above) — the ratchet planned at adoption,
-  # pulled once the config had survived 15+ PRs. The other two stay warnings.
+  # pulled once the config had survived 15+ PRs. The other three are warnings.
+  #
+  # The dividing line, after #241: a check blocks only if it judges CODE against
+  # a mechanical rule. "Breaking Change Documentation" judges the PR description
+  # — prose, scored from a snapshot taken at review time — so it warns instead.
+  # See its own comment for what that cost before the demotion.
   pre_merge_checks:
     description:
       mode: warning
@@ -648,7 +653,28 @@ reviews:
           "latest"-style meta-version.
 
       - name: "Breaking Change Documentation"
-        mode: error
+        # warning, not error, and the demotion is deliberate.
+        #
+        # This check judges PROSE — whether the PR description says enough about
+        # a contract change — while the other two `error` checks judge code
+        # against a mechanical rule (a Redis command against a secret key; an
+        # unpinned dependency). A prose judgement is the one most likely to be
+        # wrong, and with `request_changes_workflow: true` a wrong one is a hard
+        # merge block on a PR whose code is fine.
+        #
+        # It happened on #241: the check kept reporting "event.yaml.example has
+        # no diff" and "the description says Breaking changes: None" after both
+        # had been fixed — it scores the description captured at review time, and
+        # editing the description afterwards does not recompute it. The PR sat
+        # blocked on two claims that `gh api .../files` disproved in one command.
+        #
+        # Demoting keeps the signal exactly where it is useful — it still writes
+        # the same finding into the summary, and a real undeclared breaking
+        # change is still called out in front of the maintainer — while removing
+        # its ability to block on a stale snapshot. The invariant it guards is
+        # also not silent elsewhere: the `breaking-change` label rule above fires
+        # on the same conditions.
+        mode: warning
         instructions: |
           Flag ⚠️ WARNING: <description> — <fix> on a change to a published
           contract without documentation:
