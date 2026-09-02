@@ -64,6 +64,22 @@ function renderPanel(overrides: Partial<AiIntegrationPanelProps> = {}): string {
   return renderToStaticMarkup(<AiIntegrationPanel {...panelProps(overrides)} />);
 }
 
+/** `renderToStaticMarkup` HTML-entity-escapes the curl block's quotes and
+ *  apostrophes (`"` → `&quot;`, `'` → `&#x27;`). Decoded back so a test can
+ *  assert an EXACT shell substring — quotes and all — rather than working
+ *  around the escaping with partial matches that would miss a mutation
+ *  inside a quoted portion. Only the three entities this component's own
+ *  output can ever contain; not a general HTML-entity decoder. */
+function decodeCurlEntities(text: string): string {
+  return text.replaceAll("&quot;", '"').replaceAll("&#x27;", "'").replaceAll("&amp;", "&");
+}
+
+function curlBlock(html: string): string {
+  const match = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
+  if (!match) throw new Error("no <pre> block found in rendered markup");
+  return match[1];
+}
+
 /** Finds the `<button>` whose text is exactly `label` and returns whether it
  *  carries a real `disabled` attribute. NOT a substring check for the word
  *  "disabled" anywhere in the tag — this component's buttons use Tailwind's
@@ -92,12 +108,6 @@ describe("AiIntegrationPanel — signing key masking", () => {
 });
 
 describe("AiIntegrationPanel — test curl", () => {
-  function curlBlock(html: string): string {
-    const match = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
-    if (!match) throw new Error("no <pre> block found in rendered markup");
-    return match[1];
-  }
-
   it("masked: the curl's KEY line shows the placeholder, never the real key", () => {
     const html = renderPanel({ revealed: false });
     const curl = curlBlock(html);
@@ -128,6 +138,53 @@ describe("AiIntegrationPanel — test curl", () => {
     const curl = curlBlock(html);
     expect(curl).toContain("TOKEN=&#x27;eyJ…&#x27;");
     expect(html).toContain("Use Send test below for a server-minted token, or copy a token from your own launcher link.");
+  });
+});
+
+// Pins the curl's load-bearing recipe. Prior coverage only proved
+// origin/challengeId/KEY/TOKEN/caption substitution — nothing asserted the
+// FORMULA itself (the header names, the `printf`-then-`openssl` signature
+// pipeline, the algorithm name), so a mutation inside that fixed scaffolding
+// (e.g. `sha256=$SIG` → `sha1=$SIG` in the signature header, which does not
+// match what `SIG` was actually computed with) left every prior test green
+// while shipping organizers a broken integration recipe. Each assertion
+// below checks an EXACT substring of the DECODED curl text (see
+// `decodeCurlEntities`), so a one-character drift anywhere in the formula
+// fails here specifically, not just "the block changed somehow".
+describe("AiIntegrationPanel — curl signature formula (pins the load-bearing recipe)", () => {
+  it("computes TS from the current time, unquoted", () => {
+    const curl = decodeCurlEntities(curlBlock(renderPanel({ revealed: true })));
+    expect(curl).toContain("TS=$(date +%s)");
+  });
+
+  it("signs over TS and BODY with printf, exactly as openssl expects them", () => {
+    const curl = decodeCurlEntities(curlBlock(renderPanel({ revealed: true })));
+    expect(curl).toContain(`printf '%s.%s' "$TS" "$BODY"`);
+  });
+
+  it("HMACs with sha256, keyed on $KEY", () => {
+    const curl = decodeCurlEntities(curlBlock(renderPanel({ revealed: true })));
+    expect(curl).toContain(`openssl dgst -sha256 -hmac "$KEY"`);
+  });
+
+  it("sends the timestamp header with the real header name", () => {
+    const curl = decodeCurlEntities(curlBlock(renderPanel({ revealed: true })));
+    expect(curl).toContain("X-CTF-Timestamp: $TS");
+  });
+
+  it("sends the signature header with the sha256= prefix that matches how SIG was actually computed", () => {
+    const curl = decodeCurlEntities(curlBlock(renderPanel({ revealed: true })));
+    // This is the exact assertion a `sha256=$SIG` → `sha1=$SIG` mutation in
+    // the component must fail: the header's algorithm label has to match
+    // the `-sha256` the SIG variable above was actually computed with, or
+    // the snippet signs correctly and then tells the reader the wrong thing
+    // about what it signed with.
+    expect(curl).toContain("X-CTF-Signature: sha256=$SIG");
+  });
+
+  it('the dry-run body flag renders as "dryRun":true, however the BODY line assembles it', () => {
+    const curl = decodeCurlEntities(curlBlock(renderPanel({ revealed: true })));
+    expect(curl).toContain(`"dryRun":true`);
   });
 });
 
@@ -265,6 +322,22 @@ describe("fetchAiTest", () => {
     );
     const outcome = await fetchAiTest(CHALLENGE.id);
     expect(outcome).toEqual({ kind: "named", label: "unavailable" });
+  });
+
+  // A challenge with no signing key yet minted (route.ts's own refusal — see
+  // that file's header comment) previously only flowed through the generic
+  // "some named error" branch, untested by its own slug. Named specifically
+  // here so a future change that folds it into a vaguer message is caught.
+  it('a 400 no-signing-key refusal is classified AND rendered by its exact slug — not a generic message', async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: "no-signing-key" }) }),
+    );
+    const outcome = await fetchAiTest(CHALLENGE.id);
+    expect(outcome).toEqual({ kind: "named", label: "no-signing-key" });
+    const html = renderPanel({ testOutcome: outcome });
+    expect(html).toContain("Test result: no-signing-key");
+    expect(html).not.toContain("Would award");
   });
 });
 
