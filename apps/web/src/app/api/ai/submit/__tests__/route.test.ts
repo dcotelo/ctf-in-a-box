@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   submitAiFlag: vi.fn(),
   consumeRateLimit: vi.fn(),
   hasTeam: vi.fn(),
+  logActivity: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -33,6 +34,7 @@ vi.mock("@/lib/rate-limit-store", async (orig) => ({
   consumeRateLimit: mocks.consumeRateLimit,
 }));
 vi.mock("@/lib/team-store", () => ({ hasTeam: mocks.hasTeam }));
+vi.mock("@/lib/activity-log", () => ({ logActivity: mocks.logActivity }));
 
 import { OPTIONS, POST } from "@/app/api/ai/submit/route";
 
@@ -66,6 +68,58 @@ describe("POST /api/ai/submit", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     // Identity came from the token, never the body.
     expect(mocks.submitAiFlag).toHaveBeenCalledWith("alice", CHAL, "CTF{x}");
+  });
+
+  it("logs a fresh correct solve to the activity log, naming the flag path", async () => {
+    tokenIsGood();
+    mocks.submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 300 });
+    await POST(post({ token: "t", flag: "CTF{x}" }));
+    expect(mocks.logActivity).toHaveBeenCalledWith("ai-solve", "alice", `${CHAL} via flag`);
+  });
+
+  it("does not log an already-banked resubmission", async () => {
+    tokenIsGood();
+    mocks.submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 0, already: true });
+    await POST(post({ token: "t", flag: "CTF{x}" }));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
+  it("does not log a wrong flag", async () => {
+    tokenIsGood();
+    mocks.submitAiFlag.mockResolvedValue({ ok: true, correct: false });
+    await POST(post({ token: "t", flag: "nope" }));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
+  it("does not log any refusal (bad token, no team, unknown challenge, wrong mode, store refusal)", async () => {
+    tokenIsGood();
+    mocks.verifyLaunchToken.mockReturnValue({ ok: false, error: "expired" });
+    await POST(post({ token: "t", flag: "CTF{x}" }));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    tokenIsGood();
+    mocks.hasTeam.mockResolvedValue(false);
+    await POST(post({ token: "t", flag: "CTF{x}" }));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    tokenIsGood();
+    mocks.listAiChallenges.mockResolvedValue([]);
+    await POST(post({ token: "t", flag: "CTF{x}" }));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    tokenIsGood();
+    mocks.submitAiFlag.mockResolvedValue({ ok: false, reason: "paused" });
+    await POST(post({ token: "t", flag: "CTF{x}" }));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
+  it("never lets a submitted flag reach the logged detail", async () => {
+    tokenIsGood();
+    mocks.submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 300 });
+    await POST(post({ token: "t", flag: "CTF{super-secret-flag}" }));
+    expect(mocks.logActivity).toHaveBeenCalledWith("ai-solve", "alice", `${CHAL} via flag`);
+    const detail = mocks.logActivity.mock.calls[0][2];
+    expect(detail).not.toContain("CTF{super-secret-flag}");
   });
 
   it("ignores a login in the body — identity is the token's subject", async () => {

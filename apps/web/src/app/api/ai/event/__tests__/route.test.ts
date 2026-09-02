@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   releaseAiNonce: vi.fn(),
   consumeRateLimit: vi.fn(),
   hasTeam: vi.fn(),
+  logActivity: vi.fn(),
   // Holds the REAL implementation, set once by the `@/lib/ai-token` mock
   // factory below — a plain mutable slot, not a mock itself, so `vi.hoisted`
   // is safe here. Used only by the rotation tests, which need the actual
@@ -48,6 +49,7 @@ vi.mock("@/lib/rate-limit-store", async (orig) => ({
   consumeRateLimit: mocks.consumeRateLimit,
 }));
 vi.mock("@/lib/team-store", () => ({ hasTeam: mocks.hasTeam }));
+vi.mock("@/lib/activity-log", () => ({ logActivity: mocks.logActivity }));
 
 import { OPTIONS, POST } from "@/app/api/ai/event/route";
 import { generateSigningKey, signEventBody } from "@/lib/ai-token";
@@ -118,6 +120,41 @@ describe("POST /api/ai/event", () => {
     expect(mocks.consumeRateLimit).toHaveBeenCalledWith("ai-event", "alice", 60, 60);
     expect(mocks.hasTeam).toHaveBeenCalledWith("alice");
     expect(mocks.awardAiEvent).toHaveBeenCalledWith("alice", CHAL, { dryRun: false });
+  });
+
+  it("logs a fresh award to the activity log, naming the event path", async () => {
+    allGatesOpen();
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).toHaveBeenCalledWith("ai-solve", "alice", `${CHAL} via event`);
+  });
+
+  it("does not log an already-banked award", async () => {
+    allGatesOpen();
+    mocks.awardAiEvent.mockResolvedValue({ ok: true, correct: true, points: 400, already: true });
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+  });
+
+  it("does not log any refusal (paused, wrong mode, unknown challenge, teamless, replay)", async () => {
+    allGatesOpen();
+    mocks.awardAiEvent.mockResolvedValue({ ok: false, reason: "paused" });
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    allGatesOpen();
+    mocks.hasTeam.mockResolvedValue(false);
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    allGatesOpen();
+    mocks.claimAiNonce.mockResolvedValue(false);
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    allGatesOpen();
+    mocks.listAiChallenges.mockResolvedValue([]);
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
   });
 
   it("hashes the EXACT bytes received, never a re-serialized body", async () => {
@@ -249,6 +286,9 @@ describe("POST /api/ai/event", () => {
     // make the organizer's next real event look like a replay.
     expect(mocks.claimAiNonce).not.toHaveBeenCalled();
     expect(mocks.awardAiEvent).toHaveBeenCalledWith("alice", CHAL, { dryRun: true });
+    // A dry run logs nothing — the activity log is for solves that actually
+    // happened, and this one is only a verdict.
+    expect(mocks.logActivity).not.toHaveBeenCalled();
   });
 
   it("dryRun reports a refusal rather than swallowing it", async () => {

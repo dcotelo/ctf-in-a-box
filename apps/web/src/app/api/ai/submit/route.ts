@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity-log";
 import { AI_ID_RE } from "@/lib/ai-keys";
 import { aiAwardResponse, aiJson, aiPreflight, aiRoute, readRawBody } from "@/lib/ai-http";
 import { getAiLaunchPublicKey, listAiChallenges, submitAiFlag } from "@/lib/ai-store";
@@ -113,6 +114,13 @@ export const POST = aiRoute(async (request: Request): Promise<Response> => {
   }
 
   const result = await submitAiFlag(claims.sub, aud, flag);
+  // Activity log (issue #212): fresh solves only — an idempotent
+  // re-submission banked nothing and would double-count the event. The id
+  // and the path, never the flag; logActivity is fail-open, so it cannot
+  // fail an award that already landed. Mirrors classic/submit's guard.
+  if (result.ok && result.correct && !result.already) {
+    await logActivity("ai-solve", claims.sub, `${aud} via flag`);
+  }
   return aiAwardResponse(result);
 });
 

@@ -22,6 +22,7 @@ export const ACTIVITY_TYPES = [
   "login",
   "quiz-solve",
   "classic-solve",
+  "ai-solve",
   "team-create",
   "team-join",
   "team-leave",
