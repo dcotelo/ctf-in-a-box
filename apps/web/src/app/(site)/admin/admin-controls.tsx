@@ -34,6 +34,7 @@ import { ALL_MODULE_IDS, bakedModuleIds, moduleDefById, type ModuleId, type Reso
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
+import AdminAiControls from "@/components/admin-ai-controls";
 import AdminAdminsTab from "./admin-admins-tab";
 import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
@@ -175,6 +176,9 @@ export default function AdminControls({
   const [classicCooldownSecInput, setClassicCooldownSecInput] = useState(
     initial.classicCooldownSec === null ? "" : String(initial.classicCooldownSec),
   );
+  const [aiCooldownSecInput, setAiCooldownSecInput] = useState(
+    initial.aiCooldownSec === null ? "" : String(initial.aiCooldownSec),
+  );
   const [cooldownInput, setCooldownInput] = useState(
     initial.scoreCooldownMin === null ? "" : String(initial.scoreCooldownMin),
   );
@@ -297,6 +301,7 @@ export default function AdminControls({
       setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
       setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
       setClassicCooldownSecInput(s.classicCooldownSec === null ? "" : String(s.classicCooldownSec));
+      setAiCooldownSecInput(s.aiCooldownSec === null ? "" : String(s.aiCooldownSec));
     }
     setPending(false);
     return true;
@@ -420,6 +425,13 @@ export default function AdminControls({
                   pending={pending}
                   classicCooldownSecInput={classicCooldownSecInput}
                   setClassicCooldownSecInput={setClassicCooldownSecInput}
+                  commitNumber={commitNumber}
+                />
+              ) : tab.id === "ai" ? (
+                <AdminAiControls
+                  pending={pending}
+                  aiCooldownSecInput={aiCooldownSecInput}
+                  setAiCooldownSecInput={setAiCooldownSecInput}
                   commitNumber={commitNumber}
                 />
               ) : (

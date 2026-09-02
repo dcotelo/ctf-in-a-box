@@ -17,6 +17,7 @@ import { panelFor } from "./panel-for";
 import { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "@/lib/hint-defaults";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
+import { AI_COOLDOWN_SEC } from "@/lib/ai-defaults";
 
 // AdminControls now takes its modules as a prop (already resolved
 // server-side), so it no longer reads the registry itself. The mock stays so
@@ -375,5 +376,47 @@ describe("module toggles", () => {
     // explains itself.
     const html = render({ enabledModuleIds: ["quiz"] });
     expect(html).toContain("The only module left");
+  });
+});
+
+// A SEPARATE fixture (not a mutation of `twoModules`/`settings` above) so the
+// "7 tabs"/"7 panels" assertions in the first describe block stay pinned to
+// exactly the module set they were written against — adding a third module
+// to that shared fixture would silently need every one of those counts
+// bumped to 8, and a forgotten one would pass for the wrong reason.
+describe("AdminControls ai panel", () => {
+  const withAi: readonly ResolvedModule[] = [
+    ...twoModules,
+    { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and jailbreak challenges hosted externally.", targets: [] },
+  ];
+
+  it("renders the ai module's tab with an eighth tab and panel", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    expect(html).toContain("AI Challenges");
+    expect(html.match(/role="tab"/g)?.length).toBe(8);
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(8);
+  });
+
+  it("renders AdminAiControls in the ai panel, not the fallback placeholder", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    const aiPanel = panelFor(html, "ai");
+    expect(aiPanel).toContain("Submission cooldown (sec)");
+    expect(aiPanel).toContain("Add challenge");
+    expect(aiPanel).not.toContain("No settings for this module yet.");
+  });
+
+  it("keeps the ai cooldown field out of every other panel", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    expect(panelFor(html, "event")).not.toContain("Submission cooldown (sec)");
+    expect(panelFor(html, "quiz")).not.toContain("Submission cooldown (sec)");
+  });
+
+  it("shows the ai cooldown override, falling back to the module default when unset", () => {
+    const withDefault = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    expect(panelFor(withDefault, "ai")).toContain(`placeholder="${AI_COOLDOWN_SEC}"`);
+
+    const overridden = { ...settings, aiCooldownSec: 42 };
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={overridden} modules={withAi} />);
+    expect(panelFor(html, "ai")).toContain('value="42"');
   });
 });
