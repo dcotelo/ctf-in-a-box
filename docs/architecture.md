@@ -683,7 +683,7 @@ flag hashes, hints, signing keys, categories, and the per-challenge
 solvecount) while leaving contestant history and the launch keypair alone,
 because rotating identity on every archive import would break every
 deployed integration for a wipe that was only ever meant to replace the
-challenge list. See [docs/ai-module.md §9](ai-module.md#9-keys-and-rotation)
+challenge list. See [docs/ai-module.md §9](ai-module.md#keys-and-rotation)
 for the integrator-facing statement of the same rotation contract.
 
 ## Contestant and team state

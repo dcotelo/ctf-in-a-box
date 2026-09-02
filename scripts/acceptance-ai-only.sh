@@ -52,8 +52,11 @@
 # solve row shape (`{points, at, source}`) is the literal AWARD_SCRIPT writes
 # in ai-store.ts.
 #
-# ai-store.ts documents SEVEN `ctf:ai:*` keys this script's assertions touch
-# (plus two more it seeds for realism only):
+# ai-store.ts documents NINE `ctf:ai:*` keys this script seeds — four of them
+# (challenges, categories, points, solved) are read along the requests this
+# script's assertions make, plus five more it seeds for realism only (flag,
+# flagnorm, signkey, solvecount, solves:<login> — each marked below, since
+# this script never submits a flag, signs an event, or reads a solvecount):
 #   - ctf:ai:challenges        hash, id -> JSON AiChallenge (read by /ai)
 #   - ctf:ai:categories        string, JSON array of category names
 #   - ctf:ai:flag              hash, id -> the flag AS AUTHORED (seeded for

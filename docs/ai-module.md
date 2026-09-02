@@ -66,7 +66,7 @@ The claims:
 
 | Claim | Type | Meaning |
 |---|---|---|
-| `iss` | string | Issuer — the box. |
+| `iss` | string | Issuer — the box's configured origin (`BETTER_AUTH_URL` normalized to origin form; never derived from a request's `Host` header). Not itself validated server-side, so pin `issuer:` in your verify call if you want that check on your side. |
 | `sub` | string | The player's login. This is the identity your event POST asserts a solve for. |
 | `aud` | string | The challenge id this token is scoped to. |
 | `iat` | number | Issued-at, Unix seconds. |
