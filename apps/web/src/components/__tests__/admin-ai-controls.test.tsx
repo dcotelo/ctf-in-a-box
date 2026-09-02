@@ -582,7 +582,7 @@ vi.mock("@/lib/admin-store", () => ({
   adminErrorLabel: (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : "non-Error throw"),
 }));
 
-const { POST: wirePOST } = await import("@/app/api/admin/ai/route");
+const { POST: wirePOST, DELETE: wireDELETE } = await import("@/app/api/admin/ai/route");
 
 describe("challenge-upsert POST wire contract, proven against the real route", () => {
   beforeEach(() => {
@@ -626,5 +626,42 @@ describe("challenge-upsert POST wire contract, proven against the real route", (
     const [challengeArg, secretsArg] = wireUpsertAiChallenge.mock.calls[0];
     expect(secretsArg.flag).toBeUndefined();
     expect(challengeArg).not.toHaveProperty("caseSensitive");
+  });
+});
+
+// F5: `rotateSigningKey` and `doDelete` (admin-ai-controls.tsx) build their
+// request bodies inline — `{rotate: id}` and `{id}` respectively — rather
+// than through an exported helper like `aiCategoriesRequestBody` or
+// `payloadFromAiEditor`, so there is no pure function to unit-test. These
+// cases instead drive the exact literal body each flow sends straight into
+// the REAL route handlers, the same wire-contract idiom the upsert tests
+// above use, proving the real `parseRotatePayload`/`DELETE` body parsing
+// accepts it and calls the real store function with the right id.
+describe("rotate and delete wire contract, proven against the real route", () => {
+  beforeEach(() => {
+    wireRequireAdmin.mockReset().mockResolvedValue({ ok: true, login: "alice" });
+    wireRotateAiSigningKey.mockReset().mockResolvedValue("signkey-new");
+    wireDeleteAiChallenge.mockReset().mockResolvedValue(undefined);
+    wireWriteAdminAudit.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("the rotate flow's exact body, {rotate: id}, is accepted and rotates that challenge's key", async () => {
+    const res = await wirePOST(
+      new Request("http://x/api/admin/ai", { method: "POST", body: JSON.stringify({ rotate: c1.id }) }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ signingKey: "signkey-new" });
+    expect(wireRotateAiSigningKey).toHaveBeenCalledWith(c1.id);
+    expect(wireWriteAdminAudit).toHaveBeenCalledWith("alice", "ai-rotate-key", { id: c1.id });
+  });
+
+  it("the delete flow's exact body, {id}, is accepted and deletes that challenge", async () => {
+    const res = await wireDELETE(
+      new Request("http://x/api/admin/ai", { method: "DELETE", body: JSON.stringify({ id: c1.id }) }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(wireDeleteAiChallenge).toHaveBeenCalledWith(c1.id);
+    expect(wireWriteAdminAudit).toHaveBeenCalledWith("alice", "ai-delete", { id: c1.id });
   });
 });
