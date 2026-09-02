@@ -88,7 +88,9 @@ stale copy.
 The array is capped at 50 entries (`AI_PROGRESS_MAX`) — the token rides
 inside a URL, and an event with hundreds of `ai` challenges would otherwise
 mint a link long enough for a browser to refuse. When the real list is
-longer, the token carries the first 50 and sets `ctf.truncated: true`; a
+longer, solved challenges are moved to the front before the list is cut at
+50 — so a truncated token never drops a solve the player already has (up to
+50 solves), only unsolved rows — and `ctf.truncated: true` is set; a
 truncated token is a completely normal token, not an error, and your site
 should treat the flag purely as "there's more — call `/api/ai/state` if you
 need the rest."
