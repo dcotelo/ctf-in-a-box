@@ -114,8 +114,8 @@ describe("AdminAiControls", () => {
   });
 
   // The component HOLDS the flag and the signing key (that's the point — the
-  // edit form prefills from the flag, and Task 6's integration panel will
-  // read the signing key), but the collapsed list must not paint either: an
+  // edit form prefills from the flag, and the integration panel reads the
+  // signing key), but the collapsed list must not paint either: an
   // organizer browsing their challenges may well be doing it on a projector.
   it("keeps flags and signing keys out of the collapsed list markup", () => {
     const html = renderControls([row1]);

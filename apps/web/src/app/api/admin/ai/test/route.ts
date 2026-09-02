@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { adminErrorLabel, writeAdminAudit } from "@/lib/admin-store";
+import { resolveOrigin } from "@/lib/app-origin";
 import { getAiLaunchKeys, getAiSigningKey, listAiChallenges } from "@/lib/ai-store";
 import { signEventBody, signLaunchToken, type AiTokenClaims } from "@/lib/ai-token";
 // The REAL event handler — invoked in-process, never over the network. See
@@ -45,22 +46,6 @@ import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit-store";
  */
 
 const RESULT_ERROR = "unavailable";
-
-/** Same choice `ai/[id]/page.tsx`'s `resolveOrigin` makes: normalize
- *  `BETTER_AUTH_URL` to its origin, falling back to `http://localhost` for a
- *  local/dev box that never set it. A malformed value is a config error, not
- *  a reason to fail the request. */
-function resolveOrigin(): string {
-  const configured = process.env.BETTER_AUTH_URL;
-  if (configured) {
-    try {
-      return new URL(configured).origin;
-    } catch {
-      // fall through to the dev default below.
-    }
-  }
-  return "http://localhost";
-}
 
 export async function POST(request: Request) {
   const gate = await requireAdmin(request.headers);

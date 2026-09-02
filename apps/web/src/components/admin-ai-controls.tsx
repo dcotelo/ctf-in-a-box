@@ -29,7 +29,7 @@
 //     classic-only; the ai archive story is a later PR (#155's ai half).
 //   - The wire contract is THREE payload shapes on ONE endpoint
 //     (`POST /api/admin/ai`), dispatched by the server on exact key set —
-//     see that route's header comment. This component's `aiCategoriesBody`
+//     see that route's header comment. This component's `aiCategoriesRequestBody`
 //     helper exists for the same reason `categoriesRequestBody` exists in
 //     the classic component: every categories POST must carry EXACTLY
 //     `{categories}` and nothing else.
@@ -64,8 +64,8 @@
 // masks (`type="password"`, reveal toggle) for the screen-share case.
 //
 // The signing key itself is NOT rendered by this component at all — reading
-// or rotating it is Task 6's job (the per-challenge integration panel). See
-// the marked seam in the challenge list below.
+// or rotating it is `AdminAiIntegration`'s job (the per-challenge integration
+// panel, imported below), rendered inside every row of the challenge list.
 //
 // Deletion changes live event data mid-flight, so it is gated behind the
 // same `ConfirmModal` + typed-title-confirm pattern classic's challenge
@@ -268,7 +268,7 @@ export function editorFromAiChallenge(row: AdminAiChallenge): AiChallengeEditor 
  *  something the store would reject and only find out on submit. Unlike
  *  classic's `isDraftValid`, this takes no `categories` list — the category
  *  select only ever offers a value already in the current list, so there is
- *  nothing extra to police here. Exported for direct testing and for Task 6. */
+ *  nothing extra to police here. Exported for direct testing. */
 export function isAiDraftValid(draft: AiChallengeDraft): boolean {
   if (draft.title.trim().length === 0) return false;
   if (draft.category.trim().length === 0) return false;
@@ -308,8 +308,7 @@ export function isAiDraftValid(draft: AiChallengeDraft): boolean {
  *  a flag-comparison flag with no flag left to apply it to.
  *
  *  `newId` is injectable so a test can pin the generated value; production
- *  always uses `generateChallengeId`. Exported for direct testing and for
- *  Task 6. */
+ *  always uses `generateChallengeId`. Exported for direct testing. */
 export function payloadFromAiEditor(
   editor: AiChallengeEditor,
   newId: (title: string) => string = generateChallengeId,
@@ -389,9 +388,10 @@ export default function AdminAiControls({
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Which challenge's signing key is currently being rotated (Task 6's
-  // integration panel) — at most one at a time, driven per-row by that
-  // panel's own `pending` prop (`rotatingId === row.challenge.id`).
+  // Which challenge's signing key is currently being rotated (driven by
+  // `AdminAiIntegration`, the per-challenge integration panel) — at most one
+  // at a time, driven per-row by that panel's own `pending` prop
+  // (`rotatingId === row.challenge.id`).
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [rotateError, setRotateError] = useState<string | null>(null);
 
@@ -763,10 +763,13 @@ export default function AdminAiControls({
         ) : (
           <ul className="flex flex-col gap-2">
             {challenges.map((row) => (
-              // The collapsed list shows the public half only — flag and
-              // signing key appear only once the organizer opens the edit
-              // form (or, for the signing key, Task 6's integration panel),
-              // never on a panel that might be on a projector.
+              // Every row renders `AdminAiIntegration` below, but the flag
+              // and signing key stay out of the list itself: the flag
+              // appears only once the organizer opens the edit form, and the
+              // signing key is masked by default inside the integration
+              // panel (Reveal is an explicit click) — the raw key is absent
+              // from this row's markup until then, never sitting exposed on
+              // a panel that might be on a projector.
               <li
                 key={row.challenge.id}
                 className="flex flex-col gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
