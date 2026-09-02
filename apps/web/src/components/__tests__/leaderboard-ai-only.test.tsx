@@ -1,7 +1,11 @@
-// The gate around BoardItemLists used to be `entry.modules?.quiz ||
-// entry.modules?.classic` — an ai-only row or team expanded with NO item
-// list, and TeamRow's completed-count noun fell through to "solved" instead
-// of ai's own "challenges" (module-detail.tsx's noun for the same kind).
+// The gate around BoardItemLists used to be a hand-listed
+// `entry.modules?.quiz || entry.modules?.classic || entry.modules?.ai` (now
+// derived from `Object.keys(entry.modules ?? {})` so a future module can't
+// repeat the omission) — an ai-only row or team once expanded with NO item
+// list. TeamRow's completed-count noun is a separate concern: it's the
+// chip's VERB slot ("N solved/answered/patched"), deliberately "solved" for
+// ai (matching classic's grammar) rather than module-detail.tsx's "challenges"
+// (that component's own unit-label noun for ai, a different slot entirely).
 // BoardItemLists itself fetches client-side on mount (useEffect), which
 // renderToStaticMarkup never runs — its REAL markup is always empty here
 // regardless of the gate, so it is mocked to a stable marker: these tests
@@ -83,14 +87,17 @@ describe("an ai-only entry's expansion", () => {
 });
 
 describe("an ai-only team's expansion", () => {
-  it("shows the per-item Show-N list, and the module chip's noun is 'challenges' not 'solved'", () => {
+  it("shows the per-item Show-N list, and the module chip's noun is 'solved' (verb-slot parity with classic)", () => {
     const html = renderToStaticMarkup(
       <TeamRow team={aiOnlyTeam()} topPoints={20} isOpen onToggle={() => {}} modules={[AI_MODULE, SD_MODULE]} />,
     );
     expect(html).toContain('data-testid="board-item-lists"');
-    // TeamRow's own completedNoun ternary, not module-detail's — this is the
-    // fallthrough item 7 closes: ai used to read "2 solved" here.
-    expect(html).toMatch(/2\s*challenges/);
-    expect(html).not.toMatch(/2\s*solved/);
+    // TeamRow's own completedNoun ternary, not module-detail's — the chip is
+    // a VERB slot ("N solved"), and ai solves are solves, so it takes the
+    // same word classic falls through to. module-detail's "challenges" is a
+    // different slot (the unit label) and is unaffected — see
+    // leaderboard-ai-only's EntryRow test above for that one.
+    expect(html).toMatch(/2\s*solved/);
+    expect(html).not.toMatch(/2\s*challenges/);
   });
 });

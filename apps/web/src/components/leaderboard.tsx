@@ -290,7 +290,12 @@ export function EntryRow({
               profile blocks carry, lazily fetched now that the row is
               actually open. Only when the entry has app-side activity to
               enumerate. */}
-          {(entry.modules?.quiz || entry.modules?.classic || entry.modules?.ai) && (
+          {/* Derived rather than hand-listed: a hardcoded `quiz || classic ||
+              ai` gate silently dropped a module's item list the moment a
+              fifth module (ai) shipped without the check being updated to
+              name it too. secure-development has its own AppBreakdown above,
+              never BoardItemLists, so it's the one id excluded here. */}
+          {Object.keys(entry.modules ?? {}).some((id) => id !== "secure-development") && (
             <BoardItemLists logins={[entry.login]} />
           )}
         </div>
@@ -304,11 +309,14 @@ export function EntryRow({
  *  itself only flips client-side state that a static render can't drive. */
 export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modules = [] }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void; modules?: readonly ResolvedModule[] }) {
   // Per-module vocabulary for the completed count — the same distinction the
-  // module guides draw ("answered" a question, "solved" a flag, "challenges"
-  // done for ai — matching module-detail.tsx's own noun for each kind rather
-  // than a shared "solved" a new module would otherwise fall through to).
+  // module guides draw ("answered" a question, "patched" a target). This is
+  // the chip's VERB slot ("N solved/answered/patched"), not module-detail's
+  // unit label ("flags"/"challenges") — ai solves are solves, so it takes the
+  // same "solved" classic falls through to, matching classic's grammar even
+  // though the two modules' module-detail unit words differ ("flags" vs.
+  // "challenges").
   const completedNoun = (id: string) =>
-    id === "quiz" ? "answered" : id === "secure-development" ? "patched" : id === "ai" ? "challenges" : "solved";
+    id === "quiz" ? "answered" : id === "secure-development" ? "patched" : "solved";
   return (
     <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
       <button
@@ -413,7 +421,10 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
           <TeamFlags team={team} />
           {/* The team's quiz/classic items — the members' UNION, matching how
               the team banks points. Same lazy fetch as the entry rows. */}
-          {(team.modules?.quiz || team.modules?.classic || team.modules?.ai) && team.members.length > 0 && (
+          {/* Same derived gate as EntryRow's, and for the same reason: a
+              hand-listed `quiz || classic || ai` check silently excluded ai
+              once, and would do it again for the next module too. */}
+          {Object.keys(team.modules ?? {}).some((id) => id !== "secure-development") && team.members.length > 0 && (
             <BoardItemLists logins={team.members} />
           )}
         </div>
