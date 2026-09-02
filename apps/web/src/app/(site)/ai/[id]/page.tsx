@@ -13,7 +13,9 @@
 //   2. THE FORM. `mode: "event"` means the box never grades a typed flag for
 //      this challenge, so no <ChallengeDetail> renders at all — the launcher
 //      is the whole page. `flag`/`both` render the same shared component
-//      classic uses, pointed at this module's submit route.
+//      classic uses, wired to the Server Action in ./actions.ts rather than
+//      to a submit ROUTE: /api/ai/submit authenticates the launch token,
+//      which never leaves the href above (spec §6.1's 2026-09-02 amendment).
 //
 // Gated exactly like /ai: the route 404s when the module is off, and 404s
 // for an unknown or deleted challenge id (issue #209's dual-cause not-found,
@@ -38,6 +40,7 @@ import {
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
+import { submitAiFlagAction } from "./actions";
 
 const DEFAULT_TITLE = "AI Challenges";
 
@@ -174,9 +177,22 @@ export default async function AiChallengePage({ params }: { params: Promise<{ id
 
       {/* Event-only challenges have no in-box form at all — the launcher
           above is the whole page for them. flag/both render the same shared
-          component classic's own page uses, pointed at this module's route. */}
+          component classic's own page uses.
+
+          NOT `submitPath="/api/ai/submit"`: that route is the EXTERNAL
+          surface and authenticates a launch token, which lives only in the
+          href above and must not reach the client any other way (spec §7, and
+          §6.1's 2026-09-02 amendment). The in-box form goes through the
+          Server Action beside this file instead — session-authenticated, and
+          it re-runs every gate this render just ran. The id is bound here so
+          the client-side prop is just `(flag) => …`; the action re-validates
+          it regardless. */}
       {challenge.mode !== "event" && (
-        <ChallengeDetail challenge={view} authenticated={Boolean(login)} submitPath="/api/ai/submit" />
+        <ChallengeDetail
+          challenge={view}
+          authenticated={Boolean(login)}
+          submitAction={submitAiFlagAction.bind(null, challenge.id)}
+        />
       )}
     </div>
   );

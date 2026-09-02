@@ -19,6 +19,8 @@ vi.mock("next/navigation", () => ({
 import ChallengeDetail, {
   ChallengeCard,
   describeCorrect,
+  describeRefusal,
+  dispatchSubmit,
   resultLine,
   type ClassicChallengeView,
   type Feedback,
@@ -156,5 +158,95 @@ describe("outcome ordering (#126)", () => {
     expect(formAt).toBeGreaterThan(-1);
     expect(outcomeAt).toBeLessThan(cooldownAt);
     expect(cooldownAt).toBeLessThan(formAt);
+  });
+});
+
+// The transport split (spec §6.1's 2026-09-02 amendment). Classic POSTs to a
+// route; ai calls a Server Action, because `/api/ai/submit` authenticates a
+// launch token this component must never hold. `dispatchSubmit` is the whole
+// of that difference, and the pin that matters is the NEGATIVE one: with an
+// action in hand, nothing is fetched at all — a component that still fetched
+// would reach a route that reads `{token, flag}` and 400s on this body, which
+// is exactly the dead form this replaced.
+describe("dispatchSubmit", () => {
+  it("calls the server action with the flag, and never fetches", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const action = vi.fn().mockResolvedValue({ correct: true, points: 40, already: false });
+    try {
+      const out = await dispatchSubmit("a1", "CTF{x}", { submitAction: action });
+      expect(action).toHaveBeenCalledWith("CTF{x}");
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(out).toEqual({ ok: true, data: { correct: true, points: 40, already: false } });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("reads an action's refusal as not-ok, so the refusal copy path runs", async () => {
+    const action = vi.fn().mockResolvedValue({ error: "cooldown", retryAt: "2026-09-02T00:00:00.000Z" });
+    const out = await dispatchSubmit("a1", "CTF{x}", { submitAction: action });
+    expect(out.ok).toBe(false);
+    expect(out.data).toEqual({ error: "cooldown", retryAt: "2026-09-02T00:00:00.000Z" });
+  });
+
+  // Classic's path, byte for byte what it always sent.
+  it("POSTs {challengeId, flag} to submitPath when there is no action", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ correct: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    try {
+      const out = await dispatchSubmit("web-sqli-101", "CTF{y}", { submitPath: "/api/classic/submit" });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("/api/classic/submit");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ challengeId: "web-sqli-101", flag: "CTF{y}" }));
+      expect(out).toEqual({ ok: true, data: { correct: false } });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("reports a non-2xx route response as not-ok, tolerating an unparseable body", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 503 }));
+    try {
+      const out = await dispatchSubmit("web-sqli-101", "CTF{y}", { submitPath: "/api/classic/submit" });
+      expect(out).toEqual({ ok: false, data: {} });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
+// Every reason the in-box form can now put in front of a contestant gets its
+// own sentence rather than the generic fallback. The ai action passes the
+// store's own `AiSubmitResult` reasons straight through
+// (ai/[id]/actions.ts), so this list is that union plus classic's `no-team`.
+describe("describeRefusal", () => {
+  const generic = "That submission wasn't accepted.";
+
+  it("names every reason the in-box form can receive", () => {
+    for (const reason of [
+      "paused",
+      "solved",
+      "cooldown",
+      "unavailable",
+      "no-team",
+      "wrong-mode",
+      "invalid",
+      "error",
+    ]) {
+      expect(describeRefusal(reason)).not.toBe(generic);
+    }
+  });
+
+  it("falls back for anything it does not recognise", () => {
+    expect(describeRefusal("something-new")).toBe(generic);
   });
 });

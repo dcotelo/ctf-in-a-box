@@ -277,11 +277,20 @@ describe("ai challenge page launcher", () => {
 });
 
 describe("ai challenge page form", () => {
-  it("renders ChallengeDetail, pointed at the ai submit route, for a flag-mode challenge", async () => {
+  // NOT a submitPath. `/api/ai/submit` authenticates the launch token, which
+  // exists only in the launcher's href — so the in-box form goes through the
+  // Server Action instead (spec §6.1's 2026-09-02 amendment). A regression to
+  // `submitPath="/api/ai/submit"` is the dead form this pins against: that
+  // route reads `{token, flag}` and 400s on the `{challengeId, flag}` body
+  // the component's fetch path sends.
+  it("renders ChallengeDetail wired to the server action — never to a submit route — for a flag-mode challenge", async () => {
     renderToStaticMarkup(await AiChallengePage(params("a1")));
     expect(challengeDetailSpy).toHaveBeenCalledTimes(1);
-    const [props] = challengeDetailSpy.mock.calls[0] as [{ submitPath: string; authenticated: boolean }];
-    expect(props.submitPath).toBe("/api/ai/submit");
+    const [props] = challengeDetailSpy.mock.calls[0] as [
+      { submitPath?: string; submitAction?: unknown; authenticated: boolean },
+    ];
+    expect(typeof props.submitAction).toBe("function");
+    expect(props.submitPath).toBeUndefined();
     expect(props.authenticated).toBe(true);
   });
 
