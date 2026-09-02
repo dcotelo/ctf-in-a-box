@@ -33,6 +33,7 @@ const {
   redirectIfTeamless,
   requireGatePassed,
   challengeDetailSpy,
+  headersRef,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -45,11 +46,15 @@ const {
   redirectIfTeamless: vi.fn(),
   requireGatePassed: vi.fn(),
   challengeDetailSpy: vi.fn(),
+  // Mutable so a test can put caller-controlled headers on the request and
+  // pin that the mint ignores them. A `vi.mock` factory is hoisted above every
+  // top-level binding, so the box has to come from `vi.hoisted` too.
+  headersRef: { current: new Headers() },
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("next/headers", () => ({ headers: () => headersRef.current }));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
@@ -110,6 +115,7 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  headersRef.current = new Headers();
   isModuleEnabled.mockReturnValue(true);
   isAdminLogin.mockReturnValue(false);
   getSession.mockResolvedValue({ user: { login: "alice" } });
@@ -289,14 +295,27 @@ describe("ai challenge page launcher", () => {
     }
   });
 
-  it("falls back to a safe default when BETTER_AUTH_URL is unset — never the request's Host header", async () => {
+  // Proves the NEGATIVE, not just the fallback: the request carries a Host
+  // (and a Forwarded/X-Forwarded-Host, the other two headers a caller
+  // controls), `BETTER_AUTH_URL` is unset, and the origin is still the shipped
+  // dev default. A `resolveOrigin` that reached for a header would put
+  // `evil.test` in a signed token's `iss`.
+  it("falls back to the configured default when BETTER_AUTH_URL is unset — never a caller-controlled Host header", async () => {
     const prior = process.env.BETTER_AUTH_URL;
     delete process.env.BETTER_AUTH_URL;
+    headersRef.current = new Headers({
+      host: "evil.test",
+      "x-forwarded-host": "evil.test",
+      forwarded: "host=evil.test;proto=https",
+    });
     try {
       await AiChallengePage(params("a1"));
       expect(mintLaunchUrl).toHaveBeenCalledWith(expect.objectContaining({ origin: "http://localhost" }));
+      const minted = JSON.stringify(mintLaunchUrl.mock.calls);
+      expect(minted).not.toContain("evil.test");
     } finally {
       if (prior !== undefined) process.env.BETTER_AUTH_URL = prior;
+      headersRef.current = new Headers();
     }
   });
 });

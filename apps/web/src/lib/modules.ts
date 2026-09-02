@@ -840,9 +840,10 @@ git push -u origin fix/<short-description>`,
     // never on a spent allowance, so never promise or imply one. There IS a
     // cooldown (`CLASSIC_COOLDOWN_SEC`, organizer-configurable in seconds via
     // `classicCooldownSec`). Every challenge carries a category and a point
-    // value, and the board shows a solve count (`classic-board.tsx`'s
-    // `ChallengeCard`: the category heading, the "N pts" badge, the "N
-    // solve(s)" line). Points are static — `SUBMIT_SCRIPT` reads the price off
+    // value, and a solve count is shown (`challenge-board.tsx`'s tiles carry
+    // the category heading and the "N pts" badge; `challenge-detail.tsx`'s
+    // `ChallengeCard` carries the "N solve(s)" line on the challenge's own
+    // page). Points are static — `SUBMIT_SCRIPT` reads the price off
     // the challenge hash at solve time and nothing anywhere lowers it as more
     // people solve. Nothing is graded for a signed-out visitor (`/flags`
     // renders a sign-in prompt instead of an input; `/api/classic/submit`
@@ -874,7 +875,8 @@ git push -u origin fix/<short-description>`,
       cta: { href: "/flags", label: "Browse the flags" },
     },
     // The long-form guide. Same discipline as `home` above: every claim is
-    // checked against classic-store.ts and classic-board.tsx. No `example` or
+    // checked against classic-store.ts, challenge-board.tsx and
+    // challenge-detail.tsx. No `example` or
     // `callout` block — classic has no worked example to walk (there's no
     // fixed method for finding a flag) and, like quiz, is deliberately silent
     // on AI.

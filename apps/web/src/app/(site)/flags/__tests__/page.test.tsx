@@ -21,7 +21,7 @@ const { isModuleEnabled, isAdminLogin, getSession, listChallenges, listCategorie
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
-// ClassicBoard (the client component this page renders) calls useRouter for
+// ChallengeBoard (the client component this page renders) calls useRouter for
 // its post-submit refresh — needs a mock the same way quiz-board.test.tsx
 // mocks it, since real next/navigation needs a router context.
 vi.mock("next/navigation", async (importOriginal) => ({
@@ -96,7 +96,7 @@ describe("flags page view model", () => {
     expect(html).toContain("/ 3 solved");
   });
 
-  // The page and <ClassicBoard> each used to print their own count ("You've
+  // The page and <ChallengeBoard> each used to print their own count ("You've
   // solved 1 of 3 challenges." above "1 / 3 solved"), which reads as a
   // rendering bug. One statement of progress, from one place — the grid's
   // summary strip.

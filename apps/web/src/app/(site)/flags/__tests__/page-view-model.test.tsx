@@ -1,16 +1,16 @@
 // The keyless-contestant guarantee, pinned at the PAGE level, mirroring
 // quiz/__tests__/page-view-model.test.tsx exactly.
 //
-// classic-board.test.tsx already proves <ClassicBoard> won't echo a leaked
+// challenge-board.test.tsx already proves <ChallengeBoard> won't echo a leaked
 // field into markup even if one somehow reaches it. This proves the field
 // never reaches it in the first place: whatever `listChallenges()` hands
 // back, /flags's view model is built field by field from the public
 // `Challenge` shape, so a flag cannot ride along.
 //
-// ClassicBoard is mocked here (unlike page.test.tsx, which renders it for
+// ChallengeBoard is mocked here (unlike page.test.tsx, which renders it for
 // real) purely to capture the props it is handed — the view model itself,
 // before any rendering can hide a field. Checking the rendered HTML instead
-// would prove nothing here: <ClassicBoard>/<ChallengeCard> only ever reads a
+// would prove nothing here: <ChallengeBoard>/<ChallengeCard> only ever reads a
 // fixed whitelist of props, so a leaked field never reaches markup EVEN IF
 // the page spread a raw store record into the view model — the safety net
 // one level down would silently absorb the very mutation this test exists to
@@ -133,7 +133,7 @@ describe("/flags view model", () => {
     );
   });
 });
-// The same guarantee one level down — that <ClassicBoard> won't echo a
+// The same guarantee one level down — that <ChallengeBoard> won't echo a
 // leaked field into markup even if one did reach it — is
-// classic-board.test.tsx's "never lets a flag reach the markup" test. The two
+// challenge-board.test.tsx's "never lets a flag reach the markup" test. The two
 // guards are independent on purpose; neither is allowed to be the only one.

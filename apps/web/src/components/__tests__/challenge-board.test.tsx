@@ -1,7 +1,8 @@
-// The classic board as a category-grouped tile grid (issue #208): tiles are
-// links to /flags/[id] carrying only title + points + solved state — the
-// description and the flag form live on the challenge's own page now. Static
-// renders are enough: the board is a Server Component with no interactivity.
+// The shared board as a category-grouped tile grid (issue #208): tiles are
+// links to `basePath`/<id> — /flags/[id] here, /ai/[id] for the ai module —
+// carrying only title + points + solved state; the description and the flag
+// form live on the challenge's own page now. Static renders are enough: the
+// board is a Server Component with no interactivity.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 

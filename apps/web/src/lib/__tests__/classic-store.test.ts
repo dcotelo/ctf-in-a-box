@@ -697,7 +697,7 @@ describe("importBundle", () => {
 
   // The invariant the rest of the module assumes (`setCategories`'
   // first-spelling-wins rule depends on it, and the board's exact-equality
-  // filter in classic-board.tsx depends on it too): every stored challenge's
+  // filter in challenge-board.tsx depends on it too): every stored challenge's
   // `category` must appear, verbatim, in the stored category list. The union
   // above folds case-insensitively and keeps the EXISTING spelling ("Web"),
   // so a bundle that spells the same category "web" must have its challenge

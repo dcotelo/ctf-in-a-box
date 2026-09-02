@@ -137,6 +137,6 @@ describe("/ai view model", () => {
 });
 // The same guarantee one level down — that <ChallengeBoard> won't echo a
 // leaked field into markup even if one did reach it — is
-// challenge-board.test.tsx's (classic-board.test.tsx-equivalent) coverage.
+// challenge-board.test.tsx's own coverage.
 // The two guards are independent on purpose; neither is allowed to be the
 // only one.
