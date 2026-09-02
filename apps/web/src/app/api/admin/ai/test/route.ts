@@ -61,29 +61,37 @@ export async function POST(request: Request) {
       ? (body as { challengeId: string }).challengeId
       : "";
 
-  const challenge = (await listAiChallenges()).find((c) => c.id === challengeId);
-  if (!challenge) return NextResponse.json({ error: "unknown-challenge" }, { status: 400 });
-
-  // A challenge can exist with no signing key yet minted (a legacy row — see
-  // `AdminAiChallenge`'s doc comment). There is nothing to sign a demo event
-  // with in that case, so this has to be refused HERE, before the real event
-  // handler is ever invoked — the one place this route answers on its own
-  // rather than relaying that handler's verdict (see the header comment).
-  // `unknown-challenge` would be dishonest: the organizer is looking at a
-  // real row, on a real challenge, that just has no signing key yet — and it
-  // would also be wrong for a flag-mode challenge, which the real pipeline
-  // would refuse with `wrong-mode` first (mode is checked before the
-  // signing key is even read — see `event/route.ts`). This route cannot
-  // reproduce that ordering without re-implementing the mode check, so it
-  // names its own refusal instead of guessing at the real one.
-  const signingKey = await getAiSigningKey(challengeId);
-  if (!signingKey) return NextResponse.json({ error: "no-signing-key" }, { status: 400 });
-
+  // The three store reads below (challenge lookup, signing key, launch keys)
+  // share one try/catch: a store outage on ANY of them must answer the
+  // route's own declared 503 `{error:"unavailable"}`, never escape as a
+  // framework 500 — the admin panel's classifier only understands this
+  // route's JSON error shapes, and a 500 has no body for it to read.
+  let challenge: Awaited<ReturnType<typeof listAiChallenges>>[number] | undefined;
+  let signingKey: Awaited<ReturnType<typeof getAiSigningKey>>;
   let launchPrivateKey: string;
   try {
+    challenge = (await listAiChallenges()).find((c) => c.id === challengeId);
+    if (!challenge) return NextResponse.json({ error: "unknown-challenge" }, { status: 400 });
+
+    // A challenge can exist with no signing key yet minted (a legacy row —
+    // see `AdminAiChallenge`'s doc comment). There is nothing to sign a demo
+    // event with in that case, so this has to be refused HERE, before the
+    // real event handler is ever invoked — the one place this route answers
+    // on its own rather than relaying that handler's verdict (see the header
+    // comment). `unknown-challenge` would be dishonest: the organizer is
+    // looking at a real row, on a real challenge, that just has no signing
+    // key yet — and it would also be wrong for a flag-mode challenge, which
+    // the real pipeline would refuse with `wrong-mode` first (mode is
+    // checked before the signing key is even read — see `event/route.ts`).
+    // This route cannot reproduce that ordering without re-implementing the
+    // mode check, so it names its own refusal instead of guessing at the
+    // real one.
+    signingKey = await getAiSigningKey(challengeId);
+    if (!signingKey) return NextResponse.json({ error: "no-signing-key" }, { status: 400 });
+
     launchPrivateKey = (await getAiLaunchKeys()).privateKey;
   } catch (err) {
-    console.error("[admin/ai/test] launch key read failed:", adminErrorLabel(err));
+    console.error("[admin/ai/test] store read failed:", adminErrorLabel(err));
     return NextResponse.json({ error: RESULT_ERROR }, { status: 503 });
   }
 

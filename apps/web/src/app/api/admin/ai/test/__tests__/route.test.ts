@@ -143,6 +143,33 @@ describe("POST /api/admin/ai/test", () => {
     expect(mocks.getAiLaunchKeys).not.toHaveBeenCalled();
   });
 
+  it("a store outage on the challenge lookup answers 503 unavailable, not a framework 500", async () => {
+    // listAiChallenges, getAiSigningKey and getAiLaunchKeys share one
+    // try/catch (Finding B) — a rejection from any of them must surface as
+    // this route's own declared 503 shape, which is the only thing the admin
+    // panel's classifier understands; an uncaught throw would escape Next as
+    // a bodiless 500 instead.
+    allGatesOpen();
+    mocks.listAiChallenges.mockRejectedValue(new Error("ECONNRESET"));
+    const res = await POST(adminReq());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "unavailable" });
+    expect(mocks.signLaunchToken).not.toHaveBeenCalled();
+    expect(mocks.getAiLaunchKeys).not.toHaveBeenCalled();
+    expect(mocks.awardAiEvent).not.toHaveBeenCalled();
+  });
+
+  it("a store outage on the signing-key read answers 503 unavailable, not a framework 500", async () => {
+    allGatesOpen();
+    mocks.getAiSigningKey.mockRejectedValue(new Error("ECONNRESET"));
+    const res = await POST(adminReq());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "unavailable" });
+    expect(mocks.signLaunchToken).not.toHaveBeenCalled();
+    expect(mocks.getAiLaunchKeys).not.toHaveBeenCalled();
+    expect(mocks.awardAiEvent).not.toHaveBeenCalled();
+  });
+
   it("rate limits per admin login, before any mint or lookup", async () => {
     allGatesOpen();
     mocks.consumeRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
