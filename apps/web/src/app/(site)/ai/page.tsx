@@ -55,9 +55,11 @@ export default async function AiPage() {
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
-  // Drives the empty state's authoring route only — same check `/admin` and
-  // every `/api/admin/*` route gate on, so a link is never offered to someone
-  // the admin page would then 403 at. Mirrors flags/page.tsx.
+  // Drives the empty state's wording and the team-redirect exemption below —
+  // same check `/admin` and every `/api/admin/*` route gate on, so the
+  // organizer-only line is never shown to someone the admin page would 403
+  // at. Mirrors flags/page.tsx, minus its authoring link (see the empty
+  // state below for why this module has none yet).
   const viewerIsAdmin = await isAdminLogin(login);
 
   // Solves only count for a team (issue #153), and the submit/mint paths
@@ -125,14 +127,21 @@ export default async function AiPage() {
           whose challenges haven't been authored yet. */}
       <div className="flex flex-col gap-4">
         {progress && <p className="text-sm text-zinc-400">{progress}</p>}
+        {/* NO authoring link below, unlike /flags and /quiz — and the
+            organizer's line says why rather than pointing somewhere. `/admin`
+            has no `ai` tab yet (it ships with the module's admin PR), and an
+            unknown `?tab=` falls back to the Event tab: an "Author challenges"
+            button that silently lands on the wrong panel is a worse dead end
+            than no button, because it looks like the feature exists and is
+            broken. */}
         {challenges.length === 0 ? (
           <ModuleEmptyState
             message={
               viewerIsAdmin
-                ? "No challenges yet. Add the first one from the admin panel."
+                ? "No challenges yet. AI challenges aren't authorable from the admin panel yet — that section ships with the rest of the module."
                 : "No challenges are available yet. Check back soon."
             }
-            authoring={viewerIsAdmin ? { href: "/admin?tab=ai", label: "Author challenges" } : null}
+            authoring={null}
           />
         ) : (
           <ChallengeBoard
