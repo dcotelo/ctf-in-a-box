@@ -26,7 +26,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ChallengeDetail, { type ChallengeView } from "@/components/challenge-detail";
-import HintButton from "@/components/hint-reveal-button";
+import HintRevealButton from "@/components/hint-reveal-button";
 import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
@@ -177,7 +177,7 @@ export default async function AiChallengePage({ params }: { params: Promise<{ id
               💡 {viewerHints.ai[challenge.id]}
             </p>
           ) : login ? (
-            <HintButton app="ai" id={challenge.id} cost={hintNotice.cost} />
+            <HintRevealButton app="ai" id={challenge.id} cost={hintNotice.cost} />
           ) : (
             <p className="text-xs text-muted">
               This one has a paid hint ({hintNotice.cost} pts) — sign in to reveal it.

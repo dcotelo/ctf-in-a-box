@@ -61,7 +61,7 @@ const {
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => headersRef.current }));
-// The hint block renders a real HintButton (unlike ChallengeDetail, which is
+// The hint block renders a real HintRevealButton (unlike ChallengeDetail, which is
 // spied below) — it calls useRouter for its post-reveal refresh, same reason
 // flags/[id]'s suite mocks this. Every other export (redirect, notFound)
 // stays real, since the gate tests below exercise the real `redirect()`.

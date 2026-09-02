@@ -1,4 +1,4 @@
-// HintButton (hint-reveal-button.tsx) is the single challenge page's paid-hint
+// HintRevealButton (hint-reveal-button.tsx) is the single challenge page's paid-hint
 // control, shared by classic (flags/[id]) and ai (ai/[id]) — generalized from
 // the classic-only `ClassicHint` by replacing its hardcoded `app: "classic"`
 // reveal-request field with the caller's `app` prop (Task 2, issue #211).
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const src = readFileSync(fileURLToPath(new URL("../hint-reveal-button.tsx", import.meta.url)), "utf8");
 
-describe("HintButton posts the target app in its reveal request", () => {
+describe("HintRevealButton posts the target app in its reveal request", () => {
   it("builds the POST body from the app prop", () => {
     expect(src).toMatch(/body:\s*JSON\.stringify\(\{\s*app,\s*id\s*\}\)/);
   });

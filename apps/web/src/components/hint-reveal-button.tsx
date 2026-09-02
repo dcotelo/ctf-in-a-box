@@ -20,7 +20,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { HintTarget } from "@/lib/hint-store";
 
-export default function HintButton({ app, id, cost }: { app: HintTarget; id: string; cost: number }) {
+export default function HintRevealButton({ app, id, cost }: { app: HintTarget; id: string; cost: number }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
