@@ -27,11 +27,12 @@ const attempt = (attempts: number, lastAt = "2026-08-22T10:00:00Z") =>
 
 /**
  * Drives the store's fixed read order:
- *   1. one pipeline: quiz points, classic points, hints spent
+ *   1. one pipeline: quiz points, classic points, ai points, hints spent
  *   2. SCAN ctf:solves:*        (secure-dev sweep; repeats until cursor 0)
  *   3. HGETALL of each solves key found
- *   4. SIX commands per contestant, batched (answers, solves, quiz attempts,
- *      classic attempts, firstTeamAt, hint purchase times)
+ *   4. EIGHT commands per contestant, batched (answers, solves, ai solves,
+ *      quiz attempts, classic attempts, ai attempts, firstTeamAt, hint
+ *      purchase times)
  *
  * Written as a queue rather than per-call mocks because `vi.clearAllMocks()`
  * does NOT clear queued one-shot implementations — leftovers from one test
@@ -41,14 +42,17 @@ function mockStore(opts: {
   sdKeys?: Record<string, Record<string, string>>;
   quizPoints?: Record<string, number>;
   classicPoints?: Record<string, number>;
+  aiPoints?: Record<string, number>;
   hintsSpent?: Record<string, number>;
   perLogin?: Record<
     string,
     {
       quizAnswers?: Record<string, string>;
       classicSolves?: Record<string, string>;
+      aiSolves?: Record<string, string>;
       quizAttempts?: Record<string, string>;
       classicAttempts?: Record<string, string>;
+      aiAttempts?: Record<string, string>;
       firstTeamAt?: string | null;
       /** `<app>/<challengeId>` -> ISO bought-at. */
       hintTimes?: Record<string, string>;
@@ -73,6 +77,7 @@ function mockStore(opts: {
   mocks.upstashPipeline.mockResolvedValueOnce([
     { result: hash(opts.quizPoints ?? {}) },
     { result: hash(opts.classicPoints ?? {}) },
+    { result: hash(opts.aiPoints ?? {}) },
     { result: hash(opts.hintsSpent ?? {}) },
   ]);
   mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["0", keys] }]);
@@ -88,8 +93,10 @@ function mockStore(opts: {
         return [
           { result: hash(p.quizAnswers ?? {}) },
           { result: hash(p.classicSolves ?? {}) },
+          { result: hash(p.aiSolves ?? {}) },
           { result: hash(p.quizAttempts ?? {}) },
           { result: hash(p.classicAttempts ?? {}) },
+          { result: hash(p.aiAttempts ?? {}) },
           { result: [p.firstTeamAt ?? null] },
           { result: hash(p.hintTimes ?? {}) },
         ];
@@ -491,5 +498,113 @@ describe("solveRate denominator", () => {
       expect(c.solveRate).toBeGreaterThanOrEqual(0);
       expect(c.solveRate).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+// --- the ai module folds exactly like classic --------------------------------
+
+describe("the ai module", () => {
+  it("counts DISTINCT ai solvers and total attempts, same as classic's fold", async () => {
+    // Field-swap of "counts DISTINCT solvers, not submissions" above.
+    mockStore({
+      perLogin: {
+        alice: { aiSolves: { c1: earned(10, "2026-08-22T10:00:00Z") }, aiAttempts: { c1: attempt(3) } },
+        bob: { aiSolves: { c1: earned(10, "2026-08-22T10:01:00Z") }, aiAttempts: { c1: attempt(1) } },
+      },
+      aiPoints: { alice: 10, bob: 10 },
+    });
+    const m = await computeEventMetrics();
+    const c1 = m.challenges.find((c) => c.module === "ai" && c.id === "c1");
+    expect(c1?.solves).toBe(2);
+    expect(c1?.attempts).toBe(4); // 3 + 1 submissions
+    expect(m.modules.ai).toBe(2);
+  });
+
+  it("credits ai solves into the funnel and the timeline, same as quiz/classic", async () => {
+    mockStore({
+      perLogin: {
+        alice: { aiSolves: { c1: earned(10, "2026-08-22T10:00:00Z") } },
+      },
+      aiPoints: { alice: 10 },
+    });
+    const m = await computeEventMetrics();
+    expect(m.funnel.scored).toBe(1);
+    expect(m.timeline).toEqual([{ at: "2026-08-22T10:00:00.000Z", solves: 1 }]);
+  });
+
+  it("modules.ai stays 0 and no ai rows appear when nobody has touched the module — the same unconditional-but-empty read quiz/classic get when disabled", async () => {
+    // metrics-store never gates a read on module enablement for quiz or
+    // classic: a disabled module simply never had anything written to its
+    // keys, so the fold reads an empty hash and reports 0. Ai is folded the
+    // same unconditional way — there is no enablement check to mirror,
+    // only the empty-hash-reads-as-zero behaviour.
+    mockStore({
+      perLogin: { alice: { quizAnswers: { q1: earned(5, "2026-08-22T10:00:00Z") } } },
+      quizPoints: { alice: 5 },
+    });
+    const m = await computeEventMetrics();
+    expect(m.modules.ai).toBe(0);
+    expect(m.challenges.some((c) => c.module === "ai")).toBe(false);
+  });
+
+  it("never lets a poisoned ai record's extra flag/key fields reach the metrics payload", async () => {
+    // parseEarned/parseAttemptRow are strict by construction: they read only
+    // `points`/`at` (or `attempts`/`firstAt`) off the parsed object and ignore
+    // everything else. This pins that a corrupted row — one carrying a flag,
+    // a signing key, or a PEM block past the JSON.parse — still cannot make
+    // those bytes appear anywhere in the serialized metrics payload.
+    const poisoned = JSON.stringify({
+      points: 10,
+      at: "2026-08-22T10:00:00Z",
+      flag: "CTF{leaked}",
+      signkey: "aik_should_not_leak",
+      privateKey: "-----BEGIN PRIVATE KEY-----poison-----END PRIVATE KEY-----",
+    });
+    mockStore({
+      perLogin: {
+        alice: { aiSolves: { c1: poisoned }, aiAttempts: { c1: attempt(1) } },
+      },
+      aiPoints: { alice: 10 },
+    });
+    const m = await computeEventMetrics();
+    const serialized = JSON.stringify(m);
+    expect(serialized).not.toMatch(/flag|signkey|aik_|PRIVATE KEY/i);
+    const c1 = m.challenges.find((c) => c.module === "ai" && c.id === "c1");
+    expect(c1?.solves).toBe(1);
+  });
+
+  it("counts a clean ai record the same way — the poisoned test's positive twin", async () => {
+    const clean = JSON.stringify({ points: 10, at: "2026-08-22T10:00:00Z" });
+    mockStore({
+      perLogin: {
+        alice: { aiSolves: { c1: clean }, aiAttempts: { c1: attempt(1) } },
+      },
+      aiPoints: { alice: 10 },
+    });
+    const m = await computeEventMetrics();
+    const c1 = m.challenges.find((c) => c.module === "ai" && c.id === "c1");
+    expect(c1?.solves).toBe(1);
+    expect(c1?.attempts).toBe(1);
+  });
+});
+
+describe("challengesToCsv carries the ai module column", () => {
+  it("emits an ai row with its module value", () => {
+    const metrics = {
+      challenges: [
+        {
+          module: "ai",
+          id: "a1",
+          solves: 1,
+          attempts: 2,
+          solveRate: 0.5,
+          avgAttemptsToSolve: 2,
+          medianSecondsToSolve: 30,
+          solvedAfterHint: 0,
+        },
+      ],
+    } as EventMetrics;
+    const lines = challengesToCsv(metrics).trim().split("\n");
+    expect(lines[1]).toBe("ai,a1,1,2,0.5000,2.00,30");
   });
 });

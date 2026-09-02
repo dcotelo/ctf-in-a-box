@@ -14,7 +14,7 @@
 import { useState } from "react";
 
 type ChallengeStat = {
-  module: "quiz" | "classic";
+  module: "quiz" | "classic" | "ai";
   id: string;
   solves: number;
   attempts: number;
@@ -30,7 +30,7 @@ type EventMetrics = {
   challenges: ChallengeStat[];
   timeline: { at: string; solves: number }[];
   teams: { slug: string; name: string; size: number; points: number }[];
-  modules: { quiz: number; classic: number; secureDevelopment: number };
+  modules: { quiz: number; classic: number; ai: number; secureDevelopment: number };
   hints: { buyers: number; totalSpend: number; boughtBeforeSolving: number; boughtAfterSolving: number };
   caveats: string[];
 };
@@ -154,8 +154,8 @@ export default function AdminInsightsTab() {
                 ))}
               </div>
               <p className="text-[10px] text-muted">
-                Ten-minute buckets, quiz and classic. Attempt rows carry a first and a last time but not one
-                per try, so this is solves, not submissions.
+                Ten-minute buckets, quiz, classic and AI. Attempt rows carry a first and a last time but not
+                one per try, so this is solves, not submissions.
               </p>
             </section>
           )}
@@ -207,6 +207,7 @@ export default function AdminInsightsTab() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               <Figure label="Quiz scorers" value={metrics.modules.quiz} />
               <Figure label="Classic scorers" value={metrics.modules.classic} />
+              <Figure label="AI scorers" value={metrics.modules.ai} />
               <Figure label="Sec-dev scorers" value={metrics.modules.secureDevelopment} />
               <Figure label="Hint buyers" value={metrics.hints.buyers} />
               <Figure label="Points spent on hints" value={metrics.hints.totalSpend} />
