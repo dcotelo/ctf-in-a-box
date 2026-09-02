@@ -98,6 +98,7 @@ import ConfirmModal from "@/components/confirm-modal";
 // Named import only — this module never needs classic's default export, just
 // the module-agnostic phrase helper (title in, safe non-empty phrase out).
 import { confirmPhraseFromTitle } from "@/components/admin-classic-controls";
+import AdminAiIntegration from "@/components/admin-ai-integration";
 
 type NumericSettingKey = "aiCooldownSec";
 
@@ -388,6 +389,12 @@ export default function AdminAiControls({
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Which challenge's signing key is currently being rotated (Task 6's
+  // integration panel) — at most one at a time, driven per-row by that
+  // panel's own `pending` prop (`rotatingId === row.challenge.id`).
+  const [rotatingId, setRotatingId] = useState<string | null>(null);
+  const [rotateError, setRotateError] = useState<string | null>(null);
+
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [categoryPending, setCategoryPending] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
@@ -524,6 +531,42 @@ export default function AdminAiControls({
       setDeleteError("Couldn't reach the server — try again.");
     } finally {
       setDeletePending(false);
+    }
+  }
+
+  /** POST `{rotate: id}` — mints a new signing key for one challenge and
+   *  swaps it into `challenges` from the response, exactly like every other
+   *  write in this component echoes the store's own result rather than
+   *  something derived client-side. Wired to `AdminAiIntegration`'s
+   *  `onRotate` prop at the seam below; errors surface through the same
+   *  `describeAiError` idiom every other write in this file uses. ALWAYS
+   *  rethrows on failure (network or a non-2xx) so the panel's own confirm
+   *  (`confirmRotate` in admin-ai-integration.tsx) knows not to close itself
+   *  — an organizer who just saw an error should still see the confirm, not
+   *  have it vanish as if the rotate had succeeded. */
+  async function rotateSigningKey(id: string): Promise<void> {
+    setRotatingId(id);
+    setRotateError(null);
+    let handled = false;
+    try {
+      const res = await fetch("/api/admin/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rotate: id }),
+      });
+      const data = await parseJson<{ error?: string; signingKey?: string }>(res);
+      if (!res.ok || typeof data.signingKey !== "string") {
+        handled = true;
+        setRotateError(describeAiError(res.status, data.error));
+        throw new Error("rotate failed");
+      }
+      const signingKey = data.signingKey;
+      setChallenges((prev) => prev.map((row) => (row.challenge.id === id ? { ...row, signingKey } : row)));
+    } catch (err) {
+      if (!handled) setRotateError("Couldn't reach the server — try again.");
+      throw err;
+    } finally {
+      setRotatingId(null);
     }
   }
 
@@ -710,6 +753,11 @@ export default function AdminAiControls({
           </p>
         )}
 
+        {/* Rotate errors are global rather than per-row, same as every other
+            write in this component (listError, categoryError, deleteError) —
+            an organizer only ever has one rotate in flight at a time. */}
+        {rotateError && <p className="text-xs text-[#e53e3e]">{rotateError}</p>}
+
         {challenges.length === 0 ? (
           <p className="text-xs text-muted">No challenges yet.</p>
         ) : (
@@ -754,11 +802,12 @@ export default function AdminAiControls({
                     </button>
                   </div>
                 </div>
-                {/* Per-challenge integration surface (launch URL preview,
-                    signing key, rotate) lands here, driven by
-                    `{ challenge: row.challenge, signingKey: row.signingKey,
-                    onRotate }` — this commit intentionally renders nothing in
-                    that spot yet; the next commit fills it in. */}
+                <AdminAiIntegration
+                  challenge={row.challenge}
+                  signingKey={row.signingKey}
+                  pending={rotatingId === row.challenge.id}
+                  onRotate={() => rotateSigningKey(row.challenge.id)}
+                />
               </li>
             ))}
           </ul>

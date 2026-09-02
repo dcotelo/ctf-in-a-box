@@ -129,11 +129,18 @@ describe("AdminAiControls", () => {
     expect(html).not.toMatch(/name="id"/);
   });
 
-  // Marks the seam Task 6 (the per-challenge integration panel) fills in.
-  it("says nothing about a launch URL or signing key in the collapsed row yet — that lands in a later commit", () => {
+  // The seam Task 6 fills in: each row now renders the integration panel
+  // (endpoints, masked signing key, Rotate, test curl, Send test) — but it
+  // still never leaks the launch URL TEMPLATE (an authoring-time field, not
+  // part of the integration surface) or the RAW signing key (masked by
+  // default; see admin-ai-integration.test.tsx for that component's own
+  // masking coverage).
+  it("renders the integration panel per row, without leaking the launch URL template or the raw signing key", () => {
     const html = renderControls([row1]);
+    expect(html).toContain("Rotate");
+    expect(html).toContain("Send test");
     expect(html).not.toContain(c1.urlTemplate);
-    expect(html).not.toContain("Rotate");
+    expect(html).not.toContain(row1.signingKey);
   });
 
   describe("category editor", () => {
