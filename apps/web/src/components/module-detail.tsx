@@ -45,6 +45,14 @@ export default function ModuleDetail({
       </p>
     );
   }
+  if (detail.kind === "ai") {
+    return (
+      <p className="font-mono text-sm tabular-nums text-white">
+        {detail.solved} / {detail.total}
+        <span className="ml-1 text-xs text-muted">challenges</span>
+      </p>
+    );
+  }
   // Exhaustiveness check. Naming every `kind` above is NOT on its own what
   // makes a fourth module a compile error here — a returned last branch still
   // type-checks against whatever shape the new variant happens to have, and

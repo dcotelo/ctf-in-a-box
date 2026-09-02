@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   getClassicTotals: vi.fn(),
   getTeamClassicTotalsBatch: vi.fn(),
   listChallenges: vi.fn(),
+  getAiTotals: vi.fn(),
+  getTeamAiTotalsBatch: vi.fn(),
+  listAiChallenges: vi.fn(),
 }));
 
 vi.mock("@/lib/modules", () => ({
@@ -30,6 +33,12 @@ vi.mock("@/lib/classic-store", () => ({
   getClassicTotals: mocks.getClassicTotals,
   getTeamClassicTotalsBatch: mocks.getTeamClassicTotalsBatch,
   listChallenges: mocks.listChallenges,
+}));
+
+vi.mock("@/lib/ai-store", () => ({
+  getAiTotals: mocks.getAiTotals,
+  getTeamAiTotalsBatch: mocks.getTeamAiTotalsBatch,
+  listAiChallenges: mocks.listAiChallenges,
 }));
 
 import { withModuleContributions } from "../module-contributions";
@@ -63,6 +72,11 @@ beforeEach(() => {
     Promise.resolve(teams.map(() => ({ points: 0, solved: 0, lastAt: null }))),
   );
   mocks.listChallenges.mockResolvedValue([]);
+  mocks.getAiTotals.mockResolvedValue(new Map());
+  mocks.getTeamAiTotalsBatch.mockImplementation((teams: readonly string[][]) =>
+    Promise.resolve(teams.map(() => ({ points: 0, solved: 0, lastAt: null }))),
+  );
+  mocks.listAiChallenges.mockResolvedValue([]);
 });
 
 describe("withModuleContributions", () => {
@@ -670,6 +684,172 @@ describe("withModuleContributions", () => {
       } finally {
         err.mockRestore();
       }
+    });
+  });
+
+  // Regression gate specific to the ai module: with it DISABLED, the
+  // leaderboard must behave exactly as it did before this module existed —
+  // no ai reads, no ai block, no ranking change driven by ai data. Mirrors
+  // the quiz/classic disabled pairs above.
+  describe("with the ai module disabled", () => {
+    it("never reads ai data and adds no ai block", async () => {
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+      expect(out.entries[0].modules!["ai"]).toBeUndefined();
+      expect(out.entries[0].points).toBe(30);
+      expect(mocks.getAiTotals).not.toHaveBeenCalled();
+      expect(mocks.listAiChallenges).not.toHaveBeenCalled();
+    });
+
+    it("creates no rows — a disabled module contributes no points to create one from", async () => {
+      const out = await withModuleContributions(data([]));
+      expect(out.entries).toEqual([]);
+      expect(mocks.getAiTotals).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("with the ai module enabled", () => {
+    beforeEach(() => {
+      mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development" || id === "ai");
+      mocks.listAiChallenges.mockResolvedValue([{ id: "a1" }, { id: "a2" }, { id: "a3" }]);
+    });
+
+    // ai is app-side like quiz/classic: the scorer never sees a prompt-
+    // injection solve, so its points are NOT already inside `entry.points` —
+    // they are ADDED, never attributed.
+    it("adds ai points to the entry's total and renders an ai module with completed = solved count", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map([["ada", { points: 20, solved: 2, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      // ADDED, not attributed: 30 (secure-dev, unchanged) + 20 (ai) = 50.
+      expect(out.entries[0].points).toBe(50);
+      const ai = out.entries[0].modules!["ai"]!;
+      expect(ai).toMatchObject({ points: 20, completed: 2 });
+      expect(ai.detail).toEqual({ kind: "ai", solved: 2, total: 3, points: 20 });
+      // secure-development's own attribution is untouched by the addition.
+      expect(out.entries[0].modules!["secure-development"]).toMatchObject({ points: 30, completed: 3 });
+    });
+
+    // Beside the positive twin above: a corrupted store row must never let
+    // grading-shaped material reach the serialized leaderboard payload. ai
+    // fields are picked one at a time by `aiModule`, so an extra field on the
+    // source record has no path into ModuleProgress — this test pins that.
+    it("never leaks poisoned fields on an ai record into the serialized board", async () => {
+      const poisoned = {
+        points: 20,
+        solved: 2,
+        lastAt: null,
+        flag: "CTF{leak}",
+        signingKey: "aik_super_secret",
+        launchToken: "-----BEGIN PRIVATE KEY-----",
+      };
+      mocks.getAiTotals.mockResolvedValue(new Map([["ada", poisoned]]) as never);
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      // Positive twin: the block still rendered off the same fixture's real
+      // fields.
+      expect(out.entries[0].modules!["ai"]).toMatchObject({ points: 20, completed: 2 });
+
+      const serialized = JSON.stringify(out);
+      expect(serialized).not.toContain("CTF{leak}");
+      expect(serialized).not.toContain("aik_super_secret");
+      expect(serialized).not.toContain("PRIVATE KEY");
+    });
+
+    // The board's login set is the UNION of the source's logins and the
+    // logins holding module points — mirrors quiz's created-row test.
+    it("creates a row for a contestant with ai points and no scored submission", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map([["cyd", { points: 30, solved: 3, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      const cyd = out.entries.find((e) => e.login === "cyd")!;
+      expect(cyd.points).toBe(30);
+      expect(cyd).toMatchObject({ patched: 0, failed: 0, total: 0, apps: {}, team: null });
+      expect(cyd.modules!["secure-development"]).toBeUndefined();
+      expect(cyd.modules!["ai"]).toMatchObject({ points: 30, completed: 3 });
+    });
+
+    it("matches logins case-insensitively, so one contestant never becomes two rows", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map([["ADA", { points: 30, solved: 3, lastAt: null }]]));
+
+      const out = await withModuleContributions(data([entry("Ada", 10, 1)]));
+
+      expect(out.entries).toHaveLength(1);
+      expect(out.entries[0].login).toBe("Ada");
+      expect(out.entries[0].points).toBe(40);
+    });
+
+    it("gives an entry with no ai activity no ai module block", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map());
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      expect(out.entries[0].modules!["ai"]).toBeUndefined();
+      expect(out.entries[0].points).toBe(30);
+    });
+
+    // `deleteAiChallenge`-shaped scenario: a deleted challenge can't push
+    // solved > total. Mirrors classic's clamp test.
+    it("clamps the denominator below its own numerator", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map([["ada", { points: 10, solved: 3, lastAt: null }]]));
+      mocks.listAiChallenges.mockResolvedValue([{ id: "a1" }]); // challenges were deleted
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      const detail = out.entries[0].modules?.ai?.detail;
+      if (detail?.kind !== "ai") throw new Error("shape");
+      expect(detail.total).toBeGreaterThanOrEqual(detail.solved);
+      expect(detail).toEqual({ kind: "ai", solved: 3, total: 3, points: 10 });
+    });
+
+    // I3's counterpart for ai: the two reads settle independently. A failed
+    // `listAiChallenges` must degrade only the denominator (clamped), never
+    // the points or the ranking they drive.
+    it("keeps ai points and ranking when only the challenge list fails", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map([["ada", { points: 10, solved: 2, lastAt: null }]]));
+      mocks.listAiChallenges.mockRejectedValue(new Error("upstash blip"));
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+        expect(out.entries[0].points).toBe(40);
+        expect(out.entries[0].modules!["ai"]!.detail).toEqual({ kind: "ai", solved: 2, total: 2, points: 10 });
+      } finally {
+        err.mockRestore();
+      }
+    });
+
+    it("still shows the board when only the totals read fails", async () => {
+      mocks.getAiTotals.mockRejectedValue(new Error("upstash blip"));
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+        expect(out.entries[0].points).toBe(30);
+        expect(out.entries[0].modules!["ai"]).toBeUndefined();
+        expect(out.entries.map((e) => e.login)).toEqual(["ada"]);
+      } finally {
+        err.mockRestore();
+      }
+    });
+
+    it("asks for every team's ai total in a single batched call", async () => {
+      mocks.getTeamAiTotalsBatch.mockResolvedValue([
+        { points: 20, solved: 1, lastAt: "2026-08-01T11:00:00.000Z" },
+        { points: 0, solved: 0, lastAt: null },
+      ]);
+
+      const teams: TeamStanding[] = [
+        { rank: 1, slug: "red", name: "Red", captain: "ada", points: 30, members: ["ada", "cyd"] },
+        { rank: 2, slug: "grey", name: "Grey", captain: "eve", points: 10, members: ["eve"] },
+      ];
+      const out = await withModuleContributions(data([entry("ada", 30, 3)], teams));
+
+      expect(mocks.getTeamAiTotalsBatch).toHaveBeenCalledTimes(1);
+      expect(mocks.getTeamAiTotalsBatch).toHaveBeenCalledWith([["ada", "cyd"], ["eve"]]);
+      expect(out.teams.map((t) => [t.slug, t.points])).toEqual([["red", 50], ["grey", 10]]);
+      expect(out.teams[0].modules!["ai"]).toMatchObject({ points: 20, completed: 1 });
+      expect(out.teams.find((t) => t.slug === "grey")!.modules?.["ai"]).toBeUndefined();
     });
   });
 });
