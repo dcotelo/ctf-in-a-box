@@ -31,6 +31,7 @@ const {
   getResolvedModules,
   mintLaunchUrl,
   redirectIfTeamless,
+  requireGatePassed,
   challengeDetailSpy,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
@@ -42,6 +43,7 @@ const {
   getResolvedModules: vi.fn(),
   mintLaunchUrl: vi.fn(),
   redirectIfTeamless: vi.fn(),
+  requireGatePassed: vi.fn(),
   challengeDetailSpy: vi.fn(),
 }));
 
@@ -54,6 +56,7 @@ vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/ai-launch", () => ({ mintLaunchUrl }));
 vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
+vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
   getAiSolveCounts,
@@ -117,6 +120,9 @@ beforeEach(() => {
     { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and guardrail challenges." },
   ]);
   mintLaunchUrl.mockResolvedValue(MINTED_URL);
+  // The passing default: no pre-event gate is active (or it has been
+  // unlocked). The dedicated test below flips it.
+  requireGatePassed.mockResolvedValue(true);
   // The passing default: a signed-in viewer already has a team, so the gate
   // never redirects. The dedicated test below overrides this to throw,
   // mimicking Next's own `redirect()` control-flow signal.
@@ -135,6 +141,25 @@ describe("ai challenge page gates", () => {
     await expect(AiChallengePage(params("nope"))).rejects.toMatchObject({
       digest: "NEXT_HTTP_ERROR_FALLBACK;404",
     });
+  });
+
+  // §6.6's gate-at-mint contract, which the API routes lean on and never
+  // re-check. It was asserted but NOT enforced: `GATED_ROUTES` matches exact
+  // paths, so proxy.ts covers `/ai` and never `/ai/<id>` — the one route that
+  // mints. The page checks it itself now, and this is what says so.
+  it("redirects an ungated visitor to /gate, and never mints", async () => {
+    requireGatePassed.mockResolvedValue(false);
+
+    await expect(AiChallengePage(params("a1"))).rejects.toMatchObject({
+      digest: expect.stringContaining("NEXT_REDIRECT"),
+    });
+    await expect(AiChallengePage(params("a1"))).rejects.toMatchObject({
+      digest: expect.stringContaining("/gate"),
+    });
+    expect(mintLaunchUrl).not.toHaveBeenCalled();
+    // And nothing was loaded on the way there either — the check sits above
+    // the data load, not between it and the mint.
+    expect(listAiChallenges).not.toHaveBeenCalled();
   });
 
   it("never mints when the team gate would redirect a signed-in, teamless viewer", async () => {

@@ -24,7 +24,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import ChallengeDetail, { type ChallengeView } from "@/components/challenge-detail";
 import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
@@ -38,6 +38,7 @@ import {
   type ViewerAi,
 } from "@/lib/ai-store";
 import { isModuleLive } from "@/lib/enabled-modules";
+import { requireGatePassed } from "@/lib/gate-request";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
 import { submitAiFlagAction } from "./actions";
@@ -91,6 +92,18 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function AiChallengePage({ params }: { params: Promise<{ id: string }> }) {
   if (!(await isModuleLive("ai"))) notFound();
+
+  // THE PRE-EVENT GATE, ENFORCED HERE RATHER THAN INHERITED. proxy.ts covers
+  // page routes with `GATED_ROUTES.has(pathname)` — an EXACT match over the
+  // registry's nav hrefs, so it gates `/ai` and never `/ai/<id>`. This is the
+  // one route that mints a launch token, and §6.6's contract (the API routes
+  // never re-check the gate, because a token in hand proves it passed) is
+  // only true if the check happens before the mint. So it happens here, in
+  // the page, above every load below — and again in ./actions.ts, which is
+  // the other way in. Same destination proxy.ts sends a gated visitor to;
+  // /gate's own redirect keys on the complement, so this cannot loop.
+  if (!(await requireGatePassed())) redirect("/gate");
+
   const { id } = await params;
   const challengeId = decodeURIComponent(id);
 
