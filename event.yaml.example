@@ -15,10 +15,9 @@ github:
 # unreachable — not the live truth. Quiz, Classic and AI can be switched on and
 # off from /admin during the event, without a rebuild (issue #175), and
 # editing this file mid-event changes nothing until you rebuild. Secure
-# Development is
-# the exception: it is configured HERE and only here, because it needs its
-# scorer and sync services and its provisioned forks, none of which the app can
-# conjure. See docs/operations.md and ADR 52.
+# Development is the exception: it is configured HERE and only here, because
+# it needs its scorer and sync services and its provisioned forks, none of
+# which the app can conjure. See docs/operations.md and ADR 52.
 modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
