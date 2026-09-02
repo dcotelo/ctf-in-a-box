@@ -190,6 +190,35 @@ describe("POST /api/admin/ai/test", () => {
     });
   });
 
+  it("ignores every caller-supplied body field but challengeId — dryRun and sub cannot be overridden", async () => {
+    // The route's whole safety story is that dryRun is hard-coded true and
+    // the minted token's `sub` is always the calling admin's own login. A
+    // caller who could flip either would turn this into a self-award
+    // endpoint: a real nonce claim and a real award for an arbitrary victim.
+    allGatesOpen();
+    const res = await POST(
+      adminReq({
+        challengeId: CHAL,
+        dryRun: false,
+        sub: "victim",
+        token: "attacker-supplied-token",
+        solvedAt: "1999-01-01T00:00:00Z",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.body).toMatchObject({ dryRun: true, wouldAward: true });
+    // A real award never runs: no nonce claimed, and the event handler was
+    // called with dryRun:true regardless of the caller's dryRun:false.
+    expect(mocks.claimAiNonce).not.toHaveBeenCalled();
+    expect(mocks.awardAiEvent).toHaveBeenCalledWith("organizer", CHAL, { dryRun: true });
+    // The minted token names the ADMIN, never the caller-supplied "victim".
+    expect(mocks.signLaunchToken).toHaveBeenCalledTimes(1);
+    const claims = mocks.signLaunchToken.mock.calls[0][0] as AiTokenClaims;
+    expect(claims.sub).toBe("organizer");
+    expect(claims.sub).not.toBe("victim");
+  });
+
   it("writes an audit line naming the challenge id, never the token or key", async () => {
     allGatesOpen();
     await POST(adminReq());
