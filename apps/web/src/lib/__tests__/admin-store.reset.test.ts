@@ -56,14 +56,21 @@ describe("resetEvent", () => {
       classicPoints: 2,
       classicSolved: 2,
       classicSolveCount: 2,
+      aiSolves: 2,
+      aiAttempts: 2,
+      aiPoints: 2,
+      aiSolved: 2,
+      aiSolveCount: 2,
+      aiNonces: 2,
+      aiLaunchKey: 2,
       activity: 2,
     });
     expect(out.resetAt).toMatch(/^\d+$/);
 
-    // one SCAN + one DEL per prefix (15 prefixes) = 30 pipeline calls
+    // one SCAN + one DEL per prefix (22 prefixes) = 44 pipeline calls
     const verbs = mocks.upstashPipeline.mock.calls.map((c) => c[0][0][0]);
-    expect(verbs.filter((v) => v === "SCAN").length).toBe(15);
-    expect(verbs.filter((v) => v === "DEL").length).toBe(15);
+    expect(verbs.filter((v) => v === "SCAN").length).toBe(22);
+    expect(verbs.filter((v) => v === "DEL").length).toBe(22);
     // every wiped prefix, and NOT settings/audit/sync
     const patterns = mocks.upstashPipeline.mock.calls
       .filter((c) => c[0][0][0] === "SCAN")
@@ -83,6 +90,13 @@ describe("resetEvent", () => {
       "ctf:classic:points",
       "ctf:classic:solved",
       "ctf:classic:solvecount",
+      "ctf:ai:solves:*",
+      "ctf:ai:attempts:*",
+      "ctf:ai:points",
+      "ctf:ai:solved",
+      "ctf:ai:solvecount",
+      "ctf:ai:nonce:*",
+      "ctf:ai:launchkey",
       "ctf:activity:log",
     ]);
 
@@ -162,6 +176,62 @@ describe("resetEvent", () => {
     expect(out.cleared.classicPoints).toBe(1);
     expect(out.cleared.classicSolved).toBe(1);
     expect(out.cleared.classicSolveCount).toBe(1);
+  });
+
+  it("wipes ai solves, attempts and nonces", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:ai:solves:*");
+    expect(patterns).toContain("ctf:ai:attempts:*");
+    expect(patterns).toContain("ctf:ai:nonce:*");
+  });
+
+  it("also clears the ai aggregate totals and the per-challenge solvecount", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    const out = await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:ai:points");
+    expect(patterns).toContain("ctf:ai:solved");
+    expect(patterns).toContain("ctf:ai:solvecount");
+    expect(out.cleared.aiPoints).toBe(1);
+    expect(out.cleared.aiSolved).toBe(1);
+    expect(out.cleared.aiSolveCount).toBe(1);
+  });
+
+  // The spec's explicit rule: a master reset MUST rotate the launch key — no
+  // live launch token should survive an event starting over. This is the
+  // opposite of `clearAiChallenges` (ai-store.ts), which is pinned NEVER to
+  // touch `ctf:ai:launchkey` by `ai-store.authoring.test.ts`'s
+  // "wipes every content key in one pipeline" test (its exact command list has
+  // no `DEL ctf:ai:launchkey`) — that one backs a replace-all archive import,
+  // not a reset. Not re-asserted here, just cited.
+  it("DOES clear the launch keypair — a master reset must rotate it", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    const out = await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).toContain("ctf:ai:launchkey");
+    expect(out.cleared.aiLaunchKey).toBe(1);
+  });
+
+  it("KEEPS the ai challenge bank, flag/flagnorm, hints, signing keys and categories across a reset", async () => {
+    mocks.upstashPipeline.mockImplementation(pipelineImpl(() => [["k1"]]));
+    await resetEvent("alice");
+    const patterns = mocks.upstashPipeline.mock.calls
+      .filter((c) => c[0][0][0] === "SCAN")
+      .map((c) => c[0][0][3]);
+    expect(patterns).not.toContain("ctf:ai:challenges");
+    expect(patterns).not.toContain("ctf:ai:flag");
+    expect(patterns).not.toContain("ctf:ai:flagnorm");
+    expect(patterns).not.toContain("ctf:ai:hints");
+    expect(patterns).not.toContain("ctf:ai:signkey");
+    expect(patterns).not.toContain("ctf:ai:categories");
   });
 
   it("skips DEL for an empty prefix and paginates a multi-page prefix", async () => {

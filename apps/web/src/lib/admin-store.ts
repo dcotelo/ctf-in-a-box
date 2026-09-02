@@ -20,6 +20,9 @@ import {
   DEMO_CHALLENGES,
   DEMO_CLASSIC_CATEGORIES,
   DEMO_CLASSIC_SOLVES,
+  DEMO_AI_CHALLENGES,
+  DEMO_AI_CATEGORIES,
+  DEMO_AI_SOLVES,
 } from "@/lib/demo-fixture";
 import {
   QUIZ_QUESTIONS_KEY,
@@ -46,6 +49,24 @@ import {
   classicAttemptsKey,
   normalizeFlag,
 } from "@/lib/classic-keys";
+import {
+  AI_CHALLENGES_KEY,
+  AI_FLAG_KEY,
+  AI_FLAGNORM_KEY,
+  AI_CATEGORIES_KEY,
+  AI_SIGNKEY_KEY,
+  AI_HINTS_KEY,
+  AI_POINTS_KEY,
+  AI_SOLVED_KEY,
+  AI_SOLVECOUNT_KEY,
+  AI_SOLVES_PREFIX,
+  AI_ATTEMPTS_PREFIX,
+  AI_NONCE_PREFIX,
+  AI_LAUNCHKEY_KEY,
+  aiSolvesKey,
+  aiAttemptsKey,
+  flagComparisonForm,
+} from "@/lib/ai-keys";
 import { ACTIVITY_LOG_KEY } from "@/lib/activity-keys";
 
 export const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
@@ -583,6 +604,31 @@ const RESET_PREFIXES: readonly [string, string][] = [
   ["classicPoints", CLASSIC_POINTS_KEY],
   ["classicSolved", CLASSIC_SOLVED_KEY],
   ["classicSolveCount", CLASSIC_SOLVECOUNT_KEY],
+  // ai scope mirrors classic's exactly, same PROGRESS/CONTENT split: solves,
+  // attempts, the two per-login aggregate hashes and the per-challenge
+  // solvecount are wiped, while `ctf:ai:challenges` / `ctf:ai:flag` /
+  // `ctf:ai:flagnorm` / `ctf:ai:hints` / `ctf:ai:signkey` / `ctf:ai:categories`
+  // survive for the same reason classic's catalogue does: organizer CONTENT,
+  // not something a reset should ever destroy.
+  ["aiSolves", `${AI_SOLVES_PREFIX}*`],
+  ["aiAttempts", `${AI_ATTEMPTS_PREFIX}*`],
+  ["aiPoints", AI_POINTS_KEY],
+  ["aiSolved", AI_SOLVED_KEY],
+  ["aiSolveCount", AI_SOLVECOUNT_KEY],
+  // The replay-guard nonces are also contestant PROGRESS in the same sense —
+  // spent single-use markers from THIS event, not something a fresh one
+  // should start carrying.
+  ["aiNonces", `${AI_NONCE_PREFIX}*`],
+  // Deliberately DOES clear the launch keypair — unlike `clearAiChallenges`
+  // (ai-store.ts), which deliberately does NOT, and that contrast is the
+  // point. A master reset starts the event over: no live launch token should
+  // survive it, so the published public key must rotate and any deployed
+  // external verifier has to re-fetch /api/ai/launch-key on its next check.
+  // `clearAiChallenges` backs a replace-all archive IMPORT instead — it must
+  // NOT rotate the published key, or every deployed integration breaks and
+  // every already-issued token is invalidated for a wipe that was only ever
+  // meant to replace the challenge list.
+  ["aiLaunchKey", AI_LAUNCHKEY_KEY],
   // The activity log (issue #212) is contestant PROGRESS in the same sense as
   // solves — a record of what people did during the event — so a reset wipes
   // it. Leaving it would let a "fresh" event open with last event's sign-ins.
@@ -914,6 +960,98 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     }
   }
 
+  // ai demo data — only when the module is enabled, same gate reasoning as
+  // quiz and classic above: a disabled ai module leaves the seed byte-for-byte
+  // identical to pre-ai behavior.
+  //
+  // Deliberately does NOT touch `AI_LAUNCHKEY_KEY`: that keypair is
+  // module-wide identity material, minted lazily on first real use
+  // (`getAiLaunchKeys` in ai-store.ts), never fixture data. Writing one here
+  // would hand every seeded demo event the SAME hardcoded private key.
+  const aiEnabled = isModuleEnabled("ai");
+  let aiSolvesSeeded = 0;
+  if (aiEnabled) {
+    // Public challenge record ONLY, built field by field from `AiChallenge`'s
+    // own shape (mirrors the classic block above) — the flag and signing key
+    // live in DEMO_AI_CHALLENGES only so this function can derive their
+    // dedicated hashes, never by spreading the fixture object into
+    // ctf:ai:challenges. An event-only challenge (`mode: "event"`) writes
+    // NEITHER flag hash, matching how `upsertAiChallenge` treats a non-graded
+    // mode: signed events assert that solve, so there is no flag to grade.
+    for (const dc of DEMO_AI_CHALLENGES) {
+      const challenge = {
+        id: dc.id,
+        title: dc.title,
+        category: dc.category,
+        description: dc.description,
+        points: dc.points,
+        order: dc.order,
+        mode: dc.mode,
+        urlTemplate: dc.urlTemplate,
+      };
+      cmds.push(["HSET", AI_CHALLENGES_KEY, dc.id, JSON.stringify(challenge)]);
+      if (dc.mode !== "event") {
+        cmds.push(["HSET", AI_FLAG_KEY, dc.id, dc.flag]);
+        cmds.push(["HSET", AI_FLAGNORM_KEY, dc.id, flagComparisonForm(dc.flag, dc.caseSensitive)]);
+      }
+      // A fixed, obviously-fake demo key rather than a fresh `generateSigningKey()`
+      // mint — same choice the classic block above makes for its flag: a
+      // reproducible fixture, not fresh CSPRNG output on every seed run.
+      cmds.push(["HSET", AI_SIGNKEY_KEY, dc.id, dc.signingKey]);
+      if (dc.hint) cmds.push(["HSET", AI_HINTS_KEY, dc.id, dc.hint]);
+    }
+    cmds.push(["SET", AI_CATEGORIES_KEY, JSON.stringify(DEMO_AI_CATEGORIES)]);
+
+    const aiChallengesById = new Map(DEMO_AI_CHALLENGES.map((c) => [c.id, c]));
+    const aiAggregates = new Map<string, { points: number; solved: number }>();
+    const aiSolveCounts = new Map<string, number>();
+    const nAiSolves = DEMO_AI_SOLVES.length;
+    DEMO_AI_SOLVES.forEach(({ login, challengeId }, i) => {
+      const challenge = aiChallengesById.get(challengeId);
+      if (!challenge) return; // fixture-consistency guard; should never trigger
+      const frac = nAiSolves > 0 ? (i + 0.5) / nAiSolves : 0.5;
+      const at = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
+      cmds.push(["HSET", aiSolvesKey(login), challengeId, JSON.stringify({ points: challenge.points, at })]);
+      // Same reasoning as the quiz/classic attempt rows above: index-derived,
+      // not random, so the seed is reproducible.
+      cmds.push(["HSET", aiAttemptsKey(login), challengeId, demoAttemptRow(1 + ((i + 2) % 3), at, 3 + (i % 6), base)]);
+
+      const agg = aiAggregates.get(login) ?? { points: 0, solved: 0 };
+      agg.points += challenge.points;
+      agg.solved += 1;
+      aiAggregates.set(login, agg);
+
+      aiSolveCounts.set(challengeId, (aiSolveCounts.get(challengeId) ?? 0) + 1);
+      aiSolvesSeeded++;
+    });
+    // Unsolved attempts, same reasoning as the quiz/classic blocks above.
+    const aiSolvedBy = new Map<string, Set<string>>();
+    for (const { login, challengeId } of DEMO_AI_SOLVES) {
+      const set = aiSolvedBy.get(login) ?? new Set<string>();
+      set.add(challengeId);
+      aiSolvedBy.set(login, set);
+    }
+    DEMO_CONTESTANTS.forEach((c, ci) => {
+      const solved = aiSolvedBy.get(c.login) ?? new Set<string>();
+      const missed = DEMO_AI_CHALLENGES.find((ch) => !solved.has(ch.id));
+      if (!missed) return;
+      const at = new Date(base + Math.min(0.999, (ci + 0.5) / n) * spanMs).toISOString();
+      cmds.push(["HSET", aiAttemptsKey(c.login), missed.id, demoAttemptRow(2 + (ci % 2), at, 5 + (ci % 3), base)]);
+    });
+
+    // Aggregates written as the final absolute total (not HINCRBY'd), mirroring
+    // the quiz/classic aggregates above — idempotent on a second seed run, and
+    // CONSISTENT with the per-login solve rows and solvecount by construction
+    // (both folded from the same DEMO_AI_SOLVES list in this same pass).
+    for (const [login, agg] of aiAggregates) {
+      cmds.push(["HSET", AI_POINTS_KEY, login, agg.points]);
+      cmds.push(["HSET", AI_SOLVED_KEY, login, agg.solved]);
+    }
+    for (const [challengeId, count] of aiSolveCounts) {
+      cmds.push(["HSET", AI_SOLVECOUNT_KEY, challengeId, count]);
+    }
+  }
+
   const audit = JSON.stringify({
     at: new Date(now).toISOString(),
     by: actor,
@@ -925,6 +1063,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     ...(classicEnabled
       ? { classicChallenges: DEMO_CHALLENGES.length, classicSolves: classicSolvesSeeded }
       : {}),
+    ...(aiEnabled ? { aiChallenges: DEMO_AI_CHALLENGES.length, aiSolves: aiSolvesSeeded } : {}),
   });
   cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
   cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);
