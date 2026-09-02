@@ -10,7 +10,7 @@ const valid: EventBundle = {
   version: 1,
   kind: "archive",
   event: { name: "Demo CTF", theme: "web", dates: "2026", location: "online", ctfStartsAt: null },
-  settings: { hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"] },
+  settings: { hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"], classicCooldownSec: 45, aiCooldownSec: 12 },
   classic: {
     version: 1,
     categories: ["Web"],

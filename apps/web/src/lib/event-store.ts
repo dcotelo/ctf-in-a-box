@@ -250,7 +250,7 @@ function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch
         if (reconciled.ids.length > 0) patch.enabledModules = reconciled.ids;
       }
     } else {
-      // The 9 scalar policy fields are `X | null` on AdminSettings/the
+      // The 10 scalar policy fields are `X | null` on AdminSettings/the
       // bundle (null = "no override"), but SettingsPatch types them
       // non-nullable and updateAdminSettings throws on a null. Skip, same as
       // the moduleOverrides/enabledModuleIds null guards above — forwarding

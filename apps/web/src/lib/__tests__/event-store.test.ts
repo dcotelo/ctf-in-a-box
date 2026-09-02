@@ -81,6 +81,20 @@ describe("exportEventBundle", () => {
     expect(bundle.settings.enabledModuleIds).toEqual(["quiz"]);
   });
 
+  // aiCooldownSec rides EVENT_POLICY_FIELDS beside classicCooldownSec (see
+  // event-io.ts) — pinned by name here since neither cooldown field was
+  // previously asserted anywhere in this suite.
+  it("carries both modules' cooldown overrides — classicCooldownSec and aiCooldownSec — through export", async () => {
+    m.getAdminSettings.mockResolvedValue({
+      hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"],
+      classicCooldownSec: 45, aiCooldownSec: 12,
+      scoringStartsAt: "2026-01-01T00:00:00Z", paused: true, updatedBy: "alice", updatedAt: "x",
+    });
+    const { bundle } = await exportEventBundle(new Date("2026-06-01T00:00:00Z"));
+    expect(bundle.settings.classicCooldownSec).toBe(45);
+    expect(bundle.settings.aiCooldownSec).toBe(12);
+  });
+
   it("THE LEAK TEST: run-state tokens seeded into excluded settings fields never survive the allowlist", async () => {
     // exportEventBundle's ONLY allowlist decision for `settings` is the fixed
     // loop over EVENT_POLICY_FIELDS in the function body — it never reads any
@@ -182,6 +196,18 @@ describe("importEventBundle", () => {
     expect(patch.hintCost).toBe(25);
     expect("scoringStartsAt" in patch).toBe(false);
     expect("paused" in patch).toBe(false);
+  });
+
+  // Mirrors the export-side coverage above, for the same reason: neither
+  // cooldown field was previously pinned by name on the import path either.
+  it("applies both cooldown overrides — classicCooldownSec and aiCooldownSec — to the settings patch", async () => {
+    await importEventBundle(
+      { ...bundleFixture(), settings: { ...bundleFixture().settings, classicCooldownSec: 45, aiCooldownSec: 12 } },
+      "alice",
+    );
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.classicCooldownSec).toBe(45);
+    expect(patch.aiCooldownSec).toBe(12);
   });
 
   // Fail-fast ordering, the point of Finding 1: the settings patch is

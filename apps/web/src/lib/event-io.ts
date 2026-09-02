@@ -43,6 +43,7 @@ export const EVENT_POLICY_FIELDS = [
   "quizMaxAttempts",
   "quizRetryAfterMin",
   "classicCooldownSec",
+  "aiCooldownSec",
   "scoreCooldownMin",
   "teamMaxMembers",
   "teamRegistrationOpen",
