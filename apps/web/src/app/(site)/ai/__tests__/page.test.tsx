@@ -157,13 +157,11 @@ describe("ai page view model", () => {
   });
 
   // The state every new event starts in, and the first thing an organizer
-  // sees after provisioning. /flags and /quiz send them to their authoring
-  // tab from here; this module has none yet, so the empty state says that
-  // instead of offering a link. It must NOT point at `/admin?tab=ai`: the
-  // panel has no ai tab, and an unknown `?tab=` silently falls back to the
-  // Event tab — a button that lands on the wrong panel reads as a broken
-  // feature rather than an unbuilt one.
-  it("tells an organizer authoring isn't built yet, and offers no link that would mislead them", async () => {
+  // sees after provisioning. The admin panel's ai tab exists now, so this
+  // mirrors /flags and /quiz: the organizer gets the authoring link, aimed
+  // at `/admin?tab=ai` — the tab this same PR added, so the link can no
+  // longer land on the wrong panel.
+  it("sends an organizer to the ai authoring tab from the empty board", async () => {
     isModuleEnabled.mockReturnValue(true);
     isAdminLogin.mockReturnValue(true);
     getSession.mockResolvedValue({ user: { login: "alice" } });
@@ -172,11 +170,8 @@ describe("ai page view model", () => {
 
     const html = renderToStaticMarkup(await AiPage());
 
-    // The apostrophe serializes as `&#x27;`, so match around it.
-    expect(html).toMatch(/authorable from the admin panel yet/i);
-    expect(html).not.toContain("/admin");
-    expect(html).not.toContain("tab=ai");
-    expect(html).not.toMatch(/author challenges/i);
+    expect(html).toContain("/admin?tab=ai");
+    expect(html).toMatch(/author challenges/i);
     expect(html).not.toMatch(/check back soon/i);
   });
 
