@@ -77,9 +77,9 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   const classicEnabled = liveModules.has("classic");
   const aiEnabled = liveModules.has("ai");
 
-  // Both modules' reads are KICKED OFF before either is awaited, so a
-  // two-module event overlaps them instead of paying for them back to back —
-  // they hit disjoint key spaces and nothing orders one against the other.
+  // Every enabled module's reads are KICKED OFF before any is awaited, so a
+  // multi-module event overlaps them instead of paying for them back to back —
+  // they hit disjoint key spaces and nothing orders one against another.
   // Each module still settles its OWN two reads independently; see below.
   const quizReads = quizEnabled ? Promise.allSettled([getQuizTotals(), listQuestions()]) : null;
   const classicReads = classicEnabled ? Promise.allSettled([getClassicTotals(), listChallenges()]) : null;
@@ -190,8 +190,8 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   ]);
 
   // Each enabled module is applied in turn, and each re-ranks on the running
-  // totals — so a team's final order reflects BOTH modules' points, and a
-  // module whose batch read fails leaves the rows it would have touched
+  // totals — so a team's final order reflects EVERY enabled module's points,
+  // and a module whose batch read fails leaves the rows it would have touched
   // exactly as the previous step left them (missing points, never wrong ones).
   let teams = data.teams;
   // secure-development is ATTRIBUTED for teams exactly as attributeEntry does
@@ -244,7 +244,7 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
 
   // The board-level denominator for a row's solved count: how many items this
   // EVENT has, across every enabled module. Stamped here because this is the
-  // one place that already holds both module counts.
+  // one place that already holds every module's count.
   //
   // Read off the EVENT, never off a row. A per-row denominator is the defect
   // that made /profile show "0 non-patched / 0 total" to a contestant who had
@@ -262,10 +262,10 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
 }
 
 /** The app-side module totals for one render, threaded through the per-entry
- *  helpers below. Both `*ByLogin` maps are keyed by LOWERCASED login — see the
- *  union rule in the doc comment. The two counts are the modules' raw item
- *  totals; the clamp against a row's own numerator happens per row, in
- *  `quizModule`/`classicModule`. */
+ *  helpers below. Every `*ByLogin` map is keyed by LOWERCASED login — see the
+ *  union rule in the doc comment. Each `*TotalX` count is that module's raw
+ *  item total; the clamp against a row's own numerator happens per row, in
+ *  `quizModule`/`classicModule`/`aiModule`. */
 type Overlay = {
   quizByLogin: Map<string, QuizTotal>;
   quizTotalQuestions: number;
@@ -482,20 +482,21 @@ function aiModule(total: AiTotal, totalChallenges: number): ModuleProgress {
 }
 
 /** The rows the board is MISSING: one per login that holds app-side module
- *  points (quiz, classic, or both) and has no entry from the scoring source.
- *  Scored rows come first in the ranked list, so a created row never displaces
- *  one it is fully tied with.
+ *  points (quiz, classic, ai, or any combination) and has no entry from the
+ *  scoring source. Scored rows come first in the ranked list, so a created
+ *  row never displaces one it is fully tied with.
  *
  *  The totals maps are iterated in their ORIGINAL casing (that spelling is all
  *  a created row has to display), while membership is decided on the
  *  lowercased form — a login already on the board keeps its scored row, which
- *  `attributeEntry` has already added the same module points to. Two modules
- *  reporting the same login (in whatever casing) therefore produce exactly ONE
- *  row carrying both blocks and both modules' points, never one row each.
+ *  `attributeEntry` has already added the same module points to. Several
+ *  modules reporting the same login (in whatever casing) therefore produce
+ *  exactly ONE row carrying every reported block and every reported module's
+ *  points, never one row each.
  *
- *  Empty whenever both modules are off or their totals reads failed: either
- *  leaves the corresponding map empty, so this creates nothing without
- *  inspecting those conditions again. */
+ *  Empty whenever every app-side module is off or all their totals reads
+ *  failed: each leaves its corresponding map empty, so this creates nothing
+ *  without inspecting those conditions again. */
 function createdEntries(
   scored: readonly LeaderboardEntry[],
   quizTotals: Map<string, QuizTotal>,
@@ -620,7 +621,7 @@ type TeamContribution = { points: number; completed: number; progress: ModulePro
  *  argument to `attributeTeams`, so it is not expressible to stamp one
  *  module's key over another module's numbers — a mistake the previous
  *  `(teams, moduleId, contributions)` signature type-checked happily. Only
- *  the two builders below construct this, and each hard-codes its own id. */
+ *  the builders below construct this, and each hard-codes its own id. */
 type TeamContributions = { moduleId: ModuleId; contributions: readonly TeamContribution[] };
 
 function quizContributions(totals: readonly QuizTotal[], totalQuestions: number): TeamContributions {

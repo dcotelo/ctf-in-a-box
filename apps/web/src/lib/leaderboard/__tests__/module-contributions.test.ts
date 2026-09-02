@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { enabledTotalChallenges } from "@/lib/apps";
+import type { AiChallenge, AiTotal } from "@/lib/ai-store";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 import { rankByStanding } from "../rank";
 
@@ -685,6 +687,45 @@ describe("withModuleContributions", () => {
         err.mockRestore();
       }
     });
+
+    // ai's counterpart to the test above, for the THIRD module now sharing this
+    // describe's `id !== "secure-development"` enablement mock (quiz, classic
+    // AND ai are all live here). Each module's read pair is settled
+    // independently — see the doc comment on `aiReads` — so a failed
+    // `getAiTotals` must leave quiz's and classic's points, and the order they
+    // drive, byte-for-byte identical to a run where ai's read never failed at
+    // all. Computing both runs and comparing them (rather than hardcoding
+    // expected numbers) is what catches a mutant that clears quiz+classic
+    // totals inside the ai failure branch: hardcoded expectations on the
+    // failure run alone would still need to be right, but a same-shape mutant
+    // that zeroed all three consistently could still satisfy them by
+    // coincidence, whereas it cannot make the failure run equal the untouched
+    // green run.
+    it("keeps quiz and classic points and ordering identical whether the ai totals read succeeds or fails", async () => {
+      mocks.getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 1, lastAt: null }]]));
+      mocks.getClassicTotals.mockResolvedValue(new Map([["bob", { points: 40, solved: 2, lastAt: null }]]));
+      const fixture = () => data([entry("ada", 10, 1), entry("bob", 5, 1)]);
+
+      const green = await withModuleContributions(fixture());
+
+      mocks.getAiTotals.mockRejectedValue(new Error("upstash blip"));
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      let degraded: Awaited<ReturnType<typeof withModuleContributions>>;
+      try {
+        degraded = await withModuleContributions(fixture());
+      } finally {
+        err.mockRestore();
+      }
+
+      const shape = (out: typeof green) =>
+        out.entries.map((e) => [e.login, e.points, e.rank, e.modules?.quiz, e.modules?.classic]);
+      expect(shape(degraded)).toEqual(shape(green));
+      // Positive pin so two vacuously-equal (all-zeroed) runs can't pass this
+      // by coincidence: the numbers themselves must be the real ones.
+      expect(degraded.entries.find((e) => e.login === "ada")!.modules!["quiz"]).toMatchObject({ points: 15 });
+      expect(degraded.entries.find((e) => e.login === "bob")!.modules!["classic"]).toMatchObject({ points: 40 });
+      expect(degraded.entries.every((e) => e.modules?.ai === undefined)).toBe(true);
+    });
   });
 
   // Regression gate specific to the ai module: with it DISABLED, the
@@ -730,6 +771,16 @@ describe("withModuleContributions", () => {
       expect(out.entries[0].modules!["secure-development"]).toMatchObject({ points: 30, completed: 3 });
     });
 
+    // F2: `completable`'s `+ aiTotalChallenges` term (module-contributions.ts)
+    // was unpinned — dropping it left the whole suite green. This describe's
+    // own `beforeEach` stubs `listAiChallenges` to a 3-item catalogue and
+    // disables quiz/classic, so the board's completable denominator here is
+    // exactly the secure-development catalogue plus those 3 ai challenges.
+    it("includes the ai catalogue size in the board's completable denominator", async () => {
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+      expect(out.completable).toBe(enabledTotalChallenges + 3);
+    });
+
     // Beside the positive twin above: a corrupted store row must never let
     // grading-shaped material reach the serialized leaderboard payload. ai
     // fields are picked one at a time by `aiModule`, so an extra field on the
@@ -743,13 +794,48 @@ describe("withModuleContributions", () => {
         signingKey: "aik_super_secret",
         launchToken: "-----BEGIN PRIVATE KEY-----",
       };
-      mocks.getAiTotals.mockResolvedValue(new Map([["ada", poisoned]]) as never);
+      mocks.getAiTotals.mockResolvedValue(new Map([["ada", poisoned]]) as unknown as Map<string, AiTotal>);
 
       const out = await withModuleContributions(data([entry("ada", 30, 3)]));
 
       // Positive twin: the block still rendered off the same fixture's real
       // fields.
       expect(out.entries[0].modules!["ai"]).toMatchObject({ points: 20, completed: 2 });
+
+      const serialized = JSON.stringify(out);
+      expect(serialized).not.toContain("CTF{leak}");
+      expect(serialized).not.toContain("aik_super_secret");
+      expect(serialized).not.toContain("PRIVATE KEY");
+    });
+
+    // F4: the poison test above covers `getAiTotals`; `listAiChallenges`
+    // records need the same pin. Only `.length` is read off them today (the
+    // denominator), so nothing on the record has a path into the payload yet
+    // — but this catches the day someone starts rendering the catalogue
+    // itself (title, description, …) without re-checking this discipline.
+    it("never leaks poisoned fields on a listAiChallenges record into the serialized board", async () => {
+      mocks.getAiTotals.mockResolvedValue(new Map([["ada", { points: 20, solved: 2, lastAt: null }]]));
+      const poisonedChallenge = {
+        id: "a1",
+        title: "Prompt Leak",
+        category: "prompt-injection",
+        description: "Get the model to leak its instructions.",
+        points: 20,
+        order: 1,
+        mode: "flag",
+        urlTemplate: "https://example.test/{token}",
+        flag: "CTF{leak}",
+        signingKey: "aik_super_secret",
+        launchToken: "-----BEGIN PRIVATE KEY-----",
+      };
+      mocks.listAiChallenges.mockResolvedValue([poisonedChallenge] as unknown as AiChallenge[]);
+
+      const out = await withModuleContributions(data([entry("ada", 30, 3)]));
+
+      // Positive twin: the block still rendered off the same fixture — the
+      // denominator (1 listed challenge) clamps up to the real solved count.
+      expect(out.entries[0].modules!["ai"]).toMatchObject({ points: 20, completed: 2 });
+      expect(out.entries[0].modules!["ai"]!.detail).toEqual({ kind: "ai", solved: 2, total: 2, points: 20 });
 
       const serialized = JSON.stringify(out);
       expect(serialized).not.toContain("CTF{leak}");
@@ -806,15 +892,30 @@ describe("withModuleContributions", () => {
 
     // I3's counterpart for ai: the two reads settle independently. A failed
     // `listAiChallenges` must degrade only the denominator (clamped), never
-    // the points or the ranking they drive.
+    // the points or the ranking they drive. F5: mirrors quiz's "keeps quiz
+    // points and ranking when only the question list fails" with a SECOND
+    // entry, so ranking is actually exercised rather than asserted by name
+    // alone against a single-row fixture.
     it("keeps ai points and ranking when only the challenge list fails", async () => {
-      mocks.getAiTotals.mockResolvedValue(new Map([["ada", { points: 10, solved: 2, lastAt: null }]]));
+      mocks.getAiTotals.mockResolvedValue(new Map([["bob", { points: 15, solved: 2, lastAt: null }]]));
       mocks.listAiChallenges.mockRejectedValue(new Error("upstash blip"));
       const err = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        const out = await withModuleContributions(data([entry("ada", 30, 3)]));
-        expect(out.entries[0].points).toBe(40);
-        expect(out.entries[0].modules!["ai"]!.detail).toEqual({ kind: "ai", solved: 2, total: 2, points: 10 });
+        const out = await withModuleContributions(
+          data([
+            entry("ada", 30, 3),
+            { ...entry("bob", 20, 2), apps: { dvwa: { app: "dvwa", points: 20, maxPoints: 30, patched: 2, total: 3 } } },
+          ]),
+        );
+
+        // bob's 20 + 15 ai = 35 still beats ada's 30, exactly as it would
+        // have with a healthy challenge list.
+        expect(out.entries.map((e) => [e.login, e.points])).toEqual([["bob", 35], ["ada", 30]]);
+        const ai = out.entries[0].modules!["ai"]!;
+        expect(ai.points).toBe(15);
+        // Only the denominator degrades — and it degrades to the clamp, never
+        // below the numerator.
+        expect(ai.detail).toEqual({ kind: "ai", solved: 2, total: 2, points: 15 });
       } finally {
         err.mockRestore();
       }
