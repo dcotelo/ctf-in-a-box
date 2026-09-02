@@ -17,14 +17,24 @@ const mocks = vi.hoisted(() => ({
   releaseAiNonce: vi.fn(),
   consumeRateLimit: vi.fn(),
   hasTeam: vi.fn(),
+  // Holds the REAL implementation, set once by the `@/lib/ai-token` mock
+  // factory below — a plain mutable slot, not a mock itself, so `vi.hoisted`
+  // is safe here. Used only by the rotation tests, which need the actual
+  // HMAC check (not the `mockReturnValue(true)` every other test relies on)
+  // to prove a pre-rotation signature genuinely fails against the new key.
+  realVerifyEventSignature: undefined as unknown as typeof import("@/lib/ai-token").verifyEventSignature,
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/ai-token", async (orig) => ({
-  ...(await orig<typeof import("@/lib/ai-token")>()),
-  verifyLaunchToken: mocks.verifyLaunchToken,
-  verifyEventSignature: mocks.verifyEventSignature,
-}));
+vi.mock("@/lib/ai-token", async (orig) => {
+  const actual = await orig<typeof import("@/lib/ai-token")>();
+  mocks.realVerifyEventSignature = actual.verifyEventSignature;
+  return {
+    ...actual,
+    verifyLaunchToken: mocks.verifyLaunchToken,
+    verifyEventSignature: mocks.verifyEventSignature,
+  };
+});
 vi.mock("@/lib/ai-store", () => ({
   getAiSigningKey: mocks.getAiSigningKey,
   getAiLaunchPublicKey: mocks.getAiLaunchPublicKey,
@@ -40,6 +50,7 @@ vi.mock("@/lib/rate-limit-store", async (orig) => ({
 vi.mock("@/lib/team-store", () => ({ hasTeam: mocks.hasTeam }));
 
 import { OPTIONS, POST } from "@/app/api/ai/event/route";
+import { generateSigningKey, signEventBody } from "@/lib/ai-token";
 
 const CHAL = "guardrail-cd34ef";
 const NOW_MS = 1_756_636_800_000; // 2026-08-31T12:00:00Z
@@ -80,7 +91,7 @@ function allGatesOpen(sub = "alice") {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW_MS);
-  for (const m of Object.values(mocks)) m.mockReset();
+  for (const m of Object.values(mocks)) if (vi.isMockFunction(m)) m.mockReset();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -389,6 +400,46 @@ describe("POST /api/ai/event", () => {
       expect((await POST(signed(raw))).status).toBe(400);
       expect(mocks.awardAiEvent).not.toHaveBeenCalled();
     }
+  });
+
+  describe("rotate invalidates the old key (spec §5.3, no grace window)", () => {
+    it("refuses a pre-rotation event signed with the old key the instant the store answers with the new one", async () => {
+      allGatesOpen();
+      // Real HMAC, not the `mockReturnValue(true)` `allGatesOpen` just set:
+      // only the genuine `verifyEventSignature` can actually fail a
+      // stale-key signature, which is the whole point of this pair. Set
+      // AFTER `allGatesOpen()`, which would otherwise clobber it back to
+      // always-true.
+      mocks.verifyEventSignature.mockImplementation(mocks.realVerifyEventSignature);
+      const keyA = generateSigningKey();
+      const keyB = generateSigningKey();
+      const raw = bodyFor();
+      const signature = signEventBody(keyA, NOW_SEC, raw); // signed BEFORE the rotation
+
+      mocks.getAiSigningKey.mockResolvedValue(keyB); // the store now answers with the rotated key
+      const res = await POST(signed(raw, NOW_SEC, { "x-ctf-signature": signature }));
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "invalid-signature" });
+      expect(mocks.verifyLaunchToken).not.toHaveBeenCalled();
+      expect(mocks.awardAiEvent).not.toHaveBeenCalled();
+    });
+
+    it("accepts the SAME body re-signed with the new key (dry run, nothing written)", async () => {
+      allGatesOpen();
+      mocks.verifyEventSignature.mockImplementation(mocks.realVerifyEventSignature);
+      mocks.awardAiEvent.mockResolvedValue({ ok: true, correct: true, points: 0, dryRun: true });
+      const keyB = generateSigningKey();
+      const raw = bodyFor({ dryRun: true });
+      const signature = signEventBody(keyB, NOW_SEC, raw);
+
+      mocks.getAiSigningKey.mockResolvedValue(keyB);
+      const res = await POST(signed(raw, NOW_SEC, { "x-ctf-signature": signature }));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ dryRun: true, wouldAward: true });
+      expect(mocks.claimAiNonce).not.toHaveBeenCalled();
+    });
   });
 
   it("answers a preflight advertising POST", async () => {
