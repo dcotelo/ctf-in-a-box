@@ -1,4 +1,4 @@
-// The ai module's dedicated challenge page (Task 6) — mirrors
+// The ai module's dedicated challenge page — mirrors
 // flags/[id]/__tests__/page.test.tsx's static-render pattern and mock set,
 // plus this module's own thing: the launcher, and the mint behind it. The
 // pins that matter here: the 404 gates (module off, unknown id), the view

@@ -597,7 +597,7 @@ const {
   listChallengesForAdmin: wireListChallengesForAdmin,
   listCategories: wireListCategories,
   deleteChallenge: wireDeleteChallenge,
-  upstashPipeline: wireUpstashPipeline,
+  writeAdminAudit: wireWriteAdminAudit,
 } = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
   setCategories: vi.fn(),
@@ -605,7 +605,7 @@ const {
   listChallengesForAdmin: vi.fn(),
   listCategories: vi.fn(),
   deleteChallenge: vi.fn(),
-  upstashPipeline: vi.fn(),
+  writeAdminAudit: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -621,8 +621,12 @@ vi.mock("@/lib/classic-store", async () => {
     deleteChallenge: wireDeleteChallenge,
   };
 });
-vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
-vi.mock("@/lib/upstash", () => ({ upstashPipeline: wireUpstashPipeline }));
+// `adminErrorLabel` is the real (name+message, capped) implementation, not a
+// mock — mirrors admin/classic/route.test.ts's idiom.
+vi.mock("@/lib/admin-store", () => ({
+  writeAdminAudit: wireWriteAdminAudit,
+  adminErrorLabel: (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : "non-Error throw"),
+}));
 
 const { POST: wirePOST } = await import("@/app/api/admin/classic/route");
 
@@ -630,7 +634,7 @@ describe("categories POST wire contract, proven against the real route", () => {
   beforeEach(() => {
     wireRequireAdmin.mockReset().mockResolvedValue({ ok: true, login: "alice" });
     wireSetCategories.mockReset().mockImplementation(async (names: string[]) => names);
-    wireUpstashPipeline.mockReset().mockResolvedValue([{ result: "OK" }, { result: "OK" }]);
+    wireWriteAdminAudit.mockReset().mockResolvedValue(undefined);
   });
 
   const post = (body: unknown) =>

@@ -44,7 +44,21 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
 
   const policySettings: EventPolicySettings = {};
   for (const field of EVENT_POLICY_FIELDS) {
-    policySettings[field] = (settings as unknown as Record<string, unknown>)[field];
+    const value = (settings as unknown as Record<string, unknown>)[field];
+    // Omit a field that is unset (`null` — every scalar policy field's "no
+    // override" value on ResolvedAdminSettings — or `undefined`) rather than
+    // writing it out as `null`. A newer field (e.g. `aiCooldownSec`) that the
+    // organizer never touched must not appear as a key at all, or this
+    // export fails to import into a box built before that field existed:
+    // event-io.ts's parser rejects any settings key outside its own
+    // EVENT_POLICY_FIELDS allowlist, and an older box's allowlist doesn't
+    // have it. Semantically identical on import either way — buildPolicyPatch
+    // below already skips a null (or absent) field rather than forwarding it
+    // to updateAdminSettings, so dropping it here changes nothing about what
+    // a re-import applies, only whether an old box can parse the bundle at
+    // all.
+    if (value === null || value === undefined) continue;
+    policySettings[field] = value;
   }
   // Overwrite with the RESOLVED module set (the same value `isEnabled` above
   // decides inclusion from), never the raw `settings.enabledModuleIds` the
@@ -250,7 +264,7 @@ function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch
         if (reconciled.ids.length > 0) patch.enabledModules = reconciled.ids;
       }
     } else {
-      // The 9 scalar policy fields are `X | null` on AdminSettings/the
+      // The 10 scalar policy fields are `X | null` on AdminSettings/the
       // bundle (null = "no override"), but SettingsPatch types them
       // non-nullable and updateAdminSettings throws on a null. Skip, same as
       // the moduleOverrides/enabledModuleIds null guards above — forwarding

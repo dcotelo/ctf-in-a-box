@@ -81,6 +81,57 @@ describe("exportEventBundle", () => {
     expect(bundle.settings.enabledModuleIds).toEqual(["quiz"]);
   });
 
+  // aiCooldownSec rides EVENT_POLICY_FIELDS beside classicCooldownSec (see
+  // event-io.ts) — pinned by name here since neither cooldown field was
+  // previously asserted anywhere in this suite.
+  it("carries both modules' cooldown overrides — classicCooldownSec and aiCooldownSec — through export", async () => {
+    m.getAdminSettings.mockResolvedValue({
+      hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"],
+      classicCooldownSec: 45, aiCooldownSec: 12,
+      scoringStartsAt: "2026-01-01T00:00:00Z", paused: true, updatedBy: "alice", updatedAt: "x",
+    });
+    const { bundle } = await exportEventBundle(new Date("2026-06-01T00:00:00Z"));
+    expect(bundle.settings.classicCooldownSec).toBe(45);
+    expect(bundle.settings.aiCooldownSec).toBe(12);
+  });
+
+  // Finding C: a field ResolvedAdminSettings reports as unset — `null`, its
+  // real "no override" value (see admin-store.ts), never `undefined` — must
+  // be OMITTED from the exported bundle rather than written out as
+  // `null`. Otherwise a fresh export of a box that never touched a newer
+  // policy field (aiCooldownSec, added after v1 shipped) carries that key
+  // anyway, and event-io.ts's parser rejects any settings key outside an
+  // older box's own EVENT_POLICY_FIELDS allowlist — so every export from
+  // this build would fail to import into a pre-this-build box even when
+  // nothing the organizer actually set changed. Semantically identical on
+  // import: buildPolicyPatch (below) already skips a null/absent field
+  // rather than forwarding it to updateAdminSettings.
+  it("omits a policy field the export loop reports as unset (null), rather than writing it out as null", async () => {
+    m.getAdminSettings.mockResolvedValue({
+      hintCost: 50,
+      teamMaxMembers: 4,
+      enabledModuleIds: ["classic", "quiz"],
+      // Both null, mirroring ResolvedAdminSettings' real shape for a field
+      // the organizer never overrode (see admin-store.ts ~line 296-302) —
+      // not simply absent from the mock, which would already pass thanks to
+      // JSON.stringify dropping `undefined` and prove nothing about the
+      // actual (real-world) null case.
+      classicCooldownSec: null,
+      aiCooldownSec: null,
+      paused: true,
+    });
+    const { bundle } = await exportEventBundle(new Date());
+    expect("aiCooldownSec" in bundle.settings).toBe(false);
+    // General rule, not an aiCooldownSec special case: any null scalar
+    // policy field is dropped the same way.
+    expect("classicCooldownSec" in bundle.settings).toBe(false);
+    // A field that IS set still carries through — this isn't "always omit".
+    expect(bundle.settings.hintCost).toBe(50);
+    const s = JSON.stringify(bundle);
+    expect(s).not.toContain("aiCooldownSec");
+    expect(s).not.toContain("classicCooldownSec");
+  });
+
   it("THE LEAK TEST: run-state tokens seeded into excluded settings fields never survive the allowlist", async () => {
     // exportEventBundle's ONLY allowlist decision for `settings` is the fixed
     // loop over EVENT_POLICY_FIELDS in the function body — it never reads any
@@ -182,6 +233,18 @@ describe("importEventBundle", () => {
     expect(patch.hintCost).toBe(25);
     expect("scoringStartsAt" in patch).toBe(false);
     expect("paused" in patch).toBe(false);
+  });
+
+  // Mirrors the export-side coverage above, for the same reason: neither
+  // cooldown field was previously pinned by name on the import path either.
+  it("applies both cooldown overrides — classicCooldownSec and aiCooldownSec — to the settings patch", async () => {
+    await importEventBundle(
+      { ...bundleFixture(), settings: { ...bundleFixture().settings, classicCooldownSec: 45, aiCooldownSec: 12 } },
+      "alice",
+    );
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.classicCooldownSec).toBe(45);
+    expect(patch.aiCooldownSec).toBe(12);
   });
 
   // Fail-fast ordering, the point of Finding 1: the settings patch is

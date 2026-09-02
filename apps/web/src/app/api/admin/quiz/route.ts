@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { adminErrorLabel, writeAdminAudit } from "@/lib/admin-store";
 import { parseBundle } from "@/lib/quiz-io";
 import {
   deleteQuestion,
@@ -12,7 +12,6 @@ import {
   type Choice,
   type Question,
 } from "@/lib/quiz-store";
-import { upstashPipeline } from "@/lib/upstash";
 
 /**
  * Organizer authoring surface for the quiz module: list (GET), create-or-
@@ -156,24 +155,12 @@ function errorResponse(err: unknown): Response {
   if (err instanceof QuizValidationError) {
     return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
   }
-  console.error("[admin/quiz] store write failed", err);
+  console.error("[admin/quiz] store write failed:", adminErrorLabel(err));
   return NextResponse.json({ error: "quiz store write failed" }, { status: 503 });
 }
 
-/** Appends one audit line, mirroring admin-store's LPUSH+LTRIM pattern.
- *  Best-effort: an audit-write failure is logged but never fails a request
- *  whose actual data write already succeeded. */
-async function writeAudit(actor: string, action: string, detail: Record<string, unknown>): Promise<void> {
-  const audit = JSON.stringify({ at: new Date().toISOString(), by: actor, action, ...detail });
-  try {
-    await upstashPipeline([
-      ["LPUSH", ADMIN_AUDIT_KEY, audit],
-      ["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1],
-    ]);
-  } catch (err) {
-    console.error("[admin/quiz] audit write failed", err);
-  }
-}
+// Audit writes go through admin-store.ts's shared `writeAdminAudit` — see the
+// header comment on that function.
 
 export async function GET(request: Request) {
   const gate = await requireAdmin(request.headers);
@@ -210,7 +197,7 @@ export async function POST(request: Request) {
       return errorResponse(err);
     }
 
-    await writeAudit(gate.login, "quiz-import", { created: summary.created, updated: summary.updated });
+    await writeAdminAudit(gate.login, "quiz-import", { created: summary.created, updated: summary.updated });
     return NextResponse.json(summary);
   }
 
@@ -226,7 +213,7 @@ export async function POST(request: Request) {
     return errorResponse(err);
   }
 
-  await writeAudit(gate.login, "quiz-upsert", { questionId: q.id });
+  await writeAdminAudit(gate.login, "quiz-upsert", { questionId: q.id });
   // Echoes the STORED correct set (deduped and sorted by `upsertQuestion`),
   // not the raw payload, so the authoring client's list matches what a
   // subsequent GET would return rather than drifting from it.
@@ -247,6 +234,6 @@ export async function DELETE(request: Request) {
     return errorResponse(err);
   }
 
-  await writeAudit(gate.login, "quiz-delete", { questionId: id });
+  await writeAdminAudit(gate.login, "quiz-delete", { questionId: id });
   return NextResponse.json({ ok: true });
 }

@@ -881,14 +881,10 @@ export type AiSubmitResult =
 
 /** Resolves the settings and the current cooldown, failing OPEN on a settings
  *  error — a Redis blip must not drop a submission a contestant is entitled to
- *  make. The cooldown then falls back to the module default, which the script
- *  still enforces.
- *
- *  PR 4 adds the organizer override (`aiCooldownSec` on `ResolvedAdminSettings`,
- *  beside `classicCooldownSec`) and changes the last line to
- *  `settings?.aiCooldownSec ?? AI_COOLDOWN_SEC`. It is the constant alone here
- *  because the settings type does not carry the field yet, and casting around
- *  a type to pretend it does is how a setting ends up silently ignored. */
+ *  make. The cooldown honours the organizer's `aiCooldownSec` override
+ *  (mirroring classic's `classicCooldownSec`) when the settings read
+ *  succeeded, and falls back to the module default `AI_COOLDOWN_SEC`
+ *  otherwise — the script still enforces whichever value comes back. */
 async function resolveSettings(): Promise<{ settings: ResolvedAdminSettings | null; cooldownSec: number }> {
   let settings: ResolvedAdminSettings | null = null;
   try {
@@ -896,7 +892,7 @@ async function resolveSettings(): Promise<{ settings: ResolvedAdminSettings | nu
   } catch (err) {
     console.error("ai: admin settings read failed, treating scoring as live:", errorLabel(err));
   }
-  return { settings, cooldownSec: AI_COOLDOWN_SEC };
+  return { settings, cooldownSec: settings?.aiCooldownSec ?? AI_COOLDOWN_SEC };
 }
 
 function gateToResult(gate: Exclude<AiGate, { allowed: true }>): AiSubmitResult {

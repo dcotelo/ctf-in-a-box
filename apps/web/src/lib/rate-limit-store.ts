@@ -98,4 +98,9 @@ export const RATE_LIMITS = {
   aiSubmit: { bucket: "ai-submit", limit: 60, windowSeconds: 60 },
   aiEvent: { bucket: "ai-event", limit: 60, windowSeconds: 60 },
   aiState: { bucket: "ai-state", limit: 120, windowSeconds: 60 },
+  /** The admin "Send test" button (`admin/ai/test/route.ts`), keyed on the
+   *  admin's own login. Bounds accidental repeated clicks, not a real
+   *  workload — an organizer testing one challenge's wiring has no reason to
+   *  approach this in a normal session. */
+  aiAdminTest: { bucket: "ai-admin-test", limit: 10, windowSeconds: 60 },
 } as const;

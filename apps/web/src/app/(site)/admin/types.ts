@@ -31,6 +31,7 @@ export type CommitNumber = (
     | "quizMaxAttempts"
     | "quizRetryAfterMin"
     | "classicCooldownSec"
+    | "aiCooldownSec"
     | "teamMaxMembers"
     | "scoreCooldownMin",
   raw: string,

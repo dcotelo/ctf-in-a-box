@@ -24,6 +24,7 @@ import ChallengeBoard, { type ChallengeView } from "@/components/challenge-board
 import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
+import { getAdminSettings } from "@/lib/admin-store";
 import {
   AI_COOLDOWN_SEC,
   getAiSolveCounts,
@@ -55,11 +56,10 @@ export default async function AiPage() {
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
-  // Drives the empty state's wording and the team-redirect exemption below —
-  // same check `/admin` and every `/api/admin/*` route gate on, so the
-  // organizer-only line is never shown to someone the admin page would 403
-  // at. Mirrors flags/page.tsx, minus its authoring link (see the empty
-  // state below for why this module has none yet).
+  // Drives the empty state's authoring route and the team-redirect exemption
+  // below — same check `/admin` and every `/api/admin/*` route gate on, so a
+  // link is never offered to someone the admin page would then 403 at.
+  // Mirrors flags/page.tsx.
   const viewerIsAdmin = await isAdminLogin(login);
 
   // Solves only count for a team (issue #153), and the submit/mint paths
@@ -69,11 +69,16 @@ export default async function AiPage() {
   // thrown away.
   await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
-  const [challenges, categories, solveCounts, viewerAi, modules] = await Promise.all([
+  const [challenges, categories, solveCounts, viewerAi, settings, modules] = await Promise.all([
     listAiChallenges(),
     listAiCategories(),
     getAiSolveCounts(),
     login ? getViewerAi(login) : Promise.resolve<ViewerAi>({ solved: {}, attempts: {} }),
+    // Fails OPEN, same doctrine as ai-store.ts's own resolveSettings for this
+    // exact read: a Redis blip here must not take the whole public board
+    // down over a cooldown override, so a rejected settings read falls back
+    // to `null` (-> the module default below) rather than failing the page.
+    getAdminSettings().catch(() => null),
     getResolvedModules(),
   ]);
 
@@ -84,9 +89,7 @@ export default async function AiPage() {
   // note on why this must never be read off the registry default directly.
   const blurb = mod?.blurb ?? DEFAULT_BLURB;
 
-  // No admin override for this module's cooldown exists yet (unlike
-  // classic's `classicCooldownSec`) — the constant applies unconditionally.
-  const cooldownMs = AI_COOLDOWN_SEC * 1000;
+  const cooldownMs = (settings?.aiCooldownSec ?? AI_COOLDOWN_SEC) * 1000;
 
   // Built field by field from the public `AiChallenge` shape plus this
   // challenge's solve count and this viewer's derived status — never a
@@ -127,21 +130,14 @@ export default async function AiPage() {
           whose challenges haven't been authored yet. */}
       <div className="flex flex-col gap-4">
         {progress && <p className="text-sm text-zinc-400">{progress}</p>}
-        {/* NO authoring link below, unlike /flags and /quiz — and the
-            organizer's line says why rather than pointing somewhere. `/admin`
-            has no `ai` tab yet (it ships with the module's admin PR), and an
-            unknown `?tab=` falls back to the Event tab: an "Author challenges"
-            button that silently lands on the wrong panel is a worse dead end
-            than no button, because it looks like the feature exists and is
-            broken. */}
         {challenges.length === 0 ? (
           <ModuleEmptyState
             message={
               viewerIsAdmin
-                ? "No challenges yet. AI challenges aren't authorable from the admin panel yet — that section ships with the rest of the module."
+                ? "No challenges yet. Add the first one from the admin panel."
                 : "No challenges are available yet. Check back soon."
             }
-            authoring={null}
+            authoring={viewerIsAdmin ? { href: "/admin?tab=ai", label: "Author challenges" } : null}
           />
         ) : (
           <ChallengeBoard

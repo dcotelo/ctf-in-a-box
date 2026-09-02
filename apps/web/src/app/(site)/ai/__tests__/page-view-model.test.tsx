@@ -20,6 +20,7 @@ const {
   listAiCategories,
   getAiSolveCounts,
   getViewerAi,
+  getAdminSettings,
   getResolvedModules,
   redirectIfTeamless,
 } = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ const {
   listAiCategories: vi.fn(),
   getAiSolveCounts: vi.fn(),
   getViewerAi: vi.fn(),
+  getAdminSettings: vi.fn(),
   getResolvedModules: vi.fn(),
   redirectIfTeamless: vi.fn(),
 }));
@@ -52,6 +54,7 @@ vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
+vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
   listAiCategories,
@@ -100,6 +103,7 @@ beforeEach(() => {
   isModuleEnabled.mockReturnValue(true);
   getSession.mockResolvedValue({ user: { login: "alice" } });
   getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
+  getAdminSettings.mockResolvedValue({ aiCooldownSec: null });
   listAiCategories.mockResolvedValue(["Prompt Injection"]);
   getAiSolveCounts.mockResolvedValue(new Map());
   redirectIfTeamless.mockResolvedValue(undefined);
@@ -148,6 +152,26 @@ describe("/ai view model", () => {
     expect(Object.keys(captured.challenges[0]).sort()).toEqual(
       ["caseSensitive", "category", "description", "id", "points", "solveCount", "status", "title"].sort(),
     );
+  });
+
+  // The organizer override, read through the page exactly like classic's
+  // `classicCooldownSec` — see flags/__tests__/page-view-model.test.tsx's
+  // sibling coverage. AI_COOLDOWN_SEC is mocked to 5s above: an attempt 8s
+  // old would already have cleared the module default, so a status of
+  // "cooldown" here is proof the page used the 12s override, not the default.
+  it("derives cooldown status from the aiCooldownSec admin override, not the module default", async () => {
+    listAiChallenges.mockResolvedValue([
+      { id: "a1", title: "Prompt leak 101", category: "Prompt Injection", description: "d", points: 50, order: 1, mode: "flag" },
+    ]);
+    getAdminSettings.mockResolvedValue({ aiCooldownSec: 12 });
+    getViewerAi.mockResolvedValue({
+      solved: {},
+      attempts: { a1: { attempts: 1, lastAt: new Date(Date.now() - 8_000).toISOString() } },
+    });
+
+    renderToStaticMarkup(await AiPage());
+
+    expect(captured.challenges[0].status).toBe("cooldown");
   });
 });
 // The same guarantee one level down — that <ChallengeBoard> won't echo a

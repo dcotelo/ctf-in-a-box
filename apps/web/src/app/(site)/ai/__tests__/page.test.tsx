@@ -13,8 +13,10 @@ const {
   listAiCategories,
   getAiSolveCounts,
   getViewerAi,
+  getAdminSettings,
   getResolvedModules,
   redirectIfTeamless,
+  deriveStatusSpy,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -23,8 +25,10 @@ const {
   listAiCategories: vi.fn(),
   getAiSolveCounts: vi.fn(),
   getViewerAi: vi.fn(),
+  getAdminSettings: vi.fn(),
   getResolvedModules: vi.fn(),
   redirectIfTeamless: vi.fn(),
+  deriveStatusSpy: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -34,6 +38,7 @@ vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
+vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
@@ -42,6 +47,16 @@ vi.mock("@/lib/ai-store", () => ({
   getViewerAi,
   AI_COOLDOWN_SEC: 5,
 }));
+// Wraps (not replaces) the real deriveStatus, so every existing assertion on
+// rendered markup still exercises the real per-viewer status logic — only
+// the Finding-A cooldown-fallback test below inspects what `cooldownMs` this
+// wrapper was actually called with, since the board's markup doesn't render
+// cooldown state any differently from unsolved.
+vi.mock("@/lib/derive-status", async (orig) => {
+  const actual = await orig<typeof import("@/lib/derive-status")>();
+  deriveStatusSpy.mockImplementation(actual.deriveStatus);
+  return { deriveStatus: deriveStatusSpy };
+});
 
 import AiPage, { generateMetadata } from "@/app/(site)/ai/page";
 
@@ -65,6 +80,10 @@ beforeEach(() => {
   ]);
   listAiCategories.mockResolvedValue(["Prompt Injection", "Guardrails"]);
   getAiSolveCounts.mockResolvedValue(new Map());
+  // The passing default — no organizer override, so the module default
+  // (AI_COOLDOWN_SEC, mocked to 5 above) applies. The dedicated cooldown test
+  // below overrides this per-case.
+  getAdminSettings.mockResolvedValue({ aiCooldownSec: null });
   // The passing default: whoever is viewing already has a team (or is signed
   // out, which the real helper lets through). The dedicated test below
   // overrides this to throw, mimicking Next's `redirect()` control flow.
@@ -150,13 +169,11 @@ describe("ai page view model", () => {
   });
 
   // The state every new event starts in, and the first thing an organizer
-  // sees after provisioning. /flags and /quiz send them to their authoring
-  // tab from here; this module has none yet, so the empty state says that
-  // instead of offering a link. It must NOT point at `/admin?tab=ai`: the
-  // panel has no ai tab, and an unknown `?tab=` silently falls back to the
-  // Event tab — a button that lands on the wrong panel reads as a broken
-  // feature rather than an unbuilt one.
-  it("tells an organizer authoring isn't built yet, and offers no link that would mislead them", async () => {
+  // sees after provisioning. The admin panel's ai tab exists now, so this
+  // mirrors /flags and /quiz: the organizer gets the authoring link, aimed
+  // at `/admin?tab=ai` — the tab this same PR added, so the link can no
+  // longer land on the wrong panel.
+  it("sends an organizer to the ai authoring tab from the empty board", async () => {
     isModuleEnabled.mockReturnValue(true);
     isAdminLogin.mockReturnValue(true);
     getSession.mockResolvedValue({ user: { login: "alice" } });
@@ -165,11 +182,8 @@ describe("ai page view model", () => {
 
     const html = renderToStaticMarkup(await AiPage());
 
-    // The apostrophe serializes as `&#x27;`, so match around it.
-    expect(html).toMatch(/authorable from the admin panel yet/i);
-    expect(html).not.toContain("/admin");
-    expect(html).not.toContain("tab=ai");
-    expect(html).not.toMatch(/author challenges/i);
+    expect(html).toContain("/admin?tab=ai");
+    expect(html).toMatch(/author challenges/i);
     expect(html).not.toMatch(/check back soon/i);
   });
 
@@ -206,6 +220,35 @@ describe("ai page view model", () => {
     // Non-vacuity: this really is the empty-state render, not a populated one.
     expect(html).toMatch(/no challenges are available/i);
     expect(html).toMatch(/sign in with github to play the challenges/i);
+  });
+
+  // Finding A: getAdminSettings() must fail OPEN at the page level, same
+  // doctrine ai-store.ts's own resolveSettings applies to this exact read
+  // (see its comment) — a Redis blip on the settings read must not take the
+  // whole public board down, only fall the cooldown back to the module
+  // default.
+  it("still renders the board when the settings read rejects, falling the cooldown back to the module default", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockRejectedValue(new Error("ECONNRESET"));
+    getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
+
+    const html = renderToStaticMarkup(await AiPage());
+
+    // The board itself rendered — challenges are visible, not an error page.
+    expect(html).toContain('href="/ai/a1"');
+    expect(html).toContain('href="/ai/a2"');
+    expect(html).toContain('href="/ai/a3"');
+    // The cooldown fed to every per-challenge status derivation is the
+    // module default (AI_COOLDOWN_SEC, mocked to 5 above) in milliseconds —
+    // never NaN/0 from a blind `settings.aiCooldownSec` read off a `null`
+    // settings object, which is what an unguarded `settings.aiCooldownSec`
+    // would do once `settings` itself is `null`.
+    expect(deriveStatusSpy).toHaveBeenCalled();
+    for (const call of deriveStatusSpy.mock.calls) {
+      expect(call[2]).toBe(5000);
+    }
   });
 });
 

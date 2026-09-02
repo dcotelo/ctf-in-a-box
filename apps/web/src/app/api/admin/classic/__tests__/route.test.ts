@@ -1,6 +1,7 @@
 // Route-level tests for the classic (flag) module's organizer authoring
-// route. Auth guard, classic-store, and the Upstash pipeline (used only for
-// the audit write) are all mocked — no Redis or GitHub session needed.
+// route. Auth guard, classic-store, and the shared admin-store audit/error
+// helpers (`writeAdminAudit`/`adminErrorLabel` — see admin-store.ts) are all
+// mocked — no Redis or GitHub session needed.
 //
 // requireAdmin must run BEFORE any store read/write in every handler: the
 // admin payload carries flags, so an early read on an unauthenticated
@@ -9,6 +10,7 @@
 // "checks requireAdmin BEFORE any store read" test actually enforces that,
 // rather than merely looking like it does.
 
+import { inspect } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -19,7 +21,7 @@ const {
   upsertChallenge,
   deleteChallenge,
   importBundle,
-  upstashPipeline,
+  writeAdminAudit,
   ClassicValidationError,
 } = vi.hoisted(() => {
   // A real (not mocked) ClassicValidationError, so `err instanceof
@@ -42,7 +44,7 @@ const {
     upsertChallenge: vi.fn(),
     deleteChallenge: vi.fn(),
     importBundle: vi.fn(),
-    upstashPipeline: vi.fn(),
+    writeAdminAudit: vi.fn(),
     ClassicValidationError,
   };
 });
@@ -58,8 +60,14 @@ vi.mock("@/lib/classic-store", () => ({
   importBundle,
   ClassicValidationError,
 }));
-vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
-vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
+// `adminErrorLabel` is the real (name+message, capped) implementation, not a
+// mock — the redaction assertion below needs it to actually behave like
+// admin-store.ts's real one, dropping any own properties a driver decorated
+// the thrown error with.
+vi.mock("@/lib/admin-store", () => ({
+  writeAdminAudit,
+  adminErrorLabel: (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : "non-Error throw"),
+}));
 
 // classic-io's parseBundle is deliberately NOT mocked: the whole point of the
 // import route is that it re-validates the raw text server-side with the
@@ -106,11 +114,11 @@ beforeEach(() => {
   upsertChallenge.mockReset();
   deleteChallenge.mockReset();
   importBundle.mockReset();
-  upstashPipeline.mockReset();
+  writeAdminAudit.mockReset();
   allowAdmin();
   listChallengesForAdmin.mockResolvedValue([ADMIN_ROW]);
   listCategories.mockResolvedValue(["Web"]);
-  upstashPipeline.mockResolvedValue([{ result: 1 }, { result: "OK" }]);
+  writeAdminAudit.mockResolvedValue(undefined);
 });
 
 describe("GET /api/admin/classic", () => {
@@ -154,6 +162,33 @@ describe("GET /api/admin/classic", () => {
     listCategories.mockRejectedValue(new Error("upstash down"));
     const res = await GET(adminReq("GET"));
     expect(res.status).toBe(503);
+  });
+
+  it("503s and logs neither a flag nor any other own property of the thrown error", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A driver-decorated error, matching the shape `adminErrorLabel`'s own
+    // docstring warns about: the message itself is generic, but the error
+    // carries OWN PROPERTIES with the failed command's arguments — exactly
+    // what a naive `console.error(err)` would print in full, and what the
+    // name+message-only discipline must drop.
+    const err = new Error("upstash down");
+    Object.assign(err, { command: ["HGETALL", "ctf:classic:flag"], args: ["CTF{flag}"] });
+    listChallengesForAdmin.mockRejectedValue(err);
+    const res = await GET(adminReq("GET"));
+    expect(res.status).toBe(503);
+
+    // Every logged argument must be a primitive STRING, never the raw error
+    // object — see ai/route.test.ts's equivalent case for why this, rather
+    // than a `logged.not.toContain(...)` string check alone, is what
+    // actually distinguishes redacted logging from raw logging.
+    for (const call of spy.mock.calls) {
+      for (const arg of call) {
+        expect(typeof arg).toBe("string");
+      }
+    }
+    const logged = spy.mock.calls.map((call) => call.map((arg) => inspect(arg, { depth: 5 })).join(" ")).join("\n");
+    expect(logged).not.toContain("CTF{flag}");
+    spy.mockRestore();
   });
 });
 
@@ -261,12 +296,7 @@ describe("POST /api/admin/classic — challenge upsert", () => {
     expect(upsertChallenge).toHaveBeenCalledWith(CHALLENGE, "CTF{flag}", undefined);
     expect(await res.json()).toEqual({ challenge: CHALLENGE, flag: "CTF{flag}", hint: null });
 
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    expect(commands[0][0]).toBe("LPUSH");
-    expect(commands[0][1]).toBe("ctf:admin:audit");
-    expect(String(commands[0][2])).toContain('"by":"alice"');
-    expect(String(commands[0][2])).toContain('"challengeId":"c-1"');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "classic-upsert", { challengeId: "c-1" });
   });
 });
 
@@ -298,7 +328,7 @@ describe("POST /api/admin/classic — categories", () => {
     expect(res.status).toBe(200);
     expect(setCategories).toHaveBeenCalledWith(["Web", "Crypto"]);
     expect(await res.json()).toEqual({ categories: ["Web", "Crypto"] });
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "classic-categories", { count: 2 });
   });
 });
 
@@ -386,15 +416,7 @@ describe("POST /api/admin/classic — import", () => {
   it("imports and writes an audit line recording the counts", async () => {
     importBundle.mockResolvedValue({ created: 2, updated: 0, categories: 2 });
     await POST(adminReq("POST", { import: JSON.stringify(validBundle) }));
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    expect(commands[0][0]).toBe("LPUSH");
-    expect(commands[0][1]).toBe("ctf:admin:audit");
-    const audit = String(commands[0][2]);
-    expect(audit).toContain('"by":"alice"');
-    expect(audit).toContain('"created":2');
-    expect(audit).toContain('"updated":0');
-    expect(audit).toContain('"categories":2');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "classic-import", { created: 2, updated: 0, categories: 2 });
   });
 });
 
@@ -424,7 +446,7 @@ describe("DELETE /api/admin/classic", () => {
     const res = await DELETE(adminReq("DELETE", { id: "c-1" }));
     expect(res.status).toBe(200);
     expect(deleteChallenge).toHaveBeenCalledWith("c-1");
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "classic-delete", { challengeId: "c-1" });
   });
 
   it("400s with the message for a ClassicValidationError from the store", async () => {
