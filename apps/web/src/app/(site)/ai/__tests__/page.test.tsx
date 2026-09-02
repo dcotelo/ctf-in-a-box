@@ -13,6 +13,7 @@ const {
   listAiCategories,
   getAiSolveCounts,
   getViewerAi,
+  getAdminSettings,
   getResolvedModules,
   redirectIfTeamless,
 } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ const {
   listAiCategories: vi.fn(),
   getAiSolveCounts: vi.fn(),
   getViewerAi: vi.fn(),
+  getAdminSettings: vi.fn(),
   getResolvedModules: vi.fn(),
   redirectIfTeamless: vi.fn(),
 }));
@@ -34,6 +36,7 @@ vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
+vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
@@ -65,6 +68,10 @@ beforeEach(() => {
   ]);
   listAiCategories.mockResolvedValue(["Prompt Injection", "Guardrails"]);
   getAiSolveCounts.mockResolvedValue(new Map());
+  // The passing default — no organizer override, so the module default
+  // (AI_COOLDOWN_SEC, mocked to 5 above) applies. The dedicated cooldown test
+  // below overrides this per-case.
+  getAdminSettings.mockResolvedValue({ aiCooldownSec: null });
   // The passing default: whoever is viewing already has a team (or is signed
   // out, which the real helper lets through). The dedicated test below
   // overrides this to throw, mimicking Next's `redirect()` control flow.

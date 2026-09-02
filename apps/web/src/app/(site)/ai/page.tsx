@@ -24,6 +24,7 @@ import ChallengeBoard, { type ChallengeView } from "@/components/challenge-board
 import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
+import { getAdminSettings } from "@/lib/admin-store";
 import {
   AI_COOLDOWN_SEC,
   getAiSolveCounts,
@@ -69,11 +70,12 @@ export default async function AiPage() {
   // thrown away.
   await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
-  const [challenges, categories, solveCounts, viewerAi, modules] = await Promise.all([
+  const [challenges, categories, solveCounts, viewerAi, settings, modules] = await Promise.all([
     listAiChallenges(),
     listAiCategories(),
     getAiSolveCounts(),
     login ? getViewerAi(login) : Promise.resolve<ViewerAi>({ solved: {}, attempts: {} }),
+    getAdminSettings(),
     getResolvedModules(),
   ]);
 
@@ -84,9 +86,7 @@ export default async function AiPage() {
   // note on why this must never be read off the registry default directly.
   const blurb = mod?.blurb ?? DEFAULT_BLURB;
 
-  // No admin override for this module's cooldown exists yet (unlike
-  // classic's `classicCooldownSec`) — the constant applies unconditionally.
-  const cooldownMs = AI_COOLDOWN_SEC * 1000;
+  const cooldownMs = (settings.aiCooldownSec ?? AI_COOLDOWN_SEC) * 1000;
 
   // Built field by field from the public `AiChallenge` shape plus this
   // challenge's solve count and this viewer's derived status — never a

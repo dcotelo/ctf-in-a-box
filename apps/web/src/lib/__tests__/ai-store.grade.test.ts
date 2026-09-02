@@ -19,14 +19,20 @@ vi.mock("@/lib/admin-store", async (importOriginal) => ({
   getAdminSettings: mocks.getAdminSettings,
 }));
 
-import { awardAiEvent, submitAiFlag } from "@/lib/ai-store";
+import { AI_COOLDOWN_SEC, awardAiEvent, submitAiFlag } from "@/lib/ai-store";
 
-/** The settings object `effectivePaused` (real, not mocked) reads. Every field
- *  it looks at must be present, or a missing key reads as a different event
+/** The settings object `effectivePaused` (real, not mocked) reads, plus
+ *  `aiCooldownSec` which `resolveSettings` reads directly. Every field it
+ *  looks at must be present, or a missing key reads as a different event
  *  state than the test intends. */
-type SettingsOverride = Partial<{ paused: boolean; scoringStartsAt: string | null; scoringEndsAt: string | null }>;
+type SettingsOverride = Partial<{
+  paused: boolean;
+  scoringStartsAt: string | null;
+  scoringEndsAt: string | null;
+  aiCooldownSec: number | null;
+}>;
 const settings = (over: SettingsOverride = {}) =>
-  ({ paused: false, scoringStartsAt: null, scoringEndsAt: null, ...over }) as never;
+  ({ paused: false, scoringStartsAt: null, scoringEndsAt: null, aiCooldownSec: null, ...over }) as never;
 
 /** No prior solve, no prior attempt — the gate's own pre-check reads. */
 function cleanGateReply() {
@@ -107,6 +113,9 @@ describe("submitAiFlag", () => {
       correct: true,
       points: 300,
     });
+    // ...and the script still gets a real cooldown to enforce — the module
+    // default, since there is no settings object to read an override from.
+    expect(lastEval().argv[4]).toBe(AI_COOLDOWN_SEC * 1000);
   });
 
   it("fails CLOSED with its own reason when the solve/attempt lookup fails", async () => {
@@ -340,6 +349,34 @@ describe("the award script itself (text invariants)", () => {
     // Both comparison forms are empty on this path — there is nothing to grade.
     expect(argv[1]).toBe("");
     expect(argv[6]).toBe("");
+  });
+});
+
+// Mirrors classic-store.grade.test.ts's cooldown-resolution coverage exactly,
+// field-swapped: `aiCooldownSec` beside `classicCooldownSec`, same [0, 3600]
+// bound, same "current setting, never a stored cutoff" contract.
+describe("aiCooldownSec resolution", () => {
+  it("passes the CURRENT aiCooldownSec setting to the script, never a stored cutoff", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ aiCooldownSec: 12 }));
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "CTF{leak}");
+    expect(lastEval().argv[4]).toBe(12_000);
+  });
+
+  it("falls back to the module default cooldown when no admin override is set", async () => {
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "CTF{leak}");
+    expect(lastEval().argv[4]).toBe(AI_COOLDOWN_SEC * 1000);
+  });
+
+  it("passes 0 through as 'no cooldown' rather than falling back to the default", async () => {
+    mocks.getAdminSettings.mockResolvedValue(settings({ aiCooldownSec: 0 }));
+    cleanGateReply();
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "300"]);
+    await submitAiFlag("alice", "prompt-leak-ab12cd", "CTF{leak}");
+    expect(lastEval().argv[4]).toBe(0);
   });
 });
 

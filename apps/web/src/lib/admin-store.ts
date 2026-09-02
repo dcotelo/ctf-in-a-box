@@ -61,6 +61,11 @@ export const QUIZ_MAX_ATTEMPTS_MAX = 100;
 export const QUIZ_RETRY_AFTER_MAX = 100000; // minutes
 /** Cap for the classic-module submission cooldown (see below). */
 export const CLASSIC_COOLDOWN_SEC_MAX = 3600;
+/** Cap for the ai-module submission cooldown (see below). Separate constant
+ *  from CLASSIC_COOLDOWN_SEC_MAX rather than shared: the two modules' knobs
+ *  happen to agree on [0, 3600] today, but nothing ties them together, and a
+ *  shared constant would make that agreement look load-bearing when it isn't. */
+export const AI_COOLDOWN_SEC_MAX = 3600;
 
 // Defined in scoring-defaults.ts (no `server-only`) so the admin panel, a
 // Client Component, can use it as the field's `max`. Re-exported for server
@@ -108,6 +113,11 @@ export type AdminSettings = {
    *  challenge. null = use the module default. Seconds, not minutes: its job
    *  is blocking scripted brute force, not rationing tries. */
   classicCooldownSec: number | null;
+  /** Seconds a login must wait between flag submissions on the SAME ai
+   *  challenge. null = use the module default. Mirrors `classicCooldownSec`
+   *  exactly, including the module's own script re-enforcing whatever value
+   *  this resolves to. */
+  aiCooldownSec: number | null;
   /** Minutes a contestant must wait between SCORED runs on the same PR.
    *  Null = no override; the fork workflow's baked default applies. 0 disables
    *  the cooldown. Enforced by the Action inside each fork, which reads it
@@ -190,6 +200,7 @@ export type SettingsPatch = {
   quizMaxAttempts?: number;
   quizRetryAfterMin?: number;
   classicCooldownSec?: number;
+  aiCooldownSec?: number;
   scoreCooldownMin?: number;
   teamMaxMembers?: number;
   teamRegistrationOpen?: boolean;
@@ -257,6 +268,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     quizMaxAttempts: h.quizMaxAttempts === undefined ? null : Number(h.quizMaxAttempts),
     quizRetryAfterMin: h.quizRetryAfterMin === undefined ? null : Number(h.quizRetryAfterMin),
     classicCooldownSec: h.classicCooldownSec === undefined ? null : Number(h.classicCooldownSec),
+    aiCooldownSec: h.aiCooldownSec === undefined ? null : Number(h.aiCooldownSec),
     teamMaxMembers: h.teamMaxMembers === undefined ? null : Number(h.teamMaxMembers),
     scoreCooldownMin: h.scoreCooldownMin === undefined ? null : Number(h.scoreCooldownMin),
     teamRegistrationOpen: h.teamRegistrationOpen !== "0",
@@ -389,6 +401,12 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
     } else if (k === "classicCooldownSec") {
       if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > CLASSIC_COOLDOWN_SEC_MAX) {
         throw new AdminValidationError(k, `classicCooldownSec must be an integer in [0, ${CLASSIC_COOLDOWN_SEC_MAX}]`);
+      }
+      fields.push(k, String(v));
+      changed[k] = v;
+    } else if (k === "aiCooldownSec") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > AI_COOLDOWN_SEC_MAX) {
+        throw new AdminValidationError(k, `aiCooldownSec must be an integer in [0, ${AI_COOLDOWN_SEC_MAX}]`);
       }
       fields.push(k, String(v));
       changed[k] = v;
