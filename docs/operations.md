@@ -1070,7 +1070,7 @@ GitHub, the scorer, or `sync` at all — see
 entirely inside the app, and how a solve can arrive back three different
 ways.
 
-![The AI challenge board](assets/ai-board.jpg)
+![The AI challenge board: category-grouped tiles with point values, solve counts and paid-hint markers; each tile opens the challenge page with its personal launch link](assets/ai-board.jpg)
 
 <sup>The board as a contestant sees it: every tile carries its category,
 point value, and a 💡 marker where a paid hint is on offer, the same board
@@ -1084,7 +1084,7 @@ blocking a removal), capped at **50 categories** with names of at most **64
 characters** each (`AI_CATEGORIES_MAX`/`AI_CATEGORY_MAX_LEN`, enforced in
 `setAiCategories`).
 
-![The admin AI tab](assets/admin-ai.jpg)
+![The admin AI tab: the challenge editor with mode and launch-URL fields, and the per-challenge integration panel with endpoint URLs, the masked signing key, the test curl and the Send test button](assets/admin-ai.jpg)
 
 <sup>The submission-cooldown knob, the ordered category list, and the
 challenge list — each row expanding into its own integration panel below.</sup>
