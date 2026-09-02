@@ -560,16 +560,21 @@ The public half is what an external backend or a pure static SPA verifies
 against, served by the one unauthenticated, cacheable route
 `GET /api/ai/launch-key`.
 
-**Flags in: two award paths, one script.** A `flag`/`both` challenge can be
-solved two ways, and both fold into the same atomic Lua script:
+**Flags in: three surfaces, two store functions, one script.** A solve can
+arrive three ways, and every one folds into the same atomic Lua script:
 
 - **In-box**: the shared `ChallengeDetail` form posts to a Server Action,
-  `submitAiFlagAction` (`[id]/actions.ts`), never to a route — the token
-  that would authenticate a fetch call lives only in the launcher href and
-  must not reach the client any other way. The action re-runs the page's
-  own gate order — module live, pre-event gate (fails **closed** — an
+  `submitAiFlagAction` (`[id]/actions.ts`) — not to the token API, because
+  the token that would authenticate such a call lives only in the launcher
+  href and must not reach the client any other way. The action re-runs the
+  page's own gate order — module live, pre-event gate (fails **closed** — an
   exception is treated as a refusal), session, team (fails **open**, via
   `hasTeam`) — before calling `submitAiFlag` (`ai-store.ts`).
+- **External flag submission**: `POST /api/ai/submit` takes `{token, flag}`
+  for an external site that renders its own flag box — the launch token in
+  the body is the whole authentication (cookie-blind, verified against the
+  module's public key), and it calls the same `submitAiFlag` the in-box
+  action does.
 - **External**: `POST /api/ai/event` is the surface an externally hosted
   challenge's backend calls to assert a solve. It is cookie-blind and
   CORS-open by design, so it authenticates by two proofs instead of a
@@ -585,7 +590,7 @@ solved two ways, and both fold into the same atomic Lua script:
   it. A `dryRun` flag runs every check and writes nothing, for an
   integrator to test against without spending a real launch token.
 
-Both paths funnel into `submitAiFlag`/`awardAiEvent`, which share **one**
+All three surfaces funnel into `submitAiFlag`/`awardAiEvent`, which share **one**
 `AWARD_SCRIPT` (`ai-store.ts`) — sharing is deliberate, because two scripts
 would eventually disagree about the already-solved guard that makes the
 solve counter distinct-by-construction. The script itself refuses an event
