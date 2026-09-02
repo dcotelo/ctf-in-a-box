@@ -21,8 +21,9 @@
 spine — a GitHub org, team registration, a live leaderboard, an organizer
 admin panel, and the scoring pipeline that feeds it. **Modules** plug
 challenge content into that spine, and any subset can run alone or together:
-patch-to-score **Secure Development**, a **Quiz** bank, and a jeopardy-style
-**Classic CTF** board. The [module contract](docs/modules.md) is the boundary
+patch-to-score **Secure Development**, a **Quiz** bank, a jeopardy-style
+**Classic CTF** board, and externally hosted **AI** challenges. The [module
+contract](docs/modules.md) is the boundary
 between spine and content, so the box is built to host further modules —
 forensics, API-security, cloud — as they land.
 
@@ -264,9 +265,9 @@ Once the stack is up at your `EVENT_URL`:
   development, answer and submit in the app for quiz and classic, or open a
   personal launch link for ai.
 - **Organizers** drive `/admin`: freeze the leaderboard, open and close
-  registration, set the schedule, author quiz questions and classic
-  challenges — and when one contestant gets stuck, fix that one contestant
-  rather than resetting the event.
+  registration, set the schedule, author quiz questions, classic challenges
+  and ai challenges — and when one contestant gets stuck, fix that one
+  contestant rather than resetting the event.
 - **Watch the poller** with `docker compose logs -f sync` (poll mode, with
   `secure-development` enabled). All state lives in named Docker volumes, so
   a box reboot loses nothing.

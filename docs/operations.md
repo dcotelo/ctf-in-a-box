@@ -177,10 +177,11 @@ places:
   (or "You've solved N of M challenges.") line is *your* progress, and sits
   above the questions/challenges instead;
 - the **landing page section lede**, but only for a module that ships no
-  registry `home` block. All three modules that exist today have one, so
+  registry `home` block. All four modules that exist today have one, so
   today this
   is a fallback for a future module rather than something you can see —
-  Secure Development's, Quiz's, and Classic's landing copy all come from the
+  Secure Development's, Quiz's, Classic's, and AI's landing copy all come
+  from the
   registry and are
   not organizer-editable.
 
@@ -314,8 +315,9 @@ The panel offers:
   teammates is charged **twice** — hints are individually purchased, so
   redundant buying is the team's own coordination cost.
 
-- **Activity** (its own tab) — the live event log: sign-ins, quiz and
-  classic solves, and team create/join/leave/rename, newest first, with type
+- **Activity** (its own tab) — the live event log: sign-ins, quiz, classic
+  and ai solves (an ai solve's entry also notes whether it came in via flag
+  or via event), and team create/join/leave/rename, newest first, with type
   chips and a login filter. Backed by one capped Redis list
   (`ctf:activity:log`, newest ~5,000 entries — older ones drop
   automatically), written **fail-open** so a Redis blip can lose a log line

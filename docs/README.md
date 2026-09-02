@@ -12,7 +12,7 @@ The [repo README](../README.md) is the front door →
 **Running an event?**
 [hosting](hosting.md) (stand it up) →
 [security-checklist](security-checklist.md) (before doors open) →
-[operations](operations.md) (during — teams, admin panel, the quiz/classic
+[operations](operations.md) (during — teams, admin panel, the quiz/classic/ai
 organizer guides) →
 [troubleshooting](troubleshooting.md) (when it breaks).
 Cloud VM instead of your own box: [aws](aws.md) · [fly](fly.md).

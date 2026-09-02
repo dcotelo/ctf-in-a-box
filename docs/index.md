@@ -17,8 +17,9 @@ module contributed, and its per-target breakdown.</sup>
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
-plug challenge content into that spine. Three modules ship today — **OWASP
-Secure Development CTF**, **Quiz** and **Classic CTF** — and any subset can
+plug challenge content into that spine. Four modules ship today — **OWASP
+Secure Development CTF**, **Quiz**, **Classic CTF** and **AI** — and any
+subset can
 run alone or together; the box is built to host further modules on the same
 spine. The [module contract](modules.md) is the boundary between platform and
 module.
@@ -26,11 +27,13 @@ module.
 The **Secure Development** module teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
 and opens a pull request. The pipeline scores the patch and the score lands
-on a **team** leaderboard. **Quiz** and **Classic** need none of that
+on a **team** leaderboard. **Quiz**, **Classic** and **AI** need none of that
 machinery — no forks, no GitHub org, no scoring pipeline. They are graded
 inside the app, so an event running only those boots with a single compose
 profile. Their organizer guides are
-[Quiz](operations.md#quiz) and [Classic](operations.md#classic).
+[Quiz](operations.md#quiz), [Classic](operations.md#classic) and
+[AI](operations.md#ai) — AI additionally has its own external integrator
+contract, [ai-module.md](ai-module.md).
 
 Until now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB,
 holding the cloud bill, and having access to a private scoring image. This kit
@@ -208,8 +211,8 @@ Pick the doc for what you're doing right now:
 
 - [Operations](operations.md) — teams, the admin panel, live-event support,
   verifying the kit, the local dev-stack, and teardown. It also carries the
-  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
-  [Classic](operations.md#classic).
+  three app-side modules' organizer guides: [Quiz](operations.md#quiz),
+  [Classic](operations.md#classic) and [AI](operations.md#ai).
 - [Troubleshooting](troubleshooting.md) — the mid-event runbook: symptom,
   diagnosis, fix.
 

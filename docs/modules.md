@@ -304,17 +304,18 @@ the leaderboard pipeline's
 attributes `secure-development`'s scorer-sourced *gross* points (hint
 penalties fold last, netting the final all-module total once — the module
 blocks show gross, the row's `−N hints` marker reconciles them) into a
-per-module `ModuleProgress`, and now *also* computes `quiz`'s and `classic`'s points
-app-side and adds them into the combined total (never attributes them — the
-scorer never sees a quiz question or a captured flag, so there is nothing of
-theirs to attribute from) — see
-the architecture doc for why secure-development and the two app-side modules
+per-module `ModuleProgress`, and now *also* computes `quiz`'s, `classic`'s
+and `ai`'s points app-side and adds them into the combined total (never
+attributes them — the scorer never sees a quiz question, a captured flag,
+or an ai challenge solve, so there is nothing of theirs to attribute from) —
+see
+the architecture doc for why secure-development and the three app-side modules
 use different verbs there. An
 expanded leaderboard row renders each enabled
 module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count, `classic`'s
-a solved/total count — with the
+a solved/total count, and `ai`'s a solved/total count of its own — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; `/profile` renders
 the same per-module blocks for the signed-in contestant's own progress,
@@ -328,11 +329,13 @@ enabled module, labelled with that module's organizer-resolved `title` — with
 the four hint controls living in Secure
 Development's tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
-question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's, and
+question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's,
 classic's submission-cooldown knob plus its full challenge/category
-authoring UI (`components/admin-classic-controls.tsx`) in Classic's —
+authoring UI (`components/admin-classic-controls.tsx`) in Classic's, and
+ai's submission-cooldown knob plus its own challenge/category authoring UI
+(`components/admin-ai-controls.tsx`) in AI's —
 so the generic "No settings for this module yet." fallback that a module
-tab renders when it defines no controls is, today, dead code for all three
+tab renders when it defines no controls is, today, dead code for all four
 shipped modules; it stays wired for whatever module ships next with no
 settings of its own. Every module tab opens with an identity editor
 (`app/(site)/admin/admin-module-identity.tsx`) for that module's title/blurb override (item 1
