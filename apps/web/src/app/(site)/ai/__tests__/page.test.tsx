@@ -17,6 +17,7 @@ const {
   getResolvedModules,
   redirectIfTeamless,
   deriveStatusSpy,
+  getAiHintIds,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -29,6 +30,7 @@ const {
   getResolvedModules: vi.fn(),
   redirectIfTeamless: vi.fn(),
   deriveStatusSpy: vi.fn(),
+  getAiHintIds: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -39,6 +41,7 @@ vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
+vi.mock("@/lib/hint-store", () => ({ getAiHintIds }));
 vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
@@ -84,6 +87,7 @@ beforeEach(() => {
   // (AI_COOLDOWN_SEC, mocked to 5 above) applies. The dedicated cooldown test
   // below overrides this per-case.
   getAdminSettings.mockResolvedValue({ aiCooldownSec: null });
+  getAiHintIds.mockResolvedValue([]);
   // The passing default: whoever is viewing already has a team (or is signed
   // out, which the real helper lets through). The dedicated test below
   // overrides this to throw, mimicking Next's `redirect()` control flow.
@@ -249,6 +253,35 @@ describe("ai page view model", () => {
     for (const call of deriveStatusSpy.mock.calls) {
       expect(call[2]).toBe(5000);
     }
+  });
+});
+
+// The board's 💡 marker (issue #211, mirrors classic/#190): availability is
+// public and PER-CHALLENGE, drawn straight off `getAiHintIds()` — never the
+// hint text itself, which stays server-side on the challenge's own page.
+describe("ai page hint marker", () => {
+  it("marks a tile whose id is in hintIds with the paid-hint marker", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAiHintIds.mockResolvedValue(["a2"]);
+
+    const html = renderToStaticMarkup(await AiPage());
+
+    expect(html).toContain("paid hint available");
+    expect(html).toContain("💡");
+  });
+
+  it("shows no marker when no challenge id is in hintIds", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAiHintIds.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await AiPage());
+
+    expect(html).not.toContain("paid hint available");
+    expect(html).not.toContain("💡");
   });
 });
 

@@ -1,9 +1,10 @@
 // Focus must follow a control that gets replaced.
 //
 // Three places in this app swap the element the user just activated for a
-// different one: the confirm dialog (mounts over the trigger), the classic
-// hint (revealed text replaces the button), and the in-row hint chip (the
-// confirm/cancel pair replaces the chip). In every case the HTML focus fixup
+// different one: the confirm dialog (mounts over the trigger), the challenge
+// page's hint button (revealed text replaces the button), and the in-row hint
+// chip (the confirm/cancel pair replaces the chip). In every case the HTML
+// focus fixup
 // rule applies — the browser does NOT move focus to the replacement, it drops
 // focus on <body> — so without an explicit `.focus()` the user is silently
 // returned to the top of the document mid-interaction.
@@ -23,8 +24,8 @@ const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8");
 
 describe("focus follows a replaced control", () => {
-  it("classic-hint focuses the revealed text", () => {
-    const src = read("classic-hint.tsx");
+  it("hint-reveal-button focuses the revealed text", () => {
+    const src = read("hint-reveal-button.tsx");
     // Programmatic target, not added to the tab order.
     expect(src).toMatch(/tabIndex=\{-1\}/);
     expect(src).toMatch(/revealedRef\.current\?\.focus\(\)/);

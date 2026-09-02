@@ -34,6 +34,9 @@ const {
   requireGatePassed,
   challengeDetailSpy,
   headersRef,
+  getAiHintIds,
+  getHintNotice,
+  getViewerHints,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -50,11 +53,22 @@ const {
   // pin that the mint ignores them. A `vi.mock` factory is hoisted above every
   // top-level binding, so the box has to come from `vi.hoisted` too.
   headersRef: { current: new Headers() },
+  getAiHintIds: vi.fn(),
+  getHintNotice: vi.fn(),
+  getViewerHints: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => headersRef.current }));
+// The hint block renders a real HintButton (unlike ChallengeDetail, which is
+// spied below) — it calls useRouter for its post-reveal refresh, same reason
+// flags/[id]'s suite mocks this. Every other export (redirect, notFound)
+// stays real, since the gate tests below exercise the real `redirect()`.
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
@@ -62,6 +76,7 @@ vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/ai-launch", () => ({ mintLaunchUrl }));
 vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
+vi.mock("@/lib/hint-store", () => ({ getAiHintIds, getHintNotice, getViewerHints }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
   getAiSolveCounts,
@@ -133,6 +148,9 @@ beforeEach(() => {
   // never redirects. The dedicated test below overrides this to throw,
   // mimicking Next's own `redirect()` control-flow signal.
   redirectIfTeamless.mockResolvedValue(undefined);
+  getAiHintIds.mockResolvedValue([]);
+  getHintNotice.mockResolvedValue({ active: false, cost: 10 });
+  getViewerHints.mockResolvedValue({ purchased: {}, classic: {}, ai: {}, spent: 0, count: 0 });
 });
 
 describe("ai challenge page gates", () => {
@@ -398,6 +416,57 @@ describe("ai challenge page view model", () => {
     const propsPayload = JSON.stringify(challengeDetailSpy.mock.calls);
     expect(propsPayload).not.toContain("CTF{never-render-me}");
     expect(propsPayload).not.toContain("aik_never-render-me");
+  });
+});
+
+// The paid hint (issue #211, mirrors flags/[id]'s #190 suite): availability
+// is public, the TEXT is not — it renders only for the viewer who bought it,
+// and the affordance never 401s a signed-out visitor. Sits outside
+// <ChallengeDetail>'s spy, so these are real markup assertions.
+describe("ai challenge page hint", () => {
+  beforeEach(() => {
+    getAiHintIds.mockResolvedValue(["a1"]);
+    getHintNotice.mockResolvedValue({ active: true, cost: 25 });
+  });
+
+  it("offers the reveal button (with the price) to a signed-in non-owner", async () => {
+    const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(html).toMatch(/Reveal hint \(−25 pts\)/);
+  });
+
+  it("renders an owned hint's text server-side, with no buy button", async () => {
+    getViewerHints.mockResolvedValue({ purchased: {}, classic: {}, ai: { a1: "Try the system prompt." }, spent: 25, count: 1 });
+    const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(html).toContain("Try the system prompt.");
+    expect(html).not.toMatch(/Reveal hint/);
+  });
+
+  it("tells a signed-out visitor a hint exists without an affordance that would 401", async () => {
+    getSession.mockResolvedValue(null);
+    const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(html).toContain("sign in to reveal it");
+    expect(html).not.toMatch(/Reveal hint \(/);
+    expect(getViewerHints).not.toHaveBeenCalled();
+  });
+
+  it("renders no hint layer at all when hints are off or the challenge has none", async () => {
+    getHintNotice.mockResolvedValue({ active: false, cost: 25 });
+    const off = renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(off).not.toContain("💡");
+    getHintNotice.mockResolvedValue({ active: true, cost: 25 });
+    getAiHintIds.mockResolvedValue([]);
+    const none = renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(none).not.toContain("💡");
+  });
+
+  // The one thing this module's hint block does differently from classic's:
+  // it renders for an event-mode challenge too, where <ChallengeDetail> does
+  // NOT — a hint about an externally hosted challenge is still a hint.
+  it("still offers the hint on an event-mode challenge, which has no ChallengeDetail at all", async () => {
+    getAiHintIds.mockResolvedValue(["a2"]);
+    const html = renderToStaticMarkup(await AiChallengePage(params("a2")));
+    expect(challengeDetailSpy).not.toHaveBeenCalled();
+    expect(html).toMatch(/Reveal hint \(−25 pts\)/);
   });
 });
 
