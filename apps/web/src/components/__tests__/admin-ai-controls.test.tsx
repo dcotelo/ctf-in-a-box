@@ -409,10 +409,21 @@ describe("payloadFromAiEditor", () => {
     expect("hint" in payload).toBe(true);
   });
 
-  it("omits caseSensitive when off, sends true when on", () => {
+  it("omits caseSensitive when off, sends true when on for a graded challenge", () => {
     const editor = editorFromAiChallenge(row1);
     expect("caseSensitive" in payloadFromAiEditor({ ...editor, draft: { ...editor.draft, caseSensitive: false } })).toBe(false);
     expect(payloadFromAiEditor({ ...editor, draft: { ...editor.draft, caseSensitive: true } }).caseSensitive).toBe(true);
+  });
+
+  // An organizer who ticks case-sensitive while flag/both-mode, then flips to
+  // event-mode, must not leave `caseSensitive: true` riding along with no
+  // flag left for it to apply to — semantically orphaned in the stored
+  // record.
+  it("omits caseSensitive for an event-mode draft even when the checkbox was left on", () => {
+    const editor = editorFromAiChallenge(row2);
+    const payload = payloadFromAiEditor({ ...editor, draft: { ...editor.draft, mode: "event", caseSensitive: true } });
+    expect(payload.mode).toBe("event");
+    expect("caseSensitive" in payload).toBe(false);
   });
 });
 
@@ -581,11 +592,17 @@ describe("challenge-upsert POST wire contract, proven against the real route", (
     expect(secretsArg).toEqual({ flag: payload.flag, hint: payload.hint });
   });
 
-  it("the exact body this component sends for an event-mode challenge omits flag and is still accepted", async () => {
-    const payload = payloadFromAiEditor(editorFromAiChallenge(row2));
+  it("the exact body this component sends for an event-mode challenge omits flag and caseSensitive, and is still accepted", async () => {
+    // caseSensitive left ON from a prior flag/both-mode edit — the payload
+    // builder must still drop it once mode is event, or it lands stored with
+    // no flag left for it to apply to.
+    const editor = editorFromAiChallenge(row2);
+    const payload = payloadFromAiEditor({ ...editor, draft: { ...editor.draft, caseSensitive: true } });
+    expect("caseSensitive" in payload).toBe(false);
     const res = await post(payload);
     expect(res.status).toBe(200);
-    const [, secretsArg] = wireUpsertAiChallenge.mock.calls[0];
+    const [challengeArg, secretsArg] = wireUpsertAiChallenge.mock.calls[0];
     expect(secretsArg.flag).toBeUndefined();
+    expect(challengeArg).not.toHaveProperty("caseSensitive");
   });
 });

@@ -299,7 +299,12 @@ export function isAiDraftValid(draft: AiChallengeDraft): boolean {
  *  `flag` is included only when the challenge is graded (`mode !== "event"`)
  *  — the store deletes both flag hashes on an event-mode upsert regardless of
  *  what is sent, so sending a stale value from a form the organizer can no
- *  longer even see would only be confusing, never load-bearing.
+ *  longer even see would only be confusing, never load-bearing. `caseSensitive`
+ *  is likewise omitted in event mode for the same reason: with no flag to
+ *  compare, an organizer who set it while the challenge was flag/both-mode and
+ *  then flipped to event-mode would otherwise leave `caseSensitive: true`
+ *  riding along in the payload and landing stored, semantically orphaned —
+ *  a flag-comparison flag with no flag left to apply it to.
  *
  *  `newId` is injectable so a test can pin the generated value; production
  *  always uses `generateChallengeId`. Exported for direct testing and for
@@ -324,7 +329,7 @@ export function payloadFromAiEditor(
     // the store deletes the row for an empty string — identical to classic.
     hint: d.hint,
     ...(graded ? { flag: d.flag } : {}),
-    ...(d.caseSensitive ? { caseSensitive: true as const } : {}),
+    ...(graded && d.caseSensitive ? { caseSensitive: true as const } : {}),
   };
 }
 
