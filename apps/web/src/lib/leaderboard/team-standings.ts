@@ -1,6 +1,6 @@
 import "server-only";
 import { listTeams } from "@/lib/team-store";
-import { withTeamClassicPoints, withTeamQuizPoints } from "./module-contributions";
+import { withTeamAiPoints, withTeamClassicPoints, withTeamQuizPoints } from "./module-contributions";
 import type { LeaderboardData, TeamStanding } from "./types";
 
 /**
@@ -16,19 +16,21 @@ import type { LeaderboardData, TeamStanding } from "./types";
  * upstream and sets `capabilities.teams = true` before this function ever runs.
  *
  * Module points ARE added to the rows synthesised here, via
- * `withTeamQuizPoints` and `withTeamClassicPoints` — the quiz stores which
- * QUESTION each member answered and classic which CHALLENGE each member
- * solved, so a team's total can be deduped by item (an item three teammates
- * hold counts once) with no per-flag scorer data involved. Leaving them at
- * zero meant a quiz-only (or classic-only) event opened on its DEFAULT view —
+ * `withTeamQuizPoints`, `withTeamClassicPoints` and `withTeamAiPoints` — the
+ * quiz stores which QUESTION each member answered, classic which CHALLENGE
+ * each member solved, and ai which CHALLENGE each member solved, so a team's
+ * total can be deduped by item (an item three teammates hold counts once)
+ * with no per-flag scorer data involved. Leaving them at zero meant a
+ * quiz-only (or classic-only, or ai-only) event opened on its DEFAULT view —
  * the teams board, whenever teams exist — with every team tied at nothing
  * while the individual view showed real points. The attribution deliberately
  * lives in `module-contributions.ts` and is merely CALLED from here, so the
  * union rule has exactly one implementation; the pipeline order is unchanged.
  *
- * The two are applied in sequence, each adding only its own module's points
- * and re-ranking on the running total, and each no-ops when its module is
- * disabled — so a single-module event pays for exactly one of them.
+ * The three are applied in sequence, each adding only its own module's
+ * points and re-ranking on the running total, and each no-ops when its
+ * module is disabled — so a single-module event pays for exactly one of
+ * them.
  *
  * Membership is matched case-insensitively, like every other login join in
  * this codebase: rows created from module points carry the module store's
@@ -75,7 +77,7 @@ export async function withTeamStandings(data: LeaderboardData): Promise<Leaderbo
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((team, i) => ({ ...team, rank: i + 1 }));
 
-  const standings = await withTeamClassicPoints(await withTeamQuizPoints(membershipOnly));
+  const standings = await withTeamAiPoints(await withTeamClassicPoints(await withTeamQuizPoints(membershipOnly)));
 
   return {
     ...data,

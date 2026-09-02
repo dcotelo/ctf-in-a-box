@@ -26,6 +26,7 @@ const TYPE_LABELS: Record<string, string> = {
   login: "signed in",
   "quiz-solve": "quiz solve",
   "classic-solve": "flag solve",
+  "ai-solve": "ai solve",
   "team-create": "created team",
   "team-join": "joined team",
   "team-leave": "left team",

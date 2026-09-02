@@ -24,6 +24,8 @@ const {
   getQuizTotals,
   listQuestions,
   getTeamQuizTotals,
+  getAiTotals,
+  listAiChallenges,
   getResolvedModules,
 } = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -36,6 +38,8 @@ const {
   getQuizTotals: vi.fn(),
   listQuestions: vi.fn(),
   getTeamQuizTotals: vi.fn(),
+  getAiTotals: vi.fn(),
+  listAiChallenges: vi.fn(),
   getResolvedModules: vi.fn(),
 }));
 
@@ -80,6 +84,12 @@ vi.mock("@/lib/quiz-store", () => ({
   // The blocks' Show-N item list reads the viewer's own per-question map.
   getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
 }));
+vi.mock("@/lib/ai-store", () => ({
+  getAiTotals,
+  listAiChallenges,
+  // The blocks' Show-N item list reads the viewer's own per-challenge map.
+  getViewerAi: async () => ({ solved: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage from "@/app/(site)/profile/page";
@@ -92,6 +102,7 @@ beforeEach(() => {
   getViewerTeam.mockResolvedValue(null);
   listQuestions.mockResolvedValue([]);
   getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
+  listAiChallenges.mockResolvedValue([]);
   getResolvedModules.mockResolvedValue([]);
 });
 
@@ -138,10 +149,100 @@ describe("profile page points vs. the leaderboard row", () => {
       generatedAt: new Date().toISOString(),
       capabilities: { apps: false, teams: false, challenges: false },
     };
-    const leaderboardOut = await withModuleContributions(await withHintPenalties(data));
+    const leaderboardOut = await withHintPenalties(await withModuleContributions(data));
     const leaderboardPoints = leaderboardOut.entries[0].points;
 
-    // 40 (raw) - 10 (hint spend, floored at 0) + 15 (quiz) = 45.
+    // 40 (raw) + 15 (quiz) - 10 (hint spend, floored at 0) = 45. Non-ai
+    // points alone (40) already exceed the spend (10), so this fixture can't
+    // distinguish the correct order from the pre-fix one (see the ai
+    // boundary test below) — it's still flipped to match the real pipeline.
+    expect(leaderboardPoints).toBe(45);
+    expect(html).toContain(`>${leaderboardPoints}<`);
+  });
+
+  // The ai counterpart, at the CLAMPING BOUNDARY — this is the fixture that
+  // actually distinguishes "net the total once" from the #210 bug shape
+  // applied to a 4th module (net the non-ai sum first, then ADD ai on top).
+  // Raw points (5) sit BELOW the hint spend (10), so the two formulas
+  // diverge: correct is max(0, 5 + 15 − 10) = 10; the mutated form is
+  // max(0, 5 − 10) + 15 = 0 + 15 = 15. A fixture where non-ai points alone
+  // exceed the spend (e.g. the old 40/10/15 numbers) can't tell these apart —
+  // both formulas land on 45 whenever B > C, since max(0, B−C)+A ==
+  // max(0, A+B−C) in that regime. Driven through the REAL leaderboard overlay
+  // pipeline (withHintPenalties, withModuleContributions), not a hand-rolled
+  // formula, so a bug in either implementation shows up here.
+  it("floors the TOTAL after folding in ai points, not before (the #210 boundary, ai enabled)", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "ai" || id === "secure-development");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({ ...baseProfile, points: 5 });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 10, count: 1 });
+    getAiTotals.mockResolvedValue(new Map([["ada", { points: 15, solved: 2, lastAt: null }]]));
+    getHintPenalties.mockResolvedValue(new Map([["ada", 10]]));
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    const entry: LeaderboardEntry = {
+      rank: 1,
+      login: "ada",
+      team: null,
+      points: 5,
+      patched: baseProfile.patched,
+      failed: 0,
+      total: baseProfile.total,
+      apps: {},
+      updatedAt: null,
+    };
+    const data: LeaderboardData = {
+      entries: [entry],
+      teams: [],
+      generatedAt: new Date().toISOString(),
+      capabilities: { apps: false, teams: false, challenges: false },
+    };
+    const leaderboardOut = await withHintPenalties(await withModuleContributions(data));
+    const leaderboardPoints = leaderboardOut.entries[0].points;
+
+    // 5 (raw) + 15 (ai) − 10 (hint spend) = 10, never floored — the spend
+    // never exceeds the SUM, only the raw scorer points alone.
+    expect(leaderboardPoints).toBe(10);
+    expect(html).toContain(`>${leaderboardPoints}<`);
+    // Pins against the mutation directly: the wrong formula's answer (15)
+    // must not appear as the headline points figure either.
+    expect(html).not.toContain(">15<");
+  });
+
+  // Kept as a second, non-boundary case: same shape as the quiz test above,
+  // where non-ai points alone already exceed the spend.
+  it("agrees with withHintPenalties + withModuleContributions for the same login (ai enabled)", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "ai" || id === "secure-development");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 10, count: 1 });
+    getAiTotals.mockResolvedValue(new Map([["ada", { points: 15, solved: 2, lastAt: null }]]));
+    getHintPenalties.mockResolvedValue(new Map([["ada", 10]]));
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    const entry: LeaderboardEntry = {
+      rank: 1,
+      login: "ada",
+      team: null,
+      points: baseProfile.points,
+      patched: baseProfile.patched,
+      failed: 0,
+      total: baseProfile.total,
+      apps: {},
+      updatedAt: null,
+    };
+    const data: LeaderboardData = {
+      entries: [entry],
+      teams: [],
+      generatedAt: new Date().toISOString(),
+      capabilities: { apps: false, teams: false, challenges: false },
+    };
+    const leaderboardOut = await withHintPenalties(await withModuleContributions(data));
+    const leaderboardPoints = leaderboardOut.entries[0].points;
+
+    // 40 (raw) - 10 (hint spend, floored at 0) + 15 (ai) = 45.
     expect(leaderboardPoints).toBe(45);
     expect(html).toContain(`>${leaderboardPoints}<`);
   });
@@ -263,6 +364,35 @@ describe("profile per-module block content", () => {
     expect(html).toContain(">30<"); // the headline points tile
     expect(html).toContain("−10");
   });
+
+  // Regression coverage for the moduleSummary fallthrough this task closed:
+  // an unconditional secure-development return with no `never` guard let an
+  // ai block render silently with "patched" and the wrong denominator, and
+  // tsc stayed silent about it. This pins the CONTENT (the exhaustiveness
+  // check alone would only catch a MISSING arm, not a wrong one).
+  it("renders the ai block with its own noun and Show-N item list, never secure-development's", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "ai");
+    getResolvedModules.mockResolvedValue([
+      { id: "ai", nav: { href: "/ai", label: "AI Challenges" }, targets: [], title: "AI Challenges", blurb: "" },
+    ]);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({ ...baseProfile, apps: [] });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getAiTotals.mockResolvedValue(new Map([["ada", { points: 20, solved: 2, lastAt: null }]]));
+    listAiChallenges.mockResolvedValue([
+      { id: "a1", title: "Prompt Leak", points: 10 },
+      { id: "a2", title: "Guardrail Bypass", points: 10 },
+      { id: "a3", title: "Jailbreak", points: 10 },
+    ]);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    expect(html).toContain("challenges");
+    expect(html).not.toContain("patched");
+    expect(html).toMatch(/>2<\/span><span[^>]*> \/ 3 challenges<\/span>/);
+    // moduleItems' Show-N list, driven off the same clamped catalogue.
+    expect(html).toContain("Show 3 challenges");
+  });
 });
 
 // The header used to be three secure-development figures (patched /
@@ -287,5 +417,22 @@ describe("profile header stats", () => {
     expect(html).toContain("patched");
     // …and the standalone not-done headline is gone.
     expect(html).not.toContain("non-patched");
+  });
+
+  // F2 fix-round-1: the ai module had every other module's header chip but
+  // its own — "One done/available stat per enabled module" was false for a
+  // fourth module until this landed.
+  it("shows the ai module's own header chip, in its own vocabulary", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "ai");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getAiTotals.mockResolvedValue(new Map([["ada", { points: 20, solved: 2, lastAt: null }]]));
+    listAiChallenges.mockResolvedValue([{ id: "a1", points: 10 }, { id: "a2", points: 10 }, { id: "a3", points: 10 }] as never[]);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    expect(html).toContain("challenges");
+    expect(html).toMatch(/2<span[^>]*> \/ 3<\/span>/);
   });
 });

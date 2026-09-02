@@ -11,9 +11,6 @@
 // optional — a signed-out visitor can still browse the board; only opening a
 // challenge (its own page) mints anything, and only submitting a flag
 // requires auth, enforced by /api/ai/submit itself.
-//
-// No hints in v1 (that wires in a later PR) — <ChallengeBoard> is left to its
-// own empty `hintIds` default rather than this page passing one.
 
 import type { Metadata } from "next";
 import { headers } from "next/headers";
@@ -34,6 +31,7 @@ import {
   type ViewerAi,
 } from "@/lib/ai-store";
 import { isModuleLive } from "@/lib/enabled-modules";
+import { getAiHintIds } from "@/lib/hint-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
 
@@ -69,7 +67,7 @@ export default async function AiPage() {
   // thrown away.
   await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
-  const [challenges, categories, solveCounts, viewerAi, settings, modules] = await Promise.all([
+  const [challenges, categories, solveCounts, viewerAi, settings, modules, hintIds] = await Promise.all([
     listAiChallenges(),
     listAiCategories(),
     getAiSolveCounts(),
@@ -80,6 +78,7 @@ export default async function AiPage() {
     // to `null` (-> the module default below) rather than failing the page.
     getAdminSettings().catch(() => null),
     getResolvedModules(),
+    getAiHintIds(),
   ]);
 
   const mod = modules.find((m) => m.id === "ai");
@@ -144,6 +143,7 @@ export default async function AiPage() {
             categories={categories}
             challenges={viewChallenges}
             authenticated={Boolean(login)}
+            hintIds={hintIds}
             basePath="/ai"
           />
         )}

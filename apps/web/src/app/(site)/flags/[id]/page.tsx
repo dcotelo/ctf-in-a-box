@@ -19,7 +19,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ChallengeDetail, { type ClassicChallengeView } from "@/components/challenge-detail";
-import ClassicHint from "@/components/classic-hint";
+import HintRevealButton from "@/components/hint-reveal-button";
 import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
@@ -120,7 +120,7 @@ export default async function ClassicChallengePage({ params }: { params: Promise
               💡 {viewerHints.classic[challenge.id]}
             </p>
           ) : login ? (
-            <ClassicHint id={challenge.id} cost={hintNotice.cost} />
+            <HintRevealButton app="classic" id={challenge.id} cost={hintNotice.cost} />
           ) : (
             <p className="text-xs text-muted">
               This one has a paid hint ({hintNotice.cost} pts) — sign in to reveal it.

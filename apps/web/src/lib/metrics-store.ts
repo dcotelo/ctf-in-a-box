@@ -3,6 +3,7 @@ import { upstashPipeline } from "@/lib/upstash";
 import { userKey, userHintTimesKey, HINTS_SPENT_KEY } from "@/lib/team-keys";
 import { QUIZ_POINTS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
 import { CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
+import { AI_POINTS_KEY, aiAttemptsKey, aiSolvesKey } from "@/lib/ai-keys";
 import { listTeams } from "@/lib/team-store";
 import { parseAttemptRow } from "@/lib/attempt-row";
 
@@ -45,7 +46,7 @@ const MAX_CONTESTANTS = 2000;
 const BATCH = 200;
 
 export type ChallengeStat = {
-  module: "quiz" | "classic";
+  module: "quiz" | "classic" | "ai";
   id: string;
   /** Distinct contestants who earned it. */
   solves: number;
@@ -62,8 +63,9 @@ export type ChallengeStat = {
    *  it. Median, not mean: one contestant who left a tab open overnight would
    *  otherwise dominate the figure. Null until enough rows carry `firstAt`. */
   medianSecondsToSolve: number | null;
-  /** Contestants who bought this item's hint before earning it. Only Secure
-   *  Development has hints today, so this is 0 for quiz and classic. */
+  /** Contestants who bought this item's hint before earning it. Classic and
+   *  ai are per-challenge contributors here (#190, and its ai counterpart);
+   *  quiz has no hints by design, so this is always 0 there. */
   solvedAfterHint: number;
 };
 
@@ -83,10 +85,10 @@ export type EventMetrics = {
     stuck: number;
   };
   challenges: ChallengeStat[];
-  /** Solves per 10-minute bucket, ascending. Quiz + classic only; see caveats. */
+  /** Solves per 10-minute bucket, ascending. Quiz, classic and ai only; see caveats. */
   timeline: { at: string; solves: number }[];
   teams: { slug: string; name: string; size: number; points: number }[];
-  modules: { quiz: number; classic: number; secureDevelopment: number };
+  modules: { quiz: number; classic: number; ai: number; secureDevelopment: number };
   hints: {
     buyers: number;
     totalSpend: number;
@@ -183,12 +185,13 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
   // Only the point totals and the hint spend are read as aggregates. The
   // per-challenge counts deliberately are NOT: `ctf:classic:solvecount` would
   // be a free classic-only shortcut, but folding each contestant's own solve
-  // rows produces the same figure for BOTH modules from one source. Reading
+  // rows produces the same figure for EVERY module from one source. Reading
   // both would invite the two to disagree and leave no way to tell which was
   // right.
-  const [quizPointsRes, classicPointsRes, hintsSpentRes] = await upstashPipeline([
+  const [quizPointsRes, classicPointsRes, aiPointsRes, hintsSpentRes] = await upstashPipeline([
     ["HGETALL", QUIZ_POINTS_KEY],
     ["HGETALL", CLASSIC_POINTS_KEY],
+    ["HGETALL", AI_POINTS_KEY],
     ["HGETALL", HINTS_SPENT_KEY],
   ]);
 
@@ -196,6 +199,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
   const classicPoints = new Map(
     hashEntries(classicPointsRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0]),
   );
+  const aiPoints = new Map(hashEntries(aiPointsRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0]));
   const hintsSpent = hashEntries(hintsSpentRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0] as const);
 
   const sdSolves = await readSecureDevSolves();
@@ -219,6 +223,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     ...onATeam,
     ...quizPoints.keys(),
     ...classicPoints.keys(),
+    ...aiPoints.keys(),
     ...sdLogins,
   ]);
   let logins = [...contestants].sort();
@@ -229,15 +234,18 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     logins = logins.slice(0, MAX_CONTESTANTS);
   }
 
-  // Six reads per contestant: their earned items, their attempt rows, the
-  // firstTeamAt that anchors the funnel, and when they bought each hint.
-  const PER_LOGIN = 6;
+  // Eight reads per contestant: their earned items (quiz, classic, ai), their
+  // attempt rows (quiz, classic, ai), the firstTeamAt that anchors the funnel,
+  // and when they bought each hint.
+  const PER_LOGIN = 8;
   const perLogin = await batched(
     logins.flatMap((l) => [
       ["HGETALL", quizAnswersKey(l)],
       ["HGETALL", classicSolvesKey(l)],
+      ["HGETALL", aiSolvesKey(l)],
       ["HGETALL", quizAttemptsKey(l)],
       ["HGETALL", classicAttemptsKey(l)],
+      ["HGETALL", aiAttemptsKey(l)],
       ["HMGET", userKey(l), "firstTeamAt"],
       ["HGETALL", userHintTimesKey(l)],
     ]),
@@ -251,30 +259,36 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
   const buckets = new Map<number, number>();
   const solvesById = new Map<
     string,
-    { module: "quiz" | "classic"; solvers: number; attemptSum: number; durations: number[] }
+    { module: "quiz" | "classic" | "ai"; solvers: number; attemptSum: number; durations: number[] }
   >();
-  const attemptsById = new Map<string, { module: "quiz" | "classic"; attempts: number; attempters: number }>();
+  const attemptsById = new Map<
+    string,
+    { module: "quiz" | "classic" | "ai"; attempts: number; attempters: number }
+  >();
   // Per-challenge "solved after buying its hint" counts, keyed like
-  // solvesById (`classic:<id>`) — fed by the hint-timing loop below (#190).
+  // solvesById (`classic:<id>` or `ai:<id>`) — fed by the hint-timing loop
+  // below (#190).
   const hintHelpedById = new Map<string, number>();
   const pointsByLogin = new Map<string, number>();
 
   logins.forEach((login, i) => {
     const quizAnswers = hashEntries(perLogin[i * PER_LOGIN]?.result);
     const classicSolves = hashEntries(perLogin[i * PER_LOGIN + 1]?.result);
-    const quizAttempts = hashEntries(perLogin[i * PER_LOGIN + 2]?.result);
-    const classicAttempts = hashEntries(perLogin[i * PER_LOGIN + 3]?.result);
-    const userFields = perLogin[i * PER_LOGIN + 4]?.result;
+    const aiSolves = hashEntries(perLogin[i * PER_LOGIN + 2]?.result);
+    const quizAttempts = hashEntries(perLogin[i * PER_LOGIN + 3]?.result);
+    const classicAttempts = hashEntries(perLogin[i * PER_LOGIN + 4]?.result);
+    const aiAttempts = hashEntries(perLogin[i * PER_LOGIN + 5]?.result);
+    const userFields = perLogin[i * PER_LOGIN + 6]?.result;
     const firstTeamAt = Array.isArray(userFields) ? userFields[0] : null;
-    const hintTimes = hashEntries(perLogin[i * PER_LOGIN + 5]?.result);
+    const hintTimes = hashEntries(perLogin[i * PER_LOGIN + 7]?.result);
 
     // Did the hint arrive in time to help? A hint bought AFTER the solve
     // bought nothing, and counting the two together turns "hints are used"
     // into a claim that "hints help" — which the data would not support.
     // Secure-development slots compare against the scorer's solve times;
-    // classic slots (#190) against this login's own solve rows, already
-    // loaded above. The target stays in the key so two targets sharing a
-    // challenge id cannot cross-match.
+    // classic and ai slots (#190, and ai's own hints) against this login's
+    // own solve rows, already loaded above. The target stays in the key so
+    // two targets sharing a challenge id cannot cross-match.
     for (const [slot, boughtAt] of hintTimes) {
       const slash = String(slot).indexOf("/");
       if (slash <= 0) continue;
@@ -283,6 +297,9 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       let solvedAt: string | undefined;
       if (target === "classic") {
         const row = classicSolves.find(([cid]) => cid === challengeId);
+        solvedAt = row ? parseEarned(row[1])?.at : undefined;
+      } else if (target === "ai") {
+        const row = aiSolves.find(([cid]) => cid === challengeId);
         solvedAt = row ? parseEarned(row[1])?.at : undefined;
       } else {
         solvedAt = sdSolves.get(`${target}/${login}/${challengeId}`);
@@ -293,8 +310,8 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       if (Number.isNaN(boughtMs) || Number.isNaN(solvedMs)) continue;
       if (boughtMs <= solvedMs) {
         hintsBeforeSolve += 1;
-        if (target === "classic") {
-          const key = `classic:${challengeId}`;
+        if (target === "classic" || target === "ai") {
+          const key = `${target}:${challengeId}`;
           hintHelpedById.set(key, (hintHelpedById.get(key) ?? 0) + 1);
         }
       } else {
@@ -304,17 +321,21 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
 
     if (typeof firstTeamAt === "string" && firstTeamAt) everOnATeam += 1;
 
-    const hasAttempt = quizAttempts.length > 0 || classicAttempts.length > 0;
-    const earnedRows: [("quiz" | "classic"), [string, unknown][]][] = [
+    const hasAttempt = quizAttempts.length > 0 || classicAttempts.length > 0 || aiAttempts.length > 0;
+    const earnedRows: [("quiz" | "classic" | "ai"), [string, unknown][]][] = [
       ["quiz", quizAnswers],
       ["classic", classicSolves],
+      ["ai", aiSolves],
     ];
     const hasEarned = earnedRows.some(([, rows]) => rows.length > 0) || sdLogins.has(login);
 
     if (hasAttempt || hasEarned) attempted += 1;
     if (hasEarned) scored += 1;
 
-    pointsByLogin.set(login, (quizPoints.get(login) ?? 0) + (classicPoints.get(login) ?? 0));
+    pointsByLogin.set(
+      login,
+      (quizPoints.get(login) ?? 0) + (classicPoints.get(login) ?? 0) + (aiPoints.get(login) ?? 0),
+    );
 
     for (const [mod, rows] of earnedRows) {
       for (const [id, raw] of rows) {
@@ -332,7 +353,9 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
         // them. The attempt row survives the solve, so both are available
         // after the fact — `firstAt` (issue #169) is what makes the duration
         // knowable at all; before it, only the LAST attempt had a time.
-        const attemptRow = (mod === "quiz" ? quizAttempts : classicAttempts).find(([aid]) => aid === id);
+        const attemptRow = (mod === "quiz" ? quizAttempts : mod === "classic" ? classicAttempts : aiAttempts).find(
+          ([aid]) => aid === id,
+        );
         const parsed = parseAttemptRow(attemptRow?.[1]);
         stat.attemptSum += Math.max(1, parsed.attempts);
         if (parsed.firstAt && !Number.isNaN(ms)) {
@@ -347,7 +370,11 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       }
     }
 
-    for (const [mod, rows] of [["quiz", quizAttempts], ["classic", classicAttempts]] as const) {
+    for (const [mod, rows] of [
+      ["quiz", quizAttempts],
+      ["classic", classicAttempts],
+      ["ai", aiAttempts],
+    ] as const) {
       for (const [id, raw] of rows) {
         const key = `${mod}:${id}`;
         const stat = attemptsById.get(key) ?? { module: mod, attempts: 0, attempters: 0 };
@@ -375,14 +402,14 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       // floor that keeps the rate inside 0..1.
       const triers = Math.max(tried?.attempters ?? 0, solves);
       return {
-        module: mod as "quiz" | "classic",
+        module: mod as "quiz" | "classic" | "ai",
         id: rest.join(":"),
         solves,
         attempts: tried?.attempts ?? 0,
         solveRate: triers > 0 ? solves / triers : null,
         avgAttemptsToSolve: solves > 0 ? (solved as { attemptSum: number }).attemptSum / solves : null,
         medianSecondsToSolve: median(solved?.durations ?? []),
-        solvedAfterHint: hintHelpedById.get(key) ?? 0, // classic per-challenge (#190); quiz has no hints
+        solvedAfterHint: hintHelpedById.get(key) ?? 0, // classic + ai per-challenge (#190); quiz has no hints
       };
     })
     .sort((a, b) => a.solves - b.solves || a.id.localeCompare(b.id));
@@ -427,6 +454,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     modules: {
       quiz: [...quizPoints.values()].filter((p) => p > 0).length,
       classic: [...classicPoints.values()].filter((p) => p > 0).length,
+      ai: [...aiPoints.values()].filter((p) => p > 0).length,
       secureDevelopment: sdLogins.size,
     },
     hints: {

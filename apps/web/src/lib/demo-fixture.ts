@@ -6,6 +6,80 @@
 export type DemoContestant = { login: string; solves: Record<string, string[]> };
 export type DemoTeam = { slug: string; name: string; captain: string; members: string[] };
 
+// ai (externally hosted AI/LLM challenge) demo data (DEMO_MODE 'Seed demo
+// data', ai module only). Mirrors the `AiChallenge` shape ai-store.ts expects
+// — see its header comment for the key layout and the four-hash secrecy
+// boundary. `flag` and `signingKey` are NOT part of that public shape; they
+// exist here only so seedDemoData can derive `ctf:ai:flag` / `ctf:ai:flagnorm`
+// (for a `mode: "flag"` challenge) and `ctf:ai:signkey` the same way
+// `upsertAiChallenge` does, except the signing key is a fixed literal rather
+// than a fresh `generateSigningKey()` mint — the same reproducibility choice
+// the seed makes for classic's flag. `flag` is empty for a `mode: "event"`
+// challenge, matching how an event-only challenge is authored: signed events
+// assert the solve, so there is no flag to grade.
+export type DemoAiChallenge = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  points: number;
+  order: number;
+  mode: "flag" | "event" | "both";
+  urlTemplate: string;
+  flag: string;
+  signingKey: string;
+  caseSensitive?: boolean;
+  hint?: string;
+};
+
+// Categories, in the display order the demo board renders them.
+export const DEMO_AI_CATEGORIES: string[] = ["AI"];
+
+export const DEMO_AI_CHALLENGES: DemoAiChallenge[] = [
+  {
+    id: "ai-prompt-injection",
+    title: "Prompt Injection 101",
+    category: "AI",
+    order: 1,
+    points: 250,
+    mode: "flag",
+    urlTemplate: "https://ai-demo.example.org/launch?token={token}",
+    description:
+      "The assistant behind this link has a **system prompt** it isn't supposed to repeat. Convince it to " +
+      "recite its own instructions — the flag is hiding in plain sight once it does.",
+    flag: "ctfbox{Ignore_All_Previous_Instructions}",
+    signingKey: "aik_demo0000000000000000000000000000000000000000001",
+    hint: "Ask it to summarize everything it was told before this conversation started.",
+  },
+  {
+    id: "ai-jailbreak-arena",
+    title: "Jailbreak Arena",
+    category: "AI",
+    order: 2,
+    points: 400,
+    mode: "event",
+    urlTemplate: "https://ai-demo.example.org/arena?token={token}",
+    description:
+      "This one grades itself: launch it, get the model to break its own safety rules inside the arena, and " +
+      "the external side reports the solve back to the box — there is no flag to submit here.",
+    flag: "",
+    signingKey: "aik_demo0000000000000000000000000000000000000000002",
+  },
+];
+
+export type DemoAiSolve = { login: string; challengeId: string };
+
+// Spread across several demo contestants so the ai board's contribution to
+// the combined leaderboard is visible. Every (login, challengeId) pair is
+// unique, same rule as DEMO_CLASSIC_SOLVES, so solvecount is just a row count.
+export const DEMO_AI_SOLVES: DemoAiSolve[] = [
+  { login: "neo-anderson", challengeId: "ai-prompt-injection" },
+  { login: "trinity-h", challengeId: "ai-prompt-injection" },
+  { login: "kevin-mitnick", challengeId: "ai-jailbreak-arena" },
+  { login: "grace-hopper", challengeId: "ai-prompt-injection" },
+  { login: "grace-hopper", challengeId: "ai-jailbreak-arena" },
+];
+
 // Classic (jeopardy-style flag) demo data (DEMO_MODE 'Seed demo data', classic
 // module only). Mirrors the `Challenge` shape classic-store.ts expects — see
 // its header comment for the key layout. `flag` is NOT part of that public

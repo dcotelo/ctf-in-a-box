@@ -1,4 +1,4 @@
-// /api/board/items — the expanded leaderboard rows' per-item quiz/classic
+// /api/board/items — the expanded leaderboard rows' per-item quiz/classic/ai
 // completion. The pins that matter: login validation (this is a public
 // route), the members' UNION for team rosters, module gating, and that
 // nothing grading-shaped can reach the payload.
@@ -10,11 +10,14 @@ const mocks = vi.hoisted(() => ({
   getViewerQuiz: vi.fn(),
   listChallenges: vi.fn(),
   getViewerClassic: vi.fn(),
+  listAiChallenges: vi.fn(),
+  getViewerAi: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => ({ isModuleLive: mocks.isModuleLive }));
 vi.mock("@/lib/quiz-store", () => ({ listQuestions: mocks.listQuestions, getViewerQuiz: mocks.getViewerQuiz }));
 vi.mock("@/lib/classic-store", () => ({ listChallenges: mocks.listChallenges, getViewerClassic: mocks.getViewerClassic }));
+vi.mock("@/lib/ai-store", () => ({ listAiChallenges: mocks.listAiChallenges, getViewerAi: mocks.getViewerAi }));
 
 import { GET } from "@/app/api/board/items/route";
 
@@ -27,6 +30,8 @@ beforeEach(() => {
   mocks.getViewerQuiz.mockResolvedValue({ answered: {}, attempts: {} });
   mocks.listChallenges.mockResolvedValue([{ id: "c1", title: "Robots Only", points: 50 }]);
   mocks.getViewerClassic.mockResolvedValue({ solved: {}, attempts: {} });
+  mocks.listAiChallenges.mockResolvedValue([{ id: "a1", title: "Prompt Leak", points: 50 }]);
+  mocks.getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
 });
 
 describe("GET /api/board/items", () => {
@@ -41,10 +46,15 @@ describe("GET /api/board/items", () => {
       answered: login === "bob" ? { q1: { points: 50, at: "2026-08-24T00:00:00.000Z" } } : {},
       attempts: {},
     }));
+    mocks.getViewerAi.mockImplementation(async (login: string) => ({
+      solved: login === "bob" ? { a1: { points: 50, at: "2026-08-24T00:00:00.000Z", source: "flag" } } : {},
+      attempts: {},
+    }));
     const res = await GET(req("alice,bob"));
     const body = await res.json();
     expect(body.quiz).toEqual([{ id: "q1", label: "What is XSS?", points: 50, done: true, earnedPoints: 50 }]);
     expect(body.classic).toEqual([{ id: "c1", label: "Robots Only", points: 50, done: false }]);
+    expect(body.ai).toEqual([{ id: "a1", label: "Prompt Leak", points: 50, done: true, earnedPoints: 50 }]);
   });
 
   it("returns null for a module that is not live, and never reads its store", async () => {
@@ -53,6 +63,9 @@ describe("GET /api/board/items", () => {
     expect(body.classic).toBeNull();
     expect(mocks.listChallenges).not.toHaveBeenCalled();
     expect(mocks.getViewerClassic).not.toHaveBeenCalled();
+    expect(body.ai).toBeNull();
+    expect(mocks.listAiChallenges).not.toHaveBeenCalled();
+    expect(mocks.getViewerAi).not.toHaveBeenCalled();
   });
 
   // Simulates the leak this route must be immune to: a store record that
@@ -65,9 +78,15 @@ describe("GET /api/board/items", () => {
     mocks.listQuestions.mockResolvedValue([
       { id: "q1", prompt: "What is XSS?", points: 50, correct: ["a"] },
     ]);
+    mocks.listAiChallenges.mockResolvedValue([
+      { id: "a1", title: "Prompt Leak", points: 50, flag: "CTF{ai-leak}", hint: "psst", signingKey: "sk-secret" },
+    ]);
     const text = await (await GET(req("alice"))).text();
     expect(text).not.toContain("CTF{leak}");
     expect(text).not.toContain("ctf{leak}");
     expect(text).not.toContain("correct");
+    expect(text).not.toContain("CTF{ai-leak}");
+    expect(text).not.toContain("psst");
+    expect(text).not.toContain("sk-secret");
   });
 });

@@ -26,6 +26,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import ChallengeDetail, { type ChallengeView } from "@/components/challenge-detail";
+import HintRevealButton from "@/components/hint-reveal-button";
 import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/ai-store";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { requireGatePassed } from "@/lib/gate-request";
+import { getAiHintIds, getHintNotice, getViewerHints } from "@/lib/hint-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
 import { submitAiFlagAction } from "./actions";
@@ -85,11 +87,16 @@ export default async function AiChallengePage({ params }: { params: Promise<{ id
   // gets thrown away.
   await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
-  const [challenges, solveCounts, viewerAi, modules] = await Promise.all([
+  const [challenges, solveCounts, viewerAi, modules, hintIds, hintNotice, viewerHints] = await Promise.all([
     listAiChallenges(),
     getAiSolveCounts(),
     login ? getViewerAi(login) : Promise.resolve<ViewerAi>({ solved: {}, attempts: {} }),
     getResolvedModules(),
+    getAiHintIds(),
+    getHintNotice(),
+    // The viewer's owned hint TEXT renders server-side — the reveal button
+    // only exists while there is something left to buy. Mirrors flags/[id].
+    login ? getViewerHints(login) : Promise.resolve(null),
   ]);
 
   const challenge = challenges.find((c) => c.id === challengeId);
@@ -156,6 +163,28 @@ export default async function AiChallengePage({ params }: { params: Promise<{ id
           <p className="text-xs text-muted">Sign in with GitHub to get your personal challenge link.</p>
         )}
       </div>
+
+      {/* Paid hint (issue #211): mirrors flags/[id]'s block exactly — the
+          owned text renders server-side, the buy button (client) exists only
+          while unowned, hints are on, and the viewer is signed in. Sits
+          OUTSIDE the `challenge.mode !== "event"` gate below, on purpose: a
+          hint about an externally hosted challenge is still a hint, and the
+          launcher-only layout keeps the same slot for it. */}
+      {hintNotice.active && hintIds.includes(challenge.id) && (
+        <div className="max-w-xl">
+          {viewerHints?.ai[challenge.id] ? (
+            <p className="rounded border-l-2 border-[#d4a017]/50 bg-[#d4a017]/[0.06] px-3 py-2 text-sm leading-relaxed text-[#d4a017]/90">
+              💡 {viewerHints.ai[challenge.id]}
+            </p>
+          ) : login ? (
+            <HintRevealButton app="ai" id={challenge.id} cost={hintNotice.cost} />
+          ) : (
+            <p className="text-xs text-muted">
+              This one has a paid hint ({hintNotice.cost} pts) — sign in to reveal it.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Event-only challenges have no in-box form at all — the launcher
           above is the whole page for them. flag/both render the same shared

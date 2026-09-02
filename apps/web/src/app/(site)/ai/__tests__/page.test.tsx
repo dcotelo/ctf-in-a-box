@@ -17,6 +17,7 @@ const {
   getResolvedModules,
   redirectIfTeamless,
   deriveStatusSpy,
+  getAiHintIds,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -29,6 +30,7 @@ const {
   getResolvedModules: vi.fn(),
   redirectIfTeamless: vi.fn(),
   deriveStatusSpy: vi.fn(),
+  getAiHintIds: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -39,6 +41,7 @@ vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
+vi.mock("@/lib/hint-store", () => ({ getAiHintIds }));
 vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
@@ -84,6 +87,7 @@ beforeEach(() => {
   // (AI_COOLDOWN_SEC, mocked to 5 above) applies. The dedicated cooldown test
   // below overrides this per-case.
   getAdminSettings.mockResolvedValue({ aiCooldownSec: null });
+  getAiHintIds.mockResolvedValue([]);
   // The passing default: whoever is viewing already has a team (or is signed
   // out, which the real helper lets through). The dedicated test below
   // overrides this to throw, mimicking Next's `redirect()` control flow.
@@ -249,6 +253,76 @@ describe("ai page view model", () => {
     for (const call of deriveStatusSpy.mock.calls) {
       expect(call[2]).toBe(5000);
     }
+  });
+
+  // PR5 finding F5: getAiHintIds' OWN settings read (resolveHintConfig ->
+  // getAdminSettings) used to run OUTSIDE its try, so the very same
+  // getAdminSettings rejection this test exercises above ALSO escaped
+  // getAiHintIds and rejected the whole Promise.all here — 500ing the board
+  // even though the page's direct settings read is already caught (the test
+  // above only ever proved that ONE catch, never this one). Every other test
+  // in this file stubs getAiHintIds out entirely, which can't observe that
+  // fix at all, so this test dynamically re-imports the REAL hint-store
+  // (unmocked, just for this one case) — a regression that narrows its try
+  // back down fails this test.
+  it("still renders the board when getAdminSettings rejects everywhere, including inside getAiHintIds' own settings read", async () => {
+    vi.resetModules();
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://fake.upstash.io");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "fake-token");
+    vi.doUnmock("@/lib/hint-store");
+
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockRejectedValue(new Error("ECONNRESET"));
+    getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
+
+    try {
+      const { default: freshAiPage } = await import("@/app/(site)/ai/page");
+      const html = renderToStaticMarkup(await freshAiPage());
+
+      // The board itself rendered — challenges are visible, not a 500.
+      expect(html).toContain('href="/ai/a1"');
+      expect(html).toContain('href="/ai/a2"');
+      expect(html).toContain('href="/ai/a3"');
+      // getAiHintIds degraded to [] rather than rejecting: no paid-hint
+      // markers, and never a thrown error.
+      expect(html).not.toContain("paid hint available");
+      expect(html).not.toContain("💡");
+    } finally {
+      // Restore the module-level stub every other test in this file relies on.
+      vi.doMock("@/lib/hint-store", () => ({ getAiHintIds }));
+      vi.resetModules();
+    }
+  });
+});
+
+// The board's 💡 marker (issue #211, mirrors classic/#190): availability is
+// public and PER-CHALLENGE, drawn straight off `getAiHintIds()` — never the
+// hint text itself, which stays server-side on the challenge's own page.
+describe("ai page hint marker", () => {
+  it("marks a tile whose id is in hintIds with the paid-hint marker", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAiHintIds.mockResolvedValue(["a2"]);
+
+    const html = renderToStaticMarkup(await AiPage());
+
+    expect(html).toContain("paid hint available");
+    expect(html).toContain("💡");
+  });
+
+  it("shows no marker when no challenge id is in hintIds", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue(null);
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAiHintIds.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await AiPage());
+
+    expect(html).not.toContain("paid hint available");
+    expect(html).not.toContain("💡");
   });
 });
 

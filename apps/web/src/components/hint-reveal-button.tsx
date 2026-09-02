@@ -1,17 +1,26 @@
 "use client";
 
-// The classic challenge page's paid-hint control (#190): one button that
-// charges and reveals through the SAME /api/hints/reveal endpoint the
-// secure-development rows use — the server is the boundary that gates,
-// charges idempotently, and never sends a text that wasn't paid for.
+// The classic and ai challenge pages' paid-hint control (#190, issue #211):
+// one button that charges and reveals through the SAME /api/hints/reveal
+// endpoint the secure-development rows use — the server is the boundary that
+// gates, charges idempotently, and never sends a text that wasn't paid for.
 // Already-owned hints never reach this component: the page renders their
 // text server-side and this button only exists while there is something to
-// buy.
+// buy. `app` is the target this reveal is charged against (Task 1's
+// `HintTarget`) — originally hardcoded to "classic", now the caller's prop so
+// flags/[id] and ai/[id] share one component instead of a copy each.
+//
+// NOT the secure-development row control: that one lives in hint-button.tsx
+// (a compact confirm-then-reveal chip embedded in a 110-row list, driven by
+// `onPurchased` so the parent can update its own purchased map). This is the
+// single challenge page's own control — reveal happens on click, no separate
+// confirm step, and the revealed text renders in place of the button.
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import type { HintTarget } from "@/lib/hint-store";
 
-export default function ClassicHint({ id, cost }: { id: string; cost: number }) {
+export default function HintRevealButton({ app, id, cost }: { app: HintTarget; id: string; cost: number }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +46,7 @@ export default function ClassicHint({ id, cost }: { id: string; cost: number }) 
       const res = await fetch("/api/hints/reveal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ app: "classic", id }),
+        body: JSON.stringify({ app, id }),
       });
       const data = (await res.json().catch(() => ({}))) as { hint?: string; error?: string };
       if (res.ok && typeof data.hint === "string") {

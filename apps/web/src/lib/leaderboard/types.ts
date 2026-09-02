@@ -39,10 +39,14 @@ export type QuizDetail = { kind: "quiz"; answered: number; total: number; points
  *  `total` is CLAMPED to at least `solved` by whoever builds it — see
  *  `classicModule` in module-contributions.ts. */
 export type ClassicDetail = { kind: "classic"; solved: number; total: number; points: number };
+/** ai's detail block: prompt-injection challenges solved out of the
+ *  challenges on offer. Same shape and same clamp discipline as
+ *  `ClassicDetail` — see `aiModule` in module-contributions.ts. */
+export type AiDetail = { kind: "ai"; solved: number; total: number; points: number };
 /** Discriminated on `kind` — narrow on it rather than casting; each module
  *  contributes its own detail shape and a new module means a new branch, not
  *  a wider inferred type. */
-export type ModuleDetail = SecureDevelopmentDetail | QuizDetail | ClassicDetail;
+export type ModuleDetail = SecureDevelopmentDetail | QuizDetail | ClassicDetail | AiDetail;
 
 export type ModuleProgress = {
   /** This module's contribution to the row's total points. */

@@ -123,12 +123,17 @@ features past green tests three times.
 (empty `admins`, generic branding). Review anything touching build or
 deploy scripts for a path that could run the app build with the arg unset.
 
-**11. The public surface is a named list, not a shape.** Exactly two routes
+**11. The public surface is a named list, not a shape.** Exactly three routes
 may answer without a session or a verified launch token: `GET
-/api/public/scoring` and `GET /api/ai/launch-key`. Both earn the exemption
-the same way — read-only, policy out and never facts in, nothing secret in
-the response — so a third unauthenticated route doesn't inherit the
-exemption by resembling one that has it; it needs its own case. `launch-key`
+/api/public/scoring`, `GET /api/ai/launch-key`, and `GET /api/board/items`.
+Each earns the exemption the same way — read-only, policy out and never facts
+in, nothing secret in the response — so a fourth unauthenticated route
+doesn't inherit the exemption by resembling one that has it; it needs its own
+case. `board/items` (from the #207 redesign) serves the public leaderboard's
+row expansion: who solved what is already on the board as counts, the items
+are built only from the contestant-safe listers (ids, labels, banked points —
+never a flag, hint, or key), and the login list is capped at a team roster's
+size so it reads like the board, not like a scrape. `launch-key`
 is the sharpest test of the "nothing secret" half: it exists to publish the
 launch token's public key, `kid`, and algorithm so an external integrator can
 verify a token without holding a credential, and the finding to watch for is

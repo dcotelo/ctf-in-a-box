@@ -18,6 +18,14 @@ import type { AppId } from "@/lib/apps";
 import { enabledAppsById } from "@/lib/apps";
 import { auth } from "@/lib/auth";
 import {
+  getAiTotals,
+  getViewerAi,
+  listAiChallenges,
+  type AiChallenge,
+  type AiTotal,
+  type ViewerAi,
+} from "@/lib/ai-store";
+import {
   getClassicTotals,
   getViewerClassic,
   listChallenges,
@@ -80,16 +88,34 @@ export default async function ProfilePage() {
   const liveModules = await getEnabledModuleIds();
   const quizEnabled = liveModules.has("quiz");
   const classicEnabled = liveModules.has("classic");
+  const aiEnabled = liveModules.has("ai");
   const secureDevEnabled = liveModules.has("secure-development");
 
-  // Quiz/classic totals and item lists are per-login and cheap to fetch here
-  // regardless of board size (two HGETALLs each — see getQuizTotals /
-  // getClassicTotals), but only when the module is enabled: this must never
-  // read `ctf:quiz:*` when quiz is off, nor `ctf:classic:*` when classic is.
-  // `resolvedModules` (organizer-renamed titles) is what drives the
-  // per-module breakdown below off the enabled-module LIST rather than a
-  // per-module branch — see the module block loop.
-  const [profile, storeTeam, viewerHints, quizTotals, quizQuestions, classicTotals, classicChallenges, viewerQuiz, viewerClassic, resolvedModules, maxMembers, adminSettings] =
+  // Quiz/classic/ai totals and item lists are per-login and cheap to fetch
+  // here regardless of board size (two HGETALLs each — see getQuizTotals /
+  // getClassicTotals / getAiTotals), but only when the module is enabled:
+  // this must never read `ctf:quiz:*` when quiz is off, nor `ctf:classic:*`
+  // when classic is, nor `ctf:ai:*` when ai is. `resolvedModules`
+  // (organizer-renamed titles) is what drives the per-module breakdown below
+  // off the enabled-module LIST rather than a per-module branch — see the
+  // module block loop.
+  const [
+    profile,
+    storeTeam,
+    viewerHints,
+    quizTotals,
+    quizQuestions,
+    classicTotals,
+    classicChallenges,
+    aiTotals,
+    aiChallenges,
+    viewerQuiz,
+    viewerClassic,
+    viewerAi,
+    resolvedModules,
+    maxMembers,
+    adminSettings,
+  ] =
     await Promise.all([
       getLeaderboardSource().getUser(login),
       getViewerTeam(login),
@@ -98,10 +124,13 @@ export default async function ProfilePage() {
       quizEnabled ? listQuestions() : Promise.resolve([] as Question[]),
       classicEnabled ? getClassicTotals() : Promise.resolve(new Map<string, ClassicTotal>()),
       classicEnabled ? listChallenges() : Promise.resolve([] as Challenge[]),
+      aiEnabled ? getAiTotals() : Promise.resolve(new Map<string, AiTotal>()),
+      aiEnabled ? listAiChallenges() : Promise.resolve([] as AiChallenge[]),
       // The viewer's OWN per-item progress, for the blocks' Show-N lists —
       // the same reads the boards themselves make, module-gated identically.
       quizEnabled ? getViewerQuiz(login) : Promise.resolve<ViewerQuiz>({ answered: {}, attempts: {} }),
       classicEnabled ? getViewerClassic(login) : Promise.resolve<ViewerClassic>({ solved: {}, attempts: {} }),
+      aiEnabled ? getViewerAi(login) : Promise.resolve<ViewerAi>({ solved: {}, attempts: {} }),
       getResolvedModules(),
       // The SAME resolver joinTeam uses. Reading TEAM_MAX_MEMBERS here instead
       // would advertise a limit the join path does not enforce — the split
@@ -171,12 +200,15 @@ export default async function ProfilePage() {
   const quizPoints = quizTotal?.points ?? 0;
   const classicTotal = classicTotals.get(login);
   const classicPoints = classicTotal?.points ?? 0;
+  const aiTotal = aiTotals.get(login);
+  const aiPoints = aiTotal?.points ?? 0;
   // Net-of-hints TOTAL: the penalty subtracts from the all-module sum,
   // floored at 0 — the same math (and the same single application) as the
   // board's withHintPenalties, which now runs as the pipeline's LAST stage.
   // Netting scorer points alone (the old form) made hints free whenever the
-  // spend exceeded scorer points — every classic- or quiz-heavy contestant.
-  const netPoints = Math.max(0, (profile?.points ?? 0) + quizPoints + classicPoints - viewerHints.spent);
+  // spend exceeded scorer points — every classic-, quiz-, or ai-heavy
+  // contestant.
+  const netPoints = Math.max(0, (profile?.points ?? 0) + quizPoints + classicPoints + aiPoints - viewerHints.spent);
   // The bar's denominator covers every enabled module, because its numerator
   // does: netPoints already includes quiz and classic. Dividing an all-module
   // numerator by secure-development's maxPoints alone (the old behaviour) let
@@ -186,7 +218,8 @@ export default async function ProfilePage() {
   // the numerator can legitimately exceed a shrunken denominator.
   const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + (Number(q.points) || 0), 0);
   const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
-  const maxPointsAllModules = (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints;
+  const aiMaxPoints = aiChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
+  const maxPointsAllModules = (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints + aiMaxPoints;
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
   const progressPct =
@@ -250,6 +283,23 @@ export default async function ProfilePage() {
       },
     };
   }
+  if (aiEnabled && aiTotal && aiTotal.solved > 0) {
+    moduleProgress["ai"] = {
+      points: aiTotal.points,
+      completed: aiTotal.solved,
+      lastActivityAt: aiTotal.lastAt,
+      // Clamped to at least `solved`, mirroring module-contributions.ts's
+      // aiModule — a deleted ai challenge (which deliberately leaves banked
+      // points and the aggregate counter alone) must never make the
+      // denominator read smaller than the numerator.
+      detail: {
+        kind: "ai",
+        solved: aiTotal.solved,
+        total: Math.max(aiChallenges.length, aiTotal.solved),
+        points: aiTotal.points,
+      },
+    };
+  }
   // `ModuleDetail`/`AppBreakdown` (the same renderers the leaderboard uses)
   // take a `LeaderboardEntry`; this page only ever has a `UserProfile`, which
   // has no `modules` map, so a minimal stand-in is built here rather than
@@ -276,13 +326,26 @@ export default async function ProfilePage() {
   // "6 / 5" or claim a ceiling the header bar doesn't.
   const moduleSummary = (id: ModuleId): { done: number; total: number; noun: string; earned: number; available: number } => {
     const progress = moduleProgress[id]!;
-    if (progress.detail.kind === "quiz") {
-      return { done: progress.detail.answered, total: progress.detail.total, noun: "answered", earned: progress.points, available: quizMaxPoints };
+    const detail = progress.detail;
+    // Exhaustive switch, closed with a `never` guard below — this used to be
+    // an if/if/unconditional-return, which silently rendered any new
+    // module's block with secure-development's numbers ("patched") and no
+    // compiler complaint. A fourth `ModuleDetail` variant now fails to type
+    // check here instead of shipping with the wrong noun.
+    switch (detail.kind) {
+      case "quiz":
+        return { done: detail.answered, total: detail.total, noun: "answered", earned: progress.points, available: quizMaxPoints };
+      case "classic":
+        return { done: detail.solved, total: detail.total, noun: "solved", earned: progress.points, available: classicMaxPoints };
+      case "ai":
+        return { done: detail.solved, total: detail.total, noun: "challenges", earned: progress.points, available: aiMaxPoints };
+      case "secure-development":
+        return { done: progress.completed, total: challengeCount, noun: "patched", earned: progress.points, available: profile?.maxPoints ?? 0 };
+      default: {
+        const unhandled: never = detail;
+        return unhandled;
+      }
     }
-    if (progress.detail.kind === "classic") {
-      return { done: progress.detail.solved, total: progress.detail.total, noun: "solved", earned: progress.points, available: classicMaxPoints };
-    }
-    return { done: progress.completed, total: challengeCount, noun: "patched", earned: progress.points, available: profile?.maxPoints ?? 0 };
   };
 
   // Per-item rows for the quiz/classic blocks' Show-N lists — which questions
@@ -315,6 +378,19 @@ export default async function ProfilePage() {
           points: c.points,
           done: Boolean(viewerClassic.solved[c.id]),
           earnedPoints: viewerClassic.solved[c.id]?.points,
+        })),
+      };
+    }
+    if (id === "ai" && aiChallenges.length > 0) {
+      return {
+        noun: aiChallenges.length === 1 ? "challenge" : "challenges",
+        doneLabel: "Solved",
+        items: aiChallenges.map((c) => ({
+          id: c.id,
+          label: c.title,
+          points: c.points,
+          done: Boolean(viewerAi.solved[c.id]),
+          earnedPoints: viewerAi.solved[c.id]?.points,
         })),
       };
     }
@@ -409,6 +485,15 @@ export default async function ProfilePage() {
                 <span className="text-sm text-muted"> / {Math.max(classicChallenges.length, classicTotal?.solved ?? 0)}</span>
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">solved</p>
+            </div>
+          )}
+          {aiEnabled && aiChallenges.length > 0 && (
+            <div>
+              <p className="font-mono text-xl tabular-nums text-zinc-200">
+                {aiTotal?.solved ?? 0}
+                <span className="text-sm text-muted"> / {Math.max(aiChallenges.length, aiTotal?.solved ?? 0)}</span>
+              </p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">challenges</p>
             </div>
           )}
         </div>

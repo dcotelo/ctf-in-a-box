@@ -1,4 +1,5 @@
 import "server-only";
+import { getAiTotals, getTeamAiTotalsBatch, listAiChallenges, type AiTotal } from "@/lib/ai-store";
 import {
   getClassicTotals,
   getTeamClassicTotalsBatch,
@@ -18,12 +19,12 @@ import type { ModuleId } from "@/lib/modules";
  *
  * The source's `points` already holds secure-development's score (it comes from
  * the scorer), so that module is ATTRIBUTED rather than added — adding it would
- * double count. The quiz and classic modules score APP-SIDE: the scorer never
- * sees a quiz answer or a captured flag, so their points are NOT already inside
- * `entry.points` — they are ADDED on top (`entry.points += quizPoints +
- * classicPoints`). The two verbs are not interchangeable in either direction:
- * attributing an app-side module would show zero, adding secure-development's
- * would double count.
+ * double count. The quiz, classic and ai modules score APP-SIDE: the scorer
+ * never sees a quiz answer, a captured flag, or an ai challenge solve, so
+ * their points are NOT already inside `entry.points` — they are ADDED on top
+ * (`entry.points += quizPoints + classicPoints + aiPoints`). The two verbs
+ * are not interchangeable in either direction: attributing an app-side
+ * module would show zero, adding secure-development's would double count.
  *
  * Runs BEFORE withHintPenalties (see the pipeline comment in
  * `app/(site)/leaderboard/page.tsx`): every module block shows its GROSS
@@ -35,32 +36,34 @@ import type { ModuleId } from "@/lib/modules";
  * UNCONDITIONALLY; withHintPenalties re-ranks again after deducting.
  *
  * Individuals read each app-side module's aggregate counters (`getQuizTotals`
- * / `getClassicTotals` — two `HGETALL`s each, cost independent of board size,
- * mirroring `getHintPenalties`). Teams CANNOT: a team's total is the UNION of
- * the questions its members answered correctly (spec D6) / the challenges they
- * solved, and the aggregates have no memory of WHICH items contributed to a
- * login's total, so summing them would double count anything two teammates
- * both hold. Teams are handled by `getTeamQuizTotalsBatch` /
- * `getTeamClassicTotalsBatch`, which read every member's item hash directly —
- * all of them in ONE pipeline for the whole board — and dedupe per team
- * through the shared fold in `team-fold.ts`; see its doc comment.
+ * / `getClassicTotals` / `getAiTotals` — two `HGETALL`s each, cost independent
+ * of board size, mirroring `getHintPenalties`). Teams CANNOT: a team's total
+ * is the UNION of the questions its members answered correctly (spec D6) /
+ * the challenges they solved, and the aggregates have no memory of WHICH
+ * items contributed to a login's total, so summing them would double count
+ * anything two teammates both hold. Teams are handled by
+ * `getTeamQuizTotalsBatch` / `getTeamClassicTotalsBatch` /
+ * `getTeamAiTotalsBatch`, which read every member's item hash directly — all
+ * of them in ONE pipeline for the whole board — and dedupe per team through
+ * the shared fold in `team-fold.ts`; see its doc comment.
  *
  * The board's login set is the UNION of the source's logins and the logins
- * holding module points, so a contestant with quiz or classic points but no
- * scored submission — every contestant on a quiz-only or classic-only event,
- * where the source is `emptySource` and carries no rows at all — gets a row
- * CREATED for them here rather than being invisible until their first scored
- * PR. The union is taken case-insensitively (the scorer records the PR
- * author's login, the app-side modules the session's; a case disagreement must
- * not split one contestant into two rows), and a created row is the only kind
- * with no scoring entry behind it — so there is nothing on it to double count,
- * and every scorer-supplied field (`patched`/`failed`/`total`/`apps`) stays
- * zero-valued on it. A login holding BOTH quiz and classic points gets ONE
- * created row carrying both blocks, never one row per module.
+ * holding module points, so a contestant with quiz, classic or ai points but
+ * no scored submission — every contestant on a quiz-only, classic-only or
+ * ai-only event, where the source is `emptySource` and carries no rows at
+ * all — gets a row CREATED for them here rather than being invisible until
+ * their first scored PR. The union is taken case-insensitively (the scorer
+ * records the PR author's login, the app-side modules the session's; a case
+ * disagreement must not split one contestant into two rows), and a created
+ * row is the only kind with no scoring entry behind it — so there is nothing
+ * on it to double count, and every scorer-supplied field
+ * (`patched`/`failed`/`total`/`apps`) stays zero-valued on it. A login
+ * holding points in more than one app-side module gets ONE created row
+ * carrying every block, never one row per module.
  *
  * Rows are only ever created from totals actually read: a failed
- * `getQuizTotals`/`getClassicTotals` degrades to that module's absence from
- * the board, never to invented or zero-point rows.
+ * `getQuizTotals`/`getClassicTotals`/`getAiTotals` degrades to that module's
+ * absence from the board, never to invented or zero-point rows.
  *
  * Hint penalties are applied by `withHintPenalties`, which runs AFTER this
  * (the pipeline's last stage), so created rows and synthesised team rows are
@@ -72,13 +75,15 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   const secureDev = liveModules.has("secure-development") && data.capabilities.apps;
   const quizEnabled = liveModules.has("quiz");
   const classicEnabled = liveModules.has("classic");
+  const aiEnabled = liveModules.has("ai");
 
-  // Both modules' reads are KICKED OFF before either is awaited, so a
-  // two-module event overlaps them instead of paying for them back to back —
-  // they hit disjoint key spaces and nothing orders one against the other.
+  // Every enabled module's reads are KICKED OFF before any is awaited, so a
+  // multi-module event overlaps them instead of paying for them back to back —
+  // they hit disjoint key spaces and nothing orders one against another.
   // Each module still settles its OWN two reads independently; see below.
   const quizReads = quizEnabled ? Promise.allSettled([getQuizTotals(), listQuestions()]) : null;
   const classicReads = classicEnabled ? Promise.allSettled([getClassicTotals(), listChallenges()]) : null;
+  const aiReads = aiEnabled ? Promise.allSettled([getAiTotals(), listAiChallenges()]) : null;
 
   let quizTotals = new Map<string, QuizTotal>();
   let quizTotalQuestions = 0;
@@ -129,6 +134,27 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
     }
   }
 
+  let aiTotals = new Map<string, AiTotal>();
+  let aiTotalChallenges = 0;
+  if (aiReads) {
+    // Settled INDEPENDENTLY for exactly the reason spelled out above the quiz
+    // and classic pairs, which this mirrors: `getAiTotals` carries the
+    // POINTS (and with them the team board's order), `listAiChallenges` only
+    // the "solved / total" DENOMINATOR. Never collapse these two into one
+    // shared try/Promise.all.
+    const [totalsResult, challengesResult] = await aiReads;
+    if (totalsResult.status === "fulfilled") {
+      aiTotals = totalsResult.value;
+    } else {
+      console.error("ai totals unavailable for leaderboard:", totalsResult.reason);
+    }
+    if (challengesResult.status === "fulfilled") {
+      aiTotalChallenges = challengesResult.value.length;
+    } else {
+      console.error("ai challenge list unavailable for leaderboard denominator:", challengesResult.reason);
+    }
+  }
+
   // Logins are matched case-insensitively throughout (see the doc comment).
   // Two keys in a totals map colliding on case cannot happen — a login is
   // unique case-insensitively on GitHub and every writer stores the one the
@@ -138,17 +164,34 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   for (const [login, total] of quizTotals) quizByLogin.set(login.toLowerCase(), total);
   const classicByLogin = new Map<string, ClassicTotal>();
   for (const [login, total] of classicTotals) classicByLogin.set(login.toLowerCase(), total);
+  const aiByLogin = new Map<string, AiTotal>();
+  for (const [login, total] of aiTotals) aiByLogin.set(login.toLowerCase(), total);
 
-  const overlay: Overlay = { quizByLogin, quizTotalQuestions, classicByLogin, classicTotalChallenges };
+  const overlay: Overlay = {
+    quizByLogin,
+    quizTotalQuestions,
+    classicByLogin,
+    classicTotalChallenges,
+    aiByLogin,
+    aiTotalChallenges,
+  };
 
   const entries = rankByStanding([
     ...data.entries.map((entry) => attributeEntry(entry, secureDev, overlay)),
-    ...createdEntries(data.entries, quizTotals, classicTotals, quizTotalQuestions, classicTotalChallenges),
+    ...createdEntries(
+      data.entries,
+      quizTotals,
+      classicTotals,
+      aiTotals,
+      quizTotalQuestions,
+      classicTotalChallenges,
+      aiTotalChallenges,
+    ),
   ]);
 
   // Each enabled module is applied in turn, and each re-ranks on the running
-  // totals — so a team's final order reflects BOTH modules' points, and a
-  // module whose batch read fails leaves the rows it would have touched
+  // totals — so a team's final order reflects EVERY enabled module's points,
+  // and a module whose batch read fails leaves the rows it would have touched
   // exactly as the previous step left them (missing points, never wrong ones).
   let teams = data.teams;
   // secure-development is ATTRIBUTED for teams exactly as attributeEntry does
@@ -190,11 +233,18 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
         console.error("classic team totals unavailable for leaderboard:", err);
       }
     }
+    if (aiEnabled) {
+      try {
+        teams = attributeTeams(teams, aiContributions(await teamAiTotals(teams), aiTotalChallenges));
+      } catch (err) {
+        console.error("ai team totals unavailable for leaderboard:", err);
+      }
+    }
   }
 
   // The board-level denominator for a row's solved count: how many items this
   // EVENT has, across every enabled module. Stamped here because this is the
-  // one place that already holds both module counts.
+  // one place that already holds every module's count.
   //
   // Read off the EVENT, never off a row. A per-row denominator is the defect
   // that made /profile show "0 non-patched / 0 total" to a contestant who had
@@ -206,21 +256,23 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   // someone's solved count. The row clamps rather than rendering "28 / 21";
   // the clamp lives there because only a row knows its own numerator.
   const completable =
-    (secureDev ? enabledTotalChallenges : 0) + quizTotalQuestions + classicTotalChallenges;
+    (secureDev ? enabledTotalChallenges : 0) + quizTotalQuestions + classicTotalChallenges + aiTotalChallenges;
 
   return { ...data, entries, teams, completable };
 }
 
 /** The app-side module totals for one render, threaded through the per-entry
- *  helpers below. Both `*ByLogin` maps are keyed by LOWERCASED login — see the
- *  union rule in the doc comment. The two counts are the modules' raw item
- *  totals; the clamp against a row's own numerator happens per row, in
- *  `quizModule`/`classicModule`. */
+ *  helpers below. Every `*ByLogin` map is keyed by LOWERCASED login — see the
+ *  union rule in the doc comment. Each `*TotalX` count is that module's raw
+ *  item total; the clamp against a row's own numerator happens per row, in
+ *  `quizModule`/`classicModule`/`aiModule`. */
 type Overlay = {
   quizByLogin: Map<string, QuizTotal>;
   quizTotalQuestions: number;
   classicByLogin: Map<string, ClassicTotal>;
   classicTotalChallenges: number;
+  aiByLogin: Map<string, AiTotal>;
+  aiTotalChallenges: number;
 };
 
 /**
@@ -305,6 +357,39 @@ export async function withTeamClassicPoints(teams: TeamStanding[]): Promise<Team
   );
 }
 
+/**
+ * ai's exact counterpart to `withTeamQuizPoints`/`withTeamClassicPoints`
+ * above — same contract, same degradation, same single owner for the union
+ * rule. Read `withTeamQuizPoints`'s doc comment; everything in it applies
+ * here with "challenge solved" in place of "question answered".
+ *
+ * Kept as its OWN function for the same reason the other two are: each
+ * module's enablement, its two reads, and its failure handling stay
+ * independent, so an ai outage never costs a team its quiz or classic points
+ * and vice versa.
+ */
+export async function withTeamAiPoints(teams: TeamStanding[]): Promise<TeamStanding[]> {
+  if (!(await isModuleLive("ai")) || teams.length === 0) return teams;
+
+  // Settled INDEPENDENTLY — see the note in `withModuleContributions`: the
+  // totals carry POINTS (and with them the team board's order), the
+  // challenge list only the DENOMINATOR.
+  const [totalsResult, challengesResult] = await Promise.allSettled([teamAiTotals(teams), listAiChallenges()]);
+
+  if (totalsResult.status !== "fulfilled") {
+    console.error("ai team totals unavailable for leaderboard:", totalsResult.reason);
+    return teams;
+  }
+  if (challengesResult.status !== "fulfilled") {
+    console.error("ai challenge list unavailable for leaderboard denominator:", challengesResult.reason);
+  }
+
+  return attributeTeams(
+    teams,
+    aiContributions(totalsResult.value, challengesResult.status === "fulfilled" ? challengesResult.value.length : 0),
+  );
+}
+
 /** ONE pipeline for the whole board, never one call per team — see
  *  `getTeamQuizTotalsBatch`'s doc comment (a per-team form billed a 25-team
  *  event 25 Upstash round trips on every render of a `no-store` page). */
@@ -316,6 +401,12 @@ function teamQuizTotals(teams: readonly TeamStanding[]): Promise<QuizTotal[]> {
  *  reason — see `getTeamClassicTotalsBatch`'s doc comment. */
 function teamClassicTotals(teams: readonly TeamStanding[]): Promise<ClassicTotal[]> {
   return getTeamClassicTotalsBatch(teams.map((team) => team.members));
+}
+
+/** ai's counterpart, and ONE pipeline for the whole board for the same
+ *  reason — see `getTeamAiTotalsBatch`'s doc comment. */
+function teamAiTotals(teams: readonly TeamStanding[]): Promise<AiTotal[]> {
+  return getTeamAiTotalsBatch(teams.map((team) => team.members));
 }
 
 function secureDevelopmentModule(
@@ -371,32 +462,54 @@ function classicModule(total: ClassicTotal, totalChallenges: number): ModuleProg
   };
 }
 
+/** ai's counterpart to `classicModule` (same `AiTotal` shape, same clamp
+ *  discipline): a deleted ai challenge can leave the catalogue shorter than
+ *  a login's solve count, and a failed `listAiChallenges` degrades the
+ *  denominator to 0 while points and solves survive intact. Clamping shows
+ *  "1 / 1" — imprecise, but never nonsense. */
+function aiModule(total: AiTotal, totalChallenges: number): ModuleProgress {
+  return {
+    points: total.points,
+    completed: total.solved,
+    lastActivityAt: total.lastAt,
+    detail: {
+      kind: "ai",
+      solved: total.solved,
+      total: Math.max(totalChallenges, total.solved),
+      points: total.points,
+    },
+  };
+}
+
 /** The rows the board is MISSING: one per login that holds app-side module
- *  points (quiz, classic, or both) and has no entry from the scoring source.
- *  Scored rows come first in the ranked list, so a created row never displaces
- *  one it is fully tied with.
+ *  points (quiz, classic, ai, or any combination) and has no entry from the
+ *  scoring source. Scored rows come first in the ranked list, so a created
+ *  row never displaces one it is fully tied with.
  *
  *  The totals maps are iterated in their ORIGINAL casing (that spelling is all
  *  a created row has to display), while membership is decided on the
  *  lowercased form — a login already on the board keeps its scored row, which
- *  `attributeEntry` has already added the same module points to. Two modules
- *  reporting the same login (in whatever casing) therefore produce exactly ONE
- *  row carrying both blocks and both modules' points, never one row each.
+ *  `attributeEntry` has already added the same module points to. Several
+ *  modules reporting the same login (in whatever casing) therefore produce
+ *  exactly ONE row carrying every reported block and every reported module's
+ *  points, never one row each.
  *
- *  Empty whenever both modules are off or their totals reads failed: either
- *  leaves the corresponding map empty, so this creates nothing without
- *  inspecting those conditions again. */
+ *  Empty whenever every app-side module is off or all their totals reads
+ *  failed: each leaves its corresponding map empty, so this creates nothing
+ *  without inspecting those conditions again. */
 function createdEntries(
   scored: readonly LeaderboardEntry[],
   quizTotals: Map<string, QuizTotal>,
   classicTotals: Map<string, ClassicTotal>,
+  aiTotals: Map<string, AiTotal>,
   quizTotalQuestions: number,
   classicTotalChallenges: number,
+  aiTotalChallenges: number,
 ): LeaderboardEntry[] {
   const seen = new Set(scored.map((entry) => entry.login.toLowerCase()));
-  // Keyed by lowercased login so the two modules union onto one row; `login`
-  // keeps the spelling of whichever module reported it first.
-  const pending = new Map<string, { login: string; quiz?: QuizTotal; classic?: ClassicTotal }>();
+  // Keyed by lowercased login so the three modules union onto one row;
+  // `login` keeps the spelling of whichever module reported it first.
+  const pending = new Map<string, { login: string; quiz?: QuizTotal; classic?: ClassicTotal; ai?: AiTotal }>();
 
   // `answered`/`solved` > 0 is the same gate `attributeEntry` uses to stamp a
   // block: a login with no completed item has no module progress to show and
@@ -411,22 +524,28 @@ function createdEntries(
     if (seen.has(key) || total.solved <= 0) continue;
     pending.set(key, { ...(pending.get(key) ?? { login }), classic: total });
   }
+  for (const [login, total] of aiTotals) {
+    const key = login.toLowerCase();
+    if (seen.has(key) || total.solved <= 0) continue;
+    pending.set(key, { ...(pending.get(key) ?? { login }), ai: total });
+  }
 
   const created: LeaderboardEntry[] = [];
-  for (const { login, quiz, classic } of pending.values()) {
+  for (const { login, quiz, classic, ai } of pending.values()) {
     const modules: Partial<Record<ModuleId, ModuleProgress>> = {};
     if (quiz) modules["quiz"] = quizModule(quiz, quizTotalQuestions);
     if (classic) modules["classic"] = classicModule(classic, classicTotalChallenges);
-    // The modules' own activity time is the only honest value for both
+    if (ai) modules["ai"] = aiModule(ai, aiTotalChallenges);
+    // The modules' own activity time is the only honest value for all three
     // (neither aggregate read has one to give today, so it is null in
-    // practice — see getQuizTotals/getClassicTotals).
-    const lastAt = laterOf(quiz?.lastAt ?? null, classic?.lastAt ?? null);
+    // practice — see getQuizTotals/getClassicTotals/getAiTotals).
+    const lastAt = laterOf(laterOf(quiz?.lastAt ?? null, classic?.lastAt ?? null), ai?.lastAt ?? null);
     created.push({
       rank: 0, // stamped by rankByStanding below
       login,
       // Membership is withTeamStandings' to overlay, one step later.
       team: null,
-      points: (quiz?.points ?? 0) + (classic?.points ?? 0),
+      points: (quiz?.points ?? 0) + (classic?.points ?? 0) + (ai?.points ?? 0),
       // Everything the scorer would have supplied. There is no scoring entry
       // behind this row, so these are genuinely zero rather than unknown.
       patched: 0,
@@ -453,8 +572,8 @@ function laterOf(a: string | null, b: string | null): string | null {
  *  folds in `withModuleContributions`.
  *
  *  secure-development is ATTRIBUTED (its points are already inside
- *  `entry.points`); quiz and classic are ADDED. Getting either verb wrong is
- *  silent: attributing an app-side module shows zero, adding the scorer's
+ *  `entry.points`); quiz, classic and ai are ADDED. Getting either verb wrong
+ *  is silent: attributing an app-side module shows zero, adding the scorer's
  *  doubles it. */
 function attributeEntry(entry: LeaderboardEntry, secureDev: boolean, overlay: Overlay): LeaderboardEntry {
   const modules: Partial<Record<ModuleId, ModuleProgress>> = {};
@@ -483,6 +602,12 @@ function attributeEntry(entry: LeaderboardEntry, secureDev: boolean, overlay: Ov
     points += classicTotal.points;
   }
 
+  const aiTotal = overlay.aiByLogin.get(key);
+  if (aiTotal && aiTotal.solved > 0) {
+    modules["ai"] = aiModule(aiTotal, overlay.aiTotalChallenges);
+    points += aiTotal.points;
+  }
+
   return { ...entry, points, modules };
 }
 
@@ -496,7 +621,7 @@ type TeamContribution = { points: number; completed: number; progress: ModulePro
  *  argument to `attributeTeams`, so it is not expressible to stamp one
  *  module's key over another module's numbers — a mistake the previous
  *  `(teams, moduleId, contributions)` signature type-checked happily. Only
- *  the two builders below construct this, and each hard-codes its own id. */
+ *  the builders below construct this, and each hard-codes its own id. */
 type TeamContributions = { moduleId: ModuleId; contributions: readonly TeamContribution[] };
 
 function quizContributions(totals: readonly QuizTotal[], totalQuestions: number): TeamContributions {
@@ -517,6 +642,17 @@ function classicContributions(totals: readonly ClassicTotal[], totalChallenges: 
       points: t.points,
       completed: t.solved,
       progress: classicModule(t, totalChallenges),
+    })),
+  };
+}
+
+function aiContributions(totals: readonly AiTotal[], totalChallenges: number): TeamContributions {
+  return {
+    moduleId: "ai",
+    contributions: totals.map((t) => ({
+      points: t.points,
+      completed: t.solved,
+      progress: aiModule(t, totalChallenges),
     })),
   };
 }
