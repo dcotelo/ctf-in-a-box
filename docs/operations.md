@@ -300,9 +300,12 @@ The panel offers:
   rather than handed out unverified. Denials return `403` with a message
   naming what's missing. The module check is **per target**: a hint on a
   secure-development target requires that module enabled, a classic hint
-  requires `classic`, and each refuses outright when its module is off
-  (`hint-store.ts`'s `hintGate`). The quiz has no hints by design — a
-  question's hint is its choices.
+  requires `classic`, an ai hint requires `ai`, and each refuses outright
+  when its module is off (`hint-store.ts`'s `hintGate`). Classic and ai
+  count "solves required" across the whole board rather than per app, the
+  same way secure-development counts per target — see [the AI
+  section](#ai) for its own hint text/knobs. The quiz has no hints by
+  design — a question's hint is its choices.
 - **Hint penalties apply to teams too.** A team's displayed points are its
   scorer total minus the **sum** of its members' hint spend, floored at 0,
   and the team board re-ranks on the penalised figure (a `−N hints` chip
@@ -1056,6 +1059,158 @@ panel](#organizer-admin-panel).
 description is text only, with nowhere to attach an image, a capture file,
 or a binary for contestants to download.
 
+## AI
+
+When `event.yaml`'s `modules:` map includes `ai: {}` (see
+`event.yaml.example`), contestants get a third way to earn points:
+prompt-injection and guardrail challenges hosted on an **external** site,
+graded **inside** the box. Like the quiz and classic, it doesn't touch
+GitHub, the scorer, or `sync` at all — see
+[docs/architecture.md](architecture.md#ai-data-flow) for how it scores
+entirely inside the app, and how a solve can arrive back three different
+ways.
+
+![The AI challenge board](assets/ai-board.jpg)
+
+<sup>The board as a contestant sees it: every tile carries its category,
+point value, and a 💡 marker where a paid hint is on offer, the same board
+component classic's flag list uses.</sup>
+
+**Authoring** happens in `/admin`, under the AI module's tab. Before adding
+a challenge you need at least one **category** — same ordered-list pattern
+as classic's (add, reorder with Move up/Move down, remove only while no
+challenge still files under it, the panel naming exactly how many are
+blocking a removal), capped at **50 categories** with names of at most **64
+characters** each (`AI_CATEGORIES_MAX`/`AI_CATEGORY_MAX_LEN`, enforced in
+`setAiCategories`).
+
+![The admin AI tab](assets/admin-ai.jpg)
+
+<sup>The submission-cooldown knob, the ordered category list, and the
+challenge list — each row expanding into its own integration panel below.</sup>
+
+A challenge itself has a title, a category, a Markdown description (live
+preview alongside the box, same as classic's), a point value, and one more
+thing neither sibling module has: a **solve mode**, a tri-state that decides
+what a contestant sees and where a solve can come from:
+
+- **`flag`** — graded by a typed flag, exactly like classic: the shared
+  flag-submission form renders on `/ai/[id]` and nothing outside the box
+  can assert a solve.
+- **`event`** — launcher-only. No in-box form renders at all; the
+  challenge stores no flag (an event-mode upsert deletes both flag hashes
+  regardless of what the form last held), and the external site reports the
+  solve itself, signed, to the module's own event endpoint.
+- **`both`** — either path works: the in-box form for a typed flag, or the
+  external site's signed report.
+
+Every graded challenge also needs a **launch URL template** — the address of
+the externally hosted challenge, which the launcher substitutes a freshly
+minted token into. It must be an absolute `https://` URL (`http://` is
+accepted only for `localhost`/`127.0.0.1`), and it must contain the literal
+`{token}` placeholder somewhere in it — checked against the raw string, not
+a parsed URL, so a template that puts the placeholder inside a path segment
+isn't punished for looking like invalid syntax. `validateUrlTemplate`
+(`ai-keys.ts`) is the **one** implementation of that check, run identically
+on the admin form (as-you-type feedback) and again inside the store on
+submit (`upsertAiChallenge`) — the client-side check is a convenience only,
+never a substitute for the server's own.
+
+**Flag and case sensitivity** work exactly like classic's, because they
+share the same code: `ai-keys.ts` re-exports `normalizeFlag` and
+`caseSensitiveFlagForm` from `classic-keys.ts` directly rather than
+reimplementing them, so a flag is trimmed and Unicode-NFC-normalized on both
+the authoring and submission sides, and case-folded unless the challenge's
+own **case-sensitive** toggle is on. Both the flag field and the
+case-sensitivity toggle are hidden by the form entirely in `event` mode —
+there's no flag left to apply either one to. The flag input masks by
+default (a Reveal toggle uncovers it), the same screen-share consideration
+as classic's.
+
+**Hint text** is optional and works like classic's paid hints — sold
+through the same gate and knobs (cost, minimum solves, unlock delay, penalty
+fold; see the hints section under [Organizer admin
+panel](#organizer-admin-panel)) — with one save-time rule worth calling
+out: saving the field **empty is a deliberate clear**, not "leave
+unchanged" — the store deletes the hint row on an empty string, exactly
+like classic.
+
+**Position ordering is a plain editable number**, not drag-and-drop. Unlike
+quiz's and classic's question/challenge lists, this panel has no
+reorder-by-dragging UI — organizers curate a long-running board there;
+nothing about this task called for the same parity here, so `order` is just
+another field the form edits directly.
+
+**The integration panel**, rendered inside every challenge row underneath
+its summary line, is what an external challenge actually wires up against.
+It carries:
+
+- **Three endpoint URLs** — Submit (`/api/ai/submit`), Event
+  (`/api/ai/event`), and State (`/api/ai/state`) — each with its own copy
+  button, so an integrator never has to hand-assemble the full origin.
+- **The per-challenge signing key**, masked by default (`aik_…`) with a
+  Reveal toggle and its own Copy button — the raw key is never referenced in
+  the rendered markup while masked, not merely styled to look hidden.
+- **Rotate**, behind a confirm dialog, because it takes effect immediately
+  with no grace window. Its consequence sentence, verbatim: "The external
+  system stops posting until you redeploy it with the new key."
+- **A ready-to-run test curl** that computes its own HMAC signature at the
+  moment you run it (`TS=$(date +%s)` and an `openssl dgst -hmac` call
+  inline) rather than shipping a pre-signed one — a signature is only valid
+  for a few minutes either side of its timestamp, so a static, pre-signed
+  snippet would already be expired by the time anyone pasted it.
+- **A Send test button.** This does not hit the network from the browser to
+  the external side and back — it POSTs to `/api/admin/ai/test`, which
+  mints a short-lived demo launch token for the *organizer's own login*,
+  signs a demo solve event with the challenge's real signing key, and calls
+  the real `/api/ai/event` handler in-process with `dryRun: true` —
+  hard-coded server-side, never taken from the request — so nothing is
+  written: no nonce is claimed, no points are awarded. It is safe to click
+  against a live event, and it relays that handler's real verdict verbatim
+  rather than inventing one. Reading the result:
+  - **`would-award`** — good: the dry run verified the whole pipeline end
+    to end (signature, token, rate limit, team, schedule).
+  - **`wrong-mode`** — this challenge is `flag`-only. The panel doesn't
+    even render the signing key, curl, or Send test for a flag-only
+    challenge in the first place (only the three endpoint URLs stay,
+    since an external site embedding one still needs them); seeing
+    `wrong-mode` at all means the challenge's mode changed after the panel
+    loaded — refresh and re-check.
+  - **`no-signing-key`** — a legacy row with no signing key ever minted.
+    Click Rotate once to mint one.
+
+**The cooldown knob** — `aiCooldownSec`, on the AI tab — throttles only the
+**graded flag path**: a signed event has no wrong answer to rate-limit, so
+it is never subject to this cooldown. `null` (the field left blank) means
+the **5-second default**; set a value in `[0, 3600]` seconds to override it,
+the same bounds classic's own cooldown enforces.
+
+**What contestants see:** the board (`/ai`) lists every challenge with its
+category, points, and a 💡 marker where a hint is on offer. Opening one
+(`/ai/[id]`) mints that contestant a **personal, one-click launch link** —
+the page says so plainly: "This link is yours — it signs you in on the
+challenge site." That is worth repeating to contestants directly: the link
+carries a token naming *them* as the player, so sharing it hands away the
+ability to submit as them on that challenge, exactly like sharing a
+password would. A `flag`/`both` challenge also renders the same in-box
+flag-submission form classic uses, right below the launcher.
+
+**Gaps**, stated honestly:
+
+- **No bulk import/export.** Unlike quiz and classic, the AI tab has no
+  Export/Import bundle button — every challenge is authored one at a time
+  through the add/edit/delete form.
+- **The event archive does not carry the AI catalogue.** An exported event
+  loses its whole AI board — challenges, keys, and progress — on both
+  export and import; see [docs/ai-module.md](ai-module.md)'s own gaps
+  section (§10) for the tracking detail.
+- **A master reset rotates the module-wide launch keypair**, not any
+  individual challenge's signing key. Every previously issued launch token
+  stops verifying, and any external integration that cached the public key
+  from `GET /api/ai/launch-key` needs to re-fetch it — see
+  [docs/ai-module.md](ai-module.md)'s "Keys and rotation" section (§9) for
+  what an integrator should watch for.
+
 ## Verifying it works
 
 No GitHub org, Action runs, or scorer image access needed to check the kit
@@ -1129,28 +1284,39 @@ top of the leaderboard/challenge-browsing experience it gives you immediately.
 **The pre-event gate's page block (`proxy.ts`) is page-only.** With
 `CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` set in `.env`
 (compose passes both through to the app), every enabled module's own page
-route (`/challenges`, `/quiz`, `/flags`) redirects a visitor without a valid
-unlock cookie to `/gate`. That list is exact-match and it is *pages* — the
-gate deliberately does not widen over `/api/*`. (The proxy's matcher does
-carry `/api/:path*`, but only for the cross-origin write assertion; gating
-the APIs would put the gate in front of `/api/auth/*`, breaking the sign-in
-a contestant needs in order to pass the gate, and in front of `/api/gate`
-itself, and would answer API calls with a page redirect an API client can't
-act on.)
+route (`/challenges`, `/quiz`, `/flags`, `/ai`) redirects a visitor without a
+valid unlock cookie to `/gate`. That list is exact-match and it is *pages* —
+the gate deliberately does not widen over `/api/*`. (The proxy's matcher
+does carry `/api/:path*`, but only for the cross-origin write assertion;
+gating the APIs would put the gate in front of `/api/auth/*`, breaking the
+sign-in a contestant needs in order to pass the gate, and in front of
+`/api/gate` itself, and would answer API calls with a page redirect an API
+client can't act on.) `/ai/[id]` — the one route that mints a launch token —
+is deliberately **not** in that exact-match list: it enforces the gate
+itself, at mint time, rather than inheriting it from the middleware (see
+below).
 
 Instead, the three module routes that bank points or leak challenge content
 — `POST /api/quiz/answer`, `POST /api/classic/submit`, and
 `POST /api/hints/reveal` — run their own server-side gate check
 (`requireGatePassed()`) beside their other rules, and refuse with
-**403 `{ error: "gate" }`** while the lock screen is up. Everything else the
-API routes already enforced independently still holds regardless: a session
-is required, the admin **pause** and the **scheduled scoring window** are
-checked on every write, and per-question attempt caps and cooldowns (or
-classic's own submission cooldown) apply. So an organizer who additionally
-sets the scoring window (or keeps the event paused) is not exposed even if
-they somehow rely on the password gate alone — the schedule/pause pair in
-the admin panel (see [Organizer admin panel](#organizer-admin-panel)) is
-still the control that actually stops early scoring.
+**403 `{ error: "gate" }`** while the lock screen is up. The ai module reaches
+the same guarantee a different way: its two cross-origin routes,
+`POST /api/ai/submit` and `POST /api/ai/event`, are cookie-blind by design
+and read no gate at all — the gate is enforced exactly once, at token-mint
+time, when `/ai/[id]` renders (and re-checked, redundantly, in that same
+page's in-box Server Action, `submitAiFlagAction` in `[id]/actions.ts`). A
+launch token in hand already proves the gate had passed when it was minted,
+so the routes that redeem that token don't re-check it themselves.
+Everything else the API routes already enforced independently still holds
+regardless: a session is required, the admin **pause** and the **scheduled
+scoring window** are checked on every write, and per-question attempt caps
+and cooldowns (or classic's/ai's own submission cooldown) apply. So an
+organizer who additionally sets the scoring window (or keeps the event
+paused) is not exposed even if they somehow rely on the password gate alone
+— the schedule/pause pair in the admin panel (see [Organizer admin
+panel](#organizer-admin-panel)) is still the control that actually stops
+early scoring.
 
 Read the gate for what it is: a "the board opens at the keynote" curtain over
 the contestant-facing pages and the handful of API routes that bank points or
