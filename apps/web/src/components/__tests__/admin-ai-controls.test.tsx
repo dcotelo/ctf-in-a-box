@@ -129,16 +129,31 @@ describe("AdminAiControls", () => {
     expect(html).not.toMatch(/name="id"/);
   });
 
-  // The seam Task 6 fills in: each row now renders the integration panel
-  // (endpoints, masked signing key, Rotate, test curl, Send test) — but it
-  // still never leaks the launch URL TEMPLATE (an authoring-time field, not
-  // part of the integration surface) or the RAW signing key (masked by
-  // default; see admin-ai-integration.test.tsx for that component's own
-  // masking coverage).
+  // Each row renders the integration panel (endpoints, masked signing key,
+  // Rotate, test curl, Send test for event/both-mode challenges — see
+  // admin-ai-integration.test.tsx's mode-gating coverage for the flag-mode
+  // case) — but it still never leaks the launch URL TEMPLATE (an
+  // authoring-time field, not part of the integration surface) or the RAW
+  // signing key (masked by default; see admin-ai-integration.test.tsx for
+  // that component's own masking coverage). row2 is event-mode, so Rotate
+  // and Send test apply to it.
   it("renders the integration panel per row, without leaking the launch URL template or the raw signing key", () => {
-    const html = renderControls([row1]);
+    const html = renderControls([row2]);
     expect(html).toContain("Rotate");
     expect(html).toContain("Send test");
+    expect(html).not.toContain(c2.urlTemplate);
+    expect(html).not.toContain(row2.signingKey);
+  });
+
+  // c1 is flag-mode: the integration panel hides Rotate/Send test for it
+  // (see admin-ai-integration.tsx's mode gating) but still shows the
+  // endpoint URLs — an external site still submits typed flags with the
+  // token.
+  it("hides Rotate and Send test for a flag-mode row, but still shows the endpoint URLs", () => {
+    const html = renderControls([row1]);
+    expect(html).not.toContain(">Rotate<");
+    expect(html).not.toContain(">Send test<");
+    expect(html).toContain("/api/ai/submit");
     expect(html).not.toContain(c1.urlTemplate);
     expect(html).not.toContain(row1.signingKey);
   });

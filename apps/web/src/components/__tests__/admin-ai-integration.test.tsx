@@ -203,6 +203,54 @@ describe("AiIntegrationPanel — endpoint URLs", () => {
   });
 });
 
+// F2: the signing key / Rotate / test curl / Send test are all meaningless
+// for a `mode: "flag"` challenge — the event route refuses it outright with
+// `wrong-mode` (see ai-store.ts's AWARD_SCRIPT). The endpoint URLs still
+// matter (an external site still submits typed flags with the token), so
+// only that section — plus a note pointing the key/Send-test at event-mode
+// challenges — should render.
+describe("AiIntegrationPanel — mode gating", () => {
+  const FLAG_CHALLENGE: AiChallenge = { ...CHALLENGE, mode: "flag" };
+
+  it("flag-mode: hides the signing key, Rotate, test curl, and Send test", () => {
+    const html = renderPanel({ challenge: FLAG_CHALLENGE, revealed: true });
+    expect(html).not.toContain("Signing key");
+    expect(html).not.toContain("Reveal");
+    expect(html).not.toContain(">Rotate<");
+    expect(html).not.toContain("Test curl");
+    expect(html).not.toContain(">Send test<");
+    expect(html).not.toContain(REAL_KEY);
+  });
+
+  it("flag-mode: still shows the three endpoint URLs", () => {
+    const html = renderPanel({ challenge: FLAG_CHALLENGE });
+    expect(html).toContain(`${ORIGIN}/api/ai/submit`);
+    expect(html).toContain(`${ORIGIN}/api/ai/event`);
+    expect(html).toContain(`${ORIGIN}/api/ai/state`);
+  });
+
+  it("flag-mode: shows a note pointing the signing key and Send test at event-mode challenges", () => {
+    const html = renderPanel({ challenge: FLAG_CHALLENGE });
+    expect(html).toContain("event-mode challenges");
+  });
+
+  it("event-mode: unchanged — signing key, Rotate, test curl, and Send test all still render", () => {
+    const html = renderPanel({ challenge: { ...CHALLENGE, mode: "event" } });
+    expect(html).toContain("Signing key");
+    expect(html).toContain(">Rotate<");
+    expect(html).toContain("Test curl");
+    expect(html).toContain(">Send test<");
+  });
+
+  it("both-mode: unchanged — signing key, Rotate, test curl, and Send test all still render", () => {
+    const html = renderPanel({ challenge: { ...CHALLENGE, mode: "both" } });
+    expect(html).toContain("Signing key");
+    expect(html).toContain(">Rotate<");
+    expect(html).toContain("Test curl");
+    expect(html).toContain(">Send test<");
+  });
+});
+
 describe("AiIntegrationPanel — rotate confirm", () => {
   it("closed by default: the confirm's consequence sentence is not in the markup", () => {
     const html = renderPanel({ rotateConfirmOpen: false });
@@ -354,9 +402,18 @@ describe("AiIntegrationPanel — Send test rendering", () => {
     expect(html).not.toContain("Test result:");
   });
 
-  it("a named refusal (e.g. wrong-mode) names the slug, and is NOT rendered as an award", () => {
-    const html = renderPanel({ testOutcome: { kind: "named", label: "wrong-mode" } });
-    expect(html).toContain("Test result: wrong-mode");
+  // Was: "a named refusal (e.g. wrong-mode) names the slug" — pinned against
+  // the default (event-mode) CHALLENGE fixture, but the real `/api/ai/event`
+  // handler only ever returns `wrong-mode` for a `mode: "flag"` challenge
+  // (see ai-store.ts's AWARD_SCRIPT), and a flag-mode challenge no longer
+  // renders Send test at all (see the mode-gating describe block below) — so
+  // this outcome can never actually reach this render path anymore.
+  // Repurposed to a reachable refusal instead: a named refusal that is NOT
+  // wrong-mode (e.g. a dry run that fails a different check) still renders
+  // by its exact slug and is never mistaken for an award.
+  it("a named refusal names the slug, and is NOT rendered as an award", () => {
+    const html = renderPanel({ testOutcome: { kind: "named", label: "would-refuse" } });
+    expect(html).toContain("Test result: would-refuse");
     expect(html).not.toContain("Would award");
   });
 

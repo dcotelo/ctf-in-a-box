@@ -160,7 +160,18 @@ export type AiIntegrationPanelProps = {
 /** Purely presentational — every bit of visual state is a prop. Exported so
  *  it can be rendered directly in whichever state a test wants to prove
  *  (masked/revealed, confirm open/closed, a specific Send test outcome)
- *  without simulating a click. See this file's header comment. */
+ *  without simulating a click. See this file's header comment.
+ *
+ *  `challenge.mode` gates everything below Endpoints: a `mode: "flag"`
+ *  challenge is graded only through `/api/ai/submit` (a typed flag) — the
+ *  event route refuses it outright with `wrong-mode` (see ai-store.ts's
+ *  AWARD_SCRIPT and the doc comment on `classifyAiTestResponse`'s handler),
+ *  so the signing key, Rotate, the test curl, and Send test are all dead UI
+ *  for it: nothing an organizer does with them changes how the challenge is
+ *  graded. The three endpoint URLs stay live regardless — an external site
+ *  still needs Submit/Event/State to embed a flag-mode challenge, since
+ *  `/api/ai/submit` also runs through the same token this panel's URLs
+ *  expose. */
 export function AiIntegrationPanel({
   challenge,
   signingKey,
@@ -176,6 +187,7 @@ export function AiIntegrationPanel({
   testOutcome,
   onSendTest,
 }: AiIntegrationPanelProps) {
+  const flagOnly = challenge.mode === "flag";
   return (
     <div className="flex flex-col gap-3 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
       <div className="flex flex-col gap-1">
@@ -195,67 +207,76 @@ export function AiIntegrationPanel({
         </ul>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">
-          Signing key
-          <button type="button" onClick={onToggleReveal} className="ml-2 text-white hover:underline">
-            {revealed ? "Hide" : "Reveal"}
-          </button>
-        </span>
-        <div className="flex items-center gap-2">
-          {/* The real key is referenced here ONLY while revealed — see the
-              file header comment on why this, and not `type="password"`, is
-              what actually keeps it out of the DOM while masked. */}
-          <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-zinc-300">
-            {revealed ? signingKey : MASKED_KEY}
-          </code>
-          <CopyButton value={signingKey} label="Copy signing key" />
-        </div>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={onRequestRotate}
-          className="self-start rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
-        >
-          Rotate
-        </button>
-      </div>
+      {flagOnly ? (
+        <p className="text-xs text-muted">
+          The signing key and Send test apply to event-mode challenges only — this challenge is graded solely
+          through a typed flag submitted to the Submit endpoint above.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted">
+              Signing key
+              <button type="button" onClick={onToggleReveal} className="ml-2 text-white hover:underline">
+                {revealed ? "Hide" : "Reveal"}
+              </button>
+            </span>
+            <div className="flex items-center gap-2">
+              {/* The real key is referenced here ONLY while revealed — see the
+                  file header comment on why this, and not `type="password"`, is
+                  what actually keeps it out of the DOM while masked. */}
+              <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-zinc-300">
+                {revealed ? signingKey : MASKED_KEY}
+              </code>
+              <CopyButton value={signingKey} label="Copy signing key" />
+            </div>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onRequestRotate}
+              className="self-start rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
+            >
+              Rotate
+            </button>
+          </div>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Test curl (dry run)</span>
-        <pre className="overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-zinc-300">
-          {testCurl(origin, challenge.id, revealed, signingKey)}
-        </pre>
-        <span className="text-xs text-muted">{TOKEN_CAPTION}</span>
-      </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted">Test curl (dry run)</span>
+            <pre className="overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-zinc-300">
+              {testCurl(origin, challenge.id, revealed, signingKey)}
+            </pre>
+            <span className="text-xs text-muted">{TOKEN_CAPTION}</span>
+          </div>
 
-      <div className="flex flex-col gap-1">
-        <button
-          type="button"
-          disabled={pending || testPending}
-          onClick={onSendTest}
-          className="self-start rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
-        >
-          {testPending ? "Sending…" : "Send test"}
-        </button>
-        {testOutcome &&
-          (testOutcome.kind === "award" ? (
-            <p className="text-xs text-[#22c55e]">Would award — the dry run verified end to end.</p>
-          ) : (
-            <p className="text-xs text-[#e53e3e]">Test result: {testOutcome.label}</p>
-          ))}
-      </div>
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              disabled={pending || testPending}
+              onClick={onSendTest}
+              className="self-start rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
+            >
+              {testPending ? "Sending…" : "Send test"}
+            </button>
+            {testOutcome &&
+              (testOutcome.kind === "award" ? (
+                <p className="text-xs text-[#22c55e]">Would award — the dry run verified end to end.</p>
+              ) : (
+                <p className="text-xs text-[#e53e3e]">Test result: {testOutcome.label}</p>
+              ))}
+          </div>
 
-      {rotateConfirmOpen && (
-        <ConfirmModal
-          title="Rotate signing key?"
-          body={ROTATE_CONSEQUENCE}
-          confirmLabel="Rotate key"
-          danger
-          pending={pending}
-          onConfirm={onConfirmRotate}
-          onCancel={onCancelRotate}
-        />
+          {rotateConfirmOpen && (
+            <ConfirmModal
+              title="Rotate signing key?"
+              body={ROTATE_CONSEQUENCE}
+              confirmLabel="Rotate key"
+              danger
+              pending={pending}
+              onConfirm={onConfirmRotate}
+              onCancel={onCancelRotate}
+            />
+          )}
+        </>
       )}
     </div>
   );
