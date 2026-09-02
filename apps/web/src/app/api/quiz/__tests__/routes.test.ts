@@ -1,7 +1,7 @@
 // Route-level tests for the quiz API: the contestant answer route and the
-// admin authoring route. Auth guard, quiz-store, and the Upstash pipeline
-// (used only for the admin route's audit write) are all mocked — no Redis
-// or GitHub session needed.
+// admin authoring route. Auth guard, quiz-store, and the shared admin-store
+// audit/error helpers (`writeAdminAudit`/`adminErrorLabel` — see
+// admin-store.ts) are all mocked — no Redis or GitHub session needed.
 //
 // login is ALWAYS derived from the session server-side for the contestant
 // route; the admin route is gated by requireAdmin and shape-checks its
@@ -15,6 +15,7 @@
 // BODY, not just the status: a wrong status with a real payload attached
 // would still be the leak.
 
+import { inspect } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -28,7 +29,7 @@ const {
   upsertQuestion,
   deleteQuestion,
   importBundle,
-  upstashPipeline,
+  writeAdminAudit,
   QUIZ_ID_RE,
   QuizValidationError,
 } = vi.hoisted(() => {
@@ -55,7 +56,7 @@ const {
     upsertQuestion: vi.fn(),
     deleteQuestion: vi.fn(),
     importBundle: vi.fn(),
-    upstashPipeline: vi.fn(),
+    writeAdminAudit: vi.fn(),
     QUIZ_ID_RE: /^[\w-]{1,64}$/,
     QuizValidationError,
   };
@@ -76,8 +77,13 @@ vi.mock("@/lib/quiz-store", () => ({
   QUIZ_ID_RE,
   QuizValidationError,
 }));
-vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
-vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
+// `adminErrorLabel` is the real (name+message, capped) implementation, not a
+// mock — mirrors admin/classic/route.test.ts and admin/ai/route.test.ts's
+// idiom.
+vi.mock("@/lib/admin-store", () => ({
+  writeAdminAudit,
+  adminErrorLabel: (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : "non-Error throw"),
+}));
 
 import { POST as answerPOST } from "@/app/api/quiz/answer/route";
 import {
@@ -127,12 +133,12 @@ beforeEach(() => {
   listQuestionsForAdmin.mockReset();
   upsertQuestion.mockReset();
   deleteQuestion.mockReset();
-  upstashPipeline.mockReset();
+  writeAdminAudit.mockReset();
   getSession.mockResolvedValue(SESSION);
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
   requireGatePassed.mockResolvedValue(true);
   hasTeam.mockResolvedValue(true);
-  upstashPipeline.mockResolvedValue([{ result: 1 }, { result: "OK" }]);
+  writeAdminAudit.mockResolvedValue(undefined);
 });
 
 describe("POST /api/quiz/answer", () => {
@@ -408,6 +414,33 @@ describe("POST /api/admin/quiz", () => {
     expect(res.status).toBe(503);
   });
 
+  it("503s and logs neither the answer key nor any other own property of the thrown error", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A driver-decorated error, matching the shape `adminErrorLabel`'s own
+    // docstring warns about: the message itself is generic, but the error
+    // carries OWN PROPERTIES with the failed command's arguments — exactly
+    // what a naive `console.error(err)` would print in full, and what the
+    // name+message-only discipline must drop.
+    const err = new Error("upstash down");
+    Object.assign(err, { command: ["HSET", "ctf:quiz:key"], args: ["opt-right"] });
+    upsertQuestion.mockRejectedValue(err);
+    const res = await adminPOST(adminReq("POST", CREATE_PAYLOAD));
+    expect(res.status).toBe(503);
+
+    // Every logged argument must be a primitive STRING, never the raw error
+    // object — see admin/ai/route.test.ts's equivalent case for why this,
+    // rather than a `logged.not.toContain(...)` string check alone, is what
+    // actually distinguishes redacted logging from raw logging.
+    for (const call of spy.mock.calls) {
+      for (const arg of call) {
+        expect(typeof arg).toBe("string");
+      }
+    }
+    const logged = spy.mock.calls.map((call) => call.map((arg) => inspect(arg, { depth: 5 })).join(" ")).join("\n");
+    expect(logged).not.toContain("opt-right");
+    spy.mockRestore();
+  });
+
   it("creates/updates a question, echoes it back, and writes an audit line", async () => {
     upsertQuestion.mockResolvedValue(ADMIN_ROW);
     const res = await adminPOST(adminReq("POST", CREATE_PAYLOAD));
@@ -415,12 +448,7 @@ describe("POST /api/admin/quiz", () => {
     expect(upsertQuestion).toHaveBeenCalledWith(QUESTION, ["opt-right"]);
     expect(await res.json()).toEqual({ question: QUESTION, correct: ["opt-right"] });
 
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    expect(commands[0][0]).toBe("LPUSH");
-    expect(commands[0][1]).toBe("ctf:admin:audit");
-    expect(String(commands[0][2])).toContain('"by":"alice"');
-    expect(String(commands[0][2])).toContain('"questionId":"q1"');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "quiz-upsert", { questionId: "q1" });
   });
 
   it("echoes the STORED correct set, not the caller's raw array", async () => {
@@ -463,7 +491,7 @@ describe("DELETE /api/admin/quiz", () => {
     const res = await adminDELETE(adminReq("DELETE", { id: "q1" }));
     expect(res.status).toBe(200);
     expect(deleteQuestion).toHaveBeenCalledWith("q1");
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "quiz-delete", { questionId: "q1" });
   });
 
   it("400 with the message for a QuizValidationError from the store", async () => {
@@ -522,7 +550,6 @@ describe("POST /api/admin/quiz (bulk import)", () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     importBundle.mockClear();
     importBundle.mockResolvedValue({ created: 1, updated: 0 });
-    upstashPipeline.mockResolvedValue([{ result: 1 }, { result: 1 }]);
   });
 
   it("imports a valid bundle and returns the summary", async () => {
@@ -576,10 +603,7 @@ describe("POST /api/admin/quiz (bulk import)", () => {
   it("audits the import with its counts", async () => {
     importBundle.mockResolvedValue({ created: 3, updated: 2 });
     await adminPOST(adminReq("POST", { import: JSON.stringify(VALID_BUNDLE) }));
-    const audit = JSON.stringify(upstashPipeline.mock.calls.at(-1)?.[0]);
-    expect(audit).toContain("quiz-import");
-    expect(audit).toContain('\\"created\\":3');
-    expect(audit).toContain('\\"updated\\":2');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "quiz-import", { created: 3, updated: 2 });
   });
 
   it("503s a store failure rather than blaming the organizer's file", async () => {

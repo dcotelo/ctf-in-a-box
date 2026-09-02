@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { adminErrorLabel, writeAdminAudit } from "@/lib/admin-store";
 import { parseBundle } from "@/lib/classic-io";
 import {
   ClassicValidationError,
@@ -13,7 +13,6 @@ import {
   type AdminChallenge,
   type Challenge,
 } from "@/lib/classic-store";
-import { upstashPipeline } from "@/lib/upstash";
 
 /**
  * Organizer authoring surface for the classic (flag) module: list (GET),
@@ -169,24 +168,12 @@ function errorResponse(err: unknown): Response {
   if (err instanceof ClassicValidationError) {
     return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
   }
-  console.error("[admin/classic] store write failed", err);
+  console.error("[admin/classic] store write failed:", adminErrorLabel(err));
   return NextResponse.json({ error: "classic store write failed" }, { status: 503 });
 }
 
-/** Appends one audit line, mirroring admin-store's / the quiz admin route's
- *  LPUSH+LTRIM pattern. Best-effort: an audit-write failure is logged but
- *  never fails a request whose actual data write already succeeded. */
-async function writeAudit(actor: string, action: string, detail: Record<string, unknown>): Promise<void> {
-  const audit = JSON.stringify({ at: new Date().toISOString(), by: actor, action, ...detail });
-  try {
-    await upstashPipeline([
-      ["LPUSH", ADMIN_AUDIT_KEY, audit],
-      ["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1],
-    ]);
-  } catch (err) {
-    console.error("[admin/classic] audit write failed", err);
-  }
-}
+// Audit writes go through admin-store.ts's shared `writeAdminAudit` — see the
+// header comment on that function.
 
 export async function GET(request: Request) {
   const gate = await requireAdmin(request.headers);
@@ -220,7 +207,7 @@ export async function POST(request: Request) {
     } catch (err) {
       return errorResponse(err);
     }
-    await writeAudit(gate.login, "classic-categories", { count: categories.length });
+    await writeAdminAudit(gate.login, "classic-categories", { count: categories.length });
     return NextResponse.json({ categories });
   }
 
@@ -241,7 +228,7 @@ export async function POST(request: Request) {
       return errorResponse(err);
     }
 
-    await writeAudit(gate.login, "classic-import", {
+    await writeAdminAudit(gate.login, "classic-import", {
       created: summary.created,
       updated: summary.updated,
       categories: summary.categories,
@@ -261,7 +248,7 @@ export async function POST(request: Request) {
     return errorResponse(err);
   }
 
-  await writeAudit(gate.login, "classic-upsert", { challengeId: c.id });
+  await writeAdminAudit(gate.login, "classic-upsert", { challengeId: c.id });
   // Echoes the STORED record (flag trimmed by `upsertChallenge`), not the raw
   // payload, so the authoring client's state matches what a subsequent GET
   // would return rather than drifting from it.
@@ -282,6 +269,6 @@ export async function DELETE(request: Request) {
     return errorResponse(err);
   }
 
-  await writeAudit(gate.login, "classic-delete", { challengeId: id });
+  await writeAdminAudit(gate.login, "classic-delete", { challengeId: id });
   return NextResponse.json({ ok: true });
 }
