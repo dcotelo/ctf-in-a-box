@@ -353,13 +353,13 @@ Honestly, as shipped:
   whole-event archive bundle carries `classic` and `quiz` content
   end-to-end; `ai`'s challenges, keys and progress are not part of it yet.
   Archiving and restoring an event currently loses the `ai` board.
-  <!-- backfill: issue number --> (#NNN)
+  ([#250](https://github.com/dcotelo/ctf-in-a-box/issues/250))
 - **No dual-key window during signing-key rotation.** Because rotation is
   immediate (§9), there's no way to roll your backend to a new key without
   a gap in which either the old key still verifies briefly or your posts
   fail until redeployed.
-  <!-- backfill: issue number --> (#NNN)
+  ([#251](https://github.com/dcotelo/ctf-in-a-box/issues/251))
 - **No per-challenge attempt cap.** The graded (flag) path only throttles
   with the cooldown in §5/§7 — there is no ceiling on total attempts, only
   on how fast they can come in.
-  <!-- backfill: issue number --> (#NNN)
+  ([#252](https://github.com/dcotelo/ctf-in-a-box/issues/252))
