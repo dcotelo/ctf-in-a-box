@@ -27,7 +27,7 @@ import type { ModuleId } from "@/lib/modules";
 // export ALL_MODULE_IDS either, and this list only has to be complete enough
 // to filter through the fixture's own `isModuleEnabled`. `modules.test.ts`
 // pins the real vocabulary.
-const KNOWN: readonly ModuleId[] = ["secure-development", "quiz", "classic"];
+const KNOWN: readonly ModuleId[] = ["secure-development", "quiz", "classic", "ai"];
 
 /** Reads an export that the file's mock may not define at all.
  *

@@ -20,7 +20,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import ChallengeDetail, { type ClassicChallengeView } from "@/components/challenge-detail";
 import ClassicHint from "@/components/classic-hint";
-import { deriveStatus } from "../derive-status";
+import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
