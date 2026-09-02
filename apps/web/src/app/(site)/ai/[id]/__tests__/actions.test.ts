@@ -50,6 +50,15 @@ describe("submitAiFlagAction gates", () => {
     expect(submitAiFlag).not.toHaveBeenCalled();
   });
 
+  // The gate fails CLOSED: an error reading it must read the same as "not
+  // passed", never as "passed". Opposite direction from the team check below
+  // on purpose — see the comment in actions.ts.
+  it("refuses — without touching the store — when the gate check itself errors", async () => {
+    requireGatePassed.mockRejectedValueOnce(new Error("redis down"));
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "gate" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
   it("refuses — without touching the store — for a signed-out caller", async () => {
     getSession.mockResolvedValue(null);
     await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "unauthorized" });
@@ -75,6 +84,20 @@ describe("submitAiFlagAction gates", () => {
     hasTeam.mockResolvedValue(false);
     const result = await submitAiFlagAction("a1", "CTF{x}");
     expect(result).toHaveProperty("error");
+  });
+
+  // The team check fails OPEN — the opposite direction from the gate above:
+  // an error must not drop a solve an entitled contestant is making. Mocked
+  // to reject here purely to pin the action's OWN guard; `hasTeam` itself
+  // already swallows a store error and resolves `true` (team-store.ts).
+  it("completes the submit when the team check itself errors", async () => {
+    hasTeam.mockRejectedValueOnce(new Error("redis down"));
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({
+      correct: true,
+      points: 40,
+      already: false,
+    });
+    expect(submitAiFlag).toHaveBeenCalledWith("alice", "a1", "CTF{x}");
   });
 
   it("refuses an id that does not match AI_ID_RE before the store sees it", async () => {

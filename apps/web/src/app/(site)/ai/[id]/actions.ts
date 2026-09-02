@@ -75,15 +75,43 @@ function toResponse(result: AiSubmitResult): SubmitResponse {
  */
 export async function submitAiFlagAction(challengeId: string, flag: string): Promise<SubmitResponse> {
   if (!(await isModuleLive("ai"))) return { error: "unavailable" };
-  if (!(await requireGatePassed())) return { error: "gate" };
+
+  // The PRE-EVENT gate fails CLOSED — the opposite direction from the team
+  // check below. `requireGatePassed()` touches no store today and documents
+  // that it cannot error mid-request (gate-request.ts), but that is an
+  // implementation detail of the current check, not a contract this action
+  // may lean on: a future gate that reads from somewhere fallible must not
+  // silently start opening the board on an error. An exception here is
+  // treated exactly like a `false` — refused — because letting it propagate
+  // unhandled would hand the CLIENT (not this action) the decision, and open
+  // is the wrong default for a gate whose entire job is keeping the board
+  // closed until the event starts.
+  let gatePassed: boolean;
+  try {
+    gatePassed = await requireGatePassed();
+  } catch {
+    gatePassed = false;
+  }
+  if (!gatePassed) return { error: "gate" };
 
   const session = await auth.api.getSession({ headers: await headers() });
   const login = (session?.user as { login?: string } | undefined)?.login;
   if (!login) return { error: "unauthorized" };
 
-  // Fails OPEN, inheriting `hasTeam` — a Redis blip must let a solve through
-  // rather than drop one a contestant is entitled to make.
-  if (!(await hasTeam(login))) return { error: "no-team" };
+  // Fails OPEN — same doctrine as the manual-freeze read, and the opposite
+  // direction from the gate above: a team-store error must not drop a solve a
+  // contestant is entitled to make, so a rejection here is read the same as
+  // "has a team" rather than refused. `hasTeam` already swallows its own
+  // errors and returns `true` (team-store.ts), so this only guards a caller
+  // that manages to reject anyway (e.g. a test double, or a future change to
+  // that contract) from breaking an entitled submit.
+  let teamed: boolean;
+  try {
+    teamed = await hasTeam(login);
+  } catch {
+    teamed = true;
+  }
+  if (!teamed) return { error: "no-team" };
 
   if (typeof challengeId !== "string" || !AI_ID_RE.test(challengeId)) return { error: "invalid" };
   if (typeof flag !== "string" || !flag.trim() || flag.length > FLAG_MAX_LEN) return { error: "invalid" };

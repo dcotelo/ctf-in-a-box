@@ -13,16 +13,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { isModuleEnabled, getSession, listAiChallenges, listAiCategories, getAiSolveCounts, getViewerAi, getResolvedModules } =
-  vi.hoisted(() => ({
-    isModuleEnabled: vi.fn(),
-    getSession: vi.fn(),
-    listAiChallenges: vi.fn(),
-    listAiCategories: vi.fn(),
-    getAiSolveCounts: vi.fn(),
-    getViewerAi: vi.fn(),
-    getResolvedModules: vi.fn(),
-  }));
+const {
+  isModuleEnabled,
+  getSession,
+  listAiChallenges,
+  listAiCategories,
+  getAiSolveCounts,
+  getViewerAi,
+  getResolvedModules,
+  redirectIfTeamless,
+} = vi.hoisted(() => ({
+  isModuleEnabled: vi.fn(),
+  getSession: vi.fn(),
+  listAiChallenges: vi.fn(),
+  listAiCategories: vi.fn(),
+  getAiSolveCounts: vi.fn(),
+  getViewerAi: vi.fn(),
+  getResolvedModules: vi.fn(),
+  redirectIfTeamless: vi.fn(),
+}));
 
 const captured: { challenges: Record<string, unknown>[] } = { challenges: [] };
 
@@ -33,6 +42,11 @@ vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 // is about the view model's fields, and an unmocked SMEMBERS turns it into a
 // test of the datastore.
 vi.mock("@/lib/admin-admins", () => ({ listStoredAdmins: async () => [] }));
+// Same reasoning as the admin-grants mock above, for the team redirect: with
+// TEAM_WRITES_ENABLED=true this is a real team-store lookup, and this suite
+// has no business depending on that runtime flag. Same idiom as the `[id]`
+// page's own suite.
+vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
@@ -88,6 +102,7 @@ beforeEach(() => {
   getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
   listAiCategories.mockResolvedValue(["Prompt Injection"]);
   getAiSolveCounts.mockResolvedValue(new Map());
+  redirectIfTeamless.mockResolvedValue(undefined);
   getResolvedModules.mockResolvedValue([
     {
       id: "ai",
