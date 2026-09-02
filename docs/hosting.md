@@ -61,11 +61,16 @@ declares, so a resumed run never silently switches your event to a different
 shape. At least one module must be enabled — an answer naming none (or an id
 this build doesn't know) is re-asked rather than written.
 
-**`ai` is offered but not yet playable.** The wizard accepts it and writes
-`ai: {}`, and every reader of `event.yaml` recognizes it — but this release
-ships only the module's contract and store layer. There is no `/ai` route, no
-nav entry and no admin section behind it yet, so enabling `ai` today changes
-nothing a contestant can see. Leave it out until the release that adds them.
+**`ai` is offered and playable.** The wizard accepts it and writes `ai: {}`,
+every reader of `event.yaml` recognizes it, and enabling it gives contestants
+a nav entry, an `/ai` board and an `/ai/[id]` challenge page. Unlike
+`secure-development`'s targets, `ai` has no challenges of its own baked into
+the box — an organizer authors each one from `/admin` (mode
+flag/event/both, the external launch URL, categories, an optional paid hint,
+the `aiCooldownSec` submission cooldown), and the challenge itself is hosted
+on a site outside the box that integrates against the published contract in
+[docs/ai-module.md](ai-module.md). Enable it and author at least one
+challenge before the event, or contestants see an empty board.
 
 The rest of this section is the same sequence as explicit commands, for when
 you'd rather drive it yourself or script it. Each step is either a
@@ -542,13 +547,13 @@ modules:
                                     # app-side — see docs/operations.md's "Quiz"
   classic: {}                     # jeopardy-style flag board, scored app-side
                                     # — see docs/operations.md's "Classic"
-  ai: {}                          # externally hosted AI/LLM challenges.
-                                    # REGISTERED AND SELECTABLE, BUT NOT YET
-                                    # PLAYABLE: this release ships the module's
-                                    # contract and store layer only — no /ai
-                                    # route, no nav entry, no admin section.
-                                    # Enabling it changes nothing a contestant
-                                    # can see until a later release adds them.
+  ai: {}                          # externally hosted AI/LLM challenges,
+                                    # authored in /admin (mode flag/event/both,
+                                    # launch URL, categories, hints,
+                                    # aiCooldownSec). See docs/ai-module.md for
+                                    # what an external challenge site must
+                                    # implement to integrate, and
+                                    # docs/modules.md §5.
 ```
 
 **`ai` is new to the module-id enum in this release, and adding it breaks

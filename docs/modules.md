@@ -15,22 +15,22 @@ example of an app-side module end to end.
 A **module** is a CTF vertical — a family of challenges with its own targets,
 scoring logic, and provisioning steps — plugged into the CTF-in-a-box
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
-ships three playable registered modules: `secure-development` (the OWASP Secure
+ships four playable registered modules: `secure-development` (the OWASP Secure
 Development CTF patch-the-vulnerability format: fork target app, find + patch
 the vuln, PR back, GitHub Actions scores the patch), `quiz` (a self-paced
 single/multi-select question bank, authored in `/admin` and scored entirely
-inside the app — no GitHub, `sync`, or `scorer` involvement at all), and
-`classic` (a jeopardy-style flag board: organizer-authored challenges, each
+inside the app — no GitHub, `sync`, or `scorer` involvement at all), `classic`
+(a jeopardy-style flag board: organizer-authored challenges, each
 hiding a flag, graded the instant a contestant submits a matching string —
 scored entirely inside the app exactly like `quiz`, with no GitHub/`sync`/
 `scorer` involvement either; §5 covers what its UI contract satisfies and
-what it still doesn't, for both app-side modules). A fourth id, `ai`
-(externally hosted AI/LLM challenges), is registered in the same enum and
-accepted by every reader of `event.yaml`; its contract, store layer and
-contestant surface (nav entry, the `/ai` board, the `/ai/[id]` challenge
-page) have shipped, and its admin section has not — so enabling it gives
-contestants a playable module the organizer cannot yet author from the
-panel. This document is
+what it still doesn't, for both app-side modules), and `ai` (externally
+hosted AI/LLM challenges: an organizer authors each challenge in `/admin` —
+mode flag/event/both, the external launch URL, categories, an optional paid
+hint, a submission cooldown — and a contestant plays it on the external site
+or types a flag back on `/ai/[id]`; see
+[docs/ai-module.md](ai-module.md) for the external integrator's side of the
+contract). This document is
 the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
 `secure-development` as the worked example throughout, since it is the one
@@ -260,7 +260,7 @@ through the generator, `apps/web/scripts/generate-event-config.mjs`, which
 emits a structured `modules` array plus a derived back-compat `targets` array)
 to a `ModuleDef` — display name, description, and nav entry are code-side
 registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
-entirely config-driven. Four ids are registered today, three of them
+entirely config-driven. Four ids are registered today, all four
 **real, working modules** rather than registry-proving placeholders:
 `secure-development` (targets, catalogue,
 GitHub-mediated scoring — the worked example throughout this document),
@@ -268,19 +268,24 @@ GitHub-mediated scoring — the worked example throughout this document),
 inside the app — see
 [docs/architecture.md#quiz-data-flow](architecture.md#quiz-data-flow) for its
 data flow and `docs/operations.md`'s "Quiz" section for the organizer-facing
-authoring/retry-knob guide), and `classic` (a jeopardy-style flag board,
+authoring/retry-knob guide), `classic` (a jeopardy-style flag board,
 also scored entirely inside the app — see
 [docs/architecture.md#classic-data-flow](architecture.md#classic-data-flow)
 for its data flow and `docs/operations.md`'s "Classic" section for the
-organizer-facing authoring/cooldown guide). The fourth, `ai`, is the honest
-exception: it is registered and selectable (the wizard offers it, and all
-three `event.yaml` readers accept `ai: {}`), and its contract, store layer
-and contestant surface have shipped — the nav entry, the `/ai` board and the
-`/ai/[id]` challenge page (the launcher, and the in-box flag form for a
-`flag`/`both` challenge). What has *not* shipped is the organizer's half:
-there is no admin section, so the challenges an event plays have to arrive
-some other way. It is a module landing in stages, and the stage it is at is
-"playable, not yet authorable". An id outside the
+organizer-facing authoring/cooldown guide), and `ai` (challenges hosted on an
+external site, played there or graded by a typed flag back on `/ai/[id]`).
+Registered and selectable, and its contract, store layer, contestant surface
+**and** admin section have all shipped: the nav entry, the `/ai` board and
+the `/ai/[id]` challenge page (the launcher, and the in-box flag form for a
+`flag`/`both` challenge), plus a full authoring UI
+(`admin-ai-controls.tsx`) for mode/URL/categories/hint and the
+`aiCooldownSec` submission-cooldown knob. The honest gap left in this module
+is narrower than "not yet authorable": there is no bulk import/export for its
+catalogue, unlike `quiz`'s and `classic`'s shared bundle format, so an event
+migrating an `ai` board between boxes has to re-author it by hand (`ai` also
+stays out of the whole-event archive bundle — #155's `ai` half, tracked as a
+follow-up). See [docs/ai-module.md](ai-module.md) for what an external
+challenge site must implement to integrate with it. An id outside the
 registry still fails the build loudly (`generate-event-config.mjs`'s
 `validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
 
@@ -887,6 +892,43 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 | `apps/web/src/lib/leaderboard/module-contributions.ts` + `apps/web/src/lib/leaderboard/team-fold.ts` | the leaderboard overlay (points added, never attributed) and the union-by-item team dedupe it shares with `quiz` |
 | `apps/web/src/lib/modules.ts` | register display name/description/nav plus the `home`/`guide`/`rules`/`faq`/`terms`/`routeCard` copy blocks (§5.5–5.7) |
 | `event.yaml.example` + `README.md` | document the module |
+
+`ai`'s actual footprint in this PR series — a module shaped like `classic`
+(no target, no scorer, app-side grading) but with an external launch step and
+two independent ways to report a solve back:
+
+| File | What it added |
+|---|---|
+| `sync/src/config.js` | add `ai` to `KNOWN_MODULES` (tolerated, same reasoning as `classic` — `ai` never produces a score for `sync` to relay — §2) |
+| `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
+| `setup/ctf-setup.sh` | recognise the `ai` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz`/`classic` (§7) |
+| `apps/web/src/lib/ai-keys.ts` | key names/builders, challenge-id generation, the `AiMode`/`HintTarget` shapes, `validateUrlTemplate` — dependency-free, shared by the admin form and the server-only store |
+| `apps/web/src/lib/ai-defaults.ts` | the module's shared constants (`AI_COOLDOWN_SEC`, …) the server and the admin UI both need, so neither can drift from the other |
+| `apps/web/src/lib/ai-token.ts` | the launch token: EdDSA/Ed25519 signing and verification (`signLaunchToken`), plus the HMAC signing helper for a `mode: "event"` solve report (`signEventBody`) — see [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric) for why the two are different key types |
+| `apps/web/src/lib/ai-store.ts` | the module's own `ctf:ai:*` Redis store — challenges, per-challenge signing/launch keys, flag grading, hints — and the admin/contestant secrecy split |
+| `apps/web/src/lib/ai-launch.ts` | building a launch URL from a challenge's `urlTemplate` and a minted token (`mintLaunchUrl`/`buildLaunchClaims`) |
+| `apps/web/src/lib/ai-http.ts` | shared request/response helpers for the four contestant-facing `/api/ai/*` routes |
+| `apps/web/src/lib/app-origin.ts` | the launch token's `iss` — the app's own configured origin, never a request's `Host` header |
+| `apps/web/src/app/(site)/ai/page.tsx` + `not-found.tsx` | the contestant-facing board (a 404 when the module is disabled, same gate `/flags` and `/quiz` already run) |
+| `apps/web/src/app/(site)/ai/[id]/page.tsx` + `layout.tsx` + `not-found.tsx` + `actions.ts` | the challenge page: the launcher (mints a personal launch URL server-side) and, for a `flag`/`both` challenge, the in-box flag form |
+| `apps/web/src/app/api/ai/launch-key/route.ts`, `.../submit/route.ts`, `.../state/route.ts`, `.../event/route.ts` | the four contestant-facing routes: publish the launch public key, grade a typed flag, read a login's own progress, and accept an external site's signed solve event |
+| `apps/web/src/app/api/admin/ai/route.ts` + `.../test/route.ts` | the organizer-authoring wire contract, plus the "Send test" route that calls the real `/api/ai/event` handler in-process with `dryRun: true` |
+| `apps/web/src/components/admin-ai-controls.tsx` + `admin-ai-integration.tsx` | the organizer's challenge authoring UI (mode, launch URL, categories, hint, `order`) and cooldown knob, plus the per-challenge integration panel (endpoint URLs, the masked signing key with reveal/rotate, a ready-to-run test curl, and the Send test button) |
+| `apps/web/src/app/(site)/flags/page.tsx` + `apps/web/src/components/challenge-board.tsx` + `apps/web/src/components/challenge-detail.tsx` | the contestant-facing board and challenge page `ai` shares with `classic`, parameterised by `basePath` (already listed in `classic`'s row above — no separate copy for `ai`) |
+| `apps/web/src/components/hint-reveal-button.tsx` | extended to cover an `ai` hint purchase alongside secure-development's and classic's |
+| `apps/web/src/lib/hint-store.ts` | `ai` added to `HintTarget`; the anti-burner solve-count gate reads `ai`'s whole-board solve count the same way it reads `classic`'s |
+| `apps/web/src/lib/leaderboard/module-contributions.ts` | the leaderboard overlay's `ai` case — points added, never attributed, same verb as `quiz`/`classic` |
+| `apps/web/src/lib/metrics-store.ts` | `ai` added to the per-login read list, the `earnedRows` fold and the `modules` split, so Insights reports on it (§10.4) |
+| `apps/web/src/lib/activity-keys.ts` | an `ai-solve` activity type, logged on fresh solves only |
+| `apps/web/src/lib/admin-store.ts` | the `aiCooldownSec` runtime setting (validated, capped at `AI_COOLDOWN_SEC_MAX`) and the module's rows in `resetEvent`'s PROGRESS/CONTENT split |
+| `apps/web/src/lib/demo-fixture.ts` | demo seed data for the `ai` board, gated the same way `quiz`'s and `classic`'s are — a disabled `ai` module leaves the seed byte-for-byte identical to pre-`ai` behavior |
+| `apps/web/src/lib/modules.ts` | register display name/description/nav plus the `home`/`guide`/`rules`/`faq`/`terms`/`routeCard` copy blocks (§5.5–5.7) |
+| `docs/decisions.md` | [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric) — why the launch token is asymmetric while event signatures stay symmetric |
+| `docs/ai-module.md` + `event.yaml.example` + `README.md` | the external integrator's contract, and documenting the module for organizers |
+
+`ai` has no bulk import/export and its catalogue does not ride the whole-event
+archive bundle, unlike `quiz`'s and `classic`'s shared format (§5) — tracked
+as a follow-up (#155's `ai` half).
 
 Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
 this way — there is no target, no rubric, and no catalogue for the scorer to

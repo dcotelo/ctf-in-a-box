@@ -218,6 +218,8 @@ Pick the doc for what you're doing right now:
 - [Architecture](architecture.md) — what runs where, how a score gets from a
   contestant's PR to the leaderboard.
 - [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
+- [AI module](ai-module.md) — the external integrator's contract for the `ai`
+  module: launch tokens, verifying them, and reporting a solve back.
 - [Scorer](scorer.md) — both rubric grammars, building your own scorer image,
   and wiring the self-contained scoring workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the way

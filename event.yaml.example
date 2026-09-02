@@ -12,9 +12,10 @@ github:
   org: my-event-org                # disposable per-event org; also the fork org the app's challenge links point at
   oauth_client_id: Iv1.xxxx        # OAuth app client id (secret goes in .env)
 # The modules this event STARTS with, and the set it falls back to if Redis is
-# unreachable — not the live truth. Quiz and Classic can be switched on and off
-# from /admin during the event, without a rebuild (issue #175), and editing
-# this file mid-event changes nothing until you rebuild. Secure Development is
+# unreachable — not the live truth. Quiz, Classic and AI can be switched on and
+# off from /admin during the event, without a rebuild (issue #175), and
+# editing this file mid-event changes nothing until you rebuild. Secure
+# Development is
 # the exception: it is configured HERE and only here, because it needs its
 # scorer and sync services and its provisioned forks, none of which the app can
 # conjure. See docs/operations.md and ADR 52.
@@ -52,24 +53,28 @@ modules:
                                     # and visible to anyone with /admin access.
                                     # See docs/operations.md's "Classic"
                                     # section and docs/modules.md §5.
-  ai: {}                           # externally hosted AI/LLM challenges — the
-                                    # newest id in this enum, and the one to
-                                    # know something about before you copy it.
-                                    # REGISTERED AND ACCEPTED (the wizard
-                                    # offers it; all three readers of this file
-                                    # take `ai: {}`), BUT NOT YET PLAYABLE:
-                                    # this release ships the module's contract
-                                    # and store layer only. There is no /ai
-                                    # route, no nav link and no admin section
-                                    # behind it, so enabling it changes nothing
-                                    # a contestant can see until a later
-                                    # release adds them — drop this line if you
-                                    # would rather not carry a module that does
-                                    # nothing yet. Adding the id broke no
-                                    # existing config: every event.yaml that
-                                    # was valid before still is, and a running
-                                    # event needs no change. See
-                                    # docs/modules.md §5.
+  ai: {}                           # externally hosted AI/LLM challenges (no
+                                    # targets/score_ingest of its own —
+                                    # nothing to configure but presence).
+                                    # Turns on: an "AI Challenges" nav link
+                                    # and /ai page for contestants; an AI
+                                    # section in /admin to author challenges
+                                    # (mode flag/event/both, the external
+                                    # launch URL, categories, an optional paid
+                                    # hint) and tune the submission-cooldown
+                                    # knob (aiCooldownSec, in SECONDS, default
+                                    # 5); and ai points added on top of the
+                                    # combined leaderboard, deduped per team by
+                                    # challenge. Each challenge is hosted on a
+                                    # site outside the box — the organizer
+                                    # authors it here, but building or running
+                                    # that external site is a separate job; see
+                                    # docs/ai-module.md for what it must
+                                    # implement to integrate. Adding the id
+                                    # broke no existing config: every
+                                    # event.yaml that was valid before still
+                                    # is, and a running event needs no change.
+                                    # See docs/modules.md §5.
 # Don't want to write this file by hand? `./setup/ctf-setup.sh` (the wizard)
 # asks which modules to enable and then asks only what those modules need —
 # targets + score_ingest for secure-development, nothing for quiz, classic or
@@ -97,8 +102,8 @@ modules:
 # `sync` tolerates `secure-development` being absent (it exits cleanly with
 # nothing to poll) and `ctf-setup.sh org`/`render`/`doctor` skip fork
 # provisioning; `/challenges` 404s, and `/how-to-play`, `/rules`, the landing
-# page, and the leaderboard all compose from whichever of `quiz`/`classic` is
-# enabled. See
+# page, and the leaderboard all compose from whichever of `quiz`/`classic`/`ai`
+# is enabled. See
 # docs/hosting.md's "Configuration" section and docs/modules.md §7.
 # NOTE: there is deliberately no `teams:` or `hints:` block here.
 # Both used to live in this file and neither was ever read, which is worse than

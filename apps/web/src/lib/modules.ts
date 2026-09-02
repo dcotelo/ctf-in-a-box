@@ -1013,9 +1013,12 @@ git push -u origin fix/<short-description>`,
       cta: { href: "/ai", label: "$ open a challenge" },
     },
     // Deliberately plain and factual, same discipline as quiz's and classic's
-    // copy: every claim below is checked against the implementation, and no
-    // claim is made about anything PR 4 (the admin panel) or PR 5 (hints) add
-    // later. Specifically checked against ai-store.ts, ai-token.ts and
+    // copy: every claim below is checked against the implementation — this
+    // block predates the admin panel and hints shipping, so it stuck to what
+    // was true at the time rather than promising either. Both have since
+    // shipped (admin-ai-controls.tsx; hint-store.ts's ai target) and neither
+    // needed this copy to change, since it never claimed they didn't exist.
+    // Specifically checked against ai-store.ts, ai-token.ts and
     // ai-launch.ts, and the /api/ai routes:
     //
     //   - Each challenge is hosted on an EXTERNAL site (`AiChallenge.urlTemplate`).
@@ -1044,8 +1047,11 @@ git push -u origin fix/<short-description>`,
     //     only on paused/already-solved/cooldown, same as classic. There IS a
     //     cooldown (`AI_COOLDOWN_SEC`), applied to the GRADED path only — a
     //     signed event has no wrong answer to rate-limit (`awardAiEvent` passes
-    //     cooldown 0). Nothing here promises hints (that's PR 5) or an admin
-    //     control panel (PR 4).
+    //     cooldown 0). Hints and the admin control panel have since shipped
+    //     (`admin-ai-controls.tsx`, `hint-store.ts`'s `ai` target) — nothing
+    //     in this copy claims otherwise, so nothing here needed to change for
+    //     that; this note just retires the "not yet" framing now that both are
+    //     real.
     home: {
       tagline: "AI Challenges",
       intro: () =>
