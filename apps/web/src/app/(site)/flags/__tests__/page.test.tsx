@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { isModuleEnabled, isAdminLogin, getSession, listChallenges, listCategories, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules } =
+const { isModuleEnabled, isAdminLogin, getSession, listChallenges, listCategories, getSolveCounts, getViewerClassic, getAdminSettings, getResolvedModules, deriveStatusSpy } =
   vi.hoisted(() => ({
     isModuleEnabled: vi.fn(),
     isAdminLogin: vi.fn(),
@@ -16,6 +16,7 @@ const { isModuleEnabled, isAdminLogin, getSession, listChallenges, listCategorie
     getViewerClassic: vi.fn(),
     getAdminSettings: vi.fn(),
     getResolvedModules: vi.fn(),
+    deriveStatusSpy: vi.fn(),
   }));
 
 vi.mock("server-only", () => ({}));
@@ -40,6 +41,16 @@ vi.mock("@/lib/classic-store", () => ({
   getViewerClassic,
   CLASSIC_COOLDOWN_SEC: 5,
 }));
+// Wraps (not replaces) the real deriveStatus, so every existing assertion on
+// rendered markup still exercises the real per-viewer status logic — only
+// the Finding-A cooldown-fallback test below inspects what `cooldownMs` this
+// wrapper was actually called with, since the board's markup doesn't render
+// cooldown state any differently from unsolved.
+vi.mock("@/lib/derive-status", async (orig) => {
+  const actual = await orig<typeof import("@/lib/derive-status")>();
+  deriveStatusSpy.mockImplementation(actual.deriveStatus);
+  return { deriveStatus: deriveStatusSpy };
+});
 
 import FlagsPage, { generateMetadata } from "@/app/(site)/flags/page";
 
@@ -199,6 +210,35 @@ describe("flags page view model", () => {
     // Non-vacuity: this really is the empty-state render, not a populated one.
     expect(html).toMatch(/no challenges are available/i);
     expect(html).toMatch(/sign in with github to submit flags/i);
+  });
+
+  // Finding A: getAdminSettings() must fail OPEN at the page level, same
+  // doctrine ai-store.ts's resolveSettings applies to this exact read (its
+  // /ai counterpart mirrors this test) — a Redis blip on the settings read
+  // must not take the whole public board down, only fall the cooldown back
+  // to the module default.
+  it("still renders the board when the settings read rejects, falling the cooldown back to the module default", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockRejectedValue(new Error("ECONNRESET"));
+    getViewerClassic.mockResolvedValue({ solved: {}, attempts: {} });
+
+    const html = renderToStaticMarkup(await FlagsPage());
+
+    // The board itself rendered — challenges are visible, not an error page.
+    expect(html).toContain('href="/flags/c1"');
+    expect(html).toContain('href="/flags/c2"');
+    expect(html).toContain('href="/flags/c3"');
+    // The cooldown fed to every per-challenge status derivation is the
+    // module default (CLASSIC_COOLDOWN_SEC, mocked to 5 above) in
+    // milliseconds — never NaN/0 from a blind `settings.classicCooldownSec`
+    // read off a `null` settings object, which is what an unguarded
+    // `settings.classicCooldownSec` would do once `settings` itself is `null`.
+    expect(deriveStatusSpy).toHaveBeenCalled();
+    for (const call of deriveStatusSpy.mock.calls) {
+      expect(call[2]).toBe(5000);
+    }
   });
 });
 

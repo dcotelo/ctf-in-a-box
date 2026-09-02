@@ -74,7 +74,11 @@ export default async function AiPage() {
     listAiCategories(),
     getAiSolveCounts(),
     login ? getViewerAi(login) : Promise.resolve<ViewerAi>({ solved: {}, attempts: {} }),
-    getAdminSettings(),
+    // Fails OPEN, same doctrine as ai-store.ts's own resolveSettings for this
+    // exact read: a Redis blip here must not take the whole public board
+    // down over a cooldown override, so a rejected settings read falls back
+    // to `null` (-> the module default below) rather than failing the page.
+    getAdminSettings().catch(() => null),
     getResolvedModules(),
   ]);
 
@@ -85,7 +89,7 @@ export default async function AiPage() {
   // note on why this must never be read off the registry default directly.
   const blurb = mod?.blurb ?? DEFAULT_BLURB;
 
-  const cooldownMs = (settings.aiCooldownSec ?? AI_COOLDOWN_SEC) * 1000;
+  const cooldownMs = (settings?.aiCooldownSec ?? AI_COOLDOWN_SEC) * 1000;
 
   // Built field by field from the public `AiChallenge` shape plus this
   // challenge's solve count and this viewer's derived status — never a

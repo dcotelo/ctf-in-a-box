@@ -16,6 +16,7 @@ const {
   getAdminSettings,
   getResolvedModules,
   redirectIfTeamless,
+  deriveStatusSpy,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -27,6 +28,7 @@ const {
   getAdminSettings: vi.fn(),
   getResolvedModules: vi.fn(),
   redirectIfTeamless: vi.fn(),
+  deriveStatusSpy: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -45,6 +47,16 @@ vi.mock("@/lib/ai-store", () => ({
   getViewerAi,
   AI_COOLDOWN_SEC: 5,
 }));
+// Wraps (not replaces) the real deriveStatus, so every existing assertion on
+// rendered markup still exercises the real per-viewer status logic — only
+// the Finding-A cooldown-fallback test below inspects what `cooldownMs` this
+// wrapper was actually called with, since the board's markup doesn't render
+// cooldown state any differently from unsolved.
+vi.mock("@/lib/derive-status", async (orig) => {
+  const actual = await orig<typeof import("@/lib/derive-status")>();
+  deriveStatusSpy.mockImplementation(actual.deriveStatus);
+  return { deriveStatus: deriveStatusSpy };
+});
 
 import AiPage, { generateMetadata } from "@/app/(site)/ai/page";
 
@@ -208,6 +220,35 @@ describe("ai page view model", () => {
     // Non-vacuity: this really is the empty-state render, not a populated one.
     expect(html).toMatch(/no challenges are available/i);
     expect(html).toMatch(/sign in with github to play the challenges/i);
+  });
+
+  // Finding A: getAdminSettings() must fail OPEN at the page level, same
+  // doctrine ai-store.ts's own resolveSettings applies to this exact read
+  // (see its comment) — a Redis blip on the settings read must not take the
+  // whole public board down, only fall the cooldown back to the module
+  // default.
+  it("still renders the board when the settings read rejects, falling the cooldown back to the module default", async () => {
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockRejectedValue(new Error("ECONNRESET"));
+    getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
+
+    const html = renderToStaticMarkup(await AiPage());
+
+    // The board itself rendered — challenges are visible, not an error page.
+    expect(html).toContain('href="/ai/a1"');
+    expect(html).toContain('href="/ai/a2"');
+    expect(html).toContain('href="/ai/a3"');
+    // The cooldown fed to every per-challenge status derivation is the
+    // module default (AI_COOLDOWN_SEC, mocked to 5 above) in milliseconds —
+    // never NaN/0 from a blind `settings.aiCooldownSec` read off a `null`
+    // settings object, which is what an unguarded `settings.aiCooldownSec`
+    // would do once `settings` itself is `null`.
+    expect(deriveStatusSpy).toHaveBeenCalled();
+    for (const call of deriveStatusSpy.mock.calls) {
+      expect(call[2]).toBe(5000);
+    }
   });
 });
 

@@ -69,7 +69,12 @@ export default async function FlagsPage() {
     listCategories(),
     getSolveCounts(),
     login ? getViewerClassic(login) : Promise.resolve<ViewerClassic>({ solved: {}, attempts: {} }),
-    getAdminSettings(),
+    // Fails OPEN, same doctrine as ai-store.ts's resolveSettings for this
+    // exact read (see ai/page.tsx's identical fix): a Redis blip here must
+    // not take the whole public board down over a cooldown override, so a
+    // rejected settings read falls back to `null` (-> the module default
+    // below) rather than failing the page.
+    getAdminSettings().catch(() => null),
     getResolvedModules(),
     getClassicHintIds(),
   ]);
@@ -81,7 +86,7 @@ export default async function FlagsPage() {
   // note on why this must never be read off the registry default directly.
   const blurb = mod?.blurb ?? DEFAULT_BLURB;
 
-  const cooldownMs = (settings.classicCooldownSec ?? CLASSIC_COOLDOWN_SEC) * 1000;
+  const cooldownMs = (settings?.classicCooldownSec ?? CLASSIC_COOLDOWN_SEC) * 1000;
 
   // Built field by field from the public `Challenge` shape plus this
   // challenge's solve count and this viewer's derived status — never a
