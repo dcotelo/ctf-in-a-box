@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { adminErrorLabel, writeAdminAudit } from "@/lib/admin-store";
 import { getAiLaunchKeys, getAiSigningKey, listAiChallenges } from "@/lib/ai-store";
 import { signEventBody, signLaunchToken, type AiTokenClaims } from "@/lib/ai-token";
 // The REAL event handler — invoked in-process, never over the network. See
@@ -9,7 +9,6 @@ import { signEventBody, signLaunchToken, type AiTokenClaims } from "@/lib/ai-tok
 // than re-implementing any of its verification.
 import { POST as eventPost } from "@/app/api/ai/event/route";
 import { RATE_LIMITS, consumeRateLimit } from "@/lib/rate-limit-store";
-import { upstashPipeline } from "@/lib/upstash";
 
 /**
  * The organizer's "Send test" button for one ai-module challenge (spec §8.2).
@@ -17,16 +16,23 @@ import { upstashPipeline } from "@/lib/upstash";
  * Mints a 15-minute demo launch token for the ADMIN'S OWN login, signs a demo
  * solve-event body with the challenge's real signing key, and calls the REAL
  * `/api/ai/event` handler in-process — the exact code path a live integration
- * exercises — with `dryRun: true`. A dry run writes nothing (see
- * `event/route.ts`'s own doc comment), which is what makes this safe to click
- * against a live event: no nonce is claimed, no points are awarded.
+ * exercises — with `dryRun: true`, hard-coded here and NEVER taken from the
+ * caller's body: this route's whole safety story is that dryRun cannot be
+ * turned off from the outside, and the identity minted into the token is
+ * always the calling admin's own login, never a caller-supplied `sub`. A dry
+ * run writes nothing (see `event/route.ts`'s own doc comment), which is what
+ * makes this safe to click against a live event: no nonce is claimed, no
+ * points are awarded.
  *
  * This route deliberately does NOT re-implement any of `/api/ai/event`'s
  * checks (signature, token, mode, rate limit, team, schedule). It relays that
  * handler's status and JSON body verbatim, including a refusal — a
  * flag-mode challenge's `wrong-mode`, say — so the admin panel always shows
  * the same verdict a real integration would get, never a synthetic one this
- * route invented.
+ * route invented. The ONE exception is the pre-invocation signing-key check
+ * below: it has to run before the event handler is even reachable (there is
+ * no key to sign the demo event with otherwise), so its `no-signing-key`
+ * refusal is this route's own, not a relay — see that check's comment.
  *
  * `requireAdmin` runs FIRST, before any store read, mint or invocation:
  * exactly `admin/ai/route.ts`'s idiom, because minting a token — even a
@@ -39,25 +45,6 @@ import { upstashPipeline } from "@/lib/upstash";
  */
 
 const RESULT_ERROR = "unavailable";
-
-function errorLabel(err: unknown): string {
-  if (!(err instanceof Error)) return "non-Error throw";
-  return `${err.name}: ${err.message}`.slice(0, 200);
-}
-
-/** Same LPUSH+LTRIM idiom as `admin/ai/route.ts`'s own `writeAudit`. Detail
- *  carries the challenge id only — never the minted token or any key. */
-async function writeAudit(actor: string, action: string, detail: Record<string, unknown>): Promise<void> {
-  const audit = JSON.stringify({ at: new Date().toISOString(), by: actor, action, ...detail });
-  try {
-    await upstashPipeline([
-      ["LPUSH", ADMIN_AUDIT_KEY, audit],
-      ["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1],
-    ]);
-  } catch (err) {
-    console.error("[admin/ai/test] audit write failed:", errorLabel(err));
-  }
-}
 
 /** Same choice `ai/[id]/page.tsx`'s `resolveOrigin` makes: normalize
  *  `BETTER_AUTH_URL` to its origin, falling back to `http://localhost` for a
@@ -93,18 +80,25 @@ export async function POST(request: Request) {
   if (!challenge) return NextResponse.json({ error: "unknown-challenge" }, { status: 400 });
 
   // A challenge can exist with no signing key yet minted (a legacy row — see
-  // `AdminAiChallenge`'s doc comment). That is functionally the same as an
-  // unknown challenge from this route's point of view: there is nothing to
-  // sign a demo event with, and `/api/ai/event` would itself 404
-  // `unknown-challenge` on the same `getAiSigningKey` miss.
+  // `AdminAiChallenge`'s doc comment). There is nothing to sign a demo event
+  // with in that case, so this has to be refused HERE, before the real event
+  // handler is ever invoked — the one place this route answers on its own
+  // rather than relaying that handler's verdict (see the header comment).
+  // `unknown-challenge` would be dishonest: the organizer is looking at a
+  // real row, on a real challenge, that just has no signing key yet — and it
+  // would also be wrong for a flag-mode challenge, which the real pipeline
+  // would refuse with `wrong-mode` first (mode is checked before the
+  // signing key is even read — see `event/route.ts`). This route cannot
+  // reproduce that ordering without re-implementing the mode check, so it
+  // names its own refusal instead of guessing at the real one.
   const signingKey = await getAiSigningKey(challengeId);
-  if (!signingKey) return NextResponse.json({ error: "unknown-challenge" }, { status: 400 });
+  if (!signingKey) return NextResponse.json({ error: "no-signing-key" }, { status: 400 });
 
   let launchPrivateKey: string;
   try {
     launchPrivateKey = (await getAiLaunchKeys()).privateKey;
   } catch (err) {
-    console.error("[admin/ai/test] launch key read failed:", errorLabel(err));
+    console.error("[admin/ai/test] launch key read failed:", adminErrorLabel(err));
     return NextResponse.json({ error: RESULT_ERROR }, { status: 503 });
   }
 
@@ -147,7 +141,7 @@ export async function POST(request: Request) {
   const eventResponse = await eventPost(eventRequest);
   const eventJson = await eventResponse.json().catch(() => null);
 
-  await writeAudit(gate.login, "ai-send-test", { id: challengeId });
+  await writeAdminAudit(gate.login, "ai-send-test", { id: challengeId });
 
   return NextResponse.json({ status: eventResponse.status, body: eventJson });
 }

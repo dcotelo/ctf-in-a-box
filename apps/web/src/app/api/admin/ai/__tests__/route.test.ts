@@ -1,6 +1,7 @@
 // Route-level tests for the ai module's organizer authoring route. Auth
-// guard, ai-store, and the Upstash pipeline (used only for the audit write)
-// are all mocked — no Redis or GitHub session needed.
+// guard, ai-store, and the shared admin-store audit/error helpers
+// (`writeAdminAudit`/`adminErrorLabel` — see admin-store.ts) are all mocked —
+// no Redis or GitHub session needed.
 //
 // requireAdmin must run BEFORE any store read/write in every handler: the
 // admin payload carries flags and signing keys, so an early read on an
@@ -20,7 +21,7 @@ const {
   upsertAiChallenge,
   deleteAiChallenge,
   rotateAiSigningKey,
-  upstashPipeline,
+  writeAdminAudit,
   AiValidationError,
 } = vi.hoisted(() => {
   // A real (not mocked) AiValidationError, so `err instanceof
@@ -43,7 +44,7 @@ const {
     upsertAiChallenge: vi.fn(),
     deleteAiChallenge: vi.fn(),
     rotateAiSigningKey: vi.fn(),
-    upstashPipeline: vi.fn(),
+    writeAdminAudit: vi.fn(),
     AiValidationError,
   };
 });
@@ -59,8 +60,14 @@ vi.mock("@/lib/ai-store", () => ({
   rotateAiSigningKey,
   AiValidationError,
 }));
-vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
-vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
+// `adminErrorLabel` is the real (name+message, capped) implementation, not a
+// mock — the redaction assertion below needs it to actually behave like
+// admin-store.ts's real one, dropping any own properties a driver decorated
+// the thrown error with.
+vi.mock("@/lib/admin-store", () => ({
+  writeAdminAudit,
+  adminErrorLabel: (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : "non-Error throw"),
+}));
 
 import { GET, POST, DELETE, CHALLENGE_KEYS, CATEGORIES_KEYS, ROTATE_KEYS } from "@/app/api/admin/ai/route";
 
@@ -101,11 +108,11 @@ beforeEach(() => {
   upsertAiChallenge.mockReset();
   deleteAiChallenge.mockReset();
   rotateAiSigningKey.mockReset();
-  upstashPipeline.mockReset();
+  writeAdminAudit.mockReset();
   allowAdmin();
   listAiChallengesForAdmin.mockResolvedValue([ADMIN_ROW]);
   listAiCategories.mockResolvedValue(["AI"]);
-  upstashPipeline.mockResolvedValue([{ result: 1 }, { result: "OK" }]);
+  writeAdminAudit.mockResolvedValue(undefined);
 });
 
 describe("GET /api/admin/ai", () => {
@@ -207,12 +214,7 @@ describe("POST /api/admin/ai — categories", () => {
     expect(res.status).toBe(200);
     expect(setAiCategories).toHaveBeenCalledWith(["AI", "Prompt"]);
     expect(await res.json()).toEqual({ categories: ["AI", "Prompt"] });
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    expect(commands[0][0]).toBe("LPUSH");
-    expect(commands[0][1]).toBe("ctf:admin:audit");
-    expect(String(commands[0][2])).toContain('"action":"ai-categories"');
-    expect(String(commands[0][2])).toContain('"by":"alice"');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "ai-categories", { count: 2 });
   });
 
   it("maps a validation error to 400 and a store failure to 503", async () => {
@@ -239,12 +241,9 @@ describe("POST /api/admin/ai — rotate", () => {
     expect(rotateAiSigningKey).toHaveBeenCalledWith("c-1");
     expect(await res.json()).toEqual({ signingKey: "new-key-xyz" });
 
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    const audit = String(commands[0][2]);
-    expect(audit).toContain('"action":"ai-rotate-key"');
-    expect(audit).toContain('"id":"c-1"');
-    expect(audit).not.toContain("new-key-xyz");
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "ai-rotate-key", { id: "c-1" });
+    // The new key itself is NEVER in the audit detail — only the id.
+    expect(JSON.stringify(writeAdminAudit.mock.calls[0])).not.toContain("new-key-xyz");
   });
 
   it("maps a validation error to 400 and a store failure to 503", async () => {
@@ -279,10 +278,7 @@ describe("POST /api/admin/ai — challenge upsert", () => {
     expect(upsertAiChallenge).toHaveBeenCalledWith(CHALLENGE, { flag: "CTF{flag}", hint: "try harder" });
     expect(await res.json()).toEqual(ADMIN_ROW);
 
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    expect(String(commands[0][2])).toContain('"action":"ai-upsert"');
-    expect(String(commands[0][2])).toContain('"id":"c-1"');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "ai-upsert", { id: "c-1" });
   });
 
   it("400s with the message for an AiValidationError from the store", async () => {
@@ -325,10 +321,7 @@ describe("DELETE /api/admin/ai", () => {
     const res = await DELETE(adminReq("DELETE", { id: "c-1" }));
     expect(res.status).toBe(200);
     expect(deleteAiChallenge).toHaveBeenCalledWith("c-1");
-    expect(upstashPipeline).toHaveBeenCalledTimes(1);
-    const [commands] = upstashPipeline.mock.calls[0] as [(string | number)[][]];
-    expect(String(commands[0][2])).toContain('"action":"ai-delete"');
-    expect(String(commands[0][2])).toContain('"id":"c-1"');
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "ai-delete", { id: "c-1" });
   });
 
   it("400s with the message for an AiValidationError from the store", async () => {

@@ -67,6 +67,37 @@ export const CLASSIC_COOLDOWN_SEC_MAX = 3600;
  *  shared constant would make that agreement look load-bearing when it isn't. */
 export const AI_COOLDOWN_SEC_MAX = 3600;
 
+/** The ONLY thing an admin-authoring route may hand `console.error`. Shared
+ *  by every `admin/*` route that writes secrets (a flag, a signing key) so
+ *  each one does not keep its own byte-identical copy.
+ *
+ *  Never the caught value itself: a driver can decorate an error with the
+ *  request it failed on, and an admin write's arguments can include a flag
+ *  or a signing key, so a bare `console.error(err)` could turn an outage into
+ *  a secret in the log. Name and message, both capped, nothing else. */
+export function adminErrorLabel(err: unknown): string {
+  if (!(err instanceof Error)) return "non-Error throw";
+  return `${err.name}: ${err.message}`.slice(0, 200);
+}
+
+/** Appends one line to the shared `ctf:admin:audit` trail — the same
+ *  LPUSH+LTRIM pattern every admin authoring route uses. Best-effort: an
+ *  audit-write failure is logged but never fails a request whose actual data
+ *  write already succeeded. `detail` must carry identifiers only, never a
+ *  flag, a signing key, or a minted token — callers are responsible for
+ *  keeping it that way. */
+export async function writeAdminAudit(actor: string, action: string, detail: Record<string, unknown>): Promise<void> {
+  const audit = JSON.stringify({ at: new Date().toISOString(), by: actor, action, ...detail });
+  try {
+    await upstashPipeline([
+      ["LPUSH", ADMIN_AUDIT_KEY, audit],
+      ["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1],
+    ]);
+  } catch (err) {
+    console.error(`[admin] audit write failed (${action}):`, adminErrorLabel(err));
+  }
+}
+
 // Defined in scoring-defaults.ts (no `server-only`) so the admin panel, a
 // Client Component, can use it as the field's `max`. Re-exported for server
 // callers.

@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   releaseAiNonce: vi.fn(),
   consumeRateLimit: vi.fn(),
   hasTeam: vi.fn(),
-  upstashPipeline: vi.fn(),
+  writeAdminAudit: vi.fn(),
   signLaunchToken: vi.fn(),
   // Holds the REAL implementation, set once by the `@/lib/ai-token` mock
   // factory below and restored onto `signLaunchToken` after every reset — a
@@ -62,8 +62,10 @@ vi.mock("@/lib/rate-limit-store", async (orig) => ({
   consumeRateLimit: mocks.consumeRateLimit,
 }));
 vi.mock("@/lib/team-store", () => ({ hasTeam: mocks.hasTeam }));
-vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
-vi.mock("@/lib/upstash", () => ({ upstashPipeline: mocks.upstashPipeline }));
+vi.mock("@/lib/admin-store", () => ({
+  writeAdminAudit: mocks.writeAdminAudit,
+  adminErrorLabel: (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : "non-Error throw"),
+}));
 
 import { generateLaunchKeyPair } from "@/lib/ai-token";
 import { POST } from "@/app/api/admin/ai/test/route";
@@ -96,7 +98,7 @@ function allGatesOpen() {
   mocks.claimAiNonce.mockResolvedValue(true);
   mocks.releaseAiNonce.mockResolvedValue(undefined);
   mocks.awardAiEvent.mockResolvedValue({ ok: true, correct: true, points: 0, dryRun: true });
-  mocks.upstashPipeline.mockResolvedValue([{ result: 1 }, { result: "OK" }]);
+  mocks.writeAdminAudit.mockResolvedValue(undefined);
 }
 
 beforeEach(() => {
@@ -127,12 +129,17 @@ describe("POST /api/admin/ai/test", () => {
     expect(mocks.awardAiEvent).not.toHaveBeenCalled();
   });
 
-  it("a challenge with no signing key yet is reported as unknown-challenge", async () => {
+  it("a challenge with no signing key yet is reported as its own no-signing-key refusal, not unknown-challenge", async () => {
+    // This is the ONE case this route answers on its own rather than
+    // relaying the real event handler's verdict — see the route's header
+    // comment. `unknown-challenge` would be dishonest (the row is real) and
+    // would also be wrong for a flag-mode challenge, where the real pipeline
+    // would say `wrong-mode` first.
     allGatesOpen();
     mocks.getAiSigningKey.mockResolvedValue(null);
     const res = await POST(adminReq());
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "unknown-challenge" });
+    expect(await res.json()).toEqual({ error: "no-signing-key" });
     expect(mocks.getAiLaunchKeys).not.toHaveBeenCalled();
   });
 
@@ -222,11 +229,8 @@ describe("POST /api/admin/ai/test", () => {
   it("writes an audit line naming the challenge id, never the token or key", async () => {
     allGatesOpen();
     await POST(adminReq());
-    expect(mocks.upstashPipeline).toHaveBeenCalled();
-    const call = mocks.upstashPipeline.mock.calls[0][0] as unknown[][];
-    const serialized = JSON.stringify(call);
-    expect(serialized).toContain("ai-send-test");
-    expect(serialized).toContain(CHAL);
+    expect(mocks.writeAdminAudit).toHaveBeenCalledWith("organizer", "ai-send-test", { id: CHAL });
+    const serialized = JSON.stringify(mocks.writeAdminAudit.mock.calls[0]);
     expect(serialized).not.toContain("aik_");
     expect(serialized).not.toContain("PRIVATE KEY");
   });

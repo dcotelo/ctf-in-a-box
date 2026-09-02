@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
+import { adminErrorLabel, writeAdminAudit } from "@/lib/admin-store";
 import {
   AiValidationError,
   deleteAiChallenge,
@@ -12,7 +12,6 @@ import {
   type AdminAiChallenge,
   type AiChallenge,
 } from "@/lib/ai-store";
-import { upstashPipeline } from "@/lib/upstash";
 
 /**
  * Organizer authoring surface for the ai (externally hosted AI/LLM) module:
@@ -142,17 +141,6 @@ function parseRotatePayload(body: unknown): string | null {
   return body.rotate;
 }
 
-/** The ONLY thing this route is allowed to hand `console.error` — the same
- *  discipline `ai-store.ts` and `ai-http.ts` each keep their own local copy
- *  of. Never the caught value itself: a driver can decorate an error with the
- *  request it failed on, and this route's writes carry flags and signing
- *  keys, so a bare `console.error(err)` could turn an outage into a secret in
- *  the log. Name and message, both capped, nothing else. */
-function errorLabel(err: unknown): string {
-  if (!(err instanceof Error)) return "non-Error throw";
-  return `${err.name}: ${err.message}`.slice(0, 200);
-}
-
 /** Maps an error thrown by `upsertAiChallenge`/`deleteAiChallenge`/
  *  `setAiCategories`/`rotateAiSigningKey` to a response: an
  *  `AiValidationError` means the caller's payload was genuinely bad (bad id,
@@ -165,25 +153,13 @@ function errorResponse(err: unknown): Response {
   if (err instanceof AiValidationError) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
-  console.error("[admin/ai] store write failed:", errorLabel(err));
+  console.error("[admin/ai] store write failed:", adminErrorLabel(err));
   return NextResponse.json({ error: "unavailable" }, { status: 503 });
 }
 
-/** Appends one audit line, mirroring admin-store's / the classic and quiz
- *  admin routes' LPUSH+LTRIM pattern. Best-effort: an audit-write failure is
- *  logged but never fails a request whose actual data write already
- *  succeeded. Detail carries the id, NEVER a flag or a signing key. */
-async function writeAudit(actor: string, action: string, detail: Record<string, unknown>): Promise<void> {
-  const audit = JSON.stringify({ at: new Date().toISOString(), by: actor, action, ...detail });
-  try {
-    await upstashPipeline([
-      ["LPUSH", ADMIN_AUDIT_KEY, audit],
-      ["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1],
-    ]);
-  } catch (err) {
-    console.error("[admin/ai] audit write failed:", errorLabel(err));
-  }
-}
+// Audit writes go through admin-store.ts's shared `writeAdminAudit` — see the
+// header comment on that function. Detail below carries only ids, NEVER a
+// flag or a signing key.
 
 export async function GET(request: Request) {
   const gate = await requireAdmin(request.headers);
@@ -217,7 +193,7 @@ export async function POST(request: Request) {
     } catch (err) {
       return errorResponse(err);
     }
-    await writeAudit(gate.login, "ai-categories", { count: categories.length });
+    await writeAdminAudit(gate.login, "ai-categories", { count: categories.length });
     return NextResponse.json({ categories });
   }
 
@@ -231,7 +207,7 @@ export async function POST(request: Request) {
     }
     // Detail carries the id only — never the new key. See the header
     // comment and `writeAudit`'s own doc comment.
-    await writeAudit(gate.login, "ai-rotate-key", { id: rotateId });
+    await writeAdminAudit(gate.login, "ai-rotate-key", { id: rotateId });
     return NextResponse.json({ signingKey });
   }
 
@@ -247,7 +223,7 @@ export async function POST(request: Request) {
     return errorResponse(err);
   }
 
-  await writeAudit(gate.login, "ai-upsert", { id: c.id });
+  await writeAdminAudit(gate.login, "ai-upsert", { id: c.id });
   // Echoes the STORED record (the store may normalize the url template, and
   // guarantees a signing key), not the raw payload, so the authoring
   // client's state matches what a subsequent GET would return.
@@ -268,6 +244,6 @@ export async function DELETE(request: Request) {
     return errorResponse(err);
   }
 
-  await writeAudit(gate.login, "ai-delete", { id });
+  await writeAdminAudit(gate.login, "ai-delete", { id });
   return NextResponse.json({ ok: true });
 }
