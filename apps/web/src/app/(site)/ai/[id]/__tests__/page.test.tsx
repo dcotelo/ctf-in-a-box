@@ -3,8 +3,21 @@
 // plus this module's own thing: the launcher, and the mint behind it. The
 // pins that matter here: the 404 gates (module off, unknown id), the view
 // model deriving the same states the board derives, the mint happening ONLY
-// for a signed-in viewer, the minted token appearing in the rendered payload
-// EXACTLY ONCE, and event-mode hiding the flag form while flag/both show it.
+// for a signed-in AND teamed viewer, the minted token appearing in the
+// rendered payload EXACTLY ONCE (and nowhere else — not in a prop handed to
+// a child component, not logged to the console), and event-mode hiding the
+// flag form while flag/both show it.
+//
+// <ChallengeDetail> is mocked with a SPY component rather than rendered for
+// real. Two reasons: `renderToStaticMarkup` only serializes the HTML a
+// component returns — a prop it receives but never renders (an extra
+// `launchUrl` prop, say) is invisible to any assertion on the html string, so
+// a spy is the only way to pin "the token never reaches this component's
+// props" at all. It also keeps this suite from re-testing ChallengeDetail's
+// own internal rendering rules (solved hides the form, the cooldown copy,
+// etc.) — those are already pinned in
+// src/components/__tests__/challenge-detail.test.tsx; this file's job is only
+// to check the PAGE passes the right props to it.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -17,6 +30,8 @@ const {
   getViewerAi,
   getResolvedModules,
   mintLaunchUrl,
+  redirectIfTeamless,
+  challengeDetailSpy,
 } = vi.hoisted(() => ({
   isModuleEnabled: vi.fn(),
   isAdminLogin: vi.fn(),
@@ -26,26 +41,34 @@ const {
   getViewerAi: vi.fn(),
   getResolvedModules: vi.fn(),
   mintLaunchUrl: vi.fn(),
+  redirectIfTeamless: vi.fn(),
+  challengeDetailSpy: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
-// ChallengeDetail calls useRouter for its post-submit refresh.
-vi.mock("next/navigation", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("next/navigation")>()),
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/admin-auth", () => ({ isAdminLogin }));
 vi.mock("@/lib/ai-launch", () => ({ mintLaunchUrl }));
+vi.mock("@/lib/require-team", () => ({ redirectIfTeamless }));
 vi.mock("@/lib/ai-store", () => ({
   listAiChallenges,
   getAiSolveCounts,
   getViewerAi,
   AI_COOLDOWN_SEC: 5,
+}));
+// The spy: records every call's props (so a test can assert on exactly what
+// the page handed it — including a field the page should never pass at all)
+// and renders nothing, since this suite never needs to read its markup.
+vi.mock("@/components/challenge-detail", () => ({
+  __esModule: true,
+  default: (props: unknown) => {
+    challengeDetailSpy(props);
+    return null;
+  },
 }));
 
 import AiChallengePage, { generateMetadata } from "@/app/(site)/ai/[id]/page";
@@ -94,6 +117,10 @@ beforeEach(() => {
     { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and guardrail challenges." },
   ]);
   mintLaunchUrl.mockResolvedValue(MINTED_URL);
+  // The passing default: a signed-in viewer already has a team, so the gate
+  // never redirects. The dedicated test below overrides this to throw,
+  // mimicking Next's own `redirect()` control-flow signal.
+  redirectIfTeamless.mockResolvedValue(undefined);
 });
 
 describe("ai challenge page gates", () => {
@@ -109,17 +136,38 @@ describe("ai challenge page gates", () => {
       digest: "NEXT_HTTP_ERROR_FALLBACK;404",
     });
   });
+
+  it("never mints when the team gate would redirect a signed-in, teamless viewer", async () => {
+    // Mirrors the shape `next/navigation`'s real `redirect()` throws — a
+    // plain Error carrying a `NEXT_REDIRECT` digest — so this exercises the
+    // same "the throw IS the control flow" path Next itself uses.
+    const redirectError = Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: "NEXT_REDIRECT;replace;/profile;307;",
+    });
+    redirectIfTeamless.mockRejectedValue(redirectError);
+
+    await expect(AiChallengePage(params("a1"))).rejects.toBe(redirectError);
+    // The mint happens BEHIND the team gate, not before it — a redirect that
+    // fires must mean the mint never ran at all.
+    expect(mintLaunchUrl).not.toHaveBeenCalled();
+  });
 });
 
 describe("ai challenge page", () => {
-  it("renders the challenge's meta, description and a way back", async () => {
+  it("renders the challenge's title/category header and a way back", async () => {
     const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
     expect(html).toContain("Prompt Leak");
     expect(html).toContain("Prompt Injection");
-    expect(html).toContain("40 pts");
-    expect(html).toContain("3 solve");
-    expect(html).toMatch(/<strong[^>]*>leak<\/strong>/);
     expect(html).toContain('href="/ai"');
+
+    // Points, solve count and the markdown-rendered description are
+    // ChallengeDetail's own card to draw (pinned in its own test file) — this
+    // page's job is only to hand it the right view model, checked here.
+    expect(challengeDetailSpy).toHaveBeenCalledTimes(1);
+    const [props] = challengeDetailSpy.mock.calls[0] as [{ challenge: { points: number; solveCount: number; description: string } }];
+    expect(props.challenge.points).toBe(40);
+    expect(props.challenge.solveCount).toBe(3);
+    expect(props.challenge.description).toContain("**leak**");
   });
 
   it("decodes an encoded id from the URL", async () => {
@@ -161,19 +209,47 @@ describe("ai challenge page launcher", () => {
     expect(html).not.toMatch(/open challenge/i);
   });
 
-  it("renders the minted token exactly once in the payload, and never the raw placeholder", async () => {
-    const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
+  it("renders the minted token exactly once — in the launcher href, nowhere else, never logged, never handed to a child component", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const occurrences = html.split(MINTED_URL).length - 1;
-    expect(occurrences).toBe(1);
+    try {
+      const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
 
-    // The token substring alone (not just the whole URL) also appears once —
-    // this would catch a second, differently-formatted rendering of it.
-    expect(html.split("TESTTOKENVALUE123").length - 1).toBe(1);
+      const occurrences = html.split(MINTED_URL).length - 1;
+      expect(occurrences).toBe(1);
 
-    // The authored template's raw placeholder must never render, in any
-    // form — that would mean the substitution was skipped somewhere.
-    expect(html).not.toContain("{token}");
+      // The token substring alone (not just the whole URL) also appears once
+      // in the SERIALIZED HTML — this would catch a second, differently-
+      // formatted rendering of it there.
+      expect(html.split("TESTTOKENVALUE123").length - 1).toBe(1);
+
+      // The authored template's raw placeholder must never render, in any
+      // form — that would mean the substitution was skipped somewhere.
+      expect(html).not.toContain("{token}");
+
+      // The html string alone cannot catch a token riding in a PROP that is
+      // never rendered (react-dom/server only serializes what a component
+      // actually returns) — so check what the page actually handed
+      // <ChallengeDetail> too. Neither the full URL nor the bare token may
+      // appear anywhere in its props.
+      expect(challengeDetailSpy).toHaveBeenCalledTimes(1);
+      const propsPayload = JSON.stringify(challengeDetailSpy.mock.calls);
+      expect(propsPayload).not.toContain(MINTED_URL);
+      expect(propsPayload).not.toContain("TESTTOKENVALUE123");
+
+      // Nor logged, in any form — `console.error`/`warn`/`log` are the only
+      // places this app is allowed to write, and none of them may ever carry
+      // a live token.
+      const consoleCalls = JSON.stringify([...logSpy.mock.calls, ...errorSpy.mock.calls, ...warnSpy.mock.calls]);
+      expect(consoleCalls).not.toContain(MINTED_URL);
+      expect(consoleCalls).not.toContain("TESTTOKENVALUE123");
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 
   it("derives the origin from BETTER_AUTH_URL, normalized to scheme+host+port — never a path", async () => {
@@ -201,21 +277,23 @@ describe("ai challenge page launcher", () => {
 });
 
 describe("ai challenge page form", () => {
-  it("shows the flag form for a flag-mode challenge", async () => {
-    const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
-    expect(html).toMatch(/submit flag/i);
-    expect(html).toMatch(/case-sensitive/i);
+  it("renders ChallengeDetail, pointed at the ai submit route, for a flag-mode challenge", async () => {
+    renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(challengeDetailSpy).toHaveBeenCalledTimes(1);
+    const [props] = challengeDetailSpy.mock.calls[0] as [{ submitPath: string; authenticated: boolean }];
+    expect(props.submitPath).toBe("/api/ai/submit");
+    expect(props.authenticated).toBe(true);
   });
 
-  it("shows the flag form for a both-mode challenge too", async () => {
+  it("renders ChallengeDetail for a both-mode challenge too", async () => {
     listAiChallenges.mockResolvedValue([{ ...flagChallenge, id: "a3", mode: "both" as const }]);
-    const html = renderToStaticMarkup(await AiChallengePage(params("a3")));
-    expect(html).toMatch(/submit flag/i);
+    renderToStaticMarkup(await AiChallengePage(params("a3")));
+    expect(challengeDetailSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("renders no form at all for an event-mode challenge — the launcher is the whole page", async () => {
+  it("renders no ChallengeDetail at all for an event-mode challenge — the launcher is the whole page", async () => {
     const html = renderToStaticMarkup(await AiChallengePage(params("a2")));
-    expect(html).not.toMatch(/submit flag/i);
+    expect(challengeDetailSpy).not.toHaveBeenCalled();
     expect(html).not.toContain("<form");
     expect(html).not.toContain("<input");
     // The launcher still renders — an event-only challenge has no in-box
@@ -225,30 +303,34 @@ describe("ai challenge page form", () => {
 });
 
 describe("ai challenge page view model", () => {
-  it("derives the viewer's solved state through the same rule as the board", async () => {
+  it("derives the viewer's solved state through the same rule as the board, and hands it to ChallengeDetail", async () => {
     getViewerAi.mockResolvedValue({
       solved: { a1: { points: 40, at: "2026-08-18T00:00:00.000Z", source: "flag" } },
       attempts: {},
     });
-    const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
-    expect(html).toMatch(/solved.*earned 40 point/i);
-    expect(html).not.toMatch(/submit flag/i);
+    renderToStaticMarkup(await AiChallengePage(params("a1")));
+    expect(challengeDetailSpy).toHaveBeenCalledTimes(1);
+    const [props] = challengeDetailSpy.mock.calls[0] as [{ challenge: { status: string; earnedPoints?: number } }];
+    expect(props.challenge).toMatchObject({ status: "solved", earnedPoints: 40 });
   });
 
-  it("derives an active cooldown, without leaking the raw instant", async () => {
+  it("derives an active cooldown, without leaking the raw instant into the page's own markup", async () => {
     getViewerAi.mockResolvedValue({
       solved: {},
       attempts: { a1: { attempts: 1, lastAt: new Date().toISOString() } },
     });
     const html = renderToStaticMarkup(await AiChallengePage(params("a1")));
-    expect(html).toMatch(/on cooldown/i);
+    const [props] = challengeDetailSpy.mock.calls[0] as [{ challenge: { status: string; retryAt?: string } }];
+    expect(props.challenge.status).toBe("cooldown");
+    expect(typeof props.challenge.retryAt).toBe("string");
     expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
   // The view model is built field by field — nothing beyond the public
   // AiChallenge fields, this challenge's solve count and the derived status
-  // may reach the markup, whatever the store record carries.
-  it("never lets the launch template or an unexpected store field reach the markup", async () => {
+  // may reach the markup OR <ChallengeDetail>'s props, whatever the store
+  // record carries.
+  it("never lets the launch template or an unexpected store field reach the markup or ChallengeDetail's props", async () => {
     listAiChallenges.mockResolvedValue([
       // A defense-in-depth check: even if a future bug had the store hand
       // back extra fields no `AiChallenge` should ever carry, the page's
@@ -259,6 +341,10 @@ describe("ai challenge page view model", () => {
     expect(html).not.toContain("CTF{never-render-me}");
     expect(html).not.toContain("aik_never-render-me");
     expect(html).not.toContain(flagChallenge.urlTemplate);
+
+    const propsPayload = JSON.stringify(challengeDetailSpy.mock.calls);
+    expect(propsPayload).not.toContain("CTF{never-render-me}");
+    expect(propsPayload).not.toContain("aik_never-render-me");
   });
 });
 
