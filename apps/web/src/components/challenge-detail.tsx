@@ -155,6 +155,12 @@ export function describeRefusal(reason: string): string {
       // submitted a flag and is being told it didn't count; "you need a team"
       // without saying where to get one is a dead end.
       return "You need a team before solves count — set one up on your profile.";
+    case "unauthorized":
+      // Reachable, unlike `gate` below: a session can expire while this page
+      // stays open. The form was rendered for a signed-in viewer, so by the
+      // time a submit comes back with this, the fix is to sign in again, not
+      // to reload — the generic fallback used to say neither.
+      return "Your session expired — sign in and try again.";
     // The rest are never emitted by classic's own route. `wrong-mode`,
     // `invalid` and `error` are `AiSubmitResult` reasons the ai module's
     // Server Action passes straight through (ai/[id]/actions.ts, mapping them
@@ -176,10 +182,10 @@ export function describeRefusal(reason: string): string {
     case "invalid-token":
     case "expired":
       return "This page's session token expired — reload the page and try again.";
-    // Everything else, including the action's `unauthorized`/`gate` refusals
-    // (both unreachable from a rendered form: the page redirects an ungated
-    // visitor and shows a signed-out one no input at all) and classic's
-    // prose-style route errors.
+    // Everything else, including the action's `gate` refusal (unreachable
+    // from a rendered form: the page redirects an ungated visitor before it
+    // can render one — unlike `unauthorized` above, nothing re-opens the gate
+    // for an already-loaded tab) and classic's prose-style route errors.
     default:
       return "That submission wasn't accepted.";
   }

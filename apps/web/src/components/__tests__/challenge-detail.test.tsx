@@ -238,6 +238,7 @@ describe("describeRefusal", () => {
       "cooldown",
       "unavailable",
       "no-team",
+      "unauthorized",
       "wrong-mode",
       "invalid",
       "error",
@@ -248,5 +249,13 @@ describe("describeRefusal", () => {
 
   it("falls back for anything it does not recognise", () => {
     expect(describeRefusal("something-new")).toBe(generic);
+  });
+
+  // Reachable, unlike `gate`: a session can expire while the page stays open,
+  // and the action's own session re-check (ai/[id]/actions.ts) then returns
+  // this slug for a submit made from an already-rendered form. Names the fix
+  // (sign in again), not just that something went wrong.
+  it("tells an expired session to sign in again, by name", () => {
+    expect(describeRefusal("unauthorized")).toBe("Your session expired — sign in and try again.");
   });
 });
