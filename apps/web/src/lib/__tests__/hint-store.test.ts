@@ -108,6 +108,29 @@ describe("revealHint", () => {
     await expect(store.revealHint("octocat", "juice-shop", "Challenge-1")).resolves.toMatchObject({ ok: false });
   });
 
+  // The ai target (issue #211): same charge machinery, its own hint hash and
+  // its own module gate — pinning the KEYS the script gets the same way the
+  // classic test above does, so an ai purchase can never read a scorer hash.
+  it("reveals an ai hint from ctf:ai:hints, charged into the shared spend", async () => {
+    const store = await loadStore();
+    mocks.upstashEval.mockResolvedValueOnce(["charged", "Ignore prior instructions.", 10]);
+    const result = await store.revealHint("octocat", "ai", "prompt-injection-1");
+    expect(result).toEqual({ ok: true, hint: "Ignore prior instructions.", alreadyOwned: false, spent: 10 });
+    const [, keys, argv] = mocks.upstashEval.mock.calls[0];
+    expect(keys).toEqual(["ctf:user:octocat:hints", "ctf:hints:spent", "ctf:ai:hints", "ctf:hints:at:octocat"]);
+    expect(argv[1]).toBe("ai/prompt-injection-1");
+  });
+
+  it("gates ai hints on the AI module, not secure-development", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id: string) => id === "ai");
+    mocks.upstashEval.mockResolvedValueOnce(["charged", "text", 10]);
+    // ai on, secure-development off: ai reveals work…
+    await expect(store.revealHint("octocat", "ai", "prompt-injection-1")).resolves.toMatchObject({ ok: true });
+    // …and a secure-development reveal is refused.
+    await expect(store.revealHint("octocat", "juice-shop", "Challenge-1")).resolves.toMatchObject({ ok: false });
+  });
+
   it("returns an owned hint for free", async () => {
     const store = await loadStore();
     mocks.upstashEval.mockResolvedValueOnce(["owned", "Check the admin route.", "10"]);
@@ -225,7 +248,13 @@ describe("revealHint", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const off = await loadStore(false, { creds: true });
-      expect(await off.getViewerHints("octocat")).toEqual({ purchased: {}, classic: {}, spent: 0, count: 0 });
+      expect(await off.getViewerHints("octocat")).toEqual({
+        purchased: {},
+        classic: {},
+        ai: {},
+        spent: 0,
+        count: 0,
+      });
       expect(await off.getHintPenalties()).toEqual(new Map());
       expect(await off.getHintAvailability()).toEqual({});
       // The decisive assertions: no read was even attempted, by either client.
@@ -291,6 +320,28 @@ describe("hintGate", () => {
     // Fails closed before any settings or Redis read.
     expect(mocks.getAdminSettings).not.toHaveBeenCalled();
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  it("gates the ai target on the AI module directly, not secure-development", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id) => id === "secure-development");
+    mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0, hintsEnabled: true }));
+    expect(await store.hintGate("octocat", "ai")).toEqual({ allowed: false, reason: "disabled" });
+    // Fails closed before any settings or Redis read.
+    expect(mocks.getAdminSettings).not.toHaveBeenCalled();
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+
+    // Positive twin: ai on (secure-development irrelevant).
+    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    expect(await store.hintGate("octocat", "ai")).toEqual({ allowed: true });
+  });
+
+  it("counts ai solves with HLEN ctf:ai:solves:<login>, and the anti-burner gate consumes it", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockResolvedValue(settings());
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: 1 }]);
+    expect(await store.hintGate("octocat", "ai")).toEqual({ allowed: true });
+    expect(mocks.upstashPipeline).toHaveBeenCalledWith([["HLEN", "ctf:ai:solves:octocat"]]);
   });
 
   it("blocks an account with no solves on the target (the burner case)", async () => {
@@ -434,6 +485,35 @@ describe("runtime hint override", () => {
   });
 });
 
+describe("isHintTarget", () => {
+  it("accepts ai as a hint target", async () => {
+    const store = await loadStore();
+    expect(store.isHintTarget("ai")).toBe(true);
+  });
+
+  it("rejects a similar-looking string", async () => {
+    const store = await loadStore();
+    expect(store.isHintTarget("hints:ai")).toBe(false);
+  });
+});
+
+describe("getAiHintIds", () => {
+  it("returns the HKEYS of ctf:ai:hints when the ai module is enabled", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["prompt-injection-1"] }]);
+    expect(await store.getAiHintIds()).toEqual(["prompt-injection-1"]);
+    expect(mocks.upstashPipeline).toHaveBeenCalledWith([["HKEYS", "ctf:ai:hints"]]);
+  });
+
+  it("returns [] when the ai module is disabled", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockReturnValue(false);
+    expect(await store.getAiHintIds()).toEqual([]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
 describe("getViewerHints", () => {
   it("resolves bought hints with their texts, grouped by app", async () => {
     const store = await loadStore();
@@ -450,6 +530,28 @@ describe("getViewerHints", () => {
         dvwa: { "brute-low": "Brute hint." },
       },
       classic: {},
+      ai: {},
+      spent: 20,
+      count: 2,
+    });
+  });
+
+  // Both non-secure-dev buckets in one fixture: proves the parse routes
+  // "classic/<id>" and "ai/<id>" into their own buckets rather than one
+  // catch-all, alongside a member that goes to `purchased`.
+  it("buckets a purchased ai hint into its own bucket, beside a classic one", async () => {
+    const store = await loadStore();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([
+        { result: ["classic/web-robots-only", "ai/prompt-injection-1"] },
+        { result: "20" },
+      ])
+      .mockResolvedValueOnce([{ result: "Look at robots.txt." }, { result: "Ignore prior instructions." }]);
+    const result = await store.getViewerHints("octocat");
+    expect(result).toEqual({
+      purchased: {},
+      classic: { "web-robots-only": "Look at robots.txt." },
+      ai: { "prompt-injection-1": "Ignore prior instructions." },
       spent: 20,
       count: 2,
     });
@@ -461,7 +563,7 @@ describe("getViewerHints", () => {
       .mockResolvedValueOnce([{ result: ["juice-shop/Challenge-Gone"] }, { result: "10" }])
       .mockResolvedValueOnce([{ result: null }]);
     const result = await store.getViewerHints("octocat");
-    expect(result).toEqual({ purchased: {}, classic: {}, spent: 10, count: 1 });
+    expect(result).toEqual({ purchased: {}, classic: {}, ai: {}, spent: 10, count: 1 });
   });
 
   it("skips malformed members and unknown apps", async () => {
@@ -471,13 +573,19 @@ describe("getViewerHints", () => {
       { result: null },
     ]);
     const result = await store.getViewerHints("octocat");
-    expect(result).toEqual({ purchased: {}, classic: {}, spent: 0, count: 0 });
+    expect(result).toEqual({ purchased: {}, classic: {}, ai: {}, spent: 0, count: 0 });
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
   });
 
   it("returns zeros when hints are not enabled", async () => {
     const store = await loadStore(false);
-    expect(await store.getViewerHints("octocat")).toEqual({ purchased: {}, classic: {}, spent: 0, count: 0 });
+    expect(await store.getViewerHints("octocat")).toEqual({
+      purchased: {},
+      classic: {},
+      ai: {},
+      spent: 0,
+      count: 0,
+    });
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 });
