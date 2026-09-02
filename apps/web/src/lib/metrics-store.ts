@@ -63,8 +63,9 @@ export type ChallengeStat = {
    *  it. Median, not mean: one contestant who left a tab open overnight would
    *  otherwise dominate the figure. Null until enough rows carry `firstAt`. */
   medianSecondsToSolve: number | null;
-  /** Contestants who bought this item's hint before earning it. Only Secure
-   *  Development has hints today, so this is 0 for quiz and classic. */
+  /** Contestants who bought this item's hint before earning it. Classic and
+   *  ai are per-challenge contributors here (#190, and its ai counterpart);
+   *  quiz has no hints by design, so this is always 0 there. */
   solvedAfterHint: number;
 };
 
@@ -408,7 +409,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
         solveRate: triers > 0 ? solves / triers : null,
         avgAttemptsToSolve: solves > 0 ? (solved as { attemptSum: number }).attemptSum / solves : null,
         medianSecondsToSolve: median(solved?.durations ?? []),
-        solvedAfterHint: hintHelpedById.get(key) ?? 0, // classic per-challenge (#190); quiz has no hints
+        solvedAfterHint: hintHelpedById.get(key) ?? 0, // classic + ai per-challenge (#190); quiz has no hints
       };
     })
     .sort((a, b) => a.solves - b.solves || a.id.localeCompare(b.id));

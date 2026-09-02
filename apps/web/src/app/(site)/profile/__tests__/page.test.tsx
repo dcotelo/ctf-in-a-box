@@ -149,10 +149,13 @@ describe("profile page points vs. the leaderboard row", () => {
       generatedAt: new Date().toISOString(),
       capabilities: { apps: false, teams: false, challenges: false },
     };
-    const leaderboardOut = await withModuleContributions(await withHintPenalties(data));
+    const leaderboardOut = await withHintPenalties(await withModuleContributions(data));
     const leaderboardPoints = leaderboardOut.entries[0].points;
 
-    // 40 (raw) - 10 (hint spend, floored at 0) + 15 (quiz) = 45.
+    // 40 (raw) + 15 (quiz) - 10 (hint spend, floored at 0) = 45. Non-ai
+    // points alone (40) already exceed the spend (10), so this fixture can't
+    // distinguish the correct order from the pre-fix one (see the ai
+    // boundary test below) — it's still flipped to match the real pipeline.
     expect(leaderboardPoints).toBe(45);
     expect(html).toContain(`>${leaderboardPoints}<`);
   });
