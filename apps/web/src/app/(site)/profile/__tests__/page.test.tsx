@@ -24,6 +24,8 @@ const {
   getQuizTotals,
   listQuestions,
   getTeamQuizTotals,
+  getAiTotals,
+  listAiChallenges,
   getResolvedModules,
 } = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -36,6 +38,8 @@ const {
   getQuizTotals: vi.fn(),
   listQuestions: vi.fn(),
   getTeamQuizTotals: vi.fn(),
+  getAiTotals: vi.fn(),
+  listAiChallenges: vi.fn(),
   getResolvedModules: vi.fn(),
 }));
 
@@ -80,6 +84,12 @@ vi.mock("@/lib/quiz-store", () => ({
   // The blocks' Show-N item list reads the viewer's own per-question map.
   getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
 }));
+vi.mock("@/lib/ai-store", () => ({
+  getAiTotals,
+  listAiChallenges,
+  // The blocks' Show-N item list reads the viewer's own per-challenge map.
+  getViewerAi: async () => ({ solved: {}, attempts: {} }),
+}));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
 import ProfilePage from "@/app/(site)/profile/page";
@@ -92,6 +102,7 @@ beforeEach(() => {
   getViewerTeam.mockResolvedValue(null);
   listQuestions.mockResolvedValue([]);
   getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
+  listAiChallenges.mockResolvedValue([]);
   getResolvedModules.mockResolvedValue([]);
 });
 
@@ -142,6 +153,45 @@ describe("profile page points vs. the leaderboard row", () => {
     const leaderboardPoints = leaderboardOut.entries[0].points;
 
     // 40 (raw) - 10 (hint spend, floored at 0) + 15 (quiz) = 45.
+    expect(leaderboardPoints).toBe(45);
+    expect(html).toContain(`>${leaderboardPoints}<`);
+  });
+
+  // The ai counterpart: a gross ai block still nets against the TOTAL exactly
+  // once (max(0, sum_incl_ai − spent)), never against the block itself and
+  // never against ai points alone — the #210 bug shape this whole page's
+  // netting rule guards against, now checked for the fourth module too.
+  it("agrees with withHintPenalties + withModuleContributions for the same login (ai enabled)", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "ai" || id === "secure-development");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue(baseProfile);
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 10, count: 1 });
+    getAiTotals.mockResolvedValue(new Map([["ada", { points: 15, solved: 2, lastAt: null }]]));
+    getHintPenalties.mockResolvedValue(new Map([["ada", 10]]));
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    const entry: LeaderboardEntry = {
+      rank: 1,
+      login: "ada",
+      team: null,
+      points: baseProfile.points,
+      patched: baseProfile.patched,
+      failed: 0,
+      total: baseProfile.total,
+      apps: {},
+      updatedAt: null,
+    };
+    const data: LeaderboardData = {
+      entries: [entry],
+      teams: [],
+      generatedAt: new Date().toISOString(),
+      capabilities: { apps: false, teams: false, challenges: false },
+    };
+    const leaderboardOut = await withModuleContributions(await withHintPenalties(data));
+    const leaderboardPoints = leaderboardOut.entries[0].points;
+
+    // 40 (raw) - 10 (hint spend, floored at 0) + 15 (ai) = 45.
     expect(leaderboardPoints).toBe(45);
     expect(html).toContain(`>${leaderboardPoints}<`);
   });
@@ -262,6 +312,35 @@ describe("profile per-module block content", () => {
     expect(html).toContain('>40</span><span class="text-muted"> / 100 pts</span>');
     expect(html).toContain(">30<"); // the headline points tile
     expect(html).toContain("−10");
+  });
+
+  // Regression coverage for the moduleSummary fallthrough this task closed:
+  // an unconditional secure-development return with no `never` guard let an
+  // ai block render silently with "patched" and the wrong denominator, and
+  // tsc stayed silent about it. This pins the CONTENT (the exhaustiveness
+  // check alone would only catch a MISSING arm, not a wrong one).
+  it("renders the ai block with its own noun and Show-N item list, never secure-development's", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "ai");
+    getResolvedModules.mockResolvedValue([
+      { id: "ai", nav: { href: "/ai", label: "AI Challenges" }, targets: [], title: "AI Challenges", blurb: "" },
+    ]);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({ ...baseProfile, apps: [] });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getAiTotals.mockResolvedValue(new Map([["ada", { points: 20, solved: 2, lastAt: null }]]));
+    listAiChallenges.mockResolvedValue([
+      { id: "a1", title: "Prompt Leak", points: 10 },
+      { id: "a2", title: "Guardrail Bypass", points: 10 },
+      { id: "a3", title: "Jailbreak", points: 10 },
+    ]);
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    expect(html).toContain("challenges");
+    expect(html).not.toContain("patched");
+    expect(html).toMatch(/>2<\/span><span[^>]*> \/ 3 challenges<\/span>/);
+    // moduleItems' Show-N list, driven off the same clamped catalogue.
+    expect(html).toContain("Show 3 challenges");
   });
 });
 

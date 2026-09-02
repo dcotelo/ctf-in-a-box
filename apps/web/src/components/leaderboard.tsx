@@ -290,7 +290,9 @@ export function EntryRow({
               profile blocks carry, lazily fetched now that the row is
               actually open. Only when the entry has app-side activity to
               enumerate. */}
-          {(entry.modules?.quiz || entry.modules?.classic) && <BoardItemLists logins={[entry.login]} />}
+          {(entry.modules?.quiz || entry.modules?.classic || entry.modules?.ai) && (
+            <BoardItemLists logins={[entry.login]} />
+          )}
         </div>
       )}
     </li>
@@ -302,9 +304,11 @@ export function EntryRow({
  *  itself only flips client-side state that a static render can't drive. */
 export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modules = [] }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void; modules?: readonly ResolvedModule[] }) {
   // Per-module vocabulary for the completed count — the same distinction the
-  // module guides draw ("answered" a question, "solved" a flag/challenge).
+  // module guides draw ("answered" a question, "solved" a flag, "challenges"
+  // done for ai — matching module-detail.tsx's own noun for each kind rather
+  // than a shared "solved" a new module would otherwise fall through to).
   const completedNoun = (id: string) =>
-    id === "quiz" ? "answered" : id === "secure-development" ? "patched" : "solved";
+    id === "quiz" ? "answered" : id === "secure-development" ? "patched" : id === "ai" ? "challenges" : "solved";
   return (
     <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
       <button
@@ -409,7 +413,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
           <TeamFlags team={team} />
           {/* The team's quiz/classic items — the members' UNION, matching how
               the team banks points. Same lazy fetch as the entry rows. */}
-          {(team.modules?.quiz || team.modules?.classic) && team.members.length > 0 && (
+          {(team.modules?.quiz || team.modules?.classic || team.modules?.ai) && team.members.length > 0 && (
             <BoardItemLists logins={team.members} />
           )}
         </div>

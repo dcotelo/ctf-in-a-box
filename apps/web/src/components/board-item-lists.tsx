@@ -1,17 +1,18 @@
 "use client";
 
-// The quiz/classic Show-N item lists for an EXPANDED leaderboard row —
-// which questions a contestant answered, which flags a team has solved.
-// Per-item data isn't in the board payload (embedding it for every row
-// would bloat a no-store page nobody has expanded), so this fetches from
-// /api/board/items on mount — i.e. on expand — and renders the same
-// ModuleItemList the profile blocks use. Renders nothing until the data
-// lands and nothing at all on failure: this is detail, never a gate.
+// The quiz/classic/ai Show-N item lists for an EXPANDED leaderboard row —
+// which questions a contestant answered, which flags a team has solved,
+// which ai challenges are done. Per-item data isn't in the board payload
+// (embedding it for every row would bloat a no-store page nobody has
+// expanded), so this fetches from /api/board/items on mount — i.e. on
+// expand — and renders the same ModuleItemList the profile blocks use.
+// Renders nothing until the data lands and nothing at all on failure: this
+// is detail, never a gate.
 
 import { useEffect, useState } from "react";
 import ModuleItemList, { type ModuleItem } from "@/components/module-item-list";
 
-type ItemsResponse = { quiz: ModuleItem[] | null; classic: ModuleItem[] | null };
+type ItemsResponse = { quiz: ModuleItem[] | null; classic: ModuleItem[] | null; ai: ModuleItem[] | null };
 
 /** The route unions at most 8 logins per request (its anti-scrape cap), but
  *  an organizer can raise the team size well past that — chunk the roster
@@ -53,7 +54,11 @@ export default function BoardItemLists({ logins }: { logins: string[] }) {
       if (cancelled) return;
       const ok = parts.filter((p): p is ItemsResponse => p !== null);
       if (ok.length === 0 || ok.length !== chunks.length) return;
-      setData({ quiz: mergeItems(ok.map((p) => p.quiz)), classic: mergeItems(ok.map((p) => p.classic)) });
+      setData({
+        quiz: mergeItems(ok.map((p) => p.quiz)),
+        classic: mergeItems(ok.map((p) => p.classic)),
+        ai: mergeItems(ok.map((p) => p.ai)),
+      });
     });
     return () => {
       cancelled = true;
@@ -63,7 +68,8 @@ export default function BoardItemLists({ logins }: { logins: string[] }) {
   if (!data) return null;
   const quiz = data.quiz ?? [];
   const classic = data.classic ?? [];
-  if (quiz.length === 0 && classic.length === 0) return null;
+  const ai = data.ai ?? [];
+  if (quiz.length === 0 && classic.length === 0 && ai.length === 0) return null;
 
   return (
     <div className="mt-3 flex flex-col gap-2">
@@ -72,6 +78,9 @@ export default function BoardItemLists({ logins }: { logins: string[] }) {
       )}
       {classic.length > 0 && (
         <ModuleItemList items={classic} noun={classic.length === 1 ? "flag" : "flags"} doneLabel="Solved" />
+      )}
+      {ai.length > 0 && (
+        <ModuleItemList items={ai} noun={ai.length === 1 ? "challenge" : "challenges"} doneLabel="Solved" />
       )}
     </div>
   );

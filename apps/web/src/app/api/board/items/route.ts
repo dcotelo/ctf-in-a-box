@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { LOGIN_RE } from "@/lib/admin-admins";
+import { getViewerAi, listAiChallenges } from "@/lib/ai-store";
 import { getViewerClassic, listChallenges } from "@/lib/classic-store";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getViewerQuiz, listQuestions } from "@/lib/quiz-store";
@@ -10,15 +11,18 @@ const MAX_LOGINS = 8;
 type Item = { id: string; label: string; points: number; done: boolean; earnedPoints?: number };
 
 /**
- * Per-item quiz/classic completion for a login (an expanded leaderboard row)
- * or a roster (an expanded team row, whose completion is the members' union —
- * the same union the team's banked points already reflect).
+ * Per-item quiz/classic/ai completion for a login (an expanded leaderboard
+ * row) or a roster (an expanded team row, whose completion is the members'
+ * union — the same union the team's banked points already reflect).
  *
  * Public and read-only, like the leaderboard it serves: WHO has solved WHAT
  * is already on the board as counts, and every label here (a question's
  * prompt, a challenge's title) is on a public page. What must never leave
  * this route is grading material — items are built field by field from the
- * public records, and the viewer maps carry only ids and banked points.
+ * public records, and the viewer maps carry only ids and banked points. The
+ * ai arm reads through `listAiChallenges` (the contestant-safe lister) and
+ * `getViewerAi` — never `listAiChallengesForAdmin`, which is the only ai
+ * reader that carries flags, hints and signing keys.
  */
 export async function GET(request: Request) {
   const raw = new URL(request.url).searchParams.get("logins") ?? "";
@@ -27,7 +31,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "bad logins" }, { status: 400 });
   }
 
-  const [quizLive, classicLive] = await Promise.all([isModuleLive("quiz"), isModuleLive("classic")]);
+  const [quizLive, classicLive, aiLive] = await Promise.all([
+    isModuleLive("quiz"),
+    isModuleLive("classic"),
+    isModuleLive("ai"),
+  ]);
 
   let quiz: Item[] | null = null;
   if (quizLive) {
@@ -53,5 +61,17 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({ quiz, classic });
+  let ai: Item[] | null = null;
+  if (aiLive) {
+    const [challenges, viewers] = await Promise.all([
+      listAiChallenges(),
+      Promise.all(logins.map((l) => getViewerAi(l))),
+    ]);
+    ai = challenges.map((c) => {
+      const hit = viewers.map((v) => v.solved[c.id]).find(Boolean);
+      return { id: c.id, label: c.title, points: c.points, done: Boolean(hit), earnedPoints: hit?.points };
+    });
+  }
+
+  return NextResponse.json({ quiz, classic, ai });
 }
