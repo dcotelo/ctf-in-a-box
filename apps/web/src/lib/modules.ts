@@ -1002,13 +1002,192 @@ git push -u origin fix/<short-description>`,
     id: "ai",
     displayName: "AI Challenges",
     description: "Prompt-injection and guardrail challenges hosted outside the box, scored inside it.",
-    // No `nav` yet: /ai does not exist until the pages PR, and the field is
-    // optional exactly for a module in this state (see ModuleDef.nav). Adding
-    // it now would put a 404 in the menu the moment the module is enabled.
+    // /ai exists now (the pages PR), so the module gets its nav entry — which
+    // also puts /ai in GATED_ROUTES (proxy.ts's matcher must carry it too;
+    // proxy.test.ts asserts the two agree) and the 404's route directory.
+    nav: { href: "/ai", label: "AI Challenges" },
+    emptyBoard: {
+      line: "No challenges solved yet. Every rank is unclaimed. Solve your first AI challenge and you’ll be the one everyone else is chasing.",
+      cta: { href: "/ai", label: "$ open a challenge" },
+    },
+    // Deliberately plain and factual, same discipline as quiz's and classic's
+    // copy: every claim below is checked against the implementation, and no
+    // claim is made about anything PR 4 (the admin panel) or PR 5 (hints) add
+    // later. Specifically checked against ai-store.ts, ai-token.ts and
+    // ai-launch.ts, and the /api/ai routes:
     //
-    // No `home`/`guide`/`rules`/`faq`/`terms` yet either, for the same reason:
-    // this module's copy makes claims about a board and a launcher that do not
-    // exist yet, and copy is checked against the implementation in this repo.
+    //   - Each challenge is hosted on an EXTERNAL site (`AiChallenge.urlTemplate`).
+    //     Opening it from `/ai/[id]` mints a fresh, PERSONAL launch token
+    //     (`mintLaunchUrl`/`buildLaunchClaims`) naming the signed-in login in
+    //     `sub` — nothing else on this box mints one.
+    //   - `mode` is "event", "flag" or "both" (`AI_MODES`). An event-mode
+    //     challenge reports its own solve back automatically, asserted by the
+    //     external side against `/api/ai/event` (HMAC-signed, keyed by a
+    //     per-challenge key the box alone issues); a flag/both challenge also
+    //     takes a typed flag on the challenge page, graded instantly by
+    //     `submitAiFlag` against a stored answer.
+    //   - The launch token IS the identity carried onto the external site
+    //     (`AiTokenClaims.sub`), and `/api/ai/submit` and `/api/ai/event` both
+    //     act on `claims.sub` alone — cookie-blind, by design. Whoever holds a
+    //     copy of the link plays and is rate-limited/cooled-down AS that login;
+    //     there is no second check that the browser holding it is the one it
+    //     was minted for. So: it is personal, sharing it lets someone else
+    //     submit as you or spend your cooldown, and every point it earns still
+    //     lands on your account regardless of who used it.
+    //   - Solve timestamps are stamped by `runAward` by the box's own
+    //     `new Date()` at award time — never a time the external side reports
+    //     — so the box's clock decides when a solve happened, not the
+    //     challenge's.
+    //   - There is NO attempt cap in `evaluateGate`/`AWARD_SCRIPT`: it refuses
+    //     only on paused/already-solved/cooldown, same as classic. There IS a
+    //     cooldown (`AI_COOLDOWN_SEC`), applied to the GRADED path only — a
+    //     signed event has no wrong answer to rate-limit (`awardAiEvent` passes
+    //     cooldown 0). Nothing here promises hints (that's PR 5) or an admin
+    //     control panel (PR 4).
+    home: {
+      tagline: "AI Challenges",
+      intro: () =>
+        "Each challenge is hosted on an external site. Open it from its page for a personal launch link, play it there, and a correct solve reports back to the leaderboard on its own — or, where a challenge also takes one, grade yourself by typing the flag on the page.",
+      expect: {
+        heading: "Play it externally, get scored automatically",
+        lede: "Each challenge sits under a category and is worth a fixed number of points, and the board shows how many people have already solved it. Opening a challenge mints you a personal link into the external site; some challenges report a solve back the moment you clear them, others also take a typed flag, graded the instant you submit it.",
+      },
+      steps: () => [
+        {
+          title: "Sign in with GitHub",
+          body: "Sign in to claim your row on the leaderboard. Nothing is graded for a signed-out visitor, and signing in is what lets you leave and come back to a challenge later.",
+        },
+        {
+          title: "Open a challenge and get your link",
+          body: "Every challenge is grouped by category and shows what it's worth. Opening one from its page mints you a personal launch link into the external site — that link is how it knows who you are, so it's yours alone.",
+        },
+        {
+          title: "Play it, submit if it asks",
+          body: "Work the challenge on the external site. A solve reports back to the leaderboard on its own, or, where the challenge also takes one, paste the flag into the box on its page and it's graded the instant you submit.",
+        },
+      ],
+      cta: { href: "/ai", label: "Browse the challenges" },
+    },
+    guide: {
+      lede: "New to the board? Here's everything you need to go from a GitHub sign-in to your first solved challenge.",
+      metaDescription:
+        "Step-by-step guide to the ai challenges: sign in with GitHub, open a challenge for your personal link, and get scored the moment it reports back or you submit a flag.",
+      loop: {
+        kicker: "The loop",
+        cycle: ["open the challenge", "play it externally", "it reports back, or you submit the flag"],
+        note: "Every solve is checked the moment it lands — automatically when the external site reports it, or instantly against the stored flag when you submit one yourself. Either way, the box's own clock decides when it happened.",
+      },
+      steps: () => [
+        {
+          title: "Sign in with GitHub",
+          body: "Use the sign-in button in the header. Your GitHub login is how the leaderboard and your profile track your progress, and it's also the identity your personal launch link carries onto the external site.",
+        },
+        {
+          title: "Join a team, or play solo",
+          body: "Scoring requires a team — a challenge doesn't count until you're on one, and the board sends a teamless player to their profile first. From there: create a team, join one by code or invite link, or hit Play solo for a one-click team of one.",
+        },
+        {
+          title: "Open the board",
+          body: "Every challenge the organizers have published is on the AI page, grouped by category. Each one shows what it's worth and how many people have already solved it. Work in any order, at your own pace.",
+        },
+        {
+          title: "Open a challenge for your personal link",
+          body: "Opening a challenge from its page mints a launch link that signs you straight into the external site as you. It's yours alone — anyone who has it plays under your name, cooldown included — and if it ever goes stale, reopening the page mints a fresh one.",
+        },
+        {
+          title: "Play it, and let it report back or submit the flag",
+          body: "Play the challenge on the external site. Most report a solve back on their own the instant you clear them; where a challenge also takes a typed flag, paste it into the box on its page and it's graded immediately. Either way, the box's own clock decides when you solved it.",
+        },
+      ],
+      notes: [
+        "Every challenge carries its own point value, and shows what it's worth before you open it, plus how many people have already solved it.",
+        "Your launch link is personal. Reopening the challenge page mints a fresh one, but don't hand yours to someone else: whatever they do with it happens under your name, cooldown included, and every point it earns still lands on your account.",
+        "Points are credited to the GitHub account your launch link named. A challenge solved by several teammates counts once for the team, so a team's total can be less than its members' points added together.",
+      ],
+      scoring:
+        "Every challenge is worth a fixed number of points, set by whoever wrote it. Points are awarded the moment your solve is recorded — automatically when the external site reports it, or instantly when a typed flag matches — so nothing waits on manual review. Your live total is visible on your profile once you're signed in, and on the leaderboard alongside everyone else's.",
+      cta: { href: "/ai", label: "Browse the challenges" },
+    },
+    rules: () => ({
+      // No teams bullet: the identity rule is the platform's one sentence
+      // now, and the link-sharing nuance belongs to fair play, not team
+      // crediting.
+      teams: [],
+      fairPlay: [
+        "The published challenges are the whole game. Do not attack the scoring pipeline, the leaderboard, or other contestants' accounts.",
+        "Your launch link is personal. Do not share it: anyone holding it can play or submit as you, cooldown included, and every point it earns still lands on your account regardless of who used it.",
+        "Automated or scripted play to farm attempts will get your account rate-limited or disqualified.",
+      ],
+      conduct: [
+        "Found a bug in a challenge, the scoring pipeline, or the site itself? Report it to an organizer instead of exploiting it for an unfair edge.",
+      ],
+      scoring: [
+        "Each challenge is worth a fixed point value, set by whoever wrote it. Points post the moment your solve is recorded, whether the external site reported it or you submitted a matching flag.",
+        "The box's own clock decides when a solve happened, not the external site's.",
+      ],
+    }),
+    faq: () => ({
+      gettingStarted: [
+        {
+          q: "Do I need experience to compete?",
+          a: "No. The challenges span a range of difficulty, and points scale with it. Start with whichever one looks approachable and work up.",
+        },
+        {
+          q: "Do I need my own AI account?",
+          a: "Depends on the event's challenges — some external sites ask you to sign in with something of your own, others don't. Check the challenge page, or ask an organizer if a specific one isn't clear.",
+        },
+      ],
+      prep: [
+        {
+          q: "What do I need to bring?",
+          a: "A GitHub account and a laptop. Everything else runs on the external site each challenge links to.",
+        },
+      ],
+      playing: [
+        {
+          q: "How do I play a challenge?",
+          a: [
+            "Sign in, open the ",
+            { route: { href: "/ai", label: "AI Challenges" } },
+            " page, and open the one you want. That mints you a personal launch link into the external site — follow it and play there. A solve reports back on its own, or, where the challenge also takes one, paste the flag into the box on its page.",
+          ],
+        },
+        {
+          q: "How is my progress tracked?",
+          a: "Sign in with GitHub to claim your row on the live leaderboard and see how many challenges you've solved, and what they were worth, on your profile. Points are credited to the account your launch link named, and nothing is graded for a signed-out visitor.",
+        },
+        {
+          q: "I solved it on the site but see no points. What happened?",
+          a: "Reopen the challenge page for a fresh link and check the leaderboard — sometimes a solve just hasn't landed yet. Still nothing after that? Ask an organizer.",
+        },
+        {
+          q: "Can I retry a challenge I haven't solved?",
+          a: "Yes. There's no cap on attempts, though organizers can put a short cooldown between tries on the same challenge; reopening the challenge page always gets you a fresh launch link.",
+        },
+      ],
+    }),
+    terms: () => ({
+      eligibility: [
+        "You need a GitHub account. Your GitHub login is your identity for scoring — it's also what your personal launch link carries onto the external site — and points are credited to that account and cannot be moved between accounts afterwards.",
+        "Organizers and anyone who wrote or reviewed the challenges may compete for fun but are not eligible for prizes.",
+      ],
+      scope: [
+        "This event authorizes no testing of any system. The published challenges are the whole of what you're invited to do here, on whichever external site each one names.",
+        "Explicitly out of scope: the scoring pipeline, the leaderboard, this website, the CTF Discord, and other contestants' accounts or launch links. Testing any of those is not authorized by this event, and nothing here should be read as permission to do so.",
+        "Found a real security bug in this site or in the scoring pipeline? That is genuinely useful. Report it to an organizer rather than exploiting it. Doing so will not cost you anything.",
+        "Automated or scripted play, to farm attempts or to enumerate flags, will get your account rate-limited or disqualified.",
+      ],
+      submissions: [
+        "Playing an external challenge sends your GitHub login and your progress on this module to that challenge's operator — that is what your personal launch link carries, and it's how the site knows you and can report your solve back.",
+        "Submit your own work. Passing off another contestant's solve as yours is not allowed, and neither is playing under someone else's launch link.",
+        "Don't publish flags or writeups for others to copy while the event is running. Afterwards, write up whatever you like.",
+      ],
+      scoring: [
+        "Each challenge is worth a fixed point value, set by whoever wrote it, awarded automatically when your solve is recorded — whether the external site reported it or you submitted a matching flag. Your best-ever result per challenge counts.",
+        "There is no cap on attempts. A short cooldown between submissions on the same challenge may apply, and organizers may adjust it during the event.",
+      ],
+    }),
+    routeCard: () => "Every AI challenge the organizers have published.",
   },
 };
 

@@ -110,5 +110,5 @@ export function proxy(request: NextRequest) {
 // `proxy.test.ts` checks — that test compares the literal module routes and
 // would otherwise read this as an unknown extra.
 export const config = {
-  matcher: ["/profile", "/challenges", "/quiz", "/flags", "/api/:path*"],
+  matcher: ["/profile", "/challenges", "/quiz", "/flags", "/ai", "/api/:path*"],
 };
