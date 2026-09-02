@@ -62,10 +62,10 @@
 #                               asserted below)
 #   - ctf:ai:flagnorm          hash, id -> flagComparisonForm(flag,
 #                               caseSensitive) (same: realism only, not
-#                               asserted — but this is the value grading
-#                               actually compares against, never the authored
-#                               flag, so it is seeded with the real comparison
-#                               form rather than a copy of the authored one)
+#                               asserted. The authored flag below is already
+#                               lowercase/trimmed, so its comparison form IS
+#                               the literal — the seed writes the same string
+#                               to both hashes, like classic's script does)
 #   - ctf:ai:signkey           hash, id -> the challenge's event-signing key
 #                               (realism only — this script never signs an
 #                               event)
