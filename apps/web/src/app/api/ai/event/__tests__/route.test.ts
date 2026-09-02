@@ -155,6 +155,11 @@ describe("POST /api/ai/event", () => {
     mocks.listAiChallenges.mockResolvedValue([]);
     await POST(signed(bodyFor()));
     expect(mocks.logActivity).not.toHaveBeenCalled();
+
+    allGatesOpen();
+    mocks.listAiChallenges.mockResolvedValue([{ id: CHAL, mode: "flag", points: 400 }]);
+    await POST(signed(bodyFor()));
+    expect(mocks.logActivity).not.toHaveBeenCalled();
   });
 
   it("hashes the EXACT bytes received, never a re-serialized body", async () => {

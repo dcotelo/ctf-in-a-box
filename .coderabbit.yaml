@@ -336,14 +336,18 @@ reviews:
         parsing or evaluating a submission, so the refusal reveals whether the
         answer was correct. Refuse before the body is interpreted.
 
-        Public surface growth — GET /api/public/scoring and GET
-        /api/ai/launch-key are the ONLY sanctioned unauthenticated routes.
-        Both must stay read-only, policy out and never facts in, with nothing
-        secret in the payload: launch-key publishes the launch PUBLIC key, its
-        `kid` and the algorithm, and the private half is import-forbidden by
-        the ai contract test. Flag any OTHER new unauthenticated route, any
-        secret appearing in either payload, and anything letting a fork report
-        facts to the box rather than only read policy from it.
+        Public surface growth — GET /api/public/scoring, GET
+        /api/ai/launch-key and GET /api/board/items are the ONLY sanctioned
+        unauthenticated routes. All must stay read-only, policy out and never
+        facts in, with nothing secret in the payload: launch-key publishes the
+        launch PUBLIC key, its `kid` and the algorithm, with the private half
+        import-forbidden by the ai contract test; board/items serves the
+        public leaderboard's expansion (who solved what — already on the
+        board as counts) built only from the contestant-safe listers, ids and
+        banked points, capped at a team roster's worth of logins per request.
+        Flag any OTHER new unauthenticated route, any secret appearing in any
+        of the three payloads, and anything letting a fork report facts to
+        the box rather than only read policy from it.
 
         Origin assertion bypass — a mutating route opting out of the
         same-origin check in src/proxy.ts, or a widening of the /api/auth/*
