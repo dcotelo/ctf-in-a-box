@@ -9,6 +9,7 @@
 // urlTemplate in the challenge payload, a `{ rotate }` dispatch arm, and no
 // import/export arm.
 
+import { inspect } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -61,7 +62,7 @@ vi.mock("@/lib/ai-store", () => ({
 vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline }));
 
-import { GET, POST, DELETE } from "@/app/api/admin/ai/route";
+import { GET, POST, DELETE, CHALLENGE_KEYS, CATEGORIES_KEYS, ROTATE_KEYS } from "@/app/api/admin/ai/route";
 
 const adminReq = (method: "GET" | "POST" | "DELETE", body?: unknown) =>
   new Request("http://x/api/admin/ai", {
@@ -137,10 +138,58 @@ describe("GET /api/admin/ai", () => {
     const res = await GET(adminReq("GET"));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "unavailable" });
-    const logged = spy.mock.calls.map((call) => call.join(" ")).join("\n");
+
+    // Every logged argument must be a primitive STRING, never the raw error
+    // object. This is the assertion that actually distinguishes redacted
+    // logging (`errorLabel(err)`, a string) from raw logging
+    // (`console.error(..., err)`, an object): `Array.prototype.join` used
+    // below stringifies an Error via `Error.prototype.toString()`, which
+    // renders only `name: message` and silently drops the object's own
+    // enumerable properties — so a `logged.not.toContain(...)` check alone
+    // cannot tell the two apart. A `typeof arg === "object"` argument fails
+    // here regardless of what its own properties happen to serialize to.
+    for (const call of spy.mock.calls) {
+      for (const arg of call) {
+        expect(typeof arg).toBe("string");
+      }
+    }
+    // Belt-and-suspenders on top of the type check: walk each argument's own
+    // properties with `util.inspect` (not `Array.join`/`String()`, which
+    // both go through `Error.prototype.toString()` and would miss them) so
+    // the no-secret-text check is honest even if a future arg legitimately
+    // is an object.
+    const logged = spy.mock.calls.map((call) => call.map((arg) => inspect(arg, { depth: 5 })).join(" ")).join("\n");
     expect(logged).not.toContain("CTF{flag}");
     expect(logged).not.toContain("signkey-abc");
     spy.mockRestore();
+  });
+});
+
+// Finding A (classic parity): the admin POST route dispatches between
+// payload shapes by KEY SET ALONE, with no discriminator field. That only
+// stays safe as long as EVERY PAIR of the route's shapes' allowed key sets
+// is disjoint — not just one hand-picked pair. This test derives all three
+// sets from the actual exported constants the route's parsers use
+// (`CHALLENGE_KEYS` / `CATEGORIES_KEYS` / `ROTATE_KEYS`) and checks every
+// pair among them, so a FOURTH shape added later is covered by adding one
+// line to the `sets` list below, rather than a second bespoke assertion — a
+// hardcoded pairwise copy would silently miss it. Mirrors
+// admin/classic/route.test.ts's "keeps every payload key set pairwise
+// disjoint" case exactly.
+describe("POST /api/admin/ai — dispatch key sets", () => {
+  it("keeps every payload key set pairwise disjoint", () => {
+    const sets = [
+      ["CHALLENGE_KEYS", CHALLENGE_KEYS],
+      ["CATEGORIES_KEYS", CATEGORIES_KEYS],
+      ["ROTATE_KEYS", ROTATE_KEYS],
+    ] as const;
+    for (const [aName, a] of sets) {
+      for (const [bName, b] of sets) {
+        if (aName === bName) continue;
+        const overlap = [...a].filter((k) => b.has(k));
+        expect(overlap, `${aName} vs ${bName}`).toEqual([]);
+      }
+    }
   });
 });
 
