@@ -1,0 +1,183 @@
+// One ai challenge, on its own URL — mirrors classic's flags/[id]/page.tsx
+// structurally (same session/gate/load order, same field-by-field view
+// model), with the module's two differences:
+//
+//   1. THE LAUNCHER. A signed-in viewer gets a personal, one-click link to
+//      the externally hosted challenge — this is the ONE place in the app
+//      that mints it. `mintLaunchUrl` (ai-launch.ts) is called from behind
+//      every gate this render already passed: the module-enabled check
+//      above, a real session, and the team redirect below. No other route
+//      calls it. A signed-out visitor sees a sign-in prompt where the
+//      launcher would be, and the mint is never reached at all — there is no
+//      branch that calls it without `login` in hand.
+//   2. THE FORM. `mode: "event"` means the box never grades a typed flag for
+//      this challenge, so no <ChallengeDetail> renders at all — the launcher
+//      is the whole page. `flag`/`both` render the same shared component
+//      classic uses, pointed at this module's submit route.
+//
+// Gated exactly like /ai: the route 404s when the module is off, and 404s
+// for an unknown or deleted challenge id (issue #209's dual-cause not-found,
+// in `[id]/not-found.tsx`).
+
+import type { Metadata } from "next";
+import { headers } from "next/headers";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import ChallengeDetail, { type ChallengeView } from "@/components/challenge-detail";
+import { deriveStatus } from "@/lib/derive-status";
+import { isAdminLogin } from "@/lib/admin-auth";
+import { auth } from "@/lib/auth";
+import { mintLaunchUrl } from "@/lib/ai-launch";
+import {
+  AI_COOLDOWN_SEC,
+  getAiSolveCounts,
+  getViewerAi,
+  listAiChallenges,
+  type ViewerAi,
+} from "@/lib/ai-store";
+import { isModuleLive } from "@/lib/enabled-modules";
+import { getResolvedModules } from "@/lib/resolved-modules";
+import { redirectIfTeamless } from "@/lib/require-team";
+
+const DEFAULT_TITLE = "AI Challenges";
+
+/**
+ * The app's one trusted origin, for the launch token's `iss` claim —
+ * NEVER the request's Host header, which a client fully controls. Two
+ * existing checks already draw this same line for the same reason and this
+ * follows them: `secure-url.ts` derives the session cookie's Secure flag from
+ * `BETTER_AUTH_URL` alone (never a header), and `origin.ts`'s CSRF check
+ * compares an incoming `Origin` against `new URL(BETTER_AUTH_URL).origin`,
+ * again never inventing an expectation from the request itself.
+ *
+ * `BETTER_AUTH_URL` unset is a tolerated dev state, not an error, in both of
+ * those: `secure-url.ts`'s own startup check passes it as `ok` outside
+ * production, and `origin.ts` allows every request once there is "nothing to
+ * compare against". A launch token still needs SOME string for `iss` — it is
+ * never validated against anything server-side (`ai-token.ts`'s
+ * `verifyLaunchToken` checks signature, expiry and audience; the external
+ * integrator reads `iss` for its own logging) — so the safe answer here is
+ * the shipped `.env.example` default's own origin, `http://localhost`, rather
+ * than reading `headers()` for one.
+ */
+function resolveOrigin(): string {
+  const configured = process.env.BETTER_AUTH_URL;
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // A malformed BETTER_AUTH_URL is a config error, not a reason to fail
+      // a page render — fall through to the dev default below.
+    }
+  }
+  return "http://localhost";
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  if (!(await isModuleLive("ai"))) return {};
+  const { id } = await params;
+  const challenge = (await listAiChallenges()).find((c) => c.id === decodeURIComponent(id));
+  if (!challenge) return {};
+  return {
+    title: challenge.title,
+    // The description is challenge CONTENT (may carry markdown, links, the
+    // organizer's phrasing) — the meta description stays a neutral frame.
+    description: `${challenge.category} · ${challenge.points} points.`,
+  };
+}
+
+export default async function AiChallengePage({ params }: { params: Promise<{ id: string }> }) {
+  if (!(await isModuleLive("ai"))) notFound();
+  const { id } = await params;
+  const challengeId = decodeURIComponent(id);
+
+  const session = await auth.api.getSession({ headers: await headers() });
+  const login = (session?.user as { login?: string } | undefined)?.login;
+  const viewerIsAdmin = await isAdminLogin(login);
+
+  // Same order as /ai and /flags/[id]: the team redirect fires before the
+  // loads below, so a teamless contestant is never bounced after work that
+  // gets thrown away.
+  await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
+
+  const [challenges, solveCounts, viewerAi, modules] = await Promise.all([
+    listAiChallenges(),
+    getAiSolveCounts(),
+    login ? getViewerAi(login) : Promise.resolve<ViewerAi>({ solved: {}, attempts: {} }),
+    getResolvedModules(),
+  ]);
+
+  const challenge = challenges.find((c) => c.id === challengeId);
+  if (!challenge) notFound();
+
+  const moduleTitle = modules.find((m) => m.id === "ai")?.title ?? DEFAULT_TITLE;
+  const cooldownMs = AI_COOLDOWN_SEC * 1000;
+
+  // Field by field, never a spread — a spread of the store record is how a
+  // secret (or a field this page never meant to expose, like `urlTemplate`
+  // or `mode`, both of which are read directly off `challenge` below instead
+  // of through this view) would leak. Same discipline as /ai's board.
+  const view: ChallengeView = {
+    id: challenge.id,
+    title: challenge.title,
+    category: challenge.category,
+    description: challenge.description,
+    points: challenge.points,
+    solveCount: solveCounts.get(challenge.id) ?? 0,
+    caseSensitive: challenge.caseSensitive,
+    ...deriveStatus(viewerAi.solved[challenge.id], viewerAi.attempts[challenge.id], cooldownMs),
+  };
+
+  // THE MINT. Reached only for a signed-in viewer — there is no code path
+  // above that calls this without `login` in hand, and a signed-out visitor
+  // gets the sign-in prompt below instead. `challenges` is the FULL public
+  // board (the token's progress array draws from every challenge, not just
+  // this one); `challenge` and `viewerAi` are exactly what was just built
+  // above, nothing re-fetched or reshaped for the mint.
+  const launchUrl = login
+    ? await mintLaunchUrl({ origin: resolveOrigin(), login, challenge, challenges, viewer: viewerAi })
+    : null;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3">
+        <Link href="/ai" className="ds-link w-fit text-sm">
+          ← {moduleTitle}
+        </Link>
+        <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#14b8a6]">
+          {challenge.category}
+        </p>
+        <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">
+          {challenge.title}
+        </h1>
+      </div>
+
+      <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
+        {launchUrl ? (
+          <div className="flex flex-col gap-1">
+            {/* This is the ONE place a token-bearing URL is ever rendered —
+                a single anchor's href, nothing else on the page touches it. */}
+            <a
+              href={launchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ds-link w-fit text-sm font-semibold"
+            >
+              Open challenge →
+            </a>
+            <p className="text-xs text-muted">This link is yours — it signs you in on the challenge site.</p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">Sign in with GitHub to get your personal challenge link.</p>
+        )}
+      </div>
+
+      {/* Event-only challenges have no in-box form at all — the launcher
+          above is the whole page for them. flag/both render the same shared
+          component classic's own page uses, pointed at this module's route. */}
+      {challenge.mode !== "event" && (
+        <ChallengeDetail challenge={view} authenticated={Boolean(login)} submitPath="/api/ai/submit" />
+      )}
+    </div>
+  );
+}
