@@ -387,15 +387,16 @@ export default function AdminAiControls({
   const [categoryPending, setCategoryPending] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
 
-  /** Re-fetches the challenge and category lists from the store — the same
-   *  GET the mount-time effect below runs. `isCancelled` lets the mount
-   *  effect skip its own setState calls after unmount. Mirrors classic's
-   *  `refreshLists` exactly. */
-  async function refreshLists(isCancelled: () => boolean = () => false): Promise<void> {
+  /** Re-fetches the challenge and category lists from the store. Wired to
+   *  the Retry control rendered below `listError` — a real user click, never
+   *  called from an effect (see the mount effect's own comment for why the
+   *  mount-time load does NOT go through this function). No cancellation
+   *  guard: a manual click has no unmount race to guard against the way a
+   *  mount effect does. */
+  async function refreshLists(): Promise<void> {
     try {
       const res = await fetch("/api/admin/ai");
       const data = await parseJson<{ error?: string; challenges?: AdminAiChallenge[]; categories?: string[] }>(res);
-      if (isCancelled()) return;
       if (!res.ok) {
         setListError(describeAiError(res.status, data.error));
         return;
@@ -404,16 +405,46 @@ export default function AdminAiControls({
       setCategories(Array.isArray(data.categories) ? data.categories : []);
       setListError(null);
     } catch {
-      if (!isCancelled()) setListError("Couldn't load challenges — check your connection and try again.");
+      setListError("Couldn't load challenges — check your connection and try again.");
     }
   }
 
   // First-paint data comes from `initialChallenges`/`initialCategories` (or,
   // in production, is simply empty); this replaces it with the live data
   // once mounted in the browser. Never runs under `renderToStaticMarkup`.
+  //
+  // Written as an inline `.then()` chain — deliberately NOT `void
+  // refreshLists(() => cancelled)` the way classic's/quiz's mount effects are
+  // written. `react-hooks/set-state-in-effect` traces a setState call through
+  // a closed-over async helper invoked from an effect body and flags it as
+  // "calling setState synchronously within an effect", even though every
+  // setter below already only fires once the fetch has settled and is
+  // already guarded by `cancelled`. Writing the continuation directly in the
+  // effect's own body — nothing routed through an intermediate closure the
+  // rule has to trace through — clears the false positive without an
+  // eslint-disable.
   useEffect(() => {
     let cancelled = false;
-    void refreshLists(() => cancelled);
+    fetch("/api/admin/ai")
+      .then((res) =>
+        parseJson<{ error?: string; challenges?: AdminAiChallenge[]; categories?: string[] }>(res).then((data) => ({
+          res,
+          data,
+        })),
+      )
+      .then(({ res, data }) => {
+        if (cancelled) return;
+        if (!res.ok) {
+          setListError(describeAiError(res.status, data.error));
+          return;
+        }
+        setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
+        setCategories(Array.isArray(data.categories) ? data.categories : []);
+        setListError(null);
+      })
+      .catch(() => {
+        if (!cancelled) setListError("Couldn't load challenges — check your connection and try again.");
+      });
     return () => {
       cancelled = true;
     };
@@ -665,7 +696,14 @@ export default function AdminAiControls({
           </button>
         </div>
 
-        {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
+        {listError && (
+          <p className="text-xs text-[#e53e3e]">
+            {listError}{" "}
+            <button type="button" onClick={() => void refreshLists()} className="text-white hover:underline">
+              Retry
+            </button>
+          </p>
+        )}
 
         {challenges.length === 0 ? (
           <p className="text-xs text-muted">No challenges yet.</p>
