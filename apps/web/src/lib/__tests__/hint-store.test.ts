@@ -512,6 +512,45 @@ describe("getAiHintIds", () => {
     expect(await store.getAiHintIds()).toEqual([]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
+
+  // Pins the fix: resolveHintConfig() (→ getAdminSettings) used to run
+  // OUTSIDE the try, so a settings-read rejection escaped this function
+  // entirely and rejected the Promise.all callers (the /ai and /flags pages)
+  // run it under, 500ing the public board instead of degrading like every
+  // other read here.
+  it("degrades to [] when the settings read (resolveHintConfig) rejects", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
+    await expect(store.getAiHintIds()).resolves.toEqual([]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+});
+
+describe("getClassicHintIds", () => {
+  it("returns the HKEYS of ctf:classic:hints when the classic module is enabled", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["sql-injection-1"] }]);
+    expect(await store.getClassicHintIds()).toEqual(["sql-injection-1"]);
+    expect(mocks.upstashPipeline).toHaveBeenCalledWith([["HKEYS", "ctf:classic:hints"]]);
+  });
+
+  it("returns [] when the classic module is disabled", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockReturnValue(false);
+    expect(await store.getClassicHintIds()).toEqual([]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
+
+  // getAiHintIds' exact twin: same fix, same shape.
+  it("degrades to [] when the settings read (resolveHintConfig) rejects", async () => {
+    const store = await loadStore();
+    mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
+    mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
+    await expect(store.getClassicHintIds()).resolves.toEqual([]);
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
+  });
 });
 
 describe("getViewerHints", () => {

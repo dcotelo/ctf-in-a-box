@@ -393,11 +393,16 @@ export async function getHintAvailability(): Promise<Partial<Record<AppId, strin
 export async function getClassicHintIds(): Promise<string[]> {
   if (!HINTS_AVAILABLE) return [];
   if (!isModuleEnabled("classic")) return [];
-  if (!(await resolveHintConfig()).enabled) return [];
   try {
+    if (!(await resolveHintConfig()).enabled) return [];
     const [res] = await upstashPipeline([["HKEYS", CLASSIC_HINTS_KEY]]);
     return Array.isArray(res.result) ? (res.result as string[]) : [];
   } catch (err) {
+    // The try now covers resolveHintConfig (→ getAdminSettings) as well as
+    // the HKEYS read: a transient settings-read error used to reject
+    // OUTSIDE this catch, which rejected the whole Promise.all callers run
+    // it under (the /ai and /flags pages) and 500'd the public board instead
+    // of degrading like every other read here.
     console.error("Classic hint availability fetch failed:", err);
     return [];
   }
@@ -409,11 +414,15 @@ export async function getClassicHintIds(): Promise<string[]> {
 export async function getAiHintIds(): Promise<string[]> {
   if (!HINTS_AVAILABLE) return [];
   if (!isModuleEnabled("ai")) return [];
-  if (!(await resolveHintConfig()).enabled) return [];
   try {
+    if (!(await resolveHintConfig()).enabled) return [];
     const [res] = await upstashPipeline([["HKEYS", AI_HINTS_KEY]]);
     return Array.isArray(res.result) ? (res.result as string[]) : [];
   } catch (err) {
+    // Mirrors getClassicHintIds exactly: the try widens to cover
+    // resolveHintConfig (→ getAdminSettings), not just the HKEYS read, so a
+    // settings-read blip degrades to [] here instead of rejecting the
+    // Promise.all callers (the /ai and /flags pages) run it under.
     console.error("AI hint availability fetch failed:", err);
     return [];
   }

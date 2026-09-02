@@ -254,6 +254,47 @@ describe("ai page view model", () => {
       expect(call[2]).toBe(5000);
     }
   });
+
+  // PR5 finding F5: getAiHintIds' OWN settings read (resolveHintConfig ->
+  // getAdminSettings) used to run OUTSIDE its try, so the very same
+  // getAdminSettings rejection this test exercises above ALSO escaped
+  // getAiHintIds and rejected the whole Promise.all here — 500ing the board
+  // even though the page's direct settings read is already caught (the test
+  // above only ever proved that ONE catch, never this one). Every other test
+  // in this file stubs getAiHintIds out entirely, which can't observe that
+  // fix at all, so this test dynamically re-imports the REAL hint-store
+  // (unmocked, just for this one case) — a regression that narrows its try
+  // back down fails this test.
+  it("still renders the board when getAdminSettings rejects everywhere, including inside getAiHintIds' own settings read", async () => {
+    vi.resetModules();
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://fake.upstash.io");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "fake-token");
+    vi.doUnmock("@/lib/hint-store");
+
+    isModuleEnabled.mockReturnValue(true);
+    getSession.mockResolvedValue({ user: { login: "alice" } });
+    listAiChallenges.mockResolvedValue(baseChallenges);
+    getAdminSettings.mockRejectedValue(new Error("ECONNRESET"));
+    getViewerAi.mockResolvedValue({ solved: {}, attempts: {} });
+
+    try {
+      const { default: freshAiPage } = await import("@/app/(site)/ai/page");
+      const html = renderToStaticMarkup(await freshAiPage());
+
+      // The board itself rendered — challenges are visible, not a 500.
+      expect(html).toContain('href="/ai/a1"');
+      expect(html).toContain('href="/ai/a2"');
+      expect(html).toContain('href="/ai/a3"');
+      // getAiHintIds degraded to [] rather than rejecting: no paid-hint
+      // markers, and never a thrown error.
+      expect(html).not.toContain("paid hint available");
+      expect(html).not.toContain("💡");
+    } finally {
+      // Restore the module-level stub every other test in this file relies on.
+      vi.doMock("@/lib/hint-store", () => ({ getAiHintIds }));
+      vi.resetModules();
+    }
+  });
 });
 
 // The board's 💡 marker (issue #211, mirrors classic/#190): availability is
