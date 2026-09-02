@@ -334,6 +334,11 @@ describe("aiCooldownSec", () => {
     await expect(updateAdminSettings({ aiCooldownSec: null as never }, "alice")).rejects.toThrow(
       AdminValidationError,
     );
+    // Every rejection above refused BEFORE the store: the only Lua call in
+    // this whole test is the one valid write at the top. A rejection that
+    // still reached upstashEval would validate after writing — the exact
+    // ordering bug this pin exists to catch.
+    expect(mocks.upstashEval).toHaveBeenCalledTimes(1);
   });
 });
 
