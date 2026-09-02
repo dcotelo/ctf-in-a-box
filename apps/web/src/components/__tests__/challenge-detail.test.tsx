@@ -16,13 +16,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import ClassicChallenge, {
+import ChallengeDetail, {
   ChallengeCard,
   describeCorrect,
   resultLine,
   type ClassicChallengeView,
   type Feedback,
-} from "@/components/classic-challenge";
+} from "@/components/challenge-detail";
 
 const web: ClassicChallengeView = {
   id: "web-sqli-101",
@@ -34,17 +34,17 @@ const web: ClassicChallengeView = {
   status: "unsolved",
 };
 
-describe("ClassicChallenge", () => {
+describe("ChallengeDetail", () => {
   it("renders the description through the markdown renderer", () => {
     const html = renderToStaticMarkup(
-      <ClassicChallenge challenge={{ ...web, description: "**bold**" }} authenticated />,
+      <ChallengeDetail challenge={{ ...web, description: "**bold**" }} authenticated submitPath="/api/classic/submit" />,
     );
     expect(html).toMatch(/<strong[^>]*>bold<\/strong>/);
   });
 
   it("shows a solved challenge without a submit control", () => {
     const html = renderToStaticMarkup(
-      <ClassicChallenge challenge={{ ...web, status: "solved", earnedPoints: 50 }} authenticated />,
+      <ChallengeDetail challenge={{ ...web, status: "solved", earnedPoints: 50 }} authenticated submitPath="/api/classic/submit" />,
     );
     expect(html).toMatch(/solved/i);
     expect(html).not.toContain("<input");
@@ -57,7 +57,7 @@ describe("ClassicChallenge", () => {
   it("shows a cooldown without leaking the raw instant", () => {
     const retryAt = "2026-08-19T12:34:56.000Z";
     const html = renderToStaticMarkup(
-      <ClassicChallenge challenge={{ ...web, status: "cooldown", retryAt }} authenticated />,
+      <ChallengeDetail challenge={{ ...web, status: "cooldown", retryAt }} authenticated submitPath="/api/classic/submit" />,
     );
     expect(html).not.toContain(retryAt);
     expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
@@ -66,22 +66,22 @@ describe("ClassicChallenge", () => {
 
   it("shows the case-sensitive badge only when the challenge carries it", () => {
     const on = renderToStaticMarkup(
-      <ClassicChallenge challenge={{ ...web, caseSensitive: true }} authenticated />,
+      <ChallengeDetail challenge={{ ...web, caseSensitive: true }} authenticated submitPath="/api/classic/submit" />,
     );
-    const off = renderToStaticMarkup(<ClassicChallenge challenge={web} authenticated />);
+    const off = renderToStaticMarkup(<ChallengeDetail challenge={web} authenticated submitPath="/api/classic/submit" />);
     expect(on).toMatch(/case-sensitive/i);
     expect(off).not.toMatch(/case-sensitive/i);
   });
 
   it("prompts a signed-out visitor to sign in instead of offering a submit control", () => {
-    const html = renderToStaticMarkup(<ClassicChallenge challenge={web} authenticated={false} />);
+    const html = renderToStaticMarkup(<ChallengeDetail challenge={web} authenticated={false} submitPath="/api/classic/submit" />);
     expect(html).toMatch(/sign in with github/i);
     expect(html).not.toContain("<button");
   });
 
   it("never lets a flag reach the markup, even if props carried a leaked field", () => {
     const leaked = { ...web, flag: "CTF{leaked}", flagnorm: "ctf{leaked}" } as unknown as ClassicChallengeView;
-    const html = renderToStaticMarkup(<ClassicChallenge challenge={leaked} authenticated />);
+    const html = renderToStaticMarkup(<ChallengeDetail challenge={leaked} authenticated submitPath="/api/classic/submit" />);
     expect(html).not.toContain("CTF{leaked}");
     expect(html).not.toContain("ctf{leaked}");
   });

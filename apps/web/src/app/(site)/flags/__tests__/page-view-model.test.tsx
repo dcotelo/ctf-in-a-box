@@ -53,7 +53,7 @@ vi.mock("@/lib/classic-store", () => ({
   getViewerClassic,
   CLASSIC_COOLDOWN_SEC: 5,
 }));
-vi.mock("@/components/classic-board", () => ({
+vi.mock("@/components/challenge-board", () => ({
   default: (props: { challenges: Record<string, unknown>[] }) => {
     captured.challenges = props.challenges;
     return null;

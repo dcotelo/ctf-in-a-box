@@ -7,28 +7,32 @@
 //
 // Server Component on purpose: nothing here is interactive any more — tiles
 // are links, and the viewer's solved state arrives as props. The interactive
-// surface moved to classic-challenge.tsx.
+// surface moved to challenge-detail.tsx.
 
 import Link from "next/link";
 import ProgressSummary from "@/components/progress-summary";
-import type { ClassicChallengeView } from "@/components/classic-challenge";
+import type { ChallengeView } from "@/components/challenge-detail";
 
 // Re-exported so every existing consumer of the view types keeps one import
-// path — the types themselves moved with the interactive surface.
-export type { ClassicChallengeView, ClassicStatus } from "@/components/classic-challenge";
+// path — the types themselves moved with the interactive surface. Both the
+// old (classic-only) names and the new generalized names are exported: a
+// second module's caller uses ChallengeView/ChallengeStatus, classic's
+// existing imports keep working unchanged.
+export type { ClassicChallengeView, ClassicStatus, ChallengeView, ChallengeStatus } from "@/components/challenge-detail";
 
-export default function ClassicBoard({
+export default function ChallengeBoard({
   categories,
   challenges,
   authenticated,
   hintIds = [],
+  basePath,
 }: {
   /** The organizer's category display order — categories render in this
    *  order, and a category with no matching challenge is skipped entirely. */
   categories: string[];
   /** Already in the board's reading order (server-sorted); this component
    *  only filters by category, it never re-sorts. */
-  challenges: ClassicChallengeView[];
+  challenges: ChallengeView[];
   /** False for a signed-out visitor — the personal progress summary hides
    *  (there is nothing personal to summarize); tiles stay browsable. */
   authenticated: boolean;
@@ -36,6 +40,9 @@ export default function ClassicBoard({
    *  never text. Drives the tile's 💡 marker; the purchase lives on the
    *  challenge's own page. */
   hintIds?: string[];
+  /** Where a tile's link points — classic passes "/flags", a second module
+   *  passes its own board route. Tile href is `${basePath}/${encodeURIComponent(challenge.id)}`. */
+  basePath: string;
 }) {
   // Totals over the RENDERED set — challenges whose category is in the
   // `categories` prop — so the summary can never disagree with the tiles
@@ -71,7 +78,7 @@ export default function ClassicBoard({
                 return (
                   <li key={challenge.id}>
                     <Link
-                      href={`/flags/${encodeURIComponent(challenge.id)}`}
+                      href={`${basePath}/${encodeURIComponent(challenge.id)}`}
                       aria-label={`${challenge.title}, ${challenge.points} points${solved ? ", solved" : ""}${hintIds.includes(challenge.id) ? ", paid hint available" : ""}`}
                       className={`ds-card flex h-full min-h-24 flex-col justify-between gap-2 rounded-lg border p-4 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] ${
                         solved

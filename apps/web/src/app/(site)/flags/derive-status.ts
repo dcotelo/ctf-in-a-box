@@ -1,5 +1,5 @@
 import "server-only";
-import type { ClassicStatus } from "@/components/classic-challenge";
+import type { ClassicStatus } from "@/components/challenge-detail";
 import type { ViewerClassic } from "@/lib/classic-store";
 
 /** Derives this viewer's status for one challenge from the SAME solved/
