@@ -265,7 +265,8 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     { module: "quiz" | "classic" | "ai"; attempts: number; attempters: number }
   >();
   // Per-challenge "solved after buying its hint" counts, keyed like
-  // solvesById (`classic:<id>`) — fed by the hint-timing loop below (#190).
+  // solvesById (`classic:<id>` or `ai:<id>`) — fed by the hint-timing loop
+  // below (#190).
   const hintHelpedById = new Map<string, number>();
   const pointsByLogin = new Map<string, number>();
 
@@ -284,9 +285,9 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     // bought nothing, and counting the two together turns "hints are used"
     // into a claim that "hints help" — which the data would not support.
     // Secure-development slots compare against the scorer's solve times;
-    // classic slots (#190) against this login's own solve rows, already
-    // loaded above. The target stays in the key so two targets sharing a
-    // challenge id cannot cross-match.
+    // classic and ai slots (#190, and ai's own hints) against this login's
+    // own solve rows, already loaded above. The target stays in the key so
+    // two targets sharing a challenge id cannot cross-match.
     for (const [slot, boughtAt] of hintTimes) {
       const slash = String(slot).indexOf("/");
       if (slash <= 0) continue;
@@ -295,6 +296,9 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       let solvedAt: string | undefined;
       if (target === "classic") {
         const row = classicSolves.find(([cid]) => cid === challengeId);
+        solvedAt = row ? parseEarned(row[1])?.at : undefined;
+      } else if (target === "ai") {
+        const row = aiSolves.find(([cid]) => cid === challengeId);
         solvedAt = row ? parseEarned(row[1])?.at : undefined;
       } else {
         solvedAt = sdSolves.get(`${target}/${login}/${challengeId}`);
@@ -305,8 +309,8 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       if (Number.isNaN(boughtMs) || Number.isNaN(solvedMs)) continue;
       if (boughtMs <= solvedMs) {
         hintsBeforeSolve += 1;
-        if (target === "classic") {
-          const key = `classic:${challengeId}`;
+        if (target === "classic" || target === "ai") {
+          const key = `${target}:${challengeId}`;
           hintHelpedById.set(key, (hintHelpedById.get(key) ?? 0) + 1);
         }
       } else {

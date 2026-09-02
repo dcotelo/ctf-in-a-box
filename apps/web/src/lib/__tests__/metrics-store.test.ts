@@ -417,6 +417,54 @@ describe("hint ordering", () => {
     expect(stat?.solvedAfterHint).toBe(1);
   });
 
+  // Ai hints exist now (Tasks 1-2): the ai target must get the same
+  // own-solve-row comparison classic gets, not fall through to the
+  // secure-dev branch (which would never match an ai solve row and would
+  // silently drop every ai hint purchase from both counts).
+  it("orders an AI hint against the login's own solve time, per challenge", async () => {
+    mockStore({
+      logins: ["alice", "bob"],
+      perLogin: {
+        alice: {
+          aiSolves: { "prompt-injection-1": JSON.stringify({ points: 50, at: "2026-08-22T10:10:00Z" }) },
+          hintTimes: { "ai/prompt-injection-1": "2026-08-22T10:00:00Z" }, // before
+        },
+        bob: {
+          aiSolves: { "prompt-injection-1": JSON.stringify({ points: 50, at: "2026-08-22T10:10:00Z" }) },
+          hintTimes: { "ai/prompt-injection-1": "2026-08-22T10:20:00Z" }, // after
+        },
+      },
+    });
+    const m = await computeEventMetrics();
+    expect(m.hints.boughtBeforeSolving).toBe(1);
+    expect(m.hints.boughtAfterSolving).toBe(1);
+    const stat = m.challenges.find((c) => c.module === "ai" && c.id === "prompt-injection-1");
+    expect(stat?.solvedAfterHint).toBe(1);
+  });
+
+  it("counts a classic AND an ai hint correctly in the same fold — no cross-module regression", async () => {
+    mockStore({
+      logins: ["alice", "bob"],
+      perLogin: {
+        alice: {
+          classicSolves: { "web-robots-only": JSON.stringify({ points: 50, at: "2026-08-22T10:10:00Z" }) },
+          hintTimes: { "classic/web-robots-only": "2026-08-22T10:00:00Z" }, // before
+        },
+        bob: {
+          aiSolves: { "prompt-injection-1": JSON.stringify({ points: 50, at: "2026-08-22T10:10:00Z" }) },
+          hintTimes: { "ai/prompt-injection-1": "2026-08-22T10:00:00Z" }, // before
+        },
+      },
+    });
+    const m = await computeEventMetrics();
+    expect(m.hints.boughtBeforeSolving).toBe(2);
+    expect(m.hints.boughtAfterSolving).toBe(0);
+    const classicStat = m.challenges.find((c) => c.module === "classic" && c.id === "web-robots-only");
+    const aiStat = m.challenges.find((c) => c.module === "ai" && c.id === "prompt-injection-1");
+    expect(classicStat?.solvedAfterHint).toBe(1);
+    expect(aiStat?.solvedAfterHint).toBe(1);
+  });
+
   it("counts a hint bought and never solved as NEITHER", async () => {
     mockStore({
       logins: ["alice"],
