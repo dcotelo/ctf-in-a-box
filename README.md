@@ -146,6 +146,12 @@ flag is marked case-sensitive (its card says so), with a submission cooldown
 and optional paid hints. Same `/admin` + JSON-bundle authoring as the quiz.
 Needs no GitHub either.
 
+**AI Challenges** — prompt-injection and guardrail challenges hosted outside
+the box. Each contestant's challenge page mints them a personal launch link
+to the external site; a solve reports back to the leaderboard, either
+through that site's own callback or a flag typed back into the app. Needs no
+GitHub, no forks, no pipeline.
+
 Around whichever modules you enable, the platform provides: team
 self-registration with captains, join codes and `/join/<code>` links (solo
 play is a team of one; a flag solved by several teammates counts once); the
@@ -255,7 +261,8 @@ Once the stack is up at your `EVENT_URL`:
 - **Contestants** sign in with GitHub and form or join a team — a team is
   required to score, and **Play solo** makes a team of one in a click. Then
   they play whichever modules you enabled: patch-and-PR for secure
-  development, or answer and submit in the app for quiz and classic.
+  development, answer and submit in the app for quiz and classic, or open a
+  personal launch link for ai.
 - **Organizers** drive `/admin`: freeze the leaderboard, open and close
   registration, set the schedule, author quiz questions and classic
   challenges — and when one contestant gets stuck, fix that one contestant
