@@ -1,12 +1,16 @@
 "use client";
 
-// One classic challenge's interactive surface — the flag input, grading
-// feedback and cooldown countdown — extracted from the old all-in-one board
-// (issue #208) so it can live on the challenge's own page (/flags/[id]).
-// Dispatches to /api/classic/submit, which authenticates the session and is
-// the sole authority on grading, the already-solved guard, and the cooldown
-// (see src/lib/classic-store.ts). This component never sees — and cannot
-// render — a flag: `ClassicChallengeView` has no field that could carry one.
+// One challenge's interactive surface — the flag input, grading feedback and
+// cooldown countdown — extracted from the old all-in-one board (issue #208)
+// so it can live on the challenge's own page (/flags/[id], /ai/[id]).
+//
+// Shared by BOTH flag-graded modules, which differ only in how a submission
+// leaves the browser (`dispatchSubmit` below is the whole of that difference):
+// classic POSTs to /api/classic/submit, and ai calls a Server Action defined
+// beside its page. Either way the server it reaches is the sole authority on
+// grading, the already-solved guard and the cooldown (see classic-store.ts /
+// ai-store.ts). This component never sees — and cannot render — a flag:
+// `ChallengeView` has no field that could carry one.
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,17 +19,21 @@ import { formatCompact, getRemaining, type Remaining } from "@/lib/countdown";
 
 /** Per-challenge progress, mutually exclusive. Every branch carries only
  *  public-safe data — never a flag, in either form. */
-export type ClassicStatus =
+export type ChallengeStatus =
   | { status: "unsolved" }
   | { status: "solved"; earnedPoints: number }
   | { status: "cooldown"; retryAt: string };
+
+/** Old name, kept importable for classic's existing call sites and tests —
+ *  see challenge-board.tsx's re-export note. */
+export type ClassicStatus = ChallengeStatus;
 
 /** What a challenge surface needs to render one challenge — deliberately just
  *  the public `Challenge` fields, this challenge's solve count, and this
  *  viewer's derived status. Built by the server pages from `listChallenges()`
  *  + `getViewerClassic()` + `getSolveCounts()`, field by field — never from a
  *  spread of a raw store record, which is how a flag would leak. */
-export type ClassicChallengeView = {
+export type ChallengeView = {
   id: string;
   title: string;
   category: string;
@@ -35,12 +43,62 @@ export type ClassicChallengeView = {
   /** Compared with capitalisation intact (issue #193). Public deliberately —
    *  see the badge below. Optional so every existing caller is unchanged. */
   caseSensitive?: boolean;
-} & ClassicStatus;
+} & ChallengeStatus;
 
-type SubmitResponse =
+/** Old name, kept importable for classic's existing call sites and tests —
+ *  see challenge-board.tsx's re-export note. */
+export type ClassicChallengeView = ChallengeView;
+
+/** The wire shape a submission comes back as, whichever transport carried it.
+ *  Exported so the ai module's Server Action can be typed against exactly what
+ *  this component knows how to render — the two cannot drift into disagreeing
+ *  about a field. Nothing here can carry a flag, a token or a key. */
+export type SubmitResponse =
   | { correct: true; points: number; already?: boolean }
   | { correct: false }
   | { error: string; retryAt?: string };
+
+/** The ai module's transport: a Server Action bound to the challenge id,
+ *  taking the typed flag and returning the same shape the fetch path parses. */
+export type SubmitAction = (flag: string) => Promise<SubmitResponse>;
+
+/** WHERE a submission goes, as a union so each module passes exactly one and
+ *  neither can pass both. Classic's call sites are unchanged by construction:
+ *  `submitPath` alone still type-checks. */
+export type SubmitTarget =
+  | { submitPath: string; submitAction?: never }
+  | { submitPath?: never; submitAction: SubmitAction };
+
+/** The ONE place the two transports differ. Everything downstream — the
+ *  feedback precedence, the refusal copy, the `router.refresh()` — is a single
+ *  code path over this result, so a module cannot end up with its own quietly
+ *  different rendering of the same outcome.
+ *
+ *  `ok` is what the fetch path reads off the response status. An action has no
+ *  status, so its refusals are identified by the `error` key they carry —
+ *  which is the same discriminator the caller falls back on anyway.
+ *
+ *  Exported for direct testing: this repo has no testing-library, so a
+ *  component's click handler cannot be driven, and the pin that matters here
+ *  ("with an action in hand, nothing is ever fetched") is only observable on
+ *  this function. */
+export async function dispatchSubmit(
+  challengeId: string,
+  flag: string,
+  target: SubmitTarget,
+): Promise<{ ok: boolean; data: SubmitResponse }> {
+  if (target.submitAction) {
+    const data = await target.submitAction(flag);
+    return { ok: !("error" in data), data };
+  }
+  const res = await fetch(target.submitPath, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ challengeId, flag }),
+  });
+  const data = (await res.json().catch(() => ({}))) as SubmitResponse;
+  return { ok: res.ok, data };
+}
 
 export type Feedback = { kind: "success" | "error" | "info"; text: string };
 
@@ -66,7 +124,7 @@ export function describeCorrect(points: number, already?: boolean): string {
  *  fact, and it is the only thing that can say "you already had these points"
  *  or why a submission was refused. On the next page load the feedback is gone
  *  and the durable line says it instead. */
-export function resultLine(challenge: ClassicChallengeView, feedback: Feedback | undefined): Feedback | null {
+export function resultLine(challenge: ChallengeView, feedback: Feedback | undefined): Feedback | null {
   if (feedback) return feedback;
   if (challenge.status === "solved") {
     const p = challenge.earnedPoints;
@@ -75,7 +133,11 @@ export function resultLine(challenge: ClassicChallengeView, feedback: Feedback |
   return null;
 }
 
-function describeRefusal(reason: string): string {
+/** One sentence per refusal slug either module's server half can return.
+ *  Exported for direct testing — the slug vocabulary is shared across two
+ *  modules and a reason that quietly starts hitting the generic fallback is
+ *  invisible in a static render. */
+export function describeRefusal(reason: string): string {
   switch (reason) {
     case "paused":
       return "Scoring is paused right now. Try again later.";
@@ -93,6 +155,37 @@ function describeRefusal(reason: string): string {
       // submitted a flag and is being told it didn't count; "you need a team"
       // without saying where to get one is a dead end.
       return "You need a team before solves count — set one up on your profile.";
+    case "unauthorized":
+      // Reachable, unlike `gate` below: a session can expire while this page
+      // stays open. The form was rendered for a signed-in viewer, so by the
+      // time a submit comes back with this, the fix is to sign in again, not
+      // to reload — the generic fallback used to say neither.
+      return "Your session expired — sign in and try again.";
+    // The rest are never emitted by classic's own route. `wrong-mode`,
+    // `invalid` and `error` are `AiSubmitResult` reasons the ai module's
+    // Server Action passes straight through (ai/[id]/actions.ts, mapping them
+    // exactly as `aiAwardResponse` does).
+    case "wrong-mode":
+      return "This challenge doesn't take typed flags — solve it on the challenge site and it reports back.";
+    case "invalid":
+      return "That submission didn't look right — reload the page and try again.";
+    case "error":
+      return "Grading didn't complete. Try again in a moment.";
+    // `rate-limited`, `invalid-token` and `expired` come from /api/ai/submit,
+    // which is the EXTERNAL surface (spec §6.1's 2026-09-02 amendment) — this
+    // form never calls it, so nothing here reaches this caller today. Kept
+    // because the copy is right if a future in-box path ever does relay them,
+    // and because deleting a branch is how a slug quietly starts falling
+    // through to the generic line below.
+    case "rate-limited":
+      return "Too many tries too fast — give it a few seconds.";
+    case "invalid-token":
+    case "expired":
+      return "This page's session token expired — reload the page and try again.";
+    // Everything else, including the action's `gate` refusal (unreachable
+    // from a rendered form: the page redirects an ungated visitor before it
+    // can render one — unlike `unauthorized` above, nothing re-opens the gate
+    // for an already-loaded tab) and classic's prose-style route errors.
     default:
       return "That submission wasn't accepted.";
   }
@@ -128,13 +221,13 @@ function useCooldown(retryAt: string | undefined): { mounted: boolean; remaining
  *  pending and feedback state, and re-syncs status from the server after
  *  every submission (`router.refresh()` — this component never decides
  *  solved/cooldown for itself). */
-export default function ClassicChallenge({
-  challenge,
-  authenticated,
-}: {
-  challenge: ClassicChallengeView;
-  authenticated: boolean;
-}) {
+export default function ChallengeDetail(
+  props: {
+    challenge: ChallengeView;
+    authenticated: boolean;
+  } & SubmitTarget,
+) {
+  const { challenge, authenticated } = props;
   const router = useRouter();
   const [value, setValue] = useState("");
   const [pending, setPending] = useState(false);
@@ -147,13 +240,8 @@ export default function ClassicChallenge({
     setPending(true);
     setFeedback(undefined);
     try {
-      const res = await fetch("/api/classic/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ challengeId: challenge.id, flag }),
-      });
-      const data = (await res.json().catch(() => ({}))) as SubmitResponse;
-      if (res.ok && "correct" in data) {
+      const { ok, data } = await dispatchSubmit(challenge.id, flag, props);
+      if (ok && "correct" in data) {
         setFeedback(
           data.correct
             ? { kind: "success", text: describeCorrect(data.points, data.already) }
@@ -188,7 +276,7 @@ export default function ClassicChallenge({
   );
 }
 
-/** Exported (in addition to `ClassicChallenge`) purely so tests can drive
+/** Exported (in addition to `ChallengeDetail`) purely so tests can drive
  *  `feedback` directly: the ordering of the outcome line against the cooldown
  *  line (#126) is only observable once `feedback` is set, and `feedback` is
  *  client state this repo cannot drive — there is no testing-library here, by
@@ -202,7 +290,7 @@ export function ChallengeCard({
   onChange,
   onSubmit,
 }: {
-  challenge: ClassicChallengeView;
+  challenge: ChallengeView;
   authenticated: boolean;
   value: string;
   pending: boolean;

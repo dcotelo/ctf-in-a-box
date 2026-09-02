@@ -28,10 +28,16 @@ const ALLOWED_METHODS = "POST, OPTIONS";
  * `AI_PREFIX` comment. If this route ever starts reading a cookie, that
  * exemption becomes a hole, not a convenience.
  *
- * The pre-event gate is enforced once, at token-mint time (`/ai/[id]`'s
- * render), not here — see spec §6.5. A launch token in hand already proves
- * the box minted it after that gate passed; this route does not re-check it,
- * the same way it does not re-check any other launch-time decision.
+ * The pre-event gate is enforced once, at token-mint time, not here — see
+ * spec §6.5. A launch token in hand already proves the box minted it after
+ * that gate passed; this route does not re-check it, the same way it does not
+ * re-check any other launch-time decision.
+ *
+ * That enforcement is an EXPLICIT `requireGatePassed()` call in
+ * `(site)/ai/[id]/page.tsx`, above the mint (and a second one in that page's
+ * `actions.ts`, the in-box form's server half). It is NOT inherited from
+ * `proxy.ts`: `GATED_ROUTES` matches exact paths, so the middleware covers
+ * `/ai` and never `/ai/<id>` — which is the route that mints.
  *
  * `submitAiFlag` remains authoritative on pause, cooldown, already-solved and
  * grading — its Lua script re-checks all of that atomically. This route

@@ -7,7 +7,7 @@
 // Same server/client split as the board's page: this Server Component reads
 // the session and the module's public-safe data, derives the viewer's status
 // through the SAME `deriveStatus` the board uses (so a tile and its page can
-// never disagree), and hands a plain view model to <ClassicChallenge>. The
+// never disagree), and hands a plain view model to <ChallengeDetail>. The
 // view model is built FIELD BY FIELD from the public record — never a spread
 // of a raw store row, which is how a flag would leak.
 //
@@ -18,9 +18,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import ClassicChallenge, { type ClassicChallengeView } from "@/components/classic-challenge";
+import ChallengeDetail, { type ClassicChallengeView } from "@/components/challenge-detail";
 import ClassicHint from "@/components/classic-hint";
-import { deriveStatus } from "../derive-status";
+import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
@@ -136,7 +136,7 @@ export default async function ClassicChallengePage({ params }: { params: Promise
           the same component the tests pin (#126 ordering, cooldown copy), and
           on a long description the recap beside the form is what keeps the
           submit affordance self-describing after the h1 scrolls away. */}
-      <ClassicChallenge challenge={view} authenticated={Boolean(login)} />
+      <ChallengeDetail challenge={view} authenticated={Boolean(login)} submitPath="/api/classic/submit" />
     </div>
   );
 }

@@ -1,0 +1,175 @@
+// The in-box flag form's server-side half (spec §6.1's 2026-09-02 amendment).
+//
+// `/api/ai/submit` is the EXTERNAL surface — it authenticates a launch token,
+// not a cookie, and the token exists only in the launcher's href. So the form
+// on `/ai/[id]` cannot call it, and submits through this Server Action
+// instead. The action is therefore its own security boundary, and this suite
+// is where that boundary is pinned: every gate the page ran is re-run here,
+// in the same order, and NONE of them may be reachable-past. The assertion
+// that carries the weight in each refusal test is `submitAiFlag` not having
+// been called — a refusal that still wrote is not a refusal.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { getSession, isModuleLive, requireGatePassed, hasTeam, submitAiFlag } = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  isModuleLive: vi.fn(),
+  requireGatePassed: vi.fn(),
+  hasTeam: vi.fn(),
+  submitAiFlag: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
+vi.mock("@/lib/enabled-modules", () => ({ isModuleLive }));
+vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
+vi.mock("@/lib/team-store", () => ({ hasTeam }));
+vi.mock("@/lib/ai-store", () => ({ submitAiFlag }));
+
+import { submitAiFlagAction } from "@/app/(site)/ai/[id]/actions";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  isModuleLive.mockResolvedValue(true);
+  requireGatePassed.mockResolvedValue(true);
+  getSession.mockResolvedValue({ user: { login: "alice" } });
+  hasTeam.mockResolvedValue(true);
+  submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 40 });
+});
+
+describe("submitAiFlagAction gates", () => {
+  it("refuses — without touching the store — when the module is not live", async () => {
+    isModuleLive.mockResolvedValue(false);
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "unavailable" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  it("refuses — without touching the store — when the pre-event gate has not been passed", async () => {
+    requireGatePassed.mockResolvedValue(false);
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "gate" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  // The gate fails CLOSED: an error reading it must read the same as "not
+  // passed", never as "passed". Opposite direction from the team check below
+  // on purpose — see the comment in actions.ts.
+  it("refuses — without touching the store — when the gate check itself errors", async () => {
+    requireGatePassed.mockRejectedValueOnce(new Error("redis down"));
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "gate" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  it("refuses — without touching the store — for a signed-out caller", async () => {
+    getSession.mockResolvedValue(null);
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "unauthorized" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  it("refuses a session with no GitHub login the same way", async () => {
+    getSession.mockResolvedValue({ user: {} });
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "unauthorized" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  it("refuses — without touching the store — a signed-in caller with no team", async () => {
+    hasTeam.mockResolvedValue(false);
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: "no-team" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  // A REFUSAL, not a redirect: the page bounces a teamless viewer, but an
+  // action reached anyway (a stale tab, a team left mid-event) has to answer
+  // the form it was called from.
+  it("never redirects — a teamless caller gets a result the form can render", async () => {
+    hasTeam.mockResolvedValue(false);
+    const result = await submitAiFlagAction("a1", "CTF{x}");
+    expect(result).toHaveProperty("error");
+  });
+
+  // The team check fails OPEN — the opposite direction from the gate above:
+  // an error must not drop a solve an entitled contestant is making. Mocked
+  // to reject here purely to pin the action's OWN guard; `hasTeam` itself
+  // already swallows a store error and resolves `true` (team-store.ts).
+  it("completes the submit when the team check itself errors", async () => {
+    hasTeam.mockRejectedValueOnce(new Error("redis down"));
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({
+      correct: true,
+      points: 40,
+      already: false,
+    });
+    expect(submitAiFlag).toHaveBeenCalledWith("alice", "a1", "CTF{x}");
+  });
+
+  it("refuses an id that does not match AI_ID_RE before the store sees it", async () => {
+    await expect(submitAiFlagAction("../../etc/passwd", "CTF{x}")).resolves.toEqual({ error: "invalid" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty flag, and one past the length cap, before the store sees it", async () => {
+    await expect(submitAiFlagAction("a1", "   ")).resolves.toEqual({ error: "invalid" });
+    await expect(submitAiFlagAction("a1", "x".repeat(513))).resolves.toEqual({ error: "invalid" });
+    expect(submitAiFlag).not.toHaveBeenCalled();
+  });
+
+  // Order pin: the module check runs before the session read, so a disabled
+  // module is not a way to probe whether a cookie is valid.
+  it("checks the module and the gate before it ever reads the session", async () => {
+    isModuleLive.mockResolvedValue(false);
+    await submitAiFlagAction("a1", "CTF{x}");
+    expect(getSession).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    isModuleLive.mockResolvedValue(true);
+    requireGatePassed.mockResolvedValue(false);
+    await submitAiFlagAction("a1", "CTF{x}");
+    expect(getSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("submitAiFlagAction results", () => {
+  it("grades through the store as the session's login, and reports a correct solve", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 40 });
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({
+      correct: true,
+      points: 40,
+      already: false,
+    });
+    expect(submitAiFlag).toHaveBeenCalledWith("alice", "a1", "CTF{x}");
+  });
+
+  it("keeps an already-banked solve distinguishable from a fresh one", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 0, already: true });
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({
+      correct: true,
+      points: 0,
+      already: true,
+    });
+  });
+
+  it("reports a wrong flag as a plain incorrect answer", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: false });
+    await expect(submitAiFlagAction("a1", "nope")).resolves.toEqual({ correct: false });
+  });
+
+  it("passes a cooldown's retryAt through, and every other refusal reason as-is", async () => {
+    submitAiFlag.mockResolvedValue({ ok: false, reason: "cooldown", retryAt: "2026-09-02T00:00:00.000Z" });
+    await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({
+      error: "cooldown",
+      retryAt: "2026-09-02T00:00:00.000Z",
+    });
+
+    for (const reason of ["paused", "solved", "unavailable", "invalid", "error", "wrong-mode"] as const) {
+      submitAiFlag.mockResolvedValue({ ok: false, reason });
+      await expect(submitAiFlagAction("a1", "CTF{x}")).resolves.toEqual({ error: reason });
+    }
+  });
+
+  // The whole reason this action exists rather than a fetch to
+  // `/api/ai/submit`: nothing token-shaped may cross back to the client.
+  it("never returns a token, a flag or a key in any branch", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 40 });
+    const payload = JSON.stringify(await submitAiFlagAction("a1", "CTF{super-secret}"));
+    expect(payload).not.toContain("CTF{super-secret}");
+    expect(payload).not.toMatch(/token|signkey|launchkey/i);
+  });
+});

@@ -19,8 +19,8 @@ describe("ai module registration", () => {
     expect(mod.description).toBeTruthy();
   });
 
-  it("has NO nav entry yet — /ai does not exist until the pages PR", () => {
-    expect(enabledModules.find((m) => m.id === "ai")!.nav).toBeUndefined();
+  it("gives ai its own nav entry now that /ai exists", () => {
+    expect(enabledModules.find((m) => m.id === "ai")!.nav).toEqual({ href: "/ai", label: "AI Challenges" });
   });
 
   it("owns no targets — it is a pure app module with no compose service", () => {

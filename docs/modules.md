@@ -26,9 +26,11 @@ scored entirely inside the app exactly like `quiz`, with no GitHub/`sync`/
 `scorer` involvement either; §5 covers what its UI contract satisfies and
 what it still doesn't, for both app-side modules). A fourth id, `ai`
 (externally hosted AI/LLM challenges), is registered in the same enum and
-accepted by every reader of `event.yaml`, but only its contract and store
-layer have shipped — it has no contestant route, no nav entry and no admin
-section yet, so enabling it changes nothing a contestant can see. This document is
+accepted by every reader of `event.yaml`; its contract, store layer and
+contestant surface (nav entry, the `/ai` board, the `/ai/[id]` challenge
+page) have shipped, and its admin section has not — so enabling it gives
+contestants a playable module the organizer cannot yet author from the
+panel. This document is
 the contract a new
 module (forensics, api-security, cloud, …) must satisfy to plug in, with
 `secure-development` as the worked example throughout, since it is the one
@@ -272,23 +274,26 @@ also scored entirely inside the app — see
 for its data flow and `docs/operations.md`'s "Classic" section for the
 organizer-facing authoring/cooldown guide). The fourth, `ai`, is the honest
 exception: it is registered and selectable (the wizard offers it, and all
-three `event.yaml` readers accept `ai: {}`), but only its contract and store
-layer have shipped — it has no contestant route, no nav entry and no admin
-section, so an event that enables it looks exactly as it did before. It is
-here as the *contract* half of a module landing in stages, not as a claim
-that the module is playable. An id outside the
+three `event.yaml` readers accept `ai: {}`), and its contract, store layer
+and contestant surface have shipped — the nav entry, the `/ai` board and the
+`/ai/[id]` challenge page (the launcher, and the in-box flag form for a
+`flag`/`both` challenge). What has *not* shipped is the organizer's half:
+there is no admin section, so the challenges an event plays have to arrive
+some other way. It is a module landing in stages, and the stage it is at is
+"playable, not yet authorable". An id outside the
 registry still fails the build loudly (`generate-event-config.mjs`'s
 `validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
 `src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
-header iff that module is enabled *and* defines a `nav` — the three playable
-modules do now (`ai` deliberately defines none, which is what keeps a route
-that does not exist out of the menu),
-`quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`, rendering
-`components/quiz-board.tsx`) and `classic`'s pointing at `/flags`
-(`apps/web/src/app/(site)/flags/`, rendering `components/classic-board.tsx`);
+header iff that module is enabled *and* defines a `nav` — all three app-side
+modules do now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`,
+rendering `components/quiz-board.tsx`), `classic`'s at `/flags`
+(`apps/web/src/app/(site)/flags/`, rendering `components/challenge-board.tsx`)
+and `ai`'s at `/ai` (`apps/web/src/app/(site)/ai/`, rendering that same
+`components/challenge-board.tsx` — the board and the challenge page are
+shared by both flag-graded modules, with a different `basePath`);
 the leaderboard pipeline's
 `withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
 attributes `secure-development`'s scorer-sourced *gross* points (hint
@@ -877,7 +882,7 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 | `apps/web/src/lib/classic-store.ts` | the module's own `ctf:classic:*` Redis store, its atomic flag-grading Lua script, and the admin/contestant secrecy split |
 | `apps/web/src/lib/markdown.ts` + `apps/web/src/components/markdown.tsx` | the restricted Markdown parser and its node-tree-to-React renderer for challenge descriptions |
 | `apps/web/src/app/api/classic/submit/route.ts` + `apps/web/src/app/api/admin/classic/route.ts` | the flag-submission and organizer-authoring wire contract |
-| `apps/web/src/app/(site)/flags/page.tsx` + `apps/web/src/components/classic-board.tsx` | the contestant-facing board |
+| `apps/web/src/app/(site)/flags/page.tsx` + `apps/web/src/components/challenge-board.tsx` + `apps/web/src/components/challenge-detail.tsx` | the contestant-facing board and the challenge page it links to (both shared with `ai`, parameterised by `basePath`) |
 | `apps/web/src/components/admin-classic-controls.tsx` | the organizer's cooldown knob, category manager, and challenge authoring UI |
 | `apps/web/src/lib/leaderboard/module-contributions.ts` + `apps/web/src/lib/leaderboard/team-fold.ts` | the leaderboard overlay (points added, never attributed) and the union-by-item team dedupe it shares with `quiz` |
 | `apps/web/src/lib/modules.ts` | register display name/description/nav plus the `home`/`guide`/`rules`/`faq`/`terms`/`routeCard` copy blocks (§5.5–5.7) |

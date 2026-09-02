@@ -73,7 +73,7 @@ export function describeCorrect(points: number, already?: boolean): string {
  *  statement of the same fact, and it is the only thing that can say "you
  *  already had these points" or why a submission was refused. On the next page
  *  load the feedback is gone and the durable line says it instead. Mirrors
- *  `resultLine` in classic-board.tsx. */
+ *  `resultLine` in challenge-detail.tsx. */
 export function resultLine(question: QuizQuestionView, feedback: Feedback | undefined): Feedback | null {
   if (feedback) return feedback;
   if (question.status === "answered") {
@@ -449,7 +449,7 @@ export function QuestionCard({
           the countdown hit zero — so a contestant whose card said "Cooldown's
           over — you can try again now." got live choices above a button that
           could never be pressed again without a manual reload. It now tracks
-          the same `cooledDown` flag the choices do (classic-board.tsx routes
+          the same `cooledDown` flag the choices do (challenge-detail.tsx routes
           both through one `inputLocked` for exactly this reason). Releasing
           it optimistically is safe: GRADE_SCRIPT re-checks the cooldown
           inside the same atomic EVAL that records the attempt, so an early

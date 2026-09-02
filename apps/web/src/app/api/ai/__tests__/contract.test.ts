@@ -513,4 +513,11 @@ describe("ai module contract: no route reaches for an admin-only secret reader",
       expect(IMPORTS[name], name).not.toContain("getAiSigningKey");
     }
   });
+
+  it("only event/route.ts imports releaseAiNonce — scoped to event mode challenges", () => {
+    expect(IMPORTS.event).toContain("releaseAiNonce");
+    for (const name of DISCOVERED_ROUTES.filter((n) => n !== "event")) {
+      expect(IMPORTS[name], name).not.toContain("releaseAiNonce");
+    }
+  });
 });

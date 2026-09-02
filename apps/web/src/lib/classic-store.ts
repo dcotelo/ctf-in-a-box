@@ -167,7 +167,7 @@ export type Challenge = {
  *
  *  The nesting is the point, not an accident of style. The obvious shape —
  *  `Challenge & { flag: string }` — is structurally still a `Challenge`, so
- *  handing an admin record to a contestant-facing component (`<ClassicBoard
+ *  handing an admin record to a contestant-facing component (`<ChallengeBoard
  *  challenges={rows} />`) would type-check and quietly ship every flag to
  *  every visitor. This shape is NOT assignable to `Challenge`, so that mistake
  *  is a compile error; reaching the public half takes an explicit
@@ -476,7 +476,7 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
   // union above kept. Without this, a bundle spelling a category
   // differently from the store ("web" vs. the store's "Web") would write
   // its challenges under a spelling absent from `unioned` — invisible to
-  // classic-board.tsx's exact-equality filter and to upsertChallenge's exact
+  // challenge-board.tsx's exact-equality filter and to upsertChallenge's exact
   // `.includes` check, despite the import reporting success. This is the
   // invariant the rest of the module assumes: every challenge's `category`
   // is present in the stored category list.

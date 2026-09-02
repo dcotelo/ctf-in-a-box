@@ -1,7 +1,7 @@
 // Server Component: reads the session and the classic module's public-safe
 // data (`listChallenges()` never returns a flag, in either form — see
 // classic-store.ts), then derives each challenge's PER-VIEWER status
-// server-side and hands a plain view model down to <ClassicBoard>. Data (and
+// server-side and hands a plain view model down to <ChallengeBoard>. Data (and
 // auth) in, interactivity down — same split as quiz/page.tsx.
 //
 // Gated on the module registry rather than on auth: this route only exists at
@@ -16,8 +16,8 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import ModuleEmptyState from "@/components/module-empty-state";
 import PageHeader from "@/components/page-header";
-import ClassicBoard, { type ClassicChallengeView } from "@/components/classic-board";
-import { deriveStatus } from "./derive-status";
+import ChallengeBoard, { type ClassicChallengeView } from "@/components/challenge-board";
+import { deriveStatus } from "@/lib/derive-status";
 import { isAdminLogin } from "@/lib/admin-auth";
 import { auth } from "@/lib/auth";
 import { getAdminSettings } from "@/lib/admin-store";
@@ -132,7 +132,13 @@ export default async function FlagsPage() {
             authoring={viewerIsAdmin ? { href: "/admin?tab=classic", label: "Author challenges" } : null}
           />
         ) : (
-          <ClassicBoard categories={categories} challenges={viewChallenges} authenticated={Boolean(login)} hintIds={hintIds} />
+          <ChallengeBoard
+            categories={categories}
+            challenges={viewChallenges}
+            authenticated={Boolean(login)}
+            hintIds={hintIds}
+            basePath="/flags"
+          />
         )}
       </div>
     </div>
