@@ -487,6 +487,15 @@ export default async function ProfilePage() {
               <p className="text-[11px] uppercase tracking-wide text-muted">solved</p>
             </div>
           )}
+          {aiEnabled && aiChallenges.length > 0 && (
+            <div>
+              <p className="font-mono text-xl tabular-nums text-zinc-200">
+                {aiTotal?.solved ?? 0}
+                <span className="text-sm text-muted"> / {Math.max(aiChallenges.length, aiTotal?.solved ?? 0)}</span>
+              </p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">challenges</p>
+            </div>
+          )}
         </div>
       </div>
 
