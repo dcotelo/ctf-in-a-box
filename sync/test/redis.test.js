@@ -70,9 +70,17 @@ test("writeStatus: a per-command error reply is logged instead of vanishing", as
 
 // A backend that accepts the connection and never answers must not stall the
 // tick forever — `restart: on-failure` cannot help a process that never exits.
+// The fake holds a ref'd timer until the abort arrives: a real fetch keeps the
+// event loop alive with its socket, but `AbortSignal.timeout`'s own timer is
+// unref'd, so without the placeholder Node 22 drains the loop before the
+// timeout fires and the test dies as "promise still pending".
 const hangUntilAborted = (_url, opts) =>
   new Promise((_, reject) => {
-    opts.signal.addEventListener("abort", () => reject(opts.signal.reason));
+    const keepAlive = setTimeout(() => {}, 60_000);
+    opts.signal.addEventListener("abort", () => {
+      clearTimeout(keepAlive);
+      reject(opts.signal.reason);
+    });
   });
 
 test("isPaused: a hung backend times out and fails OPEN", async () => {
