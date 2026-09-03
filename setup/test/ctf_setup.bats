@@ -29,10 +29,10 @@ EOF
 @test "org fails loudly when SCORE_IMAGE is unset (no upstream image default)" {
   run bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -ne 0 ]
-  [[ "$output" == *"SCORE_IMAGE not set"* ]]
-  [[ "$output" == *"docs/scorer.md"* ]]
+  echo "$output" | grep -qF -- "SCORE_IMAGE not set"
+  echo "$output" | grep -qF -- "docs/scorer.md"
   # Must fail before planning any mutation
-  [[ "$output" != *"gh repo fork"* ]]
+  [ -z "$(echo "$output" | grep -F -- "gh repo fork")" ]
   [[ "$output" != *"ghcr.io/owasp-ctf/score"* ]]
 }
 
@@ -57,8 +57,8 @@ EOF
 @test "org --dry-run honors SCORE_IMAGE env var for the mirror source" {
   run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"docker pull ghcr.io/myorg/custom-score:v2"* ]]
-  [[ "$output" == *"docker tag ghcr.io/myorg/custom-score:v2 ghcr.io/test-event-org/score:latest"* ]]
+  echo "$output" | grep -qF -- "docker pull ghcr.io/myorg/custom-score:v2"
+  echo "$output" | grep -qF -- "docker tag ghcr.io/myorg/custom-score:v2 ghcr.io/test-event-org/score:latest"
   [[ "$output" != *"docker pull ghcr.io/owasp-ctf/score:latest"* ]]
 }
 
@@ -66,7 +66,7 @@ EOF
   echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > .env
   run bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"docker pull ghcr.io/other/score:pinned"* ]]
+  echo "$output" | grep -qF -- "docker pull ghcr.io/other/score:pinned"
   [[ "$output" == *"docker tag ghcr.io/other/score:pinned ghcr.io/test-event-org/score:latest"* ]]
 }
 
@@ -91,7 +91,7 @@ EOF
 @test "teardown --dry-run plans archive per target repo" {
   run bash "$SCRIPT" teardown --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"gh repo archive test-event-org/DVWA --yes"* ]]
+  echo "$output" | grep -qF -- "gh repo archive test-event-org/DVWA --yes"
   [[ "$output" == *"gh repo archive test-event-org/VAmPI --yes"* ]]
 }
 
@@ -135,8 +135,8 @@ EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must use exact org name without comment suffix
-  [[ "$output" == *"gh repo fork digininja/DVWA --org my-event-org --fork-name DVWA"* ]]
-  [[ "$output" == *"docker tag ghcr.io/myorg/score:v1 ghcr.io/my-event-org/score:latest"* ]]
+  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org my-event-org --fork-name DVWA"
+  echo "$output" | grep -qF -- "docker tag ghcr.io/myorg/score:v1 ghcr.io/my-event-org/score:latest"
   # Ensure comment is not included
   [[ "$output" != *"disposable per-event org"* ]]
 }
@@ -151,7 +151,7 @@ modules:
 EOF
   run bash "$SCRIPT" teardown --dry-run --config event.yaml
   [ "$status" -ne 0 ]
-  [[ "$output" == *"unknown target: nope"* ]]
+  echo "$output" | grep -qF -- "unknown target: nope"
   # Must NOT emit archive command with empty repo name
   [[ "$output" != *"gh repo archive test-event-org/ --yes"* ]]
 }
@@ -176,7 +176,7 @@ modules:
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"gh repo fork digininja/DVWA --org flow-event-org --fork-name DVWA"* ]]
+  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org flow-event-org --fork-name DVWA"
   [[ "$output" == *"gh repo fork erev0s/VAmPI --org flow-event-org --fork-name VAmPI"* ]]
 }
 
@@ -192,7 +192,7 @@ EOF
   [ "$status" -eq 0 ]
   # Must pair correctly: dvwa's workflow into DVWA, vampi's into VAmPI
   v="$(template_version)"
-  [[ "$output" == *"render ctf-score.yml v$v (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"* ]]
+  echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"
   [[ "$output" == *"render ctf-score.yml v$v (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
 }
 
@@ -209,8 +209,8 @@ EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   # Must use the correct targets (dvwa, vampi), not the decoy (webgoat)
-  [[ "$output" == *"gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"* ]]
-  [[ "$output" == *"gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"* ]]
+  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
+  echo "$output" | grep -qF -- "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
   # Must not fork webgoat
   [[ "$output" != *"gh repo fork "*"WebGoat"* ]]
 }
@@ -395,7 +395,7 @@ EOF
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" check
   [ "$status" -eq 0 ]
   # Must NOT fail with "config not found"
-  [[ "$output" != *"config not found"* ]]
+  [ -z "$(echo "$output" | grep -F -- "config not found")" ]
   [[ "$output" == *"OK: prerequisites present"* ]]
 }
 
@@ -535,9 +535,9 @@ EOF2
 @test "app-manifest --dry-run targets the event org's App-creation URL" {
   run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"organizations/test-event-org/settings/apps/new"* ]]
+  echo "$output" | grep -qF -- "organizations/test-event-org/settings/apps/new"
   # redirect_url is REQUIRED by the create-from-manifest flow
-  [[ "$output" == *"redirect_url="* ]]
+  echo "$output" | grep -qF -- "redirect_url="
   # dry-run must not open a browser or write an HTML form
   [ -z "$(echo "$output" | grep -F "STUB-OPEN")" ]
 }
@@ -573,7 +573,7 @@ EOF2
 @test "oauth-app --dry-run prints the org OAuth-app URL + callback" {
   run bash "$SCRIPT" oauth-app --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"organizations/test-event-org/settings/applications/new"* ]]
+  echo "$output" | grep -qF -- "organizations/test-event-org/settings/applications/new"
   [[ "$output" == *"/api/auth/callback/github"* ]]
 }
 
@@ -959,7 +959,7 @@ EOF
 @test "doctor reports a package grant as granted when a run pulled the image" {
   write_gh_grant_stub success
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
-  [[ "$output" == *"per-fork package Read grant"* ]]
+  echo "$output" | grep -qF -- "per-fork package Read grant"
   printf '%s' "$output" | grep -qE '^  dvwa +✅ granted'
 }
 
@@ -1058,8 +1058,8 @@ template_version() {
   v="$(template_version)"
   run bash "$SCRIPT" upgrade --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" == *"render ctf-score.yml v$v (TARGET=dvwa)"* ]]
-  [[ "$output" == *"render ctf-score.yml v$v (TARGET=vampi)"* ]]
+  echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=dvwa)"
+  echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=vampi)"
   # The whole reason this is its own subcommand rather than "re-run org".
   [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
   [ -z "$(printf '%s' "$output" | grep -F 'docker push')" ]
@@ -1102,7 +1102,7 @@ EOF
   v="$(template_version)"
   write_gh_workflow_stub "$v"
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
-  [[ "$output" == *"scoring workflow version (template is v$v)"* ]]
+  echo "$output" | grep -qF -- "scoring workflow version (template is v$v)"
   printf '%s' "$output" | grep -qE "^  dvwa +✅ v$v"
 }
 
@@ -1112,7 +1112,7 @@ EOF
   write_gh_workflow_stub 0
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
   printf '%s' "$output" | grep -qE '^  dvwa +❌ pre-versioning'
-  [[ "$output" == *"ctf-setup.sh upgrade"* ]]
+  echo "$output" | grep -qF -- "ctf-setup.sh upgrade"
   [ "$status" -ne 0 ]
 }
 
@@ -1138,7 +1138,7 @@ EOF
   write_gh_workflow_stub 99
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
   printf '%s' "$output" | grep -qE '^  dvwa +⚠️  v99'
-  [[ "$output" == *"AHEAD"* ]]
+  echo "$output" | grep -qF -- "AHEAD"
   [ -z "$(printf '%s' "$output" | grep -F 'stale')" ]
 }
 
