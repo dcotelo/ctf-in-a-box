@@ -17,8 +17,9 @@ module contributed, and its per-target breakdown.</sup>
 CTF-in-a-box is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
-plug challenge content into that spine. Three modules ship today — **OWASP
-Secure Development CTF**, **Quiz** and **Classic CTF** — and any subset can
+plug challenge content into that spine. Four modules ship today — **OWASP
+Secure Development CTF**, **Quiz**, **Classic CTF** and **AI** — and any
+subset can
 run alone or together; the box is built to host further modules on the same
 spine. The [module contract](modules.md) is the boundary between platform and
 module.
@@ -26,11 +27,13 @@ module.
 The **Secure Development** module teaches defence rather than attack: a
 contestant forks a deliberately vulnerable app, finds the flaw, **patches** it,
 and opens a pull request. The pipeline scores the patch and the score lands
-on a **team** leaderboard. **Quiz** and **Classic** need none of that
+on a **team** leaderboard. **Quiz**, **Classic** and **AI** need none of that
 machinery — no forks, no GitHub org, no scoring pipeline. They are graded
 inside the app, so an event running only those boots with a single compose
 profile. Their organizer guides are
-[Quiz](operations.md#quiz) and [Classic](operations.md#classic).
+[Quiz](operations.md#quiz), [Classic](operations.md#classic) and
+[AI](operations.md#ai) — AI additionally has its own external integrator
+contract, [ai-module.md](ai-module.md).
 
 Until now, running one meant standing up Vercel, Upstash, Lambda and DynamoDB,
 holding the cloud bill, and having access to a private scoring image. This kit
@@ -50,7 +53,7 @@ scoring code to write.
 | **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, set the team cap and score cooldown, grant admin to others, author each module's content, reset between rehearsals. |
 | **Live-event support** | Act on one contestant or one team without wiping the event: reset progress, delete a contestant, take over a captainless team. Every action audited with actor and target. |
 | **Engagement metrics** | Participation funnel, solves over time, per-challenge difficulty and hint usage — folded out of data the box already stores, with no telemetry from contestants' forks. |
-| **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport for modules graded outside the app. Quiz and Classic bank points directly and never touch it. |
+| **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport for modules graded outside the app. Quiz, Classic and AI bank points directly and never touch it. |
 | **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
 
@@ -208,8 +211,8 @@ Pick the doc for what you're doing right now:
 
 - [Operations](operations.md) — teams, the admin panel, live-event support,
   verifying the kit, the local dev-stack, and teardown. It also carries the
-  two app-side modules' organizer guides: [Quiz](operations.md#quiz) and
-  [Classic](operations.md#classic).
+  three app-side modules' organizer guides: [Quiz](operations.md#quiz),
+  [Classic](operations.md#classic) and [AI](operations.md#ai).
 - [Troubleshooting](troubleshooting.md) — the mid-event runbook: symptom,
   diagnosis, fix.
 
@@ -218,6 +221,8 @@ Pick the doc for what you're doing right now:
 - [Architecture](architecture.md) — what runs where, how a score gets from a
   contestant's PR to the leaderboard.
 - [Module contract](modules.md) — what a CTF vertical must satisfy to plug in.
+- [AI module](ai-module.md) — the external integrator's contract for the `ai`
+  module: launch tokens, verifying them, and reporting a solve back.
 - [Scorer](scorer.md) — both rubric grammars, building your own scorer image,
   and wiring the self-contained scoring workflow.
 - [Decisions](decisions.md) — numbered ADRs for why the kit is built the way

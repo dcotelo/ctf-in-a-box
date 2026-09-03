@@ -25,6 +25,13 @@ import {
   classicAttemptsKey,
   classicSolvesKey,
 } from "@/lib/classic-keys";
+import {
+  AI_POINTS_KEY,
+  AI_SOLVECOUNT_KEY,
+  AI_SOLVED_KEY,
+  aiAttemptsKey,
+  aiSolvesKey,
+} from "@/lib/ai-keys";
 
 /**
  * Per-contestant and per-team support operations for a LIVE event (issue #168).
@@ -246,6 +253,64 @@ async function clearSecureDevSolves(login: string): Promise<number> {
   return removed;
 }
 
+// KEYS: [1]=solves(login) [2]=attempts(login) [3]=points [4]=solved
+//       [5]=solvecount   ARGV: [1]=login
+//
+// Classic's and ai's per-login shape is IDENTICAL — a solves hash keyed by
+// challenge id, an attempts hash, a points aggregate and a solved aggregate
+// both keyed by login, and a solvecount aggregate keyed by challenge id — so
+// one script serves both modules; only the keys passed in differ. Quiz has
+// no per-challenge counter (its aggregates are QUIZ_POINTS_KEY/
+// QUIZ_ANSWERED_KEY, both keyed by login) so it stays a plain pipeline below,
+// not this script.
+//
+// The read (HKEYS) and every decrement it drives happen inside this ONE EVAL,
+// so nothing can land between "read which challenges this login solved" and
+// "decrement solvecount for each of them" — the exact window a separate
+// read-then-delete pipeline leaves open (a solve landing in that window would
+// get DELeted with no matching decrement, leaving solvecount permanently
+// higher than the remaining rows). `login` arrives as ARGV, never spliced
+// into the script text.
+const RESET_MODULE_SOLVES_SCRIPT = `
+local ids = redis.call('HKEYS', KEYS[1])
+local solvesRemoved = redis.call('DEL', KEYS[1])
+local attemptsRemoved = redis.call('DEL', KEYS[2])
+local pointsRemoved = redis.call('HDEL', KEYS[3], ARGV[1])
+local solvedRemoved = redis.call('HDEL', KEYS[4], ARGV[1])
+for i = 1, #ids do
+  redis.call('HINCRBY', KEYS[5], ids[i], -1)
+end
+return {solvesRemoved, attemptsRemoved, pointsRemoved, solvedRemoved, #ids}`;
+
+type ModuleResetKeys = { solves: string; attempts: string; points: string; solved: string; solvecount: string };
+type ModuleResetResult = {
+  solvesRemoved: number;
+  attemptsRemoved: number;
+  aggregatesRemoved: number;
+  solveCountsDecremented: number;
+};
+
+/** Runs `RESET_MODULE_SOLVES_SCRIPT` for one login against one module's keys.
+ *  Its own read decides its own decrements — nobody passes solved ids in as
+ *  an argument, because an id supplied by the caller could be stale by the
+ *  time the script runs. */
+async function resetModuleSolves(login: string, keys: ModuleResetKeys): Promise<ModuleResetResult> {
+  const result = await upstashEval(
+    RESET_MODULE_SOLVES_SCRIPT,
+    [keys.solves, keys.attempts, keys.points, keys.solved, keys.solvecount],
+    [login],
+  );
+  const [solvesRemoved, attemptsRemoved, pointsRemoved, solvedRemoved, decremented] = Array.isArray(result)
+    ? (result as number[])
+    : [0, 0, 0, 0, 0];
+  return {
+    solvesRemoved: Number(solvesRemoved) || 0,
+    attemptsRemoved: Number(attemptsRemoved) || 0,
+    aggregatesRemoved: (Number(pointsRemoved) || 0) + (Number(solvedRemoved) || 0),
+    solveCountsDecremented: Number(decremented) || 0,
+  };
+}
+
 /**
  * Clears one contestant's progress, leaving the account and team membership
  * alone. The "they got into a state nobody can reproduce, put them back to
@@ -262,8 +327,10 @@ async function clearSecureDevSolves(login: string): Promise<number> {
  * and bumping the `resetAt` epoch, which makes sync drop its cursor. There is
  * no per-login equivalent, so this returns a WARNING instead of pretending.
  * The organizer's move is to close the contestant's PR, or freeze scoring
- * first. Quiz and classic have no such issue: those writes originate in the
- * app, so a delete is final.
+ * first. Quiz, classic, and ai have no such issue: those writes originate in
+ * the app (an ai solve lands the moment `/api/ai/submit` or `/api/ai/event`
+ * handles the request, with no external re-ingestion path the way
+ * Secure Development's scorer/sync pair has), so a delete is final.
  */
 export async function resetUserProgress(rawLogin: string, actor: string): Promise<ResetScope> {
   const login = requireLogin(rawLogin);
@@ -277,29 +344,49 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
   //   ctf:classic:points   HINCRBY <login>       per LOGIN
   //   ctf:classic:solved   HINCRBY <login>       per LOGIN
   //   ctf:classic:solvecount HINCRBY <challengeId>  per CHALLENGE  <-- !
+  //   ctf:ai:points        HINCRBY <login>       per LOGIN
+  //   ctf:ai:solved        HINCRBY <login>       per LOGIN
+  //   ctf:ai:solvecount    HINCRBY <challengeId>  per CHALLENGE  <-- !
   //
   // `solvecount` answers "how many people solved challenge X", so there is no
-  // field for this login to delete. HDELing it by login would remove nothing
-  // and leave every challenge still counting a contestant whose solves are
-  // gone — the per-challenge stats would drift up, permanently, once per
-  // reset. It has to be DECREMENTED, once per challenge this login had
-  // solved, which means reading the solve rows before deleting them.
-  const [solvedRes] = await upstashPipeline([["HKEYS", classicSolvesKey(login)]]);
-  const solvedIds = Array.isArray(solvedRes.result) ? (solvedRes.result as string[]) : [];
+  // field for this login to delete, for EITHER module. HDELing it by login
+  // would remove nothing and leave every challenge still counting a
+  // contestant whose solves are gone — the per-challenge stats would drift
+  // up, permanently, once per reset. It has to be DECREMENTED, once per
+  // challenge this login had solved — and the read of "which challenges" and
+  // every decrement it drives happen inside `RESET_MODULE_SOLVES_SCRIPT`, one
+  // atomic EVAL per module, so a solve landing between "read" and "decrement"
+  // is no longer possible: there is no gap for it to land in.
+  //
+  // NOT touched here: `ctf:ai:launchkey` (module-wide identity, not per-user
+  // state), any `ctf:ai:nonce:*` replay guard, and the challenge catalogue —
+  // a per-user reset is per-user. An outstanding launch token this contestant
+  // already holds stays valid; if they redeem it after this reset, that is a
+  // fresh legitimate solve, the same as a contestant replaying a quiz
+  // question after their answer was cleared.
+  const classicReset = await resetModuleSolves(login, {
+    solves: classicSolvesKey(login),
+    attempts: classicAttemptsKey(login),
+    points: CLASSIC_POINTS_KEY,
+    solved: CLASSIC_SOLVED_KEY,
+    solvecount: CLASSIC_SOLVECOUNT_KEY,
+  });
+  const aiReset = await resetModuleSolves(login, {
+    solves: aiSolvesKey(login),
+    attempts: aiAttemptsKey(login),
+    points: AI_POINTS_KEY,
+    solved: AI_SOLVED_KEY,
+    solvecount: AI_SOLVECOUNT_KEY,
+  });
 
   const replies = await upstashPipeline([
     ["DEL", quizAnswersKey(login)],
     ["DEL", quizAttemptsKey(login)],
     ["HDEL", QUIZ_POINTS_KEY, login],
     ["HDEL", QUIZ_ANSWERED_KEY, login],
-    ["DEL", classicSolvesKey(login)],
-    ["DEL", classicAttemptsKey(login)],
-    ["HDEL", CLASSIC_POINTS_KEY, login],
-    ["HDEL", CLASSIC_SOLVED_KEY, login],
     ["DEL", userHintsKey(login)],
     ["DEL", userHintTimesKey(login)],
     ["HDEL", HINTS_SPENT_KEY, login],
-    ...solvedIds.map((id) => ["HINCRBY", CLASSIC_SOLVECOUNT_KEY, id, -1]),
   ]);
   const n = (i: number) => Number(replies[i]?.result) || 0;
 
@@ -307,11 +394,15 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
     quizAnswers: n(0),
     quizAttempts: n(1),
     quizAggregates: n(2) + n(3),
-    classicSolves: n(4),
-    classicAttempts: n(5),
-    classicAggregates: n(6) + n(7),
-    classicSolveCountsDecremented: solvedIds.length,
-    hints: n(8) + n(9) + n(10),
+    classicSolves: classicReset.solvesRemoved,
+    classicAttempts: classicReset.attemptsRemoved,
+    classicAggregates: classicReset.aggregatesRemoved,
+    classicSolveCountsDecremented: classicReset.solveCountsDecremented,
+    hints: n(4) + n(5) + n(6),
+    aiSolves: aiReset.solvesRemoved,
+    aiAttempts: aiReset.attemptsRemoved,
+    aiAggregates: aiReset.aggregatesRemoved,
+    aiSolveCountsDecremented: aiReset.solveCountsDecremented,
     secureDevSolves: secureDev,
   };
 

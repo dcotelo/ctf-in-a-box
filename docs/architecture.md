@@ -22,10 +22,13 @@ provisioning, teams, ingestion, or ranking. `event.yaml`'s `modules:` map
 accepts more than one registered module id — `secure-development` (targets,
 GitHub-mediated scoring, the worked example throughout this doc), `quiz`
 (a self-paced single/multi-select question bank, scored entirely inside the
-app — see [Quiz data flow](#quiz-data-flow) below), and `classic` (a
+app — see [Quiz data flow](#quiz-data-flow) below), `classic` (a
 jeopardy-style flag board, also scored entirely inside the app — see
-[Classic data flow](#classic-data-flow) below). See
-[docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for what the two
+[Classic data flow](#classic-data-flow) below), and `ai` (externally hosted
+AI/LLM challenges: the box mints a contestant's identity for the outside
+site and grades or accepts a solve back, also scored entirely inside the
+app — see [AI data flow](#ai-data-flow) below). See
+[docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for what the three
 app-side modules' UI contract still leaves open. An id outside
 the registry still fails the build loudly; the boundary is the
 [module contract](modules.md).
@@ -182,11 +185,12 @@ state; everything else that touches scores goes through it.
    `withModuleContributions` attributes each row's points into a
    per-module `ModuleProgress` for every *enabled* module — `secure-development`
    is **attributed**, not added, since its points already came from the
-   scorer above; `quiz` and `classic` each score entirely app-side, so neither
-   module's points are ever
-   inside `entry.points` to begin with and both are **added** on top instead
-   (`entry.points += quizTotal.points + classicTotal.points`) — see
-   [Quiz data flow](#quiz-data-flow) and [Classic data flow](#classic-data-flow)
+   scorer above; `quiz`, `classic` and `ai` each score entirely app-side, so
+   none of those modules' points are ever
+   inside `entry.points` to begin with and all three are **added** on top instead
+   (`entry.points += quizTotal.points + classicTotal.points + aiTotal.points`)
+   — see [Quiz data flow](#quiz-data-flow), [Classic data flow](#classic-data-flow),
+   and [AI data flow](#ai-data-flow)
    below. Hint penalties run **last**, netting the final all-module total
    exactly once — module blocks everywhere show their *gross* contribution and
    the row's `−N hints` marker is what reconciles them against the netted
@@ -215,7 +219,8 @@ state; everything else that touches scores goes through it.
 
 Steps 1–8 above assume `secure-development` is enabled — there is a scorer,
 and `LEADERBOARD_API_URL`/`LEADERBOARD_SOURCE` name a real backend to read.
-When it's disabled (a quiz-only or classic-only event, or any event with no
+When it's disabled (a quiz-only, classic-only or ai-only event, or any event
+with no
 scored module),
 none of that pipeline runs at all: `getLeaderboardSourceMode`
 (`src/lib/leaderboard/source.ts`) checks `isModuleEnabled("secure-development")`
@@ -223,29 +228,33 @@ none of that pipeline runs at all: `getLeaderboardSourceMode`
 var — resolves to `"empty"` instead, serving `emptySource`
 (`src/lib/leaderboard/empty.ts`): no entries, no teams, every capability
 `false`. This is deliberately not the mock source; placeholder data would be
-indistinguishable from real standings on a board that also carries real quiz
-or classic points.
+indistinguishable from real standings on a board that also carries real quiz,
+classic or ai points.
 
 Everything a contestant sees on such a board is then built by the overlay
 pipeline itself, on top of nothing. `withModuleContributions` creates a row
-for any login that holds module (quiz and/or classic) points and has no
+for any login that holds module (quiz, classic and/or ai) points and has no
 entry from the
 source — the board's login set is the *union* of the source's logins and the
 logins holding module points, matched case-insensitively, so a contestant
-with quiz or classic points but no scored PR gets a row instead of staying
+with quiz, classic or ai points but no scored PR gets a row instead of staying
 invisible
-until one exists — and a login holding both modules' points gets ONE row
-carrying both blocks, never one row per module. A created row has every scorer-supplied field
+until one exists — and a login holding more than one module's points gets ONE
+row
+carrying every held block, never one row per module. A created row has every scorer-supplied field
 (`patched`/`failed`/`total`/`apps`) genuinely zero — there is no scoring
 entry behind it — and its only points are the modules', added rather than
-attributed (see [Quiz data flow](#quiz-data-flow) and
-[Classic data flow](#classic-data-flow) below for why those are
+attributed (see [Quiz data flow](#quiz-data-flow), [Classic data
+flow](#classic-data-flow) and [AI data flow](#ai-data-flow) below for why
+those are
 different verbs). `withTeamStandings` does the same one step later for
 teams: its membership-only rows (synthesised from live team records whenever
-the source has no team concept of its own) get quiz and classic points added
+the source has no team concept of its own) get quiz, classic and ai points
+added
 via
-`withTeamQuizPoints`/`withTeamClassicPoints`, each deduped by question/flag
-across members, so a quiz-only or classic-only
+`withTeamQuizPoints`, `withTeamClassicPoints` and `withTeamAiPoints`, each
+deduped by question/flag/challenge
+across members, so a quiz-only, classic-only or ai-only
 event's default view — the teams board, whenever teams exist — doesn't open
 on every team tied at zero. See
 [decisions.md #25](decisions.md#adr-25-building-a-leaderboard-with-no-scoring-backend)
@@ -522,6 +531,166 @@ aggregate counters alone, mirroring `deleteQuestion`. Points already banked
 for a deleted challenge stay on the leaderboard; only the master reset
 clears them.
 
+## AI data flow
+
+The `ai` module is externally hosted AI/LLM challenges: an organizer authors
+each challenge in `/admin` (mode `flag`/`event`/`both`, a launch URL
+template, categories, an optional paid hint, a submission cooldown), and a
+contestant plays it on the outside site or types a flag back on `/ai/[id]`.
+Like `quiz` and `classic`, it never touches `scorer`, `sync`, or GitHub — a
+third, entirely separate app-side scoring path, running inside `apps/web`
+against its own Redis keys. `apps/web/src/lib/ai-store.ts` is the only
+writer during normal contestant and authoring activity; `admin-store.ts`'s
+bulk-maintenance paths (demo seed, master reset) are the one documented
+exception, reusing `ai-keys.ts`'s shared key constants directly — the same
+deliberate exception `quiz-store.ts` and `classic-store.ts` document. The
+one thing `ai` needs that neither sibling does is an **identity to hand the
+outside world**, which is why the module also owns a launch-token mint and
+an external-event intake, both described below.
+
+**Identity out: the launch mint.** `/ai/[id]`'s Server Component
+(`apps/web/src/app/(site)/ai/[id]/page.tsx`) is the ONE place in the app
+that mints a launch token, via `mintLaunchUrl`/`buildLaunchClaims`
+(`lib/ai-launch.ts`). This is **gate-at-mint**: the render checks the
+module is live, then `requireGatePassed()` (the pre-event gate), then reads
+the session, then redirects a teamless contestant away — all four before
+the mint is ever reached, and there is no code path above the mint that
+calls it without a `login` in hand. The token is Ed25519 (ADR 53), signed
+with the module-wide keypair in `ctf:ai:launchkey`, minted lazily on first
+use; its claims carry the player's login (`sub`), the one challenge it is
+scoped to (`aud`), and a capped progress snapshot across the whole board.
+It rides in exactly one place — the launcher `<a>`'s `href` on the
+challenge page — and nowhere else in the app renders a token-bearing URL.
+The public half is what an external backend or a pure static SPA verifies
+against, served by the one unauthenticated, cacheable route
+`GET /api/ai/launch-key`.
+
+**Flags in: three surfaces, two store functions, one script.** A solve can
+arrive three ways, and every one folds into the same atomic Lua script:
+
+- **In-box**: the shared `ChallengeDetail` form posts to a Server Action,
+  `submitAiFlagAction` (`[id]/actions.ts`) — not to the token API, because
+  the token that would authenticate such a call lives only in the launcher
+  href and must not reach the client any other way. The action re-runs the
+  page's own gate order — module live, pre-event gate (fails **closed** — an
+  exception is treated as a refusal), session, team (fails **open**, via
+  `hasTeam`) — before calling `submitAiFlag` (`ai-store.ts`).
+- **External flag submission**: `POST /api/ai/submit` takes `{token, flag}`
+  for an external site that renders its own flag box — the launch token in
+  the body is the whole authentication (cookie-blind, verified against the
+  module's public key), and it calls the same `submitAiFlag` the in-box
+  action does.
+- **External**: `POST /api/ai/event` is the surface an externally hosted
+  challenge's backend calls to assert a solve. It is cookie-blind and
+  CORS-open by design, so it authenticates by two proofs instead of a
+  session, checked in this order: the raw-body HMAC signature against the
+  challenge's own `ctf:ai:signkey` (checked *before* the token, so a caller
+  that cannot prove it is the real backend learns nothing about the token
+  it presented), clock skew in both directions, then the launch token's
+  Ed25519 signature and its `aud` against the challenge id. Only after both
+  proofs check out does it charge a per-login rate limit, check team
+  membership (fails **open**, same `hasTeam`), and claim the token's `jti`
+  against the replay-guard nonce — claimed immediately before the award, so
+  neither an earlier refusal burns it nor a later claim lets a race double
+  it. A `dryRun` flag runs every check and writes nothing, for an
+  integrator to test against without spending a real launch token.
+
+All three surfaces funnel into `submitAiFlag`/`awardAiEvent`, which share **one**
+`AWARD_SCRIPT` (`ai-store.ts`) — sharing is deliberate, because two scripts
+would eventually disagree about the already-solved guard that makes the
+solve counter distinct-by-construction. The script itself refuses an event
+assertion against a challenge authored as `mode: "flag"`, so a missed
+mode-check in the route cannot turn every flag-only challenge into
+something any signing-key holder can assert.
+
+**The key layout is thirteen `ctf:ai:*` keys**, split by secrecy class:
+
+- **Catalogue — public**: `ctf:ai:challenges` (the public-safe hash
+  contestants and the leaderboard read — no field on it could carry a flag
+  even by accident) and `ctf:ai:categories` (the organizer's chosen display
+  order, one JSON array, mirroring classic's).
+- **Grading material** — never reaches a contestant path:
+  `ctf:ai:flag` (the flag as authored, admin-form only),
+  `ctf:ai:flagnorm` (the comparison form grading actually reads),
+  `ctf:ai:hints` (paid-hint text, secret until purchased, exactly like
+  classic's), and `ctf:ai:signkey` (the per-challenge HMAC key an event
+  assertion is signed with — leaking one lets its holder assert solves for
+  players who already hold a box-minted token, but cannot mint one itself).
+- **Module identity** — `ctf:ai:launchkey`, the module-wide Ed25519
+  keypair. Its private half is the most dangerous secret in the module: it
+  mints identity, so its holder could name any user on any challenge. It
+  sits inside the same contestant secrecy boundary as the hashes above; the
+  public half is the one thing in this list that is meant to be served.
+- **Progress** — `ctf:ai:solves:<login>` / `ctf:ai:attempts:<login>` (one
+  contestant's banked solves and every attempt, right or wrong) and the
+  running aggregates the leaderboard overlay reads with flat `HGETALL`s:
+  `ctf:ai:points`, `ctf:ai:solved`, and the per-challenge
+  `ctf:ai:solvecount` (distinct-solver count, distinct by construction
+  because the already-solved guard runs before any increment).
+- **Replay** — `ctf:ai:nonce:<jti>`, one key per spent event `jti`, written
+  `SET NX EX` so a captured signed request can be replayed at most once.
+
+**Grading is one atomic Lua script**, exactly like quiz's and classic's: the
+already-solved guard, the cooldown (graded path only — a signed event has no
+wrong answer to rate-limit), the flag comparison, the solve row, and all
+three aggregate counters are read and written inside one script execution,
+against state read fresh at that instant rather than a value either caller
+read earlier. The JS-side pre-check (`evaluateGate`) that runs before it is
+only a cheap early-out; the script is what actually closes the race.
+
+**Fail directions, and they don't all point the same way.** The pre-event
+gate is **closed** — a check that cannot pass is treated as a refusal, the
+same direction quiz's own gate lookup takes on an unverifiable read, because
+a mint or a solve is exactly the kind of write a gate exists to hold back.
+Team membership is **open** — `hasTeam`'s own catch resolves to `true`,
+so a team-store blip never drops a submission an already-teamed contestant
+is entitled to make. The pause/schedule settings read is **open** for the
+same reason `effectivePaused` is elsewhere: a Redis blip must not silently
+freeze a live award. `GET /api/ai/launch-key` is the one **closed** route
+here in a different sense — wrapped in `aiRoute`, a thrown store error
+answers `503 {error:"unavailable"}` rather than an empty or partial key,
+because handing back a bad key would have every integrator cache something
+that verifies nothing.
+
+**AI points are ADDED to the leaderboard, never attributed** — the scorer
+never sees a launch token or a flag, so there is nothing of ai's to
+attribute from (same reasoning as quiz's and classic's points; see
+[Quiz data flow](#quiz-data-flow) above). `withModuleContributions`
+(`src/lib/leaderboard/module-contributions.ts`) creates a row for any login
+that holds `ai` points and has no entry from the scoring source, exactly as
+it does for quiz and classic — a login reported by more than one app-side
+module still gets exactly ONE created row, carrying every reported block.
+Gross module blocks render everywhere, with hint penalties folding **last**
+at the row level, same as every other module.
+
+A team's `ai` total is the **union** of its members' solved challenges
+(`getTeamAiTotalsBatch`), never the sum of their individual aggregates —
+summing would double-count a challenge two teammates both solved. It reads
+every member's solve hash in one pipeline for the whole board and folds them
+through the same shared `foldTeamItems` (`leaderboard/team-fold.ts`) that
+quiz's and classic's team totals use — one dedupe rule, not three copies
+that could silently diverge.
+
+**Master reset clears progress, nonces, and the launch key — never the
+catalogue.** `resetEvent`'s `RESET_PREFIXES` wipe `ai`'s solve/attempt rows,
+the three aggregate hashes, and every spent replay nonce, but deliberately
+leave `ctf:ai:challenges`/`ctf:ai:flag`/`ctf:ai:flagnorm`/`ctf:ai:hints`/
+`ctf:ai:signkey`/`ctf:ai:categories` untouched — organizer-authored content,
+the same rule quiz's and classic's questions/challenges get. Unlike those
+two siblings, the reset also deletes `ctf:ai:launchkey` outright: a master
+reset starts the event over, so no live launch token should survive it, and
+the next launch mints a fresh keypair — every already-issued token stops
+verifying, and any deployed external verifier has to re-fetch
+`GET /api/ai/launch-key` on its next check. `clearAiChallenges`
+(`ai-store.ts`), used by a whole-event archive import rather than the reset,
+is the opposite on both counts: it wipes the catalogue (challenges, both
+flag hashes, hints, signing keys, categories, and the per-challenge
+solvecount) while leaving contestant history and the launch keypair alone,
+because rotating identity on every archive import would break every
+deployed integration for a wipe that was only ever meant to replace the
+challenge list. See [docs/ai-module.md §9](ai-module.md#keys-and-rotation)
+for the integrator-facing statement of the same rotation contract.
+
 ## Contestant and team state
 
 - **`ctf:user:<login>`** — the contestant's own record: `team` (their current
@@ -676,7 +845,7 @@ writes them with `HSETNX` so replays no-op, and the poller re-submits from PR
 comments — so a per-contestant reset clears them and the next re-score writes
 them back. `resetEvent` solves this globally by freezing and bumping `resetAt`;
 there is no per-login equivalent, so the API returns a **warning** instead of
-pretending. Quiz and classic writes originate in the app, so those deletes are
+pretending. Quiz, classic and ai writes originate in the app, so those deletes are
 final.
 
 ### Engagement metrics (ADR 50)
@@ -989,6 +1158,13 @@ only rebuilds an image when told to
   origin policy there, and two policies on one route is how a sign-in breaks
   in a way nobody can find. A missing `Origin` is allowed: it means a
   non-browser client, which carries no ambient cookie to ride. See ADR 40.
+- **A leaked event key cannot mint identity (ADR 53).** The `ai` module
+  splits its two signatures by key type rather than sharing one: the
+  per-challenge `ctf:ai:signkey` (HMAC) proves the sender is the real
+  external challenge backend, while the module-wide Ed25519 launch token
+  proves who is playing. Neither key can produce the other's proof, so a
+  backend holding a leaked event key can assert a solve but cannot forge a
+  launch token naming an arbitrary player.
 - **Per-login rate limits on the two guessable/hammerable routes.**
   `/api/team/join` (join-code guessing) and `/api/hints/reveal` are charged
   against a fixed window keyed on the **authenticated login**
@@ -1015,16 +1191,17 @@ only rebuilds an image when told to
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
 | Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Builds the real app image bound to a `modules: { quiz: {} }` config (no `secure-development` at all), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. Separately brings up `sync` through the real `docker-compose.yml` against the same config and asserts it exits `0`, logs the clean no-op reason, and — sampled over several seconds — stays exited rather than being restarted. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile poll --profile app` must still contain both. |
 | Docker acceptance (classic-only) | `scripts/acceptance-classic-only.sh` | The classic module's sibling of the quiz-only script, following every one of its design decisions: builds the real app image bound to a `modules: { classic: {} }` config, seeds a challenge and a solve straight into Redis, and asserts `/flags` shows the challenge by title, `/challenges` 404s, `/leaderboard` shows the contestant's classic points by login, and the `--profile app` line-up contains no secure-development service. |
+| Docker acceptance (ai-only) | `scripts/acceptance-ai-only.sh` | The ai module's sibling of the quiz-only/classic-only scripts, following the same design decisions: builds the real app image bound to a `modules: { ai: {} }` config, seeds a challenge and a contestant's solve straight into Redis, and asserts `/ai` shows the challenge by title without leaking its flag, `/ai/<id>` 200s while `/ai/<bad-id>` 404s, `/challenges`, `/flags` and `/quiz` all 404, `/leaderboard` shows the contestant's ai points by login, `GET /api/ai/launch-key` mints the keypair internally and serves its public key with no OAuth/cookie/session available, the `--profile app` line-up contains no secure-development service, and `sync` exits `0` and stays exited with nothing to poll. |
 | Vacuous-pass sweep | `scorer/tools/vacuous-sweep.mjs` | Points every target's rubric at an in-process HTTP stub that is UP but USELESS (three personalities: empty-200, not-found, server-error) and fails if any challenge passes — a challenge that "blocks the exploit" against a stub proves nothing. Must report 0; wired into CI only once the count reached 0/321. |
 
 CI (`.github/workflows/ci.yml`) carries a `changes` gate (native `git diff`,
-no third-party action) plus nine gated jobs — `sync-tests`, `scorer`
+no third-party action) plus ten gated jobs — `sync-tests`, `scorer`
 (`node --test` + `acceptance-scorer.sh`), `vacuous` (the sweep above),
 `shell` (shellcheck + bats, including `deploy/fly/`'s scripts and bats
 suite), `smoke`, `app` (vitest + `next build` + the `/` never-prerendered
-assertion + `acceptance-app.sh`), `quiz-only`, `classic-only`, and `docs`
-(Jekyll build + link/meta checks). The gate runs only the jobs whose area a
-PR touches; a push to `main` runs all nine. The heavier `stock-scores-zero` /
+assertion + `acceptance-app.sh`), `quiz-only`, `classic-only`, `ai-only`, and
+`docs` (Jekyll build + link/meta checks). The gate runs only the jobs whose area a
+PR touches; a push to `main` runs all ten. The heavier `stock-scores-zero` /
 `patched-scores-right` workflows are scoped to judge-relevant scorer inputs,
 so a leaderboard-only change doesn't spin up the per-target Maven/gradle
 builds.

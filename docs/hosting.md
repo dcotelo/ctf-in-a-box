@@ -61,11 +61,16 @@ declares, so a resumed run never silently switches your event to a different
 shape. At least one module must be enabled — an answer naming none (or an id
 this build doesn't know) is re-asked rather than written.
 
-**`ai` is offered but not yet playable.** The wizard accepts it and writes
-`ai: {}`, and every reader of `event.yaml` recognizes it — but this release
-ships only the module's contract and store layer. There is no `/ai` route, no
-nav entry and no admin section behind it yet, so enabling `ai` today changes
-nothing a contestant can see. Leave it out until the release that adds them.
+**`ai` is offered and playable.** The wizard accepts it and writes `ai: {}`,
+every reader of `event.yaml` recognizes it, and enabling it gives contestants
+a nav entry, an `/ai` board and an `/ai/[id]` challenge page. Unlike
+`secure-development`'s targets, `ai` has no challenges of its own baked into
+the box — an organizer authors each one from `/admin` (mode
+flag/event/both, the external launch URL, categories, an optional paid hint,
+the `aiCooldownSec` submission cooldown), and the challenge itself is hosted
+on a site outside the box that integrates against the published contract in
+[docs/ai-module.md](ai-module.md). Enable it and author at least one
+challenge before the event, or contestants see an empty board.
 
 The rest of this section is the same sequence as explicit commands, for when
 you'd rather drive it yourself or script it. Each step is either a
@@ -413,9 +418,9 @@ to the scorer directly and needs no poller. A quiz-only event must not be
 asked to pull a scorer image it has no reason to own.
 
 **This is why `secure-development` is the one module you cannot switch on from
-`/admin`.** Quiz and Classic can be toggled during an event without a rebuild,
-because enabling one needs a route, a nav link and a tab — all of which already
-exist. Secure Development needs the containers in this table, and the profile
+`/admin`.** Quiz, Classic and AI can be toggled during an event without a
+rebuild, because enabling one needs a route, a nav link and a tab — all of
+which already exist. Secure Development needs the containers in this table, and the profile
 list is fixed when you run `up`: the app cannot start a `scorer` that was never
 brought up, so a runtime toggle would enable a module whose services are not
 there. Its forks are the other half of the same problem — only `ctf-setup.sh`
@@ -423,8 +428,8 @@ can create those. See
 [ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
 
 So the `modules:` block below decides the profiles you need **and** decides
-Secure Development permanently; for Quiz and Classic it only decides what the
-event starts with.
+Secure Development permanently; for Quiz, Classic and AI it only decides what
+the event starts with.
 
 **Every one of these is a `--build`, so every one needs `EVENT_CONFIG_B64`.**
 Export it once, in the same shell — without it the build silently bakes
@@ -437,9 +442,9 @@ export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
 
 | `modules:` in your `event.yaml` | Command |
 |---|---|
-| `secure-development` (poll mode), with or without `quiz`/`classic` | `docker compose --profile poll --profile app up -d --build` |
-| `secure-development` (push mode), with or without `quiz`/`classic` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
-| `quiz` and/or `classic`, no `secure-development` | `docker compose --profile app up -d --build` |
+| `secure-development` (poll mode), with or without `quiz`/`classic`/`ai` | `docker compose --profile poll --profile app up -d --build` |
+| `secure-development` (push mode), with or without `quiz`/`classic`/`ai` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| `quiz` and/or `classic` and/or `ai`, no `secure-development` | `docker compose --profile app up -d --build` |
 
 `ctf-setup.sh wizard` prints (and offers to run) the right one for the
 `event.yaml` you configured, so you do not have to pick by hand.
@@ -542,21 +547,31 @@ modules:
                                     # app-side — see docs/operations.md's "Quiz"
   classic: {}                     # jeopardy-style flag board, scored app-side
                                     # — see docs/operations.md's "Classic"
-  ai: {}                          # externally hosted AI/LLM challenges.
-                                    # REGISTERED AND SELECTABLE, BUT NOT YET
-                                    # PLAYABLE: this release ships the module's
-                                    # contract and store layer only — no /ai
-                                    # route, no nav entry, no admin section.
-                                    # Enabling it changes nothing a contestant
-                                    # can see until a later release adds them.
+  ai: {}                          # externally hosted AI/LLM challenges,
+                                    # authored in /admin (mode flag/event/both,
+                                    # launch URL, categories, hints,
+                                    # aiCooldownSec). See docs/ai-module.md for
+                                    # what an external challenge site must
+                                    # implement to integrate, and
+                                    # docs/modules.md §5.
 ```
 
 **`ai` is new to the module-id enum in this release, and adding it breaks
 nothing.** The set of accepted ids only grew: every `event.yaml` that was
 valid before is still valid, and an event already running needs no change and
 no Redis migration — it keeps whatever `modules:` block it was built with.
-Enabling `ai` is opt-in and, like every other module change, takes effect on a
-rebuild (`event.yaml` is baked into the `app` image, not read at runtime).
+Adding `ai:` here sets the BUILD-time baseline, and that part needs a
+rebuild: `event.yaml` is baked into the `app` image, not read at runtime, so
+this is what an already-running event's *default* module set stays pinned
+to until its next build. That is a separate path from the **runtime**
+toggle above — an organizer can also flip `ai` on or off live from
+`/admin`'s module list, same as quiz and classic, without a rebuild, because
+the route/nav/tab code for `ai` ships in every `app` image regardless of
+what `event.yaml` baked in (see "Which profiles do I need?" above). The
+distinction that survives either path is ordering, not availability: a
+module `event.yaml` baked in keeps its authored position in the nav, while
+one enabled only at runtime is appended in registry order (`modules.ts`'s
+`moduleDefsFor`).
 Module authors and anything that switches exhaustively over the module id —
 `apps/web/src/lib/modules.ts`'s `ModuleId`, `event-config.ts`, the three
 `KNOWN_MODULES` readers — must now handle `"ai"`.
