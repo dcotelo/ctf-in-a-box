@@ -241,7 +241,9 @@ echo "--- /quiz shows the seeded question by name"
 QUIZ_HTML=$(curl -sf "$APP_URL/quiz")
 # Guarded, not bare: a bare `grep -q` under `set -e` exits with no message at
 # all — the failure mode acceptance-classic-only.sh documents having hit in CI.
-if ! echo "$QUIZ_HTML" | grep -qF "$QUESTION_PROMPT"; then
+# A here-string rather than a pipe: `grep -q` exits on the first match, and
+# under `pipefail` a page larger than the pipe buffer would SIGPIPE the writer.
+if ! grep -qF -- "$QUESTION_PROMPT" <<< "$QUIZ_HTML"; then
   echo "FAIL: /quiz does not show the seeded question '$QUESTION_PROMPT'"
   exit 1
 fi

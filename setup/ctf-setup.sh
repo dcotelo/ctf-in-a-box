@@ -1095,7 +1095,7 @@ cmd_org() {
     src="$(sed -n 's/^SCORE_IMAGE=//p' "$OUT" | tail -1)"
   fi
   [ -n "$src" ] || {
-    echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in .env or the environment" >&2
+    echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in $OUT or the environment" >&2
     exit 1
   }
 
@@ -1637,8 +1637,13 @@ cmd_wizard() {
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
 
   # 1. Prerequisites (subshelled so cmd_check's exit doesn't kill the wizard).
+  # Under --dry-run this is narrated, not probed: cmd_check runs `gh auth
+  # status` and `docker compose version`, and --dry-run makes zero gh/docker
+  # calls (AGENTS.md).
   wiz_step "1/8  Prerequisites"
-  if ( cmd_check ) >/dev/null 2>&1; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would check for gh, docker, compose, openssl and gh auth"
+  elif ( cmd_check ) >/dev/null 2>&1; then
     echo "  ✅ gh, docker, compose, openssl, gh auth"
   else
     cmd_check || true

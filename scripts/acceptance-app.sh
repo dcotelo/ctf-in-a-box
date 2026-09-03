@@ -46,8 +46,11 @@ CHALLENGES_HTML=$(wait_for_html http://localhost:3100/challenges)
 
 # A bare `grep -q` under `set -e` fails with no message at all; every positive
 # assertion goes through this so a red run says what was missing.
+# A here-string rather than a pipe: `grep -q` exits on the first match, and
+# under `pipefail` a page larger than the pipe buffer would SIGPIPE the writer
+# and turn a genuine match into a false failure.
 expect_in() { # haystack needle what
-  if ! printf '%s' "$1" | grep -qF -- "$2"; then echo "FAIL: $3 (missing: $2)"; exit 1; fi
+  if ! grep -qF -- "$2" <<< "$1"; then echo "FAIL: $3 (missing: $2)"; exit 1; fi
 }
 
 echo "--- custom event name renders"

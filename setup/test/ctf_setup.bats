@@ -1245,22 +1245,27 @@ EOF
 # AGENTS.md: `--dry-run` must make zero gh/docker calls. The wizard's org step
 # and its closing doctor sweep used to call `gh api` regardless — invisible in
 # the suite because `gh` is stubbed to `exit 0`. This stub records every call.
-@test "wizard --dry-run issues no gh api calls" {
+@test "wizard --dry-run issues no gh or docker calls at all" {
   _stub_prereqs
-  printf '#!/bin/sh\necho "gh $*" >> "%s/gh.calls"\nexit 0\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/gh"
-  chmod +x "$BATS_TEST_TMPDIR/stubbin/gh"
+  for c in gh docker; do
+    printf '#!/bin/sh\necho "%s $*" >> "%s/tool.calls"\nexit 0\n' "$c" "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/$c"
+    chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
+  done
   rm -f .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "7/8  Event org"
-  # `gh auth status` (the prerequisite probe) is fine; `gh api …` is not.
-  [ -z "$(grep '^gh api' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null)" ]
+  # Not even `gh auth status` or `docker compose version`: dry-run narrates
+  # the prerequisite step instead of probing.
+  [ ! -s "$BATS_TEST_TMPDIR/tool.calls" ]
 }
 
 @test "org --dry-run --out reads SCORE_IMAGE from the named env file, not .env" {
   rm -f .env
   echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > custom.env
-  run bash "$SCRIPT" org --dry-run --config event.yaml --out custom.env
+  # `env -u`: an inherited SCORE_IMAGE would win before the file is read and
+  # let this pass without exercising the --out lookup.
+  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run --config event.yaml --out custom.env
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF "docker pull ghcr.io/other/score:pinned"
 }
