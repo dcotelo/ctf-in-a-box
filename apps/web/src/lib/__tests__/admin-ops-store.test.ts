@@ -182,8 +182,10 @@ describe("resetUserProgress", () => {
     // solves are gone, so the per-challenge stats would drift up permanently,
     // once per reset.
     mockNoSecureDevKeys();
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(["sql-1", "xss-2"]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(["sql-1", "xss-2"], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0),
+    );
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // audit
 
     const result = await resetUserProgress("octocat", "admin");
@@ -198,10 +200,33 @@ describe("resetUserProgress", () => {
     expect(result.cleared.classicSolveCountsDecremented).toBe(2);
   });
 
+  it("DECREMENTS the ai per-challenge solve counter instead of deleting by login", async () => {
+    // ctf:ai:solvecount has the exact same per-CHALLENGE shape as classic's
+    // ctf:classic:solvecount above — HDELing it by login would leave every ai
+    // challenge still counting a contestant whose solves are gone.
+    mockNoSecureDevKeys();
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], ["prompt-1", "jailbreak-2"]));
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0),
+    );
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // audit
+
+    const result = await resetUserProgress("octocat", "admin");
+
+    const cmds = allCommands();
+    const decrements = cmds.filter((c) => c[0] === "HINCRBY" && c[1] === "ctf:ai:solvecount");
+    expect(decrements).toEqual([
+      ["HINCRBY", "ctf:ai:solvecount", "prompt-1", -1],
+      ["HINCRBY", "ctf:ai:solvecount", "jailbreak-2", -1],
+    ]);
+    expect(cmds).not.toContainEqual(["HDEL", "ctf:ai:solvecount", "octocat"]);
+    expect(result.cleared.aiSolveCountsDecremented).toBe(2);
+  });
+
   it("clears every per-login key and nobody else's", async () => {
     mockNoSecureDevKeys();
-    mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     await resetUserProgress("octocat", "admin");
@@ -221,13 +246,72 @@ describe("resetUserProgress", () => {
       "ctf:user:octocat:hints",
       "ctf:hints:at:octocat",
       "ctf:hints:spent#octocat",
+      "ctf:ai:solves:octocat",
+      "ctf:ai:attempts:octocat",
+      "ctf:ai:points#octocat",
+      "ctf:ai:solved#octocat",
     ]);
+  });
+
+  it("clears the ai module's per-login progress — the gap this reset used to leave open", async () => {
+    // Before this fix, resetUserProgress cleared quiz+classic+secure-dev+hints
+    // but touched zero ctf:ai:* keys, so an ai solve silently survived the
+    // "put them back to zero" lever. Assert the counts round-trip through
+    // `cleared`, field-swapped from the classic assertions above.
+    mockNoSecureDevKeys();
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], ["prompt-1"]));
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 2, 40, 1, -1),
+    );
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
+
+    const result = await resetUserProgress("octocat", "admin");
+
+    expect(result.cleared.aiSolves).toBe(3);
+    expect(result.cleared.aiAttempts).toBe(2);
+    expect(result.cleared.aiAggregates).toBe(41);
+    expect(result.cleared.aiSolveCountsDecremented).toBe(1);
+
+    const cmds = allCommands();
+    expect(cmds).toContainEqual(["DEL", "ctf:ai:solves:octocat"]);
+    expect(cmds).toContainEqual(["DEL", "ctf:ai:attempts:octocat"]);
+    expect(cmds).toContainEqual(["HDEL", "ctf:ai:points", "octocat"]);
+    expect(cmds).toContainEqual(["HDEL", "ctf:ai:solved", "octocat"]);
+  });
+
+  it("does not touch another login's ai progress", async () => {
+    mockNoSecureDevKeys();
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
+
+    await resetUserProgress("octocat", "admin");
+
+    const cmds = allCommands();
+    expect(cmds).not.toContainEqual(["DEL", "ctf:ai:solves:mallory"]);
+    expect(cmds).not.toContainEqual(["HDEL", "ctf:ai:points", "mallory"]);
+  });
+
+  it("never touches the module-wide launch keypair, nonces, or the ai catalogue", async () => {
+    mockNoSecureDevKeys();
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], ["prompt-1"]));
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0),
+    );
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
+
+    await resetUserProgress("octocat", "admin");
+
+    const cmds = allCommands();
+    expect(cmds.some((c) => String(c[1]).startsWith("ctf:ai:launchkey"))).toBe(false);
+    expect(cmds.some((c) => String(c[1]).startsWith("ctf:ai:nonce:"))).toBe(false);
+    expect(cmds.some((c) => String(c[1]) === "ctf:ai:challenges")).toBe(false);
   });
 
   it("leaves the account and team membership alone", async () => {
     mockNoSecureDevKeys();
-    mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     await resetUserProgress("octocat", "admin");
@@ -243,8 +327,8 @@ describe("resetUserProgress", () => {
     // Silence here would be a lie the organizer only discovers later.
     mockSecureDevKeys("ctf:solves:dvwa", ["octocat:c1"]);
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1)); // HDEL of those fields
-    mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     const result = await resetUserProgress("octocat", "admin");
@@ -254,16 +338,16 @@ describe("resetUserProgress", () => {
 
   it("says nothing about secure-dev when there was none to clear", async () => {
     mockNoSecureDevKeys();
-    mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
     expect((await resetUserProgress("octocat", "admin")).warnings).toEqual([]);
   });
 
   it("writes an audit line naming the actor AND the target", async () => {
     mockNoSecureDevKeys();
-    mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1));
 
     await resetUserProgress("octocat", "alice");
@@ -298,8 +382,8 @@ describe("deleteUser", () => {
     mocks.upstashPipeline.mockResolvedValueOnce(replies("Red Team", "alice"));
     mockNoSecureDevKeys();
     mockNoSecureDevKeys(); // the reset's own sweep
-    mocks.upstashPipeline.mockResolvedValueOnce(replies([]));
-    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies([], []));
+    mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1));
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // reset audit
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // SREM + DEL
     mocks.upstashPipeline.mockResolvedValueOnce(replies(1, 1)); // delete audit

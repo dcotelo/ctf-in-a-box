@@ -25,6 +25,13 @@ import {
   classicAttemptsKey,
   classicSolvesKey,
 } from "@/lib/classic-keys";
+import {
+  AI_POINTS_KEY,
+  AI_SOLVECOUNT_KEY,
+  AI_SOLVED_KEY,
+  aiAttemptsKey,
+  aiSolvesKey,
+} from "@/lib/ai-keys";
 
 /**
  * Per-contestant and per-team support operations for a LIVE event (issue #168).
@@ -262,8 +269,10 @@ async function clearSecureDevSolves(login: string): Promise<number> {
  * and bumping the `resetAt` epoch, which makes sync drop its cursor. There is
  * no per-login equivalent, so this returns a WARNING instead of pretending.
  * The organizer's move is to close the contestant's PR, or freeze scoring
- * first. Quiz and classic have no such issue: those writes originate in the
- * app, so a delete is final.
+ * first. Quiz, classic, and ai have no such issue: those writes originate in
+ * the app (an ai solve lands the moment `/api/ai/submit` or `/api/ai/event`
+ * handles the request, with no external re-ingestion path the way
+ * Secure Development's scorer/sync pair has), so a delete is final.
  */
 export async function resetUserProgress(rawLogin: string, actor: string): Promise<ResetScope> {
   const login = requireLogin(rawLogin);
@@ -277,15 +286,30 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
   //   ctf:classic:points   HINCRBY <login>       per LOGIN
   //   ctf:classic:solved   HINCRBY <login>       per LOGIN
   //   ctf:classic:solvecount HINCRBY <challengeId>  per CHALLENGE  <-- !
+  //   ctf:ai:points        HINCRBY <login>       per LOGIN
+  //   ctf:ai:solved        HINCRBY <login>       per LOGIN
+  //   ctf:ai:solvecount    HINCRBY <challengeId>  per CHALLENGE  <-- !
   //
   // `solvecount` answers "how many people solved challenge X", so there is no
-  // field for this login to delete. HDELing it by login would remove nothing
-  // and leave every challenge still counting a contestant whose solves are
-  // gone — the per-challenge stats would drift up, permanently, once per
-  // reset. It has to be DECREMENTED, once per challenge this login had
-  // solved, which means reading the solve rows before deleting them.
-  const [solvedRes] = await upstashPipeline([["HKEYS", classicSolvesKey(login)]]);
+  // field for this login to delete, for EITHER module. HDELing it by login
+  // would remove nothing and leave every challenge still counting a
+  // contestant whose solves are gone — the per-challenge stats would drift
+  // up, permanently, once per reset. It has to be DECREMENTED, once per
+  // challenge this login had solved, which means reading the solve rows
+  // before deleting them.
+  //
+  // NOT touched here: `ctf:ai:launchkey` (module-wide identity, not per-user
+  // state), any `ctf:ai:nonce:*` replay guard, and the challenge catalogue —
+  // a per-user reset is per-user. An outstanding launch token this contestant
+  // already holds stays valid; if they redeem it after this reset, that is a
+  // fresh legitimate solve, the same as a contestant replaying a quiz
+  // question after their answer was cleared.
+  const [solvedRes, aiSolvedRes] = await upstashPipeline([
+    ["HKEYS", classicSolvesKey(login)],
+    ["HKEYS", aiSolvesKey(login)],
+  ]);
   const solvedIds = Array.isArray(solvedRes.result) ? (solvedRes.result as string[]) : [];
+  const aiSolvedIds = Array.isArray(aiSolvedRes.result) ? (aiSolvedRes.result as string[]) : [];
 
   const replies = await upstashPipeline([
     ["DEL", quizAnswersKey(login)],
@@ -299,7 +323,12 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
     ["DEL", userHintsKey(login)],
     ["DEL", userHintTimesKey(login)],
     ["HDEL", HINTS_SPENT_KEY, login],
+    ["DEL", aiSolvesKey(login)],
+    ["DEL", aiAttemptsKey(login)],
+    ["HDEL", AI_POINTS_KEY, login],
+    ["HDEL", AI_SOLVED_KEY, login],
     ...solvedIds.map((id) => ["HINCRBY", CLASSIC_SOLVECOUNT_KEY, id, -1]),
+    ...aiSolvedIds.map((id) => ["HINCRBY", AI_SOLVECOUNT_KEY, id, -1]),
   ]);
   const n = (i: number) => Number(replies[i]?.result) || 0;
 
@@ -312,6 +341,10 @@ export async function resetUserProgress(rawLogin: string, actor: string): Promis
     classicAggregates: n(6) + n(7),
     classicSolveCountsDecremented: solvedIds.length,
     hints: n(8) + n(9) + n(10),
+    aiSolves: n(11),
+    aiAttempts: n(12),
+    aiAggregates: n(13) + n(14),
+    aiSolveCountsDecremented: aiSolvedIds.length,
     secureDevSolves: secureDev,
   };
 
