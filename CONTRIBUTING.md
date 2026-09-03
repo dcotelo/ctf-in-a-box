@@ -65,7 +65,7 @@ agent-facing copy with the full gotcha list is
 # app — the grading Lua (classic, quiz, ai) executed against a real Redis.
 # Skips without the two env vars; CI brings up redis + srh and requires it
 # (see the "Grading Lua" step in ci.yml for the two `docker run` lines).
-(cd apps/web && UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN=<srh token> \
+(cd apps/web && UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN='replace-with-your-srh-token' \
   corepack pnpm exec vitest run lua.upstash)
 
 # app production build — CI also asserts .next/server/app/index.html does
