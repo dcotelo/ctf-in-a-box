@@ -32,6 +32,7 @@
 import { headers } from "next/headers";
 
 import type { SubmitResponse } from "@/components/challenge-detail";
+import { logActivity } from "@/lib/activity-log";
 import { AI_ID_RE } from "@/lib/ai-keys";
 import { submitAiFlag, type AiSubmitResult } from "@/lib/ai-store";
 import { auth } from "@/lib/auth";
@@ -116,5 +117,14 @@ export async function submitAiFlagAction(challengeId: string, flag: string): Pro
   if (typeof challengeId !== "string" || !AI_ID_RE.test(challengeId)) return { error: "invalid" };
   if (typeof flag !== "string" || !flag.trim() || flag.length > FLAG_MAX_LEN) return { error: "invalid" };
 
-  return toResponse(await submitAiFlag(login, challengeId, flag));
+  const result = await submitAiFlag(login, challengeId, flag);
+  // Activity log (issue #212): fresh solves only — an idempotent
+  // re-submission banked nothing and would double-count the event. The id
+  // and the path, never the flag; logActivity is fail-open, so it cannot
+  // fail an award that already landed. Mirrors api/ai/submit's guard —
+  // this action is the third award surface and was the only one not logging.
+  if (result.ok && result.correct && !result.already) {
+    await logActivity("ai-solve", login, `${challengeId} via flag`);
+  }
+  return toResponse(result);
 }
