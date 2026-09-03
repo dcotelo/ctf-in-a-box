@@ -37,3 +37,48 @@ test("isPaused: fails OPEN when redis errors", async () => {
   const redis = makeRedis(env, async () => { throw new Error("down"); }, () => {});
   assert.equal(await redis.isPaused(), false);
 });
+
+// A per-command failure comes back as { error } with a 200 — the shape a
+// WRONGTYPE, NOAUTH or unknown-command reply from SRH takes. It must be
+// treated like any other read failure: fail OPEN, and say so.
+const errorReplyFetch = (message) => async () =>
+  new Response(JSON.stringify([{ error: message }]), { status: 200 });
+
+test("isPaused: a per-command error reply fails OPEN and is logged", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch("WRONGTYPE Operation against a key holding the wrong kind of value"), (m) => logs.push(m));
+  assert.equal(await redis.isPaused(), false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /isPaused.*WRONGTYPE/);
+});
+
+test("getResetAt: a per-command error reply reads as no reset and is logged", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch("NOAUTH Authentication required"), (m) => logs.push(m));
+  assert.equal(await redis.getResetAt(), null);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /getResetAt.*NOAUTH/);
+});
+
+test("writeStatus: a per-command error reply is logged instead of vanishing", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch("WRONGTYPE Operation against a key holding the wrong kind of value"), (m) => logs.push(m));
+  await redis.writeStatus({ lastPollAt: PAST, ingested: 1, reposPolled: 1, paused: false });
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /writeStatus.*WRONGTYPE/);
+});
+
+// A backend that accepts the connection and never answers must not stall the
+// tick forever — `restart: on-failure` cannot help a process that never exits.
+const hangUntilAborted = (_url, opts) =>
+  new Promise((_, reject) => {
+    opts.signal.addEventListener("abort", () => reject(opts.signal.reason));
+  });
+
+test("isPaused: a hung backend times out and fails OPEN", async () => {
+  const logs = [];
+  const redis = makeRedis(env, hangUntilAborted, (m) => logs.push(m), { timeoutMs: 20 });
+  assert.equal(await redis.isPaused(), false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /isPaused.*timeout/i);
+});

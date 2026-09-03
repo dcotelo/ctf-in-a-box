@@ -7,7 +7,18 @@ import "server-only";
 
 export type UpstashResult = { result?: unknown; error?: string };
 
-export async function upstashPipeline(commands: (string | number)[][]): Promise<UpstashResult[]> {
+/** How long one /pipeline round trip may take before it is an error. A
+ *  backend that accepts the connection and never answers would otherwise
+ *  hang the request until the platform kills it; surfacing it as an error
+ *  lets each caller's documented fail-open/fail-closed rule apply instead.
+ *  Well above any healthy SRH/Redis latency; same constant as
+ *  scorer/src/store.js and sync/src/redis.js. */
+const PIPELINE_TIMEOUT_MS = 10_000;
+
+export async function upstashPipeline(
+  commands: (string | number)[][],
+  { timeoutMs = PIPELINE_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<UpstashResult[]> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) throw new Error("UPSTASH_REDIS_REST_URL/TOKEN are not set");
@@ -16,6 +27,7 @@ export async function upstashPipeline(commands: (string | number)[][]): Promise<
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(commands),
     cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`Upstash pipeline failed: HTTP ${res.status}`);
   return (await res.json()) as UpstashResult[];

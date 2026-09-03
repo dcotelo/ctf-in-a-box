@@ -83,3 +83,14 @@ test("getToken discovers the installation id when not configured", async () => {
   assert.equal(t, "tok");
   assert.ok(fetchImpl.calls.some((c) => c.url.endsWith("/app/installations")));
 });
+
+// new Date("garbage").getTime() is NaN, and `NaN - now > skew` is always false
+// — so a token with an unusable expiry would be re-minted on EVERY call,
+// silently. A malformed expiry is a broken response; say so.
+test("getToken rejects an installation token whose expires_at is unusable", async () => {
+  const auth = makeAppAuth({ appId: "1", privateKey, installationId: 99, apiUrl: "https://api.github.test" });
+  const fetchImpl = stubFetch([
+    ["/access_tokens", () => jsonRes(201, { token: "tok", expires_at: "garbage" })],
+  ]);
+  await assert.rejects(auth.getToken(fetchImpl, 1_700_000_000_000), /expires_at/);
+});

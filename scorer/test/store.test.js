@@ -245,3 +245,28 @@ test("redis store isPaused: fails OPEN when redis errors", async (t) => {
   const store = createRedisStore({ url: "http://srh:80", token: "t" });
   assert.equal(await store.isPaused(), false);
 });
+
+// Fail-open is the right direction for the pause read, but silently is not:
+// sync/src/redis.js logs the same failure, and an operator watching the
+// scorer's stream must see a Redis outage too.
+test("redis store isPaused: a failed read fails OPEN and is logged", async () => {
+  const logs = [];
+  const store = createRedisStore({
+    url: "http://srh:80",
+    token: "t",
+    fetchImpl: async () => { throw new Error("redis down"); },
+    log: (m) => logs.push(m),
+  });
+  assert.equal(await store.isPaused(), false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /isPaused.*redis down/);
+});
+
+test("redis store: a hung backend times out instead of hanging the request", async () => {
+  const hangUntilAborted = (_url, opts) =>
+    new Promise((_, reject) => {
+      opts.signal.addEventListener("abort", () => reject(opts.signal.reason));
+    });
+  const store = createRedisStore({ url: "http://srh:80", token: "t", fetchImpl: hangUntilAborted, timeoutMs: 20 });
+  await assert.rejects(store.getSolves("dvwa"), /timeout/i);
+});

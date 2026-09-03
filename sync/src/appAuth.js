@@ -40,7 +40,14 @@ export function makeAppAuth({ appId, privateKey, installationId, apiUrl = "https
       instId = list[0].id;
     }
     const body = await ghJson(`${apiUrl}/app/installations/${instId}/access_tokens`, { fetchImpl, jwt, method: "POST" }, "minting installation token");
-    cache = { token: body.token, expiresAt: new Date(body.expires_at).getTime() };
+    const expiresAt = new Date(body.expires_at).getTime();
+    // NaN here would make `expiresAt - now > skew` false forever, so every
+    // call would silently mint a fresh JWT and installation token. An
+    // unusable expiry is a broken response; fail the tick and retry.
+    if (!Number.isFinite(expiresAt)) {
+      throw new Error(`GitHub installation token has an unusable expires_at: ${JSON.stringify(body.expires_at)}`);
+    }
+    cache = { token: body.token, expiresAt };
     return cache.token;
   }
 

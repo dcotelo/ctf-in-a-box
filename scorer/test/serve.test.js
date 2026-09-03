@@ -511,3 +511,25 @@ test("GET /challenges lists only targets the rubric actually defines", async (t)
   const body = await (await fetch(`${base}/challenges`)).json();
   assert.deepEqual([...new Set(body.challenges.map((c) => c.app))].sort(), ["dvwa", "juice-shop"]);
 });
+
+// `serve()` is the process entry compose runs; until now no test called it, so
+// PORT parsing and the store selection were unexercised. Number("abc") is NaN
+// and listen(NaN) binds a random port — refuse instead.
+import { serve } from "../src/serve.js";
+const RUBRIC_DIR = fileURLToPath(new URL("./fixtures/rubric-valid/", import.meta.url));
+
+test("serve(): refuses a non-numeric PORT before listening", async () => {
+  await assert.rejects(
+    serve({ SCORER_TOKEN: TOKEN, RUBRIC_DIR, PORT: "abc" }, { log: () => {} }),
+    /PORT must be an integer/,
+  );
+});
+
+test("serve(): boots the memory store and answers /healthz", async (t) => {
+  const logs = [];
+  const server = await serve({ SCORER_TOKEN: TOKEN, RUBRIC_DIR, PORT: "0" }, { log: (m) => logs.push(m) });
+  t.after(() => server.close());
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/healthz`);
+  assert.equal(res.status, 200);
+  assert.match(logs[0], /memory store/);
+});

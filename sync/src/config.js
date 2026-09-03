@@ -41,6 +41,19 @@ function resolveAuth(env, apiUrl) {
   return { authMode: "app", getToken: (fetchImpl) => auth.getToken(fetchImpl) };
 }
 
+// A numeric knob that must be a positive integer. `Number("abc")` is NaN, and
+// `setTimeout(NaN)` fires immediately — a typo'd POLL_INTERVAL_MS would poll
+// GitHub in a tight loop with no error anywhere. Refuse at boot, like every
+// other config mistake.
+function positiveInt(raw, fallback, name) {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`${name} must be a positive integer (got ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+
 // Where the event.yaml TEXT comes from, in precedence order.
 //
 // EVENT_CONFIG_B64 exists for deployments with no writable host to bind-mount
@@ -109,7 +122,7 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
     apiUrl,
     scorerUrl: env.SCORER_URL ?? "http://scorer:4000",
     scorerToken: env.SCORER_TOKEN,
-    pollIntervalMs: Number(env.POLL_INTERVAL_MS ?? 30000),
+    pollIntervalMs: positiveInt(env.POLL_INTERVAL_MS, 30000, "POLL_INTERVAL_MS"),
     statePath: env.STATE_PATH ?? "/state/state.json",
     commentAuthor: env.COMMENT_AUTHOR ?? "github-actions[bot]",
   };
