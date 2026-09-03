@@ -1288,3 +1288,15 @@ EOF
   [ -f .env.perms.test ]
   [ "$(ls -l .env.perms.test | cut -c1-10)" = "-rw-------" ]
 }
+
+# `-f` follows symlinks, so a dangling symlink at the output path passes the
+# "already exists" check and a plain redirect then writes the generated
+# secrets to wherever the link points. Creation must be exclusive.
+@test "secrets refuses a symlinked output path and writes nothing through it" {
+  rm -f .env
+  mkdir -p "$BATS_TEST_TMPDIR/elsewhere"   # the target is creatable; only the link is dangling
+  ln -s "$BATS_TEST_TMPDIR/elsewhere/target.env" .env.link
+  run bash "$SCRIPT" secrets --config event.yaml --out .env.link
+  [ "$status" -ne 0 ]
+  [ ! -e "$BATS_TEST_TMPDIR/elsewhere/target.env" ]
+}

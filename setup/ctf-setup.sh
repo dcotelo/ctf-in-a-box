@@ -1046,13 +1046,18 @@ cmd_check() {
 
 cmd_secrets() {
   local out="${OUT:-.env}"
-  [ -f "$out" ] && { echo "$out exists; refusing to overwrite" >&2; exit 1; }
-  # Owner-only from the first byte: a plain redirect would create the file
-  # with the caller's umask (0644 under the usual 022), briefly or permanently
-  # exposing every token below to other local users. The subshell keeps the
-  # umask change from leaking into anything the wizard writes afterwards.
+  # `-e || -L`, not `-f`: `-f` follows symlinks, so a dangling link at $out
+  # would pass this check and the redirect below would write the secrets to
+  # wherever the link points.
+  if [ -e "$out" ] || [ -L "$out" ]; then echo "$out exists; refusing to overwrite" >&2; exit 1; fi
+  # Owner-only from the first byte, and created exclusively: `umask 077` so a
+  # plain redirect cannot land 0644 under the usual 022 umask, and `noclobber`
+  # so bash opens with O_EXCL — which fails on any pre-existing path, symlink
+  # included, closing the window between the check above and the write. The
+  # subshell keeps both settings from leaking into later wizard writes.
   (
   umask 077
+  set -o noclobber
   {
     echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
     echo "SRH_TOKEN=$(openssl rand -hex 24)"
