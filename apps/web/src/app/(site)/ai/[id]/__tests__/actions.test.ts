@@ -10,12 +10,13 @@
 // been called — a refusal that still wrote is not a refusal.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getSession, isModuleLive, requireGatePassed, hasTeam, submitAiFlag } = vi.hoisted(() => ({
+const { getSession, isModuleLive, requireGatePassed, hasTeam, submitAiFlag, logActivity } = vi.hoisted(() => ({
   getSession: vi.fn(),
   isModuleLive: vi.fn(),
   requireGatePassed: vi.fn(),
   hasTeam: vi.fn(),
   submitAiFlag: vi.fn(),
+  logActivity: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -25,6 +26,7 @@ vi.mock("@/lib/enabled-modules", () => ({ isModuleLive }));
 vi.mock("@/lib/gate-request", () => ({ requireGatePassed }));
 vi.mock("@/lib/team-store", () => ({ hasTeam }));
 vi.mock("@/lib/ai-store", () => ({ submitAiFlag }));
+vi.mock("@/lib/activity-log", () => ({ logActivity }));
 
 import { submitAiFlagAction } from "@/app/(site)/ai/[id]/actions";
 
@@ -171,5 +173,41 @@ describe("submitAiFlagAction results", () => {
     const payload = JSON.stringify(await submitAiFlagAction("a1", "CTF{super-secret}"));
     expect(payload).not.toContain("CTF{super-secret}");
     expect(payload).not.toMatch(/token|signkey|launchkey/i);
+  });
+});
+
+// The action is the third award surface (alongside api/ai/submit and
+// api/ai/event) and must feed the activity log the way those two do — it was
+// the one path a solve could take without leaving an "ai solve" row.
+describe("submitAiFlagAction activity log", () => {
+  it("logs a fresh solve exactly once, with the id and the path, never the flag", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 40 });
+    const response = await submitAiFlagAction("a1", "CTF{super-secret}");
+    expect(logActivity).toHaveBeenCalledTimes(1);
+    expect(logActivity).toHaveBeenCalledWith("ai-solve", "alice", "a1 via flag");
+    const detail = JSON.stringify(logActivity.mock.calls);
+    expect(detail).not.toContain("CTF{super-secret}");
+    expect(JSON.stringify(response)).not.toContain("CTF{super-secret}");
+  });
+
+  it("does not log an already-banked re-submission", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 0, already: true });
+    await submitAiFlagAction("a1", "CTF{x}");
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it("does not log a wrong flag or a store refusal", async () => {
+    submitAiFlag.mockResolvedValue({ ok: true, correct: false });
+    await submitAiFlagAction("a1", "nope");
+    submitAiFlag.mockResolvedValue({ ok: false, reason: "paused" });
+    await submitAiFlagAction("a1", "CTF{x}");
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it("does not log — and never reaches the store — when the submit is refused first", async () => {
+    hasTeam.mockResolvedValue(false);
+    await submitAiFlagAction("a1", "CTF{x}");
+    expect(submitAiFlag).not.toHaveBeenCalled();
+    expect(logActivity).not.toHaveBeenCalled();
   });
 });
