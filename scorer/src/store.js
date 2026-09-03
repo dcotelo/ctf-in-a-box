@@ -59,9 +59,19 @@ export function createMemoryStore({ teams = [] } = {}) {
 // sync/src/redis.js.
 const PIPELINE_TIMEOUT_MS = 10_000;
 
-// POST /pipeline with a JSON array of command arrays, bearer token; results
-// come back positionally as { result } or { error }. Only HSETNX + HGETALL are
-// used, a subset SRH's env mode supports.
+/** The loggable part of a Redis error reply. Redis's unknown-command error
+ *  echoes the command's own arguments ("…, with args beginning with: …");
+ *  those are whatever the caller sent, so the tail is dropped and the rest
+ *  capped before it can reach a log line or an error body. Same rule as
+ *  sync/src/redis.js. */
+export function redisErrorText(error) {
+  return String(error).replace(/,?\s*with args beginning with:.*$/s, "").slice(0, 200);
+}
+
+/** The Redis-backed solve store: POST /pipeline with a JSON array of command
+ *  arrays, bearer token; results come back positionally as { result } or
+ *  { error }. Only HSETNX + HGETALL are used, a subset SRH's env mode
+ *  supports. `fetchImpl`, `log` and `timeoutMs` are seams. */
 export function createRedisStore({
   url = process.env.UPSTASH_REDIS_REST_URL,
   token = process.env.UPSTASH_REDIS_REST_TOKEN,
@@ -72,6 +82,8 @@ export function createRedisStore({
   if (!url || !token) throw new Error("UPSTASH_REDIS_REST_URL/TOKEN are not set");
   const base = url.replace(/\/$/, "");
 
+  /** One POST /pipeline round trip; throws on HTTP failure, timeout, or any
+   *  per-command error, so callers only ever see results or an exception. */
   async function pipeline(commands) {
     const res = await fetchImpl(`${base}/pipeline`, {
       method: "POST",
@@ -82,7 +94,7 @@ export function createRedisStore({
     if (!res.ok) throw new Error(`upstash pipeline: HTTP ${res.status}`);
     const results = await res.json();
     const bad = results.find((r) => r.error);
-    if (bad) throw new Error(`upstash: ${bad.error}`);
+    if (bad) throw new Error(`upstash: ${redisErrorText(bad.error)}`);
     return results.map((r) => r.result);
   }
 

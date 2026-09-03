@@ -90,3 +90,19 @@ test("isPaused: a hung backend times out and fails OPEN", async () => {
   assert.equal(logs.length, 1);
   assert.match(logs[0], /isPaused.*timeout/i);
 });
+
+// Redis's unknown-command error echoes the command's arguments ("…, with args
+// beginning with: …"). Those arguments are whatever the caller sent — for the
+// app that could be a flag — so the echoed tail must never reach a log.
+test("a per-command error is logged by its Redis error text, never its echoed arguments", async () => {
+  const logs = [];
+  const redis = makeRedis(
+    env,
+    errorReplyFetch("ERR unknown command 'hset', with args beginning with: 'ctf:sync:status' 'ctf{leaked}' "),
+    (m) => logs.push(m),
+  );
+  assert.equal(await redis.isPaused(), false);
+  assert.match(logs[0], /ERR unknown command 'hset'/);
+  assert.doesNotMatch(logs[0], /ctf\{leaked\}/);
+  assert.doesNotMatch(logs[0], /with args beginning with/);
+});

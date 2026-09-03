@@ -20,10 +20,14 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   round trip after 10 s instead of waiting forever.
 - **Numeric knobs are validated instead of silently misbehaving.** A
   non-numeric `POLL_INTERVAL_MS` used to poll GitHub in a tight loop
-  (`setTimeout(NaN)` fires immediately) and a non-numeric scorer `PORT`
-  bound a random port; both now refuse to start with a clear message. An
-  installation token whose `expires_at` cannot be parsed is rejected instead
-  of being re-minted on every call.
+  (`setTimeout(NaN)` fires immediately — and so does any value past
+  `setTimeout`'s 2^31−1 ms cap, so the accepted range is now 1 to
+  1 789 569 705 ms) and a non-numeric or blank scorer `PORT` bound a random
+  port (`PORT` must now be an integer 0–65535; the default stays 4000).
+  Both refuse to start with a clear message; a running event is unaffected
+  unless it already carried an invalid value, which never worked. An
+  installation token whose `expires_at` is missing, unparseable or already
+  past is rejected instead of being re-minted on every call.
 
 ## v0.4.0 — 2026-09-01
 

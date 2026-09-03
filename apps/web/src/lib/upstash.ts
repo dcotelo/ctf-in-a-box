@@ -15,6 +15,10 @@ export type UpstashResult = { result?: unknown; error?: string };
  *  scorer/src/store.js and sync/src/redis.js. */
 const PIPELINE_TIMEOUT_MS = 10_000;
 
+/** One POST /pipeline round trip. Throws on HTTP failure or timeout; a
+ *  per-command `{ error }` is returned positionally for the caller to
+ *  judge, because some callers (the reset's SCAN walk, the Lua evals) treat
+ *  individual command failures differently. */
 export async function upstashPipeline(
   commands: (string | number)[][],
   { timeoutMs = PIPELINE_TIMEOUT_MS }: { timeoutMs?: number } = {},

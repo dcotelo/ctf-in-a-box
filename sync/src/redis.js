@@ -21,12 +21,25 @@ export function outsideWindow(nowMs, startsAt, endsAt) {
 // process that never exits. Well above any healthy SRH/Redis latency.
 const PIPELINE_TIMEOUT_MS = 10_000;
 
+/** The loggable part of a Redis error reply. Redis's unknown-command error
+ *  echoes the command's own arguments ("…, with args beginning with: …");
+ *  those are whatever the caller sent, so the tail is dropped and the rest
+ *  capped before it can reach a log line. */
+export function redisErrorText(error) {
+  return String(error).replace(/,?\s*with args beginning with:.*$/s, "").slice(0, 200);
+}
+
+/** The poller's Redis client, or null when UPSTASH_REDIS_REST_URL/TOKEN are
+ *  unset (a poller with no Redis still polls; it just cannot see the freeze
+ *  or write its heartbeat). `fetchImpl`, `log` and `timeoutMs` are seams. */
 export function makeRedis(env = process.env, fetchImpl = fetch, log = console.error, { timeoutMs = PIPELINE_TIMEOUT_MS } = {}) {
   const url = env.UPSTASH_REDIS_REST_URL;
   const token = env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   const base = url.replace(/\/$/, "");
 
+  /** One POST /pipeline round trip; throws on HTTP failure, timeout, or any
+   *  per-command error, so callers only ever see results or an exception. */
   async function pipeline(commands) {
     const res = await fetchImpl(`${base}/pipeline`, {
       method: "POST",
@@ -43,7 +56,7 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
     // minus the log line that makes an outage visible. Throw, so each
     // caller's catch applies its documented direction AND says so.
     const bad = results.find((r) => r.error);
-    if (bad) throw new Error(`upstash: ${bad.error}`);
+    if (bad) throw new Error(`upstash: ${redisErrorText(bad.error)}`);
     return results.map((r) => r.result);
   }
 

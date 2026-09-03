@@ -278,3 +278,20 @@ test("redis store: a hung backend times out instead of hanging the request", asy
   const store = createRedisStore({ url: "http://srh:80", token: "t", fetchImpl: hangUntilAborted, timeoutMs: 20 });
   await assert.rejects(store.getSolves("dvwa"), /timeout/i);
 });
+
+// Same rule as sync/src/redis.js: a Redis error's "with args beginning with"
+// tail echoes the caller's own arguments, which must never reach a log or an
+// error body. The store keeps the error's Redis text and drops the echo.
+test("redis store: a per-command error surfaces its Redis text, never its echoed arguments", async () => {
+  const store = createRedisStore({
+    url: "http://srh:80",
+    token: "t",
+    fetchImpl: async () =>
+      new Response(JSON.stringify([{ error: "ERR unknown command 'hgetall', with args beginning with: 'ctf:solves:dvwa' 'sneaky' " }]), { status: 200 }),
+  });
+  await assert.rejects(store.getSolves("dvwa"), (err) => {
+    assert.match(err.message, /ERR unknown command 'hgetall'/);
+    assert.doesNotMatch(err.message, /sneaky|with args beginning with/);
+    return true;
+  });
+});

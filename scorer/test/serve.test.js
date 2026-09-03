@@ -533,3 +533,10 @@ test("serve(): boots the memory store and answers /healthz", async (t) => {
   assert.equal(res.status, 200);
   assert.match(logs[0], /memory store/);
 });
+
+test("serve(): refuses a whitespace-only PORT (Number(' ') is 0, an ephemeral port)", async () => {
+  await assert.rejects(
+    serve({ SCORER_TOKEN: TOKEN, RUBRIC_DIR, PORT: " " }, { log: () => {} }),
+    /PORT must be an integer/,
+  );
+});

@@ -76,7 +76,7 @@ test("getToken refreshes when within 5 min of expiry", async () => {
 test("getToken discovers the installation id when not configured", async () => {
   const auth = makeAppAuth({ appId: "1", privateKey, apiUrl: "https://api.github.test" });
   const fetchImpl = stubFetch([
-    ["/app/installations/77/access_tokens", () => jsonRes(201, { token: "tok", expires_at: "2023-11-14T00:00:00Z" })],
+    ["/app/installations/77/access_tokens", () => jsonRes(201, { token: "tok", expires_at: "2033-11-14T00:00:00Z" })],
     ["/app/installations", () => jsonRes(200, [{ id: 77 }])], // list (checked after the more specific route)
   ]);
   const t = await auth.getToken(fetchImpl, 1_700_000_000_000);
@@ -92,5 +92,20 @@ test("getToken rejects an installation token whose expires_at is unusable", asyn
   const fetchImpl = stubFetch([
     ["/access_tokens", () => jsonRes(201, { token: "tok", expires_at: "garbage" })],
   ]);
+  await assert.rejects(auth.getToken(fetchImpl, 1_700_000_000_000), /expires_at/);
+});
+
+// `new Date(null).getTime()` is 0 and a past date is finite too: both cache an
+// already-expired token, so the "refresh when near expiry" check fails forever
+// and every call re-mints. Only a real, future expiry may be cached.
+test("getToken rejects a null expires_at", async () => {
+  const auth = makeAppAuth({ appId: "1", privateKey, installationId: 99, apiUrl: "https://api.github.test" });
+  const fetchImpl = stubFetch([["/access_tokens", () => jsonRes(201, { token: "tok", expires_at: null })]]);
+  await assert.rejects(auth.getToken(fetchImpl, 1_700_000_000_000), /expires_at/);
+});
+
+test("getToken rejects an expires_at that is already in the past", async () => {
+  const auth = makeAppAuth({ appId: "1", privateKey, installationId: 99, apiUrl: "https://api.github.test" });
+  const fetchImpl = stubFetch([["/access_tokens", () => jsonRes(201, { token: "tok", expires_at: "2000-01-01T00:00:00Z" })]]);
   await assert.rejects(auth.getToken(fetchImpl, 1_700_000_000_000), /expires_at/);
 });
