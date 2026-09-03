@@ -182,11 +182,12 @@ describe("submitAiFlagAction results", () => {
 describe("submitAiFlagAction activity log", () => {
   it("logs a fresh solve exactly once, with the id and the path, never the flag", async () => {
     submitAiFlag.mockResolvedValue({ ok: true, correct: true, points: 40 });
-    await submitAiFlagAction("a1", "CTF{super-secret}");
+    const response = await submitAiFlagAction("a1", "CTF{super-secret}");
     expect(logActivity).toHaveBeenCalledTimes(1);
     expect(logActivity).toHaveBeenCalledWith("ai-solve", "alice", "a1 via flag");
     const detail = JSON.stringify(logActivity.mock.calls);
     expect(detail).not.toContain("CTF{super-secret}");
+    expect(JSON.stringify(response)).not.toContain("CTF{super-secret}");
   });
 
   it("does not log an already-banked re-submission", async () => {
@@ -203,9 +204,10 @@ describe("submitAiFlagAction activity log", () => {
     expect(logActivity).not.toHaveBeenCalled();
   });
 
-  it("does not log when the submit is refused before the store", async () => {
+  it("does not log — and never reaches the store — when the submit is refused first", async () => {
     hasTeam.mockResolvedValue(false);
     await submitAiFlagAction("a1", "CTF{x}");
+    expect(submitAiFlag).not.toHaveBeenCalled();
     expect(logActivity).not.toHaveBeenCalled();
   });
 });
