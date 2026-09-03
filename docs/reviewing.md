@@ -39,13 +39,16 @@ that weakens one layer "because another layer still catches it" is a
 finding — the four layers are deliberate redundancy.
 
 **2. Lua is the scoring authority.** The grading scripts (`SUBMIT_SCRIPT`
-in `classic-store.ts`, `GRADE_SCRIPT` in `quiz-store.ts`) decide points;
-the JS pre-checks are advisory early-outs. Review implications: moving an
-already-solved guard, attempt cap, cooldown check, or price read out of the
-script into JS is a correctness regression, not a refactor. A change to
-script text needs tests that pin the *semantics* (the `HEXISTS … == 1`
-polarity, the `>=` cap comparison, which key each counter is keyed by), not
-just command ordering. And never case-fold inside Lua — `string.lower` is
+in `classic-store.ts`, `GRADE_SCRIPT` in `quiz-store.ts`, `AWARD_SCRIPT` in
+`ai-store.ts`) decide points; the JS pre-checks are advisory early-outs.
+Review implications: moving an already-solved guard, attempt cap, cooldown
+check, or price read out of the script into JS is a correctness regression,
+not a refactor. A change to script text needs tests that pin the *semantics*
+(the `HEXISTS … == 1` polarity, the `>=` cap comparison, which key each
+counter is keyed by), not just command ordering — those live in
+`src/lib/__tests__/*.lua.upstash.test.ts`, which execute the real scripts
+against a real Redis in CI; a script change with no change there is the
+finding. And never case-fold inside Lua — `string.lower` is
 ASCII-only and diverges from the JS normalizer, producing challenges nobody
 can solve. Normalization is JS-only, applied identically on authoring and
 submission.

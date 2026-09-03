@@ -812,7 +812,7 @@ async function readSettingsFailOpen(): Promise<ResolvedAdminSettings | null> {
 // only match a complete `"field":<value>` pair immediately followed by the
 // next field or the closing brace — not an arbitrary digit run that happens
 // to appear earlier in the blob (e.g. inside a differently-ordered field).
-const GRADE_SCRIPT = `
+export const GRADE_SCRIPT = `
 local key = redis.call('HGET', KEYS[3], ARGV[1])
 if not key then return {'missing'} end
 if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end

@@ -1,0 +1,161 @@
+// Executes classic's SUBMIT_SCRIPT — the grading authority — against a real
+// Redis via SRH. The mocked grade suite pins what `submitFlag` hands the
+// script (key and argument order); this one pins what the script does with
+// it. Each test seeds its own run-unique keys, so nothing here can collide
+// with another suite or a previous run. See live-redis.ts for the harness.
+//
+// Every assertion below was chosen because a mutation that survives the
+// mocked suite would flip it: the HEXISTS polarity (a re-solve farming
+// points), `and lastAtMs` (a crash on every first-ever submission when a
+// cooldown is set), the cooldown comparison, solvecount keyed by the login
+// instead of the challenge, and the case-sensitive form selection.
+
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { attemptsRow, freshId, liveConfigured, liveKey } from "./live-redis";
+
+vi.mock("server-only", () => ({}));
+
+const T0 = Date.UTC(2026, 9, 1, 12, 0, 0); // 2026-10-01T12:00:00.000Z
+const iso = (ms: number) => new Date(ms).toISOString();
+
+describe.skipIf(!liveConfigured)("classic SUBMIT_SCRIPT against a live Redis", () => {
+  const K = {
+    attempts: liveKey("classic", "attempts"),
+    solves: liveKey("classic", "solves"),
+    flagnorm: liveKey("classic", "flagnorm"),
+    challenges: liveKey("classic", "challenges"),
+    points: liveKey("classic", "points"),
+    solvecount: liveKey("classic", "solvecount"),
+    solved: liveKey("classic", "solved"),
+  };
+  // Per test, so no total asserted here can be inflated by an earlier test.
+  let LOGIN = "";
+  beforeEach(() => {
+    LOGIN = freshId("alice");
+  });
+
+  let script: string;
+  let upstashEval: (typeof import("@/lib/upstash"))["upstashEval"];
+  let pipeline: (typeof import("@/lib/upstash"))["upstashPipeline"];
+  let keys: typeof import("@/lib/classic-keys");
+
+  async function load() {
+    if (script) return;
+    ({ SUBMIT_SCRIPT: script } = await import("@/lib/classic-store"));
+    ({ upstashEval, upstashPipeline: pipeline } = await import("@/lib/upstash"));
+    keys = await import("@/lib/classic-keys");
+  }
+
+  afterAll(async () => {
+    if (pipeline) await pipeline([["DEL", ...Object.values(K)]]);
+  });
+
+  /** Seeds a challenge the way `upsertChallenge` does: the comparison form of
+   *  the flag into flagnorm, the record (points, optional caseSensitive) into
+   *  challenges. */
+  async function seed(id: string, flag: string, points: number, caseSensitive?: true) {
+    await load();
+    const record = caseSensitive ? { id, title: id, points, caseSensitive } : { id, title: id, points };
+    await pipeline([
+      ["HSET", K.flagnorm, id, keys.flagComparisonForm(flag, caseSensitive)],
+      ["HSET", K.challenges, id, JSON.stringify(record)],
+    ]);
+  }
+
+  /** Runs the script exactly as `submitFlag` does, with both comparison forms. */
+  async function submit(id: string, flag: string, { nowMs = T0, cooldownMs = 5_000, login = LOGIN } = {}) {
+    await load();
+    return upstashEval(
+      script,
+      [K.attempts, K.solves, K.flagnorm, K.challenges, K.points, K.solvecount, K.solved],
+      [id, keys.normalizeFlag(flag), iso(nowMs), login, cooldownMs, nowMs, keys.caseSensitiveFlagForm(flag)],
+    );
+  }
+
+  async function hget(key: string, field: string) {
+    const [r] = await pipeline([["HGET", key, field]]);
+    return r.result;
+  }
+
+  it("returns missing for an unknown challenge and writes no attempts row", async () => {
+    const id = freshId("ghost");
+    expect(await submit(id, "anything")).toEqual(["missing"]);
+    expect(await hget(K.attempts, id)).toBeNull();
+  });
+
+  it("grades a FIRST-EVER wrong submission with a cooldown set — no attempts row yet, so lastAtMs is nil", async () => {
+    // Dropping `and lastAtMs` from the cooldown guard makes this arithmetic
+    // on nil and 500s every contestant's first submission.
+    const id = freshId("chal");
+    await seed(id, "flag{right}", 25);
+    expect(await submit(id, "flag{wrong}", { cooldownMs: 5_000 })).toEqual(["incorrect", "1"]);
+    expect(await hget(K.attempts, id)).toBe(attemptsRow(1, iso(T0), iso(T0), T0));
+    expect(await hget(K.solves, id)).toBeNull();
+  });
+
+  it("awards a correct submission once: solve row, login totals, and solvecount keyed by the CHALLENGE", async () => {
+    const id = freshId("chal");
+    await seed(id, "flag{right}", 25);
+    expect(await submit(id, "FLAG{RIGHT}  ")).toEqual(["correct", "25"]);
+    expect(await hget(K.solves, id)).toBe(`{"points":25,"at":"${iso(T0)}"}`);
+    expect(await hget(K.points, LOGIN)).toBe("25");
+    expect(await hget(K.solved, LOGIN)).toBe("1");
+    // The per-challenge solve count is keyed by challenge id — a login-keyed
+    // increment is the mutation this pair of asserts exists for.
+    expect(await hget(K.solvecount, id)).toBe("1");
+    expect(await hget(K.solvecount, LOGIN)).toBeNull();
+  });
+
+  it("refuses to re-award a solved challenge: `already`, and every counter stays put", async () => {
+    const id = freshId("chal");
+    await seed(id, "flag{right}", 25);
+    expect(await submit(id, "flag{right}")).toEqual(["correct", "25"]);
+    const before = await pipeline([
+      ["HGET", K.points, LOGIN],
+      ["HGET", K.solved, LOGIN],
+      ["HGET", K.solvecount, id],
+      ["HGET", K.attempts, id],
+    ]);
+    expect(await submit(id, "flag{right}", { nowMs: T0 + 60_000 })).toEqual(["already"]);
+    const after = await pipeline([
+      ["HGET", K.points, LOGIN],
+      ["HGET", K.solved, LOGIN],
+      ["HGET", K.solvecount, id],
+      ["HGET", K.attempts, id],
+    ]);
+    expect(after).toEqual(before);
+  });
+
+  it("enforces the cooldown from the row it reads: refused one ms before the boundary, graded at it", async () => {
+    const id = freshId("chal");
+    await seed(id, "flag{right}", 10);
+    expect(await submit(id, "flag{nope}", { nowMs: T0, cooldownMs: 5_000 })).toEqual(["incorrect", "1"]);
+    expect(await submit(id, "flag{nope}", { nowMs: T0 + 4_999, cooldownMs: 5_000 })).toEqual([
+      "cooldown",
+      String(T0 + 5_000),
+    ]);
+    // A refused submission is not an attempt: the row is untouched.
+    expect(await hget(K.attempts, id)).toBe(attemptsRow(1, iso(T0), iso(T0), T0));
+    expect(await submit(id, "flag{nope}", { nowMs: T0 + 5_000, cooldownMs: 5_000 })).toEqual(["incorrect", "2"]);
+  });
+
+  it("carries firstAt forward across rewrites of the attempts row, and a zero cooldown never refuses", async () => {
+    const id = freshId("chal");
+    await seed(id, "flag{right}", 10);
+    expect(await submit(id, "a", { nowMs: T0, cooldownMs: 0 })).toEqual(["incorrect", "1"]);
+    expect(await submit(id, "b", { nowMs: T0 + 1, cooldownMs: 0 })).toEqual(["incorrect", "2"]);
+    expect(await hget(K.attempts, id)).toBe(attemptsRow(2, iso(T0), iso(T0 + 1), T0 + 1));
+  });
+
+  it("compares the case-preserved form only when the challenge is marked caseSensitive", async () => {
+    const strict = freshId("strict");
+    await seed(strict, "SeCrEt{Flag}", 7, true);
+    // Same letters, wrong case: the forgiving form would match, the strict one must not.
+    expect(await submit(strict, "secret{flag}")).toEqual(["incorrect", "1"]);
+    expect(await submit(strict, "SeCrEt{Flag}", { nowMs: T0 + 10_000 })).toEqual(["correct", "7"]);
+
+    const lax = freshId("lax");
+    await seed(lax, "SeCrEt{Flag}", 3);
+    expect(await submit(lax, "secret{flag}")).toEqual(["correct", "3"]);
+  });
+});

@@ -8,6 +8,15 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The grading Lua is executed by tests now, against a real Redis.** Classic's
+  `SUBMIT_SCRIPT`, quiz's `GRADE_SCRIPT` and ai's `AWARD_SCRIPT` — the
+  scripts that decide points — had never been run by any test; the mocked
+  suites pinned only the arguments handed to them. Three
+  `*.lua.upstash.test.ts` suites now run the real scripts against redis +
+  srh (skipped locally without the env, required in CI), and each of the
+  six one-line Lua mutations the August review found survivable now fails a
+  test. The three script constants are exported for that purpose; nothing
+  else about them changed.
 - **`ctf-setup.sh --dry-run` is dry again, and `--out` is honoured
   everywhere.** The wizard's org step probed the org with `gh api` and ran a
   full `doctor` sweep even under `--dry-run`, and step 1 probed `gh auth

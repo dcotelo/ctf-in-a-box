@@ -32,6 +32,15 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm test
 ```
 
+The grading Lua scripts (`SUBMIT_SCRIPT`, `GRADE_SCRIPT`, `AWARD_SCRIPT`) are
+the scoring authority, and `src/lib/__tests__/*.lua.upstash.test.ts` execute
+them against a real Redis behind srh. They skip locally without
+`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`; CI brings the two
+containers up and sets `CTF_LUA_SUITES_REQUIRED=1` so a skip fails the job.
+If you touch any of the three scripts, run them (the `docker run` lines are
+in `ci.yml`'s "Grading Lua" step) — the mocked grade suites pin only what
+the stores hand the script, not what it does.
+
 CI also runs a production build (`corepack pnpm build`, with dummy
 `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`) and `./scripts/acceptance-app.sh`
 after the test step — run those too if you touched build-affecting config.
