@@ -112,3 +112,14 @@ test("a per-command error is logged by its Redis error text, never its echoed ar
   assert.doesNotMatch(logs[0], /ctf\{leaked\}/);
   assert.doesNotMatch(logs[0], /with args beginning with/);
 });
+
+// The cap is the other half of the log-hygiene rule: an error reply of
+// arbitrary length must not become an arbitrarily long log line.
+test("a per-command error longer than 200 characters is capped in the log", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch(`ERR ${"x".repeat(1000)}`), (m) => logs.push(m));
+  assert.equal(await redis.isPaused(), false);
+  const sanitized = logs[0].replace(/^redis isPaused: upstash: /, "");
+  assert.equal(sanitized.length, 200);
+  assert.match(sanitized, /^ERR x+$/);
+});

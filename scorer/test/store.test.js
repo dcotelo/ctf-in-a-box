@@ -302,3 +302,15 @@ test("redis store: a per-command error surfaces its Redis text, never its echoed
     return true;
   });
 });
+
+test("redis store: a per-command error longer than 200 characters is capped", async () => {
+  const store = createRedisStore({
+    url: "http://srh:80",
+    token: "t",
+    fetchImpl: async () => new Response(JSON.stringify([{ error: `ERR ${"x".repeat(1000)}` }]), { status: 200 }),
+  });
+  await assert.rejects(store.getSolves("dvwa"), (err) => {
+    assert.equal(err.message.replace(/^upstash: /, "").length, 200);
+    return true;
+  });
+});

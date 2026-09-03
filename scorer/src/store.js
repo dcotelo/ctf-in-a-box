@@ -70,8 +70,9 @@ export function redisErrorText(error) {
 
 /** The Redis-backed solve store: POST /pipeline with a JSON array of command
  *  arrays, bearer token; results come back positionally as { result } or
- *  { error }. Only HSETNX + HGETALL are used, a subset SRH's env mode
- *  supports. `fetchImpl`, `log` and `timeoutMs` are seams. */
+ *  { error }. Solve persistence uses HSETNX + HGETALL; the pause read uses
+ *  HMGET and the team read SCAN, HGET and SMEMBERS — all within the subset
+ *  SRH's env mode supports. `fetchImpl`, `log` and `timeoutMs` are seams. */
 export function createRedisStore({
   url = process.env.UPSTASH_REDIS_REST_URL,
   token = process.env.UPSTASH_REDIS_REST_TOKEN,
