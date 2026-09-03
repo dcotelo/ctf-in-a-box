@@ -246,7 +246,11 @@ jobs:
             fi
             sleep 1
           done
-          corepack pnpm test -- lua.upstash
+          # `pnpm exec`, not `pnpm test -- <filter>`: pnpm forwards the `--` to
+          # vitest, which then ignores the filter and runs EVERY file — the
+          # first run of this step did exactly that and hit the rotted #235
+          # suites. The generated config already exists from the test step above.
+          corepack pnpm exec vitest run lua.upstash
         env:
           UPSTASH_REDIS_REST_URL: http://localhost:8079
           UPSTASH_REDIS_REST_TOKEN: ci-lua-token

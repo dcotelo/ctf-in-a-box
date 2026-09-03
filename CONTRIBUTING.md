@@ -66,7 +66,7 @@ agent-facing copy with the full gotcha list is
 # Skips without the two env vars; CI brings up redis + srh and requires it
 # (see the "Grading Lua" step in ci.yml for the two `docker run` lines).
 (cd apps/web && UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN=<srh token> \
-  corepack pnpm test -- lua.upstash)
+  corepack pnpm exec vitest run lua.upstash)
 
 # app production build — CI also asserts .next/server/app/index.html does
 # NOT exist afterwards: `/` must never be statically prerendered
