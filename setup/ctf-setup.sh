@@ -487,6 +487,7 @@ cmd_doctor() {
 
 DRY_RUN=0
 CONFIG=event.yaml
+OUT=.env
 APP_ID=""
 PEM=""
 INSTALLATION_ID=""
@@ -500,15 +501,18 @@ CMD="${CMD:-${1:-}}"
 if [ "$CMD" != "__selftest" ]; then
   shift || true
 
+  # A value-taking flag at the end of the line would otherwise die under
+  # `set -u` with bash's own "unbound variable" instead of a usable message.
+  need_value() { [ $# -ge 2 ] || { echo "$1 requires a value" >&2; exit 2; }; }
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry-run) DRY_RUN=1 ;;
-      --config) CONFIG="$2"; shift ;;
-      --out) OUT="$2"; shift ;;
-      --app-id) APP_ID="$2"; shift ;;
-      --pem) PEM="$2"; shift ;;
-      --installation-id) INSTALLATION_ID="$2"; shift ;;
-      --client-id) CLIENT_ID="$2"; shift ;;
+      --config) need_value "$@"; CONFIG="$2"; shift ;;
+      --out) need_value "$@"; OUT="$2"; shift ;;
+      --app-id) need_value "$@"; APP_ID="$2"; shift ;;
+      --pem) need_value "$@"; PEM="$2"; shift ;;
+      --installation-id) need_value "$@"; INSTALLATION_ID="$2"; shift ;;
+      --client-id) need_value "$@"; CLIENT_ID="$2"; shift ;;
       *) echo "unknown flag: $1" >&2; exit 2 ;;
     esac
     shift
@@ -1087,8 +1091,8 @@ cmd_org() {
   # image from scorer/ (docs/scorer.md) and point SCORE_IMAGE at it. Resolved
   # up front so a missing image fails before any forks are created.
   local src="${SCORE_IMAGE:-}"
-  if [ -z "$src" ] && [ -f .env ]; then
-    src="$(sed -n 's/^SCORE_IMAGE=//p' .env | tail -1)"
+  if [ -z "$src" ] && [ -f "$OUT" ]; then
+    src="$(sed -n 's/^SCORE_IMAGE=//p' "$OUT" | tail -1)"
   fi
   [ -n "$src" ] || {
     echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in .env or the environment" >&2
@@ -1825,7 +1829,11 @@ cmd_wizard() {
 
   # 7. Create + provision the org.
   wiz_step "7/8  Event org ($org)"
-  if gh_ok "orgs/$org"; then
+  # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
+  # and the closing doctor sweep below are narrated, not run.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would check that org $org exists (gh api orgs/$org)"
+  elif gh_ok "orgs/$org"; then
     echo "  ✅ org $org exists"
   else
     echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
@@ -1845,9 +1853,13 @@ cmd_wizard() {
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
   fi
   echo
-  echo "  Verifying with doctor:"
-  ( cmd_doctor ) || true
-  echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
+  else
+    echo "  Verifying with doctor:"
+    ( cmd_doctor ) || true
+    echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
+  fi
 
   # 8. Bring the containers up.
   #

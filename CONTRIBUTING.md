@@ -69,7 +69,7 @@ agent-facing copy with the full gotcha list is
 ./scripts/acceptance-app.sh
 
 # shell
-shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh \
+shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh \
   deploy/fly/deploy.sh deploy/fly/render-compose.sh
 # entrypoint fragments are sourced POSIX sh, never run standalone
 shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh

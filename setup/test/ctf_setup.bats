@@ -1241,3 +1241,32 @@ EOF
   # built from contestant-supplied source.
   grep -qF 'persist-credentials: false' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
 }
+
+# AGENTS.md: `--dry-run` must make zero gh/docker calls. The wizard's org step
+# and its closing doctor sweep used to call `gh api` regardless — invisible in
+# the suite because `gh` is stubbed to `exit 0`. This stub records every call.
+@test "wizard --dry-run issues no gh api calls" {
+  _stub_prereqs
+  printf '#!/bin/sh\necho "gh $*" >> "%s/gh.calls"\nexit 0\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/stubbin/gh"
+  rm -f .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "7/8  Event org"
+  # `gh auth status` (the prerequisite probe) is fine; `gh api …` is not.
+  [ -z "$(grep '^gh api' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null)" ]
+}
+
+@test "org --dry-run --out reads SCORE_IMAGE from the named env file, not .env" {
+  rm -f .env
+  echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > custom.env
+  run bash "$SCRIPT" org --dry-run --config event.yaml --out custom.env
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF "docker pull ghcr.io/other/score:pinned"
+}
+
+@test "a value-taking flag with no value fails with the script's own message" {
+  run bash "$SCRIPT" org --dry-run --config
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF -- "--config requires a value"
+}

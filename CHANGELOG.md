@@ -8,6 +8,18 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **`ctf-setup.sh --dry-run` is dry again, and `--out` is honoured
+  everywhere.** The wizard's org step probed the org with `gh api` and ran a
+  full `doctor` sweep even under `--dry-run`; both are now narrated instead.
+  `org` read `SCORE_IMAGE` from a hardcoded `.env` even when `--out` named
+  another file. A value-taking flag left without a value now fails with the
+  script's own message rather than bash's "unbound variable".
+- **Acceptance scripts fail loudly, not silently.** The bare `grep -q`
+  assertions in `acceptance-app.sh` and `acceptance-quiz-only.sh` died under
+  `set -e` with no output; each now names what was missing.
+  `acceptance-patched.sh`'s "no challenges found" guard was unreachable for
+  the same reason. `scripts/dev-stack` (no `.sh` suffix) is now in CI's
+  shellcheck list.
 - **Redis reads that fail now say so, everywhere.** `sync`'s pipeline client
   used to swallow a per-command error reply (`WRONGTYPE`, `NOAUTH`, an
   unsupported command) as `undefined`, which its callers read as "not paused",

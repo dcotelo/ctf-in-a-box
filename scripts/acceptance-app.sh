@@ -44,18 +44,24 @@ docker run -d --name web-acceptance -p 3100:3000 \
 HOME_HTML=$(wait_for_html http://localhost:3100/)
 CHALLENGES_HTML=$(wait_for_html http://localhost:3100/challenges)
 
+# A bare `grep -q` under `set -e` fails with no message at all; every positive
+# assertion goes through this so a red run says what was missing.
+expect_in() { # haystack needle what
+  if ! printf '%s' "$1" | grep -qF -- "$2"; then echo "FAIL: $3 (missing: $2)"; exit 1; fi
+}
+
 echo "--- custom event name renders"
-echo "$HOME_HTML" | grep -q "Acceptance CTF"
+expect_in "$HOME_HTML" "Acceptance CTF" "custom event name not rendered"
 echo "--- no DC34 branding"
 if echo "$HOME_HTML$CHALLENGES_HTML" | grep -qi "DEF CON"; then echo "FAIL: DC34 leaked"; exit 1; fi
 echo "--- only enabled targets appear"
-echo "$CHALLENGES_HTML" | grep -q "DVWA"
-echo "$CHALLENGES_HTML" | grep -q "VAmPI"
+expect_in "$CHALLENGES_HTML" "DVWA" "enabled target DVWA not rendered"
+expect_in "$CHALLENGES_HTML" "VAmPI" "enabled target VAmPI not rendered"
 if echo "$CHALLENGES_HTML" | grep -q "WebGoat"; then echo "FAIL: disabled target rendered"; exit 1; fi
 
 echo "--- fork links use event.yaml's github.org, not a hardcoded OWASP-CTF"
-echo "$CHALLENGES_HTML" | grep -q "github.com/acceptance-org/DVWA"
-echo "$CHALLENGES_HTML" | grep -q "github.com/acceptance-org/VAmPI"
+expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/DVWA" "fork link does not use github.org"
+expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does not use github.org"
 if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
   echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
 fi
@@ -67,9 +73,9 @@ docker run -d --name web-default -p 3101:3000 \
 DEFAULT_HTML=$(wait_for_html http://localhost:3101/)
 DEFAULT_CHALLENGES_HTML=$(wait_for_html http://localhost:3101/challenges)
 if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build carries DC34"; exit 1; fi
-echo "$DEFAULT_HTML" | grep -q "OWASP CTF"
+expect_in "$DEFAULT_HTML" "OWASP CTF" "default build does not carry the neutral name"
 
 echo "--- default build's fork links fall back to OWASP-CTF"
-echo "$DEFAULT_CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"
+expect_in "$DEFAULT_CHALLENGES_HTML" "github.com/OWASP-CTF/" "default build does not fall back to OWASP-CTF fork links"
 
 echo "ACCEPTANCE PASS"

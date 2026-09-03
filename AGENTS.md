@@ -50,7 +50,7 @@ Check it after any build you run here.
 **shell / setup** (provisioning and automation scripts):
 
 ```sh
-shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh \
+shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh \
   deploy/fly/deploy.sh deploy/fly/render-compose.sh
 bats setup/test/
 bats deploy/fly/test/
