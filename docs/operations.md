@@ -1198,10 +1198,17 @@ flag-submission form classic uses, right below the launcher.
 - **No bulk import/export.** Unlike quiz and classic, the AI tab has no
   Export/Import bundle button — every challenge is authored one at a time
   through the add/edit/delete form.
-- **The event archive does not carry the AI catalogue.** An exported event
-  loses its whole AI board — challenges, keys, and progress — on both
-  export and import; see [docs/ai-module.md](ai-module.md)'s own gaps
-  section (§10) for the tracking detail.
+- **The event archive does not carry the AI catalogue.** `exportEventBundle`
+  has no `ai` section at all — a bundle never captures the AI board's
+  challenges, flags, keys, hints, or categories, matching the gap above.
+  `importEventBundle` doesn't touch AI state either, in either direction: it
+  never clears or replaces the target box's AI catalogue, and it leaves
+  contestant progress (points, solves, attempts) and the module's launch
+  keypair exactly as they were. The practical effect is that an archive
+  can only carry quiz and classic content — it cannot transplant an AI
+  board between boxes or restore one after a wipe; see
+  [docs/ai-module.md](ai-module.md)'s own gaps section (§10) for the
+  tracking detail.
 - **A master reset rotates the module-wide launch keypair**, not any
   individual challenge's signing key. Every previously issued launch token
   stops verifying, and any external integration that cached the public key
@@ -1307,7 +1314,11 @@ page's in-box Server Action, `submitAiFlagAction` in `[id]/actions.ts`). A
 launch token in hand already proves the gate had passed when it was minted,
 so the routes that redeem that token don't re-check it themselves.
 Everything else the API routes already enforced independently still holds
-regardless: a session is required, the admin **pause** and the **scheduled
+regardless: the session-backed routes (quiz answer, classic submit, hints
+reveal) still require a session — the ai module's own cross-origin routes
+authenticate differently, as just described (`/api/ai/submit` by launch
+token alone, `/api/ai/event` by launch token plus the per-challenge HMAC,
+neither reading a session) — and the admin **pause** and the **scheduled
 scoring window** are checked on every write, and per-question attempt caps
 and cooldowns (or classic's/ai's own submission cooldown) apply. So an
 organizer who additionally sets the scoring window (or keeps the event

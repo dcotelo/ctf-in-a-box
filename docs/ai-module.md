@@ -245,10 +245,13 @@ already-awarded) keeps its `jti` spent.
 ## 6. The dry-run workflow
 
 Set `"dryRun": true` and the box runs the entire pipeline — signature,
-token, rate limit, team check, pause/schedule gate — and writes nothing:
-no nonce spent, no solve recorded, no points banked. It is safe to run
-against a live event at any time. The admin panel's "Send test" button
-does exactly this, server-side, with a token it mints for itself.
+token, rate limit, team check, pause/schedule gate — and writes no solve,
+points, or nonce state: nothing is banked and no `jti` is burned. The one
+thing it does spend is the per-login rate-limit budget itself — that check
+runs before the dry-run branch, same as a real request — so a dry run is
+safe to run against a live event but is not entirely free, and a `503` can
+still follow after that budget is charged. The admin panel's "Send test"
+button does exactly this, server-side, with a token it mints for itself.
 
 ```json
 { "dryRun": true, "wouldAward": true, "verdict": "would-award", "checks": ["body", "challenge", "mode", "signature", "timestamp", "token", "rate-limit", "team", "schedule"] }
@@ -299,8 +302,13 @@ connection your `fetch` can't even inspect.
 pause, or mode, so those reasons don't apply. `launch-key` in particular
 answers either `200` or `503 unavailable`; nothing else.
 
-No response, on any path, carries a flag or a signing key. The result
-types this table is drawn from simply have no field for either.
+No response from any of these contestant-facing routes carries a flag or a
+signing key — the result types this table is drawn from simply have no
+field for either. That's a statement about `submit`/`event`/`state`/
+`launch-key`, not about the box as a whole: the admin panel's Reveal
+control deliberately shows a challenge's signing key to an organizer (see
+docs/operations.md), which is a different, authenticated surface than
+anything in this table.
 
 ## 8. Flag submission
 

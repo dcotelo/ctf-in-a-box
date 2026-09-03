@@ -560,8 +560,18 @@ modules:
 nothing.** The set of accepted ids only grew: every `event.yaml` that was
 valid before is still valid, and an event already running needs no change and
 no Redis migration — it keeps whatever `modules:` block it was built with.
-Enabling `ai` is opt-in and, like every other module change, takes effect on a
-rebuild (`event.yaml` is baked into the `app` image, not read at runtime).
+Adding `ai:` here sets the BUILD-time baseline, and that part needs a
+rebuild: `event.yaml` is baked into the `app` image, not read at runtime, so
+this is what an already-running event's *default* module set stays pinned
+to until its next build. That is a separate path from the **runtime**
+toggle above — an organizer can also flip `ai` on or off live from
+`/admin`'s module list, same as quiz and classic, without a rebuild, because
+the route/nav/tab code for `ai` ships in every `app` image regardless of
+what `event.yaml` baked in (see "Which profiles do I need?" above). The
+distinction that survives either path is ordering, not availability: a
+module `event.yaml` baked in keeps its authored position in the nav, while
+one enabled only at runtime is appended in registry order (`modules.ts`'s
+`moduleDefsFor`).
 Module authors and anything that switches exhaustively over the module id —
 `apps/web/src/lib/modules.ts`'s `ModuleId`, `event-config.ts`, the three
 `KNOWN_MODULES` readers — must now handle `"ai"`.
