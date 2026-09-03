@@ -37,3 +37,89 @@ test("isPaused: fails OPEN when redis errors", async () => {
   const redis = makeRedis(env, async () => { throw new Error("down"); }, () => {});
   assert.equal(await redis.isPaused(), false);
 });
+
+// A per-command failure comes back as { error } with a 200 — the shape a
+// WRONGTYPE, NOAUTH or unknown-command reply from SRH takes. It must be
+// treated like any other read failure: fail OPEN, and say so.
+const errorReplyFetch = (message) => async () =>
+  new Response(JSON.stringify([{ error: message }]), { status: 200 });
+
+test("isPaused: a per-command error reply fails OPEN and is logged", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch("WRONGTYPE Operation against a key holding the wrong kind of value"), (m) => logs.push(m));
+  assert.equal(await redis.isPaused(), false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /isPaused.*WRONGTYPE/);
+});
+
+test("getResetAt: a per-command error reply reads as no reset and is logged", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch("NOAUTH Authentication required"), (m) => logs.push(m));
+  assert.equal(await redis.getResetAt(), null);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /getResetAt.*NOAUTH/);
+});
+
+test("writeStatus: a per-command error reply is logged instead of vanishing", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch("WRONGTYPE Operation against a key holding the wrong kind of value"), (m) => logs.push(m));
+  await redis.writeStatus({ lastPollAt: PAST, ingested: 1, reposPolled: 1, paused: false });
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /writeStatus.*WRONGTYPE/);
+});
+
+// A backend that accepts the connection and never answers must not stall the
+// tick forever — `restart: on-failure` cannot help a process that never exits.
+/** A fake fetch that settles only when its signal aborts. The ref'd timer does
+ *  two jobs: it keeps the event loop alive (a real fetch holds a socket, but
+ *  `AbortSignal.timeout`'s own timer is unref'd, so without it Node 22 drains
+ *  the loop before the timeout fires and the test dies as "promise still
+ *  pending"), and it fails the test fast if the abort never arrives. */
+const hangUntilAborted = (_url, { signal }) =>
+  new Promise((_, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const giveUp = setTimeout(() => reject(new Error("fake backend: abort never arrived")), 5_000);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(giveUp);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+
+test("isPaused: a hung backend times out and fails OPEN", async () => {
+  const logs = [];
+  const redis = makeRedis(env, hangUntilAborted, (m) => logs.push(m), { timeoutMs: 20 });
+  assert.equal(await redis.isPaused(), false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /isPaused.*timeout/i);
+});
+
+// Redis's unknown-command error echoes the command's arguments ("…, with args
+// beginning with: …"). Those arguments are whatever the caller sent — for the
+// app that could be a flag — so the echoed tail must never reach a log.
+test("a per-command error is logged by its Redis error text, never its echoed arguments", async () => {
+  const logs = [];
+  const redis = makeRedis(
+    env,
+    errorReplyFetch("ERR unknown command 'hset', with args beginning with: 'ctf:sync:status' 'ctf{leaked}' "),
+    (m) => logs.push(m),
+  );
+  assert.equal(await redis.isPaused(), false);
+  assert.match(logs[0], /ERR unknown command 'hset'/);
+  assert.doesNotMatch(logs[0], /ctf\{leaked\}/);
+  assert.doesNotMatch(logs[0], /with args beginning with/);
+});
+
+// The cap is the other half of the log-hygiene rule: an error reply of
+// arbitrary length must not become an arbitrarily long log line.
+test("a per-command error longer than 200 characters is capped in the log", async () => {
+  const logs = [];
+  const redis = makeRedis(env, errorReplyFetch(`ERR ${"x".repeat(1000)}`), (m) => logs.push(m));
+  assert.equal(await redis.isPaused(), false);
+  const sanitized = logs[0].replace(/^redis isPaused: upstash: /, "");
+  assert.equal(sanitized.length, 200);
+  assert.match(sanitized, /^ERR x+$/);
+});

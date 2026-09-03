@@ -245,3 +245,72 @@ test("redis store isPaused: fails OPEN when redis errors", async (t) => {
   const store = createRedisStore({ url: "http://srh:80", token: "t" });
   assert.equal(await store.isPaused(), false);
 });
+
+// Fail-open is the right direction for the pause read, but silently is not:
+// sync/src/redis.js logs the same failure, and an operator watching the
+// scorer's stream must see a Redis outage too.
+test("redis store isPaused: a failed read fails OPEN and is logged", async () => {
+  const logs = [];
+  const store = createRedisStore({
+    url: "http://srh:80",
+    token: "t",
+    fetchImpl: async () => { throw new Error("redis down"); },
+    log: (m) => logs.push(m),
+  });
+  assert.equal(await store.isPaused(), false);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /isPaused.*redis down/);
+});
+
+test("redis store: a hung backend times out instead of hanging the request", async () => {
+  /** A fake fetch that settles only when its signal aborts. The ref'd timer
+   *  does two jobs: it keeps the event loop alive (a real fetch holds a
+   *  socket, but `AbortSignal.timeout`'s own timer is unref'd, so without it
+   *  Node 22 drains the loop before the timeout fires and the test dies as
+   *  "promise still pending"), and it fails the test fast if the abort never
+   *  arrives. */
+  const hangUntilAborted = (_url, { signal }) =>
+    new Promise((_, reject) => {
+      if (signal.aborted) return reject(signal.reason);
+      const giveUp = setTimeout(() => reject(new Error("fake backend: abort never arrived")), 5_000);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(giveUp);
+          reject(signal.reason);
+        },
+        { once: true },
+      );
+    });
+  const store = createRedisStore({ url: "http://srh:80", token: "t", fetchImpl: hangUntilAborted, timeoutMs: 20 });
+  await assert.rejects(store.getSolves("dvwa"), /timeout/i);
+});
+
+// Same rule as sync/src/redis.js: a Redis error's "with args beginning with"
+// tail echoes the caller's own arguments, which must never reach a log or an
+// error body. The store keeps the error's Redis text and drops the echo.
+test("redis store: a per-command error surfaces its Redis text, never its echoed arguments", async () => {
+  const store = createRedisStore({
+    url: "http://srh:80",
+    token: "t",
+    fetchImpl: async () =>
+      new Response(JSON.stringify([{ error: "ERR unknown command 'hgetall', with args beginning with: 'ctf:solves:dvwa' 'sneaky' " }]), { status: 200 }),
+  });
+  await assert.rejects(store.getSolves("dvwa"), (err) => {
+    assert.match(err.message, /ERR unknown command 'hgetall'/);
+    assert.doesNotMatch(err.message, /sneaky|with args beginning with/);
+    return true;
+  });
+});
+
+test("redis store: a per-command error longer than 200 characters is capped", async () => {
+  const store = createRedisStore({
+    url: "http://srh:80",
+    token: "t",
+    fetchImpl: async () => new Response(JSON.stringify([{ error: `ERR ${"x".repeat(1000)}` }]), { status: 200 }),
+  });
+  await assert.rejects(store.getSolves("dvwa"), (err) => {
+    assert.equal(err.message.replace(/^upstash: /, "").length, 200);
+    return true;
+  });
+});

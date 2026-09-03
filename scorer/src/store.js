@@ -52,27 +52,50 @@ export function createMemoryStore({ teams = [] } = {}) {
 }
 
 // Upstash REST / SRH client — same wire protocol as apps/web/src/lib/upstash.ts:
-// POST /pipeline with a JSON array of command arrays, bearer token; results
-// come back positionally as { result } or { error }. Only HSETNX + HGETALL are
-// used, a subset SRH's env mode supports.
+// How long one /pipeline round trip may take before it counts as a failed
+// read/write. A backend that accepts the connection and never answers would
+// otherwise hang the request — and, for isPaused, hang every POST /score
+// behind it. Well above any healthy SRH/Redis latency. Same constant as
+// sync/src/redis.js.
+const PIPELINE_TIMEOUT_MS = 10_000;
+
+/** The loggable part of a Redis error reply. Redis's unknown-command error
+ *  echoes the command's own arguments ("…, with args beginning with: …");
+ *  those are whatever the caller sent, so the tail is dropped and the rest
+ *  capped before it can reach a log line or an error body. Same rule as
+ *  sync/src/redis.js. */
+export function redisErrorText(error) {
+  return String(error).replace(/,?\s*with args beginning with:.*$/s, "").slice(0, 200);
+}
+
+/** The Redis-backed solve store: POST /pipeline with a JSON array of command
+ *  arrays, bearer token; results come back positionally as { result } or
+ *  { error }. Solve persistence uses HSETNX + HGETALL; the pause read uses
+ *  HMGET and the team read SCAN, HGET and SMEMBERS — all within the subset
+ *  SRH's env mode supports. `fetchImpl`, `log` and `timeoutMs` are seams. */
 export function createRedisStore({
   url = process.env.UPSTASH_REDIS_REST_URL,
   token = process.env.UPSTASH_REDIS_REST_TOKEN,
   fetchImpl = fetch,
+  log = console.error,
+  timeoutMs = PIPELINE_TIMEOUT_MS,
 } = {}) {
   if (!url || !token) throw new Error("UPSTASH_REDIS_REST_URL/TOKEN are not set");
   const base = url.replace(/\/$/, "");
 
+  /** One POST /pipeline round trip; throws on HTTP failure, timeout, or any
+   *  per-command error, so callers only ever see results or an exception. */
   async function pipeline(commands) {
     const res = await fetchImpl(`${base}/pipeline`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify(commands),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`upstash pipeline: HTTP ${res.status}`);
     const results = await res.json();
     const bad = results.find((r) => r.error);
-    if (bad) throw new Error(`upstash: ${bad.error}`);
+    if (bad) throw new Error(`upstash: ${redisErrorText(bad.error)}`);
     return results.map((r) => r.result);
   }
 
@@ -103,11 +126,14 @@ export function createRedisStore({
         const [paused, startsAt, endsAt] = Array.isArray(row) ? row : [];
         if (paused === "1") return true;
         return outsideWindow(Date.now(), startsAt, endsAt);
-      } catch {
+      } catch (err) {
         // Fail OPEN, not closed: this is a live-scoring endpoint, not an
         // authz gate. A Redis blip must never silently drop real submissions
         // just because the pause check itself couldn't be answered — the
         // freeze is a deliberate organizer action, not the safe default.
+        // Open, but never silent: sync/src/redis.js logs the same failure,
+        // and an operator reading this stream must see the outage too.
+        log(`redis isPaused: ${err.message}`);
         return false;
       }
     },

@@ -15,20 +15,49 @@ export function outsideWindow(nowMs, startsAt, endsAt) {
   return false;
 }
 
-export function makeRedis(env = process.env, fetchImpl = fetch, log = console.error) {
+// How long one /pipeline round trip may take before it is treated as a failed
+// read. A backend that accepts the connection and never answers would
+// otherwise stall the tick forever, and `restart: on-failure` cannot help a
+// process that never exits. Well above any healthy SRH/Redis latency.
+const PIPELINE_TIMEOUT_MS = 10_000;
+
+/** The loggable part of a Redis error reply. Redis's unknown-command error
+ *  echoes the command's own arguments ("…, with args beginning with: …");
+ *  those are whatever the caller sent, so the tail is dropped and the rest
+ *  capped before it can reach a log line. */
+export function redisErrorText(error) {
+  return String(error).replace(/,?\s*with args beginning with:.*$/s, "").slice(0, 200);
+}
+
+/** The poller's Redis client, or null when UPSTASH_REDIS_REST_URL/TOKEN are
+ *  unset (a poller with no Redis still polls; it just cannot see the freeze
+ *  or write its heartbeat). `fetchImpl`, `log` and `timeoutMs` are seams. */
+export function makeRedis(env = process.env, fetchImpl = fetch, log = console.error, { timeoutMs = PIPELINE_TIMEOUT_MS } = {}) {
   const url = env.UPSTASH_REDIS_REST_URL;
   const token = env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   const base = url.replace(/\/$/, "");
 
+  /** One POST /pipeline round trip; throws on HTTP failure, timeout, or any
+   *  per-command error, so callers only ever see results or an exception. */
   async function pipeline(commands) {
     const res = await fetchImpl(`${base}/pipeline`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify(commands),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`upstash pipeline: HTTP ${res.status}`);
-    return (await res.json()).map((r) => r.result);
+    const results = await res.json();
+    // A per-command failure (WRONGTYPE, NOAUTH, a command SRH does not
+    // implement) comes back as { error } inside a 200. Left unchecked it
+    // decodes as `undefined`, which every caller would silently read as
+    // "not paused" / "no reset" / "written" — the same fail-open answer,
+    // minus the log line that makes an outage visible. Throw, so each
+    // caller's catch applies its documented direction AND says so.
+    const bad = results.find((r) => r.error);
+    if (bad) throw new Error(`upstash: ${redisErrorText(bad.error)}`);
+    return results.map((r) => r.result);
   }
 
   return {

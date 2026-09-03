@@ -40,7 +40,16 @@ export function makeAppAuth({ appId, privateKey, installationId, apiUrl = "https
       instId = list[0].id;
     }
     const body = await ghJson(`${apiUrl}/app/installations/${instId}/access_tokens`, { fetchImpl, jwt, method: "POST" }, "minting installation token");
-    cache = { token: body.token, expiresAt: new Date(body.expires_at).getTime() };
+    const expiresAt = typeof body.expires_at === "string" ? new Date(body.expires_at).getTime() : NaN;
+    // A missing, unparseable, or already-past expiry would make
+    // `expiresAt - now > skew` false forever (NaN, 0 for `null`, or a past
+    // instant all fail it), so every call would silently mint a fresh JWT
+    // and installation token. That is a broken response; fail the tick and
+    // let the next one retry.
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+      throw new Error(`GitHub installation token has an unusable expires_at: ${JSON.stringify(body.expires_at)}`);
+    }
+    cache = { token: body.token, expiresAt };
     return cache.token;
   }
 

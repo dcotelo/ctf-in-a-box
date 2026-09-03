@@ -152,3 +152,21 @@ test("EVENT_CONFIG_B64 that decodes to nothing names the variable", () => {
     /EVENT_CONFIG_B64 is set but decodes to nothing/,
   );
 });
+
+// Number("abc") is NaN, and setTimeout(NaN) fires immediately — a typo'd
+// interval would poll GitHub in a tight loop. Refuse at boot instead.
+test("rejects a non-numeric or non-positive POLL_INTERVAL_MS instead of polling unthrottled", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`);
+  assert.throws(() => loadConfig(p, { ...ENV, POLL_INTERVAL_MS: "abc" }), /POLL_INTERVAL_MS/);
+  assert.throws(() => loadConfig(p, { ...ENV, POLL_INTERVAL_MS: "0" }), /POLL_INTERVAL_MS/);
+  assert.equal(loadConfig(p, { ...ENV, POLL_INTERVAL_MS: "5000" }).pollIntervalMs, 5000);
+});
+
+// setTimeout caps at 2^31-1 ms and treats anything larger as 1 ms, and main()
+// adds up to +20% jitter before sleeping — so the largest interval that stays a
+// real timer after jitter is floor((2^31-1) / 1.2) = 1789569705.
+test("bounds POLL_INTERVAL_MS so the jittered delay stays inside setTimeout's range", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`);
+  assert.equal(loadConfig(p, { ...ENV, POLL_INTERVAL_MS: "1789569705" }).pollIntervalMs, 1789569705);
+  assert.throws(() => loadConfig(p, { ...ENV, POLL_INTERVAL_MS: "1789569706" }), /POLL_INTERVAL_MS/);
+});

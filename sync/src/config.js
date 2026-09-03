@@ -41,6 +41,27 @@ function resolveAuth(env, apiUrl) {
   return { authMode: "app", getToken: (fetchImpl) => auth.getToken(fetchImpl) };
 }
 
+/** A numeric env knob that must be an integer in [1, max].
+ *
+ *  `Number("abc")` is NaN and `setTimeout(NaN)` fires immediately, so a
+ *  typo'd POLL_INTERVAL_MS would poll GitHub in a tight loop with no error
+ *  anywhere. The upper bound matters too: setTimeout caps at 2^31-1 ms and
+ *  treats anything larger as 1 ms — the same tight loop from the other side.
+ *  Refuse at boot, like every other config mistake. */
+function positiveInt(raw, fallback, name, max) {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0 || n > max) {
+    throw new Error(`${name} must be an integer between 1 and ${max} (got ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+
+// main() adds up to +20% jitter to the poll interval before sleeping, so the
+// largest interval that still lands inside setTimeout's 2^31-1 ms range after
+// jitter is floor((2^31 - 1) / 1.2).
+const POLL_INTERVAL_MAX_MS = Math.floor((2 ** 31 - 1) / 1.2);
+
 // Where the event.yaml TEXT comes from, in precedence order.
 //
 // EVENT_CONFIG_B64 exists for deployments with no writable host to bind-mount
@@ -109,7 +130,7 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
     apiUrl,
     scorerUrl: env.SCORER_URL ?? "http://scorer:4000",
     scorerToken: env.SCORER_TOKEN,
-    pollIntervalMs: Number(env.POLL_INTERVAL_MS ?? 30000),
+    pollIntervalMs: positiveInt(env.POLL_INTERVAL_MS, 30000, "POLL_INTERVAL_MS", POLL_INTERVAL_MAX_MS),
     statePath: env.STATE_PATH ?? "/state/state.json",
     commentAuthor: env.COMMENT_AUTHOR ?? "github-actions[bot]",
   };

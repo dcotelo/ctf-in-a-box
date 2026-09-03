@@ -8,7 +8,26 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
-_Nothing yet._
+- **Redis reads that fail now say so, everywhere.** `sync`'s pipeline client
+  used to swallow a per-command error reply (`WRONGTYPE`, `NOAUTH`, an
+  unsupported command) as `undefined`, which its callers read as "not paused",
+  "no reset" and "status written" without a log line; it now throws like the
+  scorer's client, so every caller's documented fail-open direction still
+  applies but is visible. The scorer's own pause read logged nothing on
+  failure; it does now.
+- **A hung Redis proxy can no longer stall the poller or a score POST.** All
+  three Upstash/SRH pipeline clients (`apps/web`, `scorer`, `sync`) abort a
+  round trip after 10 s instead of waiting forever.
+- **Numeric knobs are validated instead of silently misbehaving.** A
+  non-numeric `POLL_INTERVAL_MS` used to poll GitHub in a tight loop
+  (`setTimeout(NaN)` fires immediately — and so does any value past
+  `setTimeout`'s 2^31−1 ms cap, so the accepted range is now 1 to
+  1 789 569 705 ms) and a non-numeric or blank scorer `PORT` bound a random
+  port (`PORT` must now be an integer 0–65535; the default stays 4000).
+  Both refuse to start with a clear message; a running event is unaffected
+  unless it already carried an invalid value, which never worked. An
+  installation token whose `expires_at` is missing, unparseable or already
+  past is rejected instead of being re-minted on every call.
 
 ## v0.4.0 — 2026-09-01
 

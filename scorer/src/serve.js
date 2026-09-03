@@ -341,14 +341,34 @@ export function startServer({ port = 0, ...opts }) {
   return new Promise((resolve) => server.listen(port, () => resolve(server)));
 }
 
-export async function serve(env = process.env) {
+/** The port `serve()` listens on: PORT if set, else 4000.
+ *
+ *  Checked lexically, not by `Number()`: `Number("abc")` is NaN and
+ *  `Number(" ")` is 0, and `listen()` turns either into an ephemeral port —
+ *  the API would come up somewhere compose's port mapping does not point,
+ *  with a "serving on :54321" line as the only clue. Refuse instead. */
+function parsePort(raw) {
+  if (raw === undefined || raw === "") return 4000;
+  const text = typeof raw === "string" ? raw.trim() : "";
+  const n = /^\d{1,5}$/.test(text) ? Number(text) : NaN;
+  if (!Number.isInteger(n) || n > 65535) {
+    throw new Error(`PORT must be an integer between 0 and 65535 (got ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+
+/** Process entry for `score serve`: validates env, loads the rubric, picks
+ *  the store (Redis via SRH when UPSTASH_REDIS_REST_URL is set, memory
+ *  otherwise) and listens. `log` is injectable so tests can boot it quietly. */
+export async function serve(env = process.env, { log = console.error } = {}) {
   const token = env.CTF_SCORE_BEARER_TOKEN ?? env.SCORER_TOKEN;
   if (!token) throw new Error("refusing to start: set CTF_SCORE_BEARER_TOKEN or SCORER_TOKEN");
+  const port = parsePort(env.PORT);
   const rubric = loadRubric(env.RUBRIC_DIR);
   const useRedis = Boolean(env.UPSTASH_REDIS_REST_URL);
-  const store = useRedis ? createRedisStore() : createMemoryStore();
-  const server = await startServer({ rubric, store, token, port: Number(env.PORT ?? 4000) });
-  console.error(
+  const store = useRedis ? createRedisStore({ log }) : createMemoryStore();
+  const server = await startServer({ rubric, store, token, port });
+  log(
     `ctf-score-engine: serving on :${server.address().port} ` +
       `(${rubric ? `${rubric.targets.size} rubric target(s)` : "no rubric — degenerate mode"}, ` +
       `${useRedis ? "redis" : "memory"} store)`,
