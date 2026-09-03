@@ -98,6 +98,33 @@ describe("exportBundle (ai)", () => {
     // Never the launch keypair: identity, not content.
     expect(JSON.stringify(pipelineCalls())).not.toContain(AI_LAUNCHKEY_KEY);
   });
+
+  it("refuses to export a graded challenge that has no flag row, naming it — the bundle would be unimportable", async () => {
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([
+        { result: flat({ [stored.graded.id]: JSON.stringify(stored.graded) }) },
+        { result: [] }, // no ctf:ai:flag row at all
+        { result: [] },
+        { result: flat({ [stored.graded.id]: "aik_one" }) },
+      ])
+      .mockResolvedValueOnce([{ result: JSON.stringify(["Prompt Injection"]) }]);
+    await expect(exportBundle()).rejects.toThrow(/pi-one-ab12cd.*no flag/);
+  });
+
+  it("never emits a flag for an event-only challenge, even if a stale flag row exists", async () => {
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([
+        { result: flat({ [stored.eventOnly.id]: JSON.stringify(stored.eventOnly) }) },
+        { result: flat({ [stored.eventOnly.id]: "ctfbox{stale}" }) },
+        { result: [] },
+        { result: flat({ [stored.eventOnly.id]: "aik_two" }) },
+      ])
+      .mockResolvedValueOnce([{ result: JSON.stringify(["Guardrails"]) }]);
+    const bundle = await exportBundle();
+    expect(bundle.challenges).toHaveLength(1);
+    expect("flag" in bundle.challenges[0]).toBe(false);
+    expect(JSON.stringify(bundle)).not.toContain("ctfbox{stale}");
+  });
 });
 
 describe("importBundle (ai)", () => {

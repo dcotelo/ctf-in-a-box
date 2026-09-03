@@ -1025,24 +1025,36 @@ export async function awardAiEvent(
 export async function exportBundle(): Promise<AiBundle> {
   const rows = await listAiChallengesForAdmin();
   const categories = await listAiCategories();
-  const challenges: AiBundleChallenge[] = rows.map(({ challenge, flag, hint, signingKey }) => ({
-    id: challenge.id,
-    title: challenge.title,
-    category: challenge.category,
-    description: challenge.description,
-    points: challenge.points,
-    order: challenge.order,
-    mode: challenge.mode,
-    urlTemplate: challenge.urlTemplate,
-    ...(challenge.caseSensitive ? { caseSensitive: true as const } : {}),
-    // `flag` is `""` for an event-only challenge (nothing stored) — omitted,
-    // because ai-io.ts refuses a flag on an event-only row.
-    ...(flag ? { flag } : {}),
-    ...(hint ? { hint } : {}),
-    // `""` marks a legacy row whose key was never minted; omitted so the
-    // import mints one rather than refusing the whole bundle.
-    ...(signingKey ? { signingKey } : {}),
-  }));
+  const challenges: AiBundleChallenge[] = rows.map(({ challenge, flag, hint, signingKey }) => {
+    const graded = challenge.mode !== "event";
+    // A graded row with no flag row is corrupt data (`upsertAiChallenge` never
+    // writes one): exporting it would silently produce a bundle ai-io.ts
+    // refuses on import. Fail here, naming the challenge, so the organizer
+    // fixes the row instead of discovering the archive is dead at restore time.
+    if (graded && !flag) {
+      throw new Error(
+        `cannot export the ai catalogue: challenge ${challenge.id} is graded (mode "${challenge.mode}") but has no flag — edit it in the admin panel first`,
+      );
+    }
+    return {
+      id: challenge.id,
+      title: challenge.title,
+      category: challenge.category,
+      description: challenge.description,
+      points: challenge.points,
+      order: challenge.order,
+      mode: challenge.mode,
+      urlTemplate: challenge.urlTemplate,
+      ...(challenge.caseSensitive ? { caseSensitive: true as const } : {}),
+      // Emitted by MODE, not by presence: ai-io.ts refuses a flag on an
+      // event-only row, so a stale flag row on one must not leak into the file.
+      ...(graded ? { flag } : {}),
+      ...(hint ? { hint } : {}),
+      // `""` marks a legacy row whose key was never minted; omitted so the
+      // import mints one rather than refusing the whole bundle.
+      ...(signingKey ? { signingKey } : {}),
+    };
+  });
   return { version: AI_BUNDLE_VERSION, categories, challenges };
 }
 
