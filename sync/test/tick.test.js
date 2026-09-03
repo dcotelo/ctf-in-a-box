@@ -65,7 +65,10 @@ test("scorer 5xx un-marks the comment so it retries next tick", async () => {
   const f = routes(() => new Response(JSON.stringify([ghComment(1)]), { status: 200, headers: {} }), 503, posts);
   const state = { repos: {} };
   await tick(CFG, state, { fetchImpl: f, log: () => {} });
-  assert.equal(state.repos.DVWA.seen.includes(1), false);
+  // `seen` holds seenKey() strings ("1@<updated_at>"), so `.includes(1)` was
+  // false whether or not the un-mark ran (REVIEW.md finding 4). Pin the
+  // whole list instead: after a 5xx the failed revision must be gone.
+  assert.deepEqual(state.repos.DVWA.seen, [], "the failed revision must be un-marked, key and all");
 });
 
 test("2-comment batch: first fails 5xx, second succeeds 202; cursor stops at first", async () => {

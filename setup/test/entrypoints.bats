@@ -128,8 +128,8 @@ run_bringup() {
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 
   log="$(cat "$DOCKER_LOG")"
-  [[ "$log" == *"pull webgoat/webgoat:v2025.3"* ]]
-  [[ "$log" == *"--name ctf-app-webgoat"*"webgoat/webgoat:v2025.3"* ]]
+  [[ "$log" == *"pull webgoat/webgoat:v2025.3"* ]] || { echo "APP_IMAGE not pulled: $log"; return 1; }
+  [[ "$log" == *"--name ctf-app-webgoat"*"webgoat/webgoat:v2025.3"* ]] || { echo "booted something other than APP_IMAGE: $log"; return 1; }
   [[ "$log" != *"mvnw"* ]] || { echo "built from source despite APP_IMAGE: $log"; return 1; }
 }
 
@@ -177,8 +177,8 @@ run_bringup() {
     /image:/    { i = $2; gsub(/"/, "", i); if (t != "") { print t, i; t = "" } }
   ' "$REPO_ROOT/.github/workflows/stock-scores-zero.yml"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"webgoat webgoat/webgoat:v2025.3"* ]]
-  [[ "$output" == *"webgoat none"* ]]
+  [[ "$output" == *"webgoat webgoat/webgoat:v2025.3"* ]] || { echo "image row missing: $output"; return 1; }
+  [[ "$output" == *"webgoat none"* ]] || { echo "source row missing: $output"; return 1; }
   # Both rows must keep running even when one fails, or a red source row would
   # hide the state of the image row.
   grep -qF 'fail-fast: false' "$REPO_ROOT/.github/workflows/stock-scores-zero.yml"
