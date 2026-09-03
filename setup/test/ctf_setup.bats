@@ -1241,3 +1241,62 @@ EOF
   # built from contestant-supplied source.
   grep -qF 'persist-credentials: false' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
 }
+
+# AGENTS.md: `--dry-run` must make zero gh/docker calls. The wizard's org step
+# and its closing doctor sweep used to call `gh api` regardless — invisible in
+# the suite because `gh` is stubbed to `exit 0`. This stub records every call.
+@test "wizard --dry-run issues no gh or docker calls at all" {
+  _stub_prereqs
+  for c in gh docker; do
+    printf '#!/bin/sh\necho "%s $*" >> "%s/tool.calls"\nexit 0\n' "$c" "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/$c"
+    chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
+  done
+  rm -f .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "7/8  Event org"
+  # Not even `gh auth status` or `docker compose version`: dry-run narrates
+  # the prerequisite step instead of probing. This boundary is one-sided by
+  # nature — dry-run writes no store and renders no page, so there is no
+  # "output side" to pair this command-issuance check with.
+  [ ! -s "$BATS_TEST_TMPDIR/tool.calls" ]
+}
+
+@test "org --dry-run --out reads SCORE_IMAGE from the named env file, not .env" {
+  rm -f .env
+  echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > custom.env
+  # `env -u`: an inherited SCORE_IMAGE would win before the file is read and
+  # let this pass without exercising the --out lookup.
+  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run --config event.yaml --out custom.env
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF "docker pull ghcr.io/other/score:pinned"
+}
+
+@test "a value-taking flag with no value fails with the script's own message" {
+  run bash "$SCRIPT" org --dry-run --config
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -qF -- "--config requires a value"
+}
+
+# The generated env file holds BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN and
+# REDIS_PASSWORD. Under the usual 022 umask a plain redirect creates it 0644,
+# readable by every local user; it must be owner-only regardless of umask.
+@test "secrets writes the env file owner-only regardless of the caller's umask" {
+  rm -f .env
+  run bash -c 'umask 022; bash "$0" secrets --config event.yaml --out .env.perms.test' "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ -f .env.perms.test ]
+  [ "$(ls -l .env.perms.test | cut -c1-10)" = "-rw-------" ]
+}
+
+# `-f` follows symlinks, so a dangling symlink at the output path passes the
+# "already exists" check and a plain redirect then writes the generated
+# secrets to wherever the link points. Creation must be exclusive.
+@test "secrets refuses a symlinked output path and writes nothing through it" {
+  rm -f .env
+  mkdir -p "$BATS_TEST_TMPDIR/elsewhere"   # the target is creatable; only the link is dangling
+  ln -s "$BATS_TEST_TMPDIR/elsewhere/target.env" .env.link
+  run bash "$SCRIPT" secrets --config event.yaml --out .env.link
+  [ "$status" -ne 0 ]
+  [ ! -e "$BATS_TEST_TMPDIR/elsewhere/target.env" ]
+}

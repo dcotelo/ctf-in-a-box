@@ -120,8 +120,10 @@ CATALOGUE="scorer/rubric.owasp/$TARGET/tests/challenges/catalogue.$TARGET.json"
 # Expected challenge count = number of catalogue entries (one "key" per challenge).
 # Derived here rather than hardcoded, so the total is right for every target and a
 # rubric that gained/lost a challenge fails loudly instead of silently.
-CAT_N="$(grep -c '"key":' "$CATALOGUE")"
-[ "$CAT_N" -gt 0 ] || { echo "FAIL: no challenges found in $CATALOGUE"; exit 1; }
+# `grep -c` exits 1 on zero matches, which `set -e` would turn into a silent
+# death one line before the message below — `|| true` keeps the guard reachable.
+CAT_N="$(grep -c '"key":' "$CATALOGUE" || true)"
+[ "${CAT_N:-0}" -gt 0 ] || { echo "FAIL: no challenges found in $CATALOGUE"; exit 1; }
 
 IMG="ctf-score:acceptance-$TARGET"
 NET="ctf-acceptance-$TARGET"
@@ -146,7 +148,8 @@ acc_url_for "$TARGET"
 
 # Skip the pre-patch Dockerfile precondition when the patch itself adds it; the
 # post-patch assertion below still catches a genuinely missing Dockerfile.
-acc_stage_source "$WS" "$UPSTREAM_REPO" "$UPSTREAM_REF" "$([ "$PATCH_ADDS_DOCKERFILE" = 1 ] && echo 0 || echo 1)"
+if [ "$PATCH_ADDS_DOCKERFILE" = 1 ]; then REQUIRE_DOCKERFILE=0; else REQUIRE_DOCKERFILE=1; fi
+acc_stage_source "$WS" "$UPSTREAM_REPO" "$UPSTREAM_REF" "$REQUIRE_DOCKERFILE"
 
 echo "Applying reference patch $PATCH …"
 # git apply, because the staged tree is a git repo (acc_stage_source init/fetches

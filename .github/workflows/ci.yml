@@ -178,7 +178,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
-      - run: shellcheck scripts/*.sh scripts/lib/*.sh setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh deploy/fly/render-compose.sh
+      # scripts/dev-stack is listed by name: it has no .sh suffix, so the glob
+      # alone would leave the one developer entry point unlinted.
+      - run: shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh deploy/fly/render-compose.sh
       # The per-target bring-ups are POSIX sh FRAGMENTS sourced by entrypoint.sh, so
       # they get -s sh (they never run under bash) and SC2034 is excluded: BOOTED and
       # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing

@@ -487,6 +487,7 @@ cmd_doctor() {
 
 DRY_RUN=0
 CONFIG=event.yaml
+OUT=.env
 APP_ID=""
 PEM=""
 INSTALLATION_ID=""
@@ -500,15 +501,18 @@ CMD="${CMD:-${1:-}}"
 if [ "$CMD" != "__selftest" ]; then
   shift || true
 
+  # A value-taking flag at the end of the line would otherwise die under
+  # `set -u` with bash's own "unbound variable" instead of a usable message.
+  need_value() { [ $# -ge 2 ] || { echo "$1 requires a value" >&2; exit 2; }; }
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry-run) DRY_RUN=1 ;;
-      --config) CONFIG="$2"; shift ;;
-      --out) OUT="$2"; shift ;;
-      --app-id) APP_ID="$2"; shift ;;
-      --pem) PEM="$2"; shift ;;
-      --installation-id) INSTALLATION_ID="$2"; shift ;;
-      --client-id) CLIENT_ID="$2"; shift ;;
+      --config) need_value "$@"; CONFIG="$2"; shift ;;
+      --out) need_value "$@"; OUT="$2"; shift ;;
+      --app-id) need_value "$@"; APP_ID="$2"; shift ;;
+      --pem) need_value "$@"; PEM="$2"; shift ;;
+      --installation-id) need_value "$@"; INSTALLATION_ID="$2"; shift ;;
+      --client-id) need_value "$@"; CLIENT_ID="$2"; shift ;;
       *) echo "unknown flag: $1" >&2; exit 2 ;;
     esac
     shift
@@ -1042,7 +1046,18 @@ cmd_check() {
 
 cmd_secrets() {
   local out="${OUT:-.env}"
-  [ -f "$out" ] && { echo "$out exists; refusing to overwrite" >&2; exit 1; }
+  # `-e || -L`, not `-f`: `-f` follows symlinks, so a dangling link at $out
+  # would pass this check and the redirect below would write the secrets to
+  # wherever the link points.
+  if [ -e "$out" ] || [ -L "$out" ]; then echo "$out exists; refusing to overwrite" >&2; exit 1; fi
+  # Owner-only from the first byte, and created exclusively: `umask 077` so a
+  # plain redirect cannot land 0644 under the usual 022 umask, and `noclobber`
+  # so bash opens with O_EXCL — which fails on any pre-existing path, symlink
+  # included, closing the window between the check above and the write. The
+  # subshell keeps both settings from leaking into later wizard writes.
+  (
+  umask 077
+  set -o noclobber
   {
     echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
     echo "SRH_TOKEN=$(openssl rand -hex 24)"
@@ -1063,6 +1078,7 @@ cmd_secrets() {
     echo "# image is private and the kit does not assume access to it."
     echo "SCORE_IMAGE="
   } > "$out"
+  )
   echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY, SCORE_IMAGE"
 }
 
@@ -1087,11 +1103,11 @@ cmd_org() {
   # image from scorer/ (docs/scorer.md) and point SCORE_IMAGE at it. Resolved
   # up front so a missing image fails before any forks are created.
   local src="${SCORE_IMAGE:-}"
-  if [ -z "$src" ] && [ -f .env ]; then
-    src="$(sed -n 's/^SCORE_IMAGE=//p' .env | tail -1)"
+  if [ -z "$src" ] && [ -f "$OUT" ]; then
+    src="$(sed -n 's/^SCORE_IMAGE=//p' "$OUT" | tail -1)"
   fi
   [ -n "$src" ] || {
-    echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in .env or the environment" >&2
+    echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in $OUT or the environment" >&2
     exit 1
   }
 
@@ -1633,8 +1649,13 @@ cmd_wizard() {
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
 
   # 1. Prerequisites (subshelled so cmd_check's exit doesn't kill the wizard).
+  # Under --dry-run this is narrated, not probed: cmd_check runs `gh auth
+  # status` and `docker compose version`, and --dry-run makes zero gh/docker
+  # calls (AGENTS.md).
   wiz_step "1/8  Prerequisites"
-  if ( cmd_check ) >/dev/null 2>&1; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would check for gh, docker, compose, openssl and gh auth"
+  elif ( cmd_check ) >/dev/null 2>&1; then
     echo "  ✅ gh, docker, compose, openssl, gh auth"
   else
     cmd_check || true
@@ -1825,7 +1846,11 @@ cmd_wizard() {
 
   # 7. Create + provision the org.
   wiz_step "7/8  Event org ($org)"
-  if gh_ok "orgs/$org"; then
+  # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
+  # and the closing doctor sweep below are narrated, not run.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would check that org $org exists (gh api orgs/$org)"
+  elif gh_ok "orgs/$org"; then
     echo "  ✅ org $org exists"
   else
     echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
@@ -1845,9 +1870,13 @@ cmd_wizard() {
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
   fi
   echo
-  echo "  Verifying with doctor:"
-  ( cmd_doctor ) || true
-  echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
+  else
+    echo "  Verifying with doctor:"
+    ( cmd_doctor ) || true
+    echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
+  fi
 
   # 8. Bring the containers up.
   #

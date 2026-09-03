@@ -239,7 +239,14 @@ acc_wait_http "$APP_URL" 90 /quiz || {
 
 echo "--- /quiz shows the seeded question by name"
 QUIZ_HTML=$(curl -sf "$APP_URL/quiz")
-echo "$QUIZ_HTML" | grep -qF "$QUESTION_PROMPT"
+# Guarded, not bare: a bare `grep -q` under `set -e` exits with no message at
+# all — the failure mode acceptance-classic-only.sh documents having hit in CI.
+# A here-string rather than a pipe: `grep -q` exits on the first match, and
+# under `pipefail` a page larger than the pipe buffer would SIGPIPE the writer.
+if ! grep -qF -- "$QUESTION_PROMPT" <<< "$QUIZ_HTML"; then
+  echo "FAIL: /quiz does not show the seeded question '$QUESTION_PROMPT'"
+  exit 1
+fi
 
 echo "--- /challenges 404s (no secure-development module — must not exist,"
 echo "    not just be hidden from the nav)"
