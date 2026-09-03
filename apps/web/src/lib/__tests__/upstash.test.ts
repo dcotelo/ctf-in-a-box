@@ -9,9 +9,23 @@ vi.mock("server-only", () => ({}));
 
 import { upstashPipeline } from "@/lib/upstash";
 
+/** A fake fetch that settles only when its signal aborts; the timer fails the
+ *  test fast if the abort never arrives instead of waiting for vitest's own
+ *  timeout. */
 const hangUntilAborted = (_url: string, init: RequestInit) =>
   new Promise<Response>((_, reject) => {
-    init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    const signal = init.signal;
+    if (!signal) return reject(new Error("fake backend: no signal was passed to fetch"));
+    if (signal.aborted) return reject(signal.reason);
+    const giveUp = setTimeout(() => reject(new Error("fake backend: abort never arrived")), 2_000);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(giveUp);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
   });
 
 afterEach(() => {

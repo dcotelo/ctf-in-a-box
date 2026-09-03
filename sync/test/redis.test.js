@@ -70,17 +70,23 @@ test("writeStatus: a per-command error reply is logged instead of vanishing", as
 
 // A backend that accepts the connection and never answers must not stall the
 // tick forever — `restart: on-failure` cannot help a process that never exits.
-// The fake holds a ref'd timer until the abort arrives: a real fetch keeps the
-// event loop alive with its socket, but `AbortSignal.timeout`'s own timer is
-// unref'd, so without the placeholder Node 22 drains the loop before the
-// timeout fires and the test dies as "promise still pending".
-const hangUntilAborted = (_url, opts) =>
+/** A fake fetch that settles only when its signal aborts. The ref'd timer does
+ *  two jobs: it keeps the event loop alive (a real fetch holds a socket, but
+ *  `AbortSignal.timeout`'s own timer is unref'd, so without it Node 22 drains
+ *  the loop before the timeout fires and the test dies as "promise still
+ *  pending"), and it fails the test fast if the abort never arrives. */
+const hangUntilAborted = (_url, { signal }) =>
   new Promise((_, reject) => {
-    const keepAlive = setTimeout(() => {}, 60_000);
-    opts.signal.addEventListener("abort", () => {
-      clearTimeout(keepAlive);
-      reject(opts.signal.reason);
-    });
+    if (signal.aborted) return reject(signal.reason);
+    const giveUp = setTimeout(() => reject(new Error("fake backend: abort never arrived")), 5_000);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(giveUp);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
   });
 
 test("isPaused: a hung backend times out and fails OPEN", async () => {

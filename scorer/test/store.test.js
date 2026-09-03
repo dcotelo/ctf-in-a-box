@@ -263,17 +263,24 @@ test("redis store isPaused: a failed read fails OPEN and is logged", async () =>
 });
 
 test("redis store: a hung backend times out instead of hanging the request", async () => {
-  // The fake holds a ref'd timer until the abort arrives: a real fetch keeps
-  // the event loop alive with its socket, but `AbortSignal.timeout`'s own
-  // timer is unref'd, so without the placeholder Node 22 drains the loop
-  // before the timeout fires and the test dies as "promise still pending".
-  const hangUntilAborted = (_url, opts) =>
+  /** A fake fetch that settles only when its signal aborts. The ref'd timer
+   *  does two jobs: it keeps the event loop alive (a real fetch holds a
+   *  socket, but `AbortSignal.timeout`'s own timer is unref'd, so without it
+   *  Node 22 drains the loop before the timeout fires and the test dies as
+   *  "promise still pending"), and it fails the test fast if the abort never
+   *  arrives. */
+  const hangUntilAborted = (_url, { signal }) =>
     new Promise((_, reject) => {
-      const keepAlive = setTimeout(() => {}, 60_000);
-      opts.signal.addEventListener("abort", () => {
-        clearTimeout(keepAlive);
-        reject(opts.signal.reason);
-      });
+      if (signal.aborted) return reject(signal.reason);
+      const giveUp = setTimeout(() => reject(new Error("fake backend: abort never arrived")), 5_000);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(giveUp);
+          reject(signal.reason);
+        },
+        { once: true },
+      );
     });
   const store = createRedisStore({ url: "http://srh:80", token: "t", fetchImpl: hangUntilAborted, timeoutMs: 20 });
   await assert.rejects(store.getSolves("dvwa"), /timeout/i);
