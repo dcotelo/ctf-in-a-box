@@ -20,6 +20,24 @@ const valid: EventBundle = {
     version: 1,
     questions: [{ id: "q-one-ab12cd", prompt: "P?", type: "single", choices: [{ id: "a", label: "A" }, { id: "b", label: "B" }], points: 10, order: 0, correct: ["a"] }],
   },
+  ai: {
+    version: 1,
+    categories: ["Prompt Injection"],
+    challenges: [
+      {
+        id: "pi-one-ab12cd",
+        title: "One",
+        category: "Prompt Injection",
+        description: "hi",
+        points: 50,
+        order: 0,
+        mode: "both",
+        urlTemplate: "https://ai.example/one?t={token}",
+        flag: "ctfbox{One}",
+        signingKey: "aik_one",
+      },
+    ],
+  },
 };
 
 describe("parseEventBundle", () => {
@@ -68,9 +86,26 @@ describe("parseEventBundle", () => {
     expect(res.errors.some((e) => e.where.startsWith("classic"))).toBe(true);
   });
 
+  it("folds embedded ai errors under an ai prefix", () => {
+    const bad = { ...valid, ai: { ...valid.ai, challenges: [{ ...valid.ai!.challenges[0], urlTemplate: "https://no-token.example/" }] } };
+    const res = parseEventBundle(JSON.stringify(bad));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.errors.some((e) => e.where.startsWith("ai.challenges[0].urlTemplate"))).toBe(true);
+  });
+
   it("requires at least one module", () => {
     const res = parseEventBundle(JSON.stringify({ version: 1, kind: "archive", event: valid.event, settings: {} }));
     expect(res.ok).toBe(false);
+  });
+
+  it("accepts an ai-only archive — ai alone satisfies the at-least-one-module rule", () => {
+    const aiOnly = { version: 1, kind: "archive", event: valid.event, settings: {}, ai: valid.ai };
+    const res = parseEventBundle(JSON.stringify(aiOnly));
+    if (!res.ok) throw new Error(JSON.stringify(res.errors));
+    expect(res.bundle.ai).toEqual(valid.ai);
+    expect(res.bundle.classic).toBeUndefined();
+    expect(res.bundle.quiz).toBeUndefined();
   });
 
   it("accumulates all errors rather than stopping at the first", () => {

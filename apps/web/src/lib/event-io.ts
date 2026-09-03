@@ -1,13 +1,13 @@
 // Pure bundle parser, validator and serializer for a whole-EVENT archive:
-// event metadata + policy settings + the classic and/or quiz content
+// event metadata + policy settings + the classic, quiz and/or ai content
 // bundles, composed into one importable/exportable file. This file is
-// CLIENT-SAFE ON PURPOSE, mirroring classic-io.ts and quiz-io.ts: the admin
-// panel's archive import/export UI is a Client Component that needs to
-// validate a pasted/uploaded archive in the browser before it ever reaches
+// CLIENT-SAFE ON PURPOSE, mirroring classic-io.ts, quiz-io.ts and ai-io.ts:
+// the admin panel's archive import/export UI is a Client Component that needs
+// to validate a pasted/uploaded archive in the browser before it ever reaches
 // the server, so this file must NEVER import a `server-only` module (e.g.
-// admin-store.ts, classic-store.ts, quiz-store.ts) or anything that pulls in
-// Upstash/Redis. It may only import from classic-io.ts and quiz-io.ts,
-// themselves client-safe for the same reason.
+// admin-store.ts, classic-store.ts, quiz-store.ts, ai-store.ts) or anything
+// that pulls in Upstash/Redis. It may only import from classic-io.ts,
+// quiz-io.ts and ai-io.ts, themselves client-safe for the same reason.
 //
 // `settings` is deliberately an ALLOWLIST of policy fields
 // (`EVENT_POLICY_FIELDS`), not a passthrough object: the live admin settings
@@ -20,16 +20,17 @@
 // than silently stripped, so the rejection is visible instead of a silent
 // no-op.
 //
-// Validation composes the two content parsers rather than re-implementing
-// their rules: `classic`/`quiz`, when present, are delegated to
-// `parseClassicBundle`/`parseQuizBundle` verbatim (via a JSON.stringify
-// round-trip of the embedded sub-object, since those parsers take a JSON
-// string), and every error they report is folded back in with a
-// `"classic."`/`"quiz."` prefix on `where`. This is the same reasoning
-// classic-io.ts and quiz-io.ts share with each other (see quiz-io.ts's
-// header): one validator per format, never two independent answers to the
-// same question.
+// Validation composes the three content parsers rather than re-implementing
+// their rules: `classic`/`quiz`/`ai`, when present, are delegated to
+// `parseClassicBundle`/`parseQuizBundle`/`parseAiBundle` verbatim (via a
+// JSON.stringify round-trip of the embedded sub-object, since those parsers
+// take a JSON string), and every error they report is folded back in with a
+// `"classic."`/`"quiz."`/`"ai."` prefix on `where`. This is the same
+// reasoning classic-io.ts and quiz-io.ts share with each other (see
+// quiz-io.ts's header): one validator per format, never two independent
+// answers to the same question.
 
+import { parseBundle as parseAiBundle, type AiBundle } from "@/lib/ai-io";
 import { parseBundle as parseClassicBundle, type ClassicBundle } from "@/lib/classic-io";
 import { parseBundle as parseQuizBundle, type QuizBundle } from "@/lib/quiz-io";
 
@@ -70,6 +71,10 @@ export type EventBundle = {
   settings: EventPolicySettings;
   classic?: ClassicBundle;
   quiz?: QuizBundle;
+  /** The ai catalogue (#250): challenges with their flags, hints and
+   *  per-challenge signing keys, plus categories. Never the launch keypair —
+   *  see ai-io.ts. */
+  ai?: AiBundle;
 };
 
 export type EventImportError = { where: string; message: string };
@@ -141,7 +146,7 @@ export function parseEventBundle(raw: string): EventParseResult {
     }
   }
 
-  if (parsed.classic === undefined && parsed.quiz === undefined) {
+  if (parsed.classic === undefined && parsed.quiz === undefined && parsed.ai === undefined) {
     errors.push({ where: "(document)", message: "bundle carries no modules" });
   }
 
@@ -165,6 +170,16 @@ export function parseEventBundle(raw: string): EventParseResult {
     }
   }
 
+  let ai: AiBundle | undefined;
+  if (parsed.ai !== undefined) {
+    const res = parseAiBundle(JSON.stringify(parsed.ai));
+    if (!res.ok) {
+      for (const e of res.errors) errors.push({ where: "ai." + e.where, message: e.message });
+    } else {
+      ai = res.bundle;
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   // Every check above passed (errors.length === 0), so `parsed.event` and
@@ -176,6 +191,7 @@ export function parseEventBundle(raw: string): EventParseResult {
     settings: parsed.settings as EventPolicySettings,
     ...(classic !== undefined ? { classic } : {}),
     ...(quiz !== undefined ? { quiz } : {}),
+    ...(ai !== undefined ? { ai } : {}),
   };
   return { ok: true, bundle };
 }

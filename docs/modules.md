@@ -279,12 +279,12 @@ Registered and selectable, and its contract, store layer, contestant surface
 the `/ai/[id]` challenge page (the launcher, and the in-box flag form for a
 `flag`/`both` challenge), plus a full authoring UI
 (`admin-ai-controls.tsx`) for mode/URL/categories/hint and the
-`aiCooldownSec` submission-cooldown knob. The honest gap left in this module
-is narrower than "not yet authorable": there is no bulk import/export for its
-catalogue, unlike `quiz`'s and `classic`'s shared bundle format, so an event
-migrating an `ai` board between boxes has to re-author it by hand (`ai` also
-stays out of the whole-event archive bundle — #155's `ai` half, tracked as a
-follow-up). See [docs/ai-module.md](ai-module.md) for what an external
+`aiCooldownSec` submission-cooldown knob. Its catalogue rides in the
+whole-event archive bundle (`ai-io.ts`, the third section beside `classic`
+and `quiz`, carrying flags, hints, categories and per-challenge signing keys
+but never the launch keypair); the remaining gap is narrower — the AI tab has
+no bundle button of its own, so a board is moved through the archive rather
+than a per-module export. See [docs/ai-module.md](ai-module.md) for what an external
 challenge site must implement to integrate with it. An id outside the
 registry still fails the build loudly (`generate-event-config.mjs`'s
 `validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).

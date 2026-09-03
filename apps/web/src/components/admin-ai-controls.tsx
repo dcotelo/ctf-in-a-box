@@ -25,8 +25,9 @@
 //     buttons because organizers actively curate a long-running board; this
 //     panel keeps `order` as a plain editable number instead — simpler code,
 //     and nothing in this task calls for parity there.
-//   - No bulk import/export. Classic's `{import: ...}` POST arm is
-//     classic-only; the ai archive story is a later PR (#155's ai half).
+//   - No per-tab bulk import/export button. Classic's `{import: ...}` POST
+//     arm is classic-only; the ai catalogue is carried by the whole-event
+//     archive on the Event tab instead (ai-io.ts / event-store.ts, #250).
 //   - The wire contract is THREE payload shapes on ONE endpoint
 //     (`POST /api/admin/ai`), dispatched by the server on exact key set —
 //     see that route's header comment. This component's `aiCategoriesRequestBody`

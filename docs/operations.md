@@ -580,19 +580,25 @@ previously exported one — publishing a finished event's content, or
 stamping out a repeat run of the same CTF, without re-authoring anything by
 hand.
 
-**What a bundle carries.** Classic and Quiz **content** — challenges, flags,
-categories, and quiz questions with their answer keys — plus **policy**
-settings: the hint controls (enabled, cost, and its two gating knobs), the
-quiz retry-gate knobs, Classic's submission cooldown, the re-run cooldown,
-the team-size cap and registration switch, module title/blurb overrides, and
-which modules are enabled. It also carries an informational **event
+**What a bundle carries.** Classic, Quiz and AI **content** — challenges,
+flags, hints and categories, quiz questions with their answer keys, and each
+AI challenge's mode, launch URL template and **per-challenge signing key**
+(so an external site configured against it keeps working after a restore) —
+plus **policy** settings: the hint controls (enabled, cost, and its two
+gating knobs), the quiz retry-gate knobs, Classic's and AI's submission
+cooldowns, the re-run cooldown, the team-size cap and registration switch,
+module title/blurb overrides, and which modules are enabled. It also carries an informational **event
 identity** block — name, theme, dates, location — read from the running box
 at export time.
 
 **What it does not carry: contestant run state.** No teams, no users, no
 solves, no attempts, no hint purchases, no admin audit log. That is the
 whole security property that makes a bundle safe to hand out at all — it is
-authored content and policy, never who played or how they did.
+authored content and policy, never who played or how they did. It also never
+carries the AI module's **launch keypair**: that is module identity, not
+content, and an import leaves the box's own keypair in place so every
+deployed external verifier and every token already in a contestant's browser
+keeps working (ADR 53).
 
 **Export** warns you of two things on the panel itself, before you do
 anything with the downloaded file:
@@ -1195,20 +1201,12 @@ flag-submission form classic uses, right below the launcher.
 
 **Gaps**, stated honestly:
 
-- **No bulk import/export.** Unlike quiz and classic, the AI tab has no
-  Export/Import bundle button — every challenge is authored one at a time
-  through the add/edit/delete form.
-- **The event archive does not carry the AI catalogue.** `exportEventBundle`
-  has no `ai` section at all — a bundle never captures the AI board's
-  challenges, flags, keys, hints, or categories, matching the gap above.
-  `importEventBundle` doesn't touch AI state either, in either direction: it
-  never clears or replaces the target box's AI catalogue, and it leaves
-  contestant progress (points, solves, attempts) and the module's launch
-  keypair exactly as they were. The practical effect is that an archive
-  can only carry quiz and classic content — it cannot transplant an AI
-  board between boxes or restore one after a wipe; see
-  [docs/ai-module.md](ai-module.md)'s own gaps section (§10) for the
-  tracking detail.
+- **No per-tab bulk import/export.** Unlike quiz and classic, the AI tab has
+  no Export/Import bundle button of its own — every challenge is authored one
+  at a time through the add/edit/delete form. The whole-event archive on the
+  Event tab does carry the AI catalogue (challenges, flags, hints, categories
+  and per-challenge signing keys; never the launch keypair), so moving an AI
+  board between boxes or restoring one after a wipe goes through the archive.
 - **A master reset rotates the module-wide launch keypair**, not any
   individual challenge's signing key. Every previously issued launch token
   stops verifying, and any external integration that cached the public key
