@@ -10,7 +10,9 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 - **`ctf-setup.sh --dry-run` is dry again, and `--out` is honoured
   everywhere.** The wizard's org step probed the org with `gh api` and ran a
-  full `doctor` sweep even under `--dry-run`; both are now narrated instead.
+  full `doctor` sweep even under `--dry-run`, and step 1 probed `gh auth
+  status` / `docker compose version`; all are narrated instead. `secrets`
+  writes its env file owner-only (`0600`) regardless of the caller's umask.
   `org` read `SCORE_IMAGE` from a hardcoded `.env` even when `--out` named
   another file. A value-taking flag left without a value now fails with the
   script's own message rather than bash's "unbound variable".

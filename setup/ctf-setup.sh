@@ -1047,6 +1047,12 @@ cmd_check() {
 cmd_secrets() {
   local out="${OUT:-.env}"
   [ -f "$out" ] && { echo "$out exists; refusing to overwrite" >&2; exit 1; }
+  # Owner-only from the first byte: a plain redirect would create the file
+  # with the caller's umask (0644 under the usual 022), briefly or permanently
+  # exposing every token below to other local users. The subshell keeps the
+  # umask change from leaking into anything the wizard writes afterwards.
+  (
+  umask 077
   {
     echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
     echo "SRH_TOKEN=$(openssl rand -hex 24)"
@@ -1067,6 +1073,7 @@ cmd_secrets() {
     echo "# image is private and the kit does not assume access to it."
     echo "SCORE_IMAGE="
   } > "$out"
+  )
   echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY, SCORE_IMAGE"
 }
 

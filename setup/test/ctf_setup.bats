@@ -1256,7 +1256,9 @@ EOF
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "7/8  Event org"
   # Not even `gh auth status` or `docker compose version`: dry-run narrates
-  # the prerequisite step instead of probing.
+  # the prerequisite step instead of probing. This boundary is one-sided by
+  # nature — dry-run writes no store and renders no page, so there is no
+  # "output side" to pair this command-issuance check with.
   [ ! -s "$BATS_TEST_TMPDIR/tool.calls" ]
 }
 
@@ -1274,4 +1276,15 @@ EOF
   run bash "$SCRIPT" org --dry-run --config
   [ "$status" -eq 2 ]
   echo "$output" | grep -qF -- "--config requires a value"
+}
+
+# The generated env file holds BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN and
+# REDIS_PASSWORD. Under the usual 022 umask a plain redirect creates it 0644,
+# readable by every local user; it must be owner-only regardless of umask.
+@test "secrets writes the env file owner-only regardless of the caller's umask" {
+  rm -f .env
+  run bash -c 'umask 022; bash "$0" secrets --config event.yaml --out .env.perms.test' "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ -f .env.perms.test ]
+  [ "$(ls -l .env.perms.test | cut -c1-10)" = "-rw-------" ]
 }
