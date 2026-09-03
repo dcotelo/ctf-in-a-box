@@ -430,7 +430,7 @@ The panel offers:
   > comments it reads — so a per-contestant reset clears them, and the next
   > time that contestant's PR is scored they are written again. The tab warns
   > when this applies. To make it stick, close the contestant's PR or freeze
-  > scoring first. Quiz and classic have no such problem: those writes
+  > scoring first. Quiz, classic and ai have no such problem: those writes
   > originate in the app, so a delete is final.
 
   Every action is admin-gated and writes an audit line naming **both** the

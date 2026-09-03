@@ -179,7 +179,7 @@ event-config driven.</sup>
 One Docker Compose stack: Caddy terminates TLS in front of the Next.js app;
 the app talks to Redis only through srh (an Upstash-compatible REST proxy) —
 the network is split so nothing internet-facing has a route to `redis:6379`.
-Quiz and Classic grade inside the app and bank points straight to Redis.
+Quiz, Classic and AI grade inside the app and bank points straight to Redis.
 Secure Development is graded *outside* the box: the contestant's fork runs a
 GitHub Action that boots the target, runs the rubric against the patch, and
 posts a machine-readable score comment on the PR. The `sync` poller pulls
@@ -303,7 +303,7 @@ in [docs/decisions.md](docs/decisions.md).
 | Standing the kit up | [docs/hosting.md](docs/hosting.md) — prerequisites, the wizard and every discrete step, poll vs push, the GitHub OAuth app, event config |
 | Deploying to a cloud VM | [docs/aws.md](docs/aws.md) (Terraform, one EC2 box) · [docs/fly.md](docs/fly.md) (one Fly machine) |
 | About to open the doors | [docs/security-checklist.md](docs/security-checklist.md) — the one-page pre-event walk |
-| Running the event | [docs/operations.md](docs/operations.md) — teams, the admin panel, the quiz and classic organizer guides, verifying, teardown |
+| Running the event | [docs/operations.md](docs/operations.md) — teams, the admin panel, the quiz/classic/ai organizer guides, verifying, teardown |
 | Understanding the system | [docs/architecture.md](docs/architecture.md) — diagram, score data flow, Redis keys, security model, testing strategy |
 | Writing a rubric | [docs/scorer.md](docs/scorer.md) — serve + judge modes, both rubric grammars, authoring and building |
 | Building a new module | [docs/modules.md](docs/modules.md) — the platform/module contract |

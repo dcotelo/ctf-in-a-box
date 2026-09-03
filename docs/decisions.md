@@ -2537,8 +2537,8 @@ The options were: skip Secure Development silently, build the tombstone, or
 delete and warn. **Delete and warn.** Skipping silently would leave a third of
 someone's score behind a button that said it reset them. Deleting is correct
 for a data-removal request. And the warning names the operator's actual move —
-close the PR, or freeze scoring first. Quiz and classic have no such issue:
-those writes originate in the app, so a delete is final.
+close the PR, or freeze scoring first. Quiz, classic and ai have no such
+issue: those writes originate in the app, so a delete is final.
 
 ### ADR 48 rider — The aggregates are not keyed alike
 

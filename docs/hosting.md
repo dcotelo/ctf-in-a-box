@@ -442,8 +442,8 @@ export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
 
 | `modules:` in your `event.yaml` | Command |
 |---|---|
-| `secure-development` (poll mode), with or without `quiz`/`classic` | `docker compose --profile poll --profile app up -d --build` |
-| `secure-development` (push mode), with or without `quiz`/`classic` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| `secure-development` (poll mode), with or without `quiz`/`classic`/`ai` | `docker compose --profile poll --profile app up -d --build` |
+| `secure-development` (push mode), with or without `quiz`/`classic`/`ai` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
 | `quiz` and/or `classic` and/or `ai`, no `secure-development` | `docker compose --profile app up -d --build` |
 
 `ctf-setup.sh wizard` prints (and offers to run) the right one for the

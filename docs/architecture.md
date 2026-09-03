@@ -219,7 +219,8 @@ state; everything else that touches scores goes through it.
 
 Steps 1–8 above assume `secure-development` is enabled — there is a scorer,
 and `LEADERBOARD_API_URL`/`LEADERBOARD_SOURCE` name a real backend to read.
-When it's disabled (a quiz-only or classic-only event, or any event with no
+When it's disabled (a quiz-only, classic-only or ai-only event, or any event
+with no
 scored module),
 none of that pipeline runs at all: `getLeaderboardSourceMode`
 (`src/lib/leaderboard/source.ts`) checks `isModuleEnabled("secure-development")`
@@ -227,29 +228,33 @@ none of that pipeline runs at all: `getLeaderboardSourceMode`
 var — resolves to `"empty"` instead, serving `emptySource`
 (`src/lib/leaderboard/empty.ts`): no entries, no teams, every capability
 `false`. This is deliberately not the mock source; placeholder data would be
-indistinguishable from real standings on a board that also carries real quiz
-or classic points.
+indistinguishable from real standings on a board that also carries real quiz,
+classic or ai points.
 
 Everything a contestant sees on such a board is then built by the overlay
 pipeline itself, on top of nothing. `withModuleContributions` creates a row
-for any login that holds module (quiz and/or classic) points and has no
+for any login that holds module (quiz, classic and/or ai) points and has no
 entry from the
 source — the board's login set is the *union* of the source's logins and the
 logins holding module points, matched case-insensitively, so a contestant
-with quiz or classic points but no scored PR gets a row instead of staying
+with quiz, classic or ai points but no scored PR gets a row instead of staying
 invisible
-until one exists — and a login holding both modules' points gets ONE row
-carrying both blocks, never one row per module. A created row has every scorer-supplied field
+until one exists — and a login holding more than one module's points gets ONE
+row
+carrying every held block, never one row per module. A created row has every scorer-supplied field
 (`patched`/`failed`/`total`/`apps`) genuinely zero — there is no scoring
 entry behind it — and its only points are the modules', added rather than
-attributed (see [Quiz data flow](#quiz-data-flow) and
-[Classic data flow](#classic-data-flow) below for why those are
+attributed (see [Quiz data flow](#quiz-data-flow), [Classic data
+flow](#classic-data-flow) and [AI data flow](#ai-data-flow) below for why
+those are
 different verbs). `withTeamStandings` does the same one step later for
 teams: its membership-only rows (synthesised from live team records whenever
-the source has no team concept of its own) get quiz and classic points added
+the source has no team concept of its own) get quiz, classic and ai points
+added
 via
-`withTeamQuizPoints`/`withTeamClassicPoints`, each deduped by question/flag
-across members, so a quiz-only or classic-only
+`withTeamQuizPoints`, `withTeamClassicPoints` and `withTeamAiPoints`, each
+deduped by question/flag/challenge
+across members, so a quiz-only, classic-only or ai-only
 event's default view — the teams board, whenever teams exist — doesn't open
 on every team tied at zero. See
 [decisions.md #25](decisions.md#adr-25-building-a-leaderboard-with-no-scoring-backend)
@@ -840,7 +845,7 @@ writes them with `HSETNX` so replays no-op, and the poller re-submits from PR
 comments — so a per-contestant reset clears them and the next re-score writes
 them back. `resetEvent` solves this globally by freezing and bumping `resetAt`;
 there is no per-login equivalent, so the API returns a **warning** instead of
-pretending. Quiz and classic writes originate in the app, so those deletes are
+pretending. Quiz, classic and ai writes originate in the app, so those deletes are
 final.
 
 ### Engagement metrics (ADR 50)

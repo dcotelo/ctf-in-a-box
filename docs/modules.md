@@ -1022,7 +1022,7 @@ reads as "measured, and none".
 ### 10.4 Registration is NOT automatic
 
 Adding a module does not add it to Insights. `computeEventMetrics`
-(`apps/web/src/lib/metrics-store.ts`) names quiz and classic explicitly — the
+(`apps/web/src/lib/metrics-store.ts`) names quiz, classic and ai explicitly — the
 per-login read list, the `earnedRows` pair it folds, and the `modules` split in
 the response. A new module with both hashes still reports nothing until it is
 added in those three places.
