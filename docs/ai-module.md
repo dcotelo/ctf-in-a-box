@@ -237,10 +237,11 @@ document.
 **Replay.** Each token's `jti` can drive exactly one *successful* event.
 Reuse — replaying a captured request, or your own backend retrying blindly
 — gets `409 {"error":"replay"}`. If your request reaches the box but the
-solve doesn't land for any other reason (paused, no team, a store hiccup),
-the nonce is released so a legitimate retry with the same token still
-works; only a request that actually resulted in an award (fresh or
-already-awarded) keeps its `jti` spent.
+solve doesn't land for any other reason, the `jti` stays usable: a teamless
+refusal is checked before the nonce is ever claimed, and a pause or store
+hiccup after the claim releases it — so a legitimate retry with the same
+token still works. Only a request that actually resulted in an award (fresh
+or already-awarded) keeps its `jti` spent.
 
 ## Section 6. The dry-run workflow
 
