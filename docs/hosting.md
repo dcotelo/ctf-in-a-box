@@ -692,3 +692,91 @@ defaults. See `apps/web/scripts/generate-event-config.mjs` for the full
 `EVENT_CONFIG` yaml > `EVENT_*` env var > default precedence, and
 [docs/architecture.md](architecture.md#build-time-config-flow) for the whole
 build-time config flow.
+
+### Environment variables
+
+`.env` is what `docker-compose.yml` interpolates; each service then reads its
+own environment. A variable reaches a container **only if `docker-compose.yml`
+passes it** — setting one that compose does not forward does nothing, silently
+(that is why `ALLOW_INSECURE_EVENT_URL` and the gate pair are wired through
+explicitly). Rows marked *override* are knobs compose does not forward; reach
+them with a `docker-compose.override.yml`, or on Fly through `.env.fly`. Rows
+marked *fixed* are values compose sets itself and you do not set at all.
+
+`setup/ctf-setup.sh secrets` generates the required ones (`.env.example` is
+the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
+
+**Compose bring-up** — read by compose at `up`, before any service starts:
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `REDIS_PASSWORD` | `redis`, `srh` | **required** (`:?`) | Redis `requirepass`. Unset *or empty* fails `up` at interpolation rather than starting an open Redis; only `srh` can reach `redis:6379`. |
+| `SRH_TOKEN` | `srh`; `app`/`scorer`/`sync` as `UPSTASH_REDIS_REST_TOKEN` | required | Bearer token in front of the Redis REST proxy every service talks to. |
+| `SCORE_INGEST` | compose (Caddyfile choice) | `poll` | `poll` or `push`: mounts `caddy/Caddyfile.<mode>`. Must match the `--profile` you pass. |
+| `SCORE_IMAGE` | `scorer` image | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. `ctf-setup org` refuses to run until it is set. |
+| `EVENT_URL` | `caddy` as `EVENT_HOST`; `app` as `BETTER_AUTH_URL` | `http://localhost` | **The** event URL — TLS host, auth callback origin, HTTPS start-up guard, CSRF origin check. `https://` for any real event. |
+| `EVENT_CONFIG_B64` | `app` **build arg**; `sync` at start-up | empty | Base64 of `event.yaml`. Required on every `--build`; without it the app bakes neutral defaults. `sync` treats empty as absent and reads the bind mount instead. |
+| `REDIS_DIR` | `redis` | `/data` | Where the append-only file lives inside the volume. Fly sets `/data/redis` (one volume per machine, see [docs/fly.md](fly.md)). |
+| `STATE_PATH` | `sync` | `/state/state.json` | The poller's cursor file. Fly sets `/data/sync/state.json`. |
+| `EVENT_HOST`, `SRH_MODE`, `REDISCLI_AUTH` | `caddy`, `srh`, `redis` | *fixed* | Derived by compose: Caddy's host from `EVENT_URL`, `srh`'s config mode (`env`), `redis-cli`'s password from `REDIS_PASSWORD` so `docker compose exec redis redis-cli` authenticates itself. |
+
+**App** (`apps/web`, runtime unless noted):
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `BETTER_AUTH_SECRET` | `lib/auth.ts`, `lib/gate.ts` | required | Session-signing secret; also keys the pre-event gate cookie's HMAC. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | `lib/auth.ts` | required | The sign-in OAuth app (not the poll GitHub App). |
+| `ALLOW_INSECURE_EVENT_URL` | `instrumentation.ts` | unset | `1` downgrades the `http://` non-loopback refusal to a start-up warning. TLS-less closed networks only. |
+| `CHALLENGES_GATE_ENABLED`, `CHALLENGES_GATE_PASSWORD` | `lib/gate.ts` | unset | Pre-event shared-password gate over the module pages: `true` plus a password. A half-configured gate stays *open*. |
+| `DEMO_MODE` | `/admin` page, `/api/admin/seed` | unset | `1` exposes the "Seed demo data" button and route. `scripts/dev-stack` sets it; never in a real event. |
+| `LEADERBOARD_SOURCE` | `lib/leaderboard/source.ts` | *fixed*: `lambda` | `mock` / `lambda` / `upstash`. With `secure-development` disabled the board is `empty` regardless; an unknown value falls back to `mock` with a warning. |
+| `LEADERBOARD_API_URL` | `lib/challenges.ts`, `lib/leaderboard/lambda.ts` | *fixed*: `http://scorer:4000` | Scorer base URL for the challenge catalogue and the board. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | `lib/upstash.ts`; also `scorer/src/store.js`, `sync/src/redis.js` | *fixed*: `http://srh:80`, `SRH_TOKEN` | Redis-over-REST endpoint. Hints, teams, admin settings and module content live behind it. |
+| `TEAM_WRITES_ENABLED` | `lib/team-store.ts` | *fixed*: `"true"` | Enables team create/join writes; off in mock mode. |
+
+**Sync** (`sync/src/config.js`, poll mode only):
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | `sync` | required | The poll GitHub App; the key is base64-encoded PEM. `sync` refuses to start without both. |
+| `GITHUB_APP_INSTALLATION_ID` | `sync` | auto-discovered | Pin the installation when the App has more than one. |
+| `SCORER_TOKEN` | `sync`; `scorer` as `CTF_SCORE_BEARER_TOKEN` | required | Bearer token `sync` presents to `POST /score`. |
+| `SCORER_URL` | `sync` | *fixed*: `http://scorer:4000` | Where scores are submitted. |
+| `POLL_INTERVAL_MS` | `sync` | `30000` | *override*. Integer in `1..1789569705` (`floor((2^31-1)/1.2)`, headroom for the +20% jitter); anything else refuses at boot rather than tight-looping. |
+| `GITHUB_API_URL` | `sync` | `https://api.github.com` | *override*. `scripts/smoke.sh` points it at `mock-github`. |
+| `COMMENT_AUTHOR` | `sync` | `github-actions[bot]` | *override*. The only login whose `<!-- ctf-score -->` markers are ingested as points. |
+| `EVENT_CONFIG` | `sync` | `/config/event.yaml` | *override*. Path of the bind-mounted `event.yaml`; a non-empty `EVENT_CONFIG_B64` wins over it. |
+
+**Scorer, `score serve`** (`scorer/src/serve.js`, on the box):
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `CTF_SCORE_BEARER_TOKEN` | `serve.js` | *fixed*: `SCORER_TOKEN` | Bearer auth on `POST /score`; falls back to `SCORER_TOKEN`, refuses to start with neither. |
+| `PORT` | `serve.js` | `4000` | *override*. Checked lexically, integer `0..65535`; a malformed value refuses rather than binding an ephemeral port. |
+| `RUBRIC_DIR` | `rubric.js` (serve and judge) | `/rubric` (image build arg `RUBRIC_DIR=rubric.owasp`) | The rubric baked into the image — see [docs/scorer.md](scorer.md). |
+| `UPSTASH_REDIS_REST_URL` | `serve.js`, `store.js` | *fixed*: `http://srh:80` | Redis store when set, in-memory store when unset. |
+
+**Scorer, `score judge`** (`scorer/src/judge.js`, `exec.js`) — runs inside the
+fork's Action, so these come from the rendered `ctf-score.yml`, org Actions
+secrets/variables, or `scripts/acceptance-scorer.sh`, never from `.env`:
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `CTF_OUT_DIR` | `judge.js`, `entrypoint.sh` | `GITHUB_WORKSPACE` | Where `ctf-score.md` is written. The workflow sets `/ctf-out`, **outside the PR checkout** — the marker in it is trust-authoritative. |
+| `SCORE_API`, `SCORE_TOKEN` | `judge.js` | unset (poll mode) | Push mode: `POST <SCORE_API>/score` with the bearer. Fed from the org secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN`; `SCORE_TOKEN` is required whenever `SCORE_API` is set. |
+| `CTF_DISCLOSE_TABLE` | `judge.js` | disclose | `0` / `false` / `no` hides the per-challenge table in the PR comment (progress bar and counts always show). An org Actions *variable*. |
+| `APP_READY_TRIES`, `APP_READY_DELAY` | `judge.js` | `60`, `5` (seconds) | Readiness probe before judging. A literal `0` skips it — only a bring-up script that already proved the app up should set that (`securityshepherd.sh` does). |
+| `CTF_SCORE_SAFETY_MS` | `exec.js` | `30000` | Per-probe kill timeout, ms; values below 1 fall back to the default. |
+| `CTF_SCORE_CONCURRENCY` | `exec.js` | per-target default | Overrides the probe pool width (clamped to `1..itemCount`). |
+| `CTF_UPSTREAM_DIR` | `judge.js` | `GITHUB_WORKSPACE` | Source tree for the static probes that read the contestant's code instead of HTTP. |
+
+**Target bring-up scripts** (`scorer/entrypoints/*.sh`, sourced by the judge's
+`entrypoint.sh`; `TARGET` and `APP_URL` are the required inputs, set by the
+workflow):
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `WEBGOAT_JDK_IMAGE` | `webgoat.sh` | `eclipse-temurin:23-jdk-noble` | JDK used to build a fork from source through its own `./mvnw`. |
+| `SS_UPSTREAM_REPO`, `SS_UPSTREAM_REF` | `securityshepherd.sh` | `OWASP/SecurityShepherd` @ `662771b…` | Source cloned when the workspace has none. Pinned to a commit, never a branch. |
+| `WEBWOLF_URL`, `WEBGOAT_LEAKED_ADMIN_PW`, `WEBGOAT_DESER_PAYLOAD` | exported by `webgoat.sh`, read by the WebGoat rubric's tests | *computed* | Not inputs: the bring-up derives them from the running container and always exports them (an *empty* payload means "patched", an *absent* one would fail two challenges outright). |
+| `<TARGET>_UPSTREAM_REPO`, `<TARGET>_UPSTREAM_REF` | `scripts/acceptance-patched.sh` (`JS_`, `DVWA_`, `WEBGOAT_`, `VULNERABLEAPP_`, `VAMPI_`, `SS_`), `scripts/acceptance-target.sh` (`WG_`) | pinned per script | Local acceptance only: which fork and ref to judge as the patched or stock baseline. |
