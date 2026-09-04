@@ -146,7 +146,7 @@ carried landed in-kit instead
 API, not a raw Redis TCP connection.
 
 **Decision.** Run `hiett/serverless-redis-http` (`srh`) as a local
-Upstash-REST-compatible proxy in front of `redis:7-alpine`, so the app's
+Upstash-REST-compatible proxy in front of `redis:8-alpine`, so the app's
 Redis client code runs unchanged in self-hosted mode
 (`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` point at `srh`
 instead of a hosted endpoint).
@@ -2732,7 +2732,8 @@ a silently truncated metric reads as a complete one.
 **Status.** Accepted.
 
 **Context.** The Dockerfiles and compose services named their bases by mutable
-tag — `node:22-alpine`, `redis:7-alpine`, `caddy:2-alpine`. A tag is a pointer
+tag — `node:22-alpine`, `redis:7-alpine` (since bumped to `redis:8-alpine`,
+[#181](https://github.com/dcotelo/ctf-in-a-box/pull/181)), `caddy:2-alpine`. A tag is a pointer
 the publisher can move, so two builds of the same commit could sit on different
 underlying images and neither would say so. The third-party SRH image was
 digest-pinned in v0.1.0; this finishes the job for the first-party ones
