@@ -88,10 +88,20 @@ bats setup/test/ && bats deploy/fly/test/
 
 # the whole poll pipeline, end to end, offline
 ./scripts/smoke.sh
+
+# the real-target scoring gates — Docker, pulls upstream images, minutes per
+# row; the matrix rows in the two heavy workflows are the example invocations
+./scripts/acceptance-target.sh <target> <stock-image|none>   # stock app scores 0/N
+./scripts/acceptance-patched.sh <target> <challenge-id>       # patched fork scores exactly that one
 ```
 
 Run the layers your change touches, plus `smoke.sh` for anything that crosses
-services.
+services. The two real-target gates are for what their workflows' `paths:`
+filters name — the filters are the authority, and the two differ slightly.
+In summary: rubrics under `scorer/rubric.owasp/`, the judge-path sources in
+`scorer/src/`, the scorer Dockerfile, `package.json` and lockfile, the
+entrypoints, the gate scripts and `scripts/lib/acceptance-lib.sh`,
+`patches/`, and the workflow files themselves.
 
 ## What CI runs
 
@@ -110,8 +120,10 @@ filtering) plus ten gated jobs — a job for an area your PR doesn't touch is
 | `quiz-only` / `classic-only` / `ai-only` | A single app-side module runs a whole event alone, with no scorer to pull |
 | `docs` | The Jekyll site builds; link/meta checks |
 
-Two heavier workflows (`stock-scores-zero`, `patched-scores-right`) run real
-target containers and are path-scoped to judge-relevant scorer inputs.
+Two heavier workflows (`stock-scores-zero`, `patched-scores-right`) run
+`scripts/acceptance-target.sh` and `scripts/acceptance-patched.sh` against
+real target containers, one matrix row per target or reference patch, and
+are path-scoped to judge-relevant scorer inputs plus `patches/`.
 `terraform.yml` validates and *tests* `deploy/aws-terraform` —
 `userdata.tftest.hcl` renders the bring-up script at plan time, because
 `terraform validate` never inspects rendered template output.
