@@ -187,8 +187,9 @@ the sections below are the enforceable contract behind it.
 4. Writes MUST be treated as monotonic/idempotent on the receiving end —
    modules MAY deliver at-least-once. `sync`'s own poller relies on this:
    on a submit failure it un-marks the comment as seen and retries on the
-   next tick (`sync/src/index.js`, `tick()`: `rs.seen = rs.seen.filter((id)
-   => id !== c.id); // retry next tick`), and replays of an already-applied
+   next tick (`sync/src/index.js`, `tick()`: `rs.seen = rs.seen.filter((k)
+   => k !== seenKey(c.id, c.updated_at));` — keyed on comment revision,
+   `id@updated_at`, not bare id), and replays of an already-applied
    score are expected to be no-ops on the scorer side, not double-counts.
 
 ## Section 3. Score transport options
@@ -778,7 +779,7 @@ gets to skip sections that apply to it.
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):
 
 1. **Fork** each configured target into the event org
-   (`gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name"`).
+   (`gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name" --clone=false`).
 
    **`setup/targets.tsv` is the canonical source of both halves of that
    command.** Its `upstream_repo` column names what is forked (`digininja/DVWA`,

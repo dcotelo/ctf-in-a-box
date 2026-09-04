@@ -78,8 +78,8 @@ their **Status** line; the record itself is never rewritten.
 "paste a patch" through the app itself, cutting out GitHub entirely.
 
 **Decision.** Keep the full fork → patch → PR → Action-scores-the-PR flow
-(README: "fork target app → find + patch the vuln → PR back → GitHub
-Actions scores the patch"). The app never accepts code; scoring only
+(as the original README put it: "fork target app → find + patch the vuln →
+PR back → GitHub Actions scores the patch"). The app never accepts code; scoring only
 happens through a real GitHub Actions run against a real PR.
 
 **Consequences.** Contestants practice the actual workflow a security
@@ -102,8 +102,8 @@ available and configured correctly per target, which is what
 organizer's laptop or a small VM, not a cluster.
 
 **Consequences.** Setup is `docker compose ... up -d`; no cluster,
-ingress controller, or orchestration knowledge required (README: "One box,
-one free GitHub org, no cloud dependencies"). State lives in named Docker
+ingress controller, or orchestration knowledge required (README: "one box,
+one free org, no cloud bill, no telemetry"). State lives in named Docker
 volumes (`caddy-data`, `redis-data`, `sync-state`), so a box reboot doesn't
 lose scores. The tradeoff is no horizontal scaling or built-in HA — a
 single-chapter-sized event is the target load, not a multi-thousand-person
@@ -175,9 +175,11 @@ at-least-once.
 
 **Consequences.** `sync`'s poller leans on this directly: on a submit
 failure it un-marks the comment as seen and retries next tick
-(`sync/src/index.js`, `tick()`: `rs.seen = rs.seen.filter((id) => id !==
-c.id); // retry next tick`), which means the same comment can be submitted
-more than once. That's fine because a replay of an already-applied score
+(`sync/src/index.js`, `tick()`: `rs.seen = rs.seen.filter((k) => k !==
+seenKey(c.id, c.updated_at));` — the seen list is keyed on comment
+revision, `id@updated_at`, not bare id, since
+[#131](https://github.com/dcotelo/ctf-in-a-box/issues/131)), which means
+the same comment can be submitted more than once. That's fine because a replay of an already-applied score
 is required to be a no-op on the scorer side, not a double-count. A module
 implementer MUST NOT invent a second write path (`docs/modules.md §2.1`).
 
@@ -267,7 +269,8 @@ scorer image) without ever handing those secrets to that untrusted code.
 
 **Decision.** Each event provisions its own disposable GitHub org
 (`setup/ctf-setup.sh org` forks each target into it; `teardown` archives
-them afterward). Scoring workflows use the `pull_request_target` trigger,
+them afterward and prints a reminder to uninstall the GitHub App and delete
+the org secrets by hand — it does not do those two itself). Scoring workflows use the `pull_request_target` trigger,
 which runs in the base (org) repo's context — where secrets live — while
 the untrusted PR code under test executes sandboxed, with no access to
 that context.
@@ -275,8 +278,9 @@ that context.
 **Consequences.** Contestant code never sees the organizer's tokens or org
 secrets, regardless of what a malicious PR contains. Everything
 provisioned for an event (forked repos, mirrored image, installed
-workflow) lives entirely inside the disposable org, so teardown (archive
-repos, uninstall the GitHub App, delete org secrets) fully retires the event
+workflow) lives entirely inside the disposable org, so teardown — `cmd_teardown`
+archives the repos; the organizer then uninstalls the GitHub App and deletes
+the org secrets, as the README's teardown step says — fully retires the event
 with no lingering access (`docs/modules.md §7`: "everything a module provisions
 for an event MUST be archivable or revocable after the event"). `cmd_org` now
 commits the scoring workflow (`ctf-score.yml`) to each fork's `ctf` branch and
@@ -329,9 +333,10 @@ the two enumerations play different roles and both must be extended:
   `MODULE` literal, and still requires `modules.secure-development` to exist.
 
 `setup/ctf-setup.sh`'s `yaml_targets` needs **no** change for a new module: it
-is scoped to the `secure-development:` block by construction (it awk-ranges
-from that key to the next line at equal-or-lower indent) and provisions that
-module's forks only. A module that needs its own provisioning adds its own
+is scoped to the `secure-development:` block by construction (it is a
+one-line wrapper over the ADR 24 modules reader —
+`_yaml_modules targets secure-development`) and provisions that module's
+forks only. A module that needs its own provisioning adds its own
 step rather than widening this one. `docs/modules.md` is explicit that the
 single-scored-module state is a v1 constraint, not a permanent architectural
 stance.
@@ -379,9 +384,10 @@ exactly as the vendored app already used them — no new runtime
 config-fetch code path, no risk of a slow or failing config read blocking
 a page render. The tradeoff is explicit and accepted: changing
 `event.yaml` requires an image rebuild (`docker compose --profile app
-build app`), not just a restart or a config hot-reload; README calls this
-out directly under "Rebuilding the app after a config change" so it isn't
-a surprise.
+build app`), not just a restart or a config hot-reload; `docs/hosting.md`
+calls this out directly under
+[Rebuilding the app after a config change](hosting.md#rebuilding-the-app-after-a-config-change)
+so it isn't a surprise.
 
 ## ADR 13. Closed `AppId` union; config selects a subset; unknown values fail the build
 
@@ -476,7 +482,8 @@ rs.etag = stopAt ? null : result.cursor.etag;
 failure, which means already-successfully-submitted comments earlier in
 that same batch get re-fetched and re-parsed too — not just the failed
 one. That's an accepted redundancy: `markSeen`'s per-repo `seen` list
-(capped at 500 ids) prevents most of that overlap from being resubmitted,
+(capped at 500 `id@updated_at` revision keys — `SEEN_CAP` in
+`sync/src/state.js`) prevents most of that overlap from being resubmitted,
 and any resubmission that does slip through relies on `scorer`'s
 monotonic/idempotent write guarantee (decision 5) to be a safe no-op. The
 alternative — advancing the cursor past the whole batch regardless of a
@@ -835,7 +842,7 @@ from — reuse `ModuleHome.steps`, or give the guide its own registry field.
 **Decision.** Its own field, `guide` (`ModuleGuide`), plus a `rules` field
 for `/rules`. The two step lists are not the same copy at different lengths:
 `home.steps` is four short cards that *pitch* the event ("Patch it and open a
-PR. Fix the vulnerability in your fork…"), while the guide's five *instruct*
+PR. Fix the vulnerability in your fork…"), while the guide's six *instruct*
 a contestant through their first submission, and the guide additionally
 carries a loop callout, a callout above the steps, a seven-step worked
 example with code blocks, "good to know" caveats and a scoring paragraph that
@@ -903,8 +910,9 @@ fork-based work with an informational message instead of erroring), while an
 absent `modules:` block or an unrecognized key is a hard error — the same
 two checks `sync/src/config.js`'s `loadConfig` makes.
 
-`check_known_modules` is called only by `org`, `render`, and `doctor` — the
-three commands that actually consume module keys — deliberately not by
+`check_known_modules` is called only by `org`, `render`, `doctor` and
+`upgrade` — the four commands that actually consume module keys —
+deliberately not by
 `teardown`, `app-manifest`, or `oauth-app`. `teardown` is the recovery path
 for an event whose config may now be wrong in some way; gating it on config
 validity would strand an organizer who typo'd a module name with already-
@@ -1845,7 +1853,7 @@ warns.
   already settled, and the operator learns from a log line buried under
   traffic instead of a server that would not come up.
 
-**"Refusing to serve", not "refusing to start".** Next 16.3.0 catches a throw
+**"Refusing to serve", not "refusing to start".** Next 16.3 catches a throw
 from the instrumentation hook, prints `Failed to prepare server`, and keeps
 the process alive answering `500` to everything — it even logs `✓ Ready`
 first. Nothing is served either way, but the message says what the operator
@@ -1887,8 +1895,9 @@ A mutating request (`POST`/`PUT`/`PATCH`/`DELETE`) to `/api/*` whose `Origin`
 header is present and does not match `BETTER_AUTH_URL`'s origin gets a `403`.
 
 Per-handler checks were the obvious alternative and are worse in the way that
-matters: there are eighteen route files, and the failure mode is the
-nineteenth forgetting. The proxy runs on `/api/:path*`, so a new route is
+matters: there were eighteen route files when this was decided (thirty-eight
+under `apps/web/src/app/api` at the time of writing), and the failure mode is
+the next one forgetting. The proxy runs on `/api/:path*`, so a new route is
 covered by existing. The cost is that `config.matcher` must carry a path
 pattern alongside the literal module routes, which `proxy.test.ts` had to
 learn about explicitly — deliberately, rather than relaxing that test into one
@@ -1918,10 +1927,11 @@ and `launch-key` is intentionally public. So the ambient-credential attack
 this assertion exists to stop does not apply to them. Two carve-outs, each with its own reason; a third
 needs its own.
 
-**Decision, part 2: rate-limit on the LOGIN, not the IP.** `gate-store.ts`
-keys its throttle on the client IP because the pre-event gate runs before
-anyone has an identity — and it documents that the key is spoofable, since
-Caddy *appends* to `x-forwarded-for` rather than replacing it. These two
+**Decision, part 2: rate-limit on the LOGIN, not the IP.** `gate-store.ts`'s
+throttle is keyed on the client IP its route (`app/api/gate/route.ts`)
+extracts, because the pre-event gate runs before anyone has an identity — and
+that route's comment documents that the key is spoofable, since Caddy
+*appends* to `x-forwarded-for` rather than replacing it. These two
 routes run after `auth.api.getSession()`, so there is a session-backed login
 to key on that a caller cannot forge without forging the session itself. Fixed
 window (one `INCR` + one `EXPIRE` in a single Lua `EVAL`); the up-to-2×-across-
@@ -2213,7 +2223,8 @@ the lines to delete.
 **Why `.env` and not `event.yaml`.** The URL is a *deployment* fact, and
 `event.yaml` describes the *event*. One `event.yaml` is deployed to a box, to
 AWS and to fly.io on three different hostnames — which is precisely why
-`deploy/fly` keeps a separate `.env.fly` whose own header says a compose stack
+`deploy/fly/deploy.sh` reads a separate `.env.fly` at the repo root whose own
+header says a compose stack
 and a Fly deployment "need different EVENT_URLs, and one file cannot hold
 both". A single `url:` in the event file could not be right for all of them.
 
@@ -2259,7 +2270,9 @@ empty list read as "not an admin" for the wrong reason. `effectivePaused` in
 `admin-store.ts` deliberately fails **open**, so a Redis blip cannot drop live
 submissions. Both are correct: one is a safety switch whose failure must not
 stop an event, the other an access check whose failure must not grant access.
-The two behaviours now carry comments pointing at each other.
+`admin-auth.ts`'s comment points at `effectivePaused` and spells out the
+contrast; the pointer is one-directional — the freeze read carries no comment
+back.
 
 The baked check runs **before** Redis is touched, so an organizer listed in
 `event.yaml` can still reach the panel while the datastore is down — which is

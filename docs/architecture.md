@@ -1130,7 +1130,9 @@ only rebuilds an image when told to
   the single write path (`sync/src/submit.js` and push-mode Actions both
   land on it — there is no second writer). Delivery is at-least-once: on a
   submit failure, `sync`'s `tick()` un-marks the comment as seen and
-  retries it next tick (`rs.seen = rs.seen.filter((id) => id !== c.id);`).
+  retries it next tick (`rs.seen = rs.seen.filter((k) => k !==
+  seenKey(c.id, c.updated_at));` — the seen list is keyed on comment
+  revision, `id@updated_at`, not bare id).
   A replayed already-applied score is expected to be a no-op on the scorer
   side, not a double-count. The in-repo scorer's `POST /score` requires
   bearer auth (`scorer/src/serve.js` — constant-time compare, refuses to
