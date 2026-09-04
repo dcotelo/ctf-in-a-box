@@ -669,15 +669,41 @@ module must provide to
 plug in — config block, scoring contract, transports, security requirements,
 provisioning — is documented in [docs/modules.md](modules.md).
 
+### Every key the build reads
+
+This is the complete set of `event.yaml` keys `apps/web/scripts/generate-event-config.mjs`
+reads (verify against the generator itself — see [the source](https://github.com/dcotelo/ctf-in-a-box/blob/main/apps/web/scripts/generate-event-config.mjs)).
+Anything not listed is ignored, silently except for the two keys named at the
+bottom. Every `event.*` key is optional: the name falls back to `OWASP CTF`,
+and leaving any other one out hides what it drives rather than showing a
+placeholder.
+
+| Key | Required | What it drives |
+|---|---|---|
+| `event.name` | no (default `OWASP CTF`) | The event name — header, page titles and metadata, the archive's identity block. |
+| `event.theme` | no | A short theme or tagline string, carried as event identity (`lib/site.ts`, the event archive). |
+| `event.start` | no | ISO 8601 start. Drives the landing-page countdown and the display dates. An unparseable value fails the build. |
+| `event.end` | no | ISO 8601 end. Closes the display-date range (`October 1–2, 2026`); ignored without `start`, and an unparseable value fails the build. |
+| `event.location` | no | Shown beside the dates on the landing page and in the page description. |
+| `event.contact` | no | Organizer e-mail; the privacy and terms pages render it as a `mailto:` link. |
+| `event.discord` | no | Invite URL. The header, hero, rules, how-to-play, FAQ and 404 pages link to it; unset hides every Discord mention. |
+| `event.url` | **must be absent** | The build fails and says so — the URL is `EVENT_URL` in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
+| `github.org` | yes | The event org: every "fork this repo" link, and the org `sync` polls (`sync` refuses to start without it; the app alone would default to `OWASP-CTF`). |
+| `modules` | yes | The enabled-module map described above — at least one known id, `targets` and `score_ingest` under `secure-development`. |
+| `admins` | yes, in practice | Bootstrap allowlist of GitHub logins for `/admin`. An empty list 403s everyone, which is what a build without `EVENT_CONFIG_B64` produces. |
+| `hints`, `teams` | ignored | Not read; the build warns and tells you where the setting lives now (`/admin`). |
+
 ### Rebuilding the app after a config change
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/ctf-in-a-box/blob/main/apps/web/VENDORED.md))
-bakes its event name, dates, URL, enabled-target list, fork org and optional
-Discord link from `event.yaml` at **image-build time**, via the
-`EVENT_CONFIG_B64` build arg. The fork org also drives every "fork this repo"
-link the app renders, so contestants are pointed at the org `ctf-setup org`
-actually forked into.
+bakes the keys in the table above — event name, theme, dates, location,
+contact, Discord link, enabled modules and targets, fork org and admins —
+from `event.yaml` at **image-build time**, via the `EVENT_CONFIG_B64` build
+arg. The URL is **not** among them: it is `EVENT_URL` in `.env`, read at
+runtime, and a `url:` left in `event.yaml` fails the build (ADR 43). The fork
+org also drives every "fork this repo" link the app renders, so contestants
+are pointed at the org `ctf-setup org` actually forked into.
 
 Compose only rebuilds an image when told to, so `up -d` alone will not pick up
 an `event.yaml` edit:
