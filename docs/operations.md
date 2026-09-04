@@ -98,7 +98,12 @@ each member's individual points. A flag solved by several teammates counts
 **once** for the team, so a team's total can be lower than its members' scores
 added together — the leaderboard dedupes shared solves rather than
 double-counting them. Organizers open or close the registration window from
-the admin panel below.
+the admin panel below — by hand with the **Team registration** switch, or on
+a timer with the **Registration opens** / **Registration closes** schedule
+fields. While it is closed nobody can create or join a team, and a captain
+cannot rename it, remove a member or regenerate its code; **transfer
+captaincy, disband and leave still work**, because those are exits and
+gating them would trap a captain behind a closed window.
 
 ![A contestant's profile: the header shows their points plus one done-out-of-available stat per enabled module, and the team card below carries the join code, invite link and captain controls](assets/profile.jpg)
 
@@ -269,10 +274,33 @@ The panel offers:
   since the tab strip is rendered server-side.
 
 - **Team registration** — an open/close switch for the team-forming window.
-  While closed, players cannot create or join teams (and captain roster
-  mutations are blocked); existing teams keep their scores.
+  While closed, players cannot create or join teams (**Play solo** included),
+  and a captain cannot rename the team, remove a member or regenerate the
+  join code. **Transfer captaincy, disband and leave are deliberately not
+  gated** (`team-store.ts` says so at each one): they are exits, and gating
+  them would trap a captain the moment registration closes. Existing teams
+  keep their scores. The switch is one of two things that close registration
+  — the scheduled window below is the other.
+- **Schedule (auto dates)** — four optional date-time fields, on the Event
+  tab beneath the players-per-team cap: **Scoring opens** / **Scoring
+  closes** (`scoringStartsAt` / `scoringEndsAt`) and **Registration opens** /
+  **Registration closes** (`registrationStartsAt` / `registrationEndsAt`).
+  You enter local time; each is stored as an ISO instant, and a blank field
+  means no bound on that side. They stack **on top of** the manual toggles
+  rather than replacing them: scoring is live only when it is not frozen
+  *and* inside its window, registration is open only when the switch is open
+  *and* inside its window — either condition on its own closes it. Because
+  four fields plus two switches is a boolean nobody should do in their head
+  mid-event, the section shows the **effective** state in a live
+  **Right now:** readout — "scoring is live" / "is frozen (manual)" / "is
+  frozen (outside its window)", and the same three for registration —
+  computed from the very fields it edits. The scoring window is honoured by
+  every reader of scoring state (the app, the scorer, the sync poller — see
+  [architecture](architecture.md)); the registration window is enforced by
+  `team-store.ts` on exactly the mutations the manual switch gates.
 - **Hint controls** (Secure Development tab) — whether hints are enabled and
-  what they cost. Hints are **on by default** and cost 10 points each. This is
+  what they cost. Hints are **on by default** and cost 10 points each; the
+  cost (`hintCost`) is a whole number from 0 to **100000**. This is
   the **only** hint switch: there is no environment variable, and the toggle
   takes effect immediately across every surface — whether a hint **can be
   bought**, whether the challenges page **offers** the button and its notice
@@ -284,7 +312,8 @@ The panel offers:
 - **Hint gating** — two knobs that decide *who* may buy a hint and *when*,
   enforced server-side in `revealHint` (the API is the boundary; the UI only
   hides things):
-  - **Solves required** (`hintsMinSolves`, default **1**) — a login must
+  - **Solves required** (`hintsMinSolves`, default **1**, at most **1000**) —
+    a login must
     already have solved that many challenges **on that target** before it can
     buy any of that target's hints. This is the anti-farming gate: a hint's
     price lands on the account that reveals it, but the hint *text* is
@@ -292,10 +321,12 @@ The panel offers:
     a penalty nobody cares about, and pass the text to a real team. Requiring
     earned progress makes that cost the same real work the event scores. Set
     to `0` to disable.
-  - **Unlock after** (`hintsUnlockAfterMin`, default **0**) — minutes after
+  - **Unlock after** (`hintsUnlockAfterMin`, default **0**, at most
+    **100000** minutes) — minutes after
     the scheduled scoring start before *any* hint can be bought, so the early
-    game is decided on unaided work. Needs a scoring start (see the schedule
-    below) to have any effect; `0` means hints are available immediately.
+    game is decided on unaided work. Needs a scoring start (the **Scoring
+    opens** field under **Schedule** above) to have any effect; `0` means
+    hints are available immediately.
 
   Both fail **closed**: if the solve lookup errors, the hint is refused
   rather than handed out unverified. Denials return `403` with a message
@@ -454,7 +485,8 @@ The panel offers:
   stays gone, also delete (or the org, archive) the source PR comments.
 
 - **Quiz controls** (Quiz tab, present only when the `quiz` module is enabled) — the two
-  retry-gate knobs (max attempts, retry cooldown) plus full question
+  retry-gate knobs (max attempts, accepted from 0 to **100**; retry cooldown,
+  from 0 to **100000** minutes) plus full question
   authoring: add, edit, reorder (drag, or Move up / Move down), and delete.
   See [Quiz](#quiz) below for what these do and their defaults.
 - **Classic controls** (Classic tab, present only when the `classic` module
@@ -486,12 +518,17 @@ content yet — an empty board shows them **Author questions** / **Author
 challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
 name falls back to **Event**.
 
-Every settings change is recorded in a capped audit log (who, when, what
-changed) alongside the setting itself. **Disruptive controls prompt for
-confirmation**: the freeze and team-registration toggles ask a one-click "are
-you sure?"; the master reset requires type-to-confirm — the event's name, or
-the literal `RESET` (both are accepted, so a renamed event can't lock its own
-reset).
+Every settings change is recorded in an audit log (who, when, what changed)
+alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest
+**500** entries and drops older ones automatically. **Disruptive controls
+prompt for confirmation**: the freeze and team-registration toggles, each
+module's Enable/Disable switch, and the demo-mode **Seed demo data** button
+ask a one-click "are you sure?"; the master reset requires type-to-confirm.
+**The panel accepts only the event's name** as that phrase — `event.yaml`'s
+`name`, exactly as baked into the running build. The route behind the button,
+`POST /api/admin/reset`, additionally accepts the literal `RESET` as its
+`confirm` value; that is a raw-API fallback for a scripted reset, and the
+panel never offers it.
 
 When the `quiz` module is enabled, the master reset also clears every
 contestant's quiz answers and attempts (and the two aggregate point/answered
@@ -513,7 +550,11 @@ ready to run for real. See [Classic](#classic) below.
 On the **Secure Development** tab. It is the minimum minutes between *scored*
 runs on the same PR — every run hands back a per-challenge pass/fail, so a
 short cooldown lets a contestant iterate a check-gaming patch against the
-rubric. `0` disables it.
+rubric. The default is **5** minutes (a blank field means the default; it is
+the same `5` the fork workflow carries as `COOLDOWN_MINUTES`), the field
+accepts 0 to **1440** — a day, long enough for any "one scored run per
+session" policy and short enough that a typo cannot freeze scoring for a
+week — and `0` disables it.
 
 It takes effect on the **next push**, with no re-rendering of any fork's
 workflow: each fork's Action reads the current value from the event when it
@@ -573,8 +614,9 @@ Redis at all — which is exactly when you most need the panel.
 
 ## Archiving and replaying an event
 
-The **Event** tab carries an **Event archive** section (**Export event** /
-**Import a bundle**, backed by `GET`/`POST /api/admin/event`) for exporting
+The **Event** tab carries an **Event archive** section (an **Export** button
+and an **Import a bundle (replaces everything)** box, backed by `GET`/`POST
+/api/admin/event`) for exporting
 the whole event as one JSON file, or replacing it wholesale from a
 previously exported one — publishing a finished event's content, or
 stamping out a repeat run of the same CTF, without re-authoring anything by
@@ -588,8 +630,17 @@ plus **policy** settings: the hint controls (enabled, cost, and its two
 gating knobs), the quiz retry-gate knobs, Classic's and AI's submission
 cooldowns, the re-run cooldown, the team-size cap and registration switch,
 module title/blurb overrides, and which modules are enabled. It also carries an informational **event
-identity** block — name, theme, dates, location — read from the running box
-at export time.
+identity** block — `name`, `theme`, `dates`, `location` and `ctfStartsAt` —
+read from the running box at export time.
+
+**How a bundle is recognised.** The file's top level is stamped
+`"kind": "archive"` next to a numeric `version`, and import checks both
+before it looks at anything else: a file whose `kind` is not exactly
+`archive`, or whose `version` this box does not know, is refused with the
+field named. A per-module export — the Classic board's or the Quiz bank's
+own **Export** — carries no `kind` at all (it is a bare `version` plus
+content) and is refused here for that reason; feed those to their own
+module's import box, not this one.
 
 **What it does not carry: contestant run state.** No teams, no users, no
 solves, no attempts, no hint purchases, no admin audit log. That is the
@@ -650,8 +701,8 @@ Redis, so an import cannot repaint them. Import still applies the file's
 module title/blurb overrides, and the response names branding explicitly
 among what it skipped, so "policy applied" is never mistaken for "everything
 applied." The bundle's own event-identity block records the source event's
-name, theme, dates, and location, so you have those values on hand when you
-rebuild with an updated `event.yaml` to match.
+name, theme, dates, location and `ctfStartsAt`, so you have those values on
+hand when you rebuild with an updated `event.yaml` to match.
 
 ## Quiz
 
@@ -1172,9 +1223,24 @@ It carries:
   hard-coded server-side, never taken from the request — so nothing is
   written: no nonce is claimed, no points are awarded. It is safe to click
   against a live event, and it relays that handler's real verdict verbatim
-  rather than inventing one. Reading the result:
-  - **`would-award`** — good: the dry run verified the whole pipeline end
+  rather than inventing one. The panel renders exactly one of two lines
+  under the button: a green **Would award — the dry run verified end to
+  end.** for the good case, or a red **Test result: `<name>`** for anything
+  else, where `<name>` is the verdict or error string the route handed back
+  (or `unavailable` when it handed back nothing readable — a 503, or the
+  request itself failing). Reading the result:
+  - **`would-award`** (shown as the green line) — good: the dry run
+    verified the whole pipeline end
     to end (signature, token, rate limit, team, schedule).
+  - **`paused`**, **`solved`**, **`no-team`** — the signature and token
+    were fine and a gate refused the award, relayed as-is: scoring is frozen
+    or outside its scheduled window (the dry run honours the schedule like a
+    real event), the organizer's own login already holds this challenge, or
+    the organizer is on no team (the event route refuses a teamless login
+    before the award, organizers included). None of these is a fault on the
+    external side.
+  - **`unavailable`** — Redis could not be read, or the request itself
+    failed; try again.
   - **`wrong-mode`** — this challenge is `flag`-only. The panel doesn't
     even render the signing key, curl, or Send test for a flag-only
     challenge in the first place (only the three endpoint URLs stay,
@@ -1182,7 +1248,10 @@ It carries:
     `wrong-mode` at all means the challenge's mode changed after the panel
     loaded — refresh and re-check.
   - **`no-signing-key`** — a legacy row with no signing key ever minted.
-    Click Rotate once to mint one.
+    Unlike the two above, this one never reaches the event handler: the test
+    route itself answers `400 {"error":"no-signing-key"}` before any dry run,
+    and the panel shows it as **Test result: no-signing-key**. Click Rotate
+    once to mint one.
 
 **The cooldown knob** — `aiCooldownSec`, on the AI tab — throttles only the
 **graded flag path**: a signed event has no wrong answer to rate-limit, so
@@ -1270,8 +1339,13 @@ it's done.
 Watch a new score land live, without a real PR:
 
 ```sh
-./scripts/dev-stack score <login> juice-shop 3   # marks 3 catalogue challenges solved
+./scripts/dev-stack score <login> <juice-shop|dvwa> <n>   # marks the first <n> catalogue challenges solved
+./scripts/dev-stack score alice-dev juice-shop 3
+./scripts/dev-stack score carol-dev dvwa 2
 ```
+
+Those are the only two targets the script knows — it seeds a curated slice
+of each one's rubric catalogue, and refuses any other target name.
 
 Tear down with `./scripts/dev-stack down` (keeps seeded data in the Redis
 volume for next time) or `./scripts/dev-stack down --wipe` (also drops it).
