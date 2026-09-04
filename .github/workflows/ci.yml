@@ -218,6 +218,44 @@ jobs:
         working-directory: apps/web
       - run: corepack pnpm test
         working-directory: apps/web
+      # The grading Lua (classic SUBMIT_SCRIPT, quiz GRADE_SCRIPT, ai
+      # AWARD_SCRIPT) is the scoring authority; the mocked suites pin what the
+      # stores HAND it, not what it does. The `*.lua.upstash.test.ts` suites run
+      # the real scripts against a real Redis behind the same SRH image the box
+      # ships, digest-pinned like docker-compose.yml. Throwaway containers on
+      # the runner's loopback, so no requirepass. Only the `lua.upstash` files
+      # run here: the older `.upstash` suites have rotted (#235) and stay
+      # skipIf-gated until repaired. CTF_LUA_SUITES_REQUIRED turns "no env, so
+      # skip" into a failure — a gate that quietly skips is not a gate.
+      - name: Grading Lua against a real Redis (via SRH)
+        run: |
+          set -euo pipefail
+          docker network create ctf-lua
+          docker run -d --name ctf-lua-redis --network ctf-lua \
+            redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+          docker run -d --name ctf-lua-srh --network ctf-lua -p 8079:80 \
+            -e SRH_MODE=env -e SRH_TOKEN="$UPSTASH_REDIS_REST_TOKEN" \
+            -e SRH_CONNECTION_STRING=redis://ctf-lua-redis:6379 \
+            hiett/serverless-redis-http:latest@sha256:5b0bb9239fce53abf87b2018a7a0deb9ec7bd900c5360738fe5fbeeb426f9150
+          i=0
+          until curl -sf -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" -H 'Content-Type: application/json' \
+                  -X POST "$UPSTASH_REDIS_REST_URL/pipeline" -d '[["PING"]]' | grep -q PONG; do
+            i=$((i + 1))
+            if [ "$i" -ge 30 ]; then
+              echo "FAIL: srh never answered PING"; docker logs ctf-lua-srh; docker logs ctf-lua-redis; exit 1
+            fi
+            sleep 1
+          done
+          # `pnpm exec`, not `pnpm test -- <filter>`: pnpm forwards the `--` to
+          # vitest, which then ignores the filter and runs EVERY file — the
+          # first run of this step did exactly that and hit the rotted #235
+          # suites. The generated config already exists from the test step above.
+          corepack pnpm exec vitest run lua.upstash
+        env:
+          UPSTASH_REDIS_REST_URL: http://localhost:8079
+          UPSTASH_REDIS_REST_TOKEN: ci-lua-token
+          CTF_LUA_SUITES_REQUIRED: "1"
+        working-directory: apps/web
       - run: BETTER_AUTH_SECRET=ci-dummy BETTER_AUTH_URL=http://localhost:3000 corepack pnpm build
         working-directory: apps/web
       # Regression gate: the root layout resolves module nav labels via a

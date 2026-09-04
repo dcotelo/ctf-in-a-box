@@ -62,6 +62,12 @@ agent-facing copy with the full gotcha list is
 # app
 (cd apps/web && corepack pnpm install --frozen-lockfile && corepack pnpm test)
 
+# app — the grading Lua (classic, quiz, ai) executed against a real Redis.
+# Skips without the two env vars; CI brings up redis + srh and requires it
+# (see the "Grading Lua" step in ci.yml for the two `docker run` lines).
+(cd apps/web && UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN='replace-with-your-srh-token' \
+  corepack pnpm exec vitest run lua.upstash)
+
 # app production build — CI also asserts .next/server/app/index.html does
 # NOT exist afterwards: `/` must never be statically prerendered
 (cd apps/web && BETTER_AUTH_SECRET=dummy-secret-32-characters-minimum \
@@ -99,7 +105,7 @@ filtering) plus nine gated jobs — a job for an area your PR doesn't touch is
 | `vacuous` | No rubric check passes against an up-but-useless stub (0/321) |
 | `shell` | shellcheck + bats over `setup/`, `scripts/`, `deploy/fly/` |
 | `smoke` | The full poll pipeline against fixture services, including the forged-comment drop and the freeze hold |
-| `app` | vitest, the production build, the `/`-never-prerendered assertion, and the build-time config acceptance |
+| `app` | vitest; the three grading Lua scripts executed against a real Redis behind srh (`*.lua.upstash.test.ts`, required, not skippable, in CI); the production build; the `/`-never-prerendered assertion; the build-time config acceptance |
 | `quiz-only` / `classic-only` | A single app-side module runs a whole event alone, with no scorer to pull |
 | `docs` | The Jekyll site builds; link/meta checks |
 

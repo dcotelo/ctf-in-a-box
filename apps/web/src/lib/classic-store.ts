@@ -878,7 +878,7 @@ async function evaluateGate(
 //
 // The points match is anchored with a trailing [,}] so it can only match a
 // complete "points":<int> pair, not a digit run appearing earlier in the blob.
-const SUBMIT_SCRIPT = `
+export const SUBMIT_SCRIPT = `
 local target = redis.call('HGET', KEYS[3], ARGV[1])
 if not target then return {'missing'} end
 if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end

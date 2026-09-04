@@ -817,7 +817,7 @@ async function evaluateGate(
 //
 // ARGV[9] (the solve source) is interpolated into stored JSON, so it must only
 // ever be a module-internal literal — never caller input.
-const AWARD_SCRIPT = `
+export const AWARD_SCRIPT = `
 local cRaw = redis.call('HGET', KEYS[4], ARGV[1])
 if not cRaw then return {'missing'} end
 if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then return {'already'} end
