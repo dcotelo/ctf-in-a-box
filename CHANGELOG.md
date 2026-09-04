@@ -8,6 +8,13 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Four HIGH Dependabot alerts in the app lockfile cleared.** `browserslist`
+  (two advisories), `js-yaml` and `brace-expansion` — all dev/build-side
+  transitives of `next` and `eslint-config-next` — re-resolved to patched
+  versions. `browserslist` needed an `overrides:` floor in
+  `apps/web/pnpm-workspace.yaml` because pnpm would not move a package that
+  is also a peer of `update-browserslist-db`; the comment there says when to
+  drop it. No runtime behaviour changes.
 - **Store `catch` blocks log a redacted label, never the exception object,
   and a bulk import refuses to write after a failed read.** The classic and
   quiz stores logged the raw caught value at six sites, three of them the
