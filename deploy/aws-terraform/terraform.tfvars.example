@@ -10,7 +10,9 @@ name          = "ctf-in-a-box"
 # Existing EC2 key pair for SSH. Default is none — use SSM Session Manager instead.
 # key_name = "my-keypair"
 
-# Where the box clones the kit from. Point at your fork to run patched kit code.
+# Where the box clones the kit from. Point at your fork to run patched kit
+# code — and set git_ref below to the branch/tag/sha that carries the patch;
+# changing repo_url alone still checks out v0.1.0.
 # repo_url = "https://github.com/dcotelo/ctf-in-a-box.git"
 
 # Pin a release tag for a real event.

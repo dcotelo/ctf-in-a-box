@@ -114,7 +114,7 @@ deploys. `-h`/`--help` prints the same list.
 **`FLY_REGION`** lives in the env file. `init` sets it once — existing value
 kept, else `--region`, else a prompt defaulting to `fly.toml`'s
 `primary_region` (`iad`), else that default with no tty. A deploy reads it
-(falling back to `primary_region` only when the line is absent) and passes it
+(falling back to `primary_region` when the line is absent or empty) and passes it
 to `fly volumes create --region` and `fly deploy --primary-region`.
 
 ## Guards `deploy.sh` carries

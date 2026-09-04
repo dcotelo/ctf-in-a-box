@@ -86,7 +86,7 @@ on Fly; without it the script deploys. `-h`/`--help` prints the same list.
 |---|---|---|
 | `--dry-run` | both | Prints every `fly` command it would run and makes **none** of them; secret values are redacted from the output. `init --dry-run` says what it *would* write and ask |
 | `--env-file <path>` | both | The Fly env file — `init` writes it, a deploy reads it. Default `.env.fly` |
-| `--config <path>` | both | The `event.yaml` baked into the app image and handed to `sync`. Default `event.yaml`; a real deploy refuses to start without it |
+| `--config <path>` | both | The `event.yaml` baked into the app image and handed to `sync`. Default `event.yaml`. A real deploy refuses to start without the file (checked before anything else); only `--dry-run` proceeds, printing the build with an empty config |
 | `--from <path>` | `init` only | The compose `.env` that `init` copies from (and `--refresh` re-copies from). Default `.env` |
 | `--region <code>` | `init` only | Sets `FLY_REGION` in the env file without prompting — for a scripted or CI run with no tty. Must be a three-lowercase-letter Fly code (`gru`, `iad`, …); ignored when the env file already carries one |
 | `--refresh` | `init` only | Re-copies the credentials that must match an **external** system (GitHub OAuth, the sync App, the scorer image) from `--from`, overwriting what is there. `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone — they belong to this deployment |
@@ -100,7 +100,7 @@ the region lives. `init` fills it in exactly once: an existing value is kept;
 otherwise `--region` wins, then an interactive prompt whose default is
 `fly.toml`'s `primary_region` (`iad`), and with no tty that default is taken
 silently. A deploy reads `FLY_REGION` from the env file — falling back to
-`primary_region` only if the line is missing — and passes it to both
+`primary_region` when the line is missing or empty — and passes it to both
 `fly volumes create --region` and `fly deploy --primary-region`, so the volumes
 and the machine always land in the same place. To move an event, change the
 line and recreate the volumes; `fly.toml` on its own is only the default.

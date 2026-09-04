@@ -399,7 +399,7 @@ placeholders are:
 | `<EVENT_ORG>` | The GitHub org the scorer image was mirrored into (`ghcr.io/<EVENT_ORG>/score:latest`) |
 | `<TARGET>` | The repo's rubric target id — must match a target the baked rubric defines: a `<target>/` directory holding `tests/challenges/catalogue.<target>.json` for an exec rubric (what `rubric.owasp/` ships), or a `<target>.yaml` for a declarative one (what `rubric.example/` ships). E.g. `juice-shop` |
 | `<APP_URL>` | Where the app under test answers **on the ctf network**, e.g. `http://<TARGET>:3000` — no host ports are published |
-| `<LEADERBOARD_LINK>` | `event.url` + `/leaderboard` — the score comment links here, and the workflow derives the box's base URL from it. `ctf-setup.sh render` fills it from `event.yaml`; by hand, leave it empty rather than guessing |
+| `<LEADERBOARD_LINK>` | `EVENT_URL` (from `.env`, never `event.yaml` — ADR 43) + `/leaderboard` — the score comment links here, and the workflow derives the box's base URL from it. `ctf-setup.sh render` fills it from `EVENT_URL` and warns when that is not an `http(s)://` URL; by hand, leave it empty rather than guessing |
 
 The renderer fills `<APP_URL>` with each target's **stock** port
 (`http://juice-shop:3000`, `http://dvwa:80`, `http://webgoat:8080/WebGoat`,

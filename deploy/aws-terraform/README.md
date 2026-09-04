@@ -66,7 +66,7 @@ be set; the rest are tuned in `terraform.tfvars`.
 | `web_ingress_cidrs` | `list(string)` | `["0.0.0.0/0"]` | CIDRs allowed to reach the leaderboard/app on 80/443. Default is the whole internet (public leaderboard); narrow it for an organizer-only board |
 | `ssh_ingress_cidrs` | `list(string)` | `[]` | CIDRs allowed to reach SSH (22). Default is **none** — prefer SSM Session Manager. Set your own IP/32 if you need SSH |
 | `event_yaml_b64` | `string` | — (required) | base64 of your `event.yaml` (NOT a secret — org name, targets, admins, public OAuth client id). Produce with `base64 < event.yaml \| tr -d '\n'` |
-| `ssm_prefix` | `string` | `"/ctf-in-a-box"` | SSM Parameter Store path prefix holding the event **secrets** as SecureStrings, created out of band (see Prerequisites) so they never enter Terraform state. Expected under it: `BETTER_AUTH_SECRET`, `SRH_TOKEN`, `SCORER_TOKEN`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (optionally `GITHUB_APP_INSTALLATION_ID`) |
+| `ssm_prefix` | `string` | `"/ctf-in-a-box"` | SSM Parameter Store path prefix holding the event **secrets** as SecureStrings, created out of band (see Prerequisites) so they never enter Terraform state. Expected under it: `BETTER_AUTH_SECRET`, `SRH_TOKEN`, `SCORER_TOKEN`, `REDIS_PASSWORD`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (optionally `GITHUB_APP_INSTALLATION_ID`) |
 | `root_volume_gb` | `number` | `30` | Root EBS volume size (GiB). The app + scorer image builds and Docker layers need headroom |
 
 ## Tear down
