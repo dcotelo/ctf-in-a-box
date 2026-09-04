@@ -16,7 +16,7 @@ external site needs to integrate: no box source access required. For where
 [docs/modules.md](modules.md); for why its two signatures use different key
 types, see [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric).
 
-## 1. What you get, and what you owe
+## Section 1. What you get, and what you owe
 
 When a signed-in player with a team clicks "Open challenge" on `/ai/<id>`,
 the box mints a **launch token** naming that player and that one challenge,
@@ -37,7 +37,7 @@ comes from the launch token instead, and the box never hands your side a
 key that could forge one. That split — and the symmetric-key design it
 replaced, and how the hole was found — is [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric).
 
-## 2. The launch token
+## Section 2. The launch token
 
 The launch token is a JWT: three base64url segments, header, claims,
 signature, exactly as usual. Two things about it are non-standard enough to
@@ -95,7 +95,7 @@ truncated token is a completely normal token, not an error, and your site
 should treat the flag purely as "there's more — call `/api/ai/state` if you
 need the rest."
 
-## 3. Verifying it
+## Section 3. Verifying it
 
 Fetch the public key once and cache it:
 
@@ -158,7 +158,7 @@ side there's no way to tell "expired" from "forged" without decoding the
 claims yourself first, which is exactly why you shouldn't: treat any
 verification failure as "not a valid launch," full stop.
 
-## 4. Live progress
+## Section 4. Live progress
 
 ```
 GET /api/ai/state?t=<token>
@@ -178,7 +178,7 @@ attempt is recorded, nothing is written), rate-limited at 120 requests/min
 per token subject, and answers `Cache-Control: no-store` — never cache it
 yourself.
 
-## 5. Reporting a solve
+## Section 5. Reporting a solve
 
 ```
 POST /api/ai/event
@@ -242,7 +242,7 @@ the nonce is released so a legitimate retry with the same token still
 works; only a request that actually resulted in an award (fresh or
 already-awarded) keeps its `jti` spent.
 
-## 6. The dry-run workflow
+## Section 6. The dry-run workflow
 
 Set `"dryRun": true` and the box runs the entire pipeline — signature,
 token, rate limit, team check, pause/schedule gate — and writes no solve,
@@ -266,7 +266,7 @@ already been checked (and the ones before it passed, or you'd have gotten
 that gate's own error response instead of a `dryRun` body at all) by the
 time you see it.
 
-## 7. The full error table
+## Section 7. The full error table
 
 Every response from every `ai` route — success or refusal — carries CORS
 headers, so a browser-side integrator can always read the status, not just
@@ -311,7 +311,7 @@ control deliberately shows a challenge's signing key to an organizer (see
 docs/operations.md), which is a different, authenticated surface than
 anything in this table.
 
-## 8. Flag submission
+## Section 8. Flag submission
 
 ```
 POST /api/ai/submit
@@ -332,7 +332,7 @@ action, and the launch token never reaches the contestant's browser at all
 in that path. `/api/ai/submit` exists specifically for *your* site to call
 on the player's behalf, when you're the one rendering the flag input.
 
-## 9. Keys and rotation
+## Section 9. Keys and rotation
 
 Two independent keys, and they rotate on different triggers:
 
@@ -356,7 +356,7 @@ Two independent keys, and they rotate on different triggers:
   stale — re-fetch it after any reset, or plan to react to a sudden run of
   `invalid-token` refusals by doing so.
 
-## 10. v1 gaps
+## Section 10. v1 gaps
 
 Honestly, as shipped:
 
