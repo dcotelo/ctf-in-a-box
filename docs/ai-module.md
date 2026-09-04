@@ -281,6 +281,7 @@ connection your `fetch` can't even inspect.
 | 200 | `{"correct": false}` | Wrong flag. | submit | Let the player try again (subject to cooldown). |
 | 200 | `{"dryRun": true, "wouldAward": bool, "verdict": ..., "checks": [...]}` | Dry-run result (§6). | event | Inspect `wouldAward`. |
 | 400 | `{"error": "invalid-request"}` | Malformed/oversized JSON body, missing `token`, a `challengeId` that isn't a valid id, a non-boolean `dryRun`, or (submit only) a missing/empty/over-length flag. Body is capped at 8192 bytes, checked while reading — never fully buffered past the cap. | submit, event | Fix the request shape; this is a client bug, not worth retrying as-is. |
+| 400 | `{"error": "invalid"}` | The grading store's own refusal of the same class: the id or flag failed its validation after the route's checks passed, or the challenge vanished between the route's lookup and the grading script. Rare — the route normally catches these first as `invalid-request`/`unknown-challenge`. | submit, event | Treat exactly like `invalid-request`; if it persists, the challenge was probably just deleted. |
 | 401 | `{"error": "invalid-signature"}` | The `X-CTF-Signature` HMAC doesn't check out against your challenge's key and the raw body. | event | Almost always a re-serialized body (§5) or a stale/rotated key — check both before assuming the key is wrong. |
 | 401 | `{"error": "stale-request"}` | `X-CTF-Timestamp` missing/non-numeric, or outside the ±300s window. | event | Resync your clock; retry with a fresh timestamp and matching signature. |
 | 401 | `{"error": "invalid-token"}` | The launch token is malformed, its signature doesn't verify, or its `aud` doesn't match the challenge id. | submit, event, state | The token is unusable — the player needs a fresh launch link. |
@@ -365,6 +366,6 @@ Honestly, as shipped:
   fail until redeployed.
   ([#251](https://github.com/dcotelo/ctf-in-a-box/issues/251))
 - **No per-challenge attempt cap.** The graded (flag) path only throttles
-  with the cooldown in §5/§7 — there is no ceiling on total attempts, only
+  with the cooldown in §7/§8 — there is no ceiling on total attempts, only
   on how fast they can come in.
   ([#252](https://github.com/dcotelo/ctf-in-a-box/issues/252))

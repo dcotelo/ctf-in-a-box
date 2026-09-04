@@ -479,11 +479,11 @@ The panel offers:
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
 
-Tabs are deep-linkable: `/admin?tab=quiz` (or `?tab=classic`,
+Tabs are deep-linkable: `/admin?tab=quiz` (or `?tab=classic`, `?tab=ai`,
 `?tab=secure-development`) opens straight into that module's panel. This is
-what `/quiz` and `/flags` link an organizer to when the module has no content
-yet — an empty board shows them **Author questions** / **Author challenges**
-instead of the contestant's "check back soon". An unknown or not-enabled tab
+what `/quiz`, `/flags` and `/ai` link an organizer to when the module has no
+content yet — an empty board shows them **Author questions** / **Author
+challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
 name falls back to **Event**.
 
 Every settings change is recorded in a capped audit log (who, when, what
@@ -620,8 +620,9 @@ treat the file with the same care as `/admin` access itself.
 **Import is replace-all, and it is destructive.** Confirming an import first
 validates and applies the file's policy settings, then runs the same reset
 the master reset button does — wiping every team, solve, attempt, and hint
-purchase — and replaces the entire Classic board and Quiz bank with exactly
-what the file contains. Settings go first and fail-fast: a bad or
+purchase — and replaces the entire Classic board, Quiz bank and AI catalogue
+with exactly what the file contains (a section absent from the file leaves
+that module empty, not as it was — replace-all, not merge). Settings go first and fail-fast: a bad or
 cross-box-incompatible settings block is rejected before anything is wiped,
 never after. It is **refused outright (`409`)** while scoring is
 **effectively live** — not manually paused, and inside its scheduled scoring
@@ -633,7 +634,7 @@ then a type-to-confirm phrase — so there is no single click that can fire
 it.
 
 **Import is not atomic — re-run it if it fails partway.** Once the settings
-have validated, the reset and the two content replacements run in sequence
+have validated, the reset and the three content replacements run in sequence
 against Redis, and there is no cross-step transaction rolling them back: a
 storage error partway through can leave the event reset and only partially
 replaced. This is the same non-atomic property the master reset already has,

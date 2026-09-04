@@ -72,8 +72,8 @@ the sections below are the enforceable contract behind it.
    installation, per-repo workflows — `ctf-setup.sh`'s work, holding a key the
    web tier deliberately does not have, ADR 41), it is configured at setup and
    its toggle must be **refused with the reason**, in both directions.
-   `secure-development` is the worked example of the second kind; `quiz` and
-   `classic` are the first.
+   `secure-development` is the worked example of the second kind; `quiz`,
+   `classic` and `ai` are the first.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.
@@ -323,8 +323,9 @@ built off the same `ModuleDetail` renderer as the leaderboard rather than a
 second one — the page's headline total was already net and correct before
 this, what it was missing was the per-module breakdown behind it; the admin
 panel
-(`app/(site)/admin/admin-controls.tsx`) is a tab shell — one **Event** tab for the
-control-plane settings that belong to the platform itself, then one tab per
+(`app/(site)/admin/admin-controls.tsx`) is a tab shell — five control-plane
+tabs that belong to the platform itself (**Event**, **Admins**, **Support**,
+**Activity**, **Insights**), then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
 the four hint controls living in Secure
 Development's tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
@@ -416,11 +417,13 @@ third module isn't mistaken for a fully general n-module platform:
 
 This section remains the contract a *new* module (forensics, api-security,
 cloud, …) must satisfy to plug into the same UI: it is now proven against
-three
+four
 real modules with genuinely different shapes — `secure-development`
 (GitHub-mediated scoring, per-target progress), `quiz` (app-side scoring,
-a flat answered/total count), and `classic` (app-side scoring, a flat
-solved/total count) — which is what makes item 3 below a contract
+a flat answered/total count), `classic` (app-side scoring, a flat
+solved/total count), and `ai` (challenges hosted outside the box, scored
+app-side from a signed event or a typed flag, a flat solved/total count) —
+which is what makes item 3 below a contract
 about *defining your own progress semantics*, not an accidental description
 of one module's shape.
 
@@ -912,10 +915,10 @@ two independent ways to report a solve back:
 | `sync/src/config.js` | add `ai` to `KNOWN_MODULES` (tolerated, same reasoning as `classic` — `ai` never produces a score for `sync` to relay — §2) |
 | `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
 | `setup/ctf-setup.sh` | recognise the `ai` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz`/`classic` (§7) |
-| `apps/web/src/lib/ai-keys.ts` | key names/builders, challenge-id generation, the `AiMode`/`HintTarget` shapes, `validateUrlTemplate` — dependency-free, shared by the admin form and the server-only store |
+| `apps/web/src/lib/ai-keys.ts` | key names/builders, challenge-id generation, the `AiMode` shape, `validateUrlTemplate` — dependency-free, shared by the admin form and the server-only store (`HintTarget` itself lives in `hint-store.ts`, below) |
 | `apps/web/src/lib/ai-defaults.ts` | the module's shared constants (`AI_COOLDOWN_SEC`, …) the server and the admin UI both need, so neither can drift from the other |
 | `apps/web/src/lib/ai-token.ts` | the launch token: EdDSA/Ed25519 signing and verification (`signLaunchToken`), plus the HMAC signing helper for a `mode: "event"` solve report (`signEventBody`) — see [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric) for why the two are different key types |
-| `apps/web/src/lib/ai-store.ts` | the module's own `ctf:ai:*` Redis store — challenges, per-challenge signing/launch keys, flag grading, hints — and the admin/contestant secrecy split |
+| `apps/web/src/lib/ai-store.ts` | the module's own `ctf:ai:*` Redis store — challenges, the per-challenge signing keys and the one module-wide launch keypair, flag grading, hints — and the admin/contestant secrecy split |
 | `apps/web/src/lib/ai-launch.ts` | building a launch URL from a challenge's `urlTemplate` and a minted token (`mintLaunchUrl`/`buildLaunchClaims`) |
 | `apps/web/src/lib/ai-http.ts` | shared request/response helpers for the four contestant-facing `/api/ai/*` routes |
 | `apps/web/src/lib/app-origin.ts` | the launch token's `iss` — the app's own configured origin, never a request's `Host` header |
@@ -982,9 +985,9 @@ Three rules about those rows, each of which has cost this repo a wrong number:
    timeline buckets on it, so a row stamped at import or seed time moves a
    solve to the wrong ten minutes.
 2. **`firstAt` is the FIRST attempt and is carried forward** across every
-   later attempt — both modules' Lua scripts re-read the existing row and keep
-   the original (`quiz-store.ts` / `classic-store.ts`, `if not firstAt then
-   firstAt = ARGV[…] end`). It is what makes time-to-solve knowable at all;
+   later attempt — all three modules' Lua scripts re-read the existing row and
+   keep the original (`quiz-store.ts` / `classic-store.ts` / `ai-store.ts`,
+   `if not firstAt then firstAt = ARGV[…] end`). It is what makes time-to-solve knowable at all;
    overwriting it each try silently turns every duration into zero.
 3. **The attempt row must survive the solve.** `avgAttemptsToSolve` and
    `medianSecondsToSolve` are computed *after* the fact, by matching the
@@ -1052,7 +1055,8 @@ the next module author finds it in the contract rather than in an empty tab.
   write, it needs a decision record first: every per-contestant field added is
   one edit away from making an admin payload carry a login.
 - **Do not read a module's aggregate counter where a fold over per-login rows
-  will do.** `ctf:classic:solvecount` exists and would be a free classic-only
-  shortcut; the fold deliberately ignores it, because folding per-login rows
-  produces the same figure for **both** modules from one source. Reading both
-  invites the two to disagree with no way to tell which is right.
+  will do.** `ctf:classic:solvecount` and `ctf:ai:solvecount` exist and would
+  be free per-module shortcuts; the fold deliberately ignores them, because
+  folding per-login rows produces the same figure for **all three** app-scored
+  modules from one source. Reading both invites the two to disagree with no
+  way to tell which is right.

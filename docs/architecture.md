@@ -343,10 +343,12 @@ possibly-replayed submission."
 
 **Quiz points are ADDED to the board, not attributed from it.**
 `withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
-treats the two enabled modules differently because their points arrive
-differently: `secure-development`'s points are already inside `entry.points`
+handles all four enabled modules, but splits them by how their points
+arrive: `secure-development`'s points are already inside `entry.points`
 (the scorer computed them), so the overlay only *attributes* that existing
-figure into a `ModuleProgress` block. The quiz never submits anything
+figure into a `ModuleProgress` block, while `quiz`, `classic` and `ai` are
+each **added** by the same rule the rest of this section describes for the
+quiz. The quiz never submits anything
 through `scorer`'s `POST /score` — the web app holds no score-writing token
 for that endpoint at all, so there is nothing for it to authenticate as a
 writer with — its points are computed and stored entirely by the app, so
@@ -708,10 +710,11 @@ for the integrator-facing statement of the same rotation contract.
   invite).
 - **`ctf:user:<login>:hints`** — a SET of `<target>/<challengeId>` the
   contestant bought, where `<target>` is a secure-development app id or the
-  literal `classic` (classic hints, issue #190; their text lives in
-  `ctf:classic:hints` — named in `classic-keys.ts`, not here — written by the
-  admin classic form and secret until purchased, exactly like the flag
-  hashes); **`ctf:hints:spent`** — a hash of
+  literal `classic` or `ai` (`hint-store.ts`'s `HintTarget`; classic hints
+  are issue #190, and their text lives in `ctf:classic:hints` — named in
+  `classic-keys.ts`, not here — written by the admin classic form and secret
+  until purchased, exactly like the flag hashes; `ai` hints live in
+  `ctf:ai:hints` under the same rules); **`ctf:hints:spent`** — a hash of
   login → points spent, read by the leaderboard's per-team penalty fold;
   **`ctf:hints:at:<login>`** — a hash of `<target>/<challengeId>` → ISO
   purchase time. That last one is a *separate* key
@@ -751,7 +754,8 @@ without a rebuild:
   | `hintsEnabled`, `hintCost` | hints on/off and their price |
   | `hintsMinSolves`, `hintsUnlockAfterMin` | the anti-burner gate and the time phase |
   | `quizMaxAttempts`, `quizRetryAfterMin` | the quiz retry gate |
-  | `classicCooldownSec` | seconds between flag submissions on one challenge |
+  | `classicCooldownSec` | seconds between flag submissions on one classic challenge |
+  | `aiCooldownSec` | the same, for an `ai` challenge's graded flag path — a signed event is never subject to it |
   | `scoreCooldownMin` | minutes between SCORED runs on one PR (ADR 46) |
   | `teamMaxMembers` | players per team (ADR 45) |
   | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
@@ -815,8 +819,8 @@ without a rebuild:
 - **`ctf:activity:log`** (issue #212) — a capped list (`ACTIVITY_LOG_MAX` =
   5000, `LPUSH`+`LTRIM` in one pipeline, so every write carries its own trim)
   of contestant-facing events: sign-ins (recorded from better-auth's
-  after-hook on the OAuth callback), fresh quiz/classic solves, and team
-  create/join/leave/rename. Read only by the admin panel's **Activity** tab
+  after-hook on the OAuth callback), fresh quiz/classic/ai solves, and team
+  create/join/leave/rename (`activity-keys.ts`'s `ACTIVITY_TYPES`). Read only by the admin panel's **Activity** tab
   (`GET /api/admin/activity`, admin-gated). Two invariants, both from
   `activity-log.ts`: the writer **fails open** — it sits inside sign-in and
   submission paths, and a lost log line must never fail the action it
@@ -863,10 +867,11 @@ computed from per-contestant rows, so every field added later is one edit away
 from carrying a login. The response ships its own **caveats** array, because a
 metric whose limits travel separately from it gets quoted without them.
 
-**What it reads.** Three aggregate reads in one pipeline (`ctf:quiz:points`,
-`ctf:classic:points`, `ctf:hints:spent`), a `SCAN` of `ctf:solves:*` for
-Secure Development, `listTeams()`, and then **six reads per contestant** —
-their quiz answers, classic solves, both attempt hashes, `firstTeamAt` off
+**What it reads.** Four aggregate reads in one pipeline (`ctf:quiz:points`,
+`ctf:classic:points`, `ctf:ai:points`, `ctf:hints:spent`), a `SCAN` of
+`ctf:solves:*` for Secure Development, `listTeams()`, and then **eight reads
+per contestant** (`PER_LOGIN`) — their quiz answers, classic solves and ai
+solves, the three matching attempt hashes, `firstTeamAt` off
 `ctf:user:<login>`, and their hint purchase times — batched 200 commands to a
 round trip. Nothing else; the module contract for those row shapes is
 [docs/modules.md §10](modules.md#section-10-engagement-metrics-contract-insights).
@@ -890,10 +895,10 @@ organizer re-reading it mid-event wants the current number, not one from a
 minute ago.
 
 **Aggregate counters are deliberately not read.** `ctf:classic:solvecount`
-would be a free classic-only shortcut for per-challenge solves, but folding
-each contestant's own rows produces the same figure for *both* modules from
-one source. Reading both would invite the two to disagree with no way to tell
-which was right.
+and `ctf:ai:solvecount` would be free per-module shortcuts for per-challenge
+solves, but folding each contestant's own rows produces the same figure for
+*all three* app-scored modules from one source. Reading both would invite the
+two to disagree with no way to tell which was right.
 
 **The solve-rate denominator has a floor.** It is
 `max(people with an attempt row, people who solved it)`, not the attempt-row
@@ -972,11 +977,17 @@ all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,
 `ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
 `ctf:quiz:answered`, and
 `ctf:classic:solves:*`/`ctf:classic:attempts:*`/`ctf:classic:points`/
-`ctf:classic:solved`/`ctf:classic:solvecount`, and the activity log
+`ctf:classic:solved`/`ctf:classic:solvecount`,
+`ctf:ai:solves:*`/`ctf:ai:attempts:*`/`ctf:ai:points`/`ctf:ai:solved`/
+`ctf:ai:solvecount`, the spent replay nonces `ctf:ai:nonce:*`, the
+module-wide `ctf:ai:launchkey` (so no launch token issued before the reset
+survives it — see "AI data flow" above), and the activity log
 (`ctf:activity:log`) — keeps `ctf:admin:settings`
 and (deliberately) the organizer's authored content,
-`ctf:quiz:questions`/`ctf:quiz:key` and `ctf:classic:challenges`/
-`ctf:classic:flag`/`ctf:classic:flagnorm`/`ctf:classic:categories`, and
+`ctf:quiz:questions`/`ctf:quiz:key`, `ctf:classic:challenges`/
+`ctf:classic:flag`/`ctf:classic:flagnorm`/`ctf:classic:categories` and
+`ctf:ai:challenges`/`ctf:ai:flag`/`ctf:ai:flagnorm`/`ctf:ai:hints`/
+`ctf:ai:signkey`/`ctf:ai:categories`, and
 appends a reset audit line. The prefix list is walked unconditionally: the
 reset does not check which modules are enabled, so keys a since-disabled
 module left behind are cleared too. On its own that isn't enough in **poll
