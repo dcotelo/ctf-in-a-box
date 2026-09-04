@@ -440,3 +440,67 @@ describe("verdict mapping", () => {
     expect(JSON.stringify(res)).not.toContain("ctf{secret}");
   });
 });
+
+describe("failures never reach the log with the request attached (#244)", () => {
+  const FLAG = "CTF{do-not-log-me}";
+  // A driver that decorates its rejection with the request it failed on is the
+  // whole danger: `upstashEval`'s ARGV carries BOTH comparison forms of the
+  // submitted flag, so one `console.error(err)` writes the event's flags to
+  // the log. The error's own `message` says nothing about them.
+  const decorated = () =>
+    Object.assign(new Error("Upstash EVAL failed: ERR timeout"), {
+      command: ["EVAL", "...", FLAG, FLAG.toLowerCase()],
+      cause: new Error(`while sending ${FLAG}`),
+    });
+
+  /** Asserts exactly one `console.error` whose args carry no Error object and
+   *  no flag, but still say which failure it was. */
+  function expectRedacted(spy: ReturnType<typeof vi.spyOn>, diagnostic: string) {
+    expect(spy).toHaveBeenCalledTimes(1);
+    const logged = spy.mock.calls[0] as unknown[];
+    expect(String(logged[0])).toContain(diagnostic);
+    // Load-bearing half: `JSON.stringify(new Error("x"))` is `"{}"`, so the
+    // string check alone passes against the unfixed code.
+    expect(logged.some((arg) => arg instanceof Error)).toBe(false);
+    const rendered = logged.map((arg) => JSON.stringify(arg)).join(" ");
+    expect(rendered).not.toContain(FLAG);
+    expect(rendered).not.toContain(FLAG.toLowerCase());
+    expect(rendered).toContain("ERR timeout");
+  }
+
+  it("grading: logs a fixed diagnostic and the error's name/message, not the object", async () => {
+    mocks.upstashEval.mockRejectedValueOnce(decorated());
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await submitFlag("alice", "chal-1", FLAG)).toEqual({ ok: false, reason: "error" });
+      expectRedacted(spy, "Classic grading failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("gate lookup: same redaction, and the gate still fails closed", async () => {
+    mocks.upstashPipeline.mockRejectedValueOnce(decorated());
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await submitFlag("alice", "chal-1", FLAG);
+      expect(result.ok).toBe(false);
+      expect(evalCalls()).toHaveLength(0);
+      expectRedacted(spy, "solve/attempt lookup failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("admin settings read: same redaction, and scoring still fails open", async () => {
+    mocks.getAdminSettings.mockRejectedValueOnce(decorated());
+    evalReturns(["correct", "100"]);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await submitFlag("alice", "chal-1", FLAG)).toMatchObject({ ok: true });
+      expectRedacted(spy, "admin settings read failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

@@ -482,3 +482,64 @@ describe("firstAt carry-forward", () => {
     expect(/"firstAt":"([^"]*)"/.exec(blob)?.[1]).toBe("2026-08-22T10:00:00Z");
   });
 });
+
+describe("failures never reach the log with the request attached (#244)", () => {
+  const ANSWER = "leaked-answer-key-ab12cd";
+  // A driver that decorates its rejection with the request it failed on is the
+  // whole danger: `upstashEval`'s ARGV carries the submitted answer, and the
+  // gate's HGET names the answers hash, so one `console.error(err)` writes
+  // what the contestant sent — or what the key holds — to the log.
+  const decorated = () =>
+    Object.assign(new Error("Upstash EVAL failed: ERR timeout"), {
+      command: ["EVAL", "...", ANSWER],
+      cause: new Error(`while sending ${ANSWER}`),
+    });
+
+  function expectRedacted(spy: ReturnType<typeof vi.spyOn>, diagnostic: string) {
+    expect(spy).toHaveBeenCalledTimes(1);
+    const logged = spy.mock.calls[0] as unknown[];
+    expect(String(logged[0])).toContain(diagnostic);
+    // Load-bearing half: `JSON.stringify(new Error("x"))` is `"{}"`, so the
+    // string check alone passes against the unfixed code.
+    expect(logged.some((arg) => arg instanceof Error)).toBe(false);
+    const rendered = logged.map((arg) => JSON.stringify(arg)).join(" ");
+    expect(rendered).not.toContain(ANSWER);
+    expect(rendered).toContain("ERR timeout");
+  }
+
+  it("grading: logs a fixed diagnostic and the error's name/message, not the object", async () => {
+    gateReads(null, null);
+    mocks.upstashEval.mockRejectedValueOnce(decorated());
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await answerQuestion("octocat", "q1", ["a"])).toEqual({ ok: false, reason: "error" });
+      expectRedacted(spy, "Quiz grading failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("gate lookup: same redaction, and the gate still fails closed", async () => {
+    mocks.upstashPipeline.mockRejectedValueOnce(decorated());
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await quizGate("octocat", "q1")).toMatchObject({ allowed: false, reason: "unavailable" });
+      expectRedacted(spy, "attempt/answer lookup failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("admin settings read: same redaction, and scoring still fails open", async () => {
+    mocks.getAdminSettings.mockRejectedValueOnce(decorated());
+    gateReads(null, null);
+    mocks.upstashEval.mockResolvedValueOnce(["correct", "10"]);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await answerQuestion("octocat", "q1", ["a"])).toMatchObject({ ok: true });
+      expectRedacted(spy, "admin settings read failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

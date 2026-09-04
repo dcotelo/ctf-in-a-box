@@ -165,6 +165,24 @@ unverified field isn't self-service; it's the admin gate with the identity
 check removed, and it still needs `requireAdmin` or a real bound identity to
 pass review.
 
+**13. A `catch` logs a label, never the caught object.** The grading paths
+call `upstashEval` with the submitted flag or answer — and, for classic,
+the stored flag's comparison form — as ARGV, so a driver that decorates
+its rejection with the request it failed on (`command`, `body`, `cause`)
+turns one `console.error("…", err)` into the event's flags in a log the
+organizer may already have shipped somewhere. No error shape reachable today
+carries them; the invariant is that nothing prevents a future one from doing
+so, and logs cannot be un-shipped. The three stores hand the logger
+`errorLabel(err)` from `apps/web/src/lib/error-label.ts` — name and message,
+capped, no stack, no own properties, `"non-Error throw"` for anything that
+is not an `Error` — and nothing else. In a diff, the red flag is a raw `err`
+(or `String(err)`, or `JSON.stringify(err)`) as a `console.*` argument in
+`apps/web/src/lib/*-store.ts`. The tests reject with an `Error` carrying a
+planted flag in `command`/`cause` and assert two things: the flag appears in
+no logged argument, AND no logged argument is `instanceof Error` — the
+second is load-bearing, since `JSON.stringify(new Error("x"))` is `"{}"`
+and the first check alone passes against the unfixed code (#241, #244).
+
 ## Section 2. What not to flag
 
 Deliberate decisions, each with the ADR that settled it. Re-raising one

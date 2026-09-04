@@ -2,6 +2,7 @@ import "server-only";
 export { AI_COOLDOWN_SEC } from "./ai-defaults";
 
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { errorLabel } from "@/lib/error-label";
 import { AI_COOLDOWN_SEC, AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { generateLaunchKeyPair, generateSigningKey, type AiLaunchKeyPair } from "@/lib/ai-token";
@@ -107,23 +108,6 @@ export class AiValidationError extends Error {
     this.name = "AiValidationError";
     this.field = field;
   }
-}
-
-/** The ONLY thing this module is allowed to hand `console.error`.
- *
- *  Never the caught value itself. The award path calls `upstashEval` with the
- *  submitted flag AND the stored flag's comparison form as ARGV, so a client
- *  or driver that decorates its errors with the request it failed on — an
- *  attached `command`, `body` or `cause`, or a serialized argument list — turns
- *  one `console.error(err)` into the event's flags in the log. A rejected
- *  promise can also be an arbitrary value, not an `Error` at all.
- *
- *  So: name and message, both capped, and nothing else. No stack (it is the
- *  part most likely to carry interpolated arguments), no own properties, and
- *  no `String(err)` on a non-`Error` — a thrown string could BE the flag. */
-function errorLabel(err: unknown): string {
-  if (!(err instanceof Error)) return "non-Error throw";
-  return `${err.name}: ${err.message}`.slice(0, 200);
 }
 
 function parseChallenge(raw: string): AiChallenge | null {
