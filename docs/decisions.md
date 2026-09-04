@@ -1912,9 +1912,10 @@ business adjudicating.
 *Amended with ADR 53 (the ai module):* `/api/ai/*` is excluded as well
 (`AI_PREFIX` in `src/proxy.ts`). Those routes are called cross-origin by
 design — by the external challenge site and by a static token verifier — and
-authenticate with a signed launch token or an HMAC event signature, never an
-ambient cookie, so the ambient-credential attack this assertion exists to
-stop does not apply to them. Two carve-outs, each with its own reason; a third
+none relies on an ambient cookie: `submit` and `state` authenticate with a
+signed launch token, `event` with that token plus an HMAC event signature,
+and `launch-key` is intentionally public. So the ambient-credential attack
+this assertion exists to stop does not apply to them. Two carve-outs, each with its own reason; a third
 needs its own.
 
 **Decision, part 2: rate-limit on the LOGIN, not the IP.** `gate-store.ts`

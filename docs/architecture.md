@@ -1159,9 +1159,11 @@ only rebuilds an image when told to
   better-auth runs its own origin policy there and two policies on one route
   is how a sign-in breaks in a way nobody can find; and `/api/ai/*`, because
   the ai module's routes are called cross-origin BY DESIGN by the external
-  challenge site and by a static verifier, and authenticate with a signed
-  launch token or an HMAC event signature rather than an ambient cookie (see
-  `AI_PREFIX` in `src/proxy.ts`). A missing `Origin` is allowed: it means a
+  challenge site and by a static verifier, and none of them relies on an
+  ambient cookie: `POST /api/ai/submit` and `GET /api/ai/state` authenticate
+  with a signed launch token, `POST /api/ai/event` with that token plus an
+  HMAC event signature, and `GET /api/ai/launch-key` is intentionally public
+  (see `AI_PREFIX` in `src/proxy.ts`). A missing `Origin` is allowed: it means a
   non-browser client, which carries no ambient cookie to ride. See ADR 40.
 - **A leaked event key cannot mint identity (ADR 53).** The `ai` module
   splits its two signatures by key type rather than sharing one: the
@@ -1174,9 +1176,11 @@ only rebuilds an image when told to
   `/api/team/join` (join-code guessing) and `/api/hints/reveal` are charged
   against a fixed window keyed on the **authenticated login**
   (`src/lib/rate-limit-store.ts`), not an IP; the ai module's
-  `/api/ai/submit`, `/api/ai/state`, `/api/ai/event` and the admin
-  `/api/admin/ai/test` use the same store, keyed on the login the verified
-  launch token names. That distinction is the point:
+  `/api/ai/submit`, `/api/ai/state` and `/api/ai/event` use the same store,
+  keyed on the login the verified launch token names, and the admin
+  `/api/admin/ai/test` charges its own `aiAdminTest` budget against the
+  admin's session login before it mints the test token. That distinction is
+  the point:
   `lib/gate-store.ts` keys on IP because the pre-event gate runs before anyone
   has an identity, and it documents that the key is spoofable (Caddy *appends*
   to `x-forwarded-for`). These routes run after `getSession()`, so there is a
