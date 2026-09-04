@@ -8,6 +8,18 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Docs reconciled with the code the hygiene audit compared them against.**
+  The review guideline's public-surface list names all five unauthenticated
+  `/api` routes (it said three), the same-origin carve-out and rate-limit
+  lists include the ai module's routes, and the team-required boundary names
+  `/api/ai/submit`; CONTRIBUTING counts ten CI jobs and four modules and
+  lists `acceptance-ai-only.sh`; the README's copy-pasteable scorer test line
+  runs `acceptance-scorer.sh` from the repo root, where it lives; the
+  pre-event gate's scope is stated once and correctly (`apps/web/.env.example`
+  said the module APIs were not behind it — they are). Two shipped planning
+  files (`docs/DOCS-PLAN.md`, `docs/DOCS-CHANGELOG.md`) and the
+  `github.oauth_client_id` key in `event.yaml.example`, which no reader ever
+  read, are removed.
 - **The grading Lua is executed by tests now, against a real Redis.** Classic's
   `SUBMIT_SCRIPT`, quiz's `GRADE_SCRIPT` and ai's `AWARD_SCRIPT` — the
   scripts that decide points — had never been run by any test; the mocked
