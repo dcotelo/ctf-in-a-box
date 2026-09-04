@@ -209,7 +209,7 @@ reviews:
         regexes and by sync's MARKER. A shape change needs both pinned tests
         updated in the same PR.
 
-    - path: "apps/web/src/lib/{quiz,classic}-{store,keys}.ts"
+    - path: "apps/web/src/lib/{quiz,classic,ai}-{store,keys}.ts"
       instructions: |
         These hold the answer keys and flags. Flag
         ⚠️ WARNING: <description> — <fix> for:
