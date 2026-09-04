@@ -2,3 +2,10 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+
+# Security floor for a transitive (babel → next, eslint-config-next). pnpm
+# would not re-resolve it within range on its own because it is also a peer
+# of update-browserslist-db. GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g.
+# Drop once every dependant's own range starts at or above 4.28.7.
+overrides:
+  browserslist: ">=4.28.7"
