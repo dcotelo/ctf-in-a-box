@@ -5,6 +5,7 @@ import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
 import { AI_COOLDOWN_SEC, AI_NONCE_TTL_SEC } from "@/lib/ai-defaults";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { generateLaunchKeyPair, generateSigningKey, type AiLaunchKeyPair } from "@/lib/ai-token";
+import { AI_BUNDLE_VERSION, type AiBundle, type AiBundleChallenge } from "@/lib/ai-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import {
@@ -1001,4 +1002,166 @@ export async function awardAiEvent(
   if (opts.dryRun) return { ok: true, correct: true, points: 0, dryRun: true };
 
   return runAward(login, challengeId, "", cooldownSec, false, "event");
+}
+
+// ---------------------------------------------------------------------------
+// Bundle export/import — the ai half of the whole-event archive (#250).
+// Mirrors classic-store.ts's `exportBundle`/`importBundle` contract exactly;
+// see ai-io.ts for the bundle shape and the rules a bundle must satisfy.
+
+/** The current ai catalogue in the shape `importBundle` accepts — so
+ *  exporting then re-importing round-trips, which is what makes an export
+ *  usable as a backup. Reads the admin-gated list (WITH each flag AS AUTHORED,
+ *  each hint and each signing key) and the category list. Optional fields are
+ *  emitted only when set, so a board with no hints, no case-sensitive
+ *  challenge or no event-only challenge exports without a field appearing on
+ *  every row.
+ *
+ *  Sequential rather than `Promise.all`, so the two reads are issued in a
+ *  fixed order — the only order a test with a scripted pipeline can rely on.
+ *
+ *  Never reads `ctf:ai:launchkey`: the launch keypair is module identity, not
+ *  catalogue content, and a bundle must not carry it (see ai-io.ts). */
+export async function exportBundle(): Promise<AiBundle> {
+  const rows = await listAiChallengesForAdmin();
+  const categories = await listAiCategories();
+  const challenges: AiBundleChallenge[] = rows.map(({ challenge, flag, hint, signingKey }) => {
+    const graded = challenge.mode !== "event";
+    // A graded row with no flag row is corrupt data (`upsertAiChallenge` never
+    // writes one): exporting it would silently produce a bundle ai-io.ts
+    // refuses on import. Fail here, naming the challenge, so the organizer
+    // fixes the row instead of discovering the archive is dead at restore time.
+    if (graded && !flag) {
+      throw new Error(
+        `cannot export the ai catalogue: challenge ${challenge.id} is graded (mode "${challenge.mode}") but has no flag — edit it in the admin panel first`,
+      );
+    }
+    return {
+      id: challenge.id,
+      title: challenge.title,
+      category: challenge.category,
+      description: challenge.description,
+      points: challenge.points,
+      order: challenge.order,
+      mode: challenge.mode,
+      urlTemplate: challenge.urlTemplate,
+      ...(challenge.caseSensitive ? { caseSensitive: true as const } : {}),
+      // Emitted by MODE, not by presence: ai-io.ts refuses a flag on an
+      // event-only row, so a stale flag row on one must not leak into the file.
+      ...(graded ? { flag } : {}),
+      ...(hint ? { hint } : {}),
+      // `""` marks a legacy row whose key was never minted; omitted so the
+      // import mints one rather than refusing the whole bundle.
+      ...(signingKey ? { signingKey } : {}),
+    };
+  });
+  return { version: AI_BUNDLE_VERSION, categories, challenges };
+}
+
+export type AiImportSummary = { created: number; updated: number; categories: number };
+
+/** Bulk upsert of an already-PARSED bundle (`parseBundle` in ai-io.ts has
+ *  validated every row). Categories are unioned onto the existing list —
+ *  existing order kept verbatim, bundle additions appended, case-insensitive
+ *  — and every challenge's `category` is canonicalized to the surviving
+ *  spelling, the same invariant classic's import keeps. Challenges are
+ *  written field by field the way `upsertAiChallenge` writes them: the record
+ *  never carries a flag; a graded row gets its flag, comparison form and
+ *  hint HSET (or HDEL when unset); an event-only row gets all three HDELed so
+ *  a later mode change cannot resurrect a stale flag.
+ *
+ *  Signing keys: a key the bundle carries is restored verbatim (HSET) — that
+ *  is the point of carrying it, an integrator configured against it keeps
+ *  working after a restore. A row without one is minted a key with HSETNX,
+ *  which preserves any key already on the box for that id rather than
+ *  rotating it silently (the same never-rotate-on-edit rule `upsertAiChallenge`
+ *  holds). Everything lands in ONE pipeline.
+ *
+ *  Never touches `ctf:ai:launchkey`, for the reason `clearAiChallenges`
+ *  gives: rotating module identity on an import would break every deployed
+ *  verifier. The archive's replace-all clears the catalogue first
+ *  (`clearAiChallenges`) and then calls this; standalone, this is a merge. */
+export async function importBundle(bundle: AiBundle): Promise<AiImportSummary> {
+  const [idsRes, categoriesRes] = await upstashPipeline([
+    ["HKEYS", CHALLENGES_KEY],
+    ["GET", CATEGORIES_KEY],
+  ]);
+
+  // Both reads must have succeeded before anything is written. A failed GET
+  // would otherwise read as "no categories yet", and the SET below would then
+  // replace the box's whole category list with only the bundle's — a transient
+  // read error turned into data loss. Same refusal `upsertAiChallenge` makes
+  // when its HGET is unusable.
+  const failedRead = [idsRes, categoriesRes].find((r) => r.error);
+  if (failedRead) throw new Error(`Upstash read failed before import: ${failedRead.error}`);
+
+  const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
+
+  let existingCategories: string[] = [];
+  if (typeof categoriesRes.result === "string") {
+    try {
+      const parsed = JSON.parse(categoriesRes.result) as unknown;
+      if (Array.isArray(parsed)) existingCategories = parsed.filter((v): v is string => typeof v === "string");
+    } catch {
+      existingCategories = [];
+    }
+  }
+
+  const unioned = [...existingCategories];
+  const seen = new Set(existingCategories.map((name) => name.toLowerCase()));
+  for (const name of bundle.categories) {
+    const fold = name.toLowerCase();
+    if (seen.has(fold)) continue;
+    seen.add(fold);
+    unioned.push(name);
+  }
+  const canon = new Map(unioned.map((name) => [name.toLowerCase(), name]));
+
+  let created = 0;
+  let updated = 0;
+  const commands: (string | number)[][] = [];
+  for (const c of bundle.challenges) {
+    if (existingIds.has(c.id)) updated += 1;
+    else created += 1;
+
+    // The parser already accepted the template; re-running the check here is
+    // what yields the NORMALIZED value `upsertAiChallenge` would have stored.
+    const template = validateUrlTemplate(c.urlTemplate);
+    if (!template.ok) throw new AiValidationError("urlTemplate", template.reason);
+
+    const record: AiChallenge = {
+      id: c.id,
+      title: c.title.trim(),
+      category: canon.get(c.category.toLowerCase()) ?? c.category,
+      description: c.description,
+      points: c.points,
+      order: c.order,
+      mode: c.mode,
+      urlTemplate: template.value,
+      ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
+    };
+    commands.push(["HSET", CHALLENGES_KEY, c.id, JSON.stringify(record)]);
+
+    const graded = c.mode !== "event";
+    const flag = graded && typeof c.flag === "string" ? c.flag.trim() : "";
+    if (graded && !flag) throw new AiValidationError("flag", "A flag is required unless the challenge is event-only");
+    commands.push(graded ? ["HSET", FLAG_KEY, c.id, flag] : ["HDEL", FLAG_KEY, c.id]);
+    commands.push(
+      graded ? ["HSET", FLAGNORM_KEY, c.id, flagComparisonForm(flag, record.caseSensitive)] : ["HDEL", FLAGNORM_KEY, c.id],
+    );
+
+    const hint = typeof c.hint === "string" && c.hint.trim() ? c.hint.trim() : null;
+    commands.push(hint ? ["HSET", HINTS_KEY, c.id, hint] : ["HDEL", HINTS_KEY, c.id]);
+
+    commands.push(
+      c.signingKey ? ["HSET", SIGNKEY_KEY, c.id, c.signingKey] : ["HSETNX", SIGNKEY_KEY, c.id, generateSigningKey()],
+    );
+  }
+  commands.push(["SET", CATEGORIES_KEY, JSON.stringify(unioned)]);
+
+  const results = await upstashPipeline(commands);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Upstash bulk import failed: ${failed.error}`);
+
+  return { created, updated, categories: bundle.categories.length };
 }

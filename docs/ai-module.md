@@ -341,14 +341,16 @@ Two independent keys, and they rotate on different triggers:
   **immediately, with no grace window** — the moment an organizer clicks
   Rotate, your old key stops verifying, and your backend needs the new one
   before its next event POST. There is no overlap period to redeploy
-  during.
+  during. The key travels in the box's whole-event archive, so a board
+  restored from an export keeps the key you configured against.
 - **The module-wide launch keypair.** One Ed25519 pair for the whole `ai`
   module (not one per challenge — `aud` already scopes a token to a single
   challenge). The public half is what `GET /api/ai/launch-key` serves; the
   private half never leaves the box and is what actually mints tokens. It
   is minted lazily on first use and otherwise stable — the one thing that
   rotates it is a **master event reset**, which deletes the stored keypair
-  outright. The next launch mints a fresh pair, every previously-issued
+  outright. An archive import does NOT: the keypair is not part of a bundle,
+  and the import leaves the box's own pair in place. The next launch mints a fresh pair, every previously-issued
   launch token stops verifying, and your cached public key (§3) becomes
   stale — re-fetch it after any reset, or plan to react to a sudden run of
   `invalid-token` refusals by doing so.
@@ -357,11 +359,6 @@ Two independent keys, and they rotate on different triggers:
 
 Honestly, as shipped:
 
-- **No archive export/import for the `ai` catalogue.** The box's
-  whole-event archive bundle carries `classic` and `quiz` content
-  end-to-end; `ai`'s challenges, keys and progress are not part of it yet.
-  Archiving and restoring an event currently loses the `ai` board.
-  ([#250](https://github.com/dcotelo/ctf-in-a-box/issues/250))
 - **No dual-key window during signing-key rotation.** Because rotation is
   immediate (§9), there's no way to roll your backend to a new key without
   a gap in which either the old key still verifies briefly or your posts

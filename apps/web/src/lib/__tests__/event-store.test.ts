@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as classicStore from "@/lib/classic-store";
 import * as quizStore from "@/lib/quiz-store";
+import * as aiStore from "@/lib/ai-store";
 import * as adminStore from "@/lib/admin-store";
 
 const m = vi.hoisted(() => ({
-  exportClassic: vi.fn(), exportQuiz: vi.fn(),
+  exportClassic: vi.fn(), exportQuiz: vi.fn(), exportAi: vi.fn(),
   getAdminSettings: vi.fn(), effectivePaused: vi.fn(),
   // A plain, mutated-in-place array (never reassigned) so `vi.mock`'s
   // captured reference below stays live across tests — a test that wants a
@@ -15,6 +16,7 @@ const m = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/classic-store", () => ({ exportBundle: m.exportClassic, clearChallenges: vi.fn(), importBundle: vi.fn() }));
 vi.mock("@/lib/quiz-store", () => ({ exportBundle: m.exportQuiz, clearQuestions: vi.fn(), importBundle: vi.fn() }));
+vi.mock("@/lib/ai-store", () => ({ exportBundle: m.exportAi, clearAiChallenges: vi.fn(), importBundle: vi.fn() }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings: m.getAdminSettings, effectivePaused: m.effectivePaused, updateAdminSettings: vi.fn(), resetEvent: vi.fn() }));
 vi.mock("@/lib/event-config", () => ({ eventConfig: {
   name: "Demo CTF", theme: "web", dates: "2026", location: "online", ctfStartsAt: null,
@@ -28,7 +30,7 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
 // with, independent of the unrelated eventConfig fixture other tests share.
 vi.mock("@/lib/modules", () => ({
   bakedModuleIds: m.bakedModuleIds,
-  isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "secure-development"].includes(v),
+  isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "ai", "secure-development"].includes(v),
 }));
 
 import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
@@ -37,6 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.exportClassic.mockResolvedValue({ version: 1, categories: ["Web"], challenges: [{ id: "web-one-ab12cd", title: "One", category: "Web", description: "hi", points: 50, order: 0, flag: "ctfbox{One}" }] });
   m.exportQuiz.mockResolvedValue({ version: 1, questions: [] });
+  m.exportAi.mockResolvedValue({ version: 1, categories: ["Prompt Injection"], challenges: [] });
   m.getAdminSettings.mockResolvedValue({
     hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"],
     scoringStartsAt: "2026-01-01T00:00:00Z", paused: true, updatedBy: "alice", updatedAt: "x",
@@ -57,6 +60,21 @@ describe("exportEventBundle", () => {
     const s = JSON.stringify(bundle);
     expect(s).not.toContain("org@example.com");
     expect(s).not.toContain('"admins"');
+  });
+
+  // #250: the ai catalogue is the third archivable content module. Included
+  // exactly when `ai` is in the resolved enabled set, like classic and quiz.
+  it("carries the ai catalogue when the ai module is enabled, and omits the section when it is not", async () => {
+    m.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["classic", "quiz", "ai"], paused: true });
+    const withAi = await exportEventBundle(new Date());
+    expect(withAi.bundle.ai).toEqual({ version: 1, categories: ["Prompt Injection"], challenges: [] });
+    expect(m.exportAi).toHaveBeenCalledTimes(1);
+
+    m.exportAi.mockClear();
+    m.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["classic", "quiz"], paused: true });
+    const withoutAi = await exportEventBundle(new Date());
+    expect("ai" in withoutAi.bundle).toBe(false);
+    expect(m.exportAi).not.toHaveBeenCalled();
   });
 
   it("warns when the event is live", async () => {
@@ -217,7 +235,7 @@ describe("importEventBundle", () => {
     expect(clearOrder).toBeLessThan(importOrder);
   });
 
-  it("clears BOTH content stores on replace, even when the bundle carries only one module (a quiz-only archive must still wipe stale classic content already on the target)", async () => {
+  it("clears ALL THREE content stores on replace, even when the bundle carries only one module (a quiz-only archive must still wipe stale classic and ai content already on the target)", async () => {
     const quizOnly = bundleFixture();
     delete (quizOnly as { classic?: unknown }).classic;
     await importEventBundle(quizOnly, "alice");
@@ -225,6 +243,40 @@ describe("importEventBundle", () => {
     expect(classicStore.importBundle).not.toHaveBeenCalled();
     expect(quizStore.clearQuestions).toHaveBeenCalled();
     expect(quizStore.importBundle).toHaveBeenCalled();
+    expect(aiStore.clearAiChallenges).toHaveBeenCalled();
+    expect(aiStore.importBundle).not.toHaveBeenCalled();
+  });
+
+  // #250: the ai section, when present, is cleared-then-imported like the
+  // other two and reported in the summary under its own key.
+  it("imports the ai section after clearing it, and reports it in the summary", async () => {
+    vi.mocked(aiStore.importBundle).mockResolvedValue({ created: 2, updated: 0, categories: 1 });
+    const withAi = {
+      ...bundleFixture(),
+      ai: {
+        version: 1 as const,
+        categories: ["Prompt Injection"],
+        challenges: [
+          {
+            id: "pi-one-ab12cd",
+            title: "One",
+            category: "Prompt Injection",
+            description: "hi",
+            points: 50,
+            order: 0,
+            mode: "both" as const,
+            urlTemplate: "https://ai.example/one?t={token}",
+            flag: "ctfbox{One}",
+          },
+        ],
+      },
+    };
+    const { summary } = await importEventBundle(withAi, "alice");
+    expect(aiStore.importBundle).toHaveBeenCalledWith(withAi.ai);
+    const clearOrder = vi.mocked(aiStore.clearAiChallenges).mock.invocationCallOrder[0];
+    const importOrder = vi.mocked(aiStore.importBundle).mock.invocationCallOrder[0];
+    expect(clearOrder).toBeLessThan(importOrder);
+    expect(summary.ai).toEqual({ created: 2, updated: 0 });
   });
 
   it("applies only policy settings, never schedule fields", async () => {

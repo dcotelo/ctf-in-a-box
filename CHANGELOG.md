@@ -17,6 +17,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   six one-line Lua mutations the August review found survivable now fails a
   test. The three script constants are exported for that purpose; nothing
   else about them changed.
+- **The event archive now carries the AI catalogue** (#250, #155's ai half).
+  Export writes an `ai` section — challenges with their mode, launch URL
+  template, flag, hint, categories and per-challenge signing key — and
+  import clears and replaces the AI board like the classic and quiz ones, so
+  an archived event no longer loses its AI challenges and an external site
+  configured against a signing key keeps working after a restore. The
+  module's launch keypair is deliberately not in a bundle and an import
+  leaves the box's own pair alone. Bundles exported before this change
+  still import unchanged (the section is optional); a bundle with an `ai`
+  section imports into an older box only after removing it.
 - **`ctf-setup.sh --dry-run` is dry again, and `--out` is honoured
   everywhere.** The wizard's org step probed the org with `gh api` and ran a
   full `doctor` sweep even under `--dry-run`, and step 1 probed `gh auth

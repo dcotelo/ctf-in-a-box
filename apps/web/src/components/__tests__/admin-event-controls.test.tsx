@@ -127,8 +127,16 @@ describe("the double confirmation before an import POST fires", () => {
     const warn = importFirstWarning();
     expect(warn.body).toMatch(/classic/i);
     expect(warn.body).toMatch(/quiz/i);
+    // #250: the ai catalogue is replaced too, and the copy has to say so.
+    expect(warn.body).toMatch(/\bAI\b/);
     expect(warn.body).toMatch(/team/i);
     expect(warn.body).toMatch(/solve/i);
+  });
+
+  it("the second-step confirmation and the panel's own prose name AI alongside Classic and Quiz", () => {
+    expect(importReplaceConfirm().body).toMatch(/\bAI\b/);
+    const html = renderToStaticMarkup(<AdminEventControls />);
+    expect(html).toMatch(/Classic, Quiz and AI/);
   });
 
   it("the second-step confirmation requires typing a non-empty phrase", () => {
@@ -158,7 +166,14 @@ describe("formatImportSummary", () => {
   it("names only the module actually present in the summary", () => {
     const text = formatImportSummary({ quiz: { created: 1, updated: 0 } });
     expect(text.toLowerCase()).not.toContain("classic");
+    expect(text).not.toMatch(/\bAI\b/);
     expect(text).toMatch(/quiz/i);
+  });
+
+  it("names the ai section's counts when the bundle carried one (#250)", () => {
+    const text = formatImportSummary({ ai: { created: 4, updated: 1 } });
+    expect(text).toMatch(/\bAI\b: 4 created, 1 updated/);
+    expect(text.toLowerCase()).not.toContain("classic");
   });
 });
 

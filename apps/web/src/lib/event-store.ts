@@ -1,6 +1,7 @@
 import "server-only";
 import { exportBundle as exportClassic, clearChallenges, importBundle as importClassic } from "@/lib/classic-store";
 import { exportBundle as exportQuiz, clearQuestions, importBundle as importQuiz } from "@/lib/quiz-store";
+import { exportBundle as exportAi, clearAiChallenges, importBundle as importAi } from "@/lib/ai-store";
 import { effectivePaused, getAdminSettings, resetEvent, updateAdminSettings, type SettingsPatch } from "@/lib/admin-store";
 import { eventConfig } from "@/lib/event-config";
 import { EVENT_BUNDLE_VERSION, EVENT_POLICY_FIELDS, type EventBundle, type EventPolicySettings } from "@/lib/event-io";
@@ -83,6 +84,10 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
     settings: policySettings,
     ...(isEnabled("classic") ? { classic: await exportClassic() } : {}),
     ...(isEnabled("quiz") ? { quiz: await exportQuiz() } : {}),
+    // #250: the ai catalogue rides along like the other two. Its own
+    // `exportBundle` reads challenges, flags, hints, signing keys and
+    // categories — never `ctf:ai:launchkey`, which is module identity.
+    ...(isEnabled("ai") ? { ai: await exportAi() } : {}),
   };
 
   return { bundle, warnings };
@@ -96,15 +101,19 @@ export class EventLiveError extends Error {}
 export type EventImportSummary = {
   classic?: { created: number; updated: number };
   quiz?: { created: number; updated: number };
+  ai?: { created: number; updated: number };
 };
 
 /** Replace-all import of a whole-EVENT archive bundle. Destructive: it wipes
- *  run state (`resetEvent`) and then REPLACES the box's content. Both
- *  archivable content stores (classic, quiz) are cleared unconditionally —
- *  not only the ones present in the bundle — and only then is each section
- *  actually present in the bundle imported (clear-both, then import-present
+ *  run state (`resetEvent`) and then REPLACES the box's content. All three
+ *  archivable content stores (classic, quiz, ai) are cleared unconditionally
+ *  — not only the ones present in the bundle — and only then is each section
+ *  actually present in the bundle imported (clear-all, then import-present
  *  — never the reverse, or a stale challenge the bundle doesn't carry would
- *  survive the "replace"). This is "replace-all into a box to replay THIS
+ *  survive the "replace"). The ai clear (`clearAiChallenges`) deliberately
+ *  leaves `ctf:ai:launchkey` alone: rotating the module's published launch
+ *  key on an import would break every deployed external verifier (#250,
+ *  ADR 53). This is "replace-all into a box to replay THIS
  *  event": a quiz-only archive must leave the box with NO classic content,
  *  not the target's pre-existing classic content still sitting there ready
  *  to resurface if classic is later re-enabled. A module absent from the
@@ -157,14 +166,15 @@ export async function importEventBundle(
   // exists.
   await resetEvent(actor);
 
-  // Replace-ALL: both archivable content stores are cleared regardless of
+  // Replace-ALL: every archivable content store is cleared regardless of
   // which module sections this bundle carries. A quiz-only archive must wipe
-  // any classic content already on the target (and vice-versa) — this is a
-  // replace of the box's whole content state to match the archive, not a
-  // merge, so stale content from a module absent in the bundle must not
+  // any classic or ai content already on the target (and vice-versa) — this
+  // is a replace of the box's whole content state to match the archive, not
+  // a merge, so stale content from a module absent in the bundle must not
   // resurface later if that module gets re-enabled.
   await clearChallenges();
   await clearQuestions();
+  await clearAiChallenges();
 
   const summary: EventImportSummary = {};
 
@@ -176,6 +186,11 @@ export async function importEventBundle(
   if (bundle.quiz) {
     const q = await importQuiz(bundle.quiz);
     summary.quiz = { created: q.created, updated: q.updated };
+  }
+
+  if (bundle.ai) {
+    const a = await importAi(bundle.ai);
+    summary.ai = { created: a.created, updated: a.updated };
   }
 
   const skipped: string[] = [BRANDING_SKIPPED, ...moduleSkipped];

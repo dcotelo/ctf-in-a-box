@@ -106,7 +106,7 @@ export function importFirstWarning(): { title: string; body: string; confirmLabe
   return {
     title: "This import is destructive",
     body:
-      "Importing this file REPLACES every Classic challenge and every Quiz question with what's in it, " +
+      "Importing this file REPLACES every Classic challenge, every Quiz question and every AI challenge with what's in it, " +
       "and WIPES all teams, solves, attempts and answers — the same reset the master reset performs. " +
       "There is no undo. The next step asks you to type a confirmation phrase.",
     confirmLabel: "I understand, continue",
@@ -118,7 +118,7 @@ export function importReplaceConfirm(): { title: string; body: string; requireTy
   return {
     title: "Replace ALL event content?",
     body:
-      "This replaces every Classic challenge and Quiz question with the file's content, and wipes all teams, " +
+      "This replaces every Classic challenge, Quiz question and AI challenge with the file's content, and wipes all teams, " +
       "solves, attempts and answers. This cannot be undone.",
     requireType: IMPORT_CONFIRM_PHRASE,
     confirmLabel: "Replace everything",
@@ -144,6 +144,9 @@ export function formatImportSummary(summary: EventImportSummary): string {
   }
   if (summary.quiz) {
     parts.push(`Quiz: ${summary.quiz.created} created, ${summary.quiz.updated} updated`);
+  }
+  if (summary.ai) {
+    parts.push(`AI: ${summary.ai.created} created, ${summary.ai.updated} updated`);
   }
   if (parts.length === 0) return "Imported — the bundle carried no modules.";
   return `Imported — ${parts.join("; ")}.`;
@@ -285,8 +288,8 @@ export default function AdminEventControls({ initialImportText = "", showHeading
         <>
           <h3 className="text-sm font-semibold text-white">Event archive</h3>
           <p className="text-xs text-muted">
-            Export the whole event — Classic and Quiz content plus event policy settings — as one JSON file, or replace
-            it wholesale from a previously exported file.
+            Export the whole event — Classic, Quiz and AI content plus event policy settings — as one JSON file, or
+            replace it wholesale from a previously exported file.
           </p>
         </>
       )}
@@ -318,8 +321,8 @@ export default function AdminEventControls({ initialImportText = "", showHeading
         {/* The opposite of the siblings' "import never deletes" notice — see
             this component's header comment for why. */}
         <p className="text-xs text-muted">
-          This REPLACES every Classic challenge and Quiz question with the file&rsquo;s content, and wipes all
-          teams, solves, attempts and answers. Refused outright while the event is live.
+          This REPLACES every Classic challenge, Quiz question and AI challenge with the file&rsquo;s content, and
+          wipes all teams, solves, attempts and answers. Refused outright while the event is live.
         </p>
 
         <textarea
