@@ -624,6 +624,14 @@ describe("importBundle", () => {
     expect(keys).toContain("ctf:classic:categories");
   });
 
+  it("refuses to write anything when the read pipeline itself failed — a failed GET must not become an empty category list (#261)", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }, { error: "NOAUTH Authentication required." }]);
+    await expect(importBundle(twoRowBundle)).rejects.toThrow(/NOAUTH/);
+    // No second (write) pipeline: the categories the box already had are never
+    // replaced by only the bundle's, and no row is re-spelled to its casing.
+    expect(pipelineCalls()).toHaveLength(1);
+  });
+
   it("stores the normalized flag via normalizeFlag, not a raw lowercase", async () => {
     await importBundle(bundleWithFlag("  CTF{Mixed}  "));
     const written = flatArgsFor("ctf:classic:flagnorm");

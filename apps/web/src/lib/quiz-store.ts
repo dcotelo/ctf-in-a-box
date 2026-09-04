@@ -376,6 +376,10 @@ export type QuizImportSummary = { created: number; updated: number };
  *  while both sides canonicalize the same way. */
 export async function importBundle(bundle: QuizBundle): Promise<QuizImportSummary> {
   const [idsRes] = await upstashPipeline([["HKEYS", QUESTIONS_KEY]]);
+  // The membership read must have succeeded before anything is written: a
+  // failed HKEYS would otherwise read as "no questions yet" and report every
+  // row `created`. Same guard as classic's and ai's (#261).
+  if (idsRes.error) throw new Error(`Upstash read failed before import: ${idsRes.error}`);
   const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
 
   let created = 0;

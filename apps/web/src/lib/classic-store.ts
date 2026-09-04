@@ -448,6 +448,15 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
     ["GET", CATEGORIES_KEY],
   ]);
 
+  // Both reads must have succeeded before anything is written. A failed GET
+  // would otherwise read as "no categories yet", and the SET at the end of the
+  // write pipeline would replace the box's whole category list with only the
+  // bundle's — and re-spell every stored challenge's category to the bundle's
+  // casing, hiding them from the board's exact-match filter. A failed HKEYS
+  // would report every row `created`. Same guard as ai-store's (#260, #261).
+  const failedRead = [idsRes, categoriesRes].find((r) => r.error);
+  if (failedRead) throw new Error(`Upstash read failed before import: ${failedRead.error}`);
+
   const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
 
   let existingCategories: string[] = [];
