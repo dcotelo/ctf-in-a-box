@@ -643,9 +643,13 @@ of one module's shape.
 
 8. **Pre-event gate.** The gate (`proxy.ts` + `/gate`) covers **every enabled
    module's own page route** — the exact `nav.href` each module registers —
-   rather than the hardcoded `/challenges` it used to. `proxy.ts` derives the
-   gated set from the registry (`enabledModuleRoutes`), and `/gate` sends an
-   unlocked visitor to the first of them, falling back to `/`. Next requires
+   rather than the hardcoded `/challenges` it used to. `proxy.ts` gates the
+   registry's FULL route list (`ALL_MODULE_ROUTES`), not the enabled subset —
+   enablement is a runtime Redis read the middleware must not depend on, and
+   gating a disabled module's page costs nothing while hiding which modules
+   an event runs before it opens (see the comment on `GATED_ROUTES`); `/gate`
+   sends an unlocked visitor to the first enabled route, falling back to `/`.
+   Next requires
    `config.matcher` to be a static literal, so it cannot be computed — it
    lists every registry route by hand and `src/__tests__/proxy.test.ts`
    asserts it covers `ALL_MODULE_ROUTES`, so a newly registered module cannot
@@ -661,8 +665,11 @@ of one module's shape.
    matcher literal itself also carries `/api/:path*`, but that entry serves
    the cross-origin write assertion, not the gate.)
 
-   Instead, the three module routes that bank points or leak challenge
-   content call a small server-side check of their own,
+   Instead, the module routes that bank points or leak challenge content
+   (three API routes plus the ai module's in-box flag form — `/ai/[id]`'s
+   page and server action — while `POST /api/ai/submit` relies on the launch
+   token, which can only be minted from a page that already passed the gate)
+   call a small server-side check of their own,
    `requireGatePassed()` (`src/lib/gate-request.ts`) — beside the gates they already
    run (`effectivePaused`, attempt caps, cooldowns), after authentication (so
    an unauthenticated caller still gets the more specific 401) and before any
