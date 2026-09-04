@@ -230,7 +230,7 @@ Pick the doc for what you're doing right now:
 - [Reviewing](reviewing.md) — the review guideline: the invariants a PR
   review here must verify, and the deliberate decisions not to re-flag.
 - [Glossary](glossary.md) — the terms an outsider trips on (target, module,
-  rubric, marker, poll vs push, …) and the project's five names.
+  rubric, marker, poll vs push, …) and the project's six names.
 
 ## Status
 

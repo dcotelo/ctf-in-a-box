@@ -440,8 +440,9 @@ value and compares whole strings with Lua's `==` — a flag can contain
 braces, quotes, and backslashes, so it is never pattern-matched out of a
 JSON blob the way a points value is.
 
-**The full key layout is ten `ctf:classic:*` keys**, enumerated in
-`classic-store.ts`'s header comment: `challenges` (the public-safe hash
+**The full key layout is ten `ctf:classic:*` keys** — nine enumerated in
+`classic-store.ts`'s header comment, plus `hints`, which is named only in
+`classic-keys.ts`: `challenges` (the public-safe hash
 contestants see — no field on it could carry a flag even by accident),
 `flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, per
 issue #190 — written by the admin form, SECRET until purchased through
@@ -721,6 +722,13 @@ for the integrator-facing statement of the same rotation contract.
   rather than a conversion of the SET, because changing a live key's type would
   fail `WRONGTYPE` on the first purchase after deploying. It sits under
   `ctf:hints:` so the master reset's existing prefix already sweeps it.
+- **`ctf:rl:<bucket>:<login>`** — a per-login fixed-window request counter
+  (`src/lib/rate-limit-store.ts`): `INCR` plus `EXPIRE` in one Lua `EVAL`,
+  login lower-cased. The buckets are `team-join`, `hint-reveal`, `ai-submit`,
+  `ai-event`, `ai-state` and `ai-admin-test` (`RATE_LIMITS`). The key expires
+  on its own at the window's end, which is why the master reset's prefix list
+  does not name it. The read fails **open**, like the freeze reads: a Redis
+  blip must not stop contestants playing.
 
 **A team is required to score** (ADR 47). `POST /api/quiz/answer` and
 `POST /api/classic/submit` refuse a teamless login with

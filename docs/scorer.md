@@ -34,7 +34,7 @@ One image (`scorer/Dockerfile`), two modes:
   "this deployment has no catalogue" apart from "this route doesn't exist".
 - **`score judge`** (via `scorer/entrypoint.sh`) — the per-PR rubric
   runner. It executes inside the fork's GitHub Actions run: boots the
-  contestant's patched app in a sibling container on an internal network,
+  contestant's patched app in a sibling container on the ctf docker network,
   runs the rubric's HTTP probes against it, and writes a redacted
   `ctf-score.md` report.
 
@@ -139,8 +139,9 @@ gates the positive one — it stages the pinned upstream source, applies a
 *exactly* the patched challenge is solved for its catalogue-difficulty points
 while the other `N-1` still fail. Both gates share their staging/build/judge
 machinery via `scripts/lib/acceptance-lib.sh`. All six targets have a reference
-patch under `patches/<target>/` — one challenge each (VAmPI has two), enough to
-prove the mechanism and, across VAmPI's pair, that the assertion discriminates.
+patch under `patches/<target>/` — one challenge each (VAmPI and Security
+Shepherd have two), enough to prove the mechanism and, across each pair, that
+the assertion discriminates.
 That is **not** full per-challenge coverage; see
 [patches/README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/patches/README.md) for the per-target status table, the
 convention, and the anti-vacuous discipline that keeps a broken-app "pass" from
@@ -202,8 +203,12 @@ cheaply. `scorer/tools/vacuous-sweep.mjs` decides it mechanically instead:
 ```sh
 cd scorer
 node tools/vacuous-sweep.mjs                      # every target, every personality
-node tools/vacuous-sweep.mjs --target vampi       # one target
+node tools/vacuous-sweep.mjs --target vampi       # one target (repeatable)
 node tools/vacuous-sweep.mjs --json findings.json # machine-readable
+node tools/vacuous-sweep.mjs --rubric rubric.example   # another rubric dir (default rubric.owasp)
+node tools/vacuous-sweep.mjs --personality not-found   # one stub personality (repeatable)
+node tools/vacuous-sweep.mjs --safety-ms 30000    # per-challenge timeout; the judge's default — lower it and it under-reports
+node tools/vacuous-sweep.mjs --concurrency 8      # parallel challenges; safe here because the stub holds no state
 ```
 
 It points each target's URL env var at a stub that is **up but useless**
@@ -394,6 +399,7 @@ placeholders are:
 | `<EVENT_ORG>` | The GitHub org the scorer image was mirrored into (`ghcr.io/<EVENT_ORG>/score:latest`) |
 | `<TARGET>` | The repo's rubric target id — must match a target the baked rubric defines: a `<target>/` directory holding `tests/challenges/catalogue.<target>.json` for an exec rubric (what `rubric.owasp/` ships), or a `<target>.yaml` for a declarative one (what `rubric.example/` ships). E.g. `juice-shop` |
 | `<APP_URL>` | Where the app under test answers **on the ctf network**, e.g. `http://<TARGET>:3000` — no host ports are published |
+| `<LEADERBOARD_LINK>` | `event.url` + `/leaderboard` — the score comment links here, and the workflow derives the box's base URL from it. `ctf-setup.sh render` fills it from `event.yaml`; by hand, leave it empty rather than guessing |
 
 The renderer fills `<APP_URL>` with each target's **stock** port
 (`http://juice-shop:3000`, `http://dvwa:80`, `http://webgoat:8080/WebGoat`,
@@ -433,8 +439,12 @@ What each one accepts:
   fork's root `Dockerfile` is runtime-only (it `COPY target/webgoat-*.jar`), so
   the workspace is staged into a named volume, a JDK sibling runs the fork's own
   `./mvnw package`, and a docker-CLI sibling builds the image from the volume —
-  both siblings on the default bridge, because `$NETWORK` is `--internal` and
-  Maven needs the internet. It takes about two minutes end to end, gated by
+  both siblings on the default bridge, not `$NETWORK` — they need the internet
+  for Maven and never the app under test. (`$NETWORK` is created with a plain
+  `docker network create`, in both `scorer/entrypoint.sh` and the consumer
+  workflow, so it is *not* `--internal`; comments in `scorer/entrypoint.sh` and
+  `scorer/entrypoints/webgoat.sh` still describe it as if it were.) It takes
+  about two minutes end to end, gated by
   `scripts/acceptance-target.sh webgoat none`. (An earlier version of this file
   claimed a WebGoat fork's Maven build could not fit a runner's budget and made
   `APP_IMAGE` mandatory. That was wrong: upstream's own consumer workflow
@@ -457,7 +467,7 @@ through to the entrypoint's generic ladder, which picks one of three boot
 strategies in order:
 
 1. **`APP_IMAGE` set** — pull that prebuilt image and run it as a sibling
-   container on the internal network. Right for targets whose PR flow
+   container on the ctf network. Right for targets whose PR flow
    patches source that an existing image build consumes.
 2. **Workspace `Dockerfile`** — the default PR-patch path: `docker build`
    the contestant's checked-out code and run it. This is how a fork with a
