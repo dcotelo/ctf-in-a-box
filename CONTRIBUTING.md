@@ -96,8 +96,10 @@ bats setup/test/ && bats deploy/fly/test/
 ```
 
 Run the layers your change touches, plus `smoke.sh` for anything that crosses
-services. The two real-target gates are for rubric, judge-path, entrypoint
-and `patches/` changes only.
+services. The two real-target gates are for changes in their workflows'
+`paths:` filters only: a rubric, the judge-path sources in `scorer/src/`
+(`judge`, `exec`, `probe`, `catalogue`, `rubric*`, `targets`, `index`), the
+scorer Dockerfile or an entrypoint, either gate script, or `patches/`.
 
 ## What CI runs
 
