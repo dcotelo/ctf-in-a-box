@@ -1909,6 +1909,15 @@ Two allow-cases are deliberate:
 own `trustedOrigins`, and the OAuth flow involves requests this proxy has no
 business adjudicating.
 
+*Amended with ADR 53 (the ai module):* `/api/ai/*` is excluded as well
+(`AI_PREFIX` in `src/proxy.ts`). Those routes are called cross-origin by
+design — by the external challenge site and by a static token verifier — and
+none relies on an ambient cookie: `submit` and `state` authenticate with a
+signed launch token, `event` with that token plus an HMAC event signature,
+and `launch-key` is intentionally public. So the ambient-credential attack
+this assertion exists to stop does not apply to them. Two carve-outs, each with its own reason; a third
+needs its own.
+
 **Decision, part 2: rate-limit on the LOGIN, not the IP.** `gate-store.ts`
 keys its throttle on the client IP because the pre-event gate runs before
 anyone has an identity — and it documents that the key is spoofable, since
@@ -2404,7 +2413,8 @@ The invariant was already written down; only the code was missing.
 **Decision.** Enforce it in two places, with different jobs.
 
 **The submission routes are the boundary.** `POST /api/quiz/answer` and `POST
-/api/classic/submit` refuse a teamless login with `403 { error: "no-team" }`.
+/api/classic/submit` — and, since the ai module landed, `POST /api/ai/submit`
+— refuse a teamless login with `403 { error: "no-team" }`.
 This is what actually holds: a direct POST never renders a page. The check sits
 *after* the pre-event gate — before the event opens, "not yet" is the truer
 answer than "go make a team" — and *before* the store call, so a refusal can

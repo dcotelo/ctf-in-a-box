@@ -29,12 +29,9 @@ exclude:
   # safety in case it's ever present when Jekyll builds.
   - superpowers
   - _site
-  # Contributor-facing files, not site pages: README.md is the GitHub
-  # directory landing (index.md is the site home), the other two are the
-  # docs-overhaul working plan and its changelog.
+  # Contributor-facing file, not a site page: README.md is the GitHub
+  # directory landing (index.md is the site home).
   - README.md
-  - DOCS-PLAN.md
-  - DOCS-CHANGELOG.md
   # Jekyll's defaults, restored:
   - Gemfile
   - Gemfile.lock

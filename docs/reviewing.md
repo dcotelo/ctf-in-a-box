@@ -126,13 +126,20 @@ features past green tests three times.
 (empty `admins`, generic branding). Review anything touching build or
 deploy scripts for a path that could run the app build with the arg unset.
 
-**11. The public surface is a named list, not a shape.** Exactly three routes
-may answer without a session or a verified launch token: `GET
-/api/public/scoring`, `GET /api/ai/launch-key`, and `GET /api/board/items`.
-Each earns the exemption the same way — read-only, policy out and never facts
-in, nothing secret in the response — so a fourth unauthenticated route
-doesn't inherit the exemption by resembling one that has it; it needs its own
-case. `board/items` (from the #207 redesign) serves the public leaderboard's
+**11. The public surface is a named list, not a shape.** Exactly five routes
+under `/api` answer without a session or a verified launch token, and each is
+on the list for its own stated reason — a sixth does not inherit an exemption
+by resembling one that has it; it needs its own case. Three are read-only,
+policy out and never facts in, nothing secret in the response: `GET
+/api/public/scoring`, `GET /api/ai/launch-key` and `GET /api/board/items`.
+Two are POSTs that exist *before* identity: `POST /api/gate` (the pre-event
+password check — it runs before anyone can sign in, charges a per-IP attempt
+before comparing, and answers only pass/fail) and `POST /api/stats/visit`
+(the approximate, no-PII per-country reach counter, always `204`, whose own
+header comment documents that it is not a security boundary). `/api/auth/*`
+is better-auth's and is outside this list. Anything else under `/api` that
+answers without `getSession`, `requireAdmin` or a verified launch token is
+the finding. `board/items` (from the #207 redesign) serves the public leaderboard's
 row expansion: who solved what is already on the board as counts, the items
 are built only from the contestant-safe listers (ids, labels, banked points —
 never a flag, hint, or key), and the login list is capped at a team roster's

@@ -772,9 +772,10 @@ without a rebuild:
 
   **`scoreCooldownMin` is the one setting a fork needs.** The Action enforcing
   it runs inside a contestant's repository and cannot reach this Redis, so it
-  pulls the value from **`GET /api/public/scoring`** — the kit's only
-  unauthenticated endpoint, deliberately read-only and carrying scoring
-  *policy* only. ADR 46 states the rule and ADR 50 generalises it: the box may
+  pulls the value from **`GET /api/public/scoring`** — one of the kit's few
+  unauthenticated routes (the full named list is invariant 11 in
+  [docs/reviewing.md](reviewing.md)), deliberately read-only and carrying
+  scoring *policy* only. ADR 46 states the rule and ADR 50 generalises it: the box may
   publish policy to a fork; a fork may not report facts to the box.
 
   Two field *families* live on the same hash, keyed by module id rather than
@@ -1154,9 +1155,15 @@ only rebuilds an image when told to
   `PATCH`/`DELETE` to `/api/*` whose `Origin` is present and does not match
   `BETTER_AUTH_URL` gets a `403`. Enforced in the proxy rather than per
   handler because the per-handler version's failure mode is a new route that
-  forgets. `/api/auth/*` is deliberately excluded — better-auth runs its own
-  origin policy there, and two policies on one route is how a sign-in breaks
-  in a way nobody can find. A missing `Origin` is allowed: it means a
+  forgets. Two prefixes are deliberately excluded: `/api/auth/*`, because
+  better-auth runs its own origin policy there and two policies on one route
+  is how a sign-in breaks in a way nobody can find; and `/api/ai/*`, because
+  the ai module's routes are called cross-origin BY DESIGN by the external
+  challenge site and by a static verifier, and none of them relies on an
+  ambient cookie: `POST /api/ai/submit` and `GET /api/ai/state` authenticate
+  with a signed launch token, `POST /api/ai/event` with that token plus an
+  HMAC event signature, and `GET /api/ai/launch-key` is intentionally public
+  (see `AI_PREFIX` in `src/proxy.ts`). A missing `Origin` is allowed: it means a
   non-browser client, which carries no ambient cookie to ride. See ADR 40.
 - **A leaked event key cannot mint identity (ADR 53).** The `ai` module
   splits its two signatures by key type rather than sharing one: the
@@ -1165,10 +1172,15 @@ only rebuilds an image when told to
   proves who is playing. Neither key can produce the other's proof, so a
   backend holding a leaked event key can assert a solve but cannot forge a
   launch token naming an arbitrary player.
-- **Per-login rate limits on the two guessable/hammerable routes.**
+- **Per-login rate limits on the guessable/hammerable routes.**
   `/api/team/join` (join-code guessing) and `/api/hints/reveal` are charged
   against a fixed window keyed on the **authenticated login**
-  (`src/lib/rate-limit-store.ts`), not an IP. That distinction is the point:
+  (`src/lib/rate-limit-store.ts`), not an IP; the ai module's
+  `/api/ai/submit`, `/api/ai/state` and `/api/ai/event` use the same store,
+  keyed on the login the verified launch token names, and the admin
+  `/api/admin/ai/test` charges its own `aiAdminTest` budget against the
+  admin's session login before it mints the test token. That distinction is
+  the point:
   `lib/gate-store.ts` keys on IP because the pre-event gate runs before anyone
   has an identity, and it documents that the key is spoofable (Caddy *appends*
   to `x-forwarded-for`). These routes run after `getSession()`, so there is a

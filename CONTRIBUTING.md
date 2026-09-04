@@ -84,6 +84,7 @@ bats setup/test/ && bats deploy/fly/test/
 # single-module compose bring-ups
 ./scripts/acceptance-quiz-only.sh
 ./scripts/acceptance-classic-only.sh
+./scripts/acceptance-ai-only.sh
 
 # the whole poll pipeline, end to end, offline
 ./scripts/smoke.sh
@@ -95,7 +96,7 @@ services.
 ## What CI runs
 
 `.github/workflows/ci.yml` is a `changes` gate (native `git diff` path
-filtering) plus nine gated jobs — a job for an area your PR doesn't touch is
+filtering) plus ten gated jobs — a job for an area your PR doesn't touch is
 *skipped*, and a push to `main` runs everything:
 
 | Job | Proves |
@@ -106,7 +107,7 @@ filtering) plus nine gated jobs — a job for an area your PR doesn't touch is
 | `shell` | shellcheck + bats over `setup/`, `scripts/`, `deploy/fly/` |
 | `smoke` | The full poll pipeline against fixture services, including the forged-comment drop and the freeze hold |
 | `app` | vitest; the three grading Lua scripts executed against a real Redis behind srh (`*.lua.upstash.test.ts`, required, not skippable, in CI); the production build; the `/`-never-prerendered assertion; the build-time config acceptance |
-| `quiz-only` / `classic-only` | A single app-side module runs a whole event alone, with no scorer to pull |
+| `quiz-only` / `classic-only` / `ai-only` | A single app-side module runs a whole event alone, with no scorer to pull |
 | `docs` | The Jekyll site builds; link/meta checks |
 
 Two heavier workflows (`stock-scores-zero`, `patched-scores-right`) run real
@@ -160,7 +161,7 @@ Modules are the kit's extension point — a new CTF vertical (forensics,
 api-security, cloud, …) plugs into the same org/teams/leaderboard/admin
 spine. Before writing code:
 
-1. Read [`docs/modules.md`](docs/modules.md) — the contract, with the three
+1. Read [`docs/modules.md`](docs/modules.md) — the contract, with the four
    shipped modules as worked examples. Section 9 lists the exact files a new
    module touches.
 2. Open an issue describing the module: what a contestant does, how it's
@@ -174,7 +175,7 @@ spine. Before writing code:
 ## Releases
 
 Versions follow [Semantic Versioning](https://semver.org/), cut as
-**repo-level annotated tags** from `main` (`v0.1.0`, `v0.2.0`, `v0.3.0` so
+**repo-level annotated tags** from `main` (`v0.1.0` through `v0.4.0` so
 far) with GitHub Releases generated from the Conventional Commit history —
 `feat:` implies minor, `fix:`/`docs:`/`chore:` imply patch, a
 `BREAKING CHANGE:` footer (or `!` after the type) implies major. The version

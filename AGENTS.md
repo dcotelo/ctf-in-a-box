@@ -49,11 +49,12 @@ Between the two, CI asserts `apps/web/.next/server/app/index.html` does
 (resolved through a build-time-unreachable Redis read) freezes at build time.
 Check it after any build you run here.
 
-**quiz-only / classic-only** (single-module compose bring-ups):
+**quiz-only / classic-only / ai-only** (single-module compose bring-ups):
 
 ```sh
 ./scripts/acceptance-quiz-only.sh
 ./scripts/acceptance-classic-only.sh
+./scripts/acceptance-ai-only.sh
 ```
 
 **shell / setup** (provisioning and automation scripts):

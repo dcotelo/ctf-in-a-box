@@ -10,7 +10,8 @@ event:
   # discord: https://discord.gg/your-invite  # optional; omit to hide Discord links/mentions in the app
 github:
   org: my-event-org                # disposable per-event org; also the fork org the app's challenge links point at
-  oauth_client_id: Iv1.xxxx        # OAuth app client id (secret goes in .env)
+                                   # (the OAuth app's client id and secret live in .env as
+                                   # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET, not here — see .env.example)
 # The modules this event STARTS with, and the set it falls back to if Redis is
 # unreachable — not the live truth. Quiz, Classic and AI can be switched on and
 # off from /admin during the event, without a rebuild (issue #175), and

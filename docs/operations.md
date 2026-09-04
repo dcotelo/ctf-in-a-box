@@ -57,8 +57,8 @@ every GitHub sign-in lands on a post-signin step that sends a contestant with
 no team straight to the team card — team setup is the first thing a new
 contestant completes, not something discovered later (a `/join/<code>` invite
 passes through untouched, since the invite *is* the team step). **At the
-module pages**: a signed-in contestant with no team who opens `/quiz` or
-`/flags` is sent to the team card too, so nobody who slipped past the first
+module pages**: a signed-in contestant with no team who opens `/quiz`,
+`/flags` or `/ai` is sent to the team card too, so nobody who slipped past the first
 step discovers the rule by answering a question and watching it not count.
 **At the routes**: the quiz and flag submission routes refuse a teamless
 login outright — the boundary that actually holds. Organizers are exempt
