@@ -91,11 +91,12 @@ never run standalone.)
 Not in `ci.yml`: these are the two heavy workflows named under "CI" below,
 one matrix row per target or reference patch, and the rows are the example
 invocations. Each boots a real upstream image (minutes per row), so run only
-the rows for what you touched — anything in the two workflows' `paths:`
-filters: a rubric under `scorer/rubric.owasp/`, the judge-path sources in
-`scorer/src/` (`judge`, `exec`, `probe`, `catalogue`, `rubric*`, `targets`,
-`index`), the scorer Dockerfile or an entrypoint, either gate script, or
-`patches/`.
+the rows for what you touched. Each workflow's `paths:` filter is the
+authority on "what" (read it; the two differ slightly). In summary: rubrics
+under `scorer/rubric.owasp/`, the judge-path sources in `scorer/src/`, the
+scorer Dockerfile, `package.json` and lockfile, the entrypoints, the gate
+scripts and `scripts/lib/acceptance-lib.sh`, `patches/`, and the workflow
+files themselves.
 
 ## CI
 

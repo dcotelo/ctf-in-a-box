@@ -96,10 +96,12 @@ bats setup/test/ && bats deploy/fly/test/
 ```
 
 Run the layers your change touches, plus `smoke.sh` for anything that crosses
-services. The two real-target gates are for changes in their workflows'
-`paths:` filters only: a rubric, the judge-path sources in `scorer/src/`
-(`judge`, `exec`, `probe`, `catalogue`, `rubric*`, `targets`, `index`), the
-scorer Dockerfile or an entrypoint, either gate script, or `patches/`.
+services. The two real-target gates are for what their workflows' `paths:`
+filters name — the filters are the authority, and the two differ slightly.
+In summary: rubrics under `scorer/rubric.owasp/`, the judge-path sources in
+`scorer/src/`, the scorer Dockerfile, `package.json` and lockfile, the
+entrypoints, the gate scripts and `scripts/lib/acceptance-lib.sh`,
+`patches/`, and the workflow files themselves.
 
 ## What CI runs
 
