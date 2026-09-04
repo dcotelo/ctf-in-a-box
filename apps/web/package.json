@@ -5,6 +5,7 @@
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "generate:config": "node scripts/generate-event-config.mjs",
     "predev": "pnpm generate:config",

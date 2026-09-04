@@ -14,7 +14,10 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   versions. `browserslist` needed an `overrides:` floor in
   `apps/web/pnpm-workspace.yaml` because pnpm would not move a package that
   is also a peer of `update-browserslist-db`; the comment there says when to
-  drop it. No runtime behaviour changes.
+  drop it. pnpm is now pinned for corepack via `packageManager`
+  (`pnpm@11.25.0`, the version CI was already resolving), so the settings
+  file's semantics no longer depend on whichever pnpm corepack fetched that
+  day. No runtime behaviour changes.
 - **Store `catch` blocks log a redacted label, never the exception object,
   and a bulk import refuses to write after a failed read.** The classic and
   quiz stores logged the raw caught value at six sites, three of them the
