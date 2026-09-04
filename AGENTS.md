@@ -7,7 +7,9 @@ convention: any agent operating here should read this file first.
 ## Build/test/lint
 
 These are the authoritative commands — they match what CI runs in
-`.github/workflows/ci.yml` exactly. Node 22 is used across the board.
+`.github/workflows/ci.yml` exactly. Node 22 is used across the board; run
+the suites on 22 — a sync/scorer suite was green on Node 25 and red on 22 in
+CI (#256, an unref'd `AbortSignal.timeout` timer).
 
 **sync** (poll/push transport service):
 
@@ -38,8 +40,11 @@ them against a real Redis behind srh. They skip locally without
 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`; CI brings the two
 containers up and sets `CTF_LUA_SUITES_REQUIRED=1` so a skip fails the job.
 If you touch any of the three scripts, run them (the `docker run` lines are
-in `ci.yml`'s "Grading Lua" step) — the mocked grade suites pin only what
-the stores hand the script, not what it does.
+in `ci.yml`'s "Grading Lua" step, then `corepack pnpm exec vitest run
+lua.upstash` — NOT `pnpm test -- lua.upstash`, which forwards the `--` to
+vitest, drops the filter and runs every file, rotted `.upstash` suites (#235)
+included) — the mocked grade suites pin only what the stores hand the
+script, not what it does.
 
 CI also runs a production build (`corepack pnpm build`, with dummy
 `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`) and `./scripts/acceptance-app.sh`
@@ -76,6 +81,19 @@ never run standalone.)
 ./scripts/smoke.sh
 ```
 
+**stock-scores-zero / patched-scores-right** (real-target scoring gates):
+
+```sh
+./scripts/acceptance-target.sh <target> <stock-image|none>   # stock app scores 0/N
+./scripts/acceptance-patched.sh <target> <challenge-id>       # patched fork scores exactly that one
+```
+
+Not in `ci.yml`: these are the two heavy workflows named under "CI" below,
+one matrix row per target or reference patch, and the rows are the example
+invocations. Each boots a real upstream image (minutes per row), so run only
+the rows for what you touched — a rubric, a judge-path file, an entrypoint,
+or `patches/`.
+
 ## CI
 
 `.github/workflows/ci.yml` has a `changes` job that path-filters which areas
@@ -94,9 +112,20 @@ somebody has to disable.
 
 Two heavier workflows, `stock-scores-zero.yml` and `patched-scores-right.yml`,
 are scoped with their own `paths:` filters to judge-relevant scorer inputs
-(rubrics, judge/exec/probe/catalogue source, the scorer Dockerfile/entrypoint)
-rather than the full `scorer/` tree — they run real target containers, so
-they're reserved for changes that could actually move the score.
+(rubrics, judge/exec/probe/catalogue source, the scorer Dockerfile and
+entrypoints, their own acceptance script, and `patches/`) rather than the
+full `scorer/` tree — they run real target containers, so they're reserved
+for changes that could actually move the score.
+
+The `docs` job builds the Pages site with the action `pages.yml` publishes
+with (that workflow runs only on push to `main`), then fails on any relative
+`.md` href in the built HTML and any internal link that does not resolve.
+The one that bites: `jekyll-relative-links` cannot rewrite a link whose TEXT
+wraps across two source lines, so it ships a literal `.md` href that renders
+fine on GitHub and 404s on the site — two shipped before the check existed.
+Keep link text on one line; link outside `docs/` with an absolute `https://`
+URL, never `../`. `codeql.yml` is a stock JavaScript/TypeScript scan on PRs
+and weekly, with no repo-side config to keep in step.
 
 **Every PR must also pass CodeRabbit review before merge, not just the CI
 jobs above.** CodeRabbit runs automatically on each PR (`.coderabbit.yaml`
@@ -133,7 +162,9 @@ suggestions.
   that's `gh`'s own built-in JSON filtering, not a `jq` dependency). Quote
   your expansions. **Avoid `A && B || C`** — CI's shellcheck flags this as
   SC2015 (the `C` branch also runs if `B` fails); use `if ...; then ...; fi`
-  instead.
+  instead. A bare `grep -q` assertion under `set -e` dies with no output —
+  `acceptance-app.sh` and `acceptance-quiz-only.sh` both did in CI (#257);
+  every assertion names what was missing before it exits.
 - **bats assertions must be the test's last statement to gate pass/fail.** A
   `[[ ... ]]` conditional, or a `! ... | grep ...` pipeline, that is *not*
   the final statement in a `@test` block does **not** fail the test on a bad
@@ -198,6 +229,20 @@ suggestions.
   registration windows in `team-store.ts`. They read the same `ctf:admin:settings` fields and must
   agree. Manual-freeze reads fail **open** (a Redis blip must not drop live
   submissions); keep that.
+- **`upstashPipeline` in `apps/web` does not throw on a per-command error.**
+  It returns `{ result?, error? }` positionally; a caller that reads
+  `.result` without checking `.error` turns `NOAUTH`/`WRONGTYPE` into a
+  default. `getAdminSettings` served "not paused" with baked caps and no log
+  line (#215); classic's `importBundle` read a failed categories `GET` as
+  "none yet" and wrote that emptiness back over the box's list (#261). Check
+  `error` and throw so the caller's fail direction applies and says so. The
+  `sync` and `scorer` clients throw for you (#256); the app's does not.
+- **Logins join case-insensitively, everywhere.** The scorer records the PR
+  author's spelling, the app stores the session's, and GitHub logins are
+  unique only case-insensitively — so every login join lowercases both sides
+  (`module-contributions`, `team-standings`, `hint-penalties`, `admin-auth`).
+  Two verbatim joins made one contestant's hints free and showed a scoring
+  teammate at 0 pts (#216).
 - **Do not commit `docs/superpowers/`.** It's gitignored planning/spec/plan
   scratch space, not shipped documentation.
 
@@ -209,10 +254,21 @@ suggestions.
 - `sync/` — poll service feeding the leaderboard from score comments. Plain
   Node.js, `node:test`.
 - `setup/` — `ctf-setup.sh` and event provisioning. Bash, `bats`.
-- `deploy/` — optional cloud deploy modules (e.g. `aws-terraform/`, a
-  single-shot EC2 box). CI-validated by `.github/workflows/terraform.yml`
-  (fmt + validate + test, never apply). **`terraform validate` does NOT
-  inspect rendered template output** — `deploy/aws-terraform/userdata.tftest.hcl`
+- `caddy/` — `Caddyfile.poll` / `Caddyfile.push`, mounted by `SCORE_INGEST`.
+  Push adds `handle /score` to `scorer:4000` for the fork's Action; the rest
+  proxies to `app:3000`. Same headers in both — change them together.
+- `patches/` — `<target>/<challenge-id>.patch`, one reference fix per
+  challenge; the input to `acceptance-patched.sh`. `git`-format diffs against
+  the source the script pins by commit; `patches/README.md` is the contract.
+- `test/fixtures/` — `mock-github.mjs` and `mock-scorer.mjs`, the stand-ins
+  `docker-compose.smoke.yml` builds for `smoke.sh`. Nothing else reads it.
+- `deploy/` — optional cloud deploy modules: `aws-terraform/` (single-shot
+  EC2 box; `docs/aws.md`) and `fly/` (one Fly machine running the rendered
+  compose file; `docs/fly.md`; its scripts and bats suite run under the
+  `shell` job). `aws-terraform/` is CI-validated by
+  `.github/workflows/terraform.yml` (fmt + validate + test, never apply).
+  **`terraform validate` does NOT inspect rendered template output** —
+  `deploy/aws-terraform/userdata.tftest.hcl`
   is what reads the rendered `user-data.sh.tftpl`, so bring-up script changes
   need a test there, not just a passing validate.
 - `docs/` — documentation site, published via GitHub Pages.
@@ -227,6 +283,14 @@ suggestions.
   modes, both rubric grammars, authoring and building rubrics.
 - [`docs/hosting.md`](docs/hosting.md) — standing the kit up: prerequisites,
   poll vs push, OAuth app, event config.
+- [`docs/operations.md`](docs/operations.md) — running the event once it is
+  up: admin panel and runtime overrides, teams, the event archive, per-module
+  runbooks, pre-event verification, dev-stack, known limitations.
+- [`docs/ai-module.md`](docs/ai-module.md) — the `ai` module's contract with
+  the external challenge site: launch tokens, solve reporting, errors, keys.
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — symptom-ordered
+  runbook for a misbehaving stack: the `REDIS_PASSWORD` refusal, `/admin`
+  403s from a config-less build, `fetch failed` between services.
 - [`docs/decisions.md`](docs/decisions.md) — numbered ADRs recording why the
   kit is built this way instead of the alternatives.
 - [`docs/reviewing.md`](docs/reviewing.md) — the review guideline: the
