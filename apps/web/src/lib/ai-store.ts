@@ -1087,6 +1087,14 @@ export async function importBundle(bundle: AiBundle): Promise<AiImportSummary> {
     ["GET", CATEGORIES_KEY],
   ]);
 
+  // Both reads must have succeeded before anything is written. A failed GET
+  // would otherwise read as "no categories yet", and the SET below would then
+  // replace the box's whole category list with only the bundle's — a transient
+  // read error turned into data loss. Same refusal `upsertAiChallenge` makes
+  // when its HGET is unusable.
+  const failedRead = [idsRes, categoriesRes].find((r) => r.error);
+  if (failedRead) throw new Error(`Upstash read failed before import: ${failedRead.error}`);
+
   const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
 
   let existingCategories: string[] = [];

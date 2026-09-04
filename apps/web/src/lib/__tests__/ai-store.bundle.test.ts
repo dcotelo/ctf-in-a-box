@@ -219,6 +219,13 @@ describe("importBundle (ai)", () => {
     expect(JSON.stringify(pipelineCalls())).not.toContain(AI_LAUNCHKEY_KEY);
   });
 
+  it("refuses to write anything when the read pipeline itself failed — a failed GET must not become an empty category list", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }, { error: "NOAUTH Authentication required." }]);
+    await expect(importBundle(bundle)).rejects.toThrow(/NOAUTH/);
+    // No second (write) pipeline: the categories the box already had are never overwritten.
+    expect(pipelineCalls()).toHaveLength(1);
+  });
+
   it("surfaces a per-command error instead of reporting success", async () => {
     mocks.upstashPipeline
       .mockResolvedValueOnce([{ result: [] }, { result: null }])
