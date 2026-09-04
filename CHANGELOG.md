@@ -8,6 +8,18 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Store `catch` blocks log a redacted label, never the exception object,
+  and a bulk import refuses to write after a failed read.** The classic and
+  quiz stores logged the raw caught value at six sites, three of them the
+  `catch` around the grading call whose arguments are the submitted flag or
+  answer — hardening, not a reported leak: no error shape reachable today
+  carries them, but a driver that attached its failed request would have put
+  the event's flags in the log. The ai store's `errorLabel` (#241) is now a
+  shared `lib/error-label.ts` used by all three (#244). Classic's and quiz's
+  `importBundle` also inspected neither reply of their membership read, so a
+  transient `GET ctf:classic:categories` failure became an empty category
+  list that the write pipeline then made permanent; both now throw before
+  any write, as the ai store already did (#261).
 - **Docs reconciled with the code the hygiene audit compared them against.**
   The review guideline's public-surface list names all five unauthenticated
   `/api` routes (it said three), the same-origin carve-out and rate-limit

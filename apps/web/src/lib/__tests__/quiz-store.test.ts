@@ -718,6 +718,12 @@ describe("importBundle", () => {
     expect(JSON.stringify(mocks.upstashPipeline.mock.calls)).not.toContain("HDEL");
   });
 
+  it("refuses to write anything when the membership read itself failed — a failed HKEYS must not report every row created (#261)", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "NOAUTH Authentication required." }]);
+    await expect(importBundle({ version: 1, questions: [bundleQuestion] })).rejects.toThrow(/NOAUTH/);
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a failed write rather than reporting a successful import", async () => {
     mocks.upstashPipeline
       .mockResolvedValueOnce([{ result: [] }])

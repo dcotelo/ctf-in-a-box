@@ -4,6 +4,7 @@ import "server-only";
 export { CLASSIC_COOLDOWN_SEC } from "./classic-defaults";
 import { CLASSIC_COOLDOWN_SEC } from "./classic-defaults";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { errorLabel } from "@/lib/error-label";
 import { CLASSIC_BUNDLE_VERSION, type ClassicBundle, type ClassicBundleChallenge } from "@/lib/classic-io";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { MARKDOWN_MAX } from "@/lib/markdown";
@@ -447,6 +448,15 @@ export async function importBundle(bundle: ClassicBundle): Promise<ImportSummary
     ["GET", CATEGORIES_KEY],
   ]);
 
+  // Both reads must have succeeded before anything is written. A failed GET
+  // would otherwise read as "no categories yet", and the SET at the end of the
+  // write pipeline would replace the box's whole category list with only the
+  // bundle's — and re-spell every stored challenge's category to the bundle's
+  // casing, hiding them from the board's exact-match filter. A failed HKEYS
+  // would report every row `created`. Same guard as ai-store's (#260, #261).
+  const failedRead = [idsRes, categoriesRes].find((r) => r.error);
+  if (failedRead) throw new Error(`Upstash read failed before import: ${failedRead.error}`);
+
   const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
 
   let existingCategories: string[] = [];
@@ -828,7 +838,7 @@ async function evaluateGate(
     solve = parseJsonValue(solveRes.result, extractSolve);
     attempt = parseJsonValue(attemptRes.result, extractAttempt);
   } catch (err) {
-    console.error("classic gate: solve/attempt lookup failed:", err);
+    console.error("classic gate: solve/attempt lookup failed:", errorLabel(err));
     return { allowed: false, reason: "unavailable" };
   }
 
@@ -981,7 +991,7 @@ export async function submitFlag(login: string, challengeId: string, flag: strin
   try {
     settings = await getAdminSettings();
   } catch (err) {
-    console.error("classic: admin settings read failed, treating scoring as live:", err);
+    console.error("classic: admin settings read failed, treating scoring as live:", errorLabel(err));
   }
   const cooldownSec = settings?.classicCooldownSec ?? CLASSIC_COOLDOWN_SEC;
 
@@ -1033,7 +1043,7 @@ export async function submitFlag(login: string, challengeId: string, flag: strin
       ],
     );
   } catch (err) {
-    console.error("Classic grading failed:", err);
+    console.error("Classic grading failed:", errorLabel(err));
     return { ok: false, reason: "error" };
   }
 

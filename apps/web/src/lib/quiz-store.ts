@@ -4,6 +4,7 @@ import "server-only";
 export { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "./quiz-defaults";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "./quiz-defaults";
 import { effectivePaused, getAdminSettings } from "@/lib/admin-store";
+import { errorLabel } from "@/lib/error-label";
 import { QUIZ_BUNDLE_VERSION, type QuizBundle, type QuizBundleQuestion } from "@/lib/quiz-io";
 import { foldTeamItems } from "@/lib/leaderboard/team-fold";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
@@ -375,6 +376,10 @@ export type QuizImportSummary = { created: number; updated: number };
  *  while both sides canonicalize the same way. */
 export async function importBundle(bundle: QuizBundle): Promise<QuizImportSummary> {
   const [idsRes] = await upstashPipeline([["HKEYS", QUESTIONS_KEY]]);
+  // The membership read must have succeeded before anything is written: a
+  // failed HKEYS would otherwise read as "no questions yet" and report every
+  // row `created`. Same guard as classic's and ai's (#261).
+  if (idsRes.error) throw new Error(`Upstash read failed before import: ${idsRes.error}`);
   const existingIds = new Set(Array.isArray(idsRes.result) ? (idsRes.result as string[]) : []);
 
   let created = 0;
@@ -688,7 +693,7 @@ async function evaluateGate(settings: ResolvedAdminSettings | null, login: strin
     answered = parseJsonValue(answeredRes.result, extractAnswered);
     attempt = parseJsonValue(attemptRes.result, extractAttempt);
   } catch (err) {
-    console.error("quiz gate: attempt/answer lookup failed:", err);
+    console.error("quiz gate: attempt/answer lookup failed:", errorLabel(err));
     return { allowed: false, reason: "unavailable" };
   }
 
@@ -753,7 +758,7 @@ async function readSettingsFailOpen(): Promise<ResolvedAdminSettings | null> {
   try {
     return await getAdminSettings();
   } catch (err) {
-    console.error("quiz: admin settings read failed, treating scoring as live:", err);
+    console.error("quiz: admin settings read failed, treating scoring as live:", errorLabel(err));
     return null;
   }
 }
@@ -936,7 +941,7 @@ export async function answerQuestion(login: string, questionId: string, choices:
       [questionId, submitted, nowIso, login, maxAttempts, cooldownMs, now.getTime()],
     );
   } catch (err) {
-    console.error("Quiz grading failed:", err);
+    console.error("Quiz grading failed:", errorLabel(err));
     return { ok: false, reason: "error" };
   }
 
