@@ -47,6 +47,28 @@ Then, per the `next_steps` output: point DNS at the EIP (unless you set
 `route53_zone_id`), confirm the OAuth callback matches the domain, and watch
 `/var/log/ctf-bringup.log` via SSM Session Manager.
 
+## Variables
+
+Every input in `variables.tf`. Only `event_yaml_b64` has no default and must
+be set; the rest are tuned in `terraform.tfvars`.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `region` | `string` | `"us-east-1"` | AWS region to deploy the event box into |
+| `instance_type` | `string` | `"t3.medium"` | EC2 instance type. **Must be x86_64 (amd64)** — the scorer image is amd64, and ARM/Graviton would need image rebuilds |
+| `key_name` | `string` | `""` | Name of an existing EC2 key pair for SSH. Leave empty for no SSH key (use SSM Session Manager instead) |
+| `name` | `string` | `"ctf-in-a-box"` | Name prefix for the created resources (instance, SG, role) |
+| `repo_url` | `string` | `"https://github.com/dcotelo/ctf-in-a-box.git"` | Git URL of the kit to clone on the box |
+| `git_ref` | `string` | `"v0.1.0"` | Git ref (tag/branch/sha) to check out. Pin a release tag for a real event |
+| `domain` | `string` | `""` | Public DNS name the box answers on, e.g. `ctf.example.org`. Required for HTTPS (Caddy auto-provisions TLS; the session cookie is only Secure over HTTPS). Empty runs HTTP-on-EIP for **local testing only** |
+| `route53_zone_id` | `string` | `""` | Optional Route53 hosted-zone ID. Set together with `domain` to create the A record for `domain` -> the box's EIP. Empty means you manage DNS yourself |
+| `tags` | `map(string)` | `{}` | Extra tags applied (via the provider's `default_tags`) to every resource, on top of the built-in Project/ManagedBy/Event tags — a cost center, owner, or expiry |
+| `web_ingress_cidrs` | `list(string)` | `["0.0.0.0/0"]` | CIDRs allowed to reach the leaderboard/app on 80/443. Default is the whole internet (public leaderboard); narrow it for an organizer-only board |
+| `ssh_ingress_cidrs` | `list(string)` | `[]` | CIDRs allowed to reach SSH (22). Default is **none** — prefer SSM Session Manager. Set your own IP/32 if you need SSH |
+| `event_yaml_b64` | `string` | — (required) | base64 of your `event.yaml` (NOT a secret — org name, targets, admins, public OAuth client id). Produce with `base64 < event.yaml \| tr -d '\n'` |
+| `ssm_prefix` | `string` | `"/ctf-in-a-box"` | SSM Parameter Store path prefix holding the event **secrets** as SecureStrings, created out of band (see Prerequisites) so they never enter Terraform state. Expected under it: `BETTER_AUTH_SECRET`, `SRH_TOKEN`, `SCORER_TOKEN`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (optionally `GITHUB_APP_INSTALLATION_ID`) |
+| `root_volume_gb` | `number` | `30` | Root EBS volume size (GiB). The app + scorer image builds and Docker layers need headroom |
+
 ## Tear down
 
 ```sh

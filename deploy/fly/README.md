@@ -94,6 +94,29 @@ the result. On top of that the render:
 
 Never edit `compose.fly.yml`. Every change belongs in `docker-compose.yml`.
 
+## Flags `deploy.sh` takes
+
+`deploy.sh [init] [flags]`; `init` prepares the env file, no subcommand
+deploys. `-h`/`--help` prints the same list.
+
+| Flag | Applies to | What it does |
+|---|---|---|
+| `--dry-run` | both | Print every `fly` command, run none; secret values redacted |
+| `--env-file <path>` | both | The Fly env file `init` writes and a deploy reads. Default `.env.fly` |
+| `--config <path>` | both | The `event.yaml` baked into the app image and handed to `sync`. Default `event.yaml` |
+| `--from <path>` | `init` only | The compose `.env` copied (or `--refresh`ed) from. Default `.env` |
+| `--region <code>` | `init` only | Write `FLY_REGION` without prompting; three lowercase letters, validated; ignored if the env file already has one |
+| `--refresh` | `init` only | Re-copy the external-system credentials from `--from`, overwriting; leaves `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN`, `REDIS_PASSWORD` |
+| `--skip-build` | deploy only | Reuse the images already in Fly's registry; will not pick up an `event.yaml` change |
+
+`--from`, `--region` and `--refresh` are parsed on a deploy too, and ignored.
+
+**`FLY_REGION`** lives in the env file. `init` sets it once — existing value
+kept, else `--region`, else a prompt defaulting to `fly.toml`'s
+`primary_region` (`iad`), else that default with no tty. A deploy reads it
+(falling back to `primary_region` only when the line is absent) and passes it
+to `fly volumes create --region` and `fly deploy --primary-region`.
+
 ## Guards `deploy.sh` carries
 
 Each of these caught a real mistake:

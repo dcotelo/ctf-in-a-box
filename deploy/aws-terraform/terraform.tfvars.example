@@ -4,6 +4,15 @@ region        = "us-east-1"
 instance_type = "t3.medium" # must be x86_64
 name          = "ctf-in-a-box"
 
+# Root EBS volume (GiB). The app + scorer image builds need headroom; 30 is the default.
+# root_volume_gb = 30
+
+# Existing EC2 key pair for SSH. Default is none — use SSM Session Manager instead.
+# key_name = "my-keypair"
+
+# Where the box clones the kit from. Point at your fork to run patched kit code.
+# repo_url = "https://github.com/dcotelo/ctf-in-a-box.git"
+
 # Pin a release tag for a real event.
 git_ref = "v0.1.0"
 
