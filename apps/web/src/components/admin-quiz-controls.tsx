@@ -80,6 +80,7 @@ import ConfirmModal from "@/components/confirm-modal";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
+import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -120,27 +121,15 @@ export function describeQuizError(status: number, message?: string): string {
   return describeAdminError(status, message, "That didn't work — check the question and try again.");
 }
 
-/** Longest phrase the delete confirmation asks an organizer to retype. A
- *  prompt can run to a paragraph; making someone transcribe one verbatim
- *  turns a safety gate into a copy-paste ritual, which is the opposite of
- *  making them read it. */
-export const DELETE_CONFIRM_PHRASE_MAX = 48;
+export { DELETE_CONFIRM_PHRASE_MAX };
 
-/** The exact string the delete confirmation makes the organizer type:
- *  the question's prompt, whitespace-collapsed and — if long — cut at the
- *  last word boundary inside `DELETE_CONFIRM_PHRASE_MAX`.
- *
- *  The truncation is applied ONCE and the result is used for BOTH the modal's
- *  title and its `requireType`, so what the organizer reads is exactly what
- *  they must type. Deriving the two separately (full prompt to type, short
- *  prompt on screen) would be the ambiguous version. Exported for direct
- *  testing. */
+/** The exact string the delete confirmation makes the organizer type: the
+ *  question's prompt, through the shared `confirmPhrase` (whitespace-collapsed,
+ *  cut at a word boundary inside `DELETE_CONFIRM_PHRASE_MAX`). No fallback:
+ *  a prompt is required non-empty, so there is nothing to fall back from.
+ *  Exported for direct testing. */
 export function confirmPhraseFromPrompt(prompt: string): string {
-  const clean = prompt.trim().replace(/\s+/g, " ");
-  if (clean.length <= DELETE_CONFIRM_PHRASE_MAX) return clean;
-  const cut = clean.slice(0, DELETE_CONFIRM_PHRASE_MAX);
-  const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+  return confirmPhrase(prompt);
 }
 
 /** The exact copy + gating for the delete confirmation.

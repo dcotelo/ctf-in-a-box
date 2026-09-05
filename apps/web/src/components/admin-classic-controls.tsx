@@ -106,6 +106,7 @@ import ConfirmModal from "@/components/confirm-modal";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
+import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
 
 // `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
 // component's OWN test file imports it from here, mirroring how the rest of
@@ -147,14 +148,11 @@ export function describeClassicError(status: number, message?: string): string {
   return describeAdminError(status, message, "That didn't work — check the challenge and try again.");
 }
 
-/** Longest phrase the delete confirmation asks an organizer to retype,
- *  mirroring `DELETE_CONFIRM_PHRASE_MAX` in admin-quiz-controls.tsx. */
-export const DELETE_CONFIRM_PHRASE_MAX = 48;
+export { DELETE_CONFIRM_PHRASE_MAX };
 
 /** The exact string the delete confirmation makes the organizer type: the
- *  challenge's title, whitespace-collapsed and truncated at a word boundary
- *  like `confirmPhraseFromPrompt` — EXCEPT that a blank/whitespace-only title
- *  falls back to `fallbackId` instead of an empty string.
+ *  challenge's title through the shared `confirmPhrase`, falling back to
+ *  `fallbackId` for a blank/whitespace-only title.
  *
  *  That fallback is the whole guard: `ConfirmModal` treats an empty
  *  `requireType` as "no confirmation required" (ConfirmModal's own comment),
@@ -164,12 +162,7 @@ export const DELETE_CONFIRM_PHRASE_MAX = 48;
  *  can never itself produce the empty string it exists to avoid. Exported
  *  for direct testing. */
 export function confirmPhraseFromTitle(title: string, fallbackId: string): string {
-  const clean = title.trim().replace(/\s+/g, " ");
-  if (clean.length === 0) return fallbackId;
-  if (clean.length <= DELETE_CONFIRM_PHRASE_MAX) return clean;
-  const cut = clean.slice(0, DELETE_CONFIRM_PHRASE_MAX);
-  const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+  return confirmPhrase(title, fallbackId);
 }
 
 /** The exact copy + gating for the delete confirmation. Mirrors

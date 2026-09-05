@@ -70,10 +70,8 @@
 //
 // Deletion changes live event data mid-flight, so it is gated behind the
 // same `ConfirmModal` + typed-title-confirm pattern classic's challenge
-// delete uses. `confirmPhraseFromTitle` is imported from
-// admin-classic-controls.tsx rather than re-implemented: it is
-// module-agnostic (title in, safe non-empty phrase out) and already
-// exported for exactly this kind of reuse.
+// delete uses, with the shared `confirmPhrase` (components/admin) building
+// the typed phrase — title in, safe non-empty phrase out.
 //
 // What deletion does NOT do: it does not clear contestant history (points
 // stay banked — the master reset's job), and it DOES revoke the signing key
@@ -96,9 +94,7 @@ import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
 import ConfirmModal from "@/components/confirm-modal";
-// Named import only — this module never needs classic's default export, just
-// the module-agnostic phrase helper (title in, safe non-empty phrase out).
-import { confirmPhraseFromTitle } from "@/components/admin-classic-controls";
+import { confirmPhrase } from "@/components/admin/confirm-phrase";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
@@ -140,17 +136,17 @@ export function describeAiError(status: number, message?: string): string {
 }
 
 /** The exact copy + gating for the delete confirmation. The phrase is the
- *  challenge's TITLE (falling back to its id via `confirmPhraseFromTitle`,
- *  imported from admin-classic-controls.tsx — see that function's own doc
- *  comment for why the fallback exists at all: `ConfirmModal` treats an empty
- *  `requireType` as "no confirmation required"). Exported for direct testing. */
+ *  challenge's TITLE (falling back to its id via the shared `confirmPhrase` —
+ *  see that function's own doc comment for why the fallback exists at all:
+ *  `ConfirmModal` treats an empty `requireType` as "no confirmation
+ *  required"). Exported for direct testing. */
 export function aiChallengeDeleteConfirm(challenge: AiChallenge): {
   title: string;
   body: string;
   requireType: string;
   confirmLabel: string;
 } {
-  const phrase = confirmPhraseFromTitle(challenge.title, challenge.id);
+  const phrase = confirmPhrase(challenge.title, challenge.id);
   return {
     title: `Delete "${phrase}"?`,
     body:
@@ -916,7 +912,7 @@ export function AiChallengeForm({
   return (
     <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
       <h4 className="text-sm font-semibold text-white">
-        {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhraseFromTitle(draft.title, editor.id)}"`}
+        {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhrase(draft.title, editor.id)}"`}
       </h4>
 
       <div className="flex flex-col gap-1">
