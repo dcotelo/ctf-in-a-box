@@ -126,7 +126,10 @@ function parseExampleModules() {
   const text = readRel("event.yaml.example");
   const lines = text.split("\n");
   const start = lines.findIndex((l) => l.trim() === "modules:");
-  if (start === -1) return [];
+  // A missing modules: block entirely is not "nothing enabled" — every
+  // event.yaml reader (e.g. sync/src/config.js) rejects that shape outright,
+  // so the example must always declare the key, even with nothing under it.
+  if (start === -1) fail("event.yaml.example: modules block is required");
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     // The next top-level (unindented) YAML key ends the modules: mapping.
