@@ -21,6 +21,11 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   said it was "not shown on any page"; it is the lede under the title on the
   quiz, flags and AI boards and those pages' meta description. The help now
   says so (admin UX audit F3).
+- **Support shows AI progress.** The contestant lookup reads the AI solves,
+  attempts and points alongside quiz and classic, the card shows them, the
+  attempts total includes them, and the reset-progress confirm names "classic
+  and AI solves" and sums all three modules' points — the total the reset
+  actually removes (F4). "Sec-dev solves" is spelled out as Secure Development.
 - **Every module tab opens with a setup checklist.** A new registry contract,
   `ModuleDef.setup` (module contract §5.9): what contestants experience, the
   minimum to make the module playable in dependency order with each step

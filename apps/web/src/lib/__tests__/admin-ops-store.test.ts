@@ -540,3 +540,31 @@ describe("team overrides", () => {
     await expect(forceDisbandTeam("ghost", "admin")).rejects.toThrow(/No team/);
   });
 });
+
+// UX audit F4: `lookupUser` read quiz, classic and secure-dev and nothing for
+// ai, so the Support card showed no AI figures for a contestant with AI
+// solves, and the reset confirm summed a total the reset then exceeded. The
+// ai reads are appended AFTER the existing eleven replies, so every fixture
+// above stays valid: a missing tail reads as "no ai data", never as a shifted
+// hint count.
+describe("lookupUser — ai", () => {
+  it("reports ai solves, points and attempts, and counts them toward known", async () => {
+    const aiSolves = ["prompt-smuggling-qzl4ws", JSON.stringify({ at: "2026-09-03T01:49:00Z" })];
+    const aiAttempts = [
+      "prompt-smuggling-qzl4ws",
+      JSON.stringify({ attempts: 4, firstAt: "2026-09-03T01:40:00Z", lastAt: "2026-09-03T01:49:00Z" }),
+    ];
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(userHmget(null), [], [], null, null, [], [], null, null, 0, null, aiSolves, aiAttempts, "550", "1"),
+    );
+    mockNoSecureDevKeys();
+    const detail = await lookupUser("octocat");
+    expect(detail.ai).toEqual({ solved: 1, points: 550, attempts: 4 });
+    expect(detail.known).toBe(true);
+    const cmds = allCommands();
+    expect(cmds).toContainEqual(["HGETALL", "ctf:ai:solves:octocat"]);
+    expect(cmds).toContainEqual(["HGETALL", "ctf:ai:attempts:octocat"]);
+    expect(cmds).toContainEqual(["HGET", "ctf:ai:points", "octocat"]);
+    expect(cmds).toContainEqual(["HGET", "ctf:ai:solved", "octocat"]);
+  });
+});

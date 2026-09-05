@@ -460,7 +460,7 @@ The panel offers:
   ![The Support tab after a contestant lookup: their team and captain status, when they first joined a team, points and solves per module, attempt count and hint spend, with the reset and delete controls beneath](assets/admin-support.jpg)
 
 
-  From there: **reset progress** (clears their answers, solves, attempts and
+  From there: **reset progress** (clears their quiz answers, classic and AI solves, attempts and
   hints; keeps the account and the team), **delete contestant** (all of that
   plus the team membership and the account record), or **remove from team**.
   Team-side, there is **transfer captaincy** and **disband** — the captain-only
