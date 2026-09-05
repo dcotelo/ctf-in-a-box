@@ -138,8 +138,8 @@ function parseExampleModules() {
   }
   const keys = [];
   for (const line of lines.slice(start + 1, end)) {
-    const m = line.match(/^ {2}([A-Za-z0-9-]+):/);
-    if (m) keys.push(m[1]);
+    const m = line.match(/^ {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9-]+)):/);
+    if (m) keys.push(m[1] ?? m[2] ?? m[3]);
   }
   return keys;
 }
