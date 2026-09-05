@@ -55,7 +55,7 @@ Everything runs as one `docker-compose.yml` stack (see
 Two independent things happen in parallel: contestants browsing the app, and
 scores flowing in from GitHub.
 
-<img src="assets/diagrams/system-overview.svg" alt="Animated diagram: a contestant's browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer, landing scores in redis via srh; scores arrive either by a push-mode scoring Action posting to /score through caddy, or by poll-mode sync polling GitHub and posting to scorer directly.">
+<img src="assets/diagrams/system-overview.svg" alt="Animated diagram: a contestant's browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive either by a push-mode scoring Action posting to /score through caddy, or by poll-mode sync polling GitHub and posting to scorer directly. (Quiz, classic, and ai score entirely app-side and never touch scorer — see their own diagrams below.)">
 
 The plain-text shape, for anything that can't render the animation above:
 
