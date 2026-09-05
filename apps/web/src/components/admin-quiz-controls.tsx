@@ -71,17 +71,18 @@
 // in as many words; keep the two in step.
 
 import { useEffect, useState } from "react";
-import type { ChangeEvent } from "react";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary } from "@/lib/quiz-store";
 import { generateQuestionId } from "@/lib/quiz-keys";
-import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type ImportError, type QuizBundle } from "@/lib/quiz-io";
+import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type QuizBundle } from "@/lib/quiz-io";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import ImportPanel from "@/components/admin/import-panel";
+import { downloadJson, useBundleImport } from "@/components/admin/use-bundle-import";
 import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
 import { INPUT_CLASS, NumberField, PositionReadout } from "@/components/admin/editor-fields";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
-import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
+import { describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
 import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
 import {
   type RowAccessors,
@@ -458,10 +459,16 @@ export default function AdminQuizControls({
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [importText, setImportText] = useState("");
-  const [importPending, setImportPending] = useState(false);
-  const [importErrors, setImportErrors] = useState<ImportError[] | null>(null);
-  const [importResult, setImportResult] = useState<QuizImportSummary | null>(null);
+  // The bulk import/export flow (textarea, file pick, `{import}` POST,
+  // after-import summary) — see components/admin/use-bundle-import.ts. On
+  // success the bank is re-read from the server, never hand-patched.
+  const bundleImport = useBundleImport<QuizImportSummary>({
+    endpoint: "/api/admin/quiz",
+    describeError: describeQuizError,
+    parse: parseBundle,
+    parseSummary: (reply) => ({ created: reply.created ?? 0, updated: reply.updated ?? 0 }),
+    afterImport: async () => applyQuestionBank(await fetchQuestionBank()),
+  });
 
   /** Replaces local state with a fresh read of the whole bank (see
    *  `fetchQuestionBank`). Used both by the mount effect below and after a
@@ -517,26 +524,6 @@ export default function AdminQuizControls({
     return { ok: true, row: { question: data.question, correct: data.correct ?? payload.correct } };
   }
 
-  /** Retires a bulk-import summary once anything else writes to the bank.
-   *
-   *  The summary describes ONE write. It used to be cleared only by the
-   *  import panel's own controls (a new import, typing in the textarea,
-   *  choosing a file), so it outlived every add, edit, reorder and delete —
-   *  and an organizer who imported a question and then deleted it was left
-   *  reading "Imported 1 question: 0 created, 1 updated." under a list that
-   *  no longer contained it (#127).
-   *
-   *  Nothing is miscounted by that and the store is always correct, but the
-   *  panel's one job is to say exactly what a bulk write did, and a stale
-   *  success line invites the worst reading: that the delete also imported
-   *  something. The rule: a summary of a write does not outlive the next
-   *  write. Errors go with it — a resolved import error is as stale as a
-   *  resolved success. */
-  function retireImportSummary() {
-    setImportResult(null);
-    setImportErrors(null);
-  }
-
   async function submitEditor(editor: QuestionEditor) {
     setFormPending(true);
     setFormError(null);
@@ -547,7 +534,7 @@ export default function AdminQuizControls({
       return;
     }
     setQuestions((prev) => upsertInList(prev, result.row));
-    retireImportSummary();
+    bundleImport.retire();
     setEditing(null);
   }
 
@@ -562,7 +549,7 @@ export default function AdminQuizControls({
     if (changed.length === 0) return;
 
     setQuestions(after);
-    retireImportSummary();
+    bundleImport.retire();
     setReorderPending(true);
     setListError(null);
     for (const row of changed) {
@@ -587,92 +574,12 @@ export default function AdminQuizControls({
         return;
       }
       setQuestions((prev) => prev.filter((q) => q.question.id !== id));
-      retireImportSummary();
+      bundleImport.retire();
       setDeleteTarget(null);
     } finally {
       setDeletePending(false);
     }
   }
-
-  /** The export button's whole handler: build the bundle from the bank this
-   *  component already holds (`exportBundleFrom`), serialize it, and hand it
-   *  to the browser as a download. Entirely client-side — no endpoint round
-   *  trip, so the answer keys already in memory never cross the network a
-   *  second time just to be downloaded again. The object URL is revoked right
-   *  after triggering the download (deferred one tick so the browser has
-   *  actually started it): an un-revoked URL keeps the whole Blob pinned in
-   *  memory for the rest of the page's life. Mirrors the classic panel's. */
-  function handleExport() {
-    const text = serializeBundle(exportBundleFrom(questions));
-    const blob = new Blob([text], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "quiz-questions.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  /** Reads a chosen `.json` file client-side and drops its text straight into
-   *  the same textarea the paste path uses, so both paths share one
-   *  validation/submit flow below. Clears the input's value afterward so
-   *  choosing the SAME file again (e.g. after editing it on disk) still
-   *  fires a change event. */
-  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const text = await file.text();
-    setImportText(text);
-    setImportResult(null);
-    setImportErrors(null);
-  }
-
-  /** Sends the raw pasted/uploaded text to the server exactly as the wire
-   *  contract requires — `{ import: <raw text> }`, the ONLY key in the body —
-   *  never a pre-parsed object; the route re-validates with the same
-   *  `parseBundle` this component already ran client-side (see
-   *  `clientValidation` below), which is what makes it safe to accept text
-   *  from a client whose own validation could in principle be skipped or
-   *  stale. On success the list is refreshed from the server rather than
-   *  hand-mutated, so this panel can never drift from the store. */
-  async function submitImport() {
-    setImportPending(true);
-    setImportErrors(null);
-    setImportResult(null);
-    try {
-      const res = await fetch("/api/admin/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ import: importText }),
-      });
-      const data = await parseJson<{ errors?: ImportError[]; error?: string; created?: number; updated?: number }>(res);
-      if (res.ok) {
-        setImportResult({ created: data.created ?? 0, updated: data.updated ?? 0 });
-        setImportText("");
-        applyQuestionBank(await fetchQuestionBank());
-        return;
-      }
-      if (Array.isArray(data.errors)) {
-        setImportErrors(data.errors);
-        return;
-      }
-      setImportErrors([{ where: "(request)", message: describeQuizError(res.status, data.error) }]);
-    } catch {
-      setImportErrors([{ where: "(request)", message: NETWORK_ERROR }]);
-    } finally {
-      setImportPending(false);
-    }
-  }
-
-  // Convenience only, run client-side before the button is even enabled — the
-  // server re-validates the raw text regardless (see `submitImport`'s
-  // comment), so this can never be the only gate. Skipped entirely on an
-  // empty textarea so the panel doesn't greet an organizer who hasn't typed
-  // anything yet with a wall of "must be an array" errors.
-  const clientValidation = importText.trim().length > 0 ? parseBundle(importText) : null;
-  const clientImportErrors = clientValidation && !clientValidation.ok ? clientValidation.errors : null;
-  const canImport = clientValidation !== null && clientValidation.ok;
 
   const confirmCopy = deleteTarget ? questionDeleteConfirm(deleteTarget) : null;
 
@@ -803,97 +710,28 @@ export default function AdminQuizControls({
         )}
       </div>
 
-      {/* Collapsed by default: an organizer authoring one question at a time
-          shouldn't have to scroll past a bulk panel to reach the list. Note
-          the `<details>` rather than a `{open && ...}` toggle — `<details>`
-          renders its children into the markup regardless of whether it is
-          open (the collapse is native browser behavior, not conditional React
-          rendering), so this stays collapsible for an organizer AND fully
-          present for a `renderToStaticMarkup` test. Same choice, for the same
-          reason, as the classic panel's. */}
-      <details className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
-        <summary className="cursor-pointer text-sm font-medium text-white">Bulk import / export</summary>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted">
-              Downloads every question currently in the bank as one JSON file, correct answers included.
-            </span>
-            <button
-              type="button"
-              disabled={questions.length === 0}
-              onClick={handleExport}
-              className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-            >
-              Export questions
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-3">
-            <span className="text-sm text-white">Import a bundle</span>
-            {/* THE notice a shorter file could otherwise be misread against:
-                see the header comment on `importBundle` in quiz-store.ts —
-                this is the client-side statement of the same guarantee. */}
-            <p className="text-xs text-muted">
-              Import never deletes existing questions — anything already in the bank that isn&rsquo;t in the file is
-              left untouched. Max attempts and Retry after are not part of a bundle: importing one never changes
-              the retry gate you set above.
-            </p>
-
-            <textarea
-              value={importText}
-              disabled={importPending}
-              onChange={(e) => {
-                setImportText(e.target.value);
-                setImportResult(null);
-                setImportErrors(null);
-              }}
-              rows={6}
-              placeholder="Paste a bundle's JSON here, or choose a file below."
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-            />
-
-            <input
-              type="file"
-              accept=".json"
-              disabled={importPending}
-              onChange={(e) => void handleFileChange(e)}
-              className="text-xs text-zinc-300"
-            />
-
-            {clientImportErrors && clientImportErrors.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
-                {clientImportErrors.map((err, i) => (
-                  <li key={i}>
-                    {err.where}: {err.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {importErrors && importErrors.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
-                {importErrors.map((err, i) => (
-                  <li key={i}>
-                    {err.where}: {err.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {importResult && <p className="text-xs text-white">{formatImportSummary(importResult)}</p>}
-
-            <button
-              type="button"
-              disabled={importPending || !canImport}
-              onClick={() => void submitImport()}
-              className="self-start rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {importPending ? "Importing…" : "Import bundle"}
-            </button>
-          </div>
-        </div>
-      </details>
+      <ImportPanel
+        exportDescription="Downloads every question currently in the bank as one JSON file, correct answers included."
+        exportLabel="Export questions"
+        exportDisabled={questions.length === 0}
+        onExport={() => downloadJson(serializeBundle(exportBundleFrom(questions)), "quiz-questions.json")}
+        notice={
+          <>
+            Import never deletes existing questions — anything already in the bank that isn&rsquo;t in the file is
+            left untouched. Max attempts and Retry after are not part of a bundle: importing one never changes
+            the retry gate you set above.
+          </>
+        }
+        text={bundleImport.text}
+        pending={bundleImport.pending}
+        clientErrors={bundleImport.clientErrors}
+        serverErrors={bundleImport.serverErrors}
+        summary={bundleImport.result ? formatImportSummary(bundleImport.result) : null}
+        canImport={bundleImport.canImport}
+        onText={bundleImport.setText}
+        onFile={(e) => void bundleImport.handleFile(e)}
+        onSubmit={() => void bundleImport.submit()}
+      />
 
       {editing && (
         <QuestionForm
