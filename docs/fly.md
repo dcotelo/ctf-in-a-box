@@ -77,6 +77,34 @@ Changed only `event.yaml` or a secret, and want to skip the image rebuild?
 The script will remind you that `event.yaml` is baked at build time, so
 `--skip-build` will *not* pick up a config change.
 
+### Every flag
+
+`deploy.sh [init] [flags]` — `init` prepares the env file and touches nothing
+on Fly; without it the script deploys. `-h`/`--help` prints the same list.
+
+| Flag | Applies to | What it does |
+|---|---|---|
+| `--dry-run` | both | Prints every `fly` command it would run and makes **none** of them; secret values are redacted from the output. `init --dry-run` says what it *would* write and ask |
+| `--env-file <path>` | both | The Fly env file — `init` writes it, a deploy reads it. Default `.env.fly` |
+| `--config <path>` | both | The `event.yaml` baked into the app image and handed to `sync`. Default `event.yaml`. A real deploy refuses to start without the file (checked before anything else); only `--dry-run` proceeds, printing the build with an empty config |
+| `--from <path>` | `init` only | The compose `.env` that `init` copies from (and `--refresh` re-copies from). Default `.env` |
+| `--region <code>` | `init` only | Sets `FLY_REGION` in the env file without prompting — for a scripted or CI run with no tty. Must be a three-lowercase-letter Fly code (`gru`, `iad`, …); ignored when the env file already carries one |
+| `--refresh` | `init` only | Re-copies the credentials that must match an **external** system (GitHub OAuth, the sync App, the scorer image) from `--from`, overwriting what is there. `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone — they belong to this deployment |
+| `--skip-build` | deploy only | Reuses the app, sync and scorer images already in Fly's registry instead of building, pushing and mirroring. Turns a multi-minute rebuild into a redeploy when only a secret changed — and, as above, does **not** pick up an `event.yaml` change |
+
+`--from`, `--region` and `--refresh` are accepted on a deploy for symmetry but
+have no effect there.
+
+**`FLY_REGION`** is a line in the env file, not a flag, and it is the one place
+the region lives. `init` fills it in exactly once: an existing value is kept;
+otherwise `--region` wins, then an interactive prompt whose default is
+`fly.toml`'s `primary_region` (`iad`), and with no tty that default is taken
+silently. A deploy reads `FLY_REGION` from the env file — falling back to
+`primary_region` when the line is missing or empty — and passes it to both
+`fly volumes create --region` and `fly deploy --primary-region`, so the volumes
+and the machine always land in the same place. To move an event, change the
+line and recreate the volumes; `fly.toml` on its own is only the default.
+
 ### Finish by hand
 
 1. **OAuth callback** must be exactly `https://<app>.fly.dev/api/auth/callback/github`.
@@ -180,9 +208,10 @@ and you can see where your data lives rather than having a renderer decide it.
 Compose's named volumes are **ignored** by Fly in a compose file; the mount is
 declared as `[[mounts]]` in `fly.toml`.
 
-`init` asks which region to run in and writes it to `.env.fly`, and that one
-answer drives the volume and the deploy. Changing it later means destroying
-and recreating it, so pick the one nearest your contestants.
+`init` asks which region to run in (or takes `--region`) and writes it to
+`.env.fly` as `FLY_REGION`, and that one answer drives the volume and the
+deploy. Changing it later means destroying and recreating the volume, so pick
+the one nearest your contestants.
 
 Losing the sync cursor is not fatal but is noisy: the poller re-reads every
 comment in every fork from scratch.

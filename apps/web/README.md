@@ -1,202 +1,114 @@
-# OWASP CTF
+# apps/web — the contestant app
 
-The contestant-facing web app for the OWASP Capture The Flag competition. Event name, dates, location, and theme are configured per-deployment via the kit's `event.yaml` (see below) rather than hardcoded here.
+The web app contestants and organizers use during a CTF-in-a-box event: GitHub sign-in, the challenge boards, leaderboard, profile, teams, paid hints and the `/admin` panel. Event name, dates, location and branding come from the kit's `event.yaml`, baked in at build time via `EVENT_CONFIG_B64` (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)) — nothing event-specific is hardcoded here.
 
-Contestants patch real vulnerabilities in six deliberately-insecure OWASP training apps and submit the fix as a GitHub pull request. A CI scorer validates each patch and pushes results to the leaderboard — no manual grading. (That is the `secure-development` module; the classic module scores flag submissions instead.)
+It was vendored from `OWASP-CTF/ctf-owasp-org` on 2026-08-14; `VENDORED.md` records the delta (Vercel bits stripped, DynamoDB retired, the AWS Lambda replaced by the kit's local scorer). `AGENTS.md` next to this file points at the kit's operating manual, and `DESIGN_SYSTEM.md` is the palette and token authority.
 
 ## Status
 
-Pre-event, backend wired up. Core site, GitHub sign-in, leaderboard, profile, and teams are built. Production reads live scoring data from the Lambda (`LEADERBOARD_SOURCE=lambda`) and team membership persists to Upstash Redis when `TEAM_WRITES_ENABLED=true`; without those env vars everything falls back to mock data so the site stays fully demoable with zero backend.
+Shipped and in production use. The kit runs it as the `app` service in `docker-compose.yml`, which injects every runtime variable: `LEADERBOARD_SOURCE=lambda` selects a plain-HTTP adapter (`src/lib/leaderboard/lambda.ts`) pointed at the local scorer (`LEADERBOARD_API_URL=http://scorer:4000`), and teams, hints, admin settings and module state live in Redis through the `UPSTASH_REDIS_REST_*` client, served by SRH. The `mock` leaderboard source and the cookie-backed team mock still exist so the app runs alone with no backend, but the kit never uses them. What exists as of v0.4.0 is in the repo's [CHANGELOG](../../CHANGELOG.md).
+
+## Modules
+
+The app runs four modules; each brings its own page, API routes, admin tab and leaderboard block:
+
+| Module | Page | Scores |
+|---|---|---|
+| `secure-development` | `/challenges` | Patches to six OWASP training apps (Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI), submitted as GitHub PRs and judged by the kit's scorer |
+| `quiz` | `/quiz` | Multiple-choice answers |
+| `classic` | `/flags` | Flag submissions on a category tile board |
+| `ai` | `/ai` | Externally hosted AI challenges that report back to the box |
+
+`event.yaml` seeds which modules are on; organizers switch them **at runtime** from `/admin`'s Event tab, and Redis holds the live set (ADR 52). The module contract is [docs/modules.md](../../docs/modules.md); the per-module operator guides are in [docs/operations.md](../../docs/operations.md). An event with `secure-development` off has no scorer, so `getLeaderboardSourceMode()` (`src/lib/leaderboard/source.ts`) ignores `LEADERBOARD_SOURCE` and builds the board from the module overlays alone.
 
 ## Features
 
-- **GitHub sign-in** ([better-auth](https://www.better-auth.com/)) — contestants authenticate with the same GitHub account they open pull requests from.
-- **Leaderboard** (`/leaderboard`) — public standings; sign in to highlight your own row. Backed by a swappable data-source adapter (see below).
-- **Profile** (`/profile`) — gated per-app progress across all six target apps.
-- **Teams** — join, create, or leave a team of up to **4 players**. Writes go to Upstash Redis and are entirely server-side (see below); without `TEAM_WRITES_ENABLED` they fall back to a per-browser cookie mock (flagged with a "mock mode" badge).
-- **Paid hints** (`/challenges`) — signed-in contestants can reveal a hint for any challenge at a fixed cost (**−10 points** by default, set per-event from the admin panel), deducted from their leaderboard score (see below). Signed-out visitors see a locked teaser. Hints are **on by default** and are switched from `/admin`'s hint controls — one switch, live and persisted in Redis. There is no environment variable for it.
-- **Six real targets** — Juice Shop, DVWA, WebGoat, Security Shepherd, VulnerableApp, and VAmPI, covering the OWASP Web and API Top 10.
+- **GitHub sign-in** via [better-auth](https://www.better-auth.com/) — the same account a contestant opens PRs from.
+- **Leaderboard** (`/leaderboard`) — public; sign in to highlight your row. Team totals fold individual scores, hint penalties net the final total.
+- **Profile** (`/profile`) — requires sign-in; per-module progress plus the team card.
+- **Teams** — join by code, create, or leave. Default cap **4 players per team** (`TEAM_MAX_MEMBERS` in `src/lib/team-limits.ts`), changeable from `/admin` (1–100, ADR 45); joins are enforced in one atomic Lua `EVAL`, so the cap cannot be raced. One team per player.
+- **Paid hints** — reveal costs **10 points** by default (`HINT_COST` in `src/lib/hint-defaults.ts`), set from `/admin`. Charging is idempotent inside one `EVAL`, keyed by the session login; the scorer's totals are never decremented — the penalty is an overlay (`withHintPenalties`, floored at 0). Hints are on by default and toggled from `/admin`; there is no env var for either.
+- **Admin panel** (`/admin`) — module switches, freeze and scheduled scoring window, team cap, hint policy, activity log, insights, event export/import. Admins come from `event.yaml` plus runtime grants.
 
-## Tech Stack
+## Tech stack
 
-- **Framework**: [Next.js](https://nextjs.org/) 16 (App Router, TypeScript)
-- **Auth**: [better-auth](https://www.better-auth.com/) (stateless/cookie sessions, GitHub OAuth)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/) 4 — see `DESIGN_SYSTEM.md` for tokens and component patterns
-- **Fonts**: Poppins (headings) + Barlow (body) per [OWASP brand guidelines](https://policy.owasp.org/operational/branding)
-- **Package manager**: [pnpm](https://pnpm.io/)
-- **Hosting**: self-hosted Docker, built and run by the kit — see the kit's
-  [hosting Quickstart](../../docs/hosting.md#quickstart-zero-to-a-scored-event) and
-  [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)
-  for how `event.yaml` is baked into the image via `EVENT_CONFIG_B64`
+Versions are pinned in `package.json`; these are the ones that shape the code.
 
-## Getting Started
+- [Next.js](https://nextjs.org/) 16 (App Router, TypeScript, `src/proxy.ts` middleware) on React 19
+- [better-auth](https://www.better-auth.com/) 1.x — GitHub OAuth, stateless JWE cookie sessions, no database
+- [Tailwind CSS](https://tailwindcss.com/) 4 — tokens and patterns in `DESIGN_SYSTEM.md`
+- Poppins (headings) + Barlow (body), loaded in `src/app/layout.tsx` per the [OWASP brand guidelines](https://policy.owasp.org/operational/branding)
+- [pnpm](https://pnpm.io/) via corepack (`packageManager` pins it), Node 22, [vitest](https://vitest.dev/)
 
-This app is normally built and run as part of the kit (see the links above);
-the commands below are for iterating on the app itself.
+## Iterating on the app alone
 
-```bash
-pnpm install
-pnpm dev
+Operators never run these — the kit builds and runs the image (see the [hosting Quickstart](../../docs/hosting.md#quickstart-zero-to-a-scored-event); `scripts/dev-stack up` gives a full local stack with a seeded board). For working on the app itself:
+
+```sh
+corepack enable
+corepack pnpm install --frozen-lockfile
+corepack pnpm dev            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the site.
+`predev`/`prebuild`/`pretest` run `scripts/generate-event-config.mjs`, which writes `src/lib/event-config.generated.ts` from `EVENT_CONFIG=<path to event.yaml>` when set and from neutral defaults otherwise. Copy `.env.example` to `.env.local` for what `pnpm dev` reads: `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL=http://localhost:3000` (also sign the gate cookie), and a `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` pair if you need sign-in (callback `<BETTER_AUTH_URL>/api/auth/callback/github`). Everything else is optional and falls back to mocks; `.env.example` documents each variable, and `docker-compose.yml`'s `app` service is the authority for what a real event sets. Runtime variables are read at start, so a change means a container restart — or a rebuild for anything baked (`event.yaml`).
 
-### Environment variables
+## Testing
 
-Copy `.env.example` to `.env.local` and fill in real values — none of these should ever be committed.
+These match `.github/workflows/ci.yml` and the kit's `AGENTS.md`; run them from `apps/web`.
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `BETTER_AUTH_SECRET` | Yes | Session cookie signing/encryption key (`openssl rand -base64 32`) |
-| `BETTER_AUTH_URL` | Yes | Base URL of the app (e.g. `http://localhost:3000`) |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth app credentials — create one under the org's GitHub settings with callback `<BETTER_AUTH_URL>/api/auth/callback/github` |
-| `LEADERBOARD_SOURCE` | No | `mock` (default) \| `lambda` \| `upstash` — selects the leaderboard data adapter |
-| `LEADERBOARD_API_URL` | Only if `LEADERBOARD_SOURCE=lambda` | Base URL of the scoring API — serves `/leaderboard` (used by the lambda source) and `/challenges` (live challenge catalogue on the challenges page; without it the page shows static fallback cards) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Only if `LEADERBOARD_SOURCE=upstash`, `TEAM_WRITES_ENABLED=true`, `CHALLENGES_GATE_ENABLED=true`, or you want paid hints (hint text lives only in Upstash, so without these hints cannot work at all) | Upstash Redis REST credentials (leaderboard reads work with a read-only token; team writes, hint purchases, and the gate throttle need a **read/write** token) |
-| `TEAM_WRITES_ENABLED` | No | `true` persists team join/create/leave to Upstash Redis; unset uses the per-browser cookie mock |
-| `CHALLENGES_GATE_ENABLED` | No | `true` locks every module page (`/challenges`, `/quiz`, `/flags`, `/ai`, `/profile`) behind the pre-event password gate — the proxy covers pages, and the module APIs that bank points run their own check; see [Pre-event challenges gate](#pre-event-challenges-gate) |
-| `CHALLENGES_GATE_PASSWORD` | Only if `CHALLENGES_GATE_ENABLED=true` | The shared access password. Server-side only; the gate stays open if this is unset |
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm test           # vitest; the *.upstash suites skip without Redis credentials
+corepack pnpm lint
+```
 
-> Env var changes only take effect on the **next build/restart** of the container — rebuild the image (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)) or restart the `app` service after adding or changing one.
+The grading Lua scripts (classic `SUBMIT_SCRIPT`, quiz `GRADE_SCRIPT`, ai `AWARD_SCRIPT`) are the scoring authority, and only `src/lib/__tests__/*.lua.upstash.test.ts` execute them for real — the mocked suites pin what the stores hand the scripts, not what they do. Run them against a real Redis behind SRH (the `docker run` lines are in `ci.yml`'s "Grading Lua" step) with
 
-## Scripts
+```sh
+UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN=<srh token> \
+  CTF_LUA_SUITES_REQUIRED=1 corepack pnpm exec vitest run lua.upstash
+```
 
-| Command | Description |
-|---|---|
-| `pnpm dev` | Start development server |
-| `pnpm build` | Production build |
-| `pnpm start` | Serve production build |
-| `pnpm lint` | Run ESLint |
-| `pnpm test` | Run the vitest suite (team + hint store unit tests; the live-Upstash integration suite auto-skips without `UPSTASH_REDIS_REST_*` credentials) |
+`CTF_LUA_SUITES_REQUIRED=1` turns a skip into a failure. After a build-affecting change, also run the production build and check `/` was **not** statically prerendered — the module nav resolves through a Redis read that is unreachable at build time, and a prerendered `/` would freeze it:
 
-## Project Structure
+```sh
+BETTER_AUTH_SECRET=ci-dummy BETTER_AUTH_URL=http://localhost:3000 corepack pnpm build
+test ! -f .next/server/app/index.html   # must pass
+```
+
+## Project structure
 
 ```
 src/
+  proxy.ts                  # Middleware: same-origin check on mutating /api, pre-event gate
+  instrumentation.ts        # Startup checks (http:// EVENT_URL refusal)
   app/
-    page.tsx                 # Homepage: hero, countdown, "what to expect", targets
-    layout.tsx                # Root layout, fonts, metadata
-    (site)/
-      how-to-play/            # Contestant workflow guide
-      challenges/              # Target app browser
-      rules/                   # Competition rules
-      leaderboard/              # Public standings
-      profile/                  # Gated per-contestant dossier
-      faq/                      # FAQ
-    api/
-      auth/[...all]/            # better-auth route handler
-      team/                     # Join/create/leave team routes
-      hints/                    # Viewer hint state + paid reveal routes
-  components/                 # Site header/footer, leaderboard, team card,
-                               # event countdown, challenge lists, etc.
+    (site)/                 # Pages: challenges, quiz, flags, ai, leaderboard, profile,
+                            #   admin, gate, join, how-to-play, rules, faq, privacy, terms
+    api/                    # auth, team, hints, quiz, classic, ai, admin, board, gate,
+                            #   me, post-signin, public, stats
+  components/               # Header/footer, boards, leaderboard, team card, countdown
   lib/
-    auth.ts / auth-client.ts  # better-auth server + client config
-    apps.ts                   # Metadata for the six target apps (static fallback counts)
-    challenges.ts              # Live challenge catalogue from the scoring API
-    site.ts                   # Event dates, nav links
-    leaderboard/               # Data-source adapters (mock/lambda/upstash) + types
-    upstash.ts                 # Shared Upstash Redis REST client (pipeline + EVAL)
-    team-store.ts              # Team reads/writes (Lua scripts, cookie mock)
-    hint-store.ts              # Paid hint purchases + penalty reads
-    gate-store.ts              # Challenges-gate brute-force throttle (atomic Lua EVAL)
-    stats-store.ts             # Aggregate per-country reach counter
-    __tests__/                 # vitest: team + hint rules (unit + live integration)
-public/
-  owasp-logo.png              # OWASP logo (rendered inverted on dark backgrounds)
+    modules.ts              # Module registry (ids, routes, copy); ALL_MODULE_ROUTES
+    resolved-modules.ts     # Runtime enablement + title/blurb overrides from Redis
+    auth.ts                 # better-auth config; disabledPaths closes unused endpoints
+    admin-store.ts          # ctf:admin:settings — pause, schedule, cap, hint policy
+    team-store.ts, hint-store.ts, quiz-store.ts, classic-store.ts, ai-store.ts
+    gate.ts, gate-request.ts, gate-store.ts   # Pre-event gate cookie, API check, throttle
+    leaderboard/            # Source adapters (mock/lambda/upstash/empty) + overlays
+    upstash.ts              # Redis REST client (pipeline + EVAL)
+    __tests__/              # vitest, incl. the *.lua.upstash.test.ts grading suites
+scripts/generate-event-config.mjs   # event.yaml → event-config.generated.ts
 ```
 
-## Authentication surface
+## Things worth knowing before you touch them
 
-Sign-in is GitHub OAuth through better-auth, with **no `database`** configured: sessions live entirely in a JWE-encrypted cookie, and that cookie is therefore the identity. There is no server-side session store to check it against.
+**Authentication surface.** better-auth mounts its whole default endpoint set under `src/app/api/auth/[...all]`; the app uses four routes and closes the rest with `disabledPaths` in `src/lib/auth.ts`. `POST /update-user` was the one that mattered — with no database it would re-sign the session cookie with a client-chosen `login`. Do not "harden" `login` to `input: false` (it breaks OAuth profile mapping), remember `disabledPaths` matches literal paths only, and keep `src/lib/__tests__/auth.test.ts` green — it fails when an upgrade adds an endpoint that is neither used nor closed.
 
-That matters because better-auth mounts its **entire default endpoint set** behind the catch-all at `src/app/api/auth/[...all]`, whether or not the app uses any of it. This app calls exactly four: `/sign-in/social`, `/callback/:id`, `/get-session`, `/sign-out`. Everything else is closed with `disabledPaths` in `src/lib/auth.ts`.
+**Pre-event challenges gate.** `CHALLENGES_GATE_ENABLED=true` plus `CHALLENGES_GATE_PASSWORD` lock the module pages behind a shared password until the event opens; a flag without a password stays open. Enforcement is in two places on purpose: `src/proxy.ts` redirects page requests for every route in `ALL_MODULE_ROUTES` (`/challenges`, `/quiz`, `/flags`, `/ai` — enabled or not, so the gate does not leak which modules an event runs) to `/gate`, and the module APIs that bank points or return challenge content (`POST /api/quiz/answer`, `/api/classic/submit`, `/api/hints/reveal`, and the ai module's `/ai/[id]` page and server action) each call `requireGatePassed()` (`src/lib/gate-request.ts`) and answer **403 `{ error: "gate" }`** while locked. The proxy never gates `/api/*` itself — that would block the sign-in needed to pass the gate. `POST /api/ai/submit` is exempt: it is authenticated by a launch token that can only be minted from a page that already passed. Verification is server-side (constant-time compare); success sets an HMAC-signed httpOnly cookie for 30 days, signed by `BETTER_AUTH_SECRET` rather than the password. Five failures from one IP lock it for 24 hours (`gate:attempts:<ip>`, 30-day expiry, charged before the compare in one `EVAL`; fails closed if Redis is down) — everyone behind one NAT shares that budget, and the fix during the event is to turn the gate off, not to clear keys. It is a "the board opens at the keynote" curtain, not an authorization boundary: every route still checks session, pause, schedule window and attempt caps on its own (see [Known limitations](../../docs/operations.md#known-limitations)).
 
-The one that mattered was `POST /update-user`. It takes an arbitrary JSON body behind nothing but `sessionMiddleware`, runs it through `parseUserInput` — which accepts any additional field not marked `input: false`, i.e. `login` — and with no database falls through to a `?? { ...session.user, ...additionalFields }` fallback that re-signs the session cookie. Any signed-in contestant could `POST {"login":"someone-else"}` and thereafter be treated as that person by all six handlers that key writes off `session.user.login`: hint purchases would bill their points, team joins and leaves would move them around.
-
-Three things to know before touching that config:
-
-- **Do not "harden" `login` to `input: false`.** better-auth's `parseAdditionalUserInputFromProviderProfile` skips `input: false` fields when mapping the OAuth profile, which leaves `session.user.login` undefined and breaks the `/profile` gate. The protection comes from the path being closed, not from the flag.
-- **`disabledPaths` matches literal pathnames**, not route patterns. `/reset-password/:token` can never be closed this way; a real request arrives as `/reset-password/abc123`. Listing the pattern would look like protection and be none.
-- **It guards HTTP only.** A server-side `auth.api.updateUser()` call bypasses it. No app code makes one; that is an invariant, not something the setting enforces.
-
-`src/lib/__tests__/auth.test.ts` fails if a better-auth upgrade or a new plugin introduces a default endpoint that is neither in use nor closed, which is the failure a hand-maintained list cannot catch on its own.
-
-## Leaderboard Data Sources
-
-`LEADERBOARD_SOURCE` swaps the backend without touching any UI code:
-
-- **`mock`** (default) — local fixture shaped like the target production API. Used everywhere until the real backend is ready.
-- **`lambda`** — reads the deployed scoring Lambda's `/leaderboard` endpoint (per-app solved/total; unsolved challenges count as *remaining*, not *failed*).
-- **`upstash`** — reads directly from Upstash Redis via its REST API.
-
-A fourth mode, **`empty`**, is never configured: an event with `secure-development` disabled has no scorer to read, so `getLeaderboardSourceMode` (`src/lib/leaderboard/source.ts`) forces it regardless of what `LEADERBOARD_SOURCE` says, and the board is built entirely from the module overlays on top of it. On a quiz-only or classic-only event it is the only mode that runs.
-
-## Teams
-
-Team membership lives in Upstash Redis when `TEAM_WRITES_ENABLED=true`. All writes are server-side only: the `/api/team*` route handlers derive the player's GitHub login from the better-auth session, and the only client input (team name/slug) is slugified and length-capped before touching Redis — nothing client-side can forge identity or bypass the rules.
-
-Rules, enforced atomically (each mutation is a single Lua `EVAL`, so they can't be raced):
-
-- **Max 4 players per team** — the fifth join is rejected with "team is full".
-- **One team per player** — joining or creating while already on a team is rejected until you leave.
-- Duplicate team slugs are rejected; joining a nonexistent team is rejected; a team's keys are deleted when its last member leaves.
-
-Schema:
-
-```
-HSET ctf:team:<slug> name <name> captain <login> createdAt <iso> joinCode <code>
-SADD ctf:team:<slug>:members <login>     # capped at 4
-HSET ctf:user:<login> team <slug>
-SET ctf:joincode:<code> <slug>           # reverse index for join-by-code
-```
-
-These rules are covered by `pnpm test` — unit tests with Upstash mocked, plus an integration suite that runs the real Lua scripts against live Upstash using throwaway keys.
-
-## Hints
-
-Hint text lives in the scorer-owned Upstash hashes `hints:<app>` (field = challenge catalogue id, value = hint text). When hints are enabled in `/admin` (and the `UPSTASH_REDIS_REST_*` vars are set), each challenge row on `/challenges` with a hint gets a reveal control: signed-out visitors see a locked teaser, signed-in contestants confirm and pay the configured hint cost (`hintCost` in the admin settings, **10 points** if unset). Re-viewing a bought hint is always free — charging is idempotent inside a single Lua `EVAL` (a double-click or race can't charge twice), and it's keyed by the server-derived session login, so nothing client-side can spend someone else's points.
-
-Purchases are recorded under the site's `ctf:` namespace, which the scorer never rewrites — penalties survive re-scores:
-
-```
-SADD ctf:user:<login>:hints "<app>/<challengeId>"   # what the user bought
-HINCRBY ctf:hints:spent <login> <cost>              # running penalty total
-```
-
-The scorer's `leaderboard` ZSET is never decremented. Instead, displayed scores subtract the penalty as an overlay (`withHintPenalties`, floored at 0) applied **before** `withTeamStandings`, so leaderboard rows, team totals, and the profile all show the same net numbers. Penalized rows carry a small "−N hints" marker for transparency.
-
-## Pre-event challenges gate
-
-Until the conference starts, each enabled module's own page — `/challenges`, `/quiz`, `/flags` — can be locked behind a shared password: set `CHALLENGES_GATE_ENABLED=true` and `CHALLENGES_GATE_PASSWORD` (both, plus the always-required `BETTER_AUTH_SECRET`, which signs the unlock cookie). A half-configured gate (flag without password) stays open rather than locking everyone out. Only those module pages are gated; the leaderboard, rules, and the rest of the site stay public, and the homepage keeps showing catalogue totals.
-
-How it works: the proxy (`src/proxy.ts`) redirects visitors without a valid signed cookie to `/gate`, which POSTs the password to `/api/gate`. Verification is entirely server-side (constant-time compare; the password never reaches the client bundle), and success sets an HMAC-signed, httpOnly cookie good for 30 days. The gated set is the module registry's full route list (`ALL_MODULE_ROUTES`), so a newly registered module is gated by being registered rather than by being remembered — and a disabled module's page is gated too, which costs nothing (it 404s on its own) and stops the gate leaking which modules an event runs before it starts.
-
-**Scope, precisely:** enforcement is deliberately split in two. The proxy's gate check is exact-match and **pages only** — it is never applied to `/api/*` on purpose, because that would put the gate in front of `/api/auth/*` and break the sign-in a contestant needs in order to pass the gate in the first place (and would answer API calls with a page redirect an API client can't act on). The matcher does carry `/api/:path*`, but that entry serves the same-origin assertion on mutating API calls, not the gate. The module routes that bank points or return challenge content — `POST /api/quiz/answer`, `POST /api/classic/submit`, `POST /api/hints/reveal`, and the ai module's in-box flag form (`/ai/[id]`'s server action and page) — therefore run **their own** server-side check instead: each calls `requireGatePassed()` (`src/lib/gate-request.ts`) after authentication and before any store call, and refuses with **403 `{ error: "gate" }`** while the lock screen is up. `POST /api/ai/submit` deliberately does not: it is the external site's endpoint, authenticated by a launch token that can only have been minted from a page that already passed the gate.
-
-Read the gate for what it is even so: a "the board opens at the keynote" curtain, **not** an authorization boundary. Every API route still enforces its own rules independently of it — a session is required, the admin pause and the scheduled scoring window are checked on every write, and attempt caps and cooldowns apply — and the schedule/pause pair remains the control that actually shuts scoring until a moment in time. See "Known limitations" in [docs/operations.md](../../docs/operations.md#known-limitations).
-
-Brute-force throttle: five attempts from one IP, then that IP is locked for 24 hours (`gate:attempts:<ip>` in Upstash Redis). Locked attempts are rejected before the password is even compared, so the right password won't unlock a locked IP either. If Upstash is unreachable the gate fails closed.
-
-The attempt is **charged before the password is compared**, as one atomic Lua `EVAL`. That ordering is the point: reading the counter, deciding, comparing, and only then writing would leave nothing serialising concurrent same-IP requests, so a burst of parallel POSTs would all see the same pre-burst counter and all reach the compare. The throttle bounded sequential guessing and nothing else. Two consequences of the fix worth knowing:
-
-- **A successful attempt spends budget too**, and gets it back only when the post-success delete lands (retried once). If that delete fails, the caller still receives their 30-day unlock cookie and is through — but a *second* unlock from that IP may be refused until the window lapses.
-- **Concurrent successful unlocks from one IP can contend.** Six people behind one NAT unlocking in the same instant can drive the counter to the cap before any of their refunds land, and the last of them sees a spurious 429. Retrying works, because the refunds delete the key.
-
-Caveat that predates all of this: everyone behind one NAT (an office, a hotel, a conference) shares an IP, so five collective failures lock them all, and there is no self-service recovery. To clear one IP by hand, delete its key from Upstash (e.g. via the console, or `redis-cli DEL gate:attempts:203.0.113.9` against the underlying Redis).
-
-The fastest fix during the event is not that command, though — it is turning the gate off (see Rollout below), which is the plan anyway once doors open.
-
-Retention: each key holds a client IP, so it carries a 30-day `EXPIRE`, refreshed on every charged attempt. Unlike the DynamoDB TTL this design replaced, Redis expiry is exact rather than best-effort, so the retention promise on `/privacy` is literal.
-
-## Reach counters
-
-`stats:countries` is a Redis hash with one integer field per country (`HINCRBY stats:countries <iso2> 1`), incremented once per browser session via `POST /api/stats/visit`. The country comes from a geo header (`cf-ipcountry` or `x-geo-country`) and is validated as ISO-3166 alpha-2 before it is used as a hash field — the request body is ignored entirely. No login, IP, timestamp, or session id is stored alongside it, deliberately: `/privacy` makes a specific promise that this is a bare tally. Counts are approximate and unauthenticated — a measure of reach, not a headcount.
-
-**Self-hosted note**: that header is only as trustworthy as whatever sits in front of the app. The kit's own Caddy config doesn't set, strip, or validate either header, so on a bare `docker compose` deployment a client can send one directly and the tally can be gamed — an accepted trade-off for an approximate, no-PII counter, not a security boundary. If you want the counter to reflect real geography instead, put a real edge/CDN in front (e.g. Cloudflare, which sets `cf-ipcountry` and strips client-supplied values) so the header can't be spoofed before it reaches the app.
-
-Rollout: set the two gate env vars and rebuild/restart the `app` service (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)). At conference start, flip `CHALLENGES_GATE_ENABLED` to `false` (or remove it) and rebuild/restart — outstanding unlock cookies become inert. Rotating the password is the same edit + rebuild; cookies issued earlier stay valid because they are signed by `BETTER_AUTH_SECRET`, not the password.
+**Reach counter.** `POST /api/stats/visit` does `HINCRBY stats:countries <iso2> 1` once per browser session, taking the country from `cf-ipcountry` or `x-geo-country` and validating it as ISO-3166 alpha-2; the body is ignored and no login, IP or timestamp is stored, which is the promise `/privacy` makes. The kit's Caddy does not set or strip that header, so on a bare deployment the tally is spoofable — accepted for an approximate, no-PII counter.
 
 ## Branding
 
-- **OWASP**: Logo and favicon sourced from the official mark at [owasp.org](https://owasp.org); typography follows the [OWASP Brand Guidelines 2024](https://policy.owasp.org/operational/branding)
-- **Event theme**: Dark blue-gray palette (`#1a1a2e`), accent colors (red, yellow, blue, teal) — see `DESIGN_SYSTEM.md` for the full token set and rationale
+OWASP logo and favicon from the official mark at [owasp.org](https://owasp.org); typography per the OWASP brand guidelines above. The theme is the original navy/blue terminal identity — `DESIGN_SYSTEM.md` has the full token set and rationale.

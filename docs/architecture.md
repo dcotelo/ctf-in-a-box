@@ -109,7 +109,7 @@ state; everything else that touches scores goes through it.
 | `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. Event name/dates/targets are baked in at build time (see below). |
 | `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["poll", "push"]` — both ingest modes need it, unlike `sync`, which is `["poll"]` only — and a single-module event without `secure-development` never brings it up; see [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
-| `redis` | `redis:7-alpine` (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)), `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
+| `redis` | `redis:8-alpine` (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)), `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
 | `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). Tolerates `modules.secure-development` being absent from `event.yaml` (e.g. a quiz-only event): it logs `no polled module enabled, nothing to do` and exits `0` rather than polling anything — `restart: on-failure` (not `unless-stopped`) is what keeps that clean exit from being restarted as if it were a crash. |
 
 ## Data flow for a score
@@ -343,10 +343,12 @@ possibly-replayed submission."
 
 **Quiz points are ADDED to the board, not attributed from it.**
 `withModuleContributions` (`src/lib/leaderboard/module-contributions.ts`)
-treats the two enabled modules differently because their points arrive
-differently: `secure-development`'s points are already inside `entry.points`
+handles all four enabled modules, but splits them by how their points
+arrive: `secure-development`'s points are already inside `entry.points`
 (the scorer computed them), so the overlay only *attributes* that existing
-figure into a `ModuleProgress` block. The quiz never submits anything
+figure into a `ModuleProgress` block, while `quiz`, `classic` and `ai` are
+each **added** by the same rule the rest of this section describes for the
+quiz. The quiz never submits anything
 through `scorer`'s `POST /score` — the web app holds no score-writing token
 for that endpoint at all, so there is nothing for it to authenticate as a
 writer with — its points are computed and stored entirely by the app, so
@@ -438,8 +440,9 @@ value and compares whole strings with Lua's `==` — a flag can contain
 braces, quotes, and backslashes, so it is never pattern-matched out of a
 JSON blob the way a points value is.
 
-**The full key layout is ten `ctf:classic:*` keys**, enumerated in
-`classic-store.ts`'s header comment: `challenges` (the public-safe hash
+**The full key layout is ten `ctf:classic:*` keys** — nine enumerated in
+`classic-store.ts`'s header comment, plus `hints`, which is named only in
+`classic-keys.ts`: `challenges` (the public-safe hash
 contestants see — no field on it could carry a flag even by accident),
 `flag` and `flagnorm` (above), `hints` (paid-hint text per challenge, per
 issue #190 — written by the admin form, SECRET until purchased through
@@ -688,7 +691,7 @@ flag hashes, hints, signing keys, categories, and the per-challenge
 solvecount) while leaving contestant history and the launch keypair alone,
 because rotating identity on every archive import would break every
 deployed integration for a wipe that was only ever meant to replace the
-challenge list. See [docs/ai-module.md §9](ai-module.md#keys-and-rotation)
+challenge list. See [docs/ai-module.md §9](ai-module.md#section-9-keys-and-rotation)
 for the integrator-facing statement of the same rotation contract.
 
 ## Contestant and team state
@@ -708,16 +711,24 @@ for the integrator-facing statement of the same rotation contract.
   invite).
 - **`ctf:user:<login>:hints`** — a SET of `<target>/<challengeId>` the
   contestant bought, where `<target>` is a secure-development app id or the
-  literal `classic` (classic hints, issue #190; their text lives in
-  `ctf:classic:hints` — named in `classic-keys.ts`, not here — written by the
-  admin classic form and secret until purchased, exactly like the flag
-  hashes); **`ctf:hints:spent`** — a hash of
+  literal `classic` or `ai` (`hint-store.ts`'s `HintTarget`; classic hints
+  are issue #190, and their text lives in `ctf:classic:hints` — named in
+  `classic-keys.ts`, not here — written by the admin classic form and secret
+  until purchased, exactly like the flag hashes; `ai` hints live in
+  `ctf:ai:hints` under the same rules); **`ctf:hints:spent`** — a hash of
   login → points spent, read by the leaderboard's per-team penalty fold;
   **`ctf:hints:at:<login>`** — a hash of `<target>/<challengeId>` → ISO
   purchase time. That last one is a *separate* key
   rather than a conversion of the SET, because changing a live key's type would
   fail `WRONGTYPE` on the first purchase after deploying. It sits under
   `ctf:hints:` so the master reset's existing prefix already sweeps it.
+- **`ctf:rl:<bucket>:<login>`** — a per-login fixed-window request counter
+  (`src/lib/rate-limit-store.ts`): `INCR` plus `EXPIRE` in one Lua `EVAL`,
+  login lower-cased. The buckets are `team-join`, `hint-reveal`, `ai-submit`,
+  `ai-event`, `ai-state` and `ai-admin-test` (`RATE_LIMITS`). The key expires
+  on its own at the window's end, which is why the master reset's prefix list
+  does not name it. The read fails **open**, like the freeze reads: a Redis
+  blip must not stop contestants playing.
 
 **A team is required to score** (ADR 47). `POST /api/quiz/answer` and
 `POST /api/classic/submit` refuse a teamless login with
@@ -751,7 +762,8 @@ without a rebuild:
   | `hintsEnabled`, `hintCost` | hints on/off and their price |
   | `hintsMinSolves`, `hintsUnlockAfterMin` | the anti-burner gate and the time phase |
   | `quizMaxAttempts`, `quizRetryAfterMin` | the quiz retry gate |
-  | `classicCooldownSec` | seconds between flag submissions on one challenge |
+  | `classicCooldownSec` | seconds between flag submissions on one classic challenge |
+  | `aiCooldownSec` | the same, for an `ai` challenge's graded flag path — a signed event is never subject to it |
   | `scoreCooldownMin` | minutes between SCORED runs on one PR (ADR 46) |
   | `teamMaxMembers` | players per team (ADR 45) |
   | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
@@ -815,8 +827,8 @@ without a rebuild:
 - **`ctf:activity:log`** (issue #212) — a capped list (`ACTIVITY_LOG_MAX` =
   5000, `LPUSH`+`LTRIM` in one pipeline, so every write carries its own trim)
   of contestant-facing events: sign-ins (recorded from better-auth's
-  after-hook on the OAuth callback), fresh quiz/classic solves, and team
-  create/join/leave/rename. Read only by the admin panel's **Activity** tab
+  after-hook on the OAuth callback), fresh quiz/classic/ai solves, and team
+  create/join/leave/rename (`activity-keys.ts`'s `ACTIVITY_TYPES`). Read only by the admin panel's **Activity** tab
   (`GET /api/admin/activity`, admin-gated). Two invariants, both from
   `activity-log.ts`: the writer **fails open** — it sits inside sign-in and
   submission paths, and a lost log line must never fail the action it
@@ -863,10 +875,11 @@ computed from per-contestant rows, so every field added later is one edit away
 from carrying a login. The response ships its own **caveats** array, because a
 metric whose limits travel separately from it gets quoted without them.
 
-**What it reads.** Three aggregate reads in one pipeline (`ctf:quiz:points`,
-`ctf:classic:points`, `ctf:hints:spent`), a `SCAN` of `ctf:solves:*` for
-Secure Development, `listTeams()`, and then **six reads per contestant** —
-their quiz answers, classic solves, both attempt hashes, `firstTeamAt` off
+**What it reads.** Four aggregate reads in one pipeline (`ctf:quiz:points`,
+`ctf:classic:points`, `ctf:ai:points`, `ctf:hints:spent`), a `SCAN` of
+`ctf:solves:*` for Secure Development, `listTeams()`, and then **eight reads
+per contestant** (`PER_LOGIN`) — their quiz answers, classic solves and ai
+solves, the three matching attempt hashes, `firstTeamAt` off
 `ctf:user:<login>`, and their hint purchase times — batched 200 commands to a
 round trip. Nothing else; the module contract for those row shapes is
 [docs/modules.md §10](modules.md#section-10-engagement-metrics-contract-insights).
@@ -890,10 +903,10 @@ organizer re-reading it mid-event wants the current number, not one from a
 minute ago.
 
 **Aggregate counters are deliberately not read.** `ctf:classic:solvecount`
-would be a free classic-only shortcut for per-challenge solves, but folding
-each contestant's own rows produces the same figure for *both* modules from
-one source. Reading both would invite the two to disagree with no way to tell
-which was right.
+and `ctf:ai:solvecount` would be free per-module shortcuts for per-challenge
+solves, but folding each contestant's own rows produces the same figure for
+*all three* app-scored modules from one source. Reading both would invite the
+two to disagree with no way to tell which was right.
 
 **The solve-rate denominator has a floor.** It is
 `max(people with an attempt row, people who solved it)`, not the attempt-row
@@ -972,11 +985,17 @@ all event data — `SCAN`+`DEL` of `ctf:solves:*`, `ctf:team:*`, `ctf:user:*`,
 `ctf:quiz:answers:*`/`ctf:quiz:attempts:*`/`ctf:quiz:points`/
 `ctf:quiz:answered`, and
 `ctf:classic:solves:*`/`ctf:classic:attempts:*`/`ctf:classic:points`/
-`ctf:classic:solved`/`ctf:classic:solvecount`, and the activity log
+`ctf:classic:solved`/`ctf:classic:solvecount`,
+`ctf:ai:solves:*`/`ctf:ai:attempts:*`/`ctf:ai:points`/`ctf:ai:solved`/
+`ctf:ai:solvecount`, the spent replay nonces `ctf:ai:nonce:*`, the
+module-wide `ctf:ai:launchkey` (so no launch token issued before the reset
+survives it — see "AI data flow" above), and the activity log
 (`ctf:activity:log`) — keeps `ctf:admin:settings`
 and (deliberately) the organizer's authored content,
-`ctf:quiz:questions`/`ctf:quiz:key` and `ctf:classic:challenges`/
-`ctf:classic:flag`/`ctf:classic:flagnorm`/`ctf:classic:categories`, and
+`ctf:quiz:questions`/`ctf:quiz:key`, `ctf:classic:challenges`/
+`ctf:classic:flag`/`ctf:classic:flagnorm`/`ctf:classic:categories` and
+`ctf:ai:challenges`/`ctf:ai:flag`/`ctf:ai:flagnorm`/`ctf:ai:hints`/
+`ctf:ai:signkey`/`ctf:ai:categories`, and
 appends a reset audit line. The prefix list is walked unconditionally: the
 reset does not check which modules are enabled, so keys a since-disabled
 module left behind are cleared too. On its own that isn't enough in **poll
@@ -1119,7 +1138,9 @@ only rebuilds an image when told to
   the single write path (`sync/src/submit.js` and push-mode Actions both
   land on it — there is no second writer). Delivery is at-least-once: on a
   submit failure, `sync`'s `tick()` un-marks the comment as seen and
-  retries it next tick (`rs.seen = rs.seen.filter((id) => id !== c.id);`).
+  retries it next tick (`rs.seen = rs.seen.filter((k) => k !==
+  seenKey(c.id, c.updated_at));` — the seen list is keyed on comment
+  revision, `id@updated_at`, not bare id).
   A replayed already-applied score is expected to be a no-op on the scorer
   side, not a double-count. The in-repo scorer's `POST /score` requires
   bearer auth (`scorer/src/serve.js` — constant-time compare, refuses to

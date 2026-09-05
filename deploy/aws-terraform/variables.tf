@@ -71,7 +71,7 @@ variable "event_yaml_b64" {
 
 variable "ssm_prefix" {
   type        = string
-  description = "SSM Parameter Store path prefix holding the event SECRETS as SecureStrings (create them OUT OF BAND — see README — so they never enter Terraform state). Expected params under this prefix: BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY (and optionally GITHUB_APP_INSTALLATION_ID)."
+  description = "SSM Parameter Store path prefix holding the event SECRETS as SecureStrings (create them OUT OF BAND — see README — so they never enter Terraform state). Expected params under this prefix: BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN, REDIS_PASSWORD, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY (and optionally GITHUB_APP_INSTALLATION_ID)."
   default     = "/ctf-in-a-box"
 }
 

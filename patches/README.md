@@ -96,8 +96,9 @@ called out honestly rather than papered over.
 
 ## Coverage — honest status
 
-One challenge per target, enough to prove the mechanism (and, across vampi's two,
-that the assertion *discriminates* — patching one scores that one and not another).
+One challenge per target, enough to prove the mechanism (and, across vampi's and
+securityshepherd's two each, that the assertion *discriminates* — patching one
+scores that one and not another).
 This is **not** full per-challenge coverage; the remaining challenges are follow-on
 work, each needing its own patch authored and verified against a real build.
 
@@ -110,10 +111,11 @@ work, each needing its own patch authored and verified against a real build.
 | webgoat           | `challenge-23-sql-injection-dml-update` | 2 | `…/sqlinjection/introduction/SqlInjectionLesson8.java` — parameterize attack8 | standalone | ✅ |
 | vulnerableapp     | `challenge-33-error-sqli-level-1`     |  1  | `…/sqlInjection/ErrorBasedSQLInjectionVulnerability.java` (Level-1) — parameterize + swallow error; **adds a root `Dockerfile`** (fork ships only `Dockerfile.base`) | standalone | ✅ |
 | securityshepherd  | `challenge-23-sqli-1`                  |  1  | `…/servlets/module/challenge/SqlInjection1.java` — `PreparedStatement` | exempt | CI-only |
+| securityshepherd  | `challenge-10-idor-2`                  |  2  | `…/servlets/module/challenge/DirectObject2.java` — allow-list the five exposed `userId`s; anything else gets the not-found response without a query | exempt | CI-only |
 
 `Build-verified` = the patched fork was actually built and judged (locally and/or
-in CI) and the gate passed. securityshepherd's patch is authored and apply-clean but
-its multi-container Maven build is not run outside CI.
+in CI) and the gate passed. securityshepherd's patches are authored and apply-clean
+but its multi-container Maven build is not run outside CI.
 
 ## Pinning
 
