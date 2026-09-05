@@ -4,6 +4,9 @@ Guidance for AI coding agents (and humans who want the short version) working
 in this repo. This follows the tool-agnostic [AGENTS.md](https://agents.md)
 convention: any agent operating here should read this file first.
 
+If you only opened a nested folder, stop and read this file from the
+repo root. `apps/web/AGENTS.md` and `CLAUDE.md` point here on purpose.
+
 ## Build/test/lint
 
 These are the authoritative commands — they match what CI runs in

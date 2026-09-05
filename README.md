@@ -15,6 +15,23 @@
   <img alt="Walkthrough of the contestant leaderboard: sweeping the score-over-time graph to read every team's points at that instant, then expanding the leading team to its members and its per-target flags, each marked patched or open and linked to its OWASP category" src="docs/assets/demo.gif" width="820">
 </p>
 
+### Working on the kit (humans and agents)
+
+Read [`AGENTS.md`](AGENTS.md) before you write code. It is the operating
+manual: the exact commands CI runs, the failure modes this repo has
+already hit, and the review invariants in
+[`docs/reviewing.md`](docs/reviewing.md). `CLAUDE.md` is a pointer to
+the same file.
+
+A change is ready when CI is green **and** every actionable CodeRabbit
+thread on the latest commit is resolved (or declined on the record).
+Commits follow Conventional Commits and carry no AI attribution.
+
+Small, well-specified work is tagged
+[`good first issue`](https://github.com/dcotelo/ctf-in-a-box/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+New modules start as an issue, not a PR — see
+[`docs/modules.md`](docs/modules.md) section 9.
+
 ## What this is
 
 **A control plane, not a single game.** The box gives an event its shared
@@ -315,8 +332,12 @@ Rendered at **[dcotelo.github.io/ctf-in-a-box](https://dcotelo.github.io/ctf-in-
 
 Contributions welcome — [CONTRIBUTING.md](CONTRIBUTING.md) covers the dev
 environment, the CI gates, and how to propose a module;
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies. Each service tests
-independently (Node 22 across the board):
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies.
+
+Agents should follow [AGENTS.md](AGENTS.md). The commands below match CI;
+`make help` lists the same targets once the root Makefile exists.
+
+Each service tests independently (Node 22 across the board):
 
 ```sh
 (cd sync && npm ci && npm test)
