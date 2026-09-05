@@ -3,7 +3,7 @@
 #
 # Runs inside the scorer image with docker.sock mounted. Boots the app under
 # test as a SIBLING container on the ctf network — a plain user-defined bridge,
-# NOT --internal (see boot_app for what keeps it off the host) — then runs the
+# NOT --internal, with no host ports published (see boot_app) — then runs the
 # declarative rubric probes against it and writes ctf-score.md into CTF_OUT_DIR
 # (a dedicated dir OUTSIDE the PR checkout — the consumer workflow reads the
 # report only from there, only on success, so the bot comment can't be forged).
@@ -58,10 +58,11 @@ docker network inspect "$NETWORK" >/dev/null 2>&1 \
 docker network connect "$NETWORK" "$(hostname)" >/dev/null 2>&1 || true
 
 boot_app() {
-  # Publishes NO host ports — that, not an --internal network, is what keeps the
-  # app under test off the runner's host. $NETWORK is a plain bridge (a bare
-  # `docker network create`, above and in the consumer workflow), so APP_URL
-  # resolves only for containers on it, but it can still reach the internet.
+  # Publishes NO host ports: nothing on the runner's interfaces answers for the
+  # app, and only containers on $NETWORK resolve APP_URL. That is the whole
+  # contract — $NETWORK is a plain bridge (a bare `docker network create`, above
+  # and in the consumer workflow), not --internal, so the app can still reach
+  # the internet and the runner host can still reach the container's bridge IP.
   docker run -d --rm \
     --network "$NETWORK" \
     --network-alias "$APP_HOST" \
