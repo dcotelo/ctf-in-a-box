@@ -7,6 +7,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import PageHeader from "@/components/page-header";
+import { phaseFromSettings } from "@/components/phase-line";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { enabledApps, joinAppNames } from "@/lib/apps";
@@ -15,6 +16,7 @@ import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
 import AdminControls from "./admin-controls";
+import AdminHeader from "./admin-header";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -94,9 +96,11 @@ export default async function AdminPage({
     if (setup) setups[mod.id] = setup(ctx);
   }
 
+  const resolution = settings ? phaseFromSettings(settings) : null;
+
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow="Organizer" title="Admin" description="Event controls and sync status." />
+      <AdminHeader eventName={eventConfig.name} resolution={resolution} />
 
       <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Status</h2>

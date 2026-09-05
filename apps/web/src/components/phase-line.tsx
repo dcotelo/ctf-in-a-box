@@ -24,23 +24,36 @@ import { outsideWindow } from "@/lib/schedule-window";
 
 export type EventPhase = "registration" | "live" | "frozen" | "results";
 
-export async function resolvePhase(): Promise<{
+export type PhaseResolution = {
   phase: EventPhase;
   startsAt: string | null;
   endsAt: string | null;
-} | null> {
+};
+
+/** The pure branch logic, split out of `resolvePhase` so a caller that
+ *  already HAS an `AdminSettings` (the admin page, which fetches it for its
+ *  own render) can derive the same phase without a second Redis read. Same
+ *  rules as the doc comment above: results > manual freeze > registration >
+ *  scheduled gap > live. */
+export function phaseFromSettings(
+  s: { paused: boolean; scoringStartsAt: string | null; scoringEndsAt: string | null },
+  now: number = Date.now(),
+): PhaseResolution {
+  const start = s.scoringStartsAt ? Date.parse(s.scoringStartsAt) : NaN;
+  const end = s.scoringEndsAt ? Date.parse(s.scoringEndsAt) : NaN;
+  let phase: EventPhase;
+  if (Number.isFinite(end) && now > end) phase = "results";
+  else if (s.paused) phase = "frozen";
+  else if (Number.isFinite(start) && now < start) phase = "registration";
+  else if (outsideWindow(now, s.scoringStartsAt, s.scoringEndsAt)) phase = "frozen";
+  else phase = "live";
+  return { phase, startsAt: s.scoringStartsAt, endsAt: s.scoringEndsAt };
+}
+
+export async function resolvePhase(): Promise<PhaseResolution | null> {
   try {
     const s = await getAdminSettings();
-    const now = Date.now();
-    const start = s.scoringStartsAt ? Date.parse(s.scoringStartsAt) : NaN;
-    const end = s.scoringEndsAt ? Date.parse(s.scoringEndsAt) : NaN;
-    let phase: EventPhase;
-    if (Number.isFinite(end) && now > end) phase = "results";
-    else if (s.paused) phase = "frozen";
-    else if (Number.isFinite(start) && now < start) phase = "registration";
-    else if (outsideWindow(now, s.scoringStartsAt, s.scoringEndsAt)) phase = "frozen";
-    else phase = "live";
-    return { phase, startsAt: s.scoringStartsAt, endsAt: s.scoringEndsAt };
+    return phaseFromSettings(s);
   } catch {
     return null;
   }
@@ -55,7 +68,7 @@ const STOPS: { id: EventPhase; label: string }[] = [
 
 /** The current phase's node/chip color: green while scoring runs, amber for
  *  a freeze, brand blue for the lobby, paper for the final state. */
-const PHASE_COLOR: Record<EventPhase, string> = {
+export const PHASE_COLOR: Record<EventPhase, string> = {
   registration: "#2563eb",
   live: "#22c55e",
   frozen: "#d4a017",
@@ -79,6 +92,21 @@ function fmt(iso: string | null): string | null {
   });
 }
 
+/** One boundary time, attached to the CURRENT phase — the moment a visitor
+ *  would actually plan around. A manual freeze has no known end, so it makes
+ *  no promise (`null`). Split out of `PhaseLine` so the admin header's
+ *  one-line phase badge (`admin-header.tsx`) states the same boundary the
+ *  public phase strip does, rather than inventing its own wording. */
+export function phaseBoundaryLabel(phase: EventPhase, startsAt: string | null, endsAt: string | null): string | null {
+  return phase === "registration" && fmt(startsAt)
+    ? `scoring opens ${fmt(startsAt)} UTC`
+    : phase === "live" && fmt(endsAt)
+      ? `until ${fmt(endsAt)} UTC`
+      : phase === "results" && fmt(endsAt)
+        ? `ended ${fmt(endsAt)} UTC`
+        : null;
+}
+
 export default async function PhaseLine() {
   const resolved = await resolvePhase();
   if (!resolved) return null;
@@ -89,17 +117,7 @@ export default async function PhaseLine() {
   const activeIn = stops.findIndex((s) => s.id === phase);
   const color = PHASE_COLOR[phase];
 
-  // One boundary time, attached to the CURRENT phase — the moment a visitor
-  // would actually plan around. (A manual freeze has no known end, so it
-  // makes no promise.)
-  const boundary =
-    phase === "registration" && fmt(startsAt)
-      ? `scoring opens ${fmt(startsAt)} UTC`
-      : phase === "live" && fmt(endsAt)
-        ? `until ${fmt(endsAt)} UTC`
-        : phase === "results" && fmt(endsAt)
-          ? `ended ${fmt(endsAt)} UTC`
-          : null;
+  const boundary = phaseBoundaryLabel(phase, startsAt, endsAt);
 
   return (
     <div className="border-b border-white/[0.09] bg-[#12121e]">

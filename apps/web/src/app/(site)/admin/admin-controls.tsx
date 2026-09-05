@@ -480,9 +480,7 @@ export default function AdminControls({
   const statusOf = (key: string): FieldStatus => fieldStatus[key] ?? { state: "idle" };
 
   return (
-    <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
-
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-6 lg:flex-row">
         <AdminSidebar groups={sidebarGroups} active={active} onSelect={setActive} />
 
