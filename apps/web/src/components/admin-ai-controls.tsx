@@ -99,8 +99,9 @@ import ConfirmModal from "@/components/confirm-modal";
 // Named import only — this module never needs classic's default export, just
 // the module-agnostic phrase helper (title in, safe non-empty phrase out).
 import { confirmPhraseFromTitle } from "@/components/admin-classic-controls";
-import AdminAiIntegration from "@/components/admin-ai-integration";
+import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
+import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 
 type NumericSettingKey = "aiCooldownSec";
 
@@ -110,7 +111,10 @@ export type AdminAiControlsProps = {
   pending: boolean;
   aiCooldownSecInput: string;
   setAiCooldownSecInput: (v: string) => void;
-  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void) => void;
+  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void, label: string) => void;
+  /** The shell's per-field save status, by stored key (UX audit F2). Optional
+   *  so a static render without a shell still works; idle when absent. */
+  statusOf?: (key: string) => FieldStatus;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminAiChallenge[];
   initialCategories?: string[];
@@ -218,12 +222,14 @@ export type AiChallengePayload = {
  *  without needing to simulate a real blur event — this repo's component
  *  tests render with `renderToStaticMarkup`, which never fires DOM events
  *  (see this file's test file header comment). */
+export const AI_COOLDOWN_LABEL = "Submission cooldown (sec)";
+
 export function commitAiCooldown(
-  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void) => void,
+  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void, label: string) => void,
   raw: string,
   reset: (v: string) => void,
 ): void {
-  commitNumber("aiCooldownSec", raw, reset);
+  commitNumber("aiCooldownSec", raw, reset, AI_COOLDOWN_LABEL);
 }
 
 export function emptyAiDraft(defaultCategory: string = "", nextOrder: number = 1): AiChallengeDraft {
@@ -383,6 +389,7 @@ export default function AdminAiControls({
   aiCooldownSecInput,
   setAiCooldownSecInput,
   commitNumber,
+  statusOf = () => ({ state: "idle" }),
   initialChallenges = [],
   initialCategories = [],
   onInventory,
@@ -662,28 +669,24 @@ export default function AdminAiControls({
 
   const confirmCopy = deleteTarget ? aiChallengeDeleteConfirm(deleteTarget) : null;
 
+  // Hydration-safe: "" on the server and on the first browser render, the
+  // real origin after — see `useBrowserOrigin`. The per-row panel uses the
+  // same hook, so both halves of the integration UI agree.
+  const origin = useBrowserOrigin();
+
   return (
     <>
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Submission cooldown (sec)</span>
-          <span className="block text-xs text-muted">
-            Seconds a contestant must wait between graded flag submissions on the same challenge. 0 = no cooldown.
-            Signed events from the external side are never rate-limited by this — there is no wrong answer to
-            throttle.
-          </span>
-        </span>
-        <input
-          type="number"
-          min={0}
-          value={aiCooldownSecInput}
-          placeholder={String(AI_COOLDOWN_SEC)}
-          disabled={pending}
-          onChange={(e) => setAiCooldownSecInput(e.target.value)}
-          onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <AdminNumberField
+        id="ai-cooldown-sec"
+        label={AI_COOLDOWN_LABEL}
+        help="Seconds a contestant must wait between graded flag submissions on the same challenge. 0 = no cooldown. Signed events from the external side are never rate-limited by this — there is no wrong answer to throttle."
+        value={aiCooldownSecInput}
+        placeholder={String(AI_COOLDOWN_SEC)}
+        disabled={pending}
+        status={statusOf("aiCooldownSec")}
+        onChange={setAiCooldownSecInput}
+        onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div className="flex items-center justify-between gap-3">
@@ -766,6 +769,10 @@ export default function AdminAiControls({
             Add challenge
           </button>
         </div>
+
+        {/* Once, for the whole board (UX audit F5) — every row used to
+            repeat these three URLs. */}
+        <AiEndpointsBlock origin={origin} />
 
         {listError && (
           <p className="text-xs text-[#e53e3e]">

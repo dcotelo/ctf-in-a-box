@@ -26,6 +26,7 @@ import { HINT_COST, HINT_DEFAULT_ENABLED, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
+import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
@@ -48,12 +49,18 @@ function ScheduleField({
   label,
   value,
   disabled,
+  status,
   onCommit,
 }: {
   label: string;
   value: string | null;
   disabled: boolean;
-  onCommit: (iso: string | null) => void;
+  /** The shell's save status for this field (UX audit F2), shown under it. */
+  status: FieldStatus;
+  /** Resolves to whether the server accepted the value. On refusal the draft
+   *  snaps back to the stored value — the sync effect below only fires when
+   *  the STORED value changes, which a rejection never does. */
+  onCommit: (iso: string | null) => Promise<boolean>;
 }) {
   // The datetime-local value is the VIEWER's wall clock, which the server
   // cannot know: seeding the input from toLocalInput() during render made the
@@ -71,20 +78,40 @@ function ScheduleField({
     return () => clearTimeout(timeout);
   }, [value]);
   const canonical = toLocalInput(value);
+  const rejected = status.state === "rejected";
+  const line =
+    status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
+  const statusId = `schedule-${label.toLowerCase().replace(/\s+/g, "-")}-status`;
   return (
-    <label className="flex items-center justify-between gap-3">
-      <span className="text-xs text-muted">{label}</span>
-      <input
-        type="datetime-local"
-        value={input}
-        disabled={disabled}
-        onChange={(e) => setInput(e.target.value)}
-        onBlur={() => {
-          if (input !== canonical) onCommit(fromLocalInput(input));
-        }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-      />
-    </label>
+    <div className="flex flex-col gap-1">
+      <label className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted">{label}</span>
+        <input
+          type="datetime-local"
+          value={input}
+          disabled={disabled}
+          aria-invalid={rejected ? true : undefined}
+          aria-describedby={line ? statusId : undefined}
+          onChange={(e) => setInput(e.target.value)}
+          onBlur={() => {
+            if (input === canonical) return;
+            void onCommit(fromLocalInput(input)).then((ok) => {
+              if (!ok) setInput(canonical);
+            });
+          }}
+          className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+        />
+      </label>
+      {line && (
+        <p
+          id={statusId}
+          role={rejected ? "alert" : undefined}
+          className={`text-right text-xs ${rejected ? "text-[#e53e3e]" : status.state === "saved" ? "text-[#22c55e]" : "text-muted"}`}
+        >
+          {line}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -94,6 +121,10 @@ export type AdminEventTabProps = {
   demoMode: boolean;
   resetInfo: string | null;
   apply: (patch: Record<string, unknown>) => Promise<boolean>;
+  /** A write that belongs to one field: reported into that field's status
+   *  rather than the panel-wide error line (UX audit F2). */
+  applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
+  statusOf: (key: string) => FieldStatus;
   setConfirm: (c: ConfirmState) => void;
   doReset: (confirmValue: string) => Promise<void>;
   doSeed: () => Promise<void>;
@@ -137,6 +168,8 @@ export default function AdminEventTab({
   demoMode,
   resetInfo,
   apply,
+  applyField,
+  statusOf,
   setConfirm,
   doReset,
   doSeed,
@@ -282,27 +315,24 @@ export default function AdminEventTab({
         />
       </label>
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Players per team</span>
-          <span className="block text-xs text-muted">
-            Enforced when someone joins. Lowering it never removes anyone from a team
-            that is already larger — those teams keep their players and simply cannot
-            take another. Blank uses the default ({TEAM_MAX_MEMBERS}).
-          </span>
-        </span>
-        <input
-          type="number"
-          min={1}
-          max={TEAM_MAX_MEMBERS_MAX}
-          value={teamMaxMembersInput}
-          placeholder={String(TEAM_MAX_MEMBERS)}
-          disabled={pending}
-          onChange={(e) => setTeamMaxMembersInput(e.target.value)}
-          onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <AdminNumberField
+        id="team-max-members"
+        label="Players per team"
+        help={
+          <>
+            Enforced when someone joins. Lowering it never removes anyone from a team that is already larger — those
+            teams keep their players and simply cannot take another. Blank uses the default ({TEAM_MAX_MEMBERS}).
+          </>
+        }
+        value={teamMaxMembersInput}
+        placeholder={String(TEAM_MAX_MEMBERS)}
+        min={1}
+        max={TEAM_MAX_MEMBERS_MAX}
+        disabled={pending}
+        status={statusOf("teamMaxMembers")}
+        onChange={setTeamMaxMembersInput}
+        onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput, "Players per team")}
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div>
@@ -334,28 +364,32 @@ export default function AdminEventTab({
           label="Scoring opens"
           value={settings.scoringStartsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ scoringStartsAt: iso })}
+          status={statusOf("scoringStartsAt")}
+          onCommit={(iso) => applyField("scoringStartsAt", { scoringStartsAt: iso }, "Scoring opens")}
         />
         <ScheduleField
           key={`se-${settings.scoringEndsAt ?? ""}`}
           label="Scoring closes"
           value={settings.scoringEndsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ scoringEndsAt: iso })}
+          status={statusOf("scoringEndsAt")}
+          onCommit={(iso) => applyField("scoringEndsAt", { scoringEndsAt: iso }, "Scoring closes")}
         />
         <ScheduleField
           key={`rs-${settings.registrationStartsAt ?? ""}`}
           label="Registration opens"
           value={settings.registrationStartsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ registrationStartsAt: iso })}
+          status={statusOf("registrationStartsAt")}
+          onCommit={(iso) => applyField("registrationStartsAt", { registrationStartsAt: iso }, "Registration opens")}
         />
         <ScheduleField
           key={`re-${settings.registrationEndsAt ?? ""}`}
           label="Registration closes"
           value={settings.registrationEndsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ registrationEndsAt: iso })}
+          status={statusOf("registrationEndsAt")}
+          onCommit={(iso) => applyField("registrationEndsAt", { registrationEndsAt: iso }, "Registration closes")}
         />
       </div>
 
@@ -388,62 +422,41 @@ export default function AdminEventTab({
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Hint cost</span>
-            <span className="block text-xs text-muted">Points deducted from the buyer when a hint is revealed.</span>
-          </span>
-          <input
-            type="number"
-            min={0}
-            value={hintCostInput}
-            placeholder={String(HINT_COST)}
-            disabled={pending}
-            onChange={(e) => setHintCostInput(e.target.value)}
-            onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput)}
-            className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
+        <AdminNumberField
+          id="hint-cost"
+          label="Hint cost"
+          help="Points deducted from the buyer when a hint is revealed."
+          value={hintCostInput}
+          placeholder={String(HINT_COST)}
+          disabled={pending}
+          status={statusOf("hintCost")}
+          onChange={setHintCostInput}
+          onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput, "Hint cost")}
+        />
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Hints: solves required</span>
-            <span className="block text-xs text-muted">
-              Solves needed on a target (or across the Classic or AI board) before its hints can be bought. Blocks
-              throwaway accounts from farming hint text for a team. 0 disables the gate.
-            </span>
-          </span>
-          <input
-            type="number"
-            min={0}
-            value={minSolvesInput}
-            placeholder={String(HINT_MIN_SOLVES)}
-            disabled={pending}
-            onChange={(e) => setMinSolvesInput(e.target.value)}
-            onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput)}
-            className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
+        <AdminNumberField
+          id="hints-min-solves"
+          label="Hints: solves required"
+          help="Solves needed on a target (or across the Classic or AI board) before its hints can be bought. Blocks throwaway accounts from farming hint text for a team. 0 disables the gate."
+          value={minSolvesInput}
+          placeholder={String(HINT_MIN_SOLVES)}
+          disabled={pending}
+          status={statusOf("hintsMinSolves")}
+          onChange={setMinSolvesInput}
+          onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput, "Hints: solves required")}
+        />
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Hints: unlock after (min)</span>
-            <span className="block text-xs text-muted">
-              Minutes after the scoring start before any hint can be bought. 0 = available immediately. Needs
-              Scoring opens (in Schedule, above) to be set to have any effect.
-            </span>
-          </span>
-          <input
-            type="number"
-            min={0}
-            value={unlockAfterInput}
-            placeholder={String(HINT_UNLOCK_AFTER_MIN)}
-            disabled={pending}
-            onChange={(e) => setUnlockAfterInput(e.target.value)}
-            onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}
-            className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
+        <AdminNumberField
+          id="hints-unlock-after-min"
+          label="Hints: unlock after (min)"
+          help="Minutes after the scoring start before any hint can be bought. 0 = available immediately. Needs Scoring opens (in Schedule, above) to be set to have any effect."
+          value={unlockAfterInput}
+          placeholder={String(HINT_UNLOCK_AFTER_MIN)}
+          disabled={pending}
+          status={statusOf("hintsUnlockAfterMin")}
+          onChange={setUnlockAfterInput}
+          onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput, "Hints: unlock after (min)")}
+        />
       </div>
 
       {demoMode && (

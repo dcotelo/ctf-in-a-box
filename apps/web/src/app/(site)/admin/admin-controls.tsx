@@ -44,6 +44,7 @@ import {
 } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
 import AdminModuleSetup, { type ModuleInventory } from "@/components/admin-module-setup";
+import { describeFieldError, parseNumberCommit, type FieldStatus } from "@/components/admin-number-field";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAiControls from "@/components/admin-ai-controls";
@@ -341,6 +342,22 @@ export default function AdminControls({
     );
   };
 
+  /** Re-seeds every numeric draft string from the settings the server just
+   *  confirmed, so what the fields show is what is stored. */
+  const syncInputs = (s: AdminSettings) => {
+    setSettings(s);
+    setSettingsAt(Date.now());
+    setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
+    setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
+    setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
+    setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
+    setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
+    setClassicCooldownSecInput(s.classicCooldownSec === null ? "" : String(s.classicCooldownSec));
+    setAiCooldownSecInput(s.aiCooldownSec === null ? "" : String(s.aiCooldownSec));
+    setTeamMaxMembersInput(s.teamMaxMembers === null ? "" : String(s.teamMaxMembers));
+    setCooldownInput(s.scoreCooldownMin === null ? "" : String(s.scoreCooldownMin));
+  };
+
   /** Returns whether the patch was accepted, so a caller with its own local
    *  draft state (AdminModuleIdentity) can snap back on rejection instead of
    *  leaving rejected text sitting in the field. Every tab's `apply` prop
@@ -348,49 +365,104 @@ export default function AdminControls({
    *  assignable to `Promise<void>` just because `T` goes unused — that's
    *  only true for a bare `void`-returning function type, not one nested
    *  inside a generic); callers that only need fire-and-forget keep calling
-   *  it exactly the same way (`void apply(...)`), just ignoring the result. */
+   *  it exactly the same way (`void apply(...)`), just ignoring the result.
+   *
+   *  This is the path for writes that have no field of their own to report
+   *  into — the toggles, the module switches — so a failure lands on the
+   *  panel-wide error line. A write that belongs to one field goes through
+   *  `applyField` below, which reports beside that field instead. */
   const apply = async (patch: Record<string, unknown>): Promise<boolean> => {
     setPending(true);
     setError(null);
-    const result = await postSettings(patch);
-    if (result.error) {
-      setError(result.error);
-      setPending(false);
+    try {
+      const result = await postSettings(patch);
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      if (result.settings) syncInputs(result.settings);
+      return true;
+    } catch {
+      // A network-level failure (fetch itself rejected) must not leave the
+      // whole panel disabled behind a `pending` that never clears.
+      setError("Couldn't reach the server — try again.");
       return false;
+    } finally {
+      setPending(false);
     }
-    if (result.settings) {
-      const s = result.settings;
-      setSettings(s);
-      setSettingsAt(Date.now());
-      setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
-      setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
-      setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
-      setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
-      setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
-      setClassicCooldownSecInput(s.classicCooldownSec === null ? "" : String(s.classicCooldownSec));
-      setAiCooldownSecInput(s.aiCooldownSec === null ? "" : String(s.aiCooldownSec));
-    }
-    setPending(false);
-    return true;
   };
 
-  /** Shared commit for the numeric knobs (hint + quiz): junk snaps back to the
-   *  stored value, an unchanged value is a no-op, otherwise it's patched
-   *  server-side (which re-validates the range — see admin-store). */
+  // Per-field save status (UX audit F2). Keyed by the stored setting key —
+  // the same key the patch carries — and read by the field that owns it, so
+  // an organizer sees "Saving…", "Saved" or the reason for a refusal beside
+  // the box they typed in, never only on a line under the whole panel.
+  // "Saved" is transient: it clears itself after a moment unless a newer
+  // status has replaced it.
+  const [fieldStatus, setFieldStatus] = useState<Record<string, FieldStatus>>({});
+  const setStatus = useCallback((key: string, status: FieldStatus) => {
+    setFieldStatus((prev) => ({ ...prev, [key]: status }));
+  }, []);
+  const flashSaved = useCallback(
+    (key: string) => {
+      setStatus(key, { state: "saved" });
+      setTimeout(() => {
+        setFieldStatus((prev) => (prev[key]?.state === "saved" ? { ...prev, [key]: { state: "idle" } } : prev));
+      }, 2500);
+    },
+    [setStatus],
+  );
+
+  /** A write that belongs to ONE field. Same POST as `apply`, but the outcome
+   *  is reported into `fieldStatus[key]` — pending, then saved or rejected
+   *  with the server's message rewritten through `label` — and never onto the
+   *  panel-wide error line. Returns whether it was accepted, like `apply`, so
+   *  a caller can snap its draft back. */
+  const applyField = async (key: string, patch: Record<string, unknown>, label: string): Promise<boolean> => {
+    setPending(true);
+    setStatus(key, { state: "pending" });
+    try {
+      const result = await postSettings(patch);
+      if (result.error) {
+        setStatus(key, { state: "rejected", message: describeFieldError(label, result.error) });
+        return false;
+      }
+      if (result.settings) syncInputs(result.settings);
+      flashSaved(key);
+      return true;
+    } catch {
+      // Same as `apply`: a fetch that rejects outright must still release
+      // `pending` and tell the field why nothing saved.
+      setStatus(key, { state: "rejected", message: `${label} could not be saved: couldn't reach the server — try again.` });
+      return false;
+    } finally {
+      setPending(false);
+    }
+  };
+
+  /** Shared commit for the numeric knobs: a no-op when unchanged; junk, a
+   *  fraction, a negative or a blanked field snaps back to the stored value
+   *  WITH the reason shown beside the field; otherwise the value is posted
+   *  through `applyField`, which re-validates server-side (admin-store) and
+   *  snaps the draft back if that refuses. The decision itself is the pure
+   *  `parseNumberCommit`, so it is tested without a DOM. */
   // Typed as the shared `CommitNumber` rather than repeating its key union
   // here. The inline copy had already drifted once by the time a seventh key
   // was added, and a mismatch shows up as a type error at the call site rather
   // than anywhere near the cause.
-  const commitNumber: CommitNumber = (key, raw, reset) => {
+  const commitNumber: CommitNumber = (key, raw, reset, label) => {
     const current = settings[key];
-    const value = Number(raw);
-    if (raw.trim() === "" || !Number.isInteger(value) || value < 0) {
+    const decision = parseNumberCommit(raw, current);
+    if (decision.kind === "noop") return;
+    if (decision.kind === "snapback") {
       reset(current === null ? "" : String(current));
+      setStatus(key, { state: "rejected", message: decision.message });
       return;
     }
-    if (value === current) return;
-    void apply({ [key]: value });
+    void applyField(key, { [key]: decision.value }, label).then((ok) => {
+      if (!ok) reset(current === null ? "" : String(current));
+    });
   };
+  const statusOf = (key: string): FieldStatus => fieldStatus[key] ?? { state: "idle" };
 
   return (
     <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
@@ -437,6 +509,8 @@ export default function AdminControls({
               demoMode={demoMode}
               resetInfo={resetInfo}
               apply={apply}
+              applyField={applyField}
+              statusOf={statusOf}
               setConfirm={setConfirm}
               doReset={doReset}
               doSeed={doSeed}
@@ -487,6 +561,7 @@ export default function AdminControls({
                   pending={pending}
                   apply={apply}
                   commitNumber={commitNumber}
+                  statusOf={statusOf}
                   cooldownInput={cooldownInput}
                   setCooldownInput={setCooldownInput}
                 />
@@ -498,6 +573,7 @@ export default function AdminControls({
                   quizRetryAfterInput={quizRetryAfterInput}
                   setQuizRetryAfterInput={setQuizRetryAfterInput}
                   commitNumber={commitNumber}
+                  statusOf={statusOf}
                   onInventory={inventoryReporters[tab.id]}
                 />
               ) : tab.id === "classic" ? (
@@ -506,6 +582,7 @@ export default function AdminControls({
                   classicCooldownSecInput={classicCooldownSecInput}
                   setClassicCooldownSecInput={setClassicCooldownSecInput}
                   commitNumber={commitNumber}
+                  statusOf={statusOf}
                   onInventory={inventoryReporters[tab.id]}
                 />
               ) : tab.id === "ai" ? (
@@ -514,6 +591,7 @@ export default function AdminControls({
                   aiCooldownSecInput={aiCooldownSecInput}
                   setAiCooldownSecInput={setAiCooldownSecInput}
                   commitNumber={commitNumber}
+                  statusOf={statusOf}
                   onInventory={inventoryReporters[tab.id]}
                 />
               ) : (

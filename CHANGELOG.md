@@ -8,6 +8,24 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Every numeric setting says whether it saved.** The nine numeric knobs and
+  the four schedule fields now report beside the field: "Saving…" while the
+  write is in flight, "Saved" for a moment after, or the reason it was refused
+  — junk, a fraction, a negative or a blanked field snaps back to the stored
+  value *with* that reason, and a server rejection is rewritten through the
+  field's label ("Hint cost must be a whole number between 0 and 100,000.")
+  instead of landing as `hintCost must be an integer in [0, 100000]` under
+  the whole panel while the rejected text stayed in the box (admin UX audit
+  F2). The refusal is announced (`role="alert"`) and tied to its input
+  (`aria-invalid`, `aria-describedby`). One shared component,
+  `components/admin-number-field.tsx`, replaces the hand-written pair on
+  every tab; stored keys and server validation are unchanged.
+- **The AI tab is a list again.** The three module-wide endpoint URLs render
+  once above the challenge list instead of inside every row, and each row's
+  integration panel (signing key, test curl, Send test) is collapsed until
+  opened — three challenges had made the tab 2,253 px tall, 542 px a row
+  (F5). A flag-only row's summary says the panel is not needed for it.
+
 - **Hint policy moved to the Event tab.** The four hint knobs (enabled, cost,
   solves required, unlock after) govern Secure Development, Classic and AI
   hints alike, but rendered only on the Secure Development tab — so a

@@ -522,7 +522,8 @@ describe("commitAiCooldown", () => {
   it("commits under the exact key aiCooldownSec", () => {
     const spy = vi.fn();
     commitAiCooldown(spy, "10", noop);
-    expect(spy).toHaveBeenCalledWith("aiCooldownSec", "10", noop);
+    // The label rides along so a rejection is phrased through it (F2).
+    expect(spy).toHaveBeenCalledWith("aiCooldownSec", "10", noop, "Submission cooldown (sec)");
   });
 });
 
@@ -672,5 +673,20 @@ describe("aiInventory", () => {
   it("counts challenges and categories separately", async () => {
     const { aiInventory } = await import("@/components/admin-ai-controls");
     expect(aiInventory([], ["Prompt Injection"])).toEqual({ items: 0, categories: 1 });
+  });
+});
+
+// UX audit F5: the module-wide endpoint URLs render ONCE above the list, and
+// each row's integration panel is collapsed until opened, so the list an
+// organizer scrolls to find a challenge is a list again.
+describe("AdminAiControls — density", () => {
+  it("renders the endpoint URLs once for the whole board, not once per row", async () => {
+    const { default: Controls } = await import("@/components/admin-ai-controls");
+    const html = renderToStaticMarkup(
+      <Controls pending={false} aiCooldownSecInput="" setAiCooldownSecInput={noop} commitNumber={noop} initialChallenges={[row1, row2]} initialCategories={["AI"]} />,
+    );
+    expect(html.match(/\/api\/ai\/submit/g)?.length).toBe(1);
+    expect(html.match(/<details/g)?.length).toBe(2);
+    expect(html).not.toContain("<details open");
   });
 });
