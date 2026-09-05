@@ -111,6 +111,10 @@ files themselves.
 node scripts/check-module-registries.mjs
 ```
 
+Same commands are also exposed as `make <target>` from the repo root
+(`make help` lists them). The Makefile does not add a full-repo `test`
+target on purpose.
+
 ## CI
 
 `.github/workflows/ci.yml` has a `changes` job that path-filters which areas
