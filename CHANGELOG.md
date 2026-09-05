@@ -8,6 +8,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The profile page names the team hash through `teamKey`, and the judge's
+  network comments say what the network is.** `profile/page.tsx` still
+  open-coded `ctf:team:<slug>` twice — the reader ADR 48 moved the builders
+  into `team-keys.ts` for — behind a comment excusing it; it now imports
+  `teamKey` like every other reader, and a source-scan test keeps the literal
+  from coming back. `scorer/entrypoint.sh` and `scorer/entrypoints/webgoat.sh`
+  described `$NETWORK` as `--internal`; it is a plain `docker network create`
+  bridge (as `docs/scorer.md` already said), and the app under test stays off
+  the host because it publishes no ports. Comments only — no `docker network
+  create` line changed.
 - **Four HIGH Dependabot alerts in the app lockfile cleared.** `browserslist`
   (two advisories), `js-yaml` and `brace-expansion` — all dev/build-side
   transitives of `next` and `eslint-config-next` — re-resolved to patched

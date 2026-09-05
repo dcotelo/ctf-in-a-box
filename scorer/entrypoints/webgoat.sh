@@ -15,9 +15,12 @@
 #     A named volume is the one handoff both sides can reach — the same trick
 #     securityshepherd.sh uses, and upstream's own WebGoat bring-up
 #     (.github/actions/ctf-score/entrypoints/score-webgoat-challenges.sh).
-#   * Neither build sibling joins $NETWORK: $NETWORK is --internal and Maven needs
-#     the internet, so they are started with no --network at all and land on the
-#     daemon's default bridge. Only the app container (below) joins $NETWORK.
+#   * Neither build sibling joins $NETWORK: they need the internet (Maven) and
+#     the named volume, never the app under test or the scorer, so they are
+#     started with no --network at all and land on the daemon's default bridge.
+#     ($NETWORK is a plain bridge, not --internal — joining it would not have
+#     cost them the internet; they stay off it because they have no business
+#     there.) Only the app container (below) joins $NETWORK.
 #
 # The old version of this file hard-required APP_IMAGE, on the theory that a fork's
 # Maven build could not fit a runner's budget. That was wrong twice over: upstream's

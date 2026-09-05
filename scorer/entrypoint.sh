@@ -2,7 +2,8 @@
 # ctf scorer — judge entrypoint (score-action contract).
 #
 # Runs inside the scorer image with docker.sock mounted. Boots the app under
-# test as a SIBLING container on the internal ctf network, then runs the
+# test as a SIBLING container on the ctf network — a plain user-defined bridge,
+# NOT --internal (see boot_app for what keeps it off the host) — then runs the
 # declarative rubric probes against it and writes ctf-score.md into CTF_OUT_DIR
 # (a dedicated dir OUTSIDE the PR checkout — the consumer workflow reads the
 # report only from there, only on success, so the bot comment can't be forged).
@@ -57,7 +58,10 @@ docker network inspect "$NETWORK" >/dev/null 2>&1 \
 docker network connect "$NETWORK" "$(hostname)" >/dev/null 2>&1 || true
 
 boot_app() {
-  # Publishes NO host ports: APP_URL is reached over the internal network only.
+  # Publishes NO host ports — that, not an --internal network, is what keeps the
+  # app under test off the runner's host. $NETWORK is a plain bridge (a bare
+  # `docker network create`, above and in the consumer workflow), so APP_URL
+  # resolves only for containers on it, but it can still reach the internet.
   docker run -d --rm \
     --network "$NETWORK" \
     --network-alias "$APP_HOST" \
@@ -87,8 +91,8 @@ if [ -n "${APP_IMAGE:-}" ]; then
   boot_app "$APP_IMAGE"
 elif [ -f "${GITHUB_WORKSPACE:-/github/workspace}/Dockerfile" ]; then
   # (b) PR-patch path: build the contestant's checked-out code. The untrusted
-  # code runs ONLY inside this container on the INTERNAL network — never on the
-  # runner host and never with host ports published.
+  # code runs ONLY inside the sibling container on $NETWORK — never on the
+  # runner host and never with host ports published (boot_app publishes none).
   echo "entrypoint: building app under test from PR workspace Dockerfile"
   docker build -t ctf-app-under-test "${GITHUB_WORKSPACE:-/github/workspace}" >/dev/null
   boot_app ctf-app-under-test
