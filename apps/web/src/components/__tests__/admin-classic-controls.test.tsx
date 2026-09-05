@@ -394,6 +394,18 @@ describe("payloadFromRow", () => {
       hint: "",
     });
   });
+
+  // #279: the reorder write-back re-saves the row through the upsert route,
+  // which treats an absent caseSensitive as false — so dragging a
+  // case-sensitive challenge used to silently downgrade its grading.
+  it("carries caseSensitive when it is on, so a reorder cannot downgrade the grading", () => {
+    const payload = payloadFromRow({ challenge: { ...c1, caseSensitive: true }, flag: "CTF{real}", hint: null });
+    expect(payload.caseSensitive).toBe(true);
+  });
+
+  it("omits caseSensitive when it is off, matching the stored shape", () => {
+    expect("caseSensitive" in payloadFromRow({ challenge: c1, flag: "CTF{real}", hint: null })).toBe(false);
+  });
 });
 
 describe("reorderChallenges", () => {
