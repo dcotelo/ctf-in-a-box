@@ -568,3 +568,26 @@ describe("lookupUser — ai", () => {
     expect(cmds).toContainEqual(["HGET", "ctf:ai:solved", "octocat"]);
   });
 });
+
+// CodeRabbit on #274: `known` counted solves and hints but never attempts, so
+// a contestant who had tried and never solved read as "no data — check the
+// spelling". Applies to every module's attempts, not only ai's.
+describe("lookupUser — known", () => {
+  it("counts a contestant with attempts but no solves as known", async () => {
+    const aiAttempts = ["guardrail-bypass", JSON.stringify({ attempts: 2, firstAt: "2026-09-03T01:40:00Z", lastAt: "2026-09-03T01:41:00Z" })];
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(userHmget(null), [], [], null, null, [], [], null, null, 0, null, [], aiAttempts, null, null),
+    );
+    mockNoSecureDevKeys();
+    const detail = await lookupUser("octocat");
+    expect(detail.ai.attempts).toBe(2);
+    expect(detail.known).toBe(true);
+
+    const quizAttempts = ["xss-basics", JSON.stringify({ attempts: 1, firstAt: "2026-09-03T01:40:00Z", lastAt: "2026-09-03T01:40:00Z" })];
+    mocks.upstashPipeline.mockResolvedValueOnce(
+      replies(userHmget(null), [], quizAttempts, null, null, [], [], null, null, 0, null),
+    );
+    mockNoSecureDevKeys();
+    expect((await lookupUser("octocat")).known).toBe(true);
+  });
+});

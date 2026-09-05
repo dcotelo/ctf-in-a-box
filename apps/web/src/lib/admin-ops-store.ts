@@ -218,6 +218,9 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
   const classicSolvedCount = hashLen(classicSolves.result);
   const aiSolvedCount = hashLen(aiSolves?.result);
   const hintsBoughtCount = Number(hintsBought.result) || 0;
+  const quizAttemptCount = sumAttempts(quizAttempts.result);
+  const classicAttemptCount = sumAttempts(classicAttempts.result);
+  const aiAttemptCount = sumAttempts(aiAttempts?.result);
 
   return {
     login,
@@ -226,26 +229,32 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
     quiz: {
       answered: Number(quizAnswered.result) || quizAnsweredCount,
       points: Number(quizPoints.result) || 0,
-      attempts: sumAttempts(quizAttempts.result),
+      attempts: quizAttemptCount,
     },
     classic: {
       solved: Number(classicSolved.result) || classicSolvedCount,
       points: Number(classicPoints.result) || 0,
-      attempts: sumAttempts(classicAttempts.result),
+      attempts: classicAttemptCount,
     },
     ai: {
       solved: Number(aiSolved?.result) || aiSolvedCount,
       points: Number(aiPoints?.result) || 0,
-      attempts: sumAttempts(aiAttempts?.result),
+      attempts: aiAttemptCount,
     },
     secureDev: { solves: secureDevSolves },
     hints: { bought: hintsBoughtCount, spent: Number(hintsSpent.result) || 0 },
+    // "Known" means the box holds ANY record of this login — attempts
+    // included, so a contestant who has tried and never solved is not told
+    // to check their spelling.
     known:
       slug !== null ||
       firstTeamAt !== null ||
       quizAnsweredCount > 0 ||
       classicSolvedCount > 0 ||
       aiSolvedCount > 0 ||
+      quizAttemptCount > 0 ||
+      classicAttemptCount > 0 ||
+      aiAttemptCount > 0 ||
       secureDevSolves > 0 ||
       hintsBoughtCount > 0,
   };
