@@ -54,3 +54,21 @@ export function itemKeyAction(key: string, index: number, itemCount: number): Me
   if (key === "Tab") return { type: "close" };
   return NONE;
 }
+
+/** Settles a parked "focus this item once the menu is open" request.
+ *
+ *  A keyboard (or click) open must land focus on a specific item — first, or
+ *  last for ArrowUp — but the items do not exist until the menu has rendered
+ *  open, so nav-dropdown.tsx parks the index in a ref and settles it from an
+ *  effect keyed on `open`. Returns the index to focus and clears the request
+ *  in the same step (so a later re-open never refocuses a stale item), or
+ *  `null` — leaving the request parked — while the menu is still closed or
+ *  nothing was asked for. A ref rather than state, on purpose: the request is
+ *  consumed by the effect, and clearing state from inside an effect is the
+ *  cascading-render pattern react-hooks/set-state-in-effect exists to stop. */
+export function takePendingFocus(open: boolean, pending: { current: number | null }): number | null {
+  if (!open || pending.current === null) return null;
+  const index = pending.current;
+  pending.current = null;
+  return index;
+}

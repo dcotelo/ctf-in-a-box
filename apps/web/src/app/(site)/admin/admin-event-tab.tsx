@@ -96,6 +96,11 @@ export type AdminEventTabProps = {
   /** The ids live right now: the runtime set, or the baked one when no
    *  override is stored. */
   liveModuleIds: readonly string[];
+  /** The schedule readout's "now", in epoch ms. Stamped by the shell when the
+   *  page mounted and again each time it applies a settings change — an
+   *  event-time read, not a render-time one (see `settingsAt` in
+   *  admin-controls.tsx). */
+  nowMs: number;
 };
 
 export type ModuleChoice = {
@@ -121,6 +126,7 @@ export default function AdminEventTab({
   commitNumber,
   moduleChoices,
   liveModuleIds,
+  nowMs,
 }: AdminEventTabProps) {
   const live = new Set(liveModuleIds);
   // The last LIVE module cannot be switched off — the server refuses a set that
@@ -138,11 +144,13 @@ export default function AdminEventTab({
   const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
   // Effective state for the schedule section's readout — the same
   // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
-  // server-side, built on the shared outsideWindow. Client render time is an
-  // acceptable "now": the readout re-computes on every settings change, and
-  // an organizer parked on the tab across a boundary sees it on their next
-  // interaction.
-  const nowMs = Date.now();
+  // server-side, built on the shared outsideWindow. `nowMs` is the shell's
+  // stamp of when these settings were applied (or the page mounted), which
+  // is an acceptable "now": the readout re-computes on every settings
+  // change, and an organizer parked on the tab across a boundary sees it on
+  // their next change. Not `Date.now()` here — reading the clock during
+  // render is the impure read react-hooks/purity rejects, and the value it
+  // would give is the same one the stamp already holds.
   const scoringLiveNow = !settings.paused && !outsideWindow(nowMs, settings.scoringStartsAt, settings.scoringEndsAt);
   const registrationOpenNow =
     settings.teamRegistrationOpen && !outsideWindow(nowMs, settings.registrationStartsAt, settings.registrationEndsAt);

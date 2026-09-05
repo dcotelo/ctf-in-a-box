@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { itemKeyAction, triggerKeyAction, wrapIndex } from "@/lib/nav-menu-keys";
+import { itemKeyAction, takePendingFocus, triggerKeyAction, wrapIndex } from "@/lib/nav-menu-keys";
 
 describe("wrapIndex", () => {
   it("wraps past the last index back to the first", () => {
@@ -76,5 +76,37 @@ describe("itemKeyAction", () => {
 
   it("an unhandled key does nothing", () => {
     expect(itemKeyAction("a", 1, 3)).toEqual({ type: "none" });
+  });
+});
+
+// The open-then-focus handshake: a keyboard open (ArrowDown/ArrowUp/click)
+// must land focus on a specific item, but the items do not exist until the
+// menu has rendered open, so the request is parked and settled once it has.
+// Removing that step — opening without ever focusing the parked item — is
+// what this block fails on; the real focus() call it feeds is DOM wiring the
+// component test cannot exercise (see nav-dropdown.test.tsx).
+describe("takePendingFocus", () => {
+  it("leaves the request parked while the menu is still closed", () => {
+    const pending = { current: 1 };
+    expect(takePendingFocus(false, pending)).toBeNull();
+    expect(pending.current).toBe(1);
+  });
+
+  it("hands over the parked index once the menu is open", () => {
+    expect(takePendingFocus(true, { current: 1 })).toBe(1);
+    // Index 0 (the first item, the click/ArrowDown target) is a real request,
+    // not "nothing parked" — a falsy check here would swallow every click-open.
+    expect(takePendingFocus(true, { current: 0 })).toBe(0);
+  });
+
+  it("clears the request as it hands it over, so a later re-open does not refocus a stale item", () => {
+    const pending = { current: 2 };
+    takePendingFocus(true, pending);
+    expect(pending.current).toBeNull();
+    expect(takePendingFocus(true, pending)).toBeNull();
+  });
+
+  it("focuses nothing on an open menu with no request parked", () => {
+    expect(takePendingFocus(true, { current: null })).toBeNull();
   });
 });

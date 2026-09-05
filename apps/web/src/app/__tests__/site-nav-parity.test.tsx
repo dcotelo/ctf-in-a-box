@@ -74,7 +74,7 @@ vi.mock("@/components/visit-beacon", () => ({ default: () => null }));
 
 import RootLayout from "@/app/layout";
 import SiteLayout from "@/app/(site)/layout";
-import { getNavGroups, getNavLinks } from "@/lib/resolved-modules";
+import { getNavGroups } from "@/lib/resolved-modules";
 import { isNavGroup } from "@/lib/site";
 
 /** Every `href` → the link texts rendered for it. A Map of sets because the
