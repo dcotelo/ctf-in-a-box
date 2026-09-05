@@ -5,6 +5,7 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import { logActivity } from "@/lib/activity-log";
 import { TEAM_MAX_MEMBERS } from "@/lib/team-limits";
 import { outsideWindow } from "@/lib/admin-store";
+import { joinCodeKey, membersKey, teamKey, userKey } from "@/lib/team-keys";
 
 const MOCK_TEAM_COOKIE = "ctf-mock-team";
 
@@ -67,11 +68,6 @@ export type TeamInfo = {
 
 const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 const REGISTRATION_CLOSED_ERROR = "Team registration is closed";
-
-const userKey = (login: string) => `ctf:user:${login}`;
-const teamKey = (slug: string) => `ctf:team:${slug}`;
-const membersKey = (slug: string) => `ctf:team:${slug}:members`;
-const joinCodeKey = (code: string) => `ctf:joincode:${code}`;
 
 function slugify(value: string): string {
   return value

@@ -14,6 +14,9 @@ event.yaml
 
 # internal planning docs — keep local, never commit
 docs/superpowers/
+# local audit reports — docs/ is the Jekyll root, so tracking them would publish them
+docs/REVIEW.md
+docs/hygiene-audit.md
 # SDD execution scratch (ledgers, briefs, review packages) — keep local
 .superpowers/
 

@@ -62,12 +62,14 @@ corepack pnpm test           # vitest; the *.upstash suites skip without Redis c
 corepack pnpm lint
 ```
 
-The grading Lua scripts (classic `SUBMIT_SCRIPT`, quiz `GRADE_SCRIPT`, ai `AWARD_SCRIPT`) are the scoring authority, and only `src/lib/__tests__/*.lua.upstash.test.ts` execute them for real — the mocked suites pin what the stores hand the scripts, not what they do. Run them against a real Redis behind SRH (the `docker run` lines are in `ci.yml`'s "Grading Lua" step) with
+The grading Lua scripts (classic `SUBMIT_SCRIPT`, quiz `GRADE_SCRIPT`, ai `AWARD_SCRIPT`) are the scoring authority, and only `src/lib/__tests__/*.lua.upstash.test.ts` execute them for real — the mocked suites pin what the stores hand the scripts, not what they do. The `admin-store`, `hint-store` and `team-store` `.upstash` suites next to them do the same for the settings, reveal and team scripts. Run all six against a real Redis behind SRH (the `docker run` lines are in `ci.yml`'s "Grading Lua" step) with
 
 ```sh
 UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN=<srh token> \
-  CTF_LUA_SUITES_REQUIRED=1 corepack pnpm exec vitest run lua.upstash
+  CTF_LUA_SUITES_REQUIRED=1 corepack pnpm exec vitest run upstash --no-file-parallelism
 ```
+
+Serial on purpose: `admin-store` wipes the fixed `ctf:admin:settings` hash that `hint-store` seeds its policy into, so the two cannot share one Redis concurrently.
 
 `CTF_LUA_SUITES_REQUIRED=1` turns a skip into a failure. After a build-affecting change, also run the production build and check `/` was **not** statically prerendered — the module nav resolves through a Redis read that is unreachable at build time, and a prerendered `/` would freeze it:
 

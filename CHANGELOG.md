@@ -28,6 +28,30 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   purpose — see the comment on `GATED_ROUTES`), and the single-team
   `getTeamQuizTotals` wrapper whose only caller was its test. All internal to
   `apps/web`; no behaviour changes.
+- **The profile page names the team hash through `teamKey`, and the judge's
+  network comments say what the network is.** `profile/page.tsx` still
+  open-coded `ctf:team:<slug>` twice — the reader ADR 48 moved the builders
+  into `team-keys.ts` for — behind a comment excusing it; it now imports
+  `teamKey` like every other reader, and a source-scan test keeps the literal
+  from coming back. `scorer/entrypoint.sh` and `scorer/entrypoints/webgoat.sh`
+  described `$NETWORK` as `--internal`; it is a plain `docker network create`
+  bridge (as `docs/scorer.md` already said) on which the app under test
+  publishes no host ports. Comments only — no `docker network
+  create` line changed.
+- **Every live Redis suite runs in CI now, not just the grading Lua.** The
+  `hint-store` and `team-store` `.upstash` suites had rotted (#235): the
+  reveal path grew an anti-burner gate that refused every purchase the suite
+  made (it seeded a hint but no solve), and a populated team's captain can no
+  longer simply leave. Both are repaired against the current rules — the hint
+  suite seeds its policy through `updateAdminSettings` and earns the gate
+  with a solve, asserting on the way that the refusal charges nothing; the
+  team suite asserts the captain refusal is a no-op, then transfers and
+  leaves — and each still goes red when the store it covers is mutated by
+  one line. The three older suites gate through `live-redis.ts` like the Lua
+  ones, so `CTF_LUA_SUITES_REQUIRED=1` covers them too, and the CI step runs
+  every `*.upstash.test.ts` file (`vitest run upstash
+  --no-file-parallelism`, serial because two suites share
+  `ctf:admin:settings`). No runtime behaviour changes.
 - **Four HIGH Dependabot alerts in the app lockfile cleared.** `browserslist`
   (two advisories), `js-yaml` and `brace-expansion` — all dev/build-side
   transitives of `next` and `eslint-config-next` — re-resolved to patched

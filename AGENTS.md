@@ -37,15 +37,18 @@ corepack pnpm test
 
 The grading Lua scripts (`SUBMIT_SCRIPT`, `GRADE_SCRIPT`, `AWARD_SCRIPT`) are
 the scoring authority, and `src/lib/__tests__/*.lua.upstash.test.ts` execute
-them against a real Redis behind srh. They skip locally without
-`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`; CI brings the two
-containers up and sets `CTF_LUA_SUITES_REQUIRED=1` so a skip fails the job.
-If you touch any of the three scripts, run them (the `docker run` lines are
-in `ci.yml`'s "Grading Lua" step, then `corepack pnpm exec vitest run
-lua.upstash` — NOT `pnpm test -- lua.upstash`, which forwards the `--` to
-vitest, drops the filter and runs every file, rotted `.upstash` suites (#235)
-included) — the mocked grade suites pin only what the stores hand the
-script, not what it does.
+them against a real Redis behind srh; the `admin-store`, `hint-store` and
+`team-store` `.upstash` suites next to them do the same for the settings,
+reveal and team scripts. All six gate through `live-redis.ts`: they skip
+locally without `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`, and CI
+brings the two containers up and sets `CTF_LUA_SUITES_REQUIRED=1` so a skip
+fails the job. If you touch any of those scripts, run them (the `docker run`
+lines are in `ci.yml`'s "Grading Lua" step, then `corepack pnpm exec vitest
+run upstash --no-file-parallelism` — serial because `admin-store` and
+`hint-store` share the fixed `ctf:admin:settings` hash, and `pnpm exec`, NOT
+`pnpm test -- upstash`, which forwards the `--` to vitest, drops the filter
+and runs every file) — the mocked grade suites pin only what the stores hand
+the script, not what it does.
 
 CI also runs a production build (`corepack pnpm build`, with dummy
 `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`) and `./scripts/acceptance-app.sh`
@@ -248,8 +251,10 @@ suggestions.
   (`module-contributions`, `team-standings`, `hint-penalties`, `admin-auth`).
   Two verbatim joins made one contestant's hints free and showed a scoring
   teammate at 0 pts (#216).
-- **Do not commit `docs/superpowers/`.** It's gitignored planning/spec/plan
-  scratch space, not shipped documentation.
+- **Do not commit `docs/superpowers/`, `docs/REVIEW.md` or
+  `docs/hygiene-audit.md`.** They're gitignored planning/spec/plan scratch
+  space and local audit reports, not shipped documentation — and `docs/` is
+  the Jekyll root, so anything tracked there lands on the Pages site.
 
 ## Repo layout
 
