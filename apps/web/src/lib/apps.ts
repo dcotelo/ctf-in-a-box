@@ -119,9 +119,6 @@ export const apps: AppMeta[] = [
 
 export const appsById = Object.fromEntries(apps.map((a) => [a.id, a])) as Record<AppId, AppMeta>;
 
-export const totalChallenges = apps.reduce((n, a) => n + a.challengeCount, 0);
-export const totalMaxPoints = apps.reduce((n, a) => n + a.maxPoints, 0);
-
 /** Targets enabled for this event (config ∩ catalogue), canonical order. */
 export const enabledApps: AppMeta[] = apps.filter((a) => eventConfig.targets.includes(a.id));
 export const enabledAppsById = Object.fromEntries(enabledApps.map((a) => [a.id, a])) as Partial<Record<AppId, AppMeta>>;
