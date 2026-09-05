@@ -202,6 +202,14 @@ async function isRegistrationClosed(): Promise<boolean> {
     const [res] = await upstashPipeline([
       ["HMGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen", "registrationStartsAt", "registrationEndsAt"],
     ]);
+    if (res.error) {
+      // A resolved per-command error (e.g. WRONGTYPE) — not a thrown
+      // transport failure, so it must be detected explicitly before the
+      // Array.isArray decode below, which would otherwise treat it as
+      // "every field absent" silently. Same fail-open verdict, but logged.
+      console.error("isRegistrationClosed: settings read failed, failing open:", errorLabel(new Error(res.error)));
+      return false;
+    }
     const [open, startsAt, endsAt] = Array.isArray(res.result) ? (res.result as (string | null)[]) : [];
     // Closed by the manual toggle OR by the scheduled registration window
     // (before start / after end). Mirrors admin-store's effectiveRegistrationOpen.

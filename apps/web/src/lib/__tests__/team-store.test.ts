@@ -268,23 +268,38 @@ describe("registration window", () => {
 
   // Fail-direction pin (issue #232): registration must stay open on either
   // read-error shape, matching resolveTeamMaxMembers's fail-open reasoning —
-  // the create/join Lua script still validates every real invariant.
-  it("fails OPEN (create proceeds) when the registration read errors (transport failure)", async () => {
+  // the create/join Lua script still validates every real invariant. Both
+  // shapes must also be LOGGED, not just silently defaulted (CodeRabbit
+  // catch on PR #277: the per-command shape used to decode as empty settings
+  // with no trace).
+  it("fails OPEN (create proceeds) and logs when the registration read errors (transport failure)", async () => {
     const store = await loadStore(true);
-    mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
-    mockCodeCollisionCheck(false);
-    mocks.upstashEval.mockResolvedValueOnce("ok");
-    const result = await store.createTeam("octocat", "Red Team");
-    expect(result).toEqual({ ok: true, team: "red-team" });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
+      mockCodeCollisionCheck(false);
+      mocks.upstashEval.mockResolvedValueOnce("ok");
+      const result = await store.createTeam("octocat", "Red Team");
+      expect(result).toEqual({ ok: true, team: "red-team" });
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining("isRegistrationClosed"), expect.stringContaining("redis down"));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
-  it("fails OPEN (create proceeds) when the registration read is a per-command error", async () => {
+  it("fails OPEN (create proceeds) and logs when the registration read is a per-command error", async () => {
     const store = await loadStore(true);
-    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "WRONGTYPE" }]);
-    mockCodeCollisionCheck(false);
-    mocks.upstashEval.mockResolvedValueOnce("ok");
-    const result = await store.createTeam("octocat", "Red Team");
-    expect(result).toEqual({ ok: true, team: "red-team" });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mocks.upstashPipeline.mockResolvedValueOnce([{ error: "WRONGTYPE" }]);
+      mockCodeCollisionCheck(false);
+      mocks.upstashEval.mockResolvedValueOnce("ok");
+      const result = await store.createTeam("octocat", "Red Team");
+      expect(result).toEqual({ ok: true, team: "red-team" });
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining("isRegistrationClosed"), expect.stringContaining("WRONGTYPE"));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("rejects roster-growth captain actions when registration is closed", async () => {
