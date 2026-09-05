@@ -5,6 +5,7 @@ import { upstashEval, upstashPipeline } from "@/lib/upstash";
 import { logActivity } from "@/lib/activity-log";
 import { TEAM_MAX_MEMBERS } from "@/lib/team-limits";
 import { outsideWindow } from "@/lib/admin-store";
+import { errorLabel } from "@/lib/error-label";
 import { joinCodeKey, membersKey, teamKey, userKey } from "@/lib/team-keys";
 
 const MOCK_TEAM_COOKIE = "ctf-mock-team";
@@ -187,16 +188,29 @@ async function setMockTeam(slug: string): Promise<TeamActionResult> {
  *  admin store stores "0" for closed and leaves the field absent (⇒ open) by
  *  default, so a single HGET is enough. Roster-shrinking actions (leaveTeam)
  *  are exempt — players can always leave — so this guard is only applied to
- *  team-forming and captain roster mutations. */
+ *  team-forming and captain roster mutations.
+ *
+ *  Fails OPEN on either read-error shape (issue #232): a transport failure
+ *  (`upstashPipeline` throws) or a resolved per-command error (decodes as
+ *  every field absent, same as the `Array.isArray` guard below). Same
+ *  reasoning as `resolveTeamMaxMembers` above it — a Redis blip must not
+ *  itself block registration, and the join/create Lua script still validates
+ *  every real invariant (one-team-per-player, capacity, name uniqueness)
+ *  atomically regardless of what this check decided. */
 async function isRegistrationClosed(): Promise<boolean> {
-  const [res] = await upstashPipeline([
-    ["HMGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen", "registrationStartsAt", "registrationEndsAt"],
-  ]);
-  const [open, startsAt, endsAt] = Array.isArray(res.result) ? (res.result as (string | null)[]) : [];
-  // Closed by the manual toggle OR by the scheduled registration window
-  // (before start / after end). Mirrors admin-store's effectiveRegistrationOpen.
-  if (open === "0") return true;
-  return outsideWindow(Date.now(), startsAt ?? null, endsAt ?? null);
+  try {
+    const [res] = await upstashPipeline([
+      ["HMGET", ADMIN_SETTINGS_KEY, "teamRegistrationOpen", "registrationStartsAt", "registrationEndsAt"],
+    ]);
+    const [open, startsAt, endsAt] = Array.isArray(res.result) ? (res.result as (string | null)[]) : [];
+    // Closed by the manual toggle OR by the scheduled registration window
+    // (before start / after end). Mirrors admin-store's effectiveRegistrationOpen.
+    if (open === "0") return true;
+    return outsideWindow(Date.now(), startsAt ?? null, endsAt ?? null);
+  } catch (err) {
+    console.error("isRegistrationClosed: settings read failed, failing open:", errorLabel(err));
+    return false;
+  }
 }
 
 /** Players allowed on one team: the organizer's override, else the default.

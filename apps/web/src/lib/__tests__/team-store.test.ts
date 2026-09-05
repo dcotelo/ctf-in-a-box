@@ -266,6 +266,27 @@ describe("registration window", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
+  // Fail-direction pin (issue #232): registration must stay open on either
+  // read-error shape, matching resolveTeamMaxMembers's fail-open reasoning —
+  // the create/join Lua script still validates every real invariant.
+  it("fails OPEN (create proceeds) when the registration read errors (transport failure)", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("redis down"));
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.createTeam("octocat", "Red Team");
+    expect(result).toEqual({ ok: true, team: "red-team" });
+  });
+
+  it("fails OPEN (create proceeds) when the registration read is a per-command error", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "WRONGTYPE" }]);
+    mockCodeCollisionCheck(false);
+    mocks.upstashEval.mockResolvedValueOnce("ok");
+    const result = await store.createTeam("octocat", "Red Team");
+    expect(result).toEqual({ ok: true, team: "red-team" });
+  });
+
   it("rejects roster-growth captain actions when registration is closed", async () => {
     const store = await loadStore(true);
     const closed = { ok: false, error: "Team registration is closed" };
