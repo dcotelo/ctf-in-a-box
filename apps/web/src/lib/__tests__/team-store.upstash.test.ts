@@ -1,12 +1,12 @@
-// Integration tests: exercises the REAL Lua scripts against the live Upstash
-// DB, because that's where the one-team-per-player and 4-player-cap rules are
-// actually enforced (atomically). Uses only run-unique throwaway keys and
-// deletes them before and after. Skips entirely when Upstash credentials are
-// not available (e.g. CI without secrets).
+// Integration tests: exercises the REAL Lua scripts against a live Redis (srh
+// in CI, Upstash or srh locally), because that's where the one-team-per-player,
+// 4-player-cap and captain-must-transfer rules are actually enforced
+// (atomically). Uses only run-unique throwaway keys and deletes them before
+// and after. Gating comes from live-redis.ts: skipped without the env, a
+// FAILURE when CTF_LUA_SUITES_REQUIRED is set.
 
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { RUN, liveConfigured } from "./live-redis";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({
@@ -15,35 +15,22 @@ vi.mock("next/headers", () => ({
   },
 }));
 
-// Credentials come from the environment, falling back to .env.local locally.
-for (const file of [path.resolve(process.cwd(), ".env.local")]) {
-  if (!existsSync(file)) continue;
-  for (const line of readFileSync(file, "utf8").split("\n")) {
-    const eq = line.indexOf("=");
-    if (eq === -1 || line.trimStart().startsWith("#")) continue;
-    const key = line.slice(0, eq).trim();
-    const value = line.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
-    if (key.startsWith("UPSTASH_REDIS_REST_") && !process.env[key]) process.env[key] = value;
-  }
-}
-const configured = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-
-const RUN = Date.now().toString(36);
 const NAME_A = `vt ${RUN} alpha`;
 const SLUG_A = `vt-${RUN}-alpha`;
 const NAME_B = `vt ${RUN} beta`;
 const SLUG_B = `vt-${RUN}-beta`;
 const PLAYERS = ["p1", "p2", "p3", "p4", "p5"].map((p) => `vt-${RUN}-${p}`);
 
-const KEYS = [
+const TEAM_KEYS = [
   `ctf:team:${SLUG_A}`,
   `ctf:team:${SLUG_A}:members`,
   `ctf:team:${SLUG_B}`,
   `ctf:team:${SLUG_B}:members`,
-  ...PLAYERS.map((p) => `ctf:user:${p}`),
 ];
+const USER_KEYS = PLAYERS.map((p) => `ctf:user:${p}`);
+const KEYS = [...TEAM_KEYS, ...USER_KEYS];
 
-describe.skipIf(!configured)("team store against live Upstash (throwaway keys)", () => {
+describe.skipIf(!liveConfigured)("team store against a live Redis (throwaway keys)", () => {
   let store: typeof import("@/lib/team-store");
   let pipeline: (typeof import("@/lib/upstash"))["upstashPipeline"];
   // Join codes are generated at create time, so we can't know them up front —
@@ -112,11 +99,45 @@ describe.skipIf(!configured)("team store against live Upstash (throwaway keys)",
     expect(scard.result).toBe(4);
   });
 
+  it("refuses to let the captain of a populated team leave — transfer or disband first", async () => {
+    expect(await store.leaveTeam(PLAYERS[0])).toEqual({
+      ok: false,
+      error: "Transfer or disband before leaving",
+    });
+    // The refusal is a no-op: still four members, still captain, still on the team.
+    const [scard, captain, team] = await pipeline([
+      ["SCARD", `ctf:team:${SLUG_A}:members`],
+      ["HGET", `ctf:team:${SLUG_A}`, "captain"],
+      ["HGET", `ctf:user:${PLAYERS[0]}`, "team"],
+    ]);
+    expect(scard.result).toBe(4);
+    expect(captain.result).toBe(PLAYERS[0]);
+    expect(team.result).toBe(SLUG_A);
+  });
+
   it("deletes team keys once the last member leaves", async () => {
-    for (const p of PLAYERS) {
+    // Members leave freely; the captain hands over, then leaves; the new
+    // captain, now alone, leaves last and the team goes with them. Team B's
+    // captain is its only member, so the rule never applied there.
+    for (const p of PLAYERS.slice(1, 3)) {
       expect(await store.leaveTeam(p)).toEqual({ ok: true, team: null });
     }
-    const results = await pipeline(KEYS.map((k) => ["EXISTS", k]));
-    expect(results.map((r) => r.result)).toEqual(KEYS.map(() => 0));
+    expect(await store.transferCaptain(PLAYERS[0], SLUG_A, PLAYERS[3])).toEqual({ ok: true, team: SLUG_A });
+    expect(await store.leaveTeam(PLAYERS[0])).toEqual({ ok: true, team: null });
+    expect(await store.leaveTeam(PLAYERS[3])).toEqual({ ok: true, team: null });
+    expect(await store.leaveTeam(PLAYERS[4])).toEqual({ ok: true, team: null });
+
+    // Both teams' hashes, member sets and join-code reverse indexes are gone.
+    // The join-code list is asserted non-empty first so the check cannot pass
+    // by never having collected a code.
+    expect(joinCodeKeys.length).toBeGreaterThan(0);
+    const gone = [...TEAM_KEYS, ...joinCodeKeys];
+    const results = await pipeline(gone.map((k) => ["EXISTS", k]));
+    expect(results.map((r) => r.result)).toEqual(gone.map(() => 0));
+
+    // Every player's membership is cleared. (The user hash itself survives —
+    // `firstTeamAt` is a metric that outlives the team on purpose.)
+    const memberships = await pipeline(USER_KEYS.map((k) => ["HEXISTS", k, "team"]));
+    expect(memberships.map((r) => r.result)).toEqual(USER_KEYS.map(() => 0));
   });
 });
