@@ -8,6 +8,26 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **`pnpm lint` is green and CI runs it.** The app's lint had sat red (4
+  errors, 5 warnings) with nothing running it — hygiene audit T1. Each
+  finding is fixed in the code rather than excused: the three
+  `set-state-in-effect` errors by parking the nav dropdown's focus request in
+  a ref and moving the admin panels' mount-time fetch to a module-level
+  function whose result the effect applies in a callback; the render-time
+  `Date.now()` in the Event tab's schedule readout by stamping "now" in the
+  handlers that apply settings; the rest by deleting the dead imports, the
+  dead `hasSecureDev`, and a `next/image` mock nothing under its subject
+  rendered. No `eslint-disable` added, no rule downgraded. The `app` CI job
+  now runs `corepack pnpm lint` right after install, and AGENTS.md,
+  CONTRIBUTING and the README's command lines carry the same step. Dead code
+  the audit proved dead goes with it: the never-wired `score-check.tsx` (and
+  the `check-land` keyframe only it used), the unused `tsx` devDependency,
+  the whole-catalogue totals in `apps.ts`, the dead re-exports in `ai-keys`
+  and `admin-store`, the exported-but-in-file-only `toCatalogChallenge`,
+  `enabledModuleRoutes` (the proxy gates the registry's full route list on
+  purpose — see the comment on `GATED_ROUTES`), and the single-team
+  `getTeamQuizTotals` wrapper whose only caller was its test. All internal to
+  `apps/web`; no behaviour changes.
 - **Four HIGH Dependabot alerts in the app lockfile cleared.** `browserslist`
   (two advisories), `js-yaml` and `brace-expansion` — all dev/build-side
   transitives of `next` and `eslint-config-next` — re-resolved to patched
