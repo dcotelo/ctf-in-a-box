@@ -220,10 +220,23 @@ export function payloadFromEditor(
  *  flag: the upsert endpoint requires `flag` as one of `CHALLENGE_KEYS`, and a
  *  reorder must not silently blank or rewrite it. */
 export function payloadFromRow({ challenge: c, flag, hint }: AdminChallenge): ChallengePayload {
-  // The hint rides along for the same reason the flag does: a reorder
-  // re-saves the row through the same endpoint, and omitting the field would
-  // clear a hint the organizer never touched.
-  return { id: c.id, title: c.title, category: c.category, description: c.description, points: c.points, order: c.order, flag, hint: hint ?? "" };
+  // The hint and `caseSensitive` ride along for the same reason the flag
+  // does: a reorder re-saves the row through the same endpoint, and omitting
+  // a field would clear state the organizer never touched — the route stores
+  // an absent `caseSensitive` as false, so a drag used to downgrade a
+  // case-sensitive challenge's grading (#279). Present only when true,
+  // matching the route's parser and the stored shape.
+  return {
+    id: c.id,
+    title: c.title,
+    category: c.category,
+    description: c.description,
+    points: c.points,
+    order: c.order,
+    flag,
+    hint: hint ?? "",
+    ...(c.caseSensitive ? { caseSensitive: true as const } : {}),
+  };
 }
 
 /** Where a classic row keeps its id and position — the one thing that
