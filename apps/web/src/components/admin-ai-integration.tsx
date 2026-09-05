@@ -30,7 +30,7 @@
 // echoes `value` into the DOM (see copy-button.tsx), it only closes over it
 // inside the click handler, which `renderToStaticMarkup` never serializes.
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import ConfirmModal from "@/components/confirm-modal";
 import CopyButton from "@/components/copy-button";
 import type { AiChallenge } from "@/lib/ai-store";
@@ -139,6 +139,22 @@ function testCurl(origin: string, challengeId: string, revealed: boolean, signin
     '  -H "X-CTF-Timestamp: $TS" -H "X-CTF-Signature: sha256=$SIG" \\',
     '  -d "$BODY"',
   ].join("\n");
+}
+
+const noopSubscribe = () => () => {};
+
+/** The browser's origin, hydration-safe: the server snapshot is "" and the
+ *  browser's first render uses the same "" before React swaps in the real
+ *  value, so the SSR markup and the hydrating render agree. Reading
+ *  `window.location.origin` during render would make them disagree on every
+ *  endpoint URL (CodeRabbit on #275). Shared by the endpoints block and the
+ *  per-row panel so both agree on the origin. */
+export function useBrowserOrigin(): string {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => window.location.origin,
+    () => "",
+  );
 }
 
 /** The three module-wide endpoint URLs, with copy buttons. Rendered ONCE by
@@ -310,10 +326,9 @@ export default function AdminAiIntegration({ challenge, signingKey, onRotate, pe
   const [testPending, setTestPending] = useState(false);
   const [testOutcome, setTestOutcome] = useState<AiTestOutcome | null>(null);
 
-  // Browser-only; empty on the server (this panel is never statically
-  // prerendered — see AGENTS.md on `/` — and this component's own tests
-  // render `AiIntegrationPanel` directly with an explicit `origin`).
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  // Hydration-safe (see `useBrowserOrigin`); this component's own tests
+  // render `AiIntegrationPanel` directly with an explicit `origin`.
+  const origin = useBrowserOrigin();
 
   async function sendTest() {
     setTestPending(true);

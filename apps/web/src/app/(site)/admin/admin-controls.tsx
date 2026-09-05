@@ -374,15 +374,22 @@ export default function AdminControls({
   const apply = async (patch: Record<string, unknown>): Promise<boolean> => {
     setPending(true);
     setError(null);
-    const result = await postSettings(patch);
-    if (result.error) {
-      setError(result.error);
-      setPending(false);
+    try {
+      const result = await postSettings(patch);
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      if (result.settings) syncInputs(result.settings);
+      return true;
+    } catch {
+      // A network-level failure (fetch itself rejected) must not leave the
+      // whole panel disabled behind a `pending` that never clears.
+      setError("Couldn't reach the server — try again.");
       return false;
+    } finally {
+      setPending(false);
     }
-    if (result.settings) syncInputs(result.settings);
-    setPending(false);
-    return true;
   };
 
   // Per-field save status (UX audit F2). Keyed by the stored setting key —
@@ -413,16 +420,23 @@ export default function AdminControls({
   const applyField = async (key: string, patch: Record<string, unknown>, label: string): Promise<boolean> => {
     setPending(true);
     setStatus(key, { state: "pending" });
-    const result = await postSettings(patch);
-    if (result.error) {
-      setStatus(key, { state: "rejected", message: describeFieldError(label, result.error) });
-      setPending(false);
+    try {
+      const result = await postSettings(patch);
+      if (result.error) {
+        setStatus(key, { state: "rejected", message: describeFieldError(label, result.error) });
+        return false;
+      }
+      if (result.settings) syncInputs(result.settings);
+      flashSaved(key);
+      return true;
+    } catch {
+      // Same as `apply`: a fetch that rejects outright must still release
+      // `pending` and tell the field why nothing saved.
+      setStatus(key, { state: "rejected", message: `${label} could not be saved: couldn't reach the server — try again.` });
       return false;
+    } finally {
+      setPending(false);
     }
-    if (result.settings) syncInputs(result.settings);
-    setPending(false);
-    flashSaved(key);
-    return true;
   };
 
   /** Shared commit for the numeric knobs: a no-op when unchanged; junk, a

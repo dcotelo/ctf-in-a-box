@@ -57,7 +57,10 @@ function ScheduleField({
   disabled: boolean;
   /** The shell's save status for this field (UX audit F2), shown under it. */
   status: FieldStatus;
-  onCommit: (iso: string | null) => void;
+  /** Resolves to whether the server accepted the value. On refusal the draft
+   *  snaps back to the stored value — the sync effect below only fires when
+   *  the STORED value changes, which a rejection never does. */
+  onCommit: (iso: string | null) => Promise<boolean>;
 }) {
   // The datetime-local value is the VIEWER's wall clock, which the server
   // cannot know: seeding the input from toLocalInput() during render made the
@@ -91,7 +94,10 @@ function ScheduleField({
           aria-describedby={line ? statusId : undefined}
           onChange={(e) => setInput(e.target.value)}
           onBlur={() => {
-            if (input !== canonical) onCommit(fromLocalInput(input));
+            if (input === canonical) return;
+            void onCommit(fromLocalInput(input)).then((ok) => {
+              if (!ok) setInput(canonical);
+            });
           }}
           className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
         />
@@ -359,7 +365,7 @@ export default function AdminEventTab({
           value={settings.scoringStartsAt}
           disabled={pending}
           status={statusOf("scoringStartsAt")}
-          onCommit={(iso) => void applyField("scoringStartsAt", { scoringStartsAt: iso }, "Scoring opens")}
+          onCommit={(iso) => applyField("scoringStartsAt", { scoringStartsAt: iso }, "Scoring opens")}
         />
         <ScheduleField
           key={`se-${settings.scoringEndsAt ?? ""}`}
@@ -367,7 +373,7 @@ export default function AdminEventTab({
           value={settings.scoringEndsAt}
           disabled={pending}
           status={statusOf("scoringEndsAt")}
-          onCommit={(iso) => void applyField("scoringEndsAt", { scoringEndsAt: iso }, "Scoring closes")}
+          onCommit={(iso) => applyField("scoringEndsAt", { scoringEndsAt: iso }, "Scoring closes")}
         />
         <ScheduleField
           key={`rs-${settings.registrationStartsAt ?? ""}`}
@@ -375,7 +381,7 @@ export default function AdminEventTab({
           value={settings.registrationStartsAt}
           disabled={pending}
           status={statusOf("registrationStartsAt")}
-          onCommit={(iso) => void applyField("registrationStartsAt", { registrationStartsAt: iso }, "Registration opens")}
+          onCommit={(iso) => applyField("registrationStartsAt", { registrationStartsAt: iso }, "Registration opens")}
         />
         <ScheduleField
           key={`re-${settings.registrationEndsAt ?? ""}`}
@@ -383,7 +389,7 @@ export default function AdminEventTab({
           value={settings.registrationEndsAt}
           disabled={pending}
           status={statusOf("registrationEndsAt")}
-          onCommit={(iso) => void applyField("registrationEndsAt", { registrationEndsAt: iso }, "Registration closes")}
+          onCommit={(iso) => applyField("registrationEndsAt", { registrationEndsAt: iso }, "Registration closes")}
         />
       </div>
 

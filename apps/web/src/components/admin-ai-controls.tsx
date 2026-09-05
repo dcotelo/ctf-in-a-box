@@ -99,7 +99,7 @@ import ConfirmModal from "@/components/confirm-modal";
 // Named import only — this module never needs classic's default export, just
 // the module-agnostic phrase helper (title in, safe non-empty phrase out).
 import { confirmPhraseFromTitle } from "@/components/admin-classic-controls";
-import AdminAiIntegration, { AiEndpointsBlock } from "@/components/admin-ai-integration";
+import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 
@@ -669,10 +669,10 @@ export default function AdminAiControls({
 
   const confirmCopy = deleteTarget ? aiChallengeDeleteConfirm(deleteTarget) : null;
 
-  // Browser-only; empty on the server — the same contract AdminAiIntegration
-  // already uses for the per-row panel (this page is never statically
-  // prerendered, see AGENTS.md on `/`).
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  // Hydration-safe: "" on the server and on the first browser render, the
+  // real origin after — see `useBrowserOrigin`. The per-row panel uses the
+  // same hook, so both halves of the integration UI agree.
+  const origin = useBrowserOrigin();
 
   return (
     <>
