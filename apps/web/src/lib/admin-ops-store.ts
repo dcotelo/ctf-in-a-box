@@ -104,6 +104,10 @@ export type UserDetail = {
   firstTeamAt: string | null;
   quiz: { answered: number; points: number; attempts: number };
   classic: { solved: number; points: number; attempts: number };
+  /** Same shape as classic — the two modules' per-login stores are identical
+   *  (see the reset below). Absent until UX audit F4: the card showed no AI
+   *  figures for a contestant whose AI solves the reset then cleared. */
+  ai: { solved: number; points: number; attempts: number };
   /** Secure Development solves, counted from `ctf:solves:<target>`. */
   secureDev: { solves: number };
   hints: { bought: number; spent: number };
@@ -150,20 +154,42 @@ async function countSecureDevSolves(login: string): Promise<number> {
 export async function lookupUser(rawLogin: string): Promise<UserDetail> {
   const login = requireLogin(rawLogin);
 
-  const [teamRes, quizAnswers, quizAttempts, quizPoints, quizAnswered, classicSolves, classicAttempts, classicPoints, classicSolved, hintsBought, hintsSpent] =
-    await upstashPipeline([
-      ["HMGET", userKey(login), "team", "joinedAt", "firstTeamAt"],
-      ["HGETALL", quizAnswersKey(login)],
-      ["HGETALL", quizAttemptsKey(login)],
-      ["HGET", QUIZ_POINTS_KEY, login],
-      ["HGET", QUIZ_ANSWERED_KEY, login],
-      ["HGETALL", classicSolvesKey(login)],
-      ["HGETALL", classicAttemptsKey(login)],
-      ["HGET", CLASSIC_POINTS_KEY, login],
-      ["HGET", CLASSIC_SOLVED_KEY, login],
-      ["SCARD", userHintsKey(login)],
-      ["HGET", HINTS_SPENT_KEY, login],
-    ]);
+  // The ai reads are appended AFTER hints rather than beside classic's, so
+  // every reply position the existing callers and fixtures rely on is
+  // unchanged; a short reply reads as "no ai data", never as a shifted count.
+  const [
+    teamRes,
+    quizAnswers,
+    quizAttempts,
+    quizPoints,
+    quizAnswered,
+    classicSolves,
+    classicAttempts,
+    classicPoints,
+    classicSolved,
+    hintsBought,
+    hintsSpent,
+    aiSolves,
+    aiAttempts,
+    aiPoints,
+    aiSolved,
+  ] = await upstashPipeline([
+    ["HMGET", userKey(login), "team", "joinedAt", "firstTeamAt"],
+    ["HGETALL", quizAnswersKey(login)],
+    ["HGETALL", quizAttemptsKey(login)],
+    ["HGET", QUIZ_POINTS_KEY, login],
+    ["HGET", QUIZ_ANSWERED_KEY, login],
+    ["HGETALL", classicSolvesKey(login)],
+    ["HGETALL", classicAttemptsKey(login)],
+    ["HGET", CLASSIC_POINTS_KEY, login],
+    ["HGET", CLASSIC_SOLVED_KEY, login],
+    ["SCARD", userHintsKey(login)],
+    ["HGET", HINTS_SPENT_KEY, login],
+    ["HGETALL", aiSolvesKey(login)],
+    ["HGETALL", aiAttemptsKey(login)],
+    ["HGET", AI_POINTS_KEY, login],
+    ["HGET", AI_SOLVED_KEY, login],
+  ]);
 
   const [rawSlug, rawJoinedAt, rawFirstTeamAt] = Array.isArray(teamRes.result)
     ? (teamRes.result as (string | null)[])
@@ -190,7 +216,11 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
   const secureDevSolves = await countSecureDevSolves(login);
   const quizAnsweredCount = hashLen(quizAnswers.result);
   const classicSolvedCount = hashLen(classicSolves.result);
+  const aiSolvedCount = hashLen(aiSolves?.result);
   const hintsBoughtCount = Number(hintsBought.result) || 0;
+  const quizAttemptCount = sumAttempts(quizAttempts.result);
+  const classicAttemptCount = sumAttempts(classicAttempts.result);
+  const aiAttemptCount = sumAttempts(aiAttempts?.result);
 
   return {
     login,
@@ -199,20 +229,32 @@ export async function lookupUser(rawLogin: string): Promise<UserDetail> {
     quiz: {
       answered: Number(quizAnswered.result) || quizAnsweredCount,
       points: Number(quizPoints.result) || 0,
-      attempts: sumAttempts(quizAttempts.result),
+      attempts: quizAttemptCount,
     },
     classic: {
       solved: Number(classicSolved.result) || classicSolvedCount,
       points: Number(classicPoints.result) || 0,
-      attempts: sumAttempts(classicAttempts.result),
+      attempts: classicAttemptCount,
+    },
+    ai: {
+      solved: Number(aiSolved?.result) || aiSolvedCount,
+      points: Number(aiPoints?.result) || 0,
+      attempts: aiAttemptCount,
     },
     secureDev: { solves: secureDevSolves },
     hints: { bought: hintsBoughtCount, spent: Number(hintsSpent.result) || 0 },
+    // "Known" means the box holds ANY record of this login — attempts
+    // included, so a contestant who has tried and never solved is not told
+    // to check their spelling.
     known:
       slug !== null ||
       firstTeamAt !== null ||
       quizAnsweredCount > 0 ||
       classicSolvedCount > 0 ||
+      aiSolvedCount > 0 ||
+      quizAttemptCount > 0 ||
+      classicAttemptCount > 0 ||
+      aiAttemptCount > 0 ||
       secureDevSolves > 0 ||
       hintsBoughtCount > 0,
   };

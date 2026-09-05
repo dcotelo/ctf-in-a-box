@@ -694,3 +694,15 @@ describe("caseSensitive survives the form round trip", () => {
     expect(draft.caseSensitive).toBe(true);
   });
 });
+
+// What the panel reports up to the shell for the setup checklist above it
+// (see `ModuleInventory` in admin-module-setup.tsx): challenges AND
+// categories, because "add a category first" is the classic board's first
+// setup step and the checklist has to be able to tick it.
+describe("classicInventory", () => {
+  it("counts challenges and categories separately", async () => {
+    const { classicInventory } = await import("@/components/admin-classic-controls");
+    expect(classicInventory([], [])).toEqual({ items: 0, categories: 0 });
+    expect(classicInventory([], ["Web", "Crypto"])).toEqual({ items: 0, categories: 2 });
+  });
+});

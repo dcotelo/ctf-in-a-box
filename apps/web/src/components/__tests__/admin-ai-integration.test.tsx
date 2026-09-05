@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AiChallenge } from "@/lib/ai-store";
 import AdminAiIntegration, {
+  AiEndpointsBlock,
   AiIntegrationPanel,
   ROTATE_CONSEQUENCE,
   classifyAiTestResponse,
@@ -188,18 +189,43 @@ describe("AiIntegrationPanel — curl signature formula (pins the load-bearing r
   });
 });
 
-describe("AiIntegrationPanel — endpoint URLs", () => {
+// UX audit F5: the three endpoint URLs are module-wide, but rendered inside
+// every challenge row — three challenges printed them twelve times, at 542 px
+// a row. They now live in `AiEndpointsBlock`, rendered ONCE above the list by
+// admin-ai-controls.tsx, and the per-row panel no longer carries them.
+describe("AiEndpointsBlock", () => {
   it("renders the three endpoint URLs with the given origin", () => {
-    const html = renderPanel();
+    const html = renderToStaticMarkup(<AiEndpointsBlock origin={ORIGIN} />);
     expect(html).toContain(`${ORIGIN}/api/ai/submit`);
     expect(html).toContain(`${ORIGIN}/api/ai/event`);
     expect(html).toContain(`${ORIGIN}/api/ai/state`);
+    expect(html).toContain("same for every challenge");
   });
 
   it("a different origin changes all three — not hard-coded to one host", () => {
-    const html = renderPanel({ origin: "http://localhost:3000" });
+    const html = renderToStaticMarkup(<AiEndpointsBlock origin="http://localhost:3000" />);
     expect(html).toContain("http://localhost:3000/api/ai/submit");
     expect(html).not.toContain(`${ORIGIN}/api/ai/submit`);
+  });
+});
+
+describe("AiIntegrationPanel — density", () => {
+  it("no longer repeats the endpoint URLs per row", () => {
+    expect(renderPanel()).not.toContain("/api/ai/submit");
+  });
+
+  it("is collapsed by default, with a summary that names what is inside", () => {
+    const html = renderPanel();
+    expect(html).toContain("<details");
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("Integration");
+    expect(html).toContain("signing key");
+  });
+
+  it("flag-mode: the summary says the integration panel is not needed", () => {
+    const html = renderPanel({ challenge: { ...CHALLENGE, mode: "flag" } });
+    expect(html).toContain("<details");
+    expect(html).toMatch(/graded by flag/);
   });
 });
 
@@ -222,11 +248,9 @@ describe("AiIntegrationPanel — mode gating", () => {
     expect(html).not.toContain(REAL_KEY);
   });
 
-  it("flag-mode: still shows the three endpoint URLs", () => {
+  it("flag-mode: carries no endpoint URLs either — they live in AiEndpointsBlock, once", () => {
     const html = renderPanel({ challenge: FLAG_CHALLENGE });
-    expect(html).toContain(`${ORIGIN}/api/ai/submit`);
-    expect(html).toContain(`${ORIGIN}/api/ai/event`);
-    expect(html).toContain(`${ORIGIN}/api/ai/state`);
+    expect(html).not.toContain("/api/ai/submit");
   });
 
   it("flag-mode: shows a note pointing the signing key and Send test at event-mode challenges", () => {

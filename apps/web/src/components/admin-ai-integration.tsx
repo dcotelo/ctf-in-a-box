@@ -30,7 +30,7 @@
 // echoes `value` into the DOM (see copy-button.tsx), it only closes over it
 // inside the click handler, which `renderToStaticMarkup` never serializes.
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import ConfirmModal from "@/components/confirm-modal";
 import CopyButton from "@/components/copy-button";
 import type { AiChallenge } from "@/lib/ai-store";
@@ -141,6 +141,49 @@ function testCurl(origin: string, challengeId: string, revealed: boolean, signin
   ].join("\n");
 }
 
+const noopSubscribe = () => () => {};
+
+/** The browser's origin, hydration-safe: the server snapshot is "" and the
+ *  browser's first render uses the same "" before React swaps in the real
+ *  value, so the SSR markup and the hydrating render agree. Reading
+ *  `window.location.origin` during render would make them disagree on every
+ *  endpoint URL (CodeRabbit on #275). Shared by the endpoints block and the
+ *  per-row panel so both agree on the origin. */
+export function useBrowserOrigin(): string {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => window.location.origin,
+    () => "",
+  );
+}
+
+/** The three module-wide endpoint URLs, with copy buttons. Rendered ONCE by
+ *  admin-ai-controls.tsx above the challenge list — they are the same for
+ *  every challenge, and rendering them inside every row printed them N×3
+ *  times and made the list unscannable (UX audit F5). Presentational;
+ *  `origin` is passed in for the same testability reason the panel's is. */
+export function AiEndpointsBlock({ origin }: { origin: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
+      <span className="text-xs text-white">Endpoints</span>
+      <span className="text-xs text-muted">The same for every challenge — what the external site posts to and reads from.</span>
+      <ul className="mt-1 flex flex-col gap-1">
+        {ENDPOINTS.map(({ label, path }) => {
+          const url = `${origin}${path}`;
+          return (
+            <li key={path} className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-zinc-300">
+                {url}
+              </code>
+              <CopyButton value={url} label={`Copy ${label} URL`} />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export type AiIntegrationPanelProps = {
   challenge: AiChallenge;
   signingKey: string;
@@ -188,29 +231,23 @@ export function AiIntegrationPanel({
   onSendTest,
 }: AiIntegrationPanelProps) {
   const flagOnly = challenge.mode === "flag";
+  // Collapsed by default (UX audit F5): the integration plumbing is needed
+  // once, while wiring the external site, and the list an organizer scrolls
+  // to find a challenge should read as a list. The endpoint URLs are not
+  // here at all any more — `AiEndpointsBlock` renders them once, above the
+  // list. Native <details>, so the content stays in the static markup.
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Endpoints</span>
-        <ul className="flex flex-col gap-1">
-          {ENDPOINTS.map(({ label, path }) => {
-            const url = `${origin}${path}`;
-            return (
-              <li key={path} className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-zinc-300">
-                  {url}
-                </code>
-                <CopyButton value={url} label={`Copy ${label} URL`} />
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
+    <details className="rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-2">
+      <summary className="cursor-pointer text-xs text-muted">
+        {flagOnly
+          ? "Integration — not needed for this challenge; it is graded by flag through the Submit endpoint"
+          : "Integration — signing key, test curl, Send test"}
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">
       {flagOnly ? (
         <p className="text-xs text-muted">
           The signing key and Send test apply to event-mode challenges only — this challenge is graded solely
-          through a typed flag submitted to the Submit endpoint above.
+          through a typed flag submitted to the Submit endpoint listed above the challenge list.
         </p>
       ) : (
         <>
@@ -278,7 +315,8 @@ export function AiIntegrationPanel({
           )}
         </>
       )}
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -288,10 +326,9 @@ export default function AdminAiIntegration({ challenge, signingKey, onRotate, pe
   const [testPending, setTestPending] = useState(false);
   const [testOutcome, setTestOutcome] = useState<AiTestOutcome | null>(null);
 
-  // Browser-only; empty on the server (this panel is never statically
-  // prerendered — see AGENTS.md on `/` — and this component's own tests
-  // render `AiIntegrationPanel` directly with an explicit `origin`).
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  // Hydration-safe (see `useBrowserOrigin`); this component's own tests
+  // render `AiIntegrationPanel` directly with an explicit `origin`.
+  const origin = useBrowserOrigin();
 
   async function sendTest() {
     setTestPending(true);

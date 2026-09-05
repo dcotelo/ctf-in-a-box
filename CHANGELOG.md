@@ -8,6 +8,50 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Every numeric setting says whether it saved.** The nine numeric knobs and
+  the four schedule fields now report beside the field: "Saving…" while the
+  write is in flight, "Saved" for a moment after, or the reason it was refused
+  — junk, a fraction, a negative or a blanked field snaps back to the stored
+  value *with* that reason, and a server rejection is rewritten through the
+  field's label ("Hint cost must be a whole number between 0 and 100,000.")
+  instead of landing as `hintCost must be an integer in [0, 100000]` under
+  the whole panel while the rejected text stayed in the box (admin UX audit
+  F2). The refusal is announced (`role="alert"`) and tied to its input
+  (`aria-invalid`, `aria-describedby`). One shared component,
+  `components/admin-number-field.tsx`, replaces the hand-written pair on
+  every tab; stored keys and server validation are unchanged.
+- **The AI tab is a list again.** The three module-wide endpoint URLs render
+  once above the challenge list instead of inside every row, and each row's
+  integration panel (signing key, test curl, Send test) is collapsed until
+  opened — three challenges had made the tab 2,253 px tall, 542 px a row
+  (F5). A flag-only row's summary says the panel is not needed for it.
+
+- **Hint policy moved to the Event tab.** The four hint knobs (enabled, cost,
+  solves required, unlock after) govern Secure Development, Classic and AI
+  hints alike, but rendered only on the Secure Development tab — so a
+  classic-only or ai-only event sold hints at the default price with no switch
+  anywhere in the panel (admin UX audit F1). They now sit in a **Hints**
+  section on Event, under the schedule, and the unlock-after help names the
+  **Scoring opens** field instead of pointing "below" at a tab that no longer
+  held it (F6). Secure Development keeps its re-run cooldown. Stored keys and
+  server-side validation are unchanged.
+- **The blurb help tells the truth.** The module-identity blurb's help text
+  said it was "not shown on any page"; it is the lede under the title on the
+  quiz, flags and AI boards and those pages' meta description. The help now
+  says so (admin UX audit F3).
+- **Support shows AI progress.** The contestant lookup reads the AI solves,
+  attempts and points alongside quiz and classic, the card shows them, the
+  attempts total includes them, and the reset-progress confirm names "classic
+  and AI solves" and sums all three modules' points — the total the reset
+  actually removes (F4). "Sec-dev solves" is spelled out as Secure Development.
+- **Every module tab opens with a setup checklist.** A new registry contract,
+  `ModuleDef.setup` (module contract §5.9): what contestants experience, the
+  minimum to make the module playable in dependency order with each step
+  marked in-panel or outside, what is safe to change mid-event, and a link to
+  the module's operations guide. Rendered by one shared component ahead of the
+  identity editor; where the panel holds the count (questions, challenges,
+  categories) the step shows it live, and says "Checking…" until it does.
+
 - **`pnpm lint` is green and CI runs it.** The app's lint had sat red (4
   errors, 5 warnings) with nothing running it — hygiene audit T1. Each
   finding is fixed in the code rather than excused: the three

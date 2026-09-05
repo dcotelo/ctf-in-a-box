@@ -18,16 +18,66 @@
 import { useState } from "react";
 import type { ConfirmState } from "./types";
 
-type UserDetail = {
+/** The shape `GET /api/admin/ops/user` answers with — mirrors `UserDetail` in
+ *  lib/admin-ops-store.ts (a value import would drag `server-only` into the
+ *  client bundle). Exported so the pure builders below can be tested against
+ *  a hand-built record. */
+export type UserDetail = {
   login: string;
   team: { slug: string; name: string; captain: string | null; isCaptain: boolean; joinedAt: string | null } | null;
   firstTeamAt: string | null;
   quiz: { answered: number; points: number; attempts: number };
   classic: { solved: number; points: number; attempts: number };
+  ai: { solved: number; points: number; attempts: number };
   secureDev: { solves: number };
   hints: { bought: number; spent: number };
   known: boolean;
 };
+
+/** The figures the contestant card shows, in reading order — every module
+ *  the reset below touches (quiz, classic, ai) plus Secure Development and
+ *  hints. Pure, so a test can prove the AI figures are present without a
+ *  lookup having returned (UX audit F4: the card had none). Exported for
+ *  direct testing. */
+export function contestantStats(detail: UserDetail): { label: string; value: number }[] {
+  return [
+    { label: "Quiz pts", value: detail.quiz.points },
+    { label: "Classic pts", value: detail.classic.points },
+    { label: "AI pts", value: detail.ai.points },
+    { label: "Quiz answered", value: detail.quiz.answered },
+    { label: "Classic solved", value: detail.classic.solved },
+    { label: "AI solved", value: detail.ai.solved },
+    { label: "Secure Development solves", value: detail.secureDev.solves },
+    { label: "Attempts", value: detail.quiz.attempts + detail.classic.attempts + detail.ai.attempts },
+    { label: "Hints bought", value: detail.hints.bought },
+    { label: "Hints spend", value: detail.hints.spent },
+  ];
+}
+
+/** The reset-progress confirmation, with the total the reset will actually
+ *  remove: quiz, classic AND ai points — `resetUserProgress` clears all three
+ *  (admin-ops-store.ts). The Secure Development warning is separate because
+ *  it is the part the organizer has to act on, and it only applies when there
+ *  are such solves. Exported for direct testing. */
+export function resetProgressConfirm(detail: UserDetail): {
+  title: string;
+  requireType: string;
+  confirmLabel: string;
+  body: string;
+  warning: string | null;
+} {
+  const total = detail.quiz.points + detail.classic.points + detail.ai.points;
+  return {
+    title: `Reset ${detail.login}'s progress?`,
+    requireType: detail.login,
+    confirmLabel: "Reset progress",
+    body: `Clears their quiz answers, classic and AI solves, attempts and hints — ${total} points in total. Their account and team stay.`,
+    warning:
+      detail.secureDev.solves > 0
+        ? `Their ${detail.secureDev.solves} Secure Development solves are re-ingested from PR comments and will come back if that PR is scored again.`
+        : null,
+  };
+}
 
 const FIELD =
   "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
@@ -190,15 +240,10 @@ export default function AdminSupportTab({
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Quiz pts" value={detail.quiz.points} />
-            <Stat label="Classic pts" value={detail.classic.points} />
-            <Stat label="Quiz answered" value={detail.quiz.answered} />
-            <Stat label="Classic solved" value={detail.classic.solved} />
-            <Stat label="Sec-dev solves" value={detail.secureDev.solves} />
-            <Stat label="Attempts" value={detail.quiz.attempts + detail.classic.attempts} />
-            <Stat label="Hints bought" value={detail.hints.bought} />
-            <Stat label="Hints spend" value={detail.hints.spent} />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {contestantStats(detail).map((s) => (
+              <Stat key={s.label} label={s.label} value={s.value} />
+            ))}
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
@@ -206,22 +251,20 @@ export default function AdminSupportTab({
               type="button"
               disabled={pending}
               className={DANGER}
-              onClick={() =>
+              onClick={() => {
+                const c = resetProgressConfirm(detail);
                 setConfirm({
-                  title: `Reset ${detail.login}'s progress?`,
+                  title: c.title,
                   danger: true,
-                  requireType: detail.login,
-                  confirmLabel: "Reset progress",
+                  requireType: c.requireType,
+                  confirmLabel: c.confirmLabel,
                   body: (
                     <>
-                      Clears their quiz answers, classic solves, attempts and hints — {detail.quiz.points + detail.classic.points} points in total. Their account and team stay.
-                      {detail.secureDev.solves > 0 && (
+                      {c.body}
+                      {c.warning && (
                         <>
                           {" "}
-                          <strong>
-                            Their {detail.secureDev.solves} Secure Development solves are re-ingested from PR comments and will come back if that PR is scored again.
-                          </strong>{" "}
-                          Close the PR or freeze scoring to make this stick.
+                          <strong>{c.warning}</strong> Close the PR or freeze scoring to make this stick.
                         </>
                       )}
                     </>
@@ -237,8 +280,8 @@ export default function AdminSupportTab({
                       (data) => withWarnings(`Reset ${detail.login}.`, data),
                       refresh,
                     ),
-                })
-              }
+                });
+              }}
             >
               Reset progress
             </button>

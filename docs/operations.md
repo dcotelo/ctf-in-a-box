@@ -134,12 +134,29 @@ to the ends). **Event is the default tab** on load, regardless of how many
 modules are enabled — unless the URL names another one (see the deep links
 below).
 
-Hints moved from a flat settings list into the Secure Development tab as part
-of this reorganization. **This is a UI relocation only** — the underlying
+The hint policy lives on the **Event** tab, in a **Hints** section under the
+schedule, because it is event-wide: Secure Development, Classic and AI all
+sell their hints through the same four settings. (It sat on the Secure
+Development tab for a while, which left a classic-only or ai-only event with
+no hint switch at all.) **This is a UI relocation only** — the underlying
 storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
 `hintsUnlockAfterMin`) and their validation are completely unchanged, so no
-deployed event's settings, or their meaning, changed by upgrading to this
-tabbed panel.
+deployed event's settings, or their meaning, changed by upgrading.
+
+**Every module tab opens with a setup checklist** — "Setting up Quiz",
+"Setting up Classic CTF", and so on — ahead of the identity editor and the
+module's own knobs. It says in a sentence what contestants experience in that
+module, lists the minimum you must do before the event in dependency order,
+marks each step **In this panel** or **Outside this panel** (`ctf-setup.sh`,
+the GitHub org, `event.yaml`), says what is safe to change mid-event and what
+is not, and links to that module's section of this page. Where the panel can
+tell whether a step is done — questions or challenges or categories exist —
+it shows the live count ("3 questions", "None yet") rather than asking you to
+remember; while its list is still loading it says "Checking…", and a step the
+panel cannot verify (a fork provisioned, an App installed) is a plain item
+with no tick. The checklist is a `<details>` block, so fold it once the module
+is set up. It is registry content (the module contract's §5.9), not copy
+typed into each tab.
 
 **Module identity.** Every module's tab opens with a title/blurb editor for
 that module's display name. The title is capped at 60 characters, the blurb at
@@ -298,7 +315,7 @@ The panel offers:
   every reader of scoring state (the app, the scorer, the sync poller — see
   [architecture](architecture.md)); the registration window is enforced by
   `team-store.ts` on exactly the mutations the manual switch gates.
-- **Hint controls** (Secure Development tab) — whether hints are enabled and
+- **Hint controls** (Event tab, **Hints** section) — whether hints are enabled and
   what they cost. Hints are **on by default** and cost 10 points each; the
   cost (`hintCost`) is a whole number from 0 to **100000**. This is
   the **only** hint switch: there is no environment variable, and the toggle
@@ -443,7 +460,7 @@ The panel offers:
   ![The Support tab after a contestant lookup: their team and captain status, when they first joined a team, points and solves per module, attempt count and hint spend, with the reset and delete controls beneath](assets/admin-support.jpg)
 
 
-  From there: **reset progress** (clears their answers, solves, attempts and
+  From there: **reset progress** (clears their quiz answers, classic and AI solves, attempts and
   hints; keeps the account and the team), **delete contestant** (all of that
   plus the team membership and the account record), or **remove from team**.
   Team-side, there is **transfer captaincy** and **disband** — the captain-only
@@ -517,6 +534,18 @@ what `/quiz`, `/flags` and `/ai` link an organizer to when the module has no
 content yet — an empty board shows them **Author questions** / **Author
 challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
 name falls back to **Event**.
+
+**Every numeric setting says whether it saved.** The number knobs (hint cost
+and gating, players per team, the retry gate, the cooldowns) and the four
+schedule fields commit when you leave the field, and report beside it:
+**Saving…** while the write is in flight, **Saved** for a moment after, or the
+reason it was refused. Junk, a fraction, a negative, or a blanked field snaps
+back to the stored value with that reason ("Whole numbers only — kept 10.");
+a value the server refuses is rewritten through the field's own label ("Hint
+cost must be a whole number between 0 and 100,000.") and the field snaps back
+too, so what you see is always what is stored. The toggles and the module
+switches have no field to report into and still use the error line under the
+panel.
 
 Every settings change is recorded in an audit log (who, when, what changed)
 alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest
@@ -1197,13 +1226,17 @@ reorder-by-dragging UI — organizers curate a long-running board there;
 nothing about this task called for the same parity here, so `order` is just
 another field the form edits directly.
 
-**The integration panel**, rendered inside every challenge row underneath
-its summary line, is what an external challenge actually wires up against.
-It carries:
+**The integration panel** is what an external challenge actually wires up
+against. It comes in two parts. The **Endpoints** block sits once, above the
+challenge list — **three endpoint URLs**, Submit (`/api/ai/submit`), Event
+(`/api/ai/event`), and State (`/api/ai/state`), each with its own copy
+button so an integrator never has to hand-assemble the full origin; they are
+the same for every challenge, which is why they are not repeated per row. The
+rest is **per challenge**, collapsed under each row's summary line (open it
+with the "Integration — signing key, test curl, Send test" disclosure; a
+flag-only row's disclosure says the panel is not needed for it), and
+carries:
 
-- **Three endpoint URLs** — Submit (`/api/ai/submit`), Event
-  (`/api/ai/event`), and State (`/api/ai/state`) — each with its own copy
-  button, so an integrator never has to hand-assemble the full origin.
 - **The per-challenge signing key**, masked by default (`aik_…`) with a
   Reveal toggle and its own Copy button — the raw key is never referenced in
   the rendered markup while masked, not merely styled to look hidden.

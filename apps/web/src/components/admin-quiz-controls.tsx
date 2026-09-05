@@ -77,6 +77,8 @@ import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary }
 import { generateQuestionId } from "@/lib/quiz-keys";
 import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type ImportError, type QuizBundle } from "@/lib/quiz-io";
 import ConfirmModal from "@/components/confirm-modal";
+import type { ModuleInventory } from "@/components/admin-module-setup";
+import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -88,10 +90,25 @@ export type AdminQuizControlsProps = {
   setQuizMaxAttemptsInput: (v: string) => void;
   quizRetryAfterInput: string;
   setQuizRetryAfterInput: (v: string) => void;
-  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void) => void;
+  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void, label: string) => void;
+  /** The shell's per-field save status, by stored key (UX audit F2). Optional
+   *  so a static render without a shell still works; idle when absent. */
+  statusOf?: (key: string) => FieldStatus;
   /** Test/first-paint seed only — see header comment. */
   initialQuestions?: AdminQuestion[];
+  /** Reports the bank's size to the shell for the setup checklist above this
+   *  panel, AFTER the mount-time fetch has settled and again on every change
+   *  — never from the pre-hydration seed, which would report an empty bank
+   *  for the second before the real list lands. */
+  onInventory?: (inventory: ModuleInventory) => void;
 };
+
+/** What this panel tells the shell about its content. Pure, so the shape is
+ *  provable without running the effect that sends it. Exported for direct
+ *  testing. */
+export function quizInventory(rows: readonly AdminQuestion[]): ModuleInventory {
+  return { items: rows.length };
+}
 
 /** Maps a `/api/admin/quiz` response to a message that tells a validation
  *  failure (the organizer's payload was bad — 400) apart from an
@@ -442,10 +459,15 @@ export default function AdminQuizControls({
   quizRetryAfterInput,
   setQuizRetryAfterInput,
   commitNumber,
+  statusOf = () => ({ state: "idle" }),
   initialQuestions = [],
+  onInventory,
 }: AdminQuizControlsProps) {
   const [questions, setQuestions] = useState<AdminQuestion[]>(() => sortQuestions(initialQuestions));
   const [listError, setListError] = useState<string | null>(null);
+  // True once a real read of the bank has landed; gates the inventory report
+  // so the shell never hears "0 questions" from the pre-hydration seed.
+  const [loaded, setLoaded] = useState(false);
 
   const [editing, setEditing] = useState<QuestionEditor | null>(null);
   const [formPending, setFormPending] = useState(false);
@@ -475,7 +497,15 @@ export default function AdminQuizControls({
     }
     setQuestions(result.questions);
     setListError(null);
+    setLoaded(true);
   }
+
+  // Report the bank's size upward whenever it changes, once it is real. The
+  // callback is the parent's, so this is a report to a subscriber, not a
+  // setState of this component's own.
+  useEffect(() => {
+    if (loaded) onInventory?.(quizInventory(questions));
+  }, [loaded, questions, onInventory]);
 
   // First-paint data comes from `initialQuestions` (or, in production, is
   // simply empty); this replaces it with the live list once mounted in the
@@ -680,45 +710,29 @@ export default function AdminQuizControls({
 
   return (
     <>
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Max attempts</span>
-          <span className="block text-xs text-muted">
-            Attempts a contestant gets on a question before the retry gate refuses further submissions. 0 =
-            unlimited.
-          </span>
-        </span>
-        <input
-          type="number"
-          min={0}
-          value={quizMaxAttemptsInput}
-          placeholder={String(QUIZ_MAX_ATTEMPTS)}
-          disabled={pending}
-          onChange={(e) => setQuizMaxAttemptsInput(e.target.value)}
-          onBlur={() => commitNumber("quizMaxAttempts", quizMaxAttemptsInput, setQuizMaxAttemptsInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <AdminNumberField
+        id="quiz-max-attempts"
+        label="Max attempts"
+        help="Attempts a contestant gets on a question before the retry gate refuses further submissions. 0 = unlimited."
+        value={quizMaxAttemptsInput}
+        placeholder={String(QUIZ_MAX_ATTEMPTS)}
+        disabled={pending}
+        status={statusOf("quizMaxAttempts")}
+        onChange={setQuizMaxAttemptsInput}
+        onBlur={() => commitNumber("quizMaxAttempts", quizMaxAttemptsInput, setQuizMaxAttemptsInput, "Max attempts")}
+      />
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Retry after (min)</span>
-          <span className="block text-xs text-muted">
-            Minutes a contestant must wait after their last attempt before retrying the same question. 0 = no
-            cooldown.
-          </span>
-        </span>
-        <input
-          type="number"
-          min={0}
-          value={quizRetryAfterInput}
-          placeholder={String(QUIZ_RETRY_AFTER_MIN)}
-          disabled={pending}
-          onChange={(e) => setQuizRetryAfterInput(e.target.value)}
-          onBlur={() => commitNumber("quizRetryAfterMin", quizRetryAfterInput, setQuizRetryAfterInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <AdminNumberField
+        id="quiz-retry-after-min"
+        label="Retry after (min)"
+        help="Minutes a contestant must wait after their last attempt before retrying the same question. 0 = no cooldown."
+        value={quizRetryAfterInput}
+        placeholder={String(QUIZ_RETRY_AFTER_MIN)}
+        disabled={pending}
+        status={statusOf("quizRetryAfterMin")}
+        onChange={setQuizRetryAfterInput}
+        onBlur={() => commitNumber("quizRetryAfterMin", quizRetryAfterInput, setQuizRetryAfterInput, "Retry after (min)")}
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div className="flex items-center justify-between gap-3">

@@ -103,6 +103,8 @@ import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundl
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
 import ConfirmModal from "@/components/confirm-modal";
+import type { ModuleInventory } from "@/components/admin-module-setup";
+import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 
 // `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
 // component's OWN test file imports it from here, mirroring how the rest of
@@ -117,11 +119,24 @@ export type AdminClassicControlsProps = {
   pending: boolean;
   classicCooldownSecInput: string;
   setClassicCooldownSecInput: (v: string) => void;
-  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void) => void;
+  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void, label: string) => void;
+  /** The shell's per-field save status, by stored key (UX audit F2). Optional
+   *  so a static render without a shell still works; idle when absent. */
+  statusOf?: (key: string) => FieldStatus;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminChallenge[];
   initialCategories?: string[];
+  /** Reports the board's size to the shell for the setup checklist above this
+   *  panel — after the mount-time fetch has settled, never from the seed. */
+  onInventory?: (inventory: ModuleInventory) => void;
 };
+
+/** What this panel tells the shell about its content: challenges AND
+ *  categories, because "add a category first" is this board's first setup
+ *  step. Pure; exported for direct testing. */
+export function classicInventory(rows: readonly AdminChallenge[], categories: readonly string[]): ModuleInventory {
+  return { items: rows.length, categories: categories.length };
+}
 
 /** Maps a `/api/admin/classic` response to a message that tells a validation
  *  failure (the organizer's payload was bad — 400) apart from an
@@ -466,12 +481,17 @@ export default function AdminClassicControls({
   classicCooldownSecInput,
   setClassicCooldownSecInput,
   commitNumber,
+  statusOf = () => ({ state: "idle" }),
   initialChallenges = [],
   initialCategories = [],
+  onInventory,
 }: AdminClassicControlsProps) {
   const [challenges, setChallenges] = useState<AdminChallenge[]>(() => sortChallenges(initialChallenges));
   const [categories, setCategories] = useState<string[]>(initialCategories);
   const [listError, setListError] = useState<string | null>(null);
+  // True once a real read has landed; gates the inventory report so the shell
+  // never hears "0 challenges" from the pre-hydration seed.
+  const [loaded, setLoaded] = useState(false);
 
   const [editing, setEditing] = useState<ChallengeEditor | null>(null);
   const [formPending, setFormPending] = useState(false);
@@ -508,7 +528,14 @@ export default function AdminClassicControls({
     setChallenges(result.challenges);
     setCategories(result.categories);
     setListError(null);
+    setLoaded(true);
   }
+
+  // Report upward whenever the board changes, once it is real. A report to
+  // the parent's subscriber, not a setState of this component's own.
+  useEffect(() => {
+    if (loaded) onInventory?.(classicInventory(challenges, categories));
+  }, [loaded, challenges, categories, onInventory]);
 
   // First-paint data comes from `initialChallenges`/`initialCategories` (or,
   // in production, is simply empty); this replaces it with the live data
@@ -779,24 +806,19 @@ export default function AdminClassicControls({
 
   return (
     <>
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Submission cooldown (sec)</span>
-          <span className="block text-xs text-muted">
-            Seconds a contestant must wait between flag submissions on the same challenge. 0 = no cooldown.
-          </span>
-        </span>
-        <input
-          type="number"
-          min={0}
-          value={classicCooldownSecInput}
-          placeholder={String(CLASSIC_COOLDOWN_SEC)}
-          disabled={pending}
-          onChange={(e) => setClassicCooldownSecInput(e.target.value)}
-          onBlur={() => commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <AdminNumberField
+        id="classic-cooldown-sec"
+        label="Submission cooldown (sec)"
+        help="Seconds a contestant must wait between flag submissions on the same challenge. 0 = no cooldown."
+        value={classicCooldownSecInput}
+        placeholder={String(CLASSIC_COOLDOWN_SEC)}
+        disabled={pending}
+        status={statusOf("classicCooldownSec")}
+        onChange={setClassicCooldownSecInput}
+        onBlur={() =>
+          commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput, "Submission cooldown (sec)")
+        }
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div className="flex items-center justify-between gap-3">

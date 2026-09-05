@@ -177,14 +177,17 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
           multiline
           apply={apply}
         />
-        {/* The blurb is very nearly write-only, and saying so is the honest
-            thing to put in front of the organizer typing into it: the only
-            consumer in the app is /quiz's `generateMetadata` description.
-            Do NOT fix this by inventing a page to render it on. */}
+        {/* Each claim here is a surface that renders the resolved blurb
+            today: /quiz, /flags and /ai pass it to PageHeader as the
+            description under the title, and the same pages use it as their
+            meta description. This help used to say the blurb was "not shown
+            on any page", from before those headers rendered it — the one
+            false sentence on the panel (UX audit F3). Keep it in step with
+            docs/operations.md's "The blurb is contestant-facing copy". */}
         <span className="text-xs text-muted">
-          Not shown on any page. It only sets the module page&rsquo;s meta description, for search
-          results and link previews &mdash; and only where that page has one, which today means the
-          quiz.
+          Contestant-facing. Shown as the lede under the title on the module&rsquo;s own page (the quiz,
+          flags and AI boards), and used as that page&rsquo;s meta description for search results and
+          link previews. Blank restores the default sentence shown in the box.
         </span>
       </label>
     </div>

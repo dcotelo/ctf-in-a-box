@@ -9,8 +9,11 @@ import { headers } from "next/headers";
 import PageHeader from "@/components/page-header";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
+import { enabledApps, joinAppNames } from "@/lib/apps";
+import { eventConfig } from "@/lib/event-config";
+import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
 import { formatRelativeTime } from "@/lib/relative-time";
-import { getResolvedModules } from "@/lib/resolved-modules";
+import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
 import AdminControls from "./admin-controls";
 
 export const metadata: Metadata = {
@@ -73,6 +76,24 @@ export default async function AdminPage({
     searchParams,
   ]);
 
+  // Each module's setup checklist, resolved HERE. The registry block is a
+  // function of the org context (it names the targets and the GitHub org),
+  // and AdminControls is a Client Component, so — exactly as /faq and
+  // /how-to-play do for their blocks — the function is called on the server
+  // and only its plain-data result is handed down. Built from the same
+  // context the contestant pages use, so the setup panel and the FAQ can
+  // never disagree about how many targets the event has.
+  const ctx: OrgContext = {
+    appCount: enabledApps.length,
+    appList: joinAppNames(enabledApps.map((a) => a.name)),
+    githubOrg: eventConfig.githubOrg,
+  };
+  const setups: Partial<Record<string, ModuleSetupContent>> = {};
+  for (const mod of modules) {
+    const setup = getModuleSetup(mod.id);
+    if (setup) setups[mod.id] = setup(ctx);
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Organizer" title="Admin" description="Event controls and sync status." />
@@ -133,6 +154,7 @@ export default async function AdminPage({
           initial={settings}
           demoMode={process.env.DEMO_MODE === "1"}
           modules={modules}
+          setups={setups}
           initialTab={tabParam(params)}
           viewerLogin={gate.login}
         />
