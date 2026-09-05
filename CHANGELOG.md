@@ -17,6 +17,10 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   **Scoring opens** field instead of pointing "below" at a tab that no longer
   held it (F6). Secure Development keeps its re-run cooldown. Stored keys and
   server-side validation are unchanged.
+- **The blurb help tells the truth.** The module-identity blurb's help text
+  said it was "not shown on any page"; it is the lede under the title on the
+  quiz, flags and AI boards and those pages' meta description. The help now
+  says so (admin UX audit F3).
 - **Every module tab opens with a setup checklist.** A new registry contract,
   `ModuleDef.setup` (module contract §5.9): what contestants experience, the
   minimum to make the module playable in dependency order with each step

@@ -157,6 +157,19 @@ describe("AdminControls tab shell", () => {
     expect(panelFor(html, "secure-development")).not.toContain("Setting up");
   });
 
+  // UX audit F3: the blurb help used to say "Not shown on any page … which
+  // today means the quiz". The blurb IS rendered — as the page-header lede on
+  // /quiz, /flags and /ai, and as those pages' meta description — so the one
+  // sentence the field carried about itself was the one false claim on the
+  // panel. The help now names the surfaces the docs name.
+  it("tells the truth about where the blurb renders", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const quiz = panelFor(html, "quiz");
+    expect(quiz).not.toContain("Not shown on any page");
+    expect(quiz).toMatch(/lede under the title/);
+    expect(quiz).toMatch(/meta description/);
+  });
+
   it("labels a module tab with its resolved title", () => {
     const html = renderToStaticMarkup(
       <AdminControls viewerLogin="organizer" initial={settings} modules={[{ id: "quiz", title: "Round 1" }] as never} />,
