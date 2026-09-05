@@ -29,7 +29,7 @@ import { getLeaderboardSource } from "@/lib/leaderboard/source";
 import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
-import { isModuleEnabled, type HomeContext } from "@/lib/modules";
+import { DOCS_URL, isModuleEnabled, type HomeContext } from "@/lib/modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { hasTeam } from "@/lib/team-store";
 import { event } from "@/lib/site";
@@ -382,7 +382,7 @@ export default async function Home() {
               Get the kit
             </a>
             <a
-              href="https://dcotelo.github.io/ctf-in-a-box/"
+              href={DOCS_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="rounded-md border border-white/15 px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/45 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
