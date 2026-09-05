@@ -45,21 +45,24 @@ import { getQuizTotals, getViewerQuiz, listQuestions, type Question, type QuizTo
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib/team-store";
+import { teamKey } from "@/lib/team-keys";
 import { getAdminSettings, effectiveRegistrationOpen } from "@/lib/admin-store";
 import { upstashPipeline } from "@/lib/upstash";
 import { event } from "@/lib/site";
 
 // TeamCard needs the captain login (to gate captain-only controls) and the
-// current join code (to display it), neither of which `TeamInfo` carries.
-// team-store.ts is owned by another task, so this reads the same
-// `ctf:team:<slug>` hash fields directly instead of extending its exports.
+// current join code (to display it), neither of which `TeamInfo` carries, so
+// the two fields are read here from the team hash — one pipeline, both HGETs.
+// The key comes from the shared `teamKey` builder (team-keys.ts, ADR 48), never
+// an open-coded key string — that is how two readers of the same data drift
+// apart, and team-keys.test.ts scans this file to keep it that way.
 // Live mode only — the mock cookie has no captain/join-code concept.
 async function getTeamMeta(slug: string): Promise<{ captain: string | null; joinCode: string | null }> {
   if (!TEAM_WRITES_ENABLED) return { captain: null, joinCode: null };
   try {
     const [captainRes, codeRes] = await upstashPipeline([
-      ["HGET", `ctf:team:${slug}`, "captain"],
-      ["HGET", `ctf:team:${slug}`, "joinCode"],
+      ["HGET", teamKey(slug), "captain"],
+      ["HGET", teamKey(slug), "joinCode"],
     ]);
     return {
       captain: typeof captainRes.result === "string" && captainRes.result ? captainRes.result : null,

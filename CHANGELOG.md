@@ -8,6 +8,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The profile page names the team hash through `teamKey`, and the judge's
+  network comments say what the network is.** `profile/page.tsx` still
+  open-coded `ctf:team:<slug>` twice — the reader ADR 48 moved the builders
+  into `team-keys.ts` for — behind a comment excusing it; it now imports
+  `teamKey` like every other reader, and a source-scan test keeps the literal
+  from coming back. `scorer/entrypoint.sh` and `scorer/entrypoints/webgoat.sh`
+  described `$NETWORK` as `--internal`; it is a plain `docker network create`
+  bridge (as `docs/scorer.md` already said) on which the app under test
+  publishes no host ports. Comments only — no `docker network
+  create` line changed.
 - **Every live Redis suite runs in CI now, not just the grading Lua.** The
   `hint-store` and `team-store` `.upstash` suites had rotted (#235): the
   reveal path grew an anti-burner gate that refused every purchase the suite
