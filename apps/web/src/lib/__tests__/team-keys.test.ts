@@ -45,3 +45,25 @@ describe("profile/page.tsx reads the team hash through teamKey", () => {
     expect(source).toContain("teamKey(");
   });
 });
+
+describe("team-store.ts names its keys through team-keys, not private copies", () => {
+  // The builders started life as module-private consts in the store; ADR 48
+  // moved them here, and the store must not keep a shadow set that a later
+  // rename in either file would let drift from the other.
+  const source = readFileSync(new URL("../team-store.ts", import.meta.url), "utf8");
+
+  it("reads the store — the reader is asserted, not just its output", () => {
+    expect(source).toContain("export async function getViewerTeam(");
+  });
+
+  it("imports all four builders from @/lib/team-keys", () => {
+    const match = source.match(/import \{([^}]*)\} from "@\/lib\/team-keys";/);
+    expect(match).not.toBeNull();
+    const names = match![1].split(",").map((n) => n.trim()).filter(Boolean).sort();
+    expect(names).toEqual(["joinCodeKey", "membersKey", "teamKey", "userKey"]);
+  });
+
+  it("defines no private copy of any builder", () => {
+    expect(source).not.toMatch(/const (userKey|teamKey|membersKey|joinCodeKey)\s*=/);
+  });
+});

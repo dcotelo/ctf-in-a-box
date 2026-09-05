@@ -6,11 +6,9 @@
 //
 // These lived as module-private consts in team-store.ts, which is why every
 // other reader open-coded the strings instead: admin-store.ts's reset prefixes,
-// and profile/page.tsx, whose comment admits it —
-//   "team-store.ts is owned by another task, so this reads the same
-//    ctf:team:<slug> hash fields directly instead of extending its exports."
-// Open-coded key strings are how two readers of the same data drift apart, so
-// the names live here now and team-store re-exports them.
+// and profile/page.tsx, whose comment admitted it. Open-coded key strings are
+// how two readers of the same data drift apart, so the names live here now and
+// team-store.ts imports them like every other reader — nothing re-exports them.
 
 /** A contestant's own record. Field `team` holds their team slug, if any. */
 export const userKey = (login: string) => `ctf:user:${login}`;
