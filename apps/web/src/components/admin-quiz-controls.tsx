@@ -70,7 +70,7 @@
 // banked points is the master reset's job. The confirm copy below says so
 // in as many words; keep the two in step.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary } from "@/lib/quiz-store";
 import { generateQuestionId } from "@/lib/quiz-keys";
@@ -83,16 +83,10 @@ import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-f
 import { INPUT_CLASS, NumberField, PositionReadout } from "@/components/admin/editor-fields";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
-import { describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
+import { describeAdminError } from "@/components/admin/fetch";
+import { useAdminResource } from "@/components/admin/use-admin-resource";
 import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
-import {
-  type RowAccessors,
-  changedOrderRows as changedRows,
-  nextOrder as nextOrderOf,
-  reorderRows,
-  sortByOrder,
-  upsertRow,
-} from "@/components/admin/ordered-rows";
+import { type RowAccessors, changedOrderRows as changedRows, reorderRows } from "@/components/admin/ordered-rows";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -370,14 +364,6 @@ export function changedOrderRows(before: readonly AdminQuestion[], after: readon
   return changedRows(before, after, QUESTION_ROWS);
 }
 
-function sortQuestions(list: AdminQuestion[]): AdminQuestion[] {
-  return sortByOrder(list, QUESTION_ROWS);
-}
-
-function upsertInList(list: AdminQuestion[], row: AdminQuestion): AdminQuestion[] {
-  return upsertRow(list, row, QUESTION_ROWS);
-}
-
 /** Builds a bundle from the question bank this component already holds, so
  *  the export button's handler is a thin binding around a pure function —
  *  the same shape `payloadFromEditor`/`reorderQuestions` are pure for the
@@ -413,25 +399,6 @@ export function formatImportSummary({ created, updated }: QuizImportSummary): st
   return `Imported ${total} ${questionWord}: ${created} created, ${updated} updated.`;
 }
 
-type QuestionBankResult = { ok: true; questions: AdminQuestion[] } | { ok: false; message: string };
-
-/** One GET of the whole bank, resolved to what the panel does with it: the
- *  sorted list, or the message the list-error line should carry. Every
- *  failure — a non-2xx reply, a network error — is a value, never a throw,
- *  so the mount effect and the import path handle exactly one shape.
- *  Module-level (no setState of its own) so the mount effect can call it
- *  directly and confine its state writes to the `.then` callback. */
-async function fetchQuestionBank(): Promise<QuestionBankResult> {
-  try {
-    const res = await fetch("/api/admin/quiz");
-    const data = await parseJson<{ error?: string; questions?: AdminQuestion[] }>(res);
-    if (!res.ok) return { ok: false, message: describeQuizError(res.status, data.error) };
-    return { ok: true, questions: sortQuestions(Array.isArray(data.questions) ? data.questions : []) };
-  } catch {
-    return { ok: false, message: "Couldn't load questions — check your connection and try again." };
-  }
-}
-
 export default function AdminQuizControls({
   pending,
   quizMaxAttemptsInput,
@@ -443,21 +410,34 @@ export default function AdminQuizControls({
   initialQuestions = [],
   onInventory,
 }: AdminQuizControlsProps) {
-  const [questions, setQuestions] = useState<AdminQuestion[]>(() => sortQuestions(initialQuestions));
-  const [listError, setListError] = useState<string | null>(null);
-  // True once a real read of the bank has landed; gates the inventory report
-  // so the shell never hears "0 questions" from the pre-hydration seed.
-  const [loaded, setLoaded] = useState(false);
-
-  const [editing, setEditing] = useState<QuestionEditor | null>(null);
-  const [formPending, setFormPending] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const [reorderPending, setReorderPending] = useState(false);
-
-  const [deleteTarget, setDeleteTarget] = useState<Question | null>(null);
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // The bank, the open editor, the delete target and every write over them
+  // live in the shared resource hook (components/admin/use-admin-resource.ts).
+  // What is quiz-shaped is the config: the endpoint, where a row keeps its
+  // id/order, how the route's replies map to rows, and the payload builders
+  // above. `initialQuestions` seeds the first paint; the hook's mount-time
+  // GET replaces it in the browser (never under `renderToStaticMarkup`).
+  const resource = useAdminResource<AdminQuestion, Question, QuestionEditor, QuestionPayload>({
+    endpoint: "/api/admin/quiz",
+    describeError: describeQuizError,
+    rows: QUESTION_ROWS,
+    parseList: (data) => ({ rows: Array.isArray(data.questions) ? (data.questions as AdminQuestion[]) : [], categories: [] }),
+    loadErrorMessage: "Couldn't load questions — check your connection and try again.",
+    // The route echoes the STORED (deduped, sorted) correct set alongside
+    // the question; falling back to the payload's own set would leave the
+    // list holding something the store never wrote.
+    parseUpsert: (data, payload) => {
+      const question = data.question as Question | undefined;
+      if (!question) return null;
+      return { question, correct: (data.correct as string[] | undefined) ?? payload.correct };
+    },
+    toPayload: payloadFromEditor,
+    rowPayload: payloadFromRow,
+    initialRows: initialQuestions,
+    initialCategories: [],
+    // A summary of a write does not outlive the next write (#127).
+    onWrite: () => bundleImport.retire(),
+  });
+  const { rows: questions, loaded, listError, editing, formPending, deleteTarget, reorderPending, nextOrder } = resource;
 
   // The bulk import/export flow (textarea, file pick, `{import}` POST,
   // after-import summary) — see components/admin/use-bundle-import.ts. On
@@ -467,23 +447,8 @@ export default function AdminQuizControls({
     describeError: describeQuizError,
     parse: parseBundle,
     parseSummary: (reply) => ({ created: reply.created ?? 0, updated: reply.updated ?? 0 }),
-    afterImport: async () => applyQuestionBank(await fetchQuestionBank()),
+    afterImport: resource.reload,
   });
-
-  /** Replaces local state with a fresh read of the whole bank (see
-   *  `fetchQuestionBank`). Used both by the mount effect below and after a
-   *  bulk import — an import can create and update an arbitrary number of
-   *  rows at once, so hand-patching local state from the summary counts would
-   *  be inventing a second, weaker copy of what the store just did. */
-  function applyQuestionBank(result: QuestionBankResult) {
-    if (!result.ok) {
-      setListError(result.message);
-      return;
-    }
-    setQuestions(result.questions);
-    setListError(null);
-    setLoaded(true);
-  }
 
   // Report the bank's size upward whenever it changes, once it is real. The
   // callback is the parent's, so this is a report to a subscriber, not a
@@ -491,95 +456,6 @@ export default function AdminQuizControls({
   useEffect(() => {
     if (loaded) onInventory?.(quizInventory(questions));
   }, [loaded, questions, onInventory]);
-
-  // First-paint data comes from `initialQuestions` (or, in production, is
-  // simply empty); this replaces it with the live list once mounted in the
-  // browser. Never runs under `renderToStaticMarkup`. The fetch is
-  // module-level and the setStates live in the `.then` callback, so an
-  // unmount before the reply lands abandons the load without touching state.
-  useEffect(() => {
-    let cancelled = false;
-    void fetchQuestionBank().then((result) => {
-      if (!cancelled) applyQuestionBank(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const nextOrder = nextOrderOf(questions, QUESTION_ROWS);
-
-  async function postQuestion(payload: QuestionPayload): Promise<{ ok: true; row: AdminQuestion } | { ok: false; message: string }> {
-    const result = await sendJson<{ error?: string; question?: Question; correct?: string[] }>(
-      "/api/admin/quiz",
-      { method: "POST", body: payload },
-      describeQuizError,
-    );
-    if (!result.ok) return result;
-    const { status, data } = result;
-    if (!data.question) return { ok: false, message: describeQuizError(status, data.error) };
-    // The route echoes the STORED (deduped, sorted) correct set alongside
-    // the question; falling back to the payload's own set would leave the
-    // list holding something the store never wrote.
-    return { ok: true, row: { question: data.question, correct: data.correct ?? payload.correct } };
-  }
-
-  async function submitEditor(editor: QuestionEditor) {
-    setFormPending(true);
-    setFormError(null);
-    const result = await postQuestion(payloadFromEditor(editor));
-    setFormPending(false);
-    if (!result.ok) {
-      setFormError(result.message);
-      return;
-    }
-    setQuestions((prev) => upsertInList(prev, result.row));
-    bundleImport.retire();
-    setEditing(null);
-  }
-
-  /** Applies a move optimistically, then writes back only the rows whose
-   *  order actually changed. Any failure restores the pre-move list rather
-   *  than leaving the panel showing an arrangement the store doesn't have. */
-  async function moveQuestion(from: number, to: number) {
-    if (from === to || reorderPending) return;
-    const before = questions;
-    const after = reorderQuestions(before, from, to);
-    const changed = changedOrderRows(before, after);
-    if (changed.length === 0) return;
-
-    setQuestions(after);
-    bundleImport.retire();
-    setReorderPending(true);
-    setListError(null);
-    for (const row of changed) {
-      const result = await postQuestion(payloadFromRow(row));
-      if (!result.ok) {
-        setQuestions(before);
-        setListError(result.message);
-        setReorderPending(false);
-        return;
-      }
-    }
-    setReorderPending(false);
-  }
-
-  async function doDelete(id: string) {
-    setDeletePending(true);
-    setDeleteError(null);
-    try {
-      const result = await sendJson<{ error?: string }>("/api/admin/quiz", { method: "DELETE", body: { id } }, describeQuizError);
-      if (!result.ok) {
-        setDeleteError(result.message);
-        return;
-      }
-      setQuestions((prev) => prev.filter((q) => q.question.id !== id));
-      bundleImport.retire();
-      setDeleteTarget(null);
-    } finally {
-      setDeletePending(false);
-    }
-  }
 
   const confirmCopy = deleteTarget ? questionDeleteConfirm(deleteTarget) : null;
 
@@ -615,7 +491,7 @@ export default function AdminQuizControls({
           <button
             type="button"
             disabled={formPending}
-            onClick={() => setEditing(newQuestionEditor(nextOrder))}
+            onClick={() => resource.setEditing(newQuestionEditor(nextOrder))}
             className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add question
@@ -640,12 +516,9 @@ export default function AdminQuizControls({
           intro="Drag a question to reorder it, or use Move up / Move down. Contestants see them in this order."
           emptyText="No questions yet."
           reorderPending={reorderPending}
-          onMove={(from, to) => void moveQuestion(from, to)}
-          onEdit={(row) => setEditing(editorFromQuestion(row))}
-          onDelete={(row) => {
-            setDeleteError(null);
-            setDeleteTarget(row.question);
-          }}
+          onMove={(from, to) => void resource.move(from, to)}
+          onEdit={(row) => resource.setEditing(editorFromQuestion(row))}
+          onDelete={(row) => resource.requestDelete(row.question)}
         />
       </div>
 
@@ -676,27 +549,20 @@ export default function AdminQuizControls({
         <QuestionForm
           editor={editing}
           pending={formPending}
-          error={formError}
-          onChange={(draft) => setEditing({ ...editing, draft })}
-          onCancel={() => {
-            if (formPending) return;
-            setEditing(null);
-            setFormError(null);
-          }}
-          onSubmit={() => void submitEditor(editing)}
+          error={resource.formError}
+          onChange={(draft) => resource.setEditing({ ...editing, draft })}
+          onCancel={resource.cancelEditor}
+          onSubmit={() => void resource.submitEditor(editing)}
         />
       )}
 
       {deleteTarget && confirmCopy && (
         <ConfirmDelete
           copy={confirmCopy}
-          error={deleteError}
-          pending={deletePending}
-          onConfirm={() => void doDelete(deleteTarget.id)}
-          onCancel={() => {
-            setDeleteTarget(null);
-            setDeleteError(null);
-          }}
+          error={resource.deleteError}
+          pending={resource.deletePending}
+          onConfirm={() => void resource.remove(deleteTarget.id)}
+          onCancel={resource.cancelDelete}
         />
       )}
     </>

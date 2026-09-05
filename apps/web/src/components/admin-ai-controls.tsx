@@ -108,11 +108,12 @@ import {
   TextField,
 } from "@/components/admin/editor-fields";
 import { confirmPhrase } from "@/components/admin/confirm-phrase";
-import { type RowAccessors, nextOrder as nextOrderOf, sortByOrder, upsertRow } from "@/components/admin/ordered-rows";
+import type { RowAccessors } from "@/components/admin/ordered-rows";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
-import { describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
+import { describeAdminError, sendJson } from "@/components/admin/fetch";
+import { useAdminResource } from "@/components/admin/use-admin-resource";
 
 type NumericSettingKey = "aiCooldownSec";
 
@@ -387,14 +388,6 @@ const AI_ROWS: RowAccessors<AdminAiChallenge> = {
   withOrder: (row, order) => ({ ...row, challenge: { ...row.challenge, order } }),
 };
 
-function sortChallenges(list: AdminAiChallenge[]): AdminAiChallenge[] {
-  return sortByOrder(list, AI_ROWS);
-}
-
-function upsertInList(list: AdminAiChallenge[], row: AdminAiChallenge): AdminAiChallenge[] {
-  return upsertRow(list, row, AI_ROWS);
-}
-
 export default function AdminAiControls({
   pending,
   aiCooldownSecInput,
@@ -405,27 +398,48 @@ export default function AdminAiControls({
   initialCategories = [],
   onInventory,
 }: AdminAiControlsProps) {
-  const [challenges, setChallenges] = useState<AdminAiChallenge[]>(() => sortChallenges(initialChallenges));
-  const [categories, setCategories] = useState<string[]>(initialCategories);
-  const [listError, setListError] = useState<string | null>(null);
-  // True once a real read has landed; gates the inventory report so the shell
-  // never hears "0 challenges" from the pre-hydration seed.
-  const [loaded, setLoaded] = useState(false);
+  // The board, the category list, the open editor, the delete target and
+  // every write over them live in the shared resource hook
+  // (components/admin/use-admin-resource.ts). What is ai-shaped is the
+  // config: the endpoint, where a row keeps its id/order, how the route's
+  // replies map to rows (a signing key rides along), and the payload builder
+  // above. No `rowPayload`: this panel has no drag-reorder. The seeds are the
+  // first paint; the hook's mount-time GET replaces them in the browser
+  // (never under `renderToStaticMarkup`).
+  const resource = useAdminResource<AdminAiChallenge, AiChallenge, AiChallengeEditor, AiChallengePayload>({
+    endpoint: "/api/admin/ai",
+    describeError: describeAiError,
+    rows: AI_ROWS,
+    parseList: (data) => ({
+      rows: Array.isArray(data.challenges) ? (data.challenges as AdminAiChallenge[]) : [],
+      categories: Array.isArray(data.categories) ? (data.categories as string[]) : [],
+    }),
+    loadErrorMessage: "Couldn't load challenges — check your connection and try again.",
+    // The route echoes the STORED record (mode/urlTemplate may have been
+    // normalized, and a signing key is guaranteed), not the raw payload, so
+    // this panel's state matches what a subsequent GET would return.
+    parseUpsert: (data, payload) => {
+      const challenge = data.challenge as AiChallenge | undefined;
+      if (!challenge) return null;
+      return {
+        challenge,
+        flag: (data.flag as string | undefined) ?? (payload.flag ?? ""),
+        hint: (data.hint as string | null | undefined) ?? null,
+        signingKey: (data.signingKey as string | undefined) ?? "",
+      };
+    },
+    toPayload: payloadFromAiEditor,
+    initialRows: initialChallenges,
+    initialCategories,
+  });
+  const { rows: challenges, categories, loaded, listError, editing, formPending, deleteTarget, nextOrder } = resource;
+  const [flagRevealed, setFlagRevealed] = useState(false);
 
   // Report upward whenever the board changes, once it is real. A report to
   // the parent's subscriber, not a setState of this component's own.
   useEffect(() => {
     if (loaded) onInventory?.(aiInventory(challenges, categories));
   }, [loaded, challenges, categories, onInventory]);
-
-  const [editing, setEditing] = useState<AiChallengeEditor | null>(null);
-  const [formPending, setFormPending] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [flagRevealed, setFlagRevealed] = useState(false);
-
-  const [deleteTarget, setDeleteTarget] = useState<AiChallenge | null>(null);
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Which challenge's signing key is currently being rotated (driven by
   // `AdminAiIntegration`, the per-challenge integration panel) — at most one
@@ -435,140 +449,17 @@ export default function AdminAiControls({
   const [rotateError, setRotateError] = useState<string | null>(null);
 
   // Category editing (input, in-flight flag, refusal) and its writes; the
-  // list itself stays here because the same GET owns it.
+  // list itself is the resource's because the same GET owns it.
   const categoryEditor = useCategoryEditor({
     endpoint: "/api/admin/ai",
     describeError: describeAiError,
     categories,
-    setCategories,
+    setCategories: resource.setCategories,
     usageCount: (name) => categoryUsageCount(challenges, name),
   });
 
-  /** Re-fetches the challenge and category lists from the store. Wired to
-   *  the Retry control rendered below `listError` — a real user click, never
-   *  called from an effect (see the mount effect's own comment for why the
-   *  mount-time load does NOT go through this function). No cancellation
-   *  guard: a manual click has no unmount race to guard against the way a
-   *  mount effect does. */
-  async function refreshLists(): Promise<void> {
-    try {
-      const res = await fetch("/api/admin/ai");
-      const data = await parseJson<{ error?: string; challenges?: AdminAiChallenge[]; categories?: string[] }>(res);
-      if (!res.ok) {
-        setListError(describeAiError(res.status, data.error));
-        return;
-      }
-      setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
-      setCategories(Array.isArray(data.categories) ? data.categories : []);
-      setListError(null);
-      setLoaded(true);
-    } catch {
-      setListError("Couldn't load challenges — check your connection and try again.");
-    }
-  }
-
-  // First-paint data comes from `initialChallenges`/`initialCategories` (or,
-  // in production, is simply empty); this replaces it with the live data
-  // once mounted in the browser. Never runs under `renderToStaticMarkup`.
-  //
-  // Written as an inline `.then()` chain — deliberately NOT `void
-  // refreshLists(() => cancelled)` the way classic's/quiz's mount effects are
-  // written. `react-hooks/set-state-in-effect` traces a setState call through
-  // a closed-over async helper invoked from an effect body and flags it as
-  // "calling setState synchronously within an effect", even though every
-  // setter below already only fires once the fetch has settled and is
-  // already guarded by `cancelled`. Writing the continuation directly in the
-  // effect's own body — nothing routed through an intermediate closure the
-  // rule has to trace through — clears the false positive without an
-  // eslint-disable.
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/admin/ai")
-      .then((res) =>
-        parseJson<{ error?: string; challenges?: AdminAiChallenge[]; categories?: string[] }>(res).then((data) => ({
-          res,
-          data,
-        })),
-      )
-      .then(({ res, data }) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          setListError(describeAiError(res.status, data.error));
-          return;
-        }
-        setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
-        setCategories(Array.isArray(data.categories) ? data.categories : []);
-        setListError(null);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setListError("Couldn't load challenges — check your connection and try again.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const nextOrder = nextOrderOf(challenges, AI_ROWS);
-
-  async function postChallenge(
-    payload: AiChallengePayload,
-  ): Promise<{ ok: true; row: AdminAiChallenge } | { ok: false; message: string }> {
-    const result = await sendJson<{
-      error?: string;
-      challenge?: AiChallenge;
-      flag?: string;
-      hint?: string | null;
-      signingKey?: string;
-    }>("/api/admin/ai", { method: "POST", body: payload }, describeAiError);
-    if (!result.ok) return result;
-    const { status, data } = result;
-    if (!data.challenge) return { ok: false, message: describeAiError(status, data.error) };
-    // The route echoes the STORED record (mode/urlTemplate may have been
-    // normalized, and a signing key is guaranteed), not the raw payload, so
-    // this panel's state matches what a subsequent GET would return.
-    return {
-      ok: true,
-      row: {
-        challenge: data.challenge,
-        flag: data.flag ?? (payload.flag ?? ""),
-        hint: data.hint ?? null,
-        signingKey: data.signingKey ?? "",
-      },
-    };
-  }
-
-  async function submitEditor(editor: AiChallengeEditor) {
-    setFormPending(true);
-    setFormError(null);
-    const result = await postChallenge(payloadFromAiEditor(editor));
-    setFormPending(false);
-    if (!result.ok) {
-      setFormError(result.message);
-      return;
-    }
-    setChallenges((prev) => upsertInList(prev, result.row));
-    setEditing(null);
-  }
-
-  async function doDelete(id: string) {
-    setDeletePending(true);
-    setDeleteError(null);
-    try {
-      const result = await sendJson<{ error?: string }>("/api/admin/ai", { method: "DELETE", body: { id } }, describeAiError);
-      if (!result.ok) {
-        setDeleteError(result.message);
-        return;
-      }
-      setChallenges((prev) => prev.filter((c) => c.challenge.id !== id));
-      setDeleteTarget(null);
-    } finally {
-      setDeletePending(false);
-    }
-  }
-
   /** POST `{rotate: id}` — mints a new signing key for one challenge and
-   *  swaps it into `challenges` from the response, exactly like every other
+   *  swaps it into the rows from the response, exactly like every other
    *  write in this component echoes the store's own result rather than
    *  something derived client-side. Wired to `AdminAiIntegration`'s
    *  `onRotate` prop at the seam below; errors surface through the same
@@ -596,7 +487,7 @@ export default function AdminAiControls({
         throw new Error("rotate failed");
       }
       const signingKey = data.signingKey;
-      setChallenges((prev) => prev.map((row) => (row.challenge.id === id ? { ...row, signingKey } : row)));
+      resource.setRows((prev) => prev.map((row) => (row.challenge.id === id ? { ...row, signingKey } : row)));
     } finally {
       setRotatingId(null);
     }
@@ -642,7 +533,7 @@ export default function AdminAiControls({
             disabled={formPending || categories.length === 0}
             onClick={() => {
               setFlagRevealed(false);
-              setEditing(newAiChallengeEditor(nextOrder, categories[0] ?? ""));
+              resource.setEditing(newAiChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
             className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
@@ -657,7 +548,7 @@ export default function AdminAiControls({
         {listError && (
           <p className="text-xs text-[#e53e3e]">
             {listError}{" "}
-            <button type="button" onClick={() => void refreshLists()} className="text-white hover:underline">
+            <button type="button" onClick={() => void resource.reload()} className="text-white hover:underline">
               Retry
             </button>
           </p>
@@ -697,7 +588,7 @@ export default function AdminAiControls({
                       type="button"
                       onClick={() => {
                         setFlagRevealed(false);
-                        setEditing(editorFromAiChallenge(row));
+                        resource.setEditing(editorFromAiChallenge(row));
                       }}
                       className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
                     >
@@ -705,10 +596,7 @@ export default function AdminAiControls({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setDeleteError(null);
-                        setDeleteTarget(row.challenge);
-                      }}
+                      onClick={() => resource.requestDelete(row.challenge)}
                       className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
                     >
                       Delete
@@ -733,29 +621,22 @@ export default function AdminAiControls({
           editor={editing}
           categories={categories}
           pending={formPending}
-          error={formError}
+          error={resource.formError}
           flagRevealed={flagRevealed}
           setFlagRevealed={setFlagRevealed}
-          onChange={(draft) => setEditing({ ...editing, draft })}
-          onCancel={() => {
-            if (formPending) return;
-            setEditing(null);
-            setFormError(null);
-          }}
-          onSubmit={() => void submitEditor(editing)}
+          onChange={(draft) => resource.setEditing({ ...editing, draft })}
+          onCancel={resource.cancelEditor}
+          onSubmit={() => void resource.submitEditor(editing)}
         />
       )}
 
       {deleteTarget && confirmCopy && (
         <ConfirmDelete
           copy={confirmCopy}
-          error={deleteError}
-          pending={deletePending}
-          onConfirm={() => void doDelete(deleteTarget.id)}
-          onCancel={() => {
-            setDeleteTarget(null);
-            setDeleteError(null);
-          }}
+          error={resource.deleteError}
+          pending={resource.deletePending}
+          onConfirm={() => void resource.remove(deleteTarget.id)}
+          onCancel={resource.cancelDelete}
         />
       )}
     </>

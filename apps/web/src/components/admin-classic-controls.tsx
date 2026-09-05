@@ -119,16 +119,10 @@ import {
 } from "@/components/admin/editor-fields";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
-import { describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
+import { describeAdminError } from "@/components/admin/fetch";
+import { useAdminResource } from "@/components/admin/use-admin-resource";
 import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
-import {
-  type RowAccessors,
-  changedOrderRows as changedRows,
-  nextOrder as nextOrderOf,
-  reorderRows,
-  sortByOrder,
-  upsertRow,
-} from "@/components/admin/ordered-rows";
+import { type RowAccessors, changedOrderRows as changedRows, reorderRows } from "@/components/admin/ordered-rows";
 
 // `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
 // component's OWN test file imports it from here, mirroring how the rest of
@@ -383,14 +377,6 @@ export function changedOrderRows(before: readonly AdminChallenge[], after: reado
   return changedRows(before, after, CHALLENGE_ROWS);
 }
 
-function sortChallenges(list: AdminChallenge[]): AdminChallenge[] {
-  return sortByOrder(list, CHALLENGE_ROWS);
-}
-
-function upsertInList(list: AdminChallenge[], row: AdminChallenge): AdminChallenge[] {
-  return upsertRow(list, row, CHALLENGE_ROWS);
-}
-
 /** The exact request body a categories POST sends: EXACTLY one key,
  *  `categories`. This is the whole client-side half of the wire contract
  *  Task 7's route pins (`POST /api/admin/classic` dispatches on
@@ -455,32 +441,6 @@ export function formatImportSummary({ created, updated, categories }: ImportSumm
   return `Imported: ${created} created, ${updated} updated. (${categories} ${categoryWord} listed in the file.)`;
 }
 
-type ClassicListsResult =
-  | { ok: true; challenges: AdminChallenge[]; categories: string[] }
-  | { ok: false; message: string };
-
-/** One GET of the challenge and category lists, resolved to what the panel
- *  does with them: the sorted rows and the category list, or the message the
- *  list-error line should carry. Every failure — a non-2xx reply, a network
- *  error — is a value, never a throw, so the mount effect and the import path
- *  handle exactly one shape. Module-level (no setState of its own) so the
- *  mount effect can call it directly and confine its state writes to the
- *  `.then` callback. Mirrors `fetchQuestionBank` in admin-quiz-controls.tsx. */
-async function fetchClassicLists(): Promise<ClassicListsResult> {
-  try {
-    const res = await fetch("/api/admin/classic");
-    const data = await parseJson<{ error?: string; challenges?: AdminChallenge[]; categories?: string[] }>(res);
-    if (!res.ok) return { ok: false, message: describeClassicError(res.status, data.error) };
-    return {
-      ok: true,
-      challenges: sortChallenges(Array.isArray(data.challenges) ? data.challenges : []),
-      categories: Array.isArray(data.categories) ? data.categories : [],
-    };
-  } catch {
-    return { ok: false, message: "Couldn't load challenges — check your connection and try again." };
-  }
-}
-
 export default function AdminClassicControls({
   pending,
   classicCooldownSecInput,
@@ -491,31 +451,48 @@ export default function AdminClassicControls({
   initialCategories = [],
   onInventory,
 }: AdminClassicControlsProps) {
-  const [challenges, setChallenges] = useState<AdminChallenge[]>(() => sortChallenges(initialChallenges));
-  const [categories, setCategories] = useState<string[]>(initialCategories);
-  const [listError, setListError] = useState<string | null>(null);
-  // True once a real read has landed; gates the inventory report so the shell
-  // never hears "0 challenges" from the pre-hydration seed.
-  const [loaded, setLoaded] = useState(false);
-
-  const [editing, setEditing] = useState<ChallengeEditor | null>(null);
-  const [formPending, setFormPending] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  // The board, the category list, the open editor, the delete target and
+  // every write over them live in the shared resource hook
+  // (components/admin/use-admin-resource.ts). What is classic-shaped is the
+  // config: the endpoint, where a row keeps its id/order, how the route's
+  // replies map to rows, and the payload builders above. The seeds are the
+  // first paint; the hook's mount-time GET replaces them in the browser
+  // (never under `renderToStaticMarkup`).
+  const resource = useAdminResource<AdminChallenge, Challenge, ChallengeEditor, ChallengePayload>({
+    endpoint: "/api/admin/classic",
+    describeError: describeClassicError,
+    rows: CHALLENGE_ROWS,
+    parseList: (data) => ({
+      rows: Array.isArray(data.challenges) ? (data.challenges as AdminChallenge[]) : [],
+      categories: Array.isArray(data.categories) ? (data.categories as string[]) : [],
+    }),
+    loadErrorMessage: "Couldn't load challenges — check your connection and try again.",
+    // The route echoes the STORED (trimmed) flag alongside the challenge;
+    // falling back to the payload's own flag would leave the list holding
+    // something the store never actually wrote.
+    parseUpsert: (data, payload) => {
+      const challenge = data.challenge as Challenge | undefined;
+      if (!challenge) return null;
+      return { challenge, flag: (data.flag as string | undefined) ?? payload.flag, hint: (data.hint as string | null | undefined) ?? null };
+    },
+    toPayload: payloadFromEditor,
+    rowPayload: payloadFromRow,
+    initialRows: initialChallenges,
+    initialCategories,
+    // A summary of a write does not outlive the next write (#127).
+    onWrite: () => bundleImport.retire(),
+  });
+  const { rows: challenges, categories, loaded, listError, editing, formPending, deleteTarget, reorderPending, nextOrder } = resource;
   const [flagRevealed, setFlagRevealed] = useState(false);
 
-  const [reorderPending, setReorderPending] = useState(false);
-
-  const [deleteTarget, setDeleteTarget] = useState<Challenge | null>(null);
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
   // Category editing (input, in-flight flag, refusal) and its writes; the
-  // list itself stays here because the same GET and a bulk import own it.
+  // list itself is the resource's because the same GET and a bulk import own
+  // it.
   const categoryEditor = useCategoryEditor({
     endpoint: "/api/admin/classic",
     describeError: describeClassicError,
     categories,
-    setCategories,
+    setCategories: resource.setCategories,
     usageCount: (name) => categoryUsageCount(challenges, name),
   });
 
@@ -527,121 +504,14 @@ export default function AdminClassicControls({
     describeError: describeClassicError,
     parse: parseBundle,
     parseSummary: (reply) => ({ created: reply.created ?? 0, updated: reply.updated ?? 0, categories: reply.categories ?? 0 }),
-    afterImport: async () => applyClassicLists(await fetchClassicLists()),
+    afterImport: resource.reload,
   });
-
-  /** Replaces the challenge and category lists with a fresh read of the
-   *  store (see `fetchClassicLists`). Shared by the mount effect below and
-   *  the bulk-import success path, so a successful import refreshes from the
-   *  server rather than hand-mutating local state — the store, not this
-   *  component's memory of what it just sent, is the source of truth for
-   *  what actually landed. */
-  function applyClassicLists(result: ClassicListsResult): void {
-    if (!result.ok) {
-      setListError(result.message);
-      return;
-    }
-    setChallenges(result.challenges);
-    setCategories(result.categories);
-    setListError(null);
-    setLoaded(true);
-  }
 
   // Report upward whenever the board changes, once it is real. A report to
   // the parent's subscriber, not a setState of this component's own.
   useEffect(() => {
     if (loaded) onInventory?.(classicInventory(challenges, categories));
   }, [loaded, challenges, categories, onInventory]);
-
-  // First-paint data comes from `initialChallenges`/`initialCategories` (or,
-  // in production, is simply empty); this replaces it with the live data
-  // once mounted in the browser. Never runs under `renderToStaticMarkup`.
-  // The fetch is module-level and the setStates live in the `.then`
-  // callback, so an unmount before the reply lands abandons the load without
-  // touching state.
-  useEffect(() => {
-    let cancelled = false;
-    void fetchClassicLists().then((result) => {
-      if (!cancelled) applyClassicLists(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const nextOrder = nextOrderOf(challenges, CHALLENGE_ROWS);
-
-  async function postChallenge(payload: ChallengePayload): Promise<{ ok: true; row: AdminChallenge } | { ok: false; message: string }> {
-    const result = await sendJson<{ error?: string; challenge?: Challenge; flag?: string; hint?: string | null }>(
-      "/api/admin/classic",
-      { method: "POST", body: payload },
-      describeClassicError,
-    );
-    if (!result.ok) return result;
-    const { status, data } = result;
-    if (!data.challenge) return { ok: false, message: describeClassicError(status, data.error) };
-    // The route echoes the STORED (trimmed) flag alongside the challenge;
-    // falling back to the payload's own flag would leave the list holding
-    // something the store never actually wrote.
-    return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag, hint: data.hint ?? null } };
-  }
-
-  async function submitEditor(editor: ChallengeEditor) {
-    setFormPending(true);
-    setFormError(null);
-    const result = await postChallenge(payloadFromEditor(editor));
-    setFormPending(false);
-    if (!result.ok) {
-      setFormError(result.message);
-      return;
-    }
-    setChallenges((prev) => upsertInList(prev, result.row));
-    bundleImport.retire();
-    setEditing(null);
-  }
-
-  /** Applies a move optimistically, then writes back only the rows whose
-   *  order actually changed. Any failure restores the pre-move list. Mirrors
-   *  `moveQuestion` in admin-quiz-controls.tsx. */
-  async function moveChallenge(from: number, to: number) {
-    if (from === to || reorderPending) return;
-    const before = challenges;
-    const after = reorderChallenges(before, from, to);
-    const changed = changedOrderRows(before, after);
-    if (changed.length === 0) return;
-
-    setChallenges(after);
-    bundleImport.retire();
-    setReorderPending(true);
-    setListError(null);
-    for (const row of changed) {
-      const result = await postChallenge(payloadFromRow(row));
-      if (!result.ok) {
-        setChallenges(before);
-        setListError(result.message);
-        setReorderPending(false);
-        return;
-      }
-    }
-    setReorderPending(false);
-  }
-
-  async function doDelete(id: string) {
-    setDeletePending(true);
-    setDeleteError(null);
-    try {
-      const result = await sendJson<{ error?: string }>("/api/admin/classic", { method: "DELETE", body: { id } }, describeClassicError);
-      if (!result.ok) {
-        setDeleteError(result.message);
-        return;
-      }
-      setChallenges((prev) => prev.filter((c) => c.challenge.id !== id));
-      bundleImport.retire();
-      setDeleteTarget(null);
-    } finally {
-      setDeletePending(false);
-    }
-  }
 
   const confirmCopy = deleteTarget ? challengeDeleteConfirm(deleteTarget) : null;
 
@@ -680,7 +550,7 @@ export default function AdminClassicControls({
             disabled={formPending || categories.length === 0}
             onClick={() => {
               setFlagRevealed(false);
-              setEditing(newChallengeEditor(nextOrder, categories[0] ?? ""));
+              resource.setEditing(newChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
             className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
@@ -706,15 +576,12 @@ export default function AdminClassicControls({
           intro="Drag a challenge to reorder it, or use Move up / Move down. Contestants see them in this order."
           emptyText="No challenges yet."
           reorderPending={reorderPending}
-          onMove={(from, to) => void moveChallenge(from, to)}
+          onMove={(from, to) => void resource.move(from, to)}
           onEdit={(row) => {
             setFlagRevealed(false);
-            setEditing(editorFromChallenge(row));
+            resource.setEditing(editorFromChallenge(row));
           }}
-          onDelete={(row) => {
-            setDeleteError(null);
-            setDeleteTarget(row.challenge);
-          }}
+          onDelete={(row) => resource.requestDelete(row.challenge)}
         />
       </div>
 
@@ -747,29 +614,22 @@ export default function AdminClassicControls({
           editor={editing}
           categories={categories}
           pending={formPending}
-          error={formError}
+          error={resource.formError}
           flagRevealed={flagRevealed}
           setFlagRevealed={setFlagRevealed}
-          onChange={(draft) => setEditing({ ...editing, draft })}
-          onCancel={() => {
-            if (formPending) return;
-            setEditing(null);
-            setFormError(null);
-          }}
-          onSubmit={() => void submitEditor(editing)}
+          onChange={(draft) => resource.setEditing({ ...editing, draft })}
+          onCancel={resource.cancelEditor}
+          onSubmit={() => void resource.submitEditor(editing)}
         />
       )}
 
       {deleteTarget && confirmCopy && (
         <ConfirmDelete
           copy={confirmCopy}
-          error={deleteError}
-          pending={deletePending}
-          onConfirm={() => void doDelete(deleteTarget.id)}
-          onCancel={() => {
-            setDeleteTarget(null);
-            setDeleteError(null);
-          }}
+          error={resource.deleteError}
+          pending={resource.deletePending}
+          onConfirm={() => void resource.remove(deleteTarget.id)}
+          onCancel={resource.cancelDelete}
         />
       )}
     </>
