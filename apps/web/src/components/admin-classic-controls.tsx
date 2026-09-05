@@ -91,7 +91,7 @@
 // comment in classic-store.ts). Clearing banked points is the master reset's
 // job. The confirm copy below says so in as many words; keep the two in step.
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 // Type-only import: `classic-store.ts` is `server-only`, but a `import type`
 // is fully erased at compile time — no runtime import ever reaches the
@@ -101,8 +101,18 @@ import type { AdminChallenge, Challenge, ImportSummary } from "@/lib/classic-sto
 import { generateChallengeId, CLASSIC_POINTS_MAX } from "@/lib/classic-keys";
 import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundle, type ImportError } from "@/lib/classic-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
-import Markdown from "@/components/markdown";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
+import {
+  CaseSensitiveField,
+  CategorySelect,
+  DescriptionField,
+  FlagField,
+  HintField,
+  NumberField,
+  PositionReadout,
+  TextField,
+} from "@/components/admin/editor-fields";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
@@ -1134,202 +1144,63 @@ export function ChallengeForm({
 }) {
   const draft = editor.draft;
   const isNew = editor.mode === "new";
-  const valid = isDraftValid(draft, categories);
-
-  // The form opens BELOW the full challenge list, while the button that
-  // opens it sits above — on a board of a dozen challenges the click
-  // appeared to do nothing (issue #200, 3.4). Scroll it into view and put
-  // the cursor in the first editable field on every open. Keyed on which
-  // thing is being edited, not on mount alone, so clicking Edit on another
-  // row (same mounted form, new subject) counts as a fresh open — while a
-  // keystroke re-render does not re-steal the scroll position.
-  const formRef = useRef<HTMLDivElement>(null);
-  const editingKey = editor.mode === "edit" ? editor.id : "new";
-  useEffect(() => {
-    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
-  }, [editingKey]);
+  const set = (patch: Partial<ChallengeDraft>) => onChange({ ...draft, ...patch });
+  const phrase = editor.mode === "edit" ? confirmPhraseFromTitle(draft.title, editor.id) : "";
 
   return (
-    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
-      <h4 className="text-sm font-semibold text-white">
-        {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhraseFromTitle(draft.title, editor.id)}"`}
-      </h4>
+    <EditorFrame
+      heading={editorHeading(isNew, "Add challenge", phrase)}
+      focusKey={editor.mode === "edit" ? editor.id : "new"}
+      pending={pending}
+      valid={isDraftValid(draft, categories)}
+      isNew={isNew}
+      addLabel="Add challenge"
+      error={error}
+      onCancel={onCancel}
+      onSubmit={onSubmit}
+    >
+      <IdBlock
+        label="Challenge id"
+        id={editor.mode === "edit" ? editor.id : undefined}
+        fixedHelp="Fixed for the life of the challenge — contestants’ solves are recorded against it."
+        generatedHelp="Generated from the title when you save."
+      />
 
-      {/* The id, shown and never editable. On an existing challenge it is the
-          reference every banked solve points at, so changing it would orphan
-          them; on a new one it does not exist yet. Either way there is no
-          input here — see the header comment. */}
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Challenge id</span>
-        {editor.mode === "edit" ? (
-          <>
-            <code className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
-              {editor.id}
-            </code>
-            <span className="text-xs text-muted">
-              Fixed for the life of the challenge — contestants&rsquo; solves are recorded against it.
-            </span>
-          </>
-        ) : (
-          <span className="text-xs text-muted">Generated from the title when you save.</span>
-        )}
-      </div>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Title</span>
-        <input
-          value={draft.title}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, title: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <TextField label="Title" value={draft.title} disabled={pending} onChange={(title) => set({ title })} />
 
       <div className="flex gap-3">
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Category</span>
-          <select
-            value={draft.category}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, category: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          >
-            {!categories.includes(draft.category) && (
-              <option value={draft.category} disabled>
-                {draft.category || "Select a category"}
-              </option>
-            )}
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Points</span>
-          <input
-            type="number"
-            min={0}
-            max={CLASSIC_POINTS_MAX}
-            value={draft.points}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
-        {/* Position used to be a number input here. It is now set by
-            dragging (or Move up / Move down) in the list above. */}
-        <div className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Position</span>
-          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
-            {isNew ? `#${editor.order} (last)` : `#${editor.order}`}
-          </span>
-        </div>
+        <CategorySelect value={draft.category} categories={categories} disabled={pending} onChange={(category) => set({ category })} />
+        <NumberField label="Points" value={draft.points} max={CLASSIC_POINTS_MAX} disabled={pending} onChange={(points) => set({ points })} />
+        {/* Position is set by dragging (or Move up / Move down) in the list
+            above, so the form states where this challenge sits. */}
+        <PositionReadout order={editor.order} isNew={isNew} />
       </div>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">
-          Flag
-          <button
-            type="button"
-            onClick={() => setFlagRevealed(!flagRevealed)}
-            className="ml-2 text-white hover:underline"
-          >
-            {flagRevealed ? "Hide" : "Reveal"}
-          </button>
-        </span>
-        {/* type="password" so a flag is never projected in the clear on a
-            screen-shared admin panel. The reveal toggle above is the ONLY
-            way to see it in the clear, and it defaults off on every fresh
-            open of this form (see the `key`-forced remount in the parent). */}
-        <input
-          type={flagRevealed ? "text" : "password"}
-          value={draft.flag}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, flag: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <FlagField
+        value={draft.flag}
+        revealed={flagRevealed}
+        onToggle={() => setFlagRevealed(!flagRevealed)}
+        disabled={pending}
+        onChange={(flag) => set({ flag })}
+      />
 
-      {/* Directly under the flag, because it changes what that flag MEANS —
-          not down with the presentation fields. */}
-      <label className="flex items-start gap-2">
-        <input
-          type="checkbox"
-          checked={draft.caseSensitive}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, caseSensitive: e.target.checked })}
-          className="mt-0.5 h-4 w-4 flex-none accent-[#2563eb]"
-        />
-        <span className="text-xs text-muted">
-          <span className="text-white">Case-sensitive flag</span>
-          <span className="block">
+      <CaseSensitiveField
+        checked={draft.caseSensitive}
+        disabled={pending}
+        onChange={(caseSensitive) => set({ caseSensitive })}
+        help={
+          <>
             Off by default, which forgives the commonest contestant mistake. Turn it on only when the
             capitalisation IS the answer — a recovered password, a base64 string. Contestants are told
             on the challenge card, so nobody loses to a shift key without knowing why. Leading and
             trailing spaces are still forgiven either way.
-          </span>
-        </span>
-      </label>
+          </>
+        }
+      />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">
-          Hint (optional). Contestants pay the configured hint cost to reveal it — leave empty for no
-          hint. Secret until purchased, like the flag.
-        </span>
-        <textarea
-          value={draft.hint}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, hint: e.target.value })}
-          rows={2}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <HintField value={draft.hint} disabled={pending} onChange={(hint) => set({ hint })} />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Description (Markdown, max {MARKDOWN_MAX} characters)</span>
-        <textarea
-          value={draft.description}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, description: e.target.value })}
-          rows={4}
-          maxLength={MARKDOWN_MAX}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
-
-      {/* Live preview through the SAME renderer the contestant board uses —
-          a second renderer here would drift and this would stop being a
-          preview of anything real. */}
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Preview</span>
-        <div className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-2">
-          <Markdown source={draft.description} />
-        </div>
-      </div>
-
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
-
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={pending}
-          className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.04] disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={pending || !valid}
-          className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {pending ? "Saving…" : isNew ? "Add challenge" : "Save changes"}
-        </button>
-      </div>
-    </div>
+      <DescriptionField value={draft.description} disabled={pending} onChange={(description) => set({ description })} />
+    </EditorFrame>
   );
 }

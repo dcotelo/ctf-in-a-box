@@ -78,7 +78,7 @@
 // immediately, breaking any external integration still using it — the
 // confirm copy below says so.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AI_COOLDOWN_SEC } from "@/lib/ai-defaults";
 import {
   AI_MODES,
@@ -92,8 +92,19 @@ import {
 // bundle. Same pattern admin-classic-controls.tsx uses for `classic-store.ts`.
 import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
 import { MARKDOWN_MAX } from "@/lib/markdown";
-import Markdown from "@/components/markdown";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
+import {
+  CaseSensitiveField,
+  CategorySelect,
+  DescriptionField,
+  FlagField,
+  HintField,
+  INPUT_CLASS,
+  MONO_INPUT_CLASS,
+  NumberField,
+  TextField,
+} from "@/components/admin/editor-fields";
 import { confirmPhrase } from "@/components/admin/confirm-phrase";
 import { type RowAccessors, nextOrder as nextOrderOf, sortByOrder, upsertRow } from "@/components/admin/ordered-rows";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
@@ -893,98 +904,41 @@ export function AiChallengeForm({
 }) {
   const draft = editor.draft;
   const isNew = editor.mode === "new";
-  const valid = isAiDraftValid(draft);
+  const set = (patch: Partial<AiChallengeDraft>) => onChange({ ...draft, ...patch });
   const urlCheck = validateUrlTemplate(draft.urlTemplate);
   const graded = draft.mode !== "event";
-
-  // Same "the click appeared to do nothing" fix as classic's ChallengeForm
-  // (issue #200, 3.4): scroll the form into view and focus its first field on
-  // every open, keyed on which thing is being edited rather than on mount
-  // alone.
-  const formRef = useRef<HTMLDivElement>(null);
-  const editingKey = editor.mode === "edit" ? editor.id : "new";
-  useEffect(() => {
-    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
-  }, [editingKey]);
+  const phrase = editor.mode === "edit" ? confirmPhrase(draft.title, editor.id) : "";
 
   return (
-    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
-      <h4 className="text-sm font-semibold text-white">
-        {editor.mode === "new" ? "Add challenge" : `Edit "${confirmPhrase(draft.title, editor.id)}"`}
-      </h4>
-
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Challenge id</span>
-        {editor.mode === "edit" ? (
+    <EditorFrame
+      heading={editorHeading(isNew, "Add challenge", phrase)}
+      focusKey={editor.mode === "edit" ? editor.id : "new"}
+      pending={pending}
+      valid={isAiDraftValid(draft)}
+      isNew={isNew}
+      addLabel="Add challenge"
+      error={error}
+      onCancel={onCancel}
+      onSubmit={onSubmit}
+    >
+      <IdBlock
+        label="Challenge id"
+        id={editor.mode === "edit" ? editor.id : undefined}
+        fixedHelp={
           <>
-            <code className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
-              {editor.id}
-            </code>
-            <span className="text-xs text-muted">
-              Fixed for the life of the challenge — contestants&rsquo; solves and any external integration&rsquo;s
-              signing key are pinned to it.
-            </span>
+            Fixed for the life of the challenge — contestants&rsquo; solves and any external integration&rsquo;s
+            signing key are pinned to it.
           </>
-        ) : (
-          <span className="text-xs text-muted">Generated from the title when you save.</span>
-        )}
-      </div>
+        }
+        generatedHelp="Generated from the title when you save."
+      />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Title</span>
-        <input
-          value={draft.title}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, title: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <TextField label="Title" value={draft.title} disabled={pending} onChange={(title) => set({ title })} />
 
       <div className="flex gap-3">
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Category</span>
-          <select
-            value={draft.category}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, category: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          >
-            {!categories.includes(draft.category) && (
-              <option value={draft.category} disabled>
-                {draft.category || "Select a category"}
-              </option>
-            )}
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Points</span>
-          <input
-            type="number"
-            min={0}
-            max={AI_POINTS_MAX}
-            value={draft.points}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Position</span>
-          <input
-            type="number"
-            min={0}
-            value={draft.order}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, order: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
+        <CategorySelect value={draft.category} categories={categories} disabled={pending} onChange={(category) => set({ category })} />
+        <NumberField label="Points" value={draft.points} max={AI_POINTS_MAX} disabled={pending} onChange={(points) => set({ points })} />
+        <NumberField label="Position" value={draft.order} disabled={pending} onChange={(order) => set({ order })} />
       </div>
 
       <label className="flex flex-col gap-1">
@@ -992,8 +946,8 @@ export function AiChallengeForm({
         <select
           value={draft.mode}
           disabled={pending}
-          onChange={(e) => onChange({ ...draft, mode: e.target.value as AiMode })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+          onChange={(e) => set({ mode: e.target.value as AiMode })}
+          className={INPUT_CLASS}
         >
           {AI_MODES.map((m) => (
             <option key={m} value={m}>
@@ -1011,54 +965,35 @@ export function AiChallengeForm({
         <input
           value={draft.urlTemplate}
           disabled={pending}
-          onChange={(e) => onChange({ ...draft, urlTemplate: e.target.value })}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+          onChange={(e) => set({ urlTemplate: e.target.value })}
+          className={MONO_INPUT_CLASS}
         />
         {!urlCheck.ok && <p className="text-xs text-[#e53e3e]">{urlCheck.reason}</p>}
       </label>
 
       {graded ? (
         <>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted">
-              Flag
-              <button
-                type="button"
-                onClick={() => setFlagRevealed(!flagRevealed)}
-                className="ml-2 text-white hover:underline"
-              >
-                {flagRevealed ? "Hide" : "Reveal"}
-              </button>
-            </span>
-            {/* type="password" so a flag is never projected in the clear on
-                a screen-shared admin panel. The reveal toggle is the ONLY way
-                to see it in the clear, and defaults off on every fresh open
-                of this form (the parent force-remounts via `key`). */}
-            <input
-              type={flagRevealed ? "text" : "password"}
-              value={draft.flag}
-              disabled={pending}
-              onChange={(e) => onChange({ ...draft, flag: e.target.value })}
-              className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-            />
-          </label>
+          {/* Masked, reveal-only, defaulting off on every fresh open (the
+              parent force-remounts via `key`). */}
+          <FlagField
+            value={draft.flag}
+            revealed={flagRevealed}
+            onToggle={() => setFlagRevealed(!flagRevealed)}
+            disabled={pending}
+            onChange={(flag) => set({ flag })}
+          />
 
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={draft.caseSensitive}
-              disabled={pending}
-              onChange={(e) => onChange({ ...draft, caseSensitive: e.target.checked })}
-              className="mt-0.5 h-4 w-4 flex-none accent-[#2563eb]"
-            />
-            <span className="text-xs text-muted">
-              <span className="text-white">Case-sensitive flag</span>
-              <span className="block">
+          <CaseSensitiveField
+            checked={draft.caseSensitive}
+            disabled={pending}
+            onChange={(caseSensitive) => set({ caseSensitive })}
+            help={
+              <>
                 Off by default, which forgives the commonest contestant mistake. Turn it on only when the
                 capitalisation IS the answer. Leading and trailing spaces are still forgiven either way.
-              </span>
-            </span>
-          </label>
+              </>
+            }
+          />
         </>
       ) : (
         <p className="text-xs text-muted">
@@ -1066,62 +1001,9 @@ export function AiChallengeForm({
         </p>
       )}
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">
-          Hint (optional). Contestants pay the configured hint cost to reveal it — leave empty for no
-          hint. Secret until purchased, like the flag.
-        </span>
-        <textarea
-          value={draft.hint}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, hint: e.target.value })}
-          rows={2}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <HintField value={draft.hint} disabled={pending} onChange={(hint) => set({ hint })} />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Description (Markdown, max {MARKDOWN_MAX} characters)</span>
-        <textarea
-          value={draft.description}
-          disabled={pending}
-          onChange={(e) => onChange({ ...draft, description: e.target.value })}
-          rows={4}
-          maxLength={MARKDOWN_MAX}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
-
-      {/* Live preview through the SAME renderer the contestant board uses —
-          a second renderer here would drift and this would stop being a
-          preview of anything real. */}
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Preview</span>
-        <div className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-2">
-          <Markdown source={draft.description} />
-        </div>
-      </div>
-
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
-
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={pending}
-          className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.04] disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={pending || !valid}
-          className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {pending ? "Saving…" : isNew ? "Add challenge" : "Save changes"}
-        </button>
-      </div>
-    </div>
+      <DescriptionField value={draft.description} disabled={pending} onChange={(description) => set({ description })} />
+    </EditorFrame>
   );
 }

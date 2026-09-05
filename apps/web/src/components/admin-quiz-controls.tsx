@@ -70,13 +70,15 @@
 // banked points is the master reset's job. The confirm copy below says so
 // in as many words; keep the two in step.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary } from "@/lib/quiz-store";
 import { generateQuestionId } from "@/lib/quiz-keys";
 import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type ImportError, type QuizBundle } from "@/lib/quiz-io";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
+import { INPUT_CLASS, NumberField, PositionReadout } from "@/components/admin/editor-fields";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
@@ -944,18 +946,7 @@ function QuestionForm({
 }) {
   const draft = editor.draft;
   const isNew = editor.mode === "new";
-  const valid = isDraftValid(draft);
-  // Same below-the-fold problem as classic's ChallengeForm (issue #200,
-  // 3.4): the form opens under the full question list while the button that
-  // opens it sits above, so the click appears to do nothing. Keyed on the
-  // edited question so switching rows counts as a fresh open, while a
-  // keystroke re-render does not re-steal the scroll position.
-  const formRef = useRef<HTMLDivElement>(null);
-  const editingKey = editor.mode === "edit" ? editor.id : "new";
-  useEffect(() => {
-    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
-  }, [editingKey]);
+  const set = (patch: Partial<QuestionDraft>) => onChange({ ...draft, ...patch });
   const singleNeedsExactlyOne = draft.type === "single" && draft.correct.length !== 1;
   const multiNeedsAtLeastOne = draft.type === "multi" && draft.correct.length < 1;
 
@@ -987,39 +978,32 @@ function QuestionForm({
   }
 
   return (
-    <div ref={formRef} className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
-      <h4 className="text-sm font-semibold text-white">
-        {editor.mode === "new" ? "Add question" : `Edit "${confirmPhraseFromPrompt(draft.prompt)}"`}
-      </h4>
-
-      {/* The id, shown and never editable. On an existing question it is the
-          reference every banked answer points at, so changing it would orphan
-          them; on a new one it does not exist yet. Either way there is no
-          input here — see the header comment. */}
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Question id</span>
-        {editor.mode === "edit" ? (
-          <>
-            <code className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
-              {editor.id}
-            </code>
-            <span className="text-xs text-muted">
-              Fixed for the life of the question — contestants&rsquo; answers are recorded against it.
-            </span>
-          </>
-        ) : (
-          <span className="text-xs text-muted">Generated from the prompt when you save.</span>
-        )}
-      </div>
+    <EditorFrame
+      heading={editorHeading(isNew, "Add question", confirmPhraseFromPrompt(draft.prompt))}
+      focusKey={editor.mode === "edit" ? editor.id : "new"}
+      pending={pending}
+      valid={isDraftValid(draft)}
+      isNew={isNew}
+      addLabel="Add question"
+      error={error}
+      onCancel={onCancel}
+      onSubmit={onSubmit}
+    >
+      <IdBlock
+        label="Question id"
+        id={editor.mode === "edit" ? editor.id : undefined}
+        fixedHelp="Fixed for the life of the question — contestants’ answers are recorded against it."
+        generatedHelp="Generated from the prompt when you save."
+      />
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted">Prompt</span>
         <textarea
           value={draft.prompt}
           disabled={pending}
-          onChange={(e) => onChange({ ...draft, prompt: e.target.value })}
+          onChange={(e) => set({ prompt: e.target.value })}
           rows={2}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+          className={INPUT_CLASS}
         />
       </label>
 
@@ -1029,33 +1013,18 @@ function QuestionForm({
           <select
             value={draft.type}
             disabled={pending}
-            onChange={(e) => onChange({ ...draft, type: e.target.value as QuestionType, correct: [] })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+            onChange={(e) => set({ type: e.target.value as QuestionType, correct: [] })}
+            className={INPUT_CLASS}
           >
             <option value="single">Single choice</option>
             <option value="multi">Multiple choice</option>
           </select>
         </label>
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Points</span>
-          <input
-            type="number"
-            min={0}
-            value={draft.points}
-            disabled={pending}
-            onChange={(e) => onChange({ ...draft, points: e.target.value })}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-        </label>
-        {/* Position used to be a number input here. It is now set by dragging
-            (or Move up / Move down) in the list above, so the form states
-            where this question sits and offers nothing to type. */}
-        <div className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Position</span>
-          <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
-            {isNew ? `#${editor.order} (last)` : `#${editor.order}`}
-          </span>
-        </div>
+        <NumberField label="Points" value={draft.points} disabled={pending} onChange={(points) => set({ points })} />
+        {/* Position is set by dragging (or Move up / Move down) in the list
+            above, so the form states where this question sits and offers
+            nothing to type. */}
+        <PositionReadout order={editor.order} isNew={isNew} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -1112,27 +1081,6 @@ function QuestionForm({
           </p>
         )}
       </div>
-
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
-
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={pending}
-          className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.04] disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={pending || !valid}
-          className="rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {pending ? "Saving…" : isNew ? "Add question" : "Save changes"}
-        </button>
-      </div>
-    </div>
+    </EditorFrame>
   );
 }
