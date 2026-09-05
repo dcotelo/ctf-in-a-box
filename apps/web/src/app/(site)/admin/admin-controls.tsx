@@ -2,10 +2,13 @@
 
 // The organizer admin page's control surface: a tab shell. One "Event" tab
 // for the control-plane settings that belong to the platform itself (freeze,
-// scoring/registration windows, demo seed, master reset), then one tab per
-// entry in the resolved `modules` prop, labelled with the organizer's own
-// title for that module. A module's knobs — the hint toggle, cost and gating
-// live under Secure Development — therefore exist iff that module is enabled.
+// scoring/registration windows, the hint policy, demo seed, master reset),
+// then one tab per entry in the resolved `modules` prop, labelled with the
+// organizer's own title for that module. A module's own knobs — the re-run
+// cooldown under Secure Development, the retry gate under Quiz — therefore
+// exist iff that module is enabled. The hint policy is deliberately NOT one
+// of those: three modules sell hints through the same four settings, so it
+// sits on Event, where it is reachable whatever the event enables.
 //
 // This component owns ALL the settings state (`settings`, the draft input
 // strings, `pending`, `error`, `confirm`) plus the `apply`/`commitNumber`
@@ -26,13 +29,21 @@
 // `tabIndex`, `aria-selected`/`aria-controls`/`aria-labelledby` wiring, and
 // ArrowLeft/ArrowRight/Home/End movement with wraparound.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { nextScheduleBoundary } from "@/lib/schedule-window";
-import { ALL_MODULE_IDS, bakedModuleIds, moduleDefById, type ModuleId, type ResolvedModule } from "@/lib/modules";
+import {
+  ALL_MODULE_IDS,
+  bakedModuleIds,
+  moduleDefById,
+  type ModuleId,
+  type ModuleSetupContent,
+  type ResolvedModule,
+} from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
+import AdminModuleSetup, { type ModuleInventory } from "@/components/admin-module-setup";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAiControls from "@/components/admin-ai-controls";
@@ -140,6 +151,7 @@ export default function AdminControls({
   initial,
   demoMode = false,
   modules,
+  setups,
   initialTab,
   viewerLogin,
 }: {
@@ -149,6 +161,11 @@ export default function AdminControls({
    *  lib/resolved-modules.ts). Render `title` — a `ResolvedModule` has no
    *  `displayName`, by design. */
   modules: readonly ResolvedModule[];
+  /** Each module's setup checklist, keyed by module id — the registry's
+   *  `setup` block already CALLED server-side (page.tsx), so only plain data
+   *  crosses into this Client Component. A module with no block is simply
+   *  absent and renders no setup panel. */
+  setups?: Partial<Record<string, ModuleSetupContent>>;
   /** Which tab to open on arrival, from `/admin?tab=<module id>`. Anything
    *  this shell doesn't recognise — a typo, or a module this event didn't
    *  enable — falls back to Event rather than opening nothing. Resolved on
@@ -209,6 +226,34 @@ export default function AdminControls({
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [resetInfo, setResetInfo] = useState<string | null>(null);
+
+  // What each module's list panel has reported about its own content (how
+  // many questions/challenges/categories exist), so the setup checklist above
+  // it can show "3 questions" instead of asking the organizer to remember.
+  // The panels are the source of truth — they hold the live lists — and they
+  // report AFTER their mount-time fetch settles, so a module absent from this
+  // map is "not yet known", never "empty". Equal reports bail out without a
+  // state change: a panel re-reports on every list change, and a fresh object
+  // for the same numbers would otherwise re-render the whole shell for
+  // nothing.
+  const [inventory, setInventory] = useState<Record<string, ModuleInventory>>({});
+  const reportInventory = useCallback((id: string, next: ModuleInventory) => {
+    setInventory((prev) => {
+      const cur = prev[id];
+      if (cur && cur.items === next.items && cur.categories === next.categories) return prev;
+      return { ...prev, [id]: next };
+    });
+  }, []);
+  // One stable callback per module, so a panel's report effect (keyed on the
+  // callback) does not re-fire on every shell render.
+  const inventoryReporters = useMemo(
+    () =>
+      Object.fromEntries(modules.map((mod) => [mod.id, (next: ModuleInventory) => reportInventory(mod.id, next)])) as Record<
+        string,
+        (next: ModuleInventory) => void
+      >,
+    [modules, reportInventory],
+  );
 
   const tabs = [
     { id: EVENT_TAB, label: "Event" },
@@ -398,6 +443,12 @@ export default function AdminControls({
               teamMaxMembersInput={teamMaxMembersInput}
               setTeamMaxMembersInput={setTeamMaxMembersInput}
               commitNumber={commitNumber}
+              hintCostInput={hintCostInput}
+              setHintCostInput={setHintCostInput}
+              minSolvesInput={minSolvesInput}
+              setMinSolvesInput={setMinSolvesInput}
+              unlockAfterInput={unlockAfterInput}
+              setUnlockAfterInput={setUnlockAfterInput}
               moduleChoices={MODULE_CHOICES}
               liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
               nowMs={settingsAt}
@@ -412,6 +463,17 @@ export default function AdminControls({
             <AdminInsightsTab />
           ) : (
             <section className="flex flex-col gap-4">
+              {/* Setup instructions FIRST, then the identity editor, then the
+                  module's own knobs. An organizer who has never seen this tab
+                  needs "what is this and what do I do" before "what do I call
+                  it": the checklist is the orientation, the rename is a
+                  refinement of something already working, and the knobs below
+                  are what the checklist points at. Driven by the `setups` map,
+                  like identity is driven by the modules list — no per-module
+                  branch, so a fifth module gets its panel for free. */}
+              {setups?.[tab.id] && (
+                <AdminModuleSetup title={tab.label} setup={setups[tab.id]!} inventory={inventory[tab.id]} />
+              )}
               <AdminModuleIdentity
                 moduleId={tab.id}
                 defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
@@ -424,12 +486,6 @@ export default function AdminControls({
                   settings={settings}
                   pending={pending}
                   apply={apply}
-                  hintCostInput={hintCostInput}
-                  setHintCostInput={setHintCostInput}
-                  minSolvesInput={minSolvesInput}
-                  setMinSolvesInput={setMinSolvesInput}
-                  unlockAfterInput={unlockAfterInput}
-                  setUnlockAfterInput={setUnlockAfterInput}
                   commitNumber={commitNumber}
                   cooldownInput={cooldownInput}
                   setCooldownInput={setCooldownInput}
@@ -442,6 +498,7 @@ export default function AdminControls({
                   quizRetryAfterInput={quizRetryAfterInput}
                   setQuizRetryAfterInput={setQuizRetryAfterInput}
                   commitNumber={commitNumber}
+                  onInventory={inventoryReporters[tab.id]}
                 />
               ) : tab.id === "classic" ? (
                 <AdminClassicControls
@@ -449,6 +506,7 @@ export default function AdminControls({
                   classicCooldownSecInput={classicCooldownSecInput}
                   setClassicCooldownSecInput={setClassicCooldownSecInput}
                   commitNumber={commitNumber}
+                  onInventory={inventoryReporters[tab.id]}
                 />
               ) : tab.id === "ai" ? (
                 <AdminAiControls
@@ -456,6 +514,7 @@ export default function AdminControls({
                   aiCooldownSecInput={aiCooldownSecInput}
                   setAiCooldownSecInput={setAiCooldownSecInput}
                   commitNumber={commitNumber}
+                  onInventory={inventoryReporters[tab.id]}
                 />
               ) : (
                 <p className="text-xs text-muted">No settings for this module yet.</p>

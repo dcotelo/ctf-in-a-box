@@ -134,12 +134,29 @@ to the ends). **Event is the default tab** on load, regardless of how many
 modules are enabled — unless the URL names another one (see the deep links
 below).
 
-Hints moved from a flat settings list into the Secure Development tab as part
-of this reorganization. **This is a UI relocation only** — the underlying
+The hint policy lives on the **Event** tab, in a **Hints** section under the
+schedule, because it is event-wide: Secure Development, Classic and AI all
+sell their hints through the same four settings. (It sat on the Secure
+Development tab for a while, which left a classic-only or ai-only event with
+no hint switch at all.) **This is a UI relocation only** — the underlying
 storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
 `hintsUnlockAfterMin`) and their validation are completely unchanged, so no
-deployed event's settings, or their meaning, changed by upgrading to this
-tabbed panel.
+deployed event's settings, or their meaning, changed by upgrading.
+
+**Every module tab opens with a setup checklist** — "Setting up Quiz",
+"Setting up Classic CTF", and so on — ahead of the identity editor and the
+module's own knobs. It says in a sentence what contestants experience in that
+module, lists the minimum you must do before the event in dependency order,
+marks each step **In this panel** or **Outside this panel** (`ctf-setup.sh`,
+the GitHub org, `event.yaml`), says what is safe to change mid-event and what
+is not, and links to that module's section of this page. Where the panel can
+tell whether a step is done — questions or challenges or categories exist —
+it shows the live count ("3 questions", "None yet") rather than asking you to
+remember; while its list is still loading it says "Checking…", and a step the
+panel cannot verify (a fork provisioned, an App installed) is a plain item
+with no tick. The checklist is a `<details>` block, so fold it once the module
+is set up. It is registry content (the module contract's §5.9), not copy
+typed into each tab.
 
 **Module identity.** Every module's tab opens with a title/blurb editor for
 that module's display name. The title is capped at 60 characters, the blurb at
@@ -298,7 +315,7 @@ The panel offers:
   every reader of scoring state (the app, the scorer, the sync poller — see
   [architecture](architecture.md)); the registration window is enforced by
   `team-store.ts` on exactly the mutations the manual switch gates.
-- **Hint controls** (Secure Development tab) — whether hints are enabled and
+- **Hint controls** (Event tab, **Hints** section) — whether hints are enabled and
   what they cost. Hints are **on by default** and cost 10 points each; the
   cost (`hintCost`) is a whole number from 0 to **100000**. This is
   the **only** hint switch: there is no environment variable, and the toggle
@@ -443,7 +460,7 @@ The panel offers:
   ![The Support tab after a contestant lookup: their team and captain status, when they first joined a team, points and solves per module, attempt count and hint spend, with the reset and delete controls beneath](assets/admin-support.jpg)
 
 
-  From there: **reset progress** (clears their answers, solves, attempts and
+  From there: **reset progress** (clears their quiz answers, classic and AI solves, attempts and
   hints; keeps the account and the team), **delete contestant** (all of that
   plus the team membership and the account record), or **remove from team**.
   Team-side, there is **transfer captaincy** and **disband** — the captain-only

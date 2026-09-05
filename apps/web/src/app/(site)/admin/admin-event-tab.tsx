@@ -2,7 +2,17 @@
 
 // The Event tab: the control-plane settings that belong to the platform
 // itself rather than to any one module — the scoring freeze, team
-// registration, the scheduling windows, demo seeding, and the master reset.
+// registration, the scheduling windows, the hint policy, demo seeding, and
+// the master reset.
+//
+// The hint policy is here, not on a module tab, because it is not one
+// module's: `hint-store.ts` reads the same four settings (`hintsEnabled`,
+// `hintCost`, `hintsMinSolves`, `hintsUnlockAfterMin`) for secure-development
+// targets, classic challenges and ai challenges alike. They used to live on
+// the Secure Development tab, which exists only when that module is enabled —
+// so a classic-only or ai-only event sold hints at the default price with no
+// switch anywhere in the panel (UX audit F1). The stored keys and their
+// server-side validation are unchanged; only where the inputs render moved.
 //
 // Presentational: every piece of state it reads (`settings`, `pending`,
 // `resetInfo`) and every mutation it triggers (`apply`, `setConfirm`,
@@ -12,6 +22,7 @@
 import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
 import { outsideWindow } from "@/lib/schedule-window";
+import { HINT_COST, HINT_DEFAULT_ENABLED, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "@/lib/hint-defaults";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
@@ -89,6 +100,14 @@ export type AdminEventTabProps = {
   teamMaxMembersInput: string;
   setTeamMaxMembersInput: (v: string) => void;
   commitNumber: CommitNumber;
+  /** The hint policy's draft strings — owned by the shell like every other
+   *  numeric knob, and shared by the three modules that sell hints. */
+  hintCostInput: string;
+  setHintCostInput: (v: string) => void;
+  minSolvesInput: string;
+  setMinSolvesInput: (v: string) => void;
+  unlockAfterInput: string;
+  setUnlockAfterInput: (v: string) => void;
   /** Every module the registry knows about, with the name an organizer would
    *  recognise and whether this event may toggle it (issue #175). Includes the
    *  DISABLED ones — a switch you cannot see is not a switch. */
@@ -124,6 +143,12 @@ export default function AdminEventTab({
   teamMaxMembersInput,
   setTeamMaxMembersInput,
   commitNumber,
+  hintCostInput,
+  setHintCostInput,
+  minSolvesInput,
+  setMinSolvesInput,
+  unlockAfterInput,
+  setUnlockAfterInput,
   moduleChoices,
   liveModuleIds,
   nowMs,
@@ -332,6 +357,93 @@ export default function AdminEventTab({
           disabled={pending}
           onCommit={(iso) => void apply({ registrationEndsAt: iso })}
         />
+      </div>
+
+      {/* The hint policy — see the header comment for why it is on this tab
+          and not a module's. Below Schedule on purpose: "unlock after" is
+          counted from the Scoring opens field just above it. */}
+      <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
+        <div>
+          <h3 className="text-white">Hints</h3>
+          <p className="text-xs text-muted">
+            Event-wide policy. Secure Development, Classic CTF and AI Challenges all sell their hints through
+            these four settings; the quiz has no hints. Each module&rsquo;s own tab holds the hint text.
+          </p>
+        </div>
+
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="text-white">Hints enabled</span>
+            <span className="block text-xs text-muted">
+              Hints are on unless you turn them off. Off hides the hint button and the leaderboard&rsquo;s
+              hint-penalty column; points already spent stay recorded.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={settings.hintsEnabled ?? HINT_DEFAULT_ENABLED}
+            disabled={pending}
+            onChange={(e) => void apply({ hintsEnabled: e.target.checked })}
+            className="h-5 w-5 flex-none accent-[#2563eb]"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="text-white">Hint cost</span>
+            <span className="block text-xs text-muted">Points deducted from the buyer when a hint is revealed.</span>
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={hintCostInput}
+            placeholder={String(HINT_COST)}
+            disabled={pending}
+            onChange={(e) => setHintCostInput(e.target.value)}
+            onBlur={() => commitNumber("hintCost", hintCostInput, setHintCostInput)}
+            className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="text-white">Hints: solves required</span>
+            <span className="block text-xs text-muted">
+              Solves needed on a target (or across the Classic or AI board) before its hints can be bought. Blocks
+              throwaway accounts from farming hint text for a team. 0 disables the gate.
+            </span>
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={minSolvesInput}
+            placeholder={String(HINT_MIN_SOLVES)}
+            disabled={pending}
+            onChange={(e) => setMinSolvesInput(e.target.value)}
+            onBlur={() => commitNumber("hintsMinSolves", minSolvesInput, setMinSolvesInput)}
+            className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="text-white">Hints: unlock after (min)</span>
+            <span className="block text-xs text-muted">
+              Minutes after the scoring start before any hint can be bought. 0 = available immediately. Needs
+              Scoring opens (in Schedule, above) to be set to have any effect.
+            </span>
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={unlockAfterInput}
+            placeholder={String(HINT_UNLOCK_AFTER_MIN)}
+            disabled={pending}
+            onChange={(e) => setUnlockAfterInput(e.target.value)}
+            onBlur={() => commitNumber("hintsUnlockAfterMin", unlockAfterInput, setUnlockAfterInput)}
+            className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+          />
+        </label>
       </div>
 
       {demoMode && (

@@ -122,6 +122,54 @@ describe("AdminControls tab shell", () => {
     expect(html.match(/role="tab"/g)?.length).toBe(7);
   });
 
+  // Setup instructions are a registry contract (`ModuleDef.setup`), resolved
+  // server-side and handed down as plain data. The shell renders them as the
+  // FIRST child of every module panel — before the identity editor — from
+  // the `setups` prop alone, so a fifth module gets its panel with no
+  // per-module branch here.
+  it("opens a module panel with its setup checklist, ahead of the identity editor", () => {
+    const html = renderToStaticMarkup(
+      <AdminControls
+        viewerLogin="organizer"
+        initial={settings}
+        modules={twoModules}
+        setups={{
+          quiz: {
+            experience: "Contestants answer questions and are graded on submit.",
+            steps: [{ title: "Author at least one question", where: "panel", check: { count: "items", noun: "questions" } }],
+            midEvent: { safe: ["Retry knobs."], unsafe: ["Correct answers."] },
+            docs: { href: "https://example.test/operations#quiz", label: "Quiz guide" },
+          },
+        }}
+      />,
+    );
+    const quiz = panelFor(html, "quiz");
+    const setupAt = quiz.indexOf("Contestants answer questions and are graded on submit.");
+    const identityAt = quiz.indexOf('name="moduleTitle:quiz"');
+    expect(setupAt).toBeGreaterThan(-1);
+    expect(identityAt).toBeGreaterThan(-1);
+    expect(setupAt).toBeLessThan(identityAt);
+    // Nothing has reported a count yet on first paint, so the checkable step
+    // says so rather than claiming there are no questions.
+    expect(quiz).toContain("Checking…");
+    // A module the registry gave no setup block renders no setup panel — and
+    // nothing else in its panel changes.
+    expect(panelFor(html, "secure-development")).not.toContain("Setting up");
+  });
+
+  // UX audit F3: the blurb help used to say "Not shown on any page … which
+  // today means the quiz". The blurb IS rendered — as the page-header lede on
+  // /quiz, /flags and /ai, and as those pages' meta description — so the one
+  // sentence the field carried about itself was the one false claim on the
+  // panel. The help now names the surfaces the docs name.
+  it("tells the truth about where the blurb renders", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const quiz = panelFor(html, "quiz");
+    expect(quiz).not.toContain("Not shown on any page");
+    expect(quiz).toMatch(/lede under the title/);
+    expect(quiz).toMatch(/meta description/);
+  });
+
   it("labels a module tab with its resolved title", () => {
     const html = renderToStaticMarkup(
       <AdminControls viewerLogin="organizer" initial={settings} modules={[{ id: "quiz", title: "Round 1" }] as never} />,
@@ -163,16 +211,39 @@ describe("AdminControls tab shell", () => {
 });
 
 describe("AdminControls panel contents", () => {
-  it("puts hint controls in the Secure Development panel, not Event", () => {
+  // Hints are event policy shared by every module that sells them (Secure
+  // Development, Classic, AI — hint-store.ts reads the same four settings for
+  // all three), so the knobs live on the Event tab. Parking them on Secure
+  // Development's tab made them unreachable on any event without that
+  // module (UX audit F1). Secure Development keeps the one knob that IS its
+  // own: the re-run cooldown.
+  it("puts the hint controls on the Event panel and leaves only the re-run cooldown on Secure Development", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const secureDev = panelFor(html, "secure-development");
     const eventPanel = panelFor(html, "event");
-    expect(secureDev).toContain("Hints enabled");
-    expect(secureDev).toContain("Hint cost");
-    expect(secureDev).toContain("Hints: solves required");
-    expect(secureDev).toContain("Hints: unlock after (min)");
-    expect(eventPanel).not.toContain("Hint cost");
-    expect(eventPanel).not.toContain("Hints enabled");
+    expect(eventPanel).toContain("Hints enabled");
+    expect(eventPanel).toContain("Hint cost");
+    expect(eventPanel).toContain("Hints: solves required");
+    expect(eventPanel).toContain("Hints: unlock after (min)");
+    expect(secureDev).toContain("Re-run cooldown (min)");
+    expect(secureDev).not.toContain("Hint cost");
+    expect(secureDev).not.toContain("Hints enabled");
+  });
+
+  it("says on the Event panel which modules the hint policy reaches", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    expect(eventPanel).toMatch(/Secure Development, Classic CTF and AI Challenges/);
+  });
+
+  // UX audit F6: the unlock-after help used to say "a scoring start below",
+  // a leftover from the flat layout. On the Event tab the Schedule section
+  // sits ABOVE the hint knobs, and the field has a name.
+  it("points the unlock-after help at the Scoring opens field, not 'below'", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    expect(eventPanel).toContain("Scoring opens");
+    expect(eventPanel).not.toContain("a scoring start below");
   });
 
   it("keeps freeze and registration in the Event panel", () => {
@@ -231,7 +302,9 @@ describe("AdminControls panel contents", () => {
     // control-plane tabs survive a module being disabled, because none of
     // them is a module tab.
     expect(html.match(/role="tabpanel"/g)?.length).toBe(6);
-    expect(html).not.toContain("Hint cost");
+    // The hint policy stays reachable: quiz has no hints, but classic and ai
+    // do, and this event can switch either on at runtime.
+    expect(panelFor(html, "event")).toContain("Hint cost");
     expect(() => panelFor(html, "secure-development")).toThrow();
   });
 

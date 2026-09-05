@@ -5,10 +5,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { requireAdmin, getAdminSettings, getSyncStatus, getResolvedModules } = vi.hoisted(() => ({
+const { requireAdmin, getAdminSettings, getSyncStatus, getResolvedModules, getModuleSetup } = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
   getAdminSettings: vi.fn(),
   getSyncStatus: vi.fn(),
+  // The registry's setup block is a FUNCTION of the org context (it names
+  // the event's targets and GitHub org), so the page must call it here and
+  // hand the resulting plain data to the client shell — the same rule
+  // `home`/`guide`/`faq` follow. This stub is what the page is expected to
+  // invoke; the assertion below checks its output reached the markup.
+  getModuleSetup: vi.fn((id: string) =>
+    id === "secure-development"
+      ? (ctx: { githubOrg: string; appList: string }) => ({
+          experience: `Contestants fork ${ctx.appList} under ${ctx.githubOrg} and patch it.`,
+          steps: [{ title: "Provision the org", where: "outside" as const }],
+          midEvent: { safe: [], unsafe: [] },
+          docs: { href: "https://example.test/operations", label: "Operations" },
+        })
+      : undefined,
+  ),
   // The real one calls `connection()`, which needs a request context that
   // renderToStaticMarkup does not provide — and the resolution itself has its
   // own suite (lib/__tests__/resolved-modules.test.ts).
@@ -26,7 +41,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
-vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
 
 import AdminPage from "@/app/(site)/admin/page";
 
@@ -61,6 +76,26 @@ describe("admin page gate", () => {
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/freeze|pause/i);
     expect(html).toMatch(/last poll|ingested/i);
+  });
+
+  it("resolves each module's setup block server-side and renders it in that module's panel", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: null,
+      hintCost: null,
+      updatedBy: null,
+      updatedAt: null,
+      moduleOverrides: {},
+    });
+    getSyncStatus.mockResolvedValue(null);
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(ui);
+    expect(getModuleSetup).toHaveBeenCalledWith("secure-development");
+    // Interpolated from the real event config the page builds its context
+    // from, so the sentence proves the function was CALLED, not just found.
+    expect(html).toMatch(/Contestants fork .+ under .+ and patch it\./);
+    expect(html).toContain("Provision the org");
   });
 
   // A healthy poller must not show a warning: an amber "Dropped" that is

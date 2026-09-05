@@ -40,6 +40,12 @@ export type ModuleHome = {
  *  is still exactly one place the URL is written down. */
 export const SECURE_AGENT_PLAYBOOK_URL = "https://github.com/OWASP/secure-agent-playbook";
 
+/** The published docs site (GitHub Pages build of `docs/`). Written down once,
+ *  here, for the same reason the playbook URL is: the registry's setup blocks
+ *  link into it per module, and `site.ts` already imports this file. Pages
+ *  serves `docs/<name>.md` at `<DOCS_URL><name>`, extensionless. */
+export const DOCS_URL = "https://dcotelo.github.io/ctf-in-a-box/";
+
 /** A run of contestant-facing copy that needs a little inline markup.
  *
  *  The registry holds copy, not JSX (it must stay importable either side of
@@ -193,6 +199,60 @@ export type ModuleTerms = (ctx: OrgContext) => {
   scoring?: Copy[];
 };
 
+/** One step of a module's organizer-facing setup checklist.
+ *
+ *  `where` is the whole reason the field exists as data rather than prose:
+ *  an organizer hunting for "the place I add questions" must be told whether
+ *  that place is this panel or somewhere outside it (`ctf-setup.sh`, the
+ *  GitHub org, `event.yaml`) — the two failure modes the admin panel's own
+ *  audit found were people looking in the wrong one.
+ *
+ *  `check` names a live count the panel already holds (its own list of
+ *  items, or its category list) that PROVES the step done. It is a key, not
+ *  a computed boolean, so the registry can say "questions exist" without
+ *  knowing how to count them; the panel supplies the number, and shows
+ *  "checking" until it has one rather than a false "none yet". A step the
+ *  panel genuinely cannot verify — a fork provisioned, an App installed —
+ *  carries no `check` and renders as a plain checklist item. Do not fake one. */
+export type SetupStep = {
+  title: string;
+  body?: Copy;
+  /** Done inside this admin panel, or outside it. */
+  where: "panel" | "outside";
+  check?: {
+    /** Which count on the panel's inventory proves this step. */
+    count: "items" | "categories";
+    /** Plural noun for the count line ("3 questions"). */
+    noun: string;
+    /** Singular, when it is not `noun` minus an "s". */
+    one?: string;
+  };
+};
+
+/** The organizer-facing counterpart to `home`/`guide`: what a module's admin
+ *  tab opens with. Answers, in this order, what contestants experience, what
+ *  the organizer must do before the event (dependency order, with `where`
+ *  on each step), what is safe to change mid-event and what is not, and where
+ *  the long-form guide is.
+ *
+ *  A function of `OrgContext` for the same reason `faq`/`terms` are: the
+ *  checklist for `secure-development` names the event's real targets and
+ *  GitHub org. So it carries the same server-only contract — called in a
+ *  Server Component (`getModuleSetup` in `@/lib/resolved-modules`), stripped
+ *  from `ResolvedModule`, and only its plain-data RESULT
+ *  (`ModuleSetupContent`) is handed to the admin shell. */
+export type ModuleSetupContent = {
+  /** 1. What contestants experience in this module, in a sentence or two. */
+  experience: string;
+  /** 2–3. The minimum to make the module playable, in dependency order. */
+  steps: SetupStep[];
+  /** 4. What may be changed while contestants are playing, and what may not. */
+  midEvent: { safe: Copy[]; unsafe: Copy[] };
+  /** 5. The module's section of the operations guide. */
+  docs: { href: string; label: string };
+};
+export type ModuleSetup = (ctx: OrgContext) => ModuleSetupContent;
+
 export type ModuleDef = {
   id: ModuleId;
   displayName: string;
@@ -225,6 +285,11 @@ export type ModuleDef = {
    *  under them. A function, so it can name the live target list — and so it
    *  is stripped from ResolvedModule like the rest. */
   routeCard?: (ctx: RulesContext) => string;
+  /** The organizer-facing setup checklist that opens this module's admin
+   *  tab. A function (see `ModuleSetup`), so it is stripped from
+   *  ResolvedModule like the contestant-facing blocks above and reached
+   *  through `getModuleSetup`. */
+  setup?: ModuleSetup;
   /** What `/leaderboard`'s empty state says, and where it points, while this
    *  module is the way onto the board. The platform frame owns the empty
    *  state's framing ("the board is wide open"); the module owns the sentence
@@ -620,6 +685,88 @@ git push -u origin fix/<short-description>`,
     // this module, reached from the 404 page itself.
     routeCard: (ctx) =>
       `Every challenge across the ${ctx.appCount} ${ctx.appCount === 1 ? "target" : "targets"}.`,
+    // Organizer-facing setup checklist (module contract §5.9). Every step
+    // here is a `ctf-setup.sh`/GitHub/`event.yaml` step — this is the one
+    // module the panel cannot set up, only tune — so none carries a `check`:
+    // the app cannot see a fork or an App installation and must not pretend
+    // to. Steps and their order follow docs/hosting.md's quickstart.
+    setup: (ctx) => ({
+      experience: `Contestants fork ${ctx.appList} under the ${ctx.githubOrg} GitHub org, patch a real vulnerability, and open a pull request. A GitHub Action in the fork scores the patch and the score reaches the leaderboard through the poller, or by a push to the scorer.`,
+      steps: [
+        {
+          title: "Choose the targets and scoring transport in event.yaml",
+          where: "outside",
+          body: [
+            { code: "modules.secure-development.targets" },
+            ` lists the apps to fork (this build: ${ctx.appList}) and `,
+            { code: "score_ingest" },
+            " picks poll or push. Both are baked into the app image at build time, so changing them means a rebuild.",
+          ],
+        },
+        {
+          title: "Build and push the scorer image",
+          where: "outside",
+          body: [
+            "Pin ",
+            { code: "linux/amd64" },
+            " and point ",
+            { code: "SCORE_IMAGE" },
+            " in .env at it. The ",
+            { code: "ctf-setup.sh" },
+            " wizard does this for you — see ",
+            { link: { href: `${DOCS_URL}hosting#quickstart-zero-to-a-scored-event`, label: "the hosting quickstart" } },
+            ".",
+          ],
+        },
+        {
+          title: "Create the GitHub org and, for poll mode, the sync GitHub App",
+          where: "outside",
+          body: [
+            `The org (${ctx.githubOrg}) is created by hand on GitHub. `,
+            { code: "ctf-setup.sh app-manifest" },
+            " opens the App form and ",
+            { code: "app-config" },
+            " wires its key into .env; the App must be installed on the org.",
+          ],
+        },
+        {
+          title: "Provision the org with ctf-setup.sh org",
+          where: "outside",
+          body: [
+            "Forks each target, commits the scoring workflow to every fork, mirrors the scorer image into the org, then prints the steps only GitHub's UI can finish. ",
+            { code: "ctf-setup.sh doctor" },
+            " verifies the result.",
+          ],
+        },
+        {
+          title: "Bring the stack up with EVENT_CONFIG_B64 set",
+          where: "outside",
+          body: "Without it the app bakes neutral defaults: an empty admins list, so this panel answers 403 for everyone.",
+        },
+        {
+          title: "Set the re-run cooldown",
+          where: "panel",
+          body: "Below on this tab. The hint policy — price and gating — is event-wide and lives in the Hints section of the Event tab.",
+        },
+      ],
+      midEvent: {
+        safe: [
+          "The re-run cooldown. It takes effect on each fork's next push.",
+          "The hint policy on the Event tab. It takes effect immediately.",
+          "This module's title. It renames the tab, the nav link and the challenges page on the next request.",
+          [
+            { strong: "Freeze scoring" },
+            " on the Event tab pauses ingestion only: forks keep judging and commenting on PRs, and the poller picks up where it left off when you unfreeze.",
+          ],
+        ],
+        unsafe: [
+          "The target list or anything else in event.yaml. It is build-time config: a rebuild, and re-provisioning the org for any new target.",
+          "Switching this module off or on. The panel refuses it — the scorer, the poller and the forks are configured at setup.",
+          "A master reset while PRs still carry score comments. The poller re-ingests them once you unfreeze unless the comments are removed too.",
+        ],
+      },
+      docs: { href: `${DOCS_URL}operations#organizer-admin-panel`, label: "The organizer admin panel in the operations guide" },
+    }),
   },
   quiz: {
     id: "quiz",
@@ -807,6 +954,63 @@ git push -u origin fix/<short-description>`,
       ],
     }),
     routeCard: () => "Every question the organizers have published.",
+    // Organizer-facing setup checklist (module contract §5.9). The one
+    // `check` names `items`, which is what the quiz panel reports
+    // (`quizInventory`) — there are no categories to count. Every claim is
+    // checked against docs/operations.md's Quiz section and quiz-store.ts.
+    setup: () => ({
+      experience:
+        "Contestants answer single- and multiple-choice questions on the quiz page. Each answer is graded on submit against the stored key — all-or-nothing on multi-select — with the attempt cap and retry cooldown you set here.",
+      steps: [
+        {
+          title: "Enable the module",
+          where: "outside",
+          body: [
+            "Add ",
+            { code: "quiz: {}" },
+            " under ",
+            { code: "modules" },
+            " in event.yaml before the build, or switch it on from the Event tab at runtime — the switch needs no rebuild.",
+          ],
+        },
+        {
+          title: "Author at least one question",
+          where: "panel",
+          check: { count: "items", noun: "questions", one: "question" },
+          body: "Add question, below, or paste a bundle under Bulk import / export. The question id is generated from the prompt when you save, and contestants see an empty board until one exists.",
+        },
+        {
+          title: "Set the retry gate",
+          where: "panel",
+          body: "Max attempts (default 3; 0 is unlimited) and Retry after (default 5 minutes; 0 is no cooldown), below. Both are global — there is no per-question override.",
+        },
+        {
+          title: "Schedule scoring, if the event has a window",
+          where: "panel",
+          body: "Optional. Scoring opens and Scoring closes on the Event tab; outside the window an answer is refused as paused.",
+        },
+      ],
+      midEvent: {
+        safe: [
+          "The retry gate. Lowering the cooldown lifts an active one immediately; a new cap applies on the next check.",
+          "A typo in a prompt or a choice label. The id never changes, so banked answers stay attached.",
+          "A question's points. Only future correct answers see the new price; earned points keep the old one.",
+          "Adding questions, or reordering them. Contestants see the new order on their next page load.",
+          "Importing a bundle. It creates or updates by id, never deletes, and never touches the retry gate.",
+        ],
+        unsafe: [
+          [
+            { strong: "Changing which choice is correct." },
+            " It redefines the answer for everyone from that moment; points already banked stay on the board.",
+          ],
+          [
+            { strong: "Deleting a question." },
+            " It disappears from every board, but points already earned for it stay — only the master reset clears those, for everyone at once.",
+          ],
+        ],
+      },
+      docs: { href: `${DOCS_URL}operations#quiz`, label: "Quiz in the operations guide" },
+    }),
   },
   classic: {
     id: "classic",
@@ -999,6 +1203,73 @@ git push -u origin fix/<short-description>`,
       ],
     }),
     routeCard: () => "Every flag the organizers have published.",
+    // Organizer-facing setup checklist (module contract §5.9). Two checks —
+    // `categories` first, then `items` — because a challenge cannot be
+    // authored until a category exists (the Add challenge button is disabled
+    // until then), and both are what the classic panel reports
+    // (`classicInventory`). Claims checked against docs/operations.md's
+    // Classic section and classic-store.ts.
+    setup: () => ({
+      experience:
+        "Contestants see a board of flag challenges grouped by category on the flags page, submit a flag per challenge and are graded instantly. Matching trims whitespace and ignores case unless you mark a challenge case-sensitive; a per-challenge cooldown in seconds limits how fast they can retry, and a challenge may carry a paid hint.",
+      steps: [
+        {
+          title: "Enable the module",
+          where: "outside",
+          body: [
+            "Add ",
+            { code: "classic: {}" },
+            " under ",
+            { code: "modules" },
+            " in event.yaml before the build, or switch it on from the Event tab at runtime — the switch needs no rebuild.",
+          ],
+        },
+        {
+          title: "Add at least one category",
+          where: "panel",
+          check: { count: "categories", noun: "categories", one: "category" },
+          body: "Every challenge files under a category, so Add challenge stays disabled until one exists. Categories can be reordered; one can be removed only while no challenge uses it.",
+        },
+        {
+          title: "Author at least one challenge",
+          where: "panel",
+          check: { count: "items", noun: "challenges", one: "challenge" },
+          body: "Title, category, a Markdown description, points and the flag — or paste a bundle under Bulk import / export. The id is generated from the title when you save. Flags are stored in plaintext and visible to anyone with access to this panel.",
+        },
+        {
+          title: "Set the submission cooldown",
+          where: "panel",
+          body: "Seconds a contestant must wait between attempts on the same challenge (default 5; 0 is none). Seconds — every other cooldown on this panel is in minutes.",
+        },
+        {
+          title: "Set the hint policy, if any challenge carries a hint",
+          where: "panel",
+          body: "The hint text is authored per challenge below; its price and who may buy it are the Hints section on the Event tab, shared with the other modules.",
+        },
+      ],
+      midEvent: {
+        safe: [
+          "The submission cooldown. It applies on the next check.",
+          "A typo in a title or description. The id never changes, so banked solves stay attached.",
+          "A challenge's points. Only future solves see the new price.",
+          "Adding challenges, or reordering them. Contestants see the new order on their next page load.",
+          "A challenge's hint text. Saving it empty removes the hint.",
+          "Importing a bundle. It creates or updates by id, adds any categories it names, and never deletes.",
+        ],
+        unsafe: [
+          [
+            { strong: "Editing a flag, or the case-sensitive toggle." },
+            " It redefines what counts as solved from that moment; solves already banked stay.",
+          ],
+          [
+            { strong: "Deleting a challenge." },
+            " It disappears from the board, but points already earned for it stay — only the master reset clears those, for everyone at once.",
+          ],
+          "Removing a category that challenges still use. The panel refuses and names how many are blocking it.",
+        ],
+      },
+      docs: { href: `${DOCS_URL}operations#classic`, label: "Classic in the operations guide" },
+    }),
   },
   ai: {
     id: "ai",
@@ -1196,6 +1467,96 @@ git push -u origin fix/<short-description>`,
       ],
     }),
     routeCard: () => "Every AI challenge the organizers have published.",
+    // Organizer-facing setup checklist (module contract §5.9). Same two
+    // checks as classic (`categories`, then `items`), for the same reason,
+    // and reported the same way (`aiInventory`). The external site is a real
+    // dependency the panel cannot see, so that step is a plain item. Claims
+    // checked against docs/operations.md's AI section and docs/ai-module.md.
+    setup: () => ({
+      experience:
+        "Contestants pick a challenge on the AI board and get a personal launch link into an external challenge site. A solve comes back either as a signed event from that site or as a flag typed back into the box, depending on the challenge's solve mode.",
+      steps: [
+        {
+          title: "Enable the module",
+          where: "outside",
+          body: [
+            "Add ",
+            { code: "ai: {}" },
+            " under ",
+            { code: "modules" },
+            " in event.yaml before the build, or switch it on from the Event tab at runtime — the switch needs no rebuild.",
+          ],
+        },
+        {
+          title: "Stand up the external challenge site against the integration contract",
+          where: "outside",
+          body: [
+            "It verifies each launch token with the public key served at ",
+            { code: "/api/ai/launch-key" },
+            " and, for event-mode challenges, posts signed solve events back. The contract is ",
+            { link: { href: `${DOCS_URL}ai-module`, label: "docs/ai-module.md" } },
+            ".",
+          ],
+        },
+        {
+          title: "Add at least one category",
+          where: "panel",
+          check: { count: "categories", noun: "categories", one: "category" },
+          body: "Every challenge files under a category, so Add challenge stays disabled until one exists.",
+        },
+        {
+          title: "Author at least one challenge",
+          where: "panel",
+          check: { count: "items", noun: "challenges", one: "challenge" },
+          body: [
+            "A solve mode (graded by flag, external event only, or either), an ",
+            { code: "https" },
+            " launch URL containing ",
+            { code: "{token}" },
+            ", a flag unless the mode is event-only, points, and an optional paid hint. The id is generated from the title when you save; the hint's price and gating are the Hints section on the Event tab.",
+          ],
+        },
+        {
+          title: "Hand the external site its endpoints and signing key",
+          where: "panel",
+          body: "Each challenge row below shows the Submit, Event and State URLs with copy buttons, and the challenge's own signing key, masked until you reveal it.",
+        },
+        {
+          title: "Send test",
+          where: "panel",
+          body: "The dry run signs a demo event with the challenge's real key and relays the box's verdict; Would award is the good answer. It runs as you, so you need to be on a team, or it answers no-team.",
+        },
+        {
+          title: "Set the submission cooldown",
+          where: "panel",
+          body: "Seconds between graded flag attempts on the same challenge (default 5; 0 is none). Signed events from the external site are never throttled by it.",
+        },
+      ],
+      midEvent: {
+        safe: [
+          "The submission cooldown. It applies on the next check.",
+          "A typo in a title or description, or a challenge's points. The id never changes; only future solves see a new price.",
+          "A challenge's hint text. Saving it empty removes the hint.",
+          "Adding challenges.",
+        ],
+        unsafe: [
+          [
+            { strong: "Rotate." },
+            " The external system stops posting until you redeploy it with the new key — there is no grace window.",
+          ],
+          [{ strong: "Deleting a challenge." }, " It revokes that challenge's signing key at once; points already earned for it stay."],
+          [
+            { strong: "Switching a challenge to external event only." },
+            " The box deletes its stored flag, and the in-box flag form disappears for contestants.",
+          ],
+          [
+            { strong: "A master reset." },
+            " It rotates the module-wide launch keypair: every issued launch link stops verifying and the external site must re-fetch the public key.",
+          ],
+        ],
+      },
+      docs: { href: `${DOCS_URL}operations#ai`, label: "AI in the operations guide" },
+    }),
   },
 };
 
@@ -1306,11 +1667,11 @@ export const MODULE_BLURB_MAX = 200;
  *  property access with no type error. Dropping them turns that mistake into
  *  a compile failure.
  *
- *  The copy blocks — `home`, `guide`, `rules`, `faq`, `terms` and `routeCard`
- *  — are OMITTED for a harder reason: `ModuleHome.intro`, `ModuleHome.steps`,
- *  `ModuleGuide.steps`, `ModuleGuide.example`, `routeCard`, and
- *  `ModuleRules`/`ModuleFaq`/`ModuleTerms` themselves
- *  are FUNCTIONS, and resolved modules are handed straight
+ *  The copy blocks — `home`, `guide`, `rules`, `faq`, `terms`, `routeCard`
+ *  and `setup` — are OMITTED for a harder reason: `ModuleHome.intro`,
+ *  `ModuleHome.steps`, `ModuleGuide.steps`, `ModuleGuide.example`,
+ *  `routeCard`, and `ModuleRules`/`ModuleFaq`/`ModuleTerms`/`ModuleSetup`
+ *  themselves are FUNCTIONS, and resolved modules are handed straight
  *  from Server Components to `"use client"` components (the admin panel, the
  *  leaderboard). React's flight serializer throws "Functions cannot be passed
  *  directly to Client Components" on any function-valued prop, so a resolved
@@ -1321,7 +1682,7 @@ export const MODULE_BLURB_MAX = 200;
  *  `getModuleHome` in `@/lib/resolved-modules`. */
 export type ResolvedModule = Omit<
   ModuleDef,
-  "displayName" | "description" | "home" | "guide" | "rules" | "faq" | "terms" | "routeCard"
+  "displayName" | "description" | "home" | "guide" | "rules" | "faq" | "terms" | "routeCard" | "setup"
 > & {
   /** What to render wherever the MODULE names itself: the organizer's
    *  override, or the registry `displayName`. Never empty. */
@@ -1380,7 +1741,7 @@ export function resolveModules(
   // Destructure the defaults OUT rather than spreading them through, so a
   // resolved module genuinely has no `displayName` to read by mistake — the
   // type and the runtime object agree. Every copy block — `home`, `guide`,
-  // `rules`, `faq`, `terms`, `routeCard` — goes the same way, and there it
+  // `rules`, `faq`, `terms`, `routeCard`, `setup` — goes the same way, and there it
   // is load-bearing rather than merely tidy: a type-level Omit alone would
   // leave the functions on the object, still crossing the RSC boundary and
   // still throwing. Stripping them here is what makes the result client-safe.
@@ -1388,7 +1749,7 @@ export function resolveModules(
   // point, so the lint warning is silenced deliberately rather than worked
   // around by re-spreading and deleting.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return defs.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, ...rest }) => {
+  return defs.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, setup, ...rest }) => {
     const o = overrides[rest.id];
     // Computed once and carried through as `titleOverride`, so a consumer
     // with its own per-surface default (the nav label, /challenges' page

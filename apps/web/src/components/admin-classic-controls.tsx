@@ -103,6 +103,7 @@ import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundl
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
 import ConfirmModal from "@/components/confirm-modal";
+import type { ModuleInventory } from "@/components/admin-module-setup";
 
 // `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
 // component's OWN test file imports it from here, mirroring how the rest of
@@ -121,7 +122,17 @@ export type AdminClassicControlsProps = {
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminChallenge[];
   initialCategories?: string[];
+  /** Reports the board's size to the shell for the setup checklist above this
+   *  panel — after the mount-time fetch has settled, never from the seed. */
+  onInventory?: (inventory: ModuleInventory) => void;
 };
+
+/** What this panel tells the shell about its content: challenges AND
+ *  categories, because "add a category first" is this board's first setup
+ *  step. Pure; exported for direct testing. */
+export function classicInventory(rows: readonly AdminChallenge[], categories: readonly string[]): ModuleInventory {
+  return { items: rows.length, categories: categories.length };
+}
 
 /** Maps a `/api/admin/classic` response to a message that tells a validation
  *  failure (the organizer's payload was bad — 400) apart from an
@@ -468,10 +479,14 @@ export default function AdminClassicControls({
   commitNumber,
   initialChallenges = [],
   initialCategories = [],
+  onInventory,
 }: AdminClassicControlsProps) {
   const [challenges, setChallenges] = useState<AdminChallenge[]>(() => sortChallenges(initialChallenges));
   const [categories, setCategories] = useState<string[]>(initialCategories);
   const [listError, setListError] = useState<string | null>(null);
+  // True once a real read has landed; gates the inventory report so the shell
+  // never hears "0 challenges" from the pre-hydration seed.
+  const [loaded, setLoaded] = useState(false);
 
   const [editing, setEditing] = useState<ChallengeEditor | null>(null);
   const [formPending, setFormPending] = useState(false);
@@ -508,7 +523,14 @@ export default function AdminClassicControls({
     setChallenges(result.challenges);
     setCategories(result.categories);
     setListError(null);
+    setLoaded(true);
   }
+
+  // Report upward whenever the board changes, once it is real. A report to
+  // the parent's subscriber, not a setState of this component's own.
+  useEffect(() => {
+    if (loaded) onInventory?.(classicInventory(challenges, categories));
+  }, [loaded, challenges, categories, onInventory]);
 
   // First-paint data comes from `initialChallenges`/`initialCategories` (or,
   // in production, is simply empty); this replaces it with the live data

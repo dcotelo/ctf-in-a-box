@@ -100,6 +100,7 @@ import ConfirmModal from "@/components/confirm-modal";
 // the module-agnostic phrase helper (title in, safe non-empty phrase out).
 import { confirmPhraseFromTitle } from "@/components/admin-classic-controls";
 import AdminAiIntegration from "@/components/admin-ai-integration";
+import type { ModuleInventory } from "@/components/admin-module-setup";
 
 type NumericSettingKey = "aiCooldownSec";
 
@@ -113,7 +114,16 @@ export type AdminAiControlsProps = {
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminAiChallenge[];
   initialCategories?: string[];
+  /** Reports the board's size to the shell for the setup checklist above this
+   *  panel — after the mount-time fetch has settled, never from the seed. */
+  onInventory?: (inventory: ModuleInventory) => void;
 };
+
+/** What this panel tells the shell about its content — mirrors
+ *  `classicInventory`. Pure; exported for direct testing. */
+export function aiInventory(rows: readonly AdminAiChallenge[], categories: readonly string[]): ModuleInventory {
+  return { items: rows.length, categories: categories.length };
+}
 
 /** Maps a `/api/admin/ai` response to a message that tells a validation
  *  failure (the organizer's payload was bad — 400) apart from an
@@ -375,10 +385,20 @@ export default function AdminAiControls({
   commitNumber,
   initialChallenges = [],
   initialCategories = [],
+  onInventory,
 }: AdminAiControlsProps) {
   const [challenges, setChallenges] = useState<AdminAiChallenge[]>(() => sortChallenges(initialChallenges));
   const [categories, setCategories] = useState<string[]>(initialCategories);
   const [listError, setListError] = useState<string | null>(null);
+  // True once a real read has landed; gates the inventory report so the shell
+  // never hears "0 challenges" from the pre-hydration seed.
+  const [loaded, setLoaded] = useState(false);
+
+  // Report upward whenever the board changes, once it is real. A report to
+  // the parent's subscriber, not a setState of this component's own.
+  useEffect(() => {
+    if (loaded) onInventory?.(aiInventory(challenges, categories));
+  }, [loaded, challenges, categories, onInventory]);
 
   const [editing, setEditing] = useState<AiChallengeEditor | null>(null);
   const [formPending, setFormPending] = useState(false);
@@ -417,6 +437,7 @@ export default function AdminAiControls({
       setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
       setCategories(Array.isArray(data.categories) ? data.categories : []);
       setListError(null);
+      setLoaded(true);
     } catch {
       setListError("Couldn't load challenges — check your connection and try again.");
     }
@@ -454,6 +475,7 @@ export default function AdminAiControls({
         setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
         setCategories(Array.isArray(data.categories) ? data.categories : []);
         setListError(null);
+        setLoaded(true);
       })
       .catch(() => {
         if (!cancelled) setListError("Couldn't load challenges — check your connection and try again.");
