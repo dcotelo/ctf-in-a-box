@@ -105,6 +105,7 @@ import ImportPanel from "@/components/admin/import-panel";
 import { downloadJson, useBundleImport } from "@/components/admin/use-bundle-import";
 import CategoryEditor from "@/components/admin/category-editor";
 import { categoriesRequestBody, useCategoryEditor } from "@/components/admin/use-category-editor";
+import SortableList from "@/components/admin/sortable-list";
 import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
 import {
   CaseSensitiveField,
@@ -502,7 +503,6 @@ export default function AdminClassicControls({
   const [formError, setFormError] = useState<string | null>(null);
   const [flagRevealed, setFlagRevealed] = useState(false);
 
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [reorderPending, setReorderPending] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Challenge | null>(null);
@@ -690,93 +690,32 @@ export default function AdminClassicControls({
 
         {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
 
-        {challenges.length === 0 ? (
-          <p className="text-xs text-muted">No challenges yet.</p>
-        ) : (
-          <>
-            <p className="text-xs text-muted">
-              Drag a challenge to reorder it, or use Move up / Move down. Contestants see them in this order.
-            </p>
-            <ul className="flex flex-col gap-2">
-              {challenges.map((row, i) => (
-                // The collapsed list shows the public half only — the flag
-                // appears when the organizer opens the edit form, not on a
-                // panel that might be on a projector.
-                <li
-                  key={row.challenge.id}
-                  draggable={!reorderPending}
-                  onDragStart={() => setDragIndex(i)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (dragIndex !== null) void moveChallenge(dragIndex, i);
-                    setDragIndex(null);
-                  }}
-                  onDragEnd={() => setDragIndex(null)}
-                  className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span aria-hidden="true" className="flex-none cursor-grab text-zinc-500">
-                      ⠿
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-white">{row.challenge.title}</p>
-                      <p className="text-xs text-muted">
-                        #{row.challenge.order} · {row.challenge.category} · {row.challenge.points} pt
-                        {row.challenge.points === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-none gap-2">
-                    {/* The keyboard path. Dragging is a mouse gesture and
-                        cannot be the only way to reorder an organizer's own
-                        content, so every row carries real buttons that move
-                        it one place — same `reorderChallenges` call the drop
-                        handler makes. */}
-                    <button
-                      type="button"
-                      aria-label={`Move "${row.challenge.title}" up`}
-                      disabled={reorderPending || i === 0}
-                      onClick={() => void moveChallenge(i, i - 1)}
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-                    >
-                      Move up
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move "${row.challenge.title}" down`}
-                      disabled={reorderPending || i === challenges.length - 1}
-                      onClick={() => void moveChallenge(i, i + 1)}
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-                    >
-                      Move down
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFlagRevealed(false);
-                        setEditing(editorFromChallenge(row));
-                      }}
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDeleteError(null);
-                        setDeleteTarget(row.challenge);
-                      }}
-                      className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        {/* The collapsed list shows the public half only — the flag appears
+            when the organizer opens the edit form, not on a panel that might
+            be on a projector. */}
+        <SortableList<AdminChallenge>
+          rows={challenges}
+          keyOf={(row) => row.challenge.id}
+          titleOf={(row) => row.challenge.title}
+          meta={(row) => (
+            <>
+              #{row.challenge.order} · {row.challenge.category} · {row.challenge.points} pt
+              {row.challenge.points === 1 ? "" : "s"}
+            </>
+          )}
+          intro="Drag a challenge to reorder it, or use Move up / Move down. Contestants see them in this order."
+          emptyText="No challenges yet."
+          reorderPending={reorderPending}
+          onMove={(from, to) => void moveChallenge(from, to)}
+          onEdit={(row) => {
+            setFlagRevealed(false);
+            setEditing(editorFromChallenge(row));
+          }}
+          onDelete={(row) => {
+            setDeleteError(null);
+            setDeleteTarget(row.challenge);
+          }}
+        />
       </div>
 
       <ImportPanel
