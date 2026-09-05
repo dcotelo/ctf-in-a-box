@@ -29,6 +29,7 @@ jobs:
       classic: ${{ steps.f.outputs.classic }}
       ai: ${{ steps.f.outputs.ai }}
       docs: ${{ steps.f.outputs.docs }}
+      registries: ${{ steps.f.outputs.registries }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != "pull_request" ]; then
-            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; echo "classic=true"; echo "ai=true"; echo "docs=true"; } >> "$GITHUB_OUTPUT"
+            { echo "app=true"; echo "scorer=true"; echo "sync=true"; echo "shell=true"; echo "smoke=true"; echo "quiz=true"; echo "classic=true"; echo "ai=true"; echo "docs=true"; echo "registries=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
@@ -117,6 +118,9 @@ jobs:
             # change what ships. README.md is in pages.yml's trigger paths but
             # is not part of the site, so it is deliberately absent here.
             echo "docs=$(m "^docs/|^\.github/workflows/pages\.yml$CI")"
+            # The six files this check compares, plus the check script
+            # itself and this workflow file (either is a behavior change).
+            echo "registries=$(m "^(sync/src/config\.js|setup/ctf-setup\.sh|apps/web/scripts/generate-event-config\.mjs|apps/web/src/lib/modules\.ts|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|event\.yaml\.example|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
@@ -308,6 +312,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./scripts/acceptance-ai-only.sh
+
+  # KNOWN_MODULES/target lists are deliberately duplicated across sync, setup,
+  # the app and the scorer (ADR 10) — this compares them and fails if any two
+  # disagree. No install, no Docker: it only reads source files already
+  # checked out.
+  registries:
+    needs: changes
+    if: needs.changes.outputs.registries == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      - run: node scripts/check-module-registries.mjs
 
   # Builds the docs site with the SAME action pages.yml publishes with, so a
   # docs change that breaks the site fails the PR instead of landing on main
