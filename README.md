@@ -322,7 +322,7 @@ independently (Node 22 across the board):
 (cd sync && npm ci && npm test)
 (cd scorer && npm ci && npm test && node tools/vacuous-sweep.mjs)
 ./scripts/acceptance-scorer.sh  # from the repo root — the script lives in scripts/
-(cd apps/web && corepack pnpm install --frozen-lockfile && corepack pnpm test)
+(cd apps/web && corepack pnpm install --frozen-lockfile && corepack pnpm lint && corepack pnpm test)
 ./scripts/smoke.sh              # the full poll pipeline, end to end
 ```
 
