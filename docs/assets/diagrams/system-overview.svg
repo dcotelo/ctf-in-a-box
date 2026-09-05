@@ -1,0 +1,193 @@
+<svg viewBox="0 0 960 590" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="ttl">System overview</title>
+  <desc id="desc">Contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer, landing scores in redis via srh; scores arrive either by a push-mode scoring Action posting to /score through caddy, or by poll-mode sync polling GitHub and posting to scorer directly.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <style>
+    .bg { fill: #0d1117; }
+    .frame { fill: none; stroke: #30363d; stroke-width: 1; }
+    .node rect { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
+    .node .title { fill: #f0f6fc; font-size: 14px; font-weight: 600; }
+    .node .sub { fill: #8b949e; font-size: 11px; }
+    .glow { fill: none; stroke: #56d4a4; stroke-width: 2.5; opacity: 0; }
+    .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 4 4; }
+    .caption { fill: #8b949e; font-size: 14px; }
+    .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+  </style>
+
+  <rect class="bg" width="960" height="590" rx="10"/>
+  <rect class="frame" x="0.5" y="0.5" width="959" height="589" rx="10"/>
+
+  <!-- edges -->
+  <path id="e1" class="edge" d="M480,80 C480,96 480,104 480,120"/>
+  <path id="e2" class="edge" d="M480,176 C480,192 480,200 480,216"/>
+  <path id="e3" class="edge" d="M430,284 C380,308 260,300 216,330"/>
+  <path id="e4" class="edge" d="M530,284 C600,308 700,300 744,330"/>
+  <path id="e5" class="edge dashed" d="M680,398 C520,436 400,464 322,464"/>
+  <path id="e6" class="edge" d="M745,440 C745,425 745,412 745,398"/>
+
+  <!-- nodes -->
+  <g class="node">
+    <rect x="380" y="24" width="200" height="56" rx="10"/>
+    <text x="480" y="58" text-anchor="middle" class="title">contestant browser</text>
+  </g>
+
+  <g class="node">
+    <rect x="380" y="120" width="200" height="56" rx="10"/>
+    <text x="480" y="145" text-anchor="middle" class="title">caddy</text>
+    <text x="480" y="163" text-anchor="middle" class="sub">reverse proxy</text>
+  </g>
+
+  <g class="node">
+    <rect x="380" y="216" width="200" height="68" rx="10"/>
+    <text x="480" y="243" text-anchor="middle" class="title">app</text>
+    <text x="480" y="261" text-anchor="middle" class="sub">apps/web · Next.js UI</text>
+  </g>
+
+  <g class="node">
+    <rect x="110" y="330" width="210" height="68" rx="10"/>
+    <text x="215" y="357" text-anchor="middle" class="title">srh</text>
+    <text x="215" y="375" text-anchor="middle" class="sub">Upstash REST proxy</text>
+  </g>
+
+  <g class="node">
+    <rect x="640" y="330" width="210" height="68" rx="10"/>
+    <text x="745" y="357" text-anchor="middle" class="title">scorer</text>
+    <text x="745" y="375" text-anchor="middle" class="sub">judge + leaderboard API</text>
+  </g>
+
+  <g class="node">
+    <rect x="110" y="440" width="210" height="56" rx="10"/>
+    <text x="215" y="474" text-anchor="middle" class="title">redis</text>
+  </g>
+
+  <g class="node">
+    <rect x="640" y="440" width="210" height="76" rx="10"/>
+    <text x="745" y="463" text-anchor="middle" class="title">scoring ingest</text>
+    <text x="745" y="480" text-anchor="middle" class="sub">push: Action → /score</text>
+    <text x="745" y="495" text-anchor="middle" class="sub">poll: sync → /score</text>
+  </g>
+
+  <!-- arrival glows, one per node, active during the step(s) that target it -->
+  <rect class="glow" x="376" y="116" width="208" height="64" rx="12">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0;0.02;0.1;0.122;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="376" y="212" width="208" height="76" rx="12">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0.122;0.144;0.222;0.244;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="106" y="326" width="218" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0.244;0.266;0.344;0.367;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="636" y="326" width="218" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0.367;0.389;0.467;0.489;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="106" y="436" width="218" height="64" rx="12" style="stroke:#ffa657">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0.489;0.511;0.611;0.633;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="636" y="326" width="218" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0.633;0.655;0.733;0.756;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="636" y="326" width="218" height="76" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite"
+      keyTimes="0;0.756;0.778;0.856;0.878;1" values="0;0;1;1;0;0"/>
+  </rect>
+
+  <!-- travelling dots, one per step -->
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0;0.122;1" calcMode="linear">
+      <mpath href="#e1" xlink:href="#e1"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.01;0.11;0.122;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.122;0.244;1" calcMode="linear">
+      <mpath href="#e2" xlink:href="#e2"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.122;0.132;0.234;0.244;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.244;0.367;1" calcMode="linear">
+      <mpath href="#e3" xlink:href="#e3"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.244;0.254;0.357;0.367;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.367;0.489;1" calcMode="linear">
+      <mpath href="#e4" xlink:href="#e4"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.367;0.377;0.479;0.489;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#ffa657">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.489;0.611;1" calcMode="linear">
+      <mpath href="#e5" xlink:href="#e5"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.489;0.499;0.601;0.611;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.633;0.733;1" calcMode="linear">
+      <mpath href="#e6" xlink:href="#e6"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.633;0.643;0.723;0.733;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#d2a8ff">
+    <animateMotion dur="9s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.756;0.856;1" calcMode="linear">
+      <mpath href="#e6" xlink:href="#e6"/>
+    </animateMotion>
+    <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.756;0.766;0.846;0.856;1" values="0;0;1;1;0;0"/>
+  </circle>
+
+  <!-- step captions: stacked at one spot, crossfaded (fully hidden while inactive so overlapping strings never co-render) -->
+  <g text-anchor="middle">
+    <text x="480" y="530" class="caption" opacity="0">
+      1 — contestant's browser reaches caddy over HTTPS
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1;0.122;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="530" class="caption" opacity="0">
+      2 — caddy proxies to the Next.js app
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.122;0.144;0.222;0.244;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="530" class="caption" opacity="0">
+      3 — app reads teams / hints via srh (Upstash REST)
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.244;0.266;0.344;0.367;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="530" class="caption" opacity="0">
+      4 — app reads the leaderboard from scorer
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.367;0.389;0.467;0.489;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="530" class="caption" opacity="0">
+      5 — scorer is the one writer: score lands in redis via srh
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.489;0.511;0.611;0.633;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="530" class="caption" opacity="0">
+      6 — push mode: the scoring Action POSTs /score through caddy
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.633;0.655;0.733;0.756;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="530" class="caption" opacity="0">
+      7 — poll mode: sync polls GitHub, then POSTs /score directly
+      <animate attributeName="opacity" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.756;0.778;0.856;0.878;1" values="0;0;1;1;0;0"/>
+    </text>
+  </g>
+
+  <!-- progress ticks -->
+  <g>
+    <circle class="tick" cx="360" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="400" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.122;0.144;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="440" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.244;0.266;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="480" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.367;0.389;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="520" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.489;0.511;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
+    <circle class="tick" cx="560" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.633;0.655;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="600" cy="562" r="5"><animate attributeName="fill" dur="9s" begin="0s" repeatCount="indefinite" keyTimes="0;0.756;0.778;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+  </g>
+</svg>

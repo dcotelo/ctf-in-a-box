@@ -1,0 +1,161 @@
+<svg viewBox="0 0 960 780" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="ttl">Build-time config flow</title>
+  <desc id="desc">The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; site modules derive enabledModules and nav links from it; next build statically renders all of it — event identity is baked into the image at build time, not read at request time.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <style>
+    .bg { fill: #0d1117; }
+    .frame { fill: none; stroke: #30363d; stroke-width: 1; }
+    .node rect { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
+    .node .title { fill: #f0f6fc; font-size: 14px; font-weight: 600; }
+    .node .sub { fill: #8b949e; font-size: 11px; }
+    .glow { fill: none; stroke-width: 2.5; opacity: 0; }
+    .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
+    .caption { fill: #8b949e; font-size: 14px; }
+    .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+  </style>
+
+  <rect class="bg" width="960" height="780" rx="10"/>
+  <rect class="frame" x="0.5" y="0.5" width="959" height="779" rx="10"/>
+
+  <!-- edges -->
+  <path id="e1" class="edge" d="M480,80 C480,92 480,98 480,110"/>
+  <path id="e2" class="edge" d="M480,178 C480,190 480,196 480,208"/>
+  <path id="e3" class="edge" d="M480,276 C480,288 480,294 480,306"/>
+  <path id="e4" class="edge" d="M480,374 C480,386 480,392 480,404"/>
+  <path id="e5" class="edge" d="M480,472 C480,484 480,490 480,502"/>
+  <path id="e6" class="edge" d="M480,570 C480,582 480,588 480,600"/>
+
+  <!-- nodes -->
+  <g class="node">
+    <rect x="380" y="24" width="200" height="56" rx="10"/>
+    <text x="480" y="49" text-anchor="middle" class="title">event.yaml</text>
+    <text x="480" y="67" text-anchor="middle" class="sub">organizer edits</text>
+  </g>
+
+  <g class="node">
+    <rect x="350" y="110" width="260" height="68" rx="10"/>
+    <text x="480" y="137" text-anchor="middle" class="title">EVENT_CONFIG_B64</text>
+    <text x="480" y="155" text-anchor="middle" class="sub">base64 build-arg → build app</text>
+  </g>
+
+  <g class="node">
+    <rect x="340" y="208" width="280" height="68" rx="10"/>
+    <text x="480" y="235" text-anchor="middle" class="title">apps/web/Dockerfile</text>
+    <text x="480" y="253" text-anchor="middle" class="sub">decodes to /app/event.yaml</text>
+  </g>
+
+  <g class="node">
+    <rect x="300" y="306" width="360" height="68" rx="10"/>
+    <text x="480" y="333" text-anchor="middle" class="title">generate-event-config.mjs</text>
+    <text x="480" y="351" text-anchor="middle" class="sub">yaml &gt; EVENT_* env vars &gt; defaults</text>
+  </g>
+
+  <g class="node">
+    <rect x="300" y="404" width="360" height="68" rx="10"/>
+    <text x="480" y="431" text-anchor="middle" class="title">event-config.generated.ts</text>
+    <text x="480" y="449" text-anchor="middle" class="sub">typed const, gitignored</text>
+  </g>
+
+  <g class="node">
+    <rect x="280" y="502" width="400" height="68" rx="10"/>
+    <text x="480" y="529" text-anchor="middle" class="title">modules.ts / apps.ts / site.ts</text>
+    <text x="480" y="547" text-anchor="middle" class="sub">enabledModules, nav links</text>
+  </g>
+
+  <g class="node">
+    <rect x="360" y="600" width="240" height="68" rx="10"/>
+    <text x="480" y="627" text-anchor="middle" class="title">next build</text>
+    <text x="480" y="645" text-anchor="middle" class="sub">baked into the image</text>
+  </g>
+
+  <!-- arrival / self glows -->
+  <rect class="glow" x="376" y="20" width="208" height="64" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1137;0.1237;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="346" y="106" width="268" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="336" y="204" width="288" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="296" y="302" width="368" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="296" y="400" width="368" height="76" rx="12" style="stroke:#ffa657">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="276" y="498" width="408" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="356" y="596" width="248" height="76" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
+  </rect>
+
+  <!-- travelling dots -->
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.1237;0.2474;1" calcMode="linear"><mpath href="#e1" xlink:href="#e1"/></animateMotion>
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1337;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.2474;0.3711;1" calcMode="linear"><mpath href="#e2" xlink:href="#e2"/></animateMotion>
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2574;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.3711;0.4948;1" calcMode="linear"><mpath href="#e3" xlink:href="#e3"/></animateMotion>
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3811;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#ffa657">
+    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.4948;0.6186;1" calcMode="linear"><mpath href="#e4" xlink:href="#e4"/></animateMotion>
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5048;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.6186;0.7423;1" calcMode="linear"><mpath href="#e5" xlink:href="#e5"/></animateMotion>
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6286;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#d2a8ff">
+    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.7423;0.8660;1" calcMode="linear"><mpath href="#e6" xlink:href="#e6"/></animateMotion>
+    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7523;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
+  </circle>
+
+  <!-- step captions -->
+  <g text-anchor="middle">
+    <text x="480" y="700" class="caption" opacity="0">1 — organizer edits event.yaml
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1137;0.1237;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="700" class="caption" opacity="0">2 — base64'd into the EVENT_CONFIG_B64 build-arg
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="700" class="caption" opacity="0">3 — the Dockerfile decodes it to /app/event.yaml
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="700" class="caption" opacity="0">4 — prebuild resolves: yaml file &gt; EVENT_* env vars &gt; neutral defaults
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="700" class="caption" opacity="0">5 — writes the typed, gitignored event-config.generated.ts
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="700" class="caption" opacity="0">6 — modules.ts/apps.ts/site.ts derive enabledModules and nav links
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="700" class="caption" opacity="0">7 — next build renders it statically — baked in, not read at request time
+      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
+    </text>
+  </g>
+
+  <!-- progress ticks -->
+  <g>
+    <circle class="tick" cx="360" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+    <circle class="tick" cx="400" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="440" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="480" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="520" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
+    <circle class="tick" cx="560" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="600" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+  </g>
+</svg>

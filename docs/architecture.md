@@ -55,6 +55,10 @@ Everything runs as one `docker-compose.yml` stack (see
 Two independent things happen in parallel: contestants browsing the app, and
 scores flowing in from GitHub.
 
+<img src="assets/diagrams/system-overview.svg" alt="Animated diagram: a contestant's browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer, landing scores in redis via srh; scores arrive either by a push-mode scoring Action posting to /score through caddy, or by poll-mode sync polling GitHub and posting to scorer directly.">
+
+The plain-text shape, for anything that can't render the animation above:
+
 ```
                          contestant browser
                                  |
@@ -113,6 +117,8 @@ state; everything else that touches scores goes through it.
 | `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). Tolerates `modules.secure-development` being absent from `event.yaml` (e.g. a quiz-only event): it logs `no polled module enabled, nothing to do` and exits `0` rather than polling anything — `restart: on-failure` (not `unless-stopped`) is what keeps that clean exit from being restarted as if it were a crash. |
 
 ## Data flow for a score
+
+<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram: a contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it either POSTs the score directly to /score (push mode) or posts a PR comment carrying the score marker (poll mode); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh; the app then reads GET /leaderboard and composes the overlay pipeline before rendering.">
 
 1. A contestant forks a target repo in the event org, patches a
    vulnerability, and opens a PR back to the org's copy.
@@ -262,6 +268,8 @@ for why the board is built this way.
 
 ## Quiz data flow
 
+<img src="assets/diagrams/quiz-data-flow.svg" alt="Animated diagram: a contestant submits an answer; a cheap JS gate pre-check runs first; the real authority is one atomic Lua script that rechecks the cap and cooldown against current state, compares the answer, and on a match writes the answer row and bumps the aggregates; quiz points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' correct answers, never their sum.">
+
 The `quiz` module never touches `scorer`, `sync`, or GitHub — it's the app's
 own, entirely separate scoring path, running inside `apps/web` against Redis
 keys it owns outright. `apps/web/src/lib/quiz-store.ts` is the only writer
@@ -389,6 +397,8 @@ same way it leaves `ctf:admin:settings` untouched: both are organizer-
 authored content, not event-run state a reset should ever destroy.
 
 ## Classic data flow
+
+<img src="assets/diagrams/classic-data-flow.svg" alt="Animated diagram: a contestant submits a flag; a cheap JS pre-check runs first, failing open on a paused/out-of-window read but closed on a cooldown-lookup error; the real authority is one atomic SUBMIT_SCRIPT that rechecks the already-solved guard and cooldown against fresh state, compares the flag's normalized form, and on a match writes the solve row and bumps the aggregates; classic points are ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.">
 
 The `classic` module is the jeopardy-style flag board: an organizer authors a
 set of challenges, each hiding a flag under a description; a contestant reads
@@ -535,6 +545,8 @@ for a deleted challenge stay on the leaderboard; only the master reset
 clears them.
 
 ## AI data flow
+
+<img src="assets/diagrams/ai-data-flow.svg" alt="Animated diagram: the challenge page mints an Ed25519 launch token after four gates and embeds it in the launcher href. A solve can arrive three ways — an in-box Server Action that re-runs the gate order, an external submit endpoint authenticated by the token alone, or an external event endpoint authenticated by an HMAC signature then the token then a replay nonce — and all three funnel into one shared atomic AWARD_SCRIPT. AI points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.">
 
 The `ai` module is externally hosted AI/LLM challenges: an organizer authors
 each challenge in `/admin` (mode `flag`/`event`/`both`, a launch URL
@@ -1045,6 +1057,8 @@ which supersedes the v1 limitation recorded in
 [#19](decisions.md#adr-19-organizer-admin-panel-runtime-override-layer).
 
 ## Build-time config flow
+
+<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram: the organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; site modules derive enabledModules and nav links from it; next build statically renders all of it — event identity is baked into the image at build time, not read at request time.">
 
 Event identity (name, dates, URL, enabled targets, admins) is not runtime
 config — it's baked into the `app` image at build time:

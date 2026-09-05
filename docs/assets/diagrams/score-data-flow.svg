@@ -1,0 +1,185 @@
+<svg viewBox="0 0 960 700" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="ttl">Data flow for a score</title>
+  <desc id="desc">A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it either POSTs the score directly to /score (push mode) or posts a PR comment carrying the score marker (poll mode); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh; the app then reads GET /leaderboard and composes the overlay pipeline before rendering.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <style>
+    .bg { fill: #0d1117; }
+    .frame { fill: none; stroke: #30363d; stroke-width: 1; }
+    .node rect { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
+    .node .title { fill: #f0f6fc; font-size: 14px; font-weight: 600; }
+    .node .sub { fill: #8b949e; font-size: 11px; }
+    .glow { fill: none; stroke-width: 2.5; opacity: 0; }
+    .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 4 4; }
+    .caption { fill: #8b949e; font-size: 14px; }
+    .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+  </style>
+
+  <rect class="bg" width="960" height="700" rx="10"/>
+  <rect class="frame" x="0.5" y="0.5" width="959" height="699" rx="10"/>
+
+  <!-- edges -->
+  <path id="e1" class="edge" d="M480,80 C480,96 480,104 480,120"/>
+  <path id="e2" class="edge" d="M480,188 C480,250 480,290 480,340"/>
+  <path id="e3" class="edge" d="M430,188 C350,205 260,210 215,230"/>
+  <path id="e4" class="edge" d="M215,298 C215,312 215,326 215,340"/>
+  <path id="e5" class="edge" d="M330,374 C345,374 355,374 370,374"/>
+  <path id="e6" class="edge dashed" d="M420,408 C380,430 320,440 270,460"/>
+  <path id="e7" class="edge" d="M540,408 C620,430 660,440 690,460"/>
+  <path id="e8" class="edge" d="M690,528 C690,542 690,556 690,570"/>
+
+  <!-- nodes -->
+  <g class="node">
+    <rect x="380" y="24" width="200" height="56" rx="10"/>
+    <text x="480" y="49" text-anchor="middle" class="title">contestant</text>
+    <text x="480" y="67" text-anchor="middle" class="sub">forks target, opens PR</text>
+  </g>
+
+  <g class="node">
+    <rect x="380" y="120" width="200" height="68" rx="10"/>
+    <text x="480" y="147" text-anchor="middle" class="title">scoring Action</text>
+    <text x="480" y="165" text-anchor="middle" class="sub">runs in base repo, judges patch</text>
+  </g>
+
+  <g class="node">
+    <rect x="100" y="230" width="230" height="68" rx="10"/>
+    <text x="215" y="257" text-anchor="middle" class="title">PR comment (poll)</text>
+    <text x="215" y="275" text-anchor="middle" class="sub">github-actions[bot] score marker</text>
+  </g>
+
+  <g class="node">
+    <rect x="100" y="340" width="230" height="68" rx="10"/>
+    <text x="215" y="367" text-anchor="middle" class="title">sync</text>
+    <text x="215" y="385" text-anchor="middle" class="sub">filter author → parse → validate</text>
+  </g>
+
+  <g class="node">
+    <rect x="370" y="340" width="220" height="68" rx="10"/>
+    <text x="480" y="367" text-anchor="middle" class="title">scorer</text>
+    <text x="480" y="385" text-anchor="middle" class="sub">POST /score, bearer-authed</text>
+  </g>
+
+  <g class="node">
+    <rect x="170" y="460" width="200" height="56" rx="10"/>
+    <text x="270" y="485" text-anchor="middle" class="title">redis</text>
+    <text x="270" y="503" text-anchor="middle" class="sub">via srh · monotonic write</text>
+  </g>
+
+  <g class="node">
+    <rect x="590" y="460" width="200" height="68" rx="10"/>
+    <text x="690" y="487" text-anchor="middle" class="title">app</text>
+    <text x="690" y="505" text-anchor="middle" class="sub">GET /leaderboard</text>
+  </g>
+
+  <g class="node">
+    <rect x="590" y="570" width="200" height="64" rx="10"/>
+    <text x="690" y="596" text-anchor="middle" class="title">rendered</text>
+    <text x="690" y="614" text-anchor="middle" class="sub">contestant-facing board</text>
+  </g>
+
+  <!-- arrival glows -->
+  <rect class="glow" x="376" y="116" width="208" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.103;0.1132;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="366" y="336" width="228" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1132;0.1332;0.2164;0.2264;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="96" y="226" width="238" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2264;0.2464;0.3296;0.3396;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="96" y="336" width="238" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3396;0.3596;0.4428;0.4528;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="366" y="336" width="228" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4528;0.4728;0.5560;0.5660;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="166" y="456" width="208" height="64" rx="12" style="stroke:#ffa657">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.5660;0.5860;0.6692;0.6792;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="586" y="456" width="208" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6792;0.6992;0.7825;0.7925;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="586" y="566" width="208" height="72" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7925;0.8125;0.8957;0.9057;1" values="0;0;1;1;0;0"/>
+  </rect>
+
+  <!-- travelling dots -->
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0;0.1132;1" calcMode="linear"><mpath href="#e1" xlink:href="#e1"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.01;0.103;0.1132;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.1132;0.2264;1" calcMode="linear"><mpath href="#e2" xlink:href="#e2"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1132;0.1232;0.2164;0.2264;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.2264;0.3396;1" calcMode="linear"><mpath href="#e3" xlink:href="#e3"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2264;0.2364;0.3296;0.3396;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.3396;0.4528;1" calcMode="linear"><mpath href="#e4" xlink:href="#e4"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3396;0.3496;0.4428;0.4528;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.4528;0.5660;1" calcMode="linear"><mpath href="#e5" xlink:href="#e5"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4528;0.4628;0.5560;0.5660;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#ffa657">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.5660;0.6792;1" calcMode="linear"><mpath href="#e6" xlink:href="#e6"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.5660;0.5760;0.6692;0.6792;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.6792;0.7925;1" calcMode="linear"><mpath href="#e7" xlink:href="#e7"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6792;0.6892;0.7825;0.7925;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#d2a8ff">
+    <animateMotion dur="10.6s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.7925;0.9057;1" calcMode="linear"><mpath href="#e8" xlink:href="#e8"/></animateMotion>
+    <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7925;0.8025;0.8957;0.9057;1" values="0;0;1;1;0;0"/>
+  </circle>
+
+  <!-- step captions -->
+  <g text-anchor="middle">
+    <text x="480" y="650" class="caption" opacity="0">1 — contestant forks the target, opens a PR
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.103;0.1132;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">2 — push mode: the Action POSTs the score straight to /score
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1132;0.1332;0.2164;0.2264;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">3 — poll mode: the Action posts a PR comment with the score marker instead
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2264;0.2464;0.3296;0.3396;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">4 — sync's tick filters comments by author, then parses and validates
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3396;0.3596;0.4428;0.4528;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">5 — sync POSTs the validated score to /score itself
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4528;0.4728;0.5560;0.5660;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">6 — scorer is the one writer: score lands in redis via srh, monotonically
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.5660;0.5860;0.6692;0.6792;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">7 — app reads GET /leaderboard
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6792;0.6992;0.7825;0.7925;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="650" class="caption" opacity="0">8 — overlay: module-contributions → team-standings → hint-penalties, then renders
+      <animate attributeName="opacity" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7925;0.8125;0.8957;0.9057;1" values="0;0;1;1;0;0"/>
+    </text>
+  </g>
+
+  <!-- progress ticks -->
+  <g>
+    <circle class="tick" cx="360" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="400" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1132;0.1332;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="440" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2264;0.2464;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="480" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3396;0.3596;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="520" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4528;0.4728;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="560" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.5660;0.5860;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
+    <circle class="tick" cx="600" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6792;0.6992;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="640" cy="672" r="5"><animate attributeName="fill" dur="10.6s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7925;0.8125;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+  </g>
+</svg>
