@@ -232,6 +232,11 @@ export async function hintGate(login: string, target: HintTarget): Promise<HintG
 }
 
 export async function revealHint(login: string, target: string, id: string): Promise<RevealResult> {
+  // Fails CLOSED: unlike the scoring freeze, a settings-read error here must
+  // never let a purchase through unpriced/ungated — `resolveHintConfig`'s
+  // `getAdminSettings` throws on any read failure (transport or per-command),
+  // which propagates out of this function uncaught, so no charge is ever
+  // attempted. See docs/reviewing.md's fail-direction table.
   const { enabled, cost } = await resolveHintConfig();
   if (!enabled) return { ok: false, error: "Hints are not enabled" };
   if (!isHintTarget(target)) return { ok: false, error: "Unknown app" };

@@ -8,6 +8,18 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Every fail-direction gate in the pause/schedule contract is now pinned by
+  a test (#232).** `hint-store.ts` `revealHint` documents and pins fail-CLOSED
+  on a settings-read error (never charge on uncertainty); `team-store.ts`
+  `isRegistrationClosed` now catches a transport failure the same way it
+  already tolerated a per-command error, failing OPEN on both (a Redis blip
+  must not itself block registration — the join/create Lua script still
+  validates every real invariant atomically) — matching
+  `resolveTeamMaxMembers`'s existing reasoning right above it. A new shared
+  differential corpus, `test/fixtures/window-corpus.json`, is run verbatim by
+  all three `outsideWindow` readers (`apps/web`, `scorer`, `sync`) so a
+  `<`→`<=` flip at the exact scheduled-window boundary in any one of them
+  fails CI even if that reader's own hand-written cases miss it.
 - **Every numeric setting says whether it saved.** The nine numeric knobs and
   the four schedule fields now report beside the field: "Saving…" while the
   write is in flight, "Saved" for a moment after, or the reason it was refused

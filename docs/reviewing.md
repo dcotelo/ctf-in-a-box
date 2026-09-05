@@ -59,16 +59,18 @@ diff that flips one silently is a bug even when it looks like hardening:
 
 Every row carries its anchors so the claim is checkable against the code —
 a row whose direction cannot be traced to an implementation and a test is a
-row to distrust. The rows still missing a test anchor are tracked in
-[issue #232](https://github.com/dcotelo/ctf-in-a-box/issues/232).
+row to distrust. [Issue #232](https://github.com/dcotelo/ctf-in-a-box/issues/232)
+tracked the rows below until each gained a test anchor; the boundary-instant
+row's shared corpus (`test/fixtures/window-corpus.json`) is what closed it.
 
 | Gate | Direction on error | Why | Implemented · tested |
 |---|---|---|---|
-| Freeze / scoring-window reads (app, scorer, sync) | **OPEN** | a Redis blip must not drop live submissions (ADR 32) | `classic-store.ts` + `quiz-store.ts` gate reads · `classic-store.grade.test.ts` / `quiz-store.grade.test.ts` fail-OPEN pins; `sync/src/redis.js` (comments its direction); `scorer/src/store.js` `isPaused` (direction right, silent — #232) |
+| Freeze / scoring-window reads (app, scorer, sync) | **OPEN** | a Redis blip must not drop live submissions (ADR 32) | `classic-store.ts` + `quiz-store.ts` gate reads · `classic-store.grade.test.ts` / `quiz-store.grade.test.ts` fail-OPEN pins; `sync/src/redis.js` and `scorer/src/store.js` `isPaused` both log the failure and fail open · `redis.test.js` / `store.test.js` |
 | Grading lookups (does this challenge/question exist, what is its key) | **CLOSED** | don't grade what you can't verify | `classic-store.ts` `submitFlag` / `quiz-store.ts` `answerQuestion` lookup paths · error paths exercised in the grade test files |
 | Admin allowlist reads (`requireAdmin`) | **CLOSED** | an unreachable datastore denies, never grants | `admin-auth.ts` (the fail-closed branch is commented) · `admin-auth.test.ts` |
-| Hint purchase (spend) | **CLOSED** | never charge on uncertainty | `hint-store.ts` `revealHint` · direction untested — #232 |
-| Team registration window read | **undecided** | no stated direction today; behavior differs by error shape | `team-store.ts` `isRegistrationClosed` · needs a decision + test — #232 |
+| Hint purchase (spend) | **CLOSED** | never charge on uncertainty | `hint-store.ts` `revealHint` (comments its direction) · `hint-store.test.ts` ("fails CLOSED (rejects, never charges) when the settings read errors") |
+| Team registration window read | **OPEN** | a Redis blip must not itself block registration; the join/create Lua script still validates every real invariant atomically | `team-store.ts` `isRegistrationClosed` (comments its direction, logs and fails open on both a thrown transport error and a resolved per-command error) · `team-store.test.ts` ("fails OPEN … and logs when … transport failure" / "… per-command error") |
+| Scheduled-window boundary instant (the exact `<`/`<=` at start and end) | **N/A — cross-reader agreement** | a flip surviving one reader's own tests must still fail via the shared corpus | `schedule-window.ts` / `scorer/src/store.js` / `sync/src/redis.js` `outsideWindow` · `test/fixtures/window-corpus.json` run verbatim by `schedule-window.test.ts`, `store.test.js`, `redis.test.js` |
 | `ctf-setup.sh` `check_step` | **CLOSED** | a `gh` error is never "already satisfied" | `setup/ctf-setup.sh` `check_step` · `setup/test/ctf_setup.bats` ("fails closed when gh api errors") |
 | Audit-log writes | **best-effort** | an audit failure is logged, never fails the request that already committed | `writeAudit` in each `api/admin/*` route · route tests assert success without a completed audit write |
 

@@ -216,6 +216,17 @@ describe("revealHint", () => {
     expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 
+  // Fail-direction pin (issue #232): a settings-read error must never let a
+  // purchase through unpriced/ungated. getAdminSettings throws on both a
+  // transport failure and a resolved per-command error (see AGENTS.md's
+  // upstashPipeline gotcha) — either way this must refuse, never charge.
+  it("fails CLOSED (rejects, never charges) when the settings read errors", async () => {
+    const store = await loadStore();
+    mocks.getAdminSettings.mockRejectedValueOnce(new Error("redis down"));
+    await expect(store.revealHint("octocat", "juice-shop", "Challenge-1")).rejects.toThrow("redis down");
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
   it("is ON when the organizer has never touched the toggle — absent means default", async () => {
     const store = await loadStore();
     expect((await store.resolveHintConfig()).enabled).toBe(true);

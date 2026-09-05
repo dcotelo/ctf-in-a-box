@@ -6,8 +6,27 @@
 // outsideWindow flips — so the readout can never be stale for longer than a
 // timer's imprecision.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nextScheduleBoundary, outsideWindow } from "@/lib/schedule-window";
+
+// Shared differential corpus (issue #232): the same cases run verbatim in
+// scorer/test/store.test.js and sync/test/redis.test.js against their own
+// outsideWindow copy, so a <-><= flip surviving one reader's hand-written
+// tests still fails here (or vice versa) instead of drifting silently.
+const CORPUS_PATH = fileURLToPath(new URL("../../../../../test/fixtures/window-corpus.json", import.meta.url));
+const { cases: windowCorpus } = JSON.parse(readFileSync(CORPUS_PATH, "utf8")) as {
+  cases: { description: string; nowMs: number; startsAt: string | null; endsAt: string | null; expected: boolean }[];
+};
+
+describe("outsideWindow: shared boundary-instant corpus", () => {
+  for (const { description, nowMs, startsAt, endsAt, expected } of windowCorpus) {
+    it(description, () => {
+      expect(outsideWindow(nowMs, startsAt, endsAt)).toBe(expected);
+    });
+  }
+});
 
 const T = Date.parse("2026-10-01T12:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString();

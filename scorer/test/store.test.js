@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createMemoryStore, createRedisStore, solvesKey } from "../src/store.js";
 
 const T0 = "2026-08-14T10:00:00.000Z";
@@ -212,6 +213,21 @@ test("outsideWindow: before start / after end / inside / unbounded / bad", () =>
   assert.equal(outsideWindow(now, PAST, FUTURE), false);  // inside
   assert.equal(outsideWindow(now, null, null), false);    // unbounded
   assert.equal(outsideWindow(now, "nope", "bad"), false); // unparseable ignored
+});
+
+// Shared differential corpus (issue #232): same cases run verbatim against
+// apps/web's schedule-window.ts and sync/src/redis.js, so a <-><= flip
+// surviving this suite's own hand-written cases still fails wherever the
+// corpus DOES catch it, and vice versa — the three readers can't drift apart
+// on the exact boundary instant without CI noticing.
+test("outsideWindow: shared boundary-instant corpus", async (t) => {
+  const url = new URL("../../test/fixtures/window-corpus.json", import.meta.url);
+  const { cases } = JSON.parse(await readFile(url, "utf8"));
+  for (const { description, nowMs, startsAt, endsAt, expected } of cases) {
+    await t.test(description, () => {
+      assert.equal(outsideWindow(nowMs, startsAt, endsAt), expected);
+    });
+  }
 });
 
 test("redis store isPaused: manual paused flag wins", async (t) => {
