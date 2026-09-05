@@ -665,3 +665,12 @@ describe("rotate and delete wire contract, proven against the real route", () =>
     expect(wireWriteAdminAudit).toHaveBeenCalledWith("alice", "ai-delete", { id: c1.id });
   });
 });
+
+// Same report as classic's, for the same checklist (see `ModuleInventory` in
+// admin-module-setup.tsx).
+describe("aiInventory", () => {
+  it("counts challenges and categories separately", async () => {
+    const { aiInventory } = await import("@/components/admin-ai-controls");
+    expect(aiInventory([], ["Prompt Injection"])).toEqual({ items: 0, categories: 1 });
+  });
+});

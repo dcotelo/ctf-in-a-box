@@ -77,6 +77,7 @@ import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary }
 import { generateQuestionId } from "@/lib/quiz-keys";
 import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type ImportError, type QuizBundle } from "@/lib/quiz-io";
 import ConfirmModal from "@/components/confirm-modal";
+import type { ModuleInventory } from "@/components/admin-module-setup";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -91,7 +92,19 @@ export type AdminQuizControlsProps = {
   commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void) => void;
   /** Test/first-paint seed only — see header comment. */
   initialQuestions?: AdminQuestion[];
+  /** Reports the bank's size to the shell for the setup checklist above this
+   *  panel, AFTER the mount-time fetch has settled and again on every change
+   *  — never from the pre-hydration seed, which would report an empty bank
+   *  for the second before the real list lands. */
+  onInventory?: (inventory: ModuleInventory) => void;
 };
+
+/** What this panel tells the shell about its content. Pure, so the shape is
+ *  provable without running the effect that sends it. Exported for direct
+ *  testing. */
+export function quizInventory(rows: readonly AdminQuestion[]): ModuleInventory {
+  return { items: rows.length };
+}
 
 /** Maps a `/api/admin/quiz` response to a message that tells a validation
  *  failure (the organizer's payload was bad — 400) apart from an
@@ -443,9 +456,13 @@ export default function AdminQuizControls({
   setQuizRetryAfterInput,
   commitNumber,
   initialQuestions = [],
+  onInventory,
 }: AdminQuizControlsProps) {
   const [questions, setQuestions] = useState<AdminQuestion[]>(() => sortQuestions(initialQuestions));
   const [listError, setListError] = useState<string | null>(null);
+  // True once a real read of the bank has landed; gates the inventory report
+  // so the shell never hears "0 questions" from the pre-hydration seed.
+  const [loaded, setLoaded] = useState(false);
 
   const [editing, setEditing] = useState<QuestionEditor | null>(null);
   const [formPending, setFormPending] = useState(false);
@@ -475,7 +492,15 @@ export default function AdminQuizControls({
     }
     setQuestions(result.questions);
     setListError(null);
+    setLoaded(true);
   }
+
+  // Report the bank's size upward whenever it changes, once it is real. The
+  // callback is the parent's, so this is a report to a subscriber, not a
+  // setState of this component's own.
+  useEffect(() => {
+    if (loaded) onInventory?.(quizInventory(questions));
+  }, [loaded, questions, onInventory]);
 
   // First-paint data comes from `initialQuestions` (or, in production, is
   // simply empty); this replaces it with the live list once mounted in the

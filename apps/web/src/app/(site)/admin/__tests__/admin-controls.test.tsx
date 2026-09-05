@@ -122,6 +122,41 @@ describe("AdminControls tab shell", () => {
     expect(html.match(/role="tab"/g)?.length).toBe(7);
   });
 
+  // Setup instructions are a registry contract (`ModuleDef.setup`), resolved
+  // server-side and handed down as plain data. The shell renders them as the
+  // FIRST child of every module panel — before the identity editor — from
+  // the `setups` prop alone, so a fifth module gets its panel with no
+  // per-module branch here.
+  it("opens a module panel with its setup checklist, ahead of the identity editor", () => {
+    const html = renderToStaticMarkup(
+      <AdminControls
+        viewerLogin="organizer"
+        initial={settings}
+        modules={twoModules}
+        setups={{
+          quiz: {
+            experience: "Contestants answer questions and are graded on submit.",
+            steps: [{ title: "Author at least one question", where: "panel", check: { count: "items", noun: "questions" } }],
+            midEvent: { safe: ["Retry knobs."], unsafe: ["Correct answers."] },
+            docs: { href: "https://example.test/operations#quiz", label: "Quiz guide" },
+          },
+        }}
+      />,
+    );
+    const quiz = panelFor(html, "quiz");
+    const setupAt = quiz.indexOf("Contestants answer questions and are graded on submit.");
+    const identityAt = quiz.indexOf('name="moduleTitle:quiz"');
+    expect(setupAt).toBeGreaterThan(-1);
+    expect(identityAt).toBeGreaterThan(-1);
+    expect(setupAt).toBeLessThan(identityAt);
+    // Nothing has reported a count yet on first paint, so the checkable step
+    // says so rather than claiming there are no questions.
+    expect(quiz).toContain("Checking…");
+    // A module the registry gave no setup block renders no setup panel — and
+    // nothing else in its panel changes.
+    expect(panelFor(html, "secure-development")).not.toContain("Setting up");
+  });
+
   it("labels a module tab with its resolved title", () => {
     const html = renderToStaticMarkup(
       <AdminControls viewerLogin="organizer" initial={settings} modules={[{ id: "quiz", title: "Round 1" }] as never} />,

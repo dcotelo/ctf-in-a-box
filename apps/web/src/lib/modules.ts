@@ -193,6 +193,60 @@ export type ModuleTerms = (ctx: OrgContext) => {
   scoring?: Copy[];
 };
 
+/** One step of a module's organizer-facing setup checklist.
+ *
+ *  `where` is the whole reason the field exists as data rather than prose:
+ *  an organizer hunting for "the place I add questions" must be told whether
+ *  that place is this panel or somewhere outside it (`ctf-setup.sh`, the
+ *  GitHub org, `event.yaml`) — the two failure modes the admin panel's own
+ *  audit found were people looking in the wrong one.
+ *
+ *  `check` names a live count the panel already holds (its own list of
+ *  items, or its category list) that PROVES the step done. It is a key, not
+ *  a computed boolean, so the registry can say "questions exist" without
+ *  knowing how to count them; the panel supplies the number, and shows
+ *  "checking" until it has one rather than a false "none yet". A step the
+ *  panel genuinely cannot verify — a fork provisioned, an App installed —
+ *  carries no `check` and renders as a plain checklist item. Do not fake one. */
+export type SetupStep = {
+  title: string;
+  body?: Copy;
+  /** Done inside this admin panel, or outside it. */
+  where: "panel" | "outside";
+  check?: {
+    /** Which count on the panel's inventory proves this step. */
+    count: "items" | "categories";
+    /** Plural noun for the count line ("3 questions"). */
+    noun: string;
+    /** Singular, when it is not `noun` minus an "s". */
+    one?: string;
+  };
+};
+
+/** The organizer-facing counterpart to `home`/`guide`: what a module's admin
+ *  tab opens with. Answers, in this order, what contestants experience, what
+ *  the organizer must do before the event (dependency order, with `where`
+ *  on each step), what is safe to change mid-event and what is not, and where
+ *  the long-form guide is.
+ *
+ *  A function of `OrgContext` for the same reason `faq`/`terms` are: the
+ *  checklist for `secure-development` names the event's real targets and
+ *  GitHub org. So it carries the same server-only contract — called in a
+ *  Server Component (`getModuleSetup` in `@/lib/resolved-modules`), stripped
+ *  from `ResolvedModule`, and only its plain-data RESULT
+ *  (`ModuleSetupContent`) is handed to the admin shell. */
+export type ModuleSetupContent = {
+  /** 1. What contestants experience in this module, in a sentence or two. */
+  experience: string;
+  /** 2–3. The minimum to make the module playable, in dependency order. */
+  steps: SetupStep[];
+  /** 4. What may be changed while contestants are playing, and what may not. */
+  midEvent: { safe: Copy[]; unsafe: Copy[] };
+  /** 5. The module's section of the operations guide. */
+  docs: { href: string; label: string };
+};
+export type ModuleSetup = (ctx: OrgContext) => ModuleSetupContent;
+
 export type ModuleDef = {
   id: ModuleId;
   displayName: string;
@@ -225,6 +279,11 @@ export type ModuleDef = {
    *  under them. A function, so it can name the live target list — and so it
    *  is stripped from ResolvedModule like the rest. */
   routeCard?: (ctx: RulesContext) => string;
+  /** The organizer-facing setup checklist that opens this module's admin
+   *  tab. A function (see `ModuleSetup`), so it is stripped from
+   *  ResolvedModule like the contestant-facing blocks above and reached
+   *  through `getModuleSetup`. */
+  setup?: ModuleSetup;
   /** What `/leaderboard`'s empty state says, and where it points, while this
    *  module is the way onto the board. The platform frame owns the empty
    *  state's framing ("the board is wide open"); the module owns the sentence
@@ -1306,11 +1365,11 @@ export const MODULE_BLURB_MAX = 200;
  *  property access with no type error. Dropping them turns that mistake into
  *  a compile failure.
  *
- *  The copy blocks — `home`, `guide`, `rules`, `faq`, `terms` and `routeCard`
- *  — are OMITTED for a harder reason: `ModuleHome.intro`, `ModuleHome.steps`,
- *  `ModuleGuide.steps`, `ModuleGuide.example`, `routeCard`, and
- *  `ModuleRules`/`ModuleFaq`/`ModuleTerms` themselves
- *  are FUNCTIONS, and resolved modules are handed straight
+ *  The copy blocks — `home`, `guide`, `rules`, `faq`, `terms`, `routeCard`
+ *  and `setup` — are OMITTED for a harder reason: `ModuleHome.intro`,
+ *  `ModuleHome.steps`, `ModuleGuide.steps`, `ModuleGuide.example`,
+ *  `routeCard`, and `ModuleRules`/`ModuleFaq`/`ModuleTerms`/`ModuleSetup`
+ *  themselves are FUNCTIONS, and resolved modules are handed straight
  *  from Server Components to `"use client"` components (the admin panel, the
  *  leaderboard). React's flight serializer throws "Functions cannot be passed
  *  directly to Client Components" on any function-valued prop, so a resolved
@@ -1321,7 +1380,7 @@ export const MODULE_BLURB_MAX = 200;
  *  `getModuleHome` in `@/lib/resolved-modules`. */
 export type ResolvedModule = Omit<
   ModuleDef,
-  "displayName" | "description" | "home" | "guide" | "rules" | "faq" | "terms" | "routeCard"
+  "displayName" | "description" | "home" | "guide" | "rules" | "faq" | "terms" | "routeCard" | "setup"
 > & {
   /** What to render wherever the MODULE names itself: the organizer's
    *  override, or the registry `displayName`. Never empty. */
@@ -1380,7 +1439,7 @@ export function resolveModules(
   // Destructure the defaults OUT rather than spreading them through, so a
   // resolved module genuinely has no `displayName` to read by mistake — the
   // type and the runtime object agree. Every copy block — `home`, `guide`,
-  // `rules`, `faq`, `terms`, `routeCard` — goes the same way, and there it
+  // `rules`, `faq`, `terms`, `routeCard`, `setup` — goes the same way, and there it
   // is load-bearing rather than merely tidy: a type-level Omit alone would
   // leave the functions on the object, still crossing the RSC boundary and
   // still throwing. Stripping them here is what makes the result client-safe.
@@ -1388,7 +1447,7 @@ export function resolveModules(
   // point, so the lint warning is silenced deliberately rather than worked
   // around by re-spreading and deleting.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return defs.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, ...rest }) => {
+  return defs.map(({ displayName, description, home, guide, rules, faq, terms, routeCard, setup, ...rest }) => {
     const o = overrides[rest.id];
     // Computed once and carried through as `titleOverride`, so a consumer
     // with its own per-surface default (the nav label, /challenges' page

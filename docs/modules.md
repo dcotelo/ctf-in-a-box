@@ -708,6 +708,34 @@ of one module's shape.
    a reason to skip a check in its own API. See `docs/operations.md`'s
    "Known limitations" for the operator-facing note.
 
+9. **Setup instructions (organizer-facing, optional but expected).** A module
+   MAY contribute a `setup` block (`ModuleSetup` in
+   `apps/web/src/lib/modules.ts`), and every shipped module does. It is what
+   the module's `/admin` tab opens with, ahead of the identity editor and the
+   module's own knobs, and it answers, in this order: what contestants
+   experience in the module; the minimum an organizer must do before the
+   event, as an ordered checklist in dependency order; on every step, whether
+   it happens **in this panel** or **outside it** (`ctf-setup.sh`, the GitHub
+   org, `event.yaml`); what is safe to change mid-event and what is not; and
+   a link to the module's section of [operations.md](operations.md).
+
+   A step may declare a `check` naming a count the module's own admin panel
+   already holds — its items, or its categories — and the panel then shows
+   "3 questions" / "None yet" beside it instead of asking the organizer to
+   remember, and "Checking…" until the panel's list has actually loaded. A
+   step the panel cannot verify (a fork provisioned, an App installed)
+   declares no `check` and renders as a plain item. Do not fake one: an honest
+   static checklist beats a tick that lies.
+
+   It is a **function** of `OrgContext`, like `faq` and `terms`, because
+   `secure-development`'s checklist names the event's targets and GitHub org
+   — so it carries the same server-only contract: called in `/admin`'s page
+   (`getModuleSetup` in `resolved-modules.ts`), stripped from
+   `ResolvedModule`, and only its plain-data result reaches the client shell.
+   The shell (`admin-controls.tsx`) renders it through one shared component
+   (`components/admin-module-setup.tsx`) driven by the modules list, so a
+   fifth module gets its setup panel with no per-module code.
+
 ## Section 6. Security requirements (non-negotiable)
 
 1. Contestant code MUST run only inside sandboxed containers on an internal

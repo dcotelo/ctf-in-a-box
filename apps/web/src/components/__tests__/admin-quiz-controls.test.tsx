@@ -547,3 +547,15 @@ describe("formatImportSummary", () => {
     expect(formatImportSummary({ created: 0, updated: 0 })).toBe("Imported 0 questions: 0 created, 0 updated.");
   });
 });
+
+// What the panel reports up to the shell for the setup checklist above it
+// (see `ModuleInventory` in admin-module-setup.tsx). A pure function of the
+// rows, so the shape the shell receives is provable without running the
+// mount effect that sends it.
+describe("quizInventory", () => {
+  it("counts the questions and reports no categories, which the quiz has none of", async () => {
+    const { quizInventory } = await import("@/components/admin-quiz-controls");
+    expect(quizInventory([])).toEqual({ items: 0 });
+    expect(quizInventory([{ question, correct: ["a"] }])).toEqual({ items: 1 });
+  });
+});
