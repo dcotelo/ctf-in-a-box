@@ -135,8 +135,12 @@ describe.skipIf(!liveConfigured)("team store against a live Redis (throwaway key
     const results = await pipeline(gone.map((k) => ["EXISTS", k]));
     expect(results.map((r) => r.result)).toEqual(gone.map(() => 0));
 
-    // Every player's membership is cleared. (The user hash itself survives —
-    // `firstTeamAt` is a metric that outlives the team on purpose.)
+    // Every player's membership is cleared, and every user hash SURVIVES —
+    // `firstTeamAt` is a metric that outlives the team on purpose. Both halves
+    // are asserted: a deleted hash also answers HEXISTS 0, so the membership
+    // check alone would let a Lua regression that wipes profile data pass.
+    const survivors = await pipeline(USER_KEYS.map((k) => ["EXISTS", k]));
+    expect(survivors.map((r) => r.result)).toEqual(USER_KEYS.map(() => 1));
     const memberships = await pipeline(USER_KEYS.map((k) => ["HEXISTS", k, "team"]));
     expect(memberships.map((r) => r.result)).toEqual(USER_KEYS.map(() => 0));
   });
