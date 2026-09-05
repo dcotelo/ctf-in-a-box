@@ -44,7 +44,8 @@ describe("focus rings", () => {
   it("use the one amber colour rather than a per-component choice", () => {
     // Amber is reserved for pending/attention/focus (DESIGN.md). A ring in the
     // brand blue would read as decoration, and a ring in green or red would
-    // collide with the scored/failed meanings the check atom depends on.
+    // collide with the scored/failed meanings green and red carry on every
+    // score surface.
     const rings = walk(srcDir).flatMap((f) => [
       ...readFileSync(f, "utf8").matchAll(/focus-visible:outline-\[(#[0-9a-fA-F]{6})\]/g),
     ]);
