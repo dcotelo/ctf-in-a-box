@@ -535,6 +535,18 @@ content yet — an empty board shows them **Author questions** / **Author
 challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
 name falls back to **Event**.
 
+**Every numeric setting says whether it saved.** The number knobs (hint cost
+and gating, players per team, the retry gate, the cooldowns) and the four
+schedule fields commit when you leave the field, and report beside it:
+**Saving…** while the write is in flight, **Saved** for a moment after, or the
+reason it was refused. Junk, a fraction, a negative, or a blanked field snaps
+back to the stored value with that reason ("Whole numbers only — kept 10.");
+a value the server refuses is rewritten through the field's own label ("Hint
+cost must be a whole number between 0 and 100,000.") and the field snaps back
+too, so what you see is always what is stored. The toggles and the module
+switches have no field to report into and still use the error line under the
+panel.
+
 Every settings change is recorded in an audit log (who, when, what changed)
 alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest
 **500** entries and drops older ones automatically. **Disruptive controls
@@ -1214,13 +1226,17 @@ reorder-by-dragging UI — organizers curate a long-running board there;
 nothing about this task called for the same parity here, so `order` is just
 another field the form edits directly.
 
-**The integration panel**, rendered inside every challenge row underneath
-its summary line, is what an external challenge actually wires up against.
-It carries:
+**The integration panel** is what an external challenge actually wires up
+against. It comes in two parts. The **Endpoints** block sits once, above the
+challenge list — **three endpoint URLs**, Submit (`/api/ai/submit`), Event
+(`/api/ai/event`), and State (`/api/ai/state`), each with its own copy
+button so an integrator never has to hand-assemble the full origin; they are
+the same for every challenge, which is why they are not repeated per row. The
+rest is **per challenge**, collapsed under each row's summary line (open it
+with the "Integration — signing key, test curl, Send test" disclosure; a
+flag-only row's disclosure says the panel is not needed for it), and
+carries:
 
-- **Three endpoint URLs** — Submit (`/api/ai/submit`), Event
-  (`/api/ai/event`), and State (`/api/ai/state`) — each with its own copy
-  button, so an integrator never has to hand-assemble the full origin.
 - **The per-challenge signing key**, masked by default (`aik_…`) with a
   Reveal toggle and its own Copy button — the raw key is never referenced in
   the rendered markup while masked, not merely styled to look hidden.

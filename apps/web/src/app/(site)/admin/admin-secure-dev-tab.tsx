@@ -12,11 +12,12 @@
 // are unchanged; a deployed event's settings keep their exact meaning.
 //
 // Presentational: the shell (`admin-controls.tsx`) owns `settings`, the
-// draft input string, and `apply`/`commitNumber`; nothing here writes to
-// Redis directly.
+// draft input string, `apply`/`commitNumber` and the per-field save status;
+// nothing here writes to Redis directly.
 
 import type { AdminSettings } from "@/lib/admin-store";
 import { SCORE_COOLDOWN_MIN, SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
+import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import type { CommitNumber } from "./types";
 
 export type AdminSecureDevTabProps = {
@@ -24,33 +25,34 @@ export type AdminSecureDevTabProps = {
   pending: boolean;
   apply: (patch: Record<string, unknown>) => Promise<boolean>;
   commitNumber: CommitNumber;
+  /** The shell's per-field save status, by stored key (UX audit F2). */
+  statusOf: (key: string) => FieldStatus;
   cooldownInput: string;
   setCooldownInput: (v: string) => void;
 };
 
-export default function AdminSecureDevTab({ pending, commitNumber, cooldownInput, setCooldownInput }: AdminSecureDevTabProps) {
+const COOLDOWN_LABEL = "Re-run cooldown (min)";
+
+export default function AdminSecureDevTab({ pending, commitNumber, statusOf, cooldownInput, setCooldownInput }: AdminSecureDevTabProps) {
   return (
-    <label className="flex items-center justify-between gap-3">
-      <span>
-        <span className="text-white">Re-run cooldown (min)</span>
-        <span className="block text-xs text-muted">
+    <AdminNumberField
+      id="score-cooldown-min"
+      label={COOLDOWN_LABEL}
+      help={
+        <>
           Minimum minutes between SCORED runs on the same PR. Every run hands back a per-challenge pass/fail, so a
           short cooldown lets a contestant iterate a check-gaming patch against the rubric. 0 disables it. Takes
           effect on the next push — each fork&apos;s Action reads this value when it runs. Hint policy is on the
           Event tab.
-        </span>
-      </span>
-      <input
-        type="number"
-        min={0}
-        max={SCORE_COOLDOWN_MIN_MAX}
-        value={cooldownInput}
-        placeholder={String(SCORE_COOLDOWN_MIN)}
-        disabled={pending}
-        onChange={(e) => setCooldownInput(e.target.value)}
-        onBlur={() => commitNumber("scoreCooldownMin", cooldownInput, setCooldownInput)}
-        className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-      />
-    </label>
+        </>
+      }
+      value={cooldownInput}
+      placeholder={String(SCORE_COOLDOWN_MIN)}
+      max={SCORE_COOLDOWN_MIN_MAX}
+      disabled={pending}
+      status={statusOf("scoreCooldownMin")}
+      onChange={setCooldownInput}
+      onBlur={() => commitNumber("scoreCooldownMin", cooldownInput, setCooldownInput, COOLDOWN_LABEL)}
+    />
   );
 }
