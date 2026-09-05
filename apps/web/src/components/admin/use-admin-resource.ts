@@ -99,6 +99,26 @@ export async function postRow<Row, Editor, Payload>(
   return { ok: true, row };
 }
 
+export type ReorderOutcome<Row> = { ok: true } | { ok: false; message: string; fresh: LoadResult<Row> };
+
+/** The reorder write-back: re-saves each changed row, in order, through the
+ *  upsert route. On the FIRST failure it stops and re-reads the lists from
+ *  the store — earlier rows are already stored with their new order, so the
+ *  pre-move list is no longer what the store has (#283) — and returns the
+ *  reorder's own message alongside that fresh read. Exported for direct
+ *  testing against a stubbed `fetch`. */
+export async function writeBackReorder<Row, Editor, Payload>(
+  config: Pick<AdminResourceConfig<Row, Editor, Payload>, "endpoint" | "describeError" | "rows" | "parseList" | "loadErrorMessage" | "parseUpsert">,
+  changed: readonly Row[],
+  rowPayload: (row: Row) => Payload,
+): Promise<ReorderOutcome<Row>> {
+  for (const row of changed) {
+    const result = await postRow(config, rowPayload(row));
+    if (!result.ok) return { ok: false, message: result.message, fresh: await loadResource(config) };
+  }
+  return { ok: true };
+}
+
 export type AdminResource<Row, Item, Editor> = {
   rows: Row[];
   setRows: (update: (prev: Row[]) => Row[]) => void;
@@ -135,8 +155,9 @@ export type AdminResource<Row, Item, Editor> = {
 
   reorderPending: boolean;
   /** Applies a move optimistically, then writes back only the rows whose
-   *  order actually changed. Any failure restores the pre-move list rather
-   *  than leaving the panel showing an arrangement the store doesn't have. */
+   *  order actually changed. On a failure the list is re-read from the store
+   *  (rows written before the failure keep their new order there) rather
+   *  than left showing an arrangement the store doesn't have. */
   move: (from: number, to: number) => Promise<void>;
 };
 
@@ -254,14 +275,19 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     onWrite?.();
     setReorderPending(true);
     setListError(null);
-    for (const row of changed) {
-      const result = await postRow(config, rowPayload(row));
-      if (!result.ok) {
+    const outcome = await writeBackReorder(config, changed, rowPayload);
+    if (!outcome.ok) {
+      // The store, not `before`, is the source of truth for what landed:
+      // rows written before the failure keep their new order there. Show
+      // the store's list when it can be read, the pre-move list when it
+      // cannot, and the reorder's own error either way.
+      if (outcome.fresh.ok) {
+        setRows(outcome.fresh.rows);
+        setCategories(outcome.fresh.categories);
+      } else {
         setRows(before);
-        setListError(result.message);
-        setReorderPending(false);
-        return;
       }
+      setListError(outcome.message);
     }
     setReorderPending(false);
   }

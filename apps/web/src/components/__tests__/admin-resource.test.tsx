@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describeAdminError } from "@/components/admin/fetch";
 import type { RowAccessors } from "@/components/admin/ordered-rows";
-import { loadResource, postRow, useAdminResource } from "@/components/admin/use-admin-resource";
+import { loadResource, postRow, useAdminResource, writeBackReorder } from "@/components/admin/use-admin-resource";
 
 type Item = { id: string; title: string; order: number };
 type Row = { item: Item; secret: string };
@@ -95,6 +95,50 @@ describe("postRow", () => {
   it("surfaces a 400 as the store's own message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(400, { error: "title required" })));
     await expect(postRow(config, { id: "a", title: "", order: 1 })).resolves.toEqual({ ok: false, message: "title required" });
+  });
+});
+
+// #283: the reorder write-back POSTs each moved row separately. If a later
+// POST fails, earlier rows are already stored with their new order, so
+// restoring the pre-move list locally would show an arrangement the store no
+// longer has. The store is re-read instead and the reorder's error kept.
+describe("writeBackReorder", () => {
+  const rowPayload = (r: Row): Payload => ({ id: r.item.id, title: r.item.title, order: r.item.order });
+  const a: Row = { item: { id: "a", title: "A", order: 1 }, secret: "" };
+  const b: Row = { item: { id: "b", title: "B", order: 2 }, secret: "" };
+
+  it("posts every changed row in order and reports success without touching the store", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) =>
+      Promise.resolve(jsonResponse(200, { item: JSON.parse(String(init?.body)) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(writeBackReorder(config, [a, b], rowPayload)).resolves.toEqual({ ok: true });
+    expect(fetchMock.mock.calls.map((c) => (c[1] as RequestInit | undefined)?.method ?? "GET")).toEqual(["POST", "POST"]);
+  });
+
+  it("on the first failed POST, stops, re-reads the list from the store and returns both the error and the fresh rows", async () => {
+    const stored = [{ item: { id: "b", title: "B", order: 1 }, secret: "" }, a];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { item: a.item }))
+      .mockResolvedValueOnce(jsonResponse(503, { error: "redis down" }))
+      .mockResolvedValueOnce(jsonResponse(200, { things: stored }));
+    vi.stubGlobal("fetch", fetchMock);
+    const outcome = await writeBackReorder(config, [a, b, { ...b, item: { ...b.item, id: "c" } }], rowPayload);
+    expect(fetchMock.mock.calls.map((c) => (c[1] as RequestInit | undefined)?.method ?? "GET")).toEqual(["POST", "POST", "GET"]);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toBe("Store unavailable — redis down");
+    expect(outcome.fresh.ok && outcome.fresh.rows.map((r) => r.item.id)).toEqual(["a", "b"]);
+  });
+
+  it("still reports the reorder's own error when the re-read fails too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(jsonResponse(400, { error: "order must be an integer" })).mockRejectedValueOnce(new TypeError("fetch failed")),
+    );
+    const outcome = await writeBackReorder(config, [a], rowPayload);
+    expect(outcome).toMatchObject({ ok: false, message: "order must be an integer", fresh: { ok: false, message: config.loadErrorMessage } });
   });
 });
 
