@@ -328,8 +328,9 @@ panel
 tabs that belong to the platform itself (**Event**, **Admins**, **Support**,
 **Activity**, **Insights**), then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
-the four hint controls living in Secure
-Development's tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
+the four hint controls on the Event tab (they are event policy shared by
+every module that sells hints), Secure Development's re-run cooldown in its
+own tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
 question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's,
 classic's submission-cooldown knob plus its full challenge/category

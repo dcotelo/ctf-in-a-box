@@ -198,16 +198,39 @@ describe("AdminControls tab shell", () => {
 });
 
 describe("AdminControls panel contents", () => {
-  it("puts hint controls in the Secure Development panel, not Event", () => {
+  // Hints are event policy shared by every module that sells them (Secure
+  // Development, Classic, AI — hint-store.ts reads the same four settings for
+  // all three), so the knobs live on the Event tab. Parking them on Secure
+  // Development's tab made them unreachable on any event without that
+  // module (UX audit F1). Secure Development keeps the one knob that IS its
+  // own: the re-run cooldown.
+  it("puts the hint controls on the Event panel and leaves only the re-run cooldown on Secure Development", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const secureDev = panelFor(html, "secure-development");
     const eventPanel = panelFor(html, "event");
-    expect(secureDev).toContain("Hints enabled");
-    expect(secureDev).toContain("Hint cost");
-    expect(secureDev).toContain("Hints: solves required");
-    expect(secureDev).toContain("Hints: unlock after (min)");
-    expect(eventPanel).not.toContain("Hint cost");
-    expect(eventPanel).not.toContain("Hints enabled");
+    expect(eventPanel).toContain("Hints enabled");
+    expect(eventPanel).toContain("Hint cost");
+    expect(eventPanel).toContain("Hints: solves required");
+    expect(eventPanel).toContain("Hints: unlock after (min)");
+    expect(secureDev).toContain("Re-run cooldown (min)");
+    expect(secureDev).not.toContain("Hint cost");
+    expect(secureDev).not.toContain("Hints enabled");
+  });
+
+  it("says on the Event panel which modules the hint policy reaches", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    expect(eventPanel).toMatch(/Secure Development, Classic CTF and AI Challenges/);
+  });
+
+  // UX audit F6: the unlock-after help used to say "a scoring start below",
+  // a leftover from the flat layout. On the Event tab the Schedule section
+  // sits ABOVE the hint knobs, and the field has a name.
+  it("points the unlock-after help at the Scoring opens field, not 'below'", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    expect(eventPanel).toContain("Scoring opens");
+    expect(eventPanel).not.toContain("a scoring start below");
   });
 
   it("keeps freeze and registration in the Event panel", () => {
@@ -266,7 +289,9 @@ describe("AdminControls panel contents", () => {
     // control-plane tabs survive a module being disabled, because none of
     // them is a module tab.
     expect(html.match(/role="tabpanel"/g)?.length).toBe(6);
-    expect(html).not.toContain("Hint cost");
+    // The hint policy stays reachable: quiz has no hints, but classic and ai
+    // do, and this event can switch either on at runtime.
+    expect(panelFor(html, "event")).toContain("Hint cost");
     expect(() => panelFor(html, "secure-development")).toThrow();
   });
 

@@ -2,10 +2,13 @@
 
 // The organizer admin page's control surface: a tab shell. One "Event" tab
 // for the control-plane settings that belong to the platform itself (freeze,
-// scoring/registration windows, demo seed, master reset), then one tab per
-// entry in the resolved `modules` prop, labelled with the organizer's own
-// title for that module. A module's knobs — the hint toggle, cost and gating
-// live under Secure Development — therefore exist iff that module is enabled.
+// scoring/registration windows, the hint policy, demo seed, master reset),
+// then one tab per entry in the resolved `modules` prop, labelled with the
+// organizer's own title for that module. A module's own knobs — the re-run
+// cooldown under Secure Development, the retry gate under Quiz — therefore
+// exist iff that module is enabled. The hint policy is deliberately NOT one
+// of those: three modules sell hints through the same four settings, so it
+// sits on Event, where it is reachable whatever the event enables.
 //
 // This component owns ALL the settings state (`settings`, the draft input
 // strings, `pending`, `error`, `confirm`) plus the `apply`/`commitNumber`
@@ -440,6 +443,12 @@ export default function AdminControls({
               teamMaxMembersInput={teamMaxMembersInput}
               setTeamMaxMembersInput={setTeamMaxMembersInput}
               commitNumber={commitNumber}
+              hintCostInput={hintCostInput}
+              setHintCostInput={setHintCostInput}
+              minSolvesInput={minSolvesInput}
+              setMinSolvesInput={setMinSolvesInput}
+              unlockAfterInput={unlockAfterInput}
+              setUnlockAfterInput={setUnlockAfterInput}
               moduleChoices={MODULE_CHOICES}
               liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
               nowMs={settingsAt}
@@ -477,12 +486,6 @@ export default function AdminControls({
                   settings={settings}
                   pending={pending}
                   apply={apply}
-                  hintCostInput={hintCostInput}
-                  setHintCostInput={setHintCostInput}
-                  minSolvesInput={minSolvesInput}
-                  setMinSolvesInput={setMinSolvesInput}
-                  unlockAfterInput={unlockAfterInput}
-                  setUnlockAfterInput={setUnlockAfterInput}
                   commitNumber={commitNumber}
                   cooldownInput={cooldownInput}
                   setCooldownInput={setCooldownInput}

@@ -8,6 +8,23 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Hint policy moved to the Event tab.** The four hint knobs (enabled, cost,
+  solves required, unlock after) govern Secure Development, Classic and AI
+  hints alike, but rendered only on the Secure Development tab — so a
+  classic-only or ai-only event sold hints at the default price with no switch
+  anywhere in the panel (admin UX audit F1). They now sit in a **Hints**
+  section on Event, under the schedule, and the unlock-after help names the
+  **Scoring opens** field instead of pointing "below" at a tab that no longer
+  held it (F6). Secure Development keeps its re-run cooldown. Stored keys and
+  server-side validation are unchanged.
+- **Every module tab opens with a setup checklist.** A new registry contract,
+  `ModuleDef.setup` (module contract §5.9): what contestants experience, the
+  minimum to make the module playable in dependency order with each step
+  marked in-panel or outside, what is safe to change mid-event, and a link to
+  the module's operations guide. Rendered by one shared component ahead of the
+  identity editor; where the panel holds the count (questions, challenges,
+  categories) the step shows it live, and says "Checking…" until it does.
+
 - **`pnpm lint` is green and CI runs it.** The app's lint had sat red (4
   errors, 5 warnings) with nothing running it — hygiene audit T1. Each
   finding is fixed in the code rather than excused: the three
