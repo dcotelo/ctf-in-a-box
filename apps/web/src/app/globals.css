@@ -57,14 +57,6 @@ h1, h2, h3, h4, h5, h6 {
   font-variant-numeric: tabular-nums;
 }
 
-/* The check atom's landing sweep: pending amber flips to scored green once.
-   The ONE celebratory animation in the app. */
-@keyframes check-land {
-  0% { transform: scale(0.6); opacity: 0.4; }
-  60% { transform: scale(1.15); }
-  100% { transform: scale(1); opacity: 1; }
-}
-
 /* The phase line's HEAD marker breathes — the only looping motion. */
 @keyframes head-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(212, 160, 23, 0.5); }

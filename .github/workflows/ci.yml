@@ -216,6 +216,11 @@ jobs:
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
         working-directory: apps/web
+      # Lint before test: it needs no Redis and no build, and `pnpm lint` sat
+      # red for months because nothing ran it (hygiene audit T1) — a check
+      # only a human remembers to run is not a check.
+      - run: corepack pnpm lint
+        working-directory: apps/web
       - run: corepack pnpm test
         working-directory: apps/web
       # The grading Lua (classic SUBMIT_SCRIPT, quiz GRADE_SCRIPT, ai

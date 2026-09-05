@@ -8,14 +8,7 @@
 // That one import is deliberate and must not become a copy: the flag
 // normalization recipe has to be byte-identical across every module, because
 // the authoring side and the grading side agreeing on it is the entire design.
-export {
-  caseSensitiveFlagForm,
-  flagComparisonForm,
-  generateChallengeId,
-  normalizeFlag,
-  randomIdSuffix,
-  slugifyTitle,
-} from "./classic-keys";
+export { caseSensitiveFlagForm, flagComparisonForm, generateChallengeId, normalizeFlag } from "./classic-keys";
 
 export const AI_CHALLENGES_KEY = "ctf:ai:challenges";
 export const AI_CATEGORIES_KEY = "ctf:ai:categories";

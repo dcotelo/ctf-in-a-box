@@ -435,6 +435,32 @@ export function formatImportSummary({ created, updated, categories }: ImportSumm
   return `Imported: ${created} created, ${updated} updated. (${categories} ${categoryWord} listed in the file.)`;
 }
 
+type ClassicListsResult =
+  | { ok: true; challenges: AdminChallenge[]; categories: string[] }
+  | { ok: false; message: string };
+
+/** One GET of the challenge and category lists, resolved to what the panel
+ *  does with them: the sorted rows and the category list, or the message the
+ *  list-error line should carry. Every failure — a non-2xx reply, a network
+ *  error — is a value, never a throw, so the mount effect and the import path
+ *  handle exactly one shape. Module-level (no setState of its own) so the
+ *  mount effect can call it directly and confine its state writes to the
+ *  `.then` callback. Mirrors `fetchQuestionBank` in admin-quiz-controls.tsx. */
+async function fetchClassicLists(): Promise<ClassicListsResult> {
+  try {
+    const res = await fetch("/api/admin/classic");
+    const data = await parseJson<{ error?: string; challenges?: AdminChallenge[]; categories?: string[] }>(res);
+    if (!res.ok) return { ok: false, message: describeClassicError(res.status, data.error) };
+    return {
+      ok: true,
+      challenges: sortChallenges(Array.isArray(data.challenges) ? data.challenges : []),
+      categories: Array.isArray(data.categories) ? data.categories : [],
+    };
+  } catch {
+    return { ok: false, message: "Couldn't load challenges — check your connection and try again." };
+  }
+}
+
 export default function AdminClassicControls({
   pending,
   classicCooldownSecInput,
@@ -468,36 +494,33 @@ export default function AdminClassicControls({
   const [importErrors, setImportErrors] = useState<ImportError[] | null>(null);
   const [importResult, setImportResult] = useState<ImportSummary | null>(null);
 
-  /** Re-fetches the challenge and category lists from the store, the same GET
-   *  the mount-time effect below runs. Shared with the bulk-import success
-   *  path so a successful import refreshes from the server rather than
-   *  hand-mutating local state — the store, not this component's memory of
-   *  what it just sent, is the source of truth for what actually landed.
-   *  `isCancelled` lets the mount effect skip its own setState calls after
-   *  unmount, mirroring that effect's original guard. */
-  async function refreshLists(isCancelled: () => boolean = () => false): Promise<void> {
-    try {
-      const res = await fetch("/api/admin/classic");
-      const data = await parseJson<{ error?: string; challenges?: AdminChallenge[]; categories?: string[] }>(res);
-      if (isCancelled()) return;
-      if (!res.ok) {
-        setListError(describeClassicError(res.status, data.error));
-        return;
-      }
-      setChallenges(sortChallenges(Array.isArray(data.challenges) ? data.challenges : []));
-      setCategories(Array.isArray(data.categories) ? data.categories : []);
-      setListError(null);
-    } catch {
-      if (!isCancelled()) setListError("Couldn't load challenges — check your connection and try again.");
+  /** Replaces the challenge and category lists with a fresh read of the
+   *  store (see `fetchClassicLists`). Shared by the mount effect below and
+   *  the bulk-import success path, so a successful import refreshes from the
+   *  server rather than hand-mutating local state — the store, not this
+   *  component's memory of what it just sent, is the source of truth for
+   *  what actually landed. */
+  function applyClassicLists(result: ClassicListsResult): void {
+    if (!result.ok) {
+      setListError(result.message);
+      return;
     }
+    setChallenges(result.challenges);
+    setCategories(result.categories);
+    setListError(null);
   }
 
   // First-paint data comes from `initialChallenges`/`initialCategories` (or,
   // in production, is simply empty); this replaces it with the live data
   // once mounted in the browser. Never runs under `renderToStaticMarkup`.
+  // The fetch is module-level and the setStates live in the `.then`
+  // callback, so an unmount before the reply lands abandons the load without
+  // touching state.
   useEffect(() => {
     let cancelled = false;
-    void refreshLists(() => cancelled);
+    void fetchClassicLists().then((result) => {
+      if (!cancelled) applyClassicLists(result);
+    });
     return () => {
       cancelled = true;
     };
@@ -728,7 +751,7 @@ export default function AdminClassicControls({
       if (res.ok) {
         setImportResult({ created: data.created ?? 0, updated: data.updated ?? 0, categories: data.categories ?? 0 });
         setImportText("");
-        await refreshLists();
+        applyClassicLists(await fetchClassicLists());
         return;
       }
       if (Array.isArray(data.errors)) {

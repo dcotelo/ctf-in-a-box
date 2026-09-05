@@ -11,7 +11,6 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
-import { event } from "@/lib/site";
 
 const appList = joinAppNames(enabledApps.map((a) => a.name));
 

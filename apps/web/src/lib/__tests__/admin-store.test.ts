@@ -14,10 +14,10 @@ import {
   getAdminSettings,
   getSyncStatus,
   outsideWindow,
-  TEAM_MAX_MEMBERS_MAX,
   updateAdminSettings,
   type AdminSettings,
 } from "@/lib/admin-store";
+import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 
 beforeEach(() => {
   mocks.upstashEval.mockReset();

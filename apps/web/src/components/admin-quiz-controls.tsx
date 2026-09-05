@@ -416,6 +416,25 @@ export function formatImportSummary({ created, updated }: QuizImportSummary): st
   return `Imported ${total} ${questionWord}: ${created} created, ${updated} updated.`;
 }
 
+type QuestionBankResult = { ok: true; questions: AdminQuestion[] } | { ok: false; message: string };
+
+/** One GET of the whole bank, resolved to what the panel does with it: the
+ *  sorted list, or the message the list-error line should carry. Every
+ *  failure — a non-2xx reply, a network error — is a value, never a throw,
+ *  so the mount effect and the import path handle exactly one shape.
+ *  Module-level (no setState of its own) so the mount effect can call it
+ *  directly and confine its state writes to the `.then` callback. */
+async function fetchQuestionBank(): Promise<QuestionBankResult> {
+  try {
+    const res = await fetch("/api/admin/quiz");
+    const data = await parseJson<{ error?: string; questions?: AdminQuestion[] }>(res);
+    if (!res.ok) return { ok: false, message: describeQuizError(res.status, data.error) };
+    return { ok: true, questions: sortQuestions(Array.isArray(data.questions) ? data.questions : []) };
+  } catch {
+    return { ok: false, message: "Couldn't load questions — check your connection and try again." };
+  }
+}
+
 export default function AdminQuizControls({
   pending,
   quizMaxAttemptsInput,
@@ -444,44 +463,33 @@ export default function AdminQuizControls({
   const [importErrors, setImportErrors] = useState<ImportError[] | null>(null);
   const [importResult, setImportResult] = useState<QuizImportSummary | null>(null);
 
-  /** Re-reads the whole bank from the server and replaces local state with
-   *  it. Used both by the mount effect below and after a bulk import — an
-   *  import can create and update an arbitrary number of rows at once, so
-   *  hand-patching local state from the summary counts would be inventing a
-   *  second, weaker copy of what the store just did.
-   *
-   *  `cancelled` is passed in rather than closed over so the mount effect can
-   *  still abandon an in-flight load on unmount, while the import path (which
-   *  awaits its own call) simply passes nothing. */
-  async function loadQuestions(isCancelled: () => boolean = () => false) {
-    try {
-      const res = await fetch("/api/admin/quiz");
-      const data = await parseJson<{ error?: string; questions?: AdminQuestion[] }>(res);
-      if (isCancelled()) return;
-      if (!res.ok) {
-        setListError(describeQuizError(res.status, data.error));
-        return;
-      }
-      setQuestions(sortQuestions(Array.isArray(data.questions) ? data.questions : []));
-      setListError(null);
-    } catch {
-      if (!isCancelled()) setListError("Couldn't load questions — check your connection and try again.");
+  /** Replaces local state with a fresh read of the whole bank (see
+   *  `fetchQuestionBank`). Used both by the mount effect below and after a
+   *  bulk import — an import can create and update an arbitrary number of
+   *  rows at once, so hand-patching local state from the summary counts would
+   *  be inventing a second, weaker copy of what the store just did. */
+  function applyQuestionBank(result: QuestionBankResult) {
+    if (!result.ok) {
+      setListError(result.message);
+      return;
     }
+    setQuestions(result.questions);
+    setListError(null);
   }
 
   // First-paint data comes from `initialQuestions` (or, in production, is
   // simply empty); this replaces it with the live list once mounted in the
-  // browser. Never runs under `renderToStaticMarkup`.
+  // browser. Never runs under `renderToStaticMarkup`. The fetch is
+  // module-level and the setStates live in the `.then` callback, so an
+  // unmount before the reply lands abandons the load without touching state.
   useEffect(() => {
     let cancelled = false;
-    void loadQuestions(() => cancelled);
+    void fetchQuestionBank().then((result) => {
+      if (!cancelled) applyQuestionBank(result);
+    });
     return () => {
       cancelled = true;
     };
-    // `loadQuestions` is redeclared each render and only ever setStates, so
-    // depending on it would re-fetch the bank on every keystroke in the
-    // import textarea. This is a mount-once load, as it always was.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const nextOrder = questions.reduce((max, q) => Math.max(max, q.question.order), 0) + 1;
@@ -644,7 +652,7 @@ export default function AdminQuizControls({
       if (res.ok) {
         setImportResult({ created: data.created ?? 0, updated: data.updated ?? 0 });
         setImportText("");
-        await loadQuestions();
+        applyQuestionBank(await fetchQuestionBank());
         return;
       }
       if (Array.isArray(data.errors)) {

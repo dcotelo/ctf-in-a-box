@@ -119,21 +119,15 @@ export async function writeAdminAudit(actor: string, action: string, detail: Rec
   }
 }
 
-// Defined in scoring-defaults.ts (no `server-only`) so the admin panel, a
-// Client Component, can use it as the field's `max`. Re-exported for server
-// callers.
-export { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
-
-// Defined in team-limits.ts (no `server-only`) because the admin panel is a
-// Client Component and needs it for the field's `max`. Re-exported so server
-// callers keep one import.
-export { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
-// MODULE_TITLE_MAX / MODULE_BLURB_MAX (used below for validation) are
-// defined in @/lib/modules — client-safe, unlike this file — so the admin
-// panel's identity form can read them too. Not re-exported here: nothing in
-// the repo imports them from this file, and a second import path to the same
-// two constants is exactly the kind of dead surface a later change could
-// silently drift out of sync with.
+// SCORE_COOLDOWN_MIN_MAX (scoring-defaults.ts), TEAM_MAX_MEMBERS_MAX
+// (team-limits.ts) and MODULE_TITLE_MAX / MODULE_BLURB_MAX (@/lib/modules) —
+// all used below for validation — are defined in client-safe modules (no
+// `server-only`, unlike this file) so the admin panel can read them for its
+// fields' `max`. None is re-exported here: every consumer imports from the
+// origin module, and a second import path to the same constant is exactly
+// the kind of dead surface a later change could silently drift out of sync
+// with. (The first two used to be re-exported "for server callers"; no
+// server caller ever took them from here.)
 const MODULE_FIELD_RE = /^module(Title|Blurb):(.+)$/;
 // Organizer-authored text rendered on pages every contestant loads. Plain text
 // only — reject C0 control characters (so nothing can smuggle a terminal

@@ -1228,18 +1228,14 @@ export function isModuleEnabled(id: ModuleId): boolean {
   return enabledModules.some((m) => m.id === id);
 }
 
-/** The enabled modules' own contestant routes, in registry order.
- *
- *  Two callers, both of which used to hardcode `/challenges`: the pre-event
- *  gate (proxy.ts protects these, and /gate sends an unlocked visitor to the
- *  first of them) and anything that needs somewhere real to send a contestant.
- *  `/challenges` does not exist on an event without secure-development, so a
- *  hardcoded redirect to it was a guaranteed 404 — the redirect has to be
- *  derived from what the event actually runs. Empty is a valid event, so
- *  callers must handle it. */
-export const enabledModuleRoutes: readonly string[] = enabledModules.flatMap((m) =>
-  m.nav ? [m.nav.href] : [],
-);
+// There is deliberately no "enabled modules' routes" list here. One existed
+// (`enabledModuleRoutes`) for the pre-event gate, but the gate stopped using
+// it when enablement became a runtime setting (#175, commit 2201188):
+// proxy.ts gates ALL_MODULE_ROUTES below — the superset, needing no Redis
+// read from middleware — and /gate computes its own destination from the
+// live resolved list. With no caller left, the list came out rather than
+// stay as a second, baked-only answer to "which routes are live" that could
+// drift from the runtime one.
 
 /** EVERY route the registry knows about, enabled or not.
  *

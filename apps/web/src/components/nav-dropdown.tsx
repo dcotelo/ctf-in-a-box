@@ -18,7 +18,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { NavLink } from "@/lib/site";
-import { itemKeyAction, triggerKeyAction } from "@/lib/nav-menu-keys";
+import { itemKeyAction, takePendingFocus, triggerKeyAction } from "@/lib/nav-menu-keys";
 
 export default function NavDropdown({
   label,
@@ -36,8 +36,10 @@ export default function NavDropdown({
   const [open, setOpen] = useState(false);
   // Index to focus once the menu is (re-)opened, so a keyboard open always
   // lands focus on a specific item (first, or last for ArrowUp) rather than
-  // leaving it on the trigger.
-  const [pendingFocus, setPendingFocus] = useState<number | null>(null);
+  // leaving it on the trigger. A ref, not state: the request is parked by the
+  // handler that opens the menu and consumed by the effect below once the
+  // items exist — see `takePendingFocus` for why it is not a useState.
+  const pendingFocus = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
@@ -45,11 +47,9 @@ export default function NavDropdown({
   const active = items.some((item) => isActive(item.href));
 
   useEffect(() => {
-    if (open && pendingFocus !== null) {
-      itemRefs.current[pendingFocus]?.focus();
-      setPendingFocus(null);
-    }
-  }, [open, pendingFocus]);
+    const index = takePendingFocus(open, pendingFocus);
+    if (index !== null) itemRefs.current[index]?.focus();
+  }, [open]);
 
   // Click outside the trigger+menu closes it, per the menu button pattern.
   useEffect(() => {
@@ -63,13 +63,20 @@ export default function NavDropdown({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 
-  const openTo = (index: number) => {
-    setOpen(true);
-    setPendingFocus(index);
-  };
-
   const focusItem = (index: number) => {
     itemRefs.current[index]?.focus();
+  };
+
+  const openTo = (index: number) => {
+    // Already open (ArrowDown/ArrowUp on the trigger of an open menu): the
+    // items exist, so focus moves now — there is no open transition for the
+    // effect to settle the request on.
+    if (open) {
+      focusItem(index);
+      return;
+    }
+    pendingFocus.current = index;
+    setOpen(true);
   };
 
   const onTriggerClick = () => {

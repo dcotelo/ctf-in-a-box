@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
+import { nextScheduleBoundary } from "@/lib/schedule-window";
 import { ALL_MODULE_IDS, bakedModuleIds, moduleDefById, type ModuleId, type ResolvedModule } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
 import AdminQuizControls from "@/components/admin-quiz-controls";
@@ -160,6 +161,25 @@ export default function AdminControls({
   viewerLogin: string;
 }) {
   const [settings, setSettings] = useState(initial);
+  // The "now" the Event tab's schedule readout is evaluated at (epoch ms).
+  // Stamped at mount, in the handlers that change settings, and — below — by
+  // a timer at the next instant a scoring/registration window opens or
+  // closes, so an organizer parked on the tab across a boundary sees the
+  // flip without touching anything. Never read from the clock in render:
+  // that is the impure read the compiler lint rejects.
+  const [settingsAt, setSettingsAt] = useState(() => Date.now());
+  useEffect(() => {
+    const at = nextScheduleBoundary(settingsAt, [
+      { startsAt: settings.scoringStartsAt, endsAt: settings.scoringEndsAt },
+      { startsAt: settings.registrationStartsAt, endsAt: settings.registrationEndsAt },
+    ]);
+    if (at === null) return;
+    // setState in a timer callback, not in the effect body: the clock is the
+    // external system this effect subscribes to. Re-stamping re-runs the
+    // effect, which arms the timer for the following boundary, if any.
+    const id = setTimeout(() => setSettingsAt(Date.now()), Math.max(0, at - Date.now()));
+    return () => clearTimeout(id);
+  }, [settingsAt, settings.scoringStartsAt, settings.scoringEndsAt, settings.registrationStartsAt, settings.registrationEndsAt]);
   const [hintCostInput, setHintCostInput] = useState(initial.hintCost === null ? "" : String(initial.hintCost));
   const [minSolvesInput, setMinSolvesInput] = useState(
     initial.hintsMinSolves === null ? "" : String(initial.hintsMinSolves),
@@ -251,6 +271,7 @@ export default function AdminControls({
       return;
     }
     setSettings((s) => ({ ...s, paused: true }));
+    setSettingsAt(Date.now());
     const total = Object.values(data.cleared ?? {}).reduce((a, b) => a + b, 0);
     setResetInfo(`Wiped ${total} keys — scoring is now frozen. Unfreeze when you're ready.`);
   };
@@ -295,6 +316,7 @@ export default function AdminControls({
     if (result.settings) {
       const s = result.settings;
       setSettings(s);
+      setSettingsAt(Date.now());
       setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
       setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
       setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
@@ -378,6 +400,7 @@ export default function AdminControls({
               commitNumber={commitNumber}
               moduleChoices={MODULE_CHOICES}
               liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
+              nowMs={settingsAt}
             />
           ) : tab.id === ADMINS_TAB ? (
             <AdminAdminsTab viewerLogin={viewerLogin} />

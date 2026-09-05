@@ -56,7 +56,7 @@ type ChallengesResponse = {
 /** The wire shape, resolved into what the UI renders: the rubric's `name`
  *  becomes the displayed `description`, and the bare category code becomes a
  *  code/label/link triple. */
-export function toCatalogChallenge(c: WireChallenge): CatalogChallenge {
+function toCatalogChallenge(c: WireChallenge): CatalogChallenge {
   const owasp = owaspCategory(c.owasp);
   return {
     app: c.app,

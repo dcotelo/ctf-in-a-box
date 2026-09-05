@@ -31,6 +31,7 @@ cd .. && ./scripts/acceptance-scorer.sh   # repo root — the script lives in sc
 cd apps/web
 corepack enable
 corepack pnpm install --frozen-lockfile
+corepack pnpm lint
 corepack pnpm test
 ```
 

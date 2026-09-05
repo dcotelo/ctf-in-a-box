@@ -109,22 +109,6 @@ function LegacyBreakdown({ entry }: { entry: LeaderboardEntry }) {
 /** Exported (alongside the default `Leaderboard`) so tests can render an
  *  expanded row directly with `isOpen` — the toggle only flips client state a
  *  static render can't drive. */
-/** Does this event run secure-development?
- *
- *  "patched" / "non-patched" is that module's own vocabulary — a regression
- *  test passing against a submitted patch — so the columns and the sort key
- *  built on it are gated on it, exactly as /profile gates the identical trio
- *  on `secureDevEnabled`. The two surfaces render the same three numbers and
- *  must not disagree about whether the event has them.
- *
- *  Read off the `modules` prop rather than by importing `isModuleEnabled`, for
- *  the reason spelled out on `multiModule` below: this is a Client Component
- *  and keeps no registry import. Which modules are enabled is build-time truth
- *  either way. */
-function hasSecureDev(modules: readonly ResolvedModule[]): boolean {
-  return modules.some((m) => m.id === "secure-development");
-}
-
 export function EntryRow({
   entry,
   topPoints,
@@ -157,7 +141,6 @@ export function EntryRow({
   // (`resolveModules` maps `enabledModules`, i.e. `eventConfig.modules`).
   // Only a module's NAME is runtime; enabling or disabling one is a rebuild.
   const multiModule = modules.length > 1;
-  const secureDev = hasSecureDev(modules);
   // The same function the comparator ranks on — see `completedCount`.
   const solved = completedCount(entry);
   // Clamped to the row's own numerator: a failed module-count read leaves

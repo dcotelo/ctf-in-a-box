@@ -2,12 +2,15 @@
 // matcher check in `proxy.test.ts`.
 //
 // That file only ever imported `config`. It never called `proxy()`, so the
-// entire fix it was written alongside — gating `enabledModuleRoutes` instead
-// of a hardcoded `/challenges` — was ungated: reverting the check to
+// entire fix it was written alongside — gating the registry's route list
+// instead of a hardcoded `/challenges` — was ungated: reverting the check to
 // `pathname === "/challenges"` left the whole suite green while a quiz-only
 // event shipped an "access password" screen with /quiz wide open behind it.
 // A matcher that carries a route proves only that the proxy RUNS on it; this
-// file proves what it then does.
+// file proves what it then does. (The gated set is `ALL_MODULE_ROUTES`, the
+// superset, since #175 — see `GATED_ROUTES` in proxy.ts — so /quiz is gated
+// here because it is registered, not because this event enabled it; the
+// quiz-only config is what makes /quiz the route a real visitor would hit.)
 //
 // The gate must be ACTIVE for any of this to be observable, so the env is
 // stubbed before the module graph loads — `@/lib/gate` reads it once, at
