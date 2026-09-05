@@ -23,7 +23,6 @@ const {
   isModuleEnabled,
   getQuizTotals,
   listQuestions,
-  getTeamQuizTotals,
   getAiTotals,
   listAiChallenges,
   getResolvedModules,
@@ -37,7 +36,6 @@ const {
   isModuleEnabled: vi.fn(),
   getQuizTotals: vi.fn(),
   listQuestions: vi.fn(),
-  getTeamQuizTotals: vi.fn(),
   getAiTotals: vi.fn(),
   listAiChallenges: vi.fn(),
   getResolvedModules: vi.fn(),
@@ -80,7 +78,6 @@ vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
 vi.mock("@/lib/quiz-store", () => ({
   getQuizTotals,
   listQuestions,
-  getTeamQuizTotals,
   // The blocks' Show-N item list reads the viewer's own per-question map.
   getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
 }));
@@ -101,7 +98,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   getViewerTeam.mockResolvedValue(null);
   listQuestions.mockResolvedValue([]);
-  getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
   listAiChallenges.mockResolvedValue([]);
   getResolvedModules.mockResolvedValue([]);
 });

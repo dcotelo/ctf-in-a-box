@@ -17,7 +17,6 @@ import {
   clearQuestions,
   deleteQuestion,
   getQuizTotals,
-  getTeamQuizTotals,
   getTeamQuizTotalsBatch,
   getViewerQuiz,
   listQuestions,
@@ -519,7 +518,18 @@ describe("getQuizTotals", () => {
   });
 });
 
-describe("getTeamQuizTotals", () => {
+// The fold semantics for ONE team, exercised through the batch with a single
+// entry. These used to run through a `getTeamQuizTotals(members)` wrapper
+// that had no caller but this block; the wrapper is gone and the semantics
+// it pinned — union, earliest-answer points, zero-member short-circuit,
+// unparseable rows dropped — are pinned here on the function that is
+// actually called.
+describe("getTeamQuizTotalsBatch — one team's fold", () => {
+  const oneTeam = async (members: string[]) => {
+    const [total] = await getTeamQuizTotalsBatch([members]);
+    return total;
+  };
+
   it("dedupes a question answered by two members, keeping the earliest answer's points", async () => {
     // Both teammates hold a correct answer to q1 (20 points each, since both
     // answered while it was priced at 20) — the union must count it ONCE.
@@ -527,7 +537,7 @@ describe("getTeamQuizTotals", () => {
       { result: ["q1", JSON.stringify({ choices: ["a"], points: 20, at: "2026-01-01T00:00:00.000Z" })] },
       { result: ["q1", JSON.stringify({ choices: ["a"], points: 20, at: "2026-01-01T01:00:00.000Z" })] },
     ]);
-    const total = await getTeamQuizTotals(["ada", "cyd"]);
+    const total = await oneTeam(["ada", "cyd"]);
     // lastAt reflects the KEPT (earliest, points-contributing) record — the
     // team's total didn't change at cyd's later, redundant correct answer.
     expect(total).toEqual({ points: 20, answered: 1, lastAt: "2026-01-01T00:00:00.000Z" });
@@ -545,7 +555,7 @@ describe("getTeamQuizTotals", () => {
       { result: ["q1", JSON.stringify({ choices: ["a"], points: 10, at: "2026-01-01T00:00:00.000Z" })] },
       { result: ["q1", JSON.stringify({ choices: ["a"], points: 25, at: "2026-01-02T00:00:00.000Z" })] },
     ]);
-    const total = await getTeamQuizTotals(["ada", "cyd"]);
+    const total = await oneTeam(["ada", "cyd"]);
     expect(total.points).toBe(10);
     expect(total.answered).toBe(1);
   });
@@ -555,24 +565,24 @@ describe("getTeamQuizTotals", () => {
       { result: ["q1", JSON.stringify({ choices: ["a"], points: 10, at: "2026-01-01T00:00:00.000Z" })] },
       { result: ["q2", JSON.stringify({ choices: ["b"], points: 15, at: "2026-01-01T00:05:00.000Z" })] },
     ]);
-    const total = await getTeamQuizTotals(["ada", "cyd"]);
+    const total = await oneTeam(["ada", "cyd"]);
     expect(total).toEqual({ points: 25, answered: 2, lastAt: "2026-01-01T00:05:00.000Z" });
   });
 
   it("returns zeros without touching Upstash for a team with no members", async () => {
-    const total = await getTeamQuizTotals([]);
+    const total = await oneTeam([]);
     expect(total).toEqual({ points: 0, answered: 0, lastAt: null });
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 
   it("returns zeros when no member has answered anything", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: [] }]);
-    expect(await getTeamQuizTotals(["ada", "cyd"])).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(await oneTeam(["ada", "cyd"])).toEqual({ points: 0, answered: 0, lastAt: null });
   });
 
   it("drops unparseable rows instead of throwing", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", "not json"] }]);
-    expect(await getTeamQuizTotals(["ada"])).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(await oneTeam(["ada"])).toEqual({ points: 0, answered: 0, lastAt: null });
   });
 });
 

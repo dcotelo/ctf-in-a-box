@@ -31,7 +31,7 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-const { getSession, getUser, getViewerTeam, getViewerHints, getQuizTotals, listQuestions, getTeamQuizTotals } =
+const { getSession, getUser, getViewerTeam, getViewerHints, getQuizTotals, listQuestions } =
   vi.hoisted(() => ({
     getSession: vi.fn(),
     getUser: vi.fn(),
@@ -39,7 +39,6 @@ const { getSession, getUser, getViewerTeam, getViewerHints, getQuizTotals, listQ
     getViewerHints: vi.fn(),
     getQuizTotals: vi.fn(),
     listQuestions: vi.fn(),
-    getTeamQuizTotals: vi.fn(),
   }));
 
 vi.mock("server-only", () => ({}));
@@ -76,7 +75,6 @@ vi.mock("@/lib/hint-store", () => ({
 vi.mock("@/lib/quiz-store", () => ({
   getQuizTotals,
   listQuestions,
-  getTeamQuizTotals,
   // The blocks' Show-N item list reads the viewer's own per-question map.
   getViewerQuiz: async () => ({ answered: {}, attempts: {} }),
 }));
@@ -103,7 +101,6 @@ beforeEach(() => {
   getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
   getQuizTotals.mockResolvedValue(new Map([["ada", { points: 15, answered: 3, lastAt: null }]]));
   listQuestions.mockResolvedValue([{}, {}, {}, {}, {}]);
-  getTeamQuizTotals.mockResolvedValue({ points: 0, answered: 0, lastAt: null });
 });
 
 describe("/profile on a two-module event", () => {

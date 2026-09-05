@@ -582,41 +582,30 @@ export async function getQuizTotals(): Promise<Map<string, QuizTotal>> {
   return totals;
 }
 
-/** A TEAM's quiz total is the UNION of questions its members answered
+/** Every team's quiz total in one round trip: one team's members per entry
+ *  in `teams`, one `QuizTotal` per entry out, in the same order.
+ *
+ *  A TEAM's quiz total is the UNION of questions its members answered
  *  correctly (spec D6), never the sum of member aggregates — summing would
  *  double count any question two teammates both answered, which is exactly
  *  the double-count bug the per-login aggregate counters exist to avoid at
  *  the individual level. The aggregates can't serve a team: they're running
  *  totals with no memory of WHICH questions contributed to them, so there is
  *  no way to dedupe from them. Instead this reads each member's
- *  `ctf:quiz:answers:<login>` hash directly and dedupes by question id,
- *  keeping the EARLIEST correct answer's stored points for any question two
- *  or more members both hold (a later re-answer by a teammate — or a
- *  since-changed question price recorded on someone else's row — never
- *  changes what the team already earned). Teams are capped at a handful of
- *  members, so one HGETALL per member is cheap: this scales with team size,
- *  never with board size.
+ *  `ctf:quiz:answers:<login>` hash directly and dedupes by question id
+ *  (`foldTeamAnswers`), keeping the EARLIEST correct answer's stored points
+ *  for any question two or more members both hold (a later re-answer by a
+ *  teammate — or a since-changed question price recorded on someone else's
+ *  row — never changes what the team already earned). Teams are capped at a
+ *  handful of members, so one HGETALL per member is cheap.
  *
- *  This single-team form is one round trip per call. A caller with EVERY
- *  team in hand (the leaderboard overlay) must use `getTeamQuizTotalsBatch`
- *  below instead, which folds the whole board into one pipeline. */
-export async function getTeamQuizTotals(members: string[]): Promise<QuizTotal> {
-  const [total] = await getTeamQuizTotalsBatch([members]);
-  return total;
-}
-
-/** The batched form of `getTeamQuizTotals`: one team's members per entry in
- *  `teams`, one `QuizTotal` per entry out, in the same order — and exactly
- *  ONE `upstashPipeline` round trip for the whole board instead of one per
- *  team. `/leaderboard` is dynamic and fetched `no-store`, so the per-team
- *  form cost a 25-team event 25 REST calls on every single page view; this
- *  makes it 1.
- *
- *  The dedupe semantics are identical (they are literally the same fold —
- *  see `foldTeamAnswers`): a question two teammates both answered still
- *  counts ONCE, at the EARLIEST answer's stored points. Only the transport
- *  changes. A login on two teams is fetched once and its replies reused for
- *  both, so the pipeline carries one `HGETALL` per DISTINCT member. */
+ *  Batched because `/leaderboard` is dynamic and fetched `no-store`: a
+ *  per-team form cost a 25-team event 25 REST calls on every single page
+ *  view; this is exactly ONE `upstashPipeline` round trip for the whole
+ *  board. A login on two teams is fetched once and its replies reused for
+ *  both, so the pipeline carries one `HGETALL` per DISTINCT member. There is
+ *  no single-team wrapper any more — the one that existed had no caller but
+ *  its own test; a single team is `getTeamQuizTotalsBatch([members])`. */
 export async function getTeamQuizTotalsBatch(teams: readonly (readonly string[])[]): Promise<QuizTotal[]> {
   const indexByLogin = new Map<string, number>();
   for (const members of teams) {
