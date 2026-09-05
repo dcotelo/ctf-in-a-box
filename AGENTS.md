@@ -247,8 +247,10 @@ suggestions.
   (`module-contributions`, `team-standings`, `hint-penalties`, `admin-auth`).
   Two verbatim joins made one contestant's hints free and showed a scoring
   teammate at 0 pts (#216).
-- **Do not commit `docs/superpowers/`.** It's gitignored planning/spec/plan
-  scratch space, not shipped documentation.
+- **Do not commit `docs/superpowers/`, `docs/REVIEW.md` or
+  `docs/hygiene-audit.md`.** They're gitignored planning/spec/plan scratch
+  space and local audit reports, not shipped documentation — and `docs/` is
+  the Jekyll root, so anything tracked there lands on the Pages site.
 
 ## Repo layout
 
