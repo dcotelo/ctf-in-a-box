@@ -20,3 +20,25 @@ export function outsideWindow(nowMs: number, startsAt: string | null, endsAt: st
   if (Number.isFinite(e) && nowMs > e) return true;
   return false;
 }
+
+/** The next instant strictly after `nowMs` at which `outsideWindow` flips for
+ *  any of `windows`, or null when no bound lies ahead. A start bound flips at
+ *  the bound itself (`now < s` stops holding); an end bound flips one ms
+ *  after it (`now > e` starts holding). Unparseable bounds are ignored, as
+ *  outsideWindow ignores them. App-only: the /admin shell uses it to re-stamp
+ *  the "Right now" readout when a window opens or closes while the page is
+ *  open, so the clock read stays in a timer callback rather than in render. */
+export function nextScheduleBoundary(
+  nowMs: number,
+  windows: ReadonlyArray<{ startsAt: string | null; endsAt: string | null }>,
+): number | null {
+  let next: number | null = null;
+  const consider = (at: number) => {
+    if (Number.isFinite(at) && at > nowMs && (next === null || at < next)) next = at;
+  };
+  for (const { startsAt, endsAt } of windows) {
+    if (startsAt) consider(Date.parse(startsAt));
+    if (endsAt) consider(Date.parse(endsAt) + 1);
+  }
+  return next;
+}
