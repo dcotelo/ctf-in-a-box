@@ -1,29 +1,21 @@
-// Integration tests: exercises the REAL Lua script against the live Upstash
-// DB, because that's where the atomic settings-write + audit-append is
-// actually enforced (a change can never land without its audit record).
-// Skips entirely when Upstash credentials are not available (e.g. CI without
-// secrets).
+// Integration tests: exercises the REAL Lua script against a live Redis (srh
+// in CI, Upstash or srh locally), because that's where the atomic
+// settings-write + audit-append is actually enforced (a change can never land
+// without its audit record). Gating comes from live-redis.ts: skipped without
+// the env, a FAILURE when CTF_LUA_SUITES_REQUIRED is set.
+//
+// Not key-isolated, on purpose: the settings and audit keys are the fixed
+// ones the store reads (ADMIN_SETTINGS_KEY / the audit list), and the cap
+// test needs an empty audit list to count from. Every other live suite either
+// uses run-unique keys or (hint-store) reads these settings, so the live run
+// is serial — `--no-file-parallelism` in ci.yml — rather than concurrent.
 
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { liveConfigured } from "./live-redis";
 
 vi.mock("server-only", () => ({}));
 
-// Credentials come from the environment, falling back to .env.local locally.
-for (const file of [path.resolve(process.cwd(), ".env.local")]) {
-  if (!existsSync(file)) continue;
-  for (const line of readFileSync(file, "utf8").split("\n")) {
-    const eq = line.indexOf("=");
-    if (eq === -1 || line.trimStart().startsWith("#")) continue;
-    const key = line.slice(0, eq).trim();
-    const value = line.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
-    if (key.startsWith("UPSTASH_REDIS_REST_") && !process.env[key]) process.env[key] = value;
-  }
-}
-const configured = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-
-describe.skipIf(!configured)("admin-store against a live SRH proxy", () => {
+describe.skipIf(!liveConfigured)("admin-store against a live SRH proxy", () => {
   let AUDIT_CAP: number;
   let getAdminSettings: (typeof import("@/lib/admin-store"))["getAdminSettings"];
   let updateAdminSettings: (typeof import("@/lib/admin-store"))["updateAdminSettings"];
