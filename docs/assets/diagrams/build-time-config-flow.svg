@@ -18,10 +18,14 @@
     .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
     .caption { fill: #8b949e; font-size: 14px; }
     .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .kicker { fill: #8b949e; font-size: 10px; letter-spacing: 1px; }
+    .badge rect { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .badge text { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
   </style>
 
   <rect class="bg" width="960" height="780" rx="10"/>
   <rect class="frame" x="0.5" y="0.5" width="959" height="779" rx="10"/>
+  <text x="480" y="14" text-anchor="middle" class="kicker">BUILD TIME · BEFORE ANY CONTAINER RUNS</text>
 
   <!-- edges -->
   <path id="e1" class="edge" d="M480,80 C480,92 480,98 480,110"/>
@@ -36,6 +40,7 @@
     <rect x="380" y="24" width="200" height="56" rx="10"/>
     <text x="480" y="49" text-anchor="middle" class="title">event.yaml</text>
     <text x="480" y="67" text-anchor="middle" class="sub">organizer edits</text>
+    <g class="badge"><rect x="534" y="16" width="52" height="16" rx="8"/><text x="560" y="27" text-anchor="middle" fill="#ffa657">ACTOR</text></g>
   </g>
 
   <g class="node">

@@ -18,10 +18,14 @@
     .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
     .caption { fill: #8b949e; font-size: 14px; }
     .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .kicker { fill: #8b949e; font-size: 10px; letter-spacing: 1px; }
+    .badge rect { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .badge text { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
   </style>
 
   <rect class="bg" width="960" height="760" rx="10"/>
   <rect class="frame" x="0.5" y="0.5" width="959" height="759" rx="10"/>
+  <text x="480" y="14" text-anchor="middle" class="kicker">RUNTIME · 3 ENTRY SURFACES, ONE APP CONTAINER + REDIS FOR THE ATOMIC SCRIPT</text>
 
   <!-- edges -->
   <path id="eA" class="edge" d="M215,226 C300,250 380,262 430,280"/>
@@ -36,48 +40,56 @@
     <rect x="380" y="24" width="200" height="68" rx="10"/>
     <text x="480" y="51" text-anchor="middle" class="title">launch mint</text>
     <text x="480" y="69" text-anchor="middle" class="sub">4 gates → Ed25519 → launcher href</text>
+    <g class="badge"><rect x="534" y="16" width="52" height="16" rx="8"/><text x="560" y="27" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="60" y="150" width="250" height="76" rx="10"/>
     <text x="185" y="177" text-anchor="middle" class="title">in-box action</text>
     <text x="185" y="195" text-anchor="middle" class="sub">re-runs gate order, calls submitAiFlag</text>
+    <g class="badge"><rect x="264" y="142" width="52" height="16" rx="8"/><text x="290" y="153" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="355" y="150" width="250" height="76" rx="10"/>
     <text x="480" y="177" text-anchor="middle" class="title">external submit</text>
     <text x="480" y="195" text-anchor="middle" class="sub">{token, flag} — cookie-blind</text>
+    <g class="badge"><rect x="559" y="142" width="52" height="16" rx="8"/><text x="585" y="153" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="650" y="150" width="250" height="76" rx="10"/>
     <text x="775" y="177" text-anchor="middle" class="title">external event</text>
     <text x="775" y="195" text-anchor="middle" class="sub">HMAC → token → replay-nonce</text>
+    <g class="badge"><rect x="854" y="142" width="52" height="16" rx="8"/><text x="880" y="153" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="380" y="280" width="200" height="68" rx="10"/>
     <text x="480" y="307" text-anchor="middle" class="title">shared AWARD_SCRIPT</text>
     <text x="480" y="325" text-anchor="middle" class="sub">one atomic script, all 3 surfaces</text>
+    <g class="badge"><rect x="534" y="272" width="52" height="16" rx="8"/><text x="560" y="283" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
   </g>
 
   <g class="node">
     <rect x="380" y="390" width="200" height="56" rx="10"/>
     <text x="480" y="415" text-anchor="middle" class="title">redis</text>
     <text x="480" y="433" text-anchor="middle" class="sub">solve row + aggregates bumped</text>
+    <g class="badge"><rect x="534" y="382" width="52" height="16" rx="8"/><text x="560" y="393" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
   </g>
 
   <g class="node">
     <rect x="170" y="490" width="260" height="68" rx="10"/>
     <text x="300" y="517" text-anchor="middle" class="title">leaderboard overlay</text>
     <text x="300" y="535" text-anchor="middle" class="sub">ADDS points, never attributed</text>
+    <g class="badge"><rect x="384" y="482" width="52" height="16" rx="8"/><text x="410" y="493" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="530" y="490" width="260" height="68" rx="10"/>
     <text x="660" y="517" text-anchor="middle" class="title">team total</text>
     <text x="660" y="535" text-anchor="middle" class="sub">union of members, never summed</text>
+    <g class="badge"><rect x="744" y="482" width="52" height="16" rx="8"/><text x="770" y="493" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <!-- arrival / self glows -->

@@ -18,10 +18,14 @@
     .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
     .caption { fill: #8b949e; font-size: 14px; }
     .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .kicker { fill: #8b949e; font-size: 10px; letter-spacing: 1px; }
+    .badge rect { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .badge text { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
   </style>
 
   <rect class="bg" width="960" height="600" rx="10"/>
   <rect class="frame" x="0.5" y="0.5" width="959" height="599" rx="10"/>
+  <text x="480" y="14" text-anchor="middle" class="kicker">RUNTIME · A USER STORY, MOSTLY INSIDE ONE APP CONTAINER</text>
 
   <!-- edges -->
   <path id="e1" class="edge" d="M480,80 C480,96 480,104 480,120"/>
@@ -35,36 +39,42 @@
     <rect x="380" y="24" width="200" height="56" rx="10"/>
     <text x="480" y="49" text-anchor="middle" class="title">contestant</text>
     <text x="480" y="67" text-anchor="middle" class="sub">submits an answer</text>
+    <g class="badge"><rect x="534" y="16" width="52" height="16" rx="8"/><text x="560" y="27" text-anchor="middle" fill="#ffa657">ACTOR</text></g>
   </g>
 
   <g class="node">
     <rect x="360" y="120" width="240" height="68" rx="10"/>
     <text x="480" y="147" text-anchor="middle" class="title">JS gate pre-check</text>
     <text x="480" y="165" text-anchor="middle" class="sub">cheap early-out, non-atomic</text>
+    <g class="badge"><rect x="554" y="112" width="52" height="16" rx="8"/><text x="580" y="123" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="350" y="228" width="260" height="68" rx="10"/>
     <text x="480" y="255" text-anchor="middle" class="title">atomic GRADE script</text>
     <text x="480" y="273" text-anchor="middle" class="sub">recheck fresh, compare ctf:quiz:key</text>
+    <g class="badge"><rect x="564" y="220" width="52" height="16" rx="8"/><text x="590" y="231" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
   </g>
 
   <g class="node">
     <rect x="380" y="336" width="200" height="56" rx="10"/>
     <text x="480" y="361" text-anchor="middle" class="title">redis</text>
     <text x="480" y="379" text-anchor="middle" class="sub">answer row + aggregates bumped</text>
+    <g class="badge"><rect x="534" y="328" width="52" height="16" rx="8"/><text x="560" y="339" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
   </g>
 
   <g class="node">
     <rect x="170" y="440" width="260" height="68" rx="10"/>
     <text x="300" y="467" text-anchor="middle" class="title">leaderboard overlay</text>
     <text x="300" y="485" text-anchor="middle" class="sub">ADDS points, never attributed</text>
+    <g class="badge"><rect x="384" y="432" width="52" height="16" rx="8"/><text x="410" y="443" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <g class="node">
     <rect x="530" y="440" width="260" height="68" rx="10"/>
     <text x="660" y="467" text-anchor="middle" class="title">team total</text>
     <text x="660" y="485" text-anchor="middle" class="sub">union of members, never summed</text>
+    <g class="badge"><rect x="744" y="432" width="52" height="16" rx="8"/><text x="770" y="443" text-anchor="middle" fill="#58a6ff">APP</text></g>
   </g>
 
   <!-- arrival glows -->

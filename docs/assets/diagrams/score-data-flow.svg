@@ -19,10 +19,18 @@
     .edge.dashed { stroke-dasharray: 4 4; }
     .caption { fill: #8b949e; font-size: 14px; }
     .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .band { fill: #ffffff; fill-opacity: 0.02; stroke: #30363d; stroke-width: 1; stroke-dasharray: 6 4; }
+    .bandlabel { fill: #6e7681; font-size: 10px; letter-spacing: 1px; }
   </style>
 
   <rect class="bg" width="960" height="700" rx="10"/>
   <rect class="frame" x="0.5" y="0.5" width="959" height="699" rx="10"/>
+
+  <!-- swim-lanes: what's off-box (GitHub, the contestant) vs what's inside your docker-compose stack -->
+  <rect class="band" x="90" y="10" width="500" height="296" rx="16"/>
+  <text x="104" y="28" class="bandlabel">OUTSIDE YOUR BOX (contestant + GitHub)</text>
+  <rect class="band" x="90" y="310" width="720" height="328" rx="16"/>
+  <text x="104" y="330" class="bandlabel">YOUR DOCKER-COMPOSE BOX (containers)</text>
 
   <!-- edges -->
   <path id="e1" class="edge" d="M480,80 C480,96 480,104 480,120"/>
