@@ -105,6 +105,7 @@ import Markdown from "@/components/markdown";
 import ConfirmModal from "@/components/confirm-modal";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
 
 // `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
 // component's OWN test file imports it from here, mirroring how the rest of
@@ -143,10 +144,7 @@ export function classicInventory(rows: readonly AdminChallenge[], categories: re
  *  infrastructure failure (the store itself is unavailable — 503), mirroring
  *  `describeQuizError`. */
 export function describeClassicError(status: number, message?: string): string {
-  if (status === 503) {
-    return message ? `Store unavailable — ${message}` : "Store unavailable — try again shortly.";
-  }
-  return message ?? "That didn't work — check the challenge and try again.";
+  return describeAdminError(status, message, "That didn't work — check the challenge and try again.");
 }
 
 /** Longest phrase the delete confirmation asks an organizer to retype,
@@ -403,10 +401,6 @@ export function categoryUsageCount(challenges: readonly AdminChallenge[], catego
   return challenges.filter((row) => row.challenge.category === category).length;
 }
 
-async function parseJson<T>(res: Response): Promise<T> {
-  return (await res.json().catch(() => ({}))) as T;
-}
-
 /** Builds a bundle from the board this component already holds — `rows`
  *  (each carrying its flag, same as `payloadFromRow`'s input) and the current
  *  category list — so the export button's download handler is a thin
@@ -556,21 +550,18 @@ export default function AdminClassicControls({
   const nextOrder = challenges.reduce((max, c) => Math.max(max, c.challenge.order), 0) + 1;
 
   async function postChallenge(payload: ChallengePayload): Promise<{ ok: true; row: AdminChallenge } | { ok: false; message: string }> {
-    try {
-      const res = await fetch("/api/admin/classic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await parseJson<{ error?: string; challenge?: Challenge; flag?: string; hint?: string | null }>(res);
-      if (!res.ok || !data.challenge) return { ok: false, message: describeClassicError(res.status, data.error) };
-      // The route echoes the STORED (trimmed) flag alongside the challenge;
-      // falling back to the payload's own flag would leave the list holding
-      // something the store never actually wrote.
-      return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag, hint: data.hint ?? null } };
-    } catch {
-      return { ok: false, message: "Couldn't reach the server — try again." };
-    }
+    const result = await sendJson<{ error?: string; challenge?: Challenge; flag?: string; hint?: string | null }>(
+      "/api/admin/classic",
+      { method: "POST", body: payload },
+      describeClassicError,
+    );
+    if (!result.ok) return result;
+    const { status, data } = result;
+    if (!data.challenge) return { ok: false, message: describeClassicError(status, data.error) };
+    // The route echoes the STORED (trimmed) flag alongside the challenge;
+    // falling back to the payload's own flag would leave the list holding
+    // something the store never actually wrote.
+    return { ok: true, row: { challenge: data.challenge, flag: data.flag ?? payload.flag, hint: data.hint ?? null } };
   }
 
   /** Retires a bulk-import summary once anything else writes to the bank.
@@ -626,21 +617,14 @@ export default function AdminClassicControls({
     setDeletePending(true);
     setDeleteError(null);
     try {
-      const res = await fetch("/api/admin/classic", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const data = await parseJson<{ error?: string }>(res);
-      if (!res.ok) {
-        setDeleteError(describeClassicError(res.status, data.error));
+      const result = await sendJson<{ error?: string }>("/api/admin/classic", { method: "DELETE", body: { id } }, describeClassicError);
+      if (!result.ok) {
+        setDeleteError(result.message);
         return;
       }
       setChallenges((prev) => prev.filter((c) => c.challenge.id !== id));
       retireImportSummary();
       setDeleteTarget(null);
-    } catch {
-      setDeleteError("Couldn't reach the server — try again.");
     } finally {
       setDeletePending(false);
     }
@@ -652,18 +636,15 @@ export default function AdminClassicControls({
    *  comment), so a second key here would silently fall through to the
    *  challenge-upsert parser and 400. */
   async function postCategories(next: string[]): Promise<{ ok: true; categories: string[] } | { ok: false; message: string }> {
-    try {
-      const res = await fetch("/api/admin/classic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(categoriesRequestBody(next)),
-      });
-      const data = await parseJson<{ error?: string; categories?: string[] }>(res);
-      if (!res.ok || !Array.isArray(data.categories)) return { ok: false, message: describeClassicError(res.status, data.error) };
-      return { ok: true, categories: data.categories };
-    } catch {
-      return { ok: false, message: "Couldn't reach the server — try again." };
-    }
+    const result = await sendJson<{ error?: string; categories?: string[] }>(
+      "/api/admin/classic",
+      { method: "POST", body: categoriesRequestBody(next) },
+      describeClassicError,
+    );
+    if (!result.ok) return result;
+    const { status, data } = result;
+    if (!Array.isArray(data.categories)) return { ok: false, message: describeClassicError(status, data.error) };
+    return { ok: true, categories: data.categories };
   }
 
   async function applyCategories(next: string[]) {
@@ -787,7 +768,7 @@ export default function AdminClassicControls({
       }
       setImportErrors([{ where: "(request)", message: describeClassicError(res.status, data.error) }]);
     } catch {
-      setImportErrors([{ where: "(request)", message: "Couldn't reach the server — try again." }]);
+      setImportErrors([{ where: "(request)", message: NETWORK_ERROR }]);
     } finally {
       setImportPending(false);
     }

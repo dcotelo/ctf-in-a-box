@@ -79,6 +79,7 @@ import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type ImportError, ty
 import ConfirmModal from "@/components/confirm-modal";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -116,10 +117,7 @@ export function quizInventory(rows: readonly AdminQuestion[]): ModuleInventory {
  *  organizer is never told "bad request" for a problem that was never
  *  theirs to fix. Exported for direct testing. */
 export function describeQuizError(status: number, message?: string): string {
-  if (status === 503) {
-    return message ? `Store unavailable — ${message}` : "Store unavailable — try again shortly.";
-  }
-  return message ?? "That didn't work — check the question and try again.";
+  return describeAdminError(status, message, "That didn't work — check the question and try again.");
 }
 
 /** Longest phrase the delete confirmation asks an organizer to retype. A
@@ -394,10 +392,6 @@ function upsertInList(list: AdminQuestion[], row: AdminQuestion): AdminQuestion[
   return sortQuestions([...list.filter((x) => x.question.id !== row.question.id), row]);
 }
 
-async function parseJson<T>(res: Response): Promise<T> {
-  return (await res.json().catch(() => ({}))) as T;
-}
-
 /** Builds a bundle from the question bank this component already holds, so
  *  the export button's handler is a thin binding around a pure function —
  *  the same shape `payloadFromEditor`/`reorderQuestions` are pure for the
@@ -525,21 +519,18 @@ export default function AdminQuizControls({
   const nextOrder = questions.reduce((max, q) => Math.max(max, q.question.order), 0) + 1;
 
   async function postQuestion(payload: QuestionPayload): Promise<{ ok: true; row: AdminQuestion } | { ok: false; message: string }> {
-    try {
-      const res = await fetch("/api/admin/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await parseJson<{ error?: string; question?: Question; correct?: string[] }>(res);
-      if (!res.ok || !data.question) return { ok: false, message: describeQuizError(res.status, data.error) };
-      // The route echoes the STORED (deduped, sorted) correct set alongside
-      // the question; falling back to the payload's own set would leave the
-      // list holding something the store never wrote.
-      return { ok: true, row: { question: data.question, correct: data.correct ?? payload.correct } };
-    } catch {
-      return { ok: false, message: "Couldn't reach the server — try again." };
-    }
+    const result = await sendJson<{ error?: string; question?: Question; correct?: string[] }>(
+      "/api/admin/quiz",
+      { method: "POST", body: payload },
+      describeQuizError,
+    );
+    if (!result.ok) return result;
+    const { status, data } = result;
+    if (!data.question) return { ok: false, message: describeQuizError(status, data.error) };
+    // The route echoes the STORED (deduped, sorted) correct set alongside
+    // the question; falling back to the payload's own set would leave the
+    // list holding something the store never wrote.
+    return { ok: true, row: { question: data.question, correct: data.correct ?? payload.correct } };
   }
 
   /** Retires a bulk-import summary once anything else writes to the bank.
@@ -606,21 +597,14 @@ export default function AdminQuizControls({
     setDeletePending(true);
     setDeleteError(null);
     try {
-      const res = await fetch("/api/admin/quiz", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const data = await parseJson<{ error?: string }>(res);
-      if (!res.ok) {
-        setDeleteError(describeQuizError(res.status, data.error));
+      const result = await sendJson<{ error?: string }>("/api/admin/quiz", { method: "DELETE", body: { id } }, describeQuizError);
+      if (!result.ok) {
+        setDeleteError(result.message);
         return;
       }
       setQuestions((prev) => prev.filter((q) => q.question.id !== id));
       retireImportSummary();
       setDeleteTarget(null);
-    } catch {
-      setDeleteError("Couldn't reach the server — try again.");
     } finally {
       setDeletePending(false);
     }
@@ -691,7 +675,7 @@ export default function AdminQuizControls({
       }
       setImportErrors([{ where: "(request)", message: describeQuizError(res.status, data.error) }]);
     } catch {
-      setImportErrors([{ where: "(request)", message: "Couldn't reach the server — try again." }]);
+      setImportErrors([{ where: "(request)", message: NETWORK_ERROR }]);
     } finally {
       setImportPending(false);
     }

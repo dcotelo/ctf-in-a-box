@@ -102,6 +102,7 @@ import { confirmPhraseFromTitle } from "@/components/admin-classic-controls";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import { describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
 
 type NumericSettingKey = "aiCooldownSec";
 
@@ -135,10 +136,7 @@ export function aiInventory(rows: readonly AdminAiChallenge[], categories: reado
  *  `describeClassicError`/`describeQuizError` — each module owns its own copy
  *  of this tiny mapping rather than sharing one, same convention as those. */
 export function describeAiError(status: number, message?: string): string {
-  if (status === 503) {
-    return message ? `Store unavailable — ${message}` : "Store unavailable — try again shortly.";
-  }
-  return message ?? "That didn't work — check the challenge and try again.";
+  return describeAdminError(status, message, "That didn't work — check the challenge and try again.");
 }
 
 /** The exact copy + gating for the delete confirmation. The phrase is the
@@ -380,10 +378,6 @@ function upsertInList(list: AdminAiChallenge[], row: AdminAiChallenge): AdminAiC
   return sortChallenges([...list.filter((x) => x.challenge.id !== row.challenge.id), row]);
 }
 
-async function parseJson<T>(res: Response): Promise<T> {
-  return (await res.json().catch(() => ({}))) as T;
-}
-
 export default function AdminAiControls({
   pending,
   aiCooldownSecInput,
@@ -497,35 +491,28 @@ export default function AdminAiControls({
   async function postChallenge(
     payload: AiChallengePayload,
   ): Promise<{ ok: true; row: AdminAiChallenge } | { ok: false; message: string }> {
-    try {
-      const res = await fetch("/api/admin/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await parseJson<{
-        error?: string;
-        challenge?: AiChallenge;
-        flag?: string;
-        hint?: string | null;
-        signingKey?: string;
-      }>(res);
-      if (!res.ok || !data.challenge) return { ok: false, message: describeAiError(res.status, data.error) };
-      // The route echoes the STORED record (mode/urlTemplate may have been
-      // normalized, and a signing key is guaranteed), not the raw payload, so
-      // this panel's state matches what a subsequent GET would return.
-      return {
-        ok: true,
-        row: {
-          challenge: data.challenge,
-          flag: data.flag ?? (payload.flag ?? ""),
-          hint: data.hint ?? null,
-          signingKey: data.signingKey ?? "",
-        },
-      };
-    } catch {
-      return { ok: false, message: "Couldn't reach the server — try again." };
-    }
+    const result = await sendJson<{
+      error?: string;
+      challenge?: AiChallenge;
+      flag?: string;
+      hint?: string | null;
+      signingKey?: string;
+    }>("/api/admin/ai", { method: "POST", body: payload }, describeAiError);
+    if (!result.ok) return result;
+    const { status, data } = result;
+    if (!data.challenge) return { ok: false, message: describeAiError(status, data.error) };
+    // The route echoes the STORED record (mode/urlTemplate may have been
+    // normalized, and a signing key is guaranteed), not the raw payload, so
+    // this panel's state matches what a subsequent GET would return.
+    return {
+      ok: true,
+      row: {
+        challenge: data.challenge,
+        flag: data.flag ?? (payload.flag ?? ""),
+        hint: data.hint ?? null,
+        signingKey: data.signingKey ?? "",
+      },
+    };
   }
 
   async function submitEditor(editor: AiChallengeEditor) {
@@ -545,20 +532,13 @@ export default function AdminAiControls({
     setDeletePending(true);
     setDeleteError(null);
     try {
-      const res = await fetch("/api/admin/ai", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const data = await parseJson<{ error?: string }>(res);
-      if (!res.ok) {
-        setDeleteError(describeAiError(res.status, data.error));
+      const result = await sendJson<{ error?: string }>("/api/admin/ai", { method: "DELETE", body: { id } }, describeAiError);
+      if (!result.ok) {
+        setDeleteError(result.message);
         return;
       }
       setChallenges((prev) => prev.filter((c) => c.challenge.id !== id));
       setDeleteTarget(null);
-    } catch {
-      setDeleteError("Couldn't reach the server — try again.");
     } finally {
       setDeletePending(false);
     }
@@ -577,24 +557,23 @@ export default function AdminAiControls({
   async function rotateSigningKey(id: string): Promise<void> {
     setRotatingId(id);
     setRotateError(null);
-    let handled = false;
     try {
-      const res = await fetch("/api/admin/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rotate: id }),
-      });
-      const data = await parseJson<{ error?: string; signingKey?: string }>(res);
-      if (!res.ok || typeof data.signingKey !== "string") {
-        handled = true;
-        setRotateError(describeAiError(res.status, data.error));
+      const result = await sendJson<{ error?: string; signingKey?: string }>(
+        "/api/admin/ai",
+        { method: "POST", body: { rotate: id } },
+        describeAiError,
+      );
+      if (!result.ok) {
+        setRotateError(result.message);
+        throw new Error("rotate failed");
+      }
+      const { status, data } = result;
+      if (typeof data.signingKey !== "string") {
+        setRotateError(describeAiError(status, data.error));
         throw new Error("rotate failed");
       }
       const signingKey = data.signingKey;
       setChallenges((prev) => prev.map((row) => (row.challenge.id === id ? { ...row, signingKey } : row)));
-    } catch (err) {
-      if (!handled) setRotateError("Couldn't reach the server — try again.");
-      throw err;
     } finally {
       setRotatingId(null);
     }
@@ -604,18 +583,15 @@ export default function AdminAiControls({
    *  categories body, and it builds EXACTLY `{categories}` — see
    *  `aiCategoriesRequestBody`'s comment. */
   async function postCategories(next: string[]): Promise<{ ok: true; categories: string[] } | { ok: false; message: string }> {
-    try {
-      const res = await fetch("/api/admin/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(aiCategoriesRequestBody(next)),
-      });
-      const data = await parseJson<{ error?: string; categories?: string[] }>(res);
-      if (!res.ok || !Array.isArray(data.categories)) return { ok: false, message: describeAiError(res.status, data.error) };
-      return { ok: true, categories: data.categories };
-    } catch {
-      return { ok: false, message: "Couldn't reach the server — try again." };
-    }
+    const result = await sendJson<{ error?: string; categories?: string[] }>(
+      "/api/admin/ai",
+      { method: "POST", body: aiCategoriesRequestBody(next) },
+      describeAiError,
+    );
+    if (!result.ok) return result;
+    const { status, data } = result;
+    if (!Array.isArray(data.categories)) return { ok: false, message: describeAiError(status, data.error) };
+    return { ok: true, categories: data.categories };
   }
 
   async function applyCategories(next: string[]) {
