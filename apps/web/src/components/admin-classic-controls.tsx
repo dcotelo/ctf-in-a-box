@@ -102,7 +102,7 @@ import { generateChallengeId, CLASSIC_POINTS_MAX } from "@/lib/classic-keys";
 import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundle, type ImportError } from "@/lib/classic-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
-import ConfirmModal from "@/components/confirm-modal";
+import ConfirmDelete from "@/components/admin/confirm-delete";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
@@ -1086,21 +1086,12 @@ export default function AdminClassicControls({
       )}
 
       {deleteTarget && confirmCopy && (
-        <ConfirmModal
-          title={confirmCopy.title}
-          body={
-            <>
-              {confirmCopy.body}
-              {deleteError && <span className="mt-2 block text-[#e53e3e]">{deleteError}</span>}
-            </>
-          }
-          confirmLabel={confirmCopy.confirmLabel}
-          requireType={confirmCopy.requireType}
-          danger
+        <ConfirmDelete
+          copy={confirmCopy}
+          error={deleteError}
           pending={deletePending}
           onConfirm={() => void doDelete(deleteTarget.id)}
           onCancel={() => {
-            if (deletePending) return;
             setDeleteTarget(null);
             setDeleteError(null);
           }}

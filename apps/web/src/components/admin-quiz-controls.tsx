@@ -76,7 +76,7 @@ import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary } from "@/lib/quiz-store";
 import { generateQuestionId } from "@/lib/quiz-keys";
 import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type ImportError, type QuizBundle } from "@/lib/quiz-io";
-import ConfirmModal from "@/components/confirm-modal";
+import ConfirmDelete from "@/components/admin/confirm-delete";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
@@ -909,21 +909,12 @@ export default function AdminQuizControls({
       )}
 
       {deleteTarget && confirmCopy && (
-        <ConfirmModal
-          title={confirmCopy.title}
-          body={
-            <>
-              {confirmCopy.body}
-              {deleteError && <span className="mt-2 block text-[#e53e3e]">{deleteError}</span>}
-            </>
-          }
-          confirmLabel={confirmCopy.confirmLabel}
-          requireType={confirmCopy.requireType}
-          danger
+        <ConfirmDelete
+          copy={confirmCopy}
+          error={deleteError}
           pending={deletePending}
           onConfirm={() => void doDelete(deleteTarget.id)}
           onCancel={() => {
-            if (deletePending) return;
             setDeleteTarget(null);
             setDeleteError(null);
           }}

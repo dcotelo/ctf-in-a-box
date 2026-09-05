@@ -93,7 +93,7 @@ import {
 import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
-import ConfirmModal from "@/components/confirm-modal";
+import ConfirmDelete from "@/components/admin/confirm-delete";
 import { confirmPhrase } from "@/components/admin/confirm-phrase";
 import { type RowAccessors, nextOrder as nextOrderOf, sortByOrder, upsertRow } from "@/components/admin/ordered-rows";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
@@ -847,21 +847,12 @@ export default function AdminAiControls({
       )}
 
       {deleteTarget && confirmCopy && (
-        <ConfirmModal
-          title={confirmCopy.title}
-          body={
-            <>
-              {confirmCopy.body}
-              {deleteError && <span className="mt-2 block text-[#e53e3e]">{deleteError}</span>}
-            </>
-          }
-          confirmLabel={confirmCopy.confirmLabel}
-          requireType={confirmCopy.requireType}
-          danger
+        <ConfirmDelete
+          copy={confirmCopy}
+          error={deleteError}
           pending={deletePending}
           onConfirm={() => void doDelete(deleteTarget.id)}
           onCancel={() => {
-            if (deletePending) return;
             setDeleteTarget(null);
             setDeleteError(null);
           }}
