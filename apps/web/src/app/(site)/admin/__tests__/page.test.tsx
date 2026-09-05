@@ -189,16 +189,16 @@ describe("?tab= deep link", () => {
     return renderToStaticMarkup(await AdminPage({ searchParams: Promise.resolve(searchParams) }));
   }
 
-  /** Which tab the ARIA tablist reports as selected — the only assertion that
-   *  survives every panel being mounted at once (they are, deliberately, so a
-   *  half-typed form isn't lost on a tab switch). */
+  /** Which sidebar destination the shell reports as current — the only
+   *  assertion that survives every panel being mounted at once (they are,
+   *  deliberately, so a half-typed form isn't lost on a tab switch). */
   function selectedTab(html: string): string | null {
-    const match = html.match(/id="tab-([a-z-]+)"[^>]*aria-selected="true"/);
+    const match = html.match(/href="\?tab=([a-z-]+)"[^>]*aria-current="page"/);
     return match ? match[1] : null;
   }
 
-  it("opens the Event tab with no parameter", async () => {
-    expect(selectedTab(await render({}))).toBe("event");
+  it("opens the Overview destination with no parameter", async () => {
+    expect(selectedTab(await render({}))).toBe("overview");
   });
 
   it("opens the named module's tab", async () => {
@@ -207,9 +207,9 @@ describe("?tab= deep link", () => {
 
   // A stale bookmark, a typo, or a link to a module this event did not enable
   // must land somewhere real rather than on an empty shell.
-  it("falls back to Event for a tab this event does not have", async () => {
-    expect(selectedTab(await render({ tab: "classic" }))).toBe("event");
-    expect(selectedTab(await render({ tab: "nonsense" }))).toBe("event");
-    expect(selectedTab(await render({ tab: ["quiz", "event"] }))).toBe("event");
+  it("falls back to Overview for a tab this event does not have", async () => {
+    expect(selectedTab(await render({ tab: "classic" }))).toBe("overview");
+    expect(selectedTab(await render({ tab: "nonsense" }))).toBe("overview");
+    expect(selectedTab(await render({ tab: ["quiz", "event"] }))).toBe("overview");
   });
 });
