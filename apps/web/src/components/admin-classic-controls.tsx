@@ -17,11 +17,10 @@
 //     `{import: <raw text>}` (exactly one key) bulk-imports a pasted/uploaded
 //     bundle, parsed and validated by `parseBundle` before anything is
 //     written; anything else is parsed as a challenge-plus-flag upsert
-//     against `CHALLENGE_KEYS` (see that route's header comment). This
-//     component's `postCategories` and `postChallenge` helpers exist
-//     specifically so every categories POST carries exactly `{categories}`
-//     and nothing else — a stray extra key would fall through to the next
-//     parser in line and 400.
+//     against `CHALLENGE_KEYS` (see that route's header comment). The shared
+//     `useCategoryEditor` (components/admin) builds every categories POST as
+//     exactly `{categories}` and nothing else — a stray extra key would fall
+//     through to the next parser in line and 400.
 //   - Categories can be removed only while nothing references them. The
 //     store itself does not enforce this (`setCategories` just validates and
 //     dedupes the list), so the refusal lives here, client-side, computed
@@ -102,6 +101,8 @@ import { generateChallengeId, CLASSIC_POINTS_MAX } from "@/lib/classic-keys";
 import { CLASSIC_BUNDLE_VERSION, parseBundle, serializeBundle, type ClassicBundle, type ImportError } from "@/lib/classic-io";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import CategoryEditor from "@/components/admin/category-editor";
+import { categoriesRequestBody, useCategoryEditor } from "@/components/admin/use-category-editor";
 import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
 import {
   CaseSensitiveField,
@@ -394,13 +395,10 @@ function upsertInList(list: AdminChallenge[], row: AdminChallenge): AdminChallen
  *  route's exported `CATEGORIES_KEYS` names the same single key. A second key
  *  here, however added, would silently fall through to the challenge-upsert
  *  parser and get rejected with a 400 rather than replacing the category
- *  list. Exported so it is the ONE place `postCategories` builds this body
- *  from, and so a test can drive it straight into the real route (see the
- *  route-level wire-contract test in this component's test file) rather than
- *  only asserting on its own shape. */
-export function categoriesRequestBody(categories: readonly string[]): { categories: string[] } {
-  return { categories: [...categories] };
-}
+ *  list. Built once, in `useCategoryEditor` (components/admin), and
+ *  re-exported here so a test can drive it straight into the real route (see
+ *  the route-level wire-contract test in this component's test file). */
+export { categoriesRequestBody };
 
 /** How many challenges currently file under `category` — what lets category
  *  removal refuse with an exact count instead of a vague warning, and what
@@ -509,9 +507,15 @@ export default function AdminClassicControls({
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [newCategoryInput, setNewCategoryInput] = useState("");
-  const [categoryPending, setCategoryPending] = useState(false);
-  const [categoryError, setCategoryError] = useState<string | null>(null);
+  // Category editing (input, in-flight flag, refusal) and its writes; the
+  // list itself stays here because the same GET and a bulk import own it.
+  const categoryEditor = useCategoryEditor({
+    endpoint: "/api/admin/classic",
+    describeError: describeClassicError,
+    categories,
+    setCategories,
+    usageCount: (name) => categoryUsageCount(challenges, name),
+  });
 
   const [importText, setImportText] = useState("");
   const [importPending, setImportPending] = useState(false);
@@ -640,73 +644,6 @@ export default function AdminClassicControls({
     }
   }
 
-  /** POSTs the category list. This is the ONLY place in this component that
-   *  builds a categories body, and it builds EXACTLY `{categories}` — the
-   *  server's dispatch requires that shape have no other key (see the header
-   *  comment), so a second key here would silently fall through to the
-   *  challenge-upsert parser and 400. */
-  async function postCategories(next: string[]): Promise<{ ok: true; categories: string[] } | { ok: false; message: string }> {
-    const result = await sendJson<{ error?: string; categories?: string[] }>(
-      "/api/admin/classic",
-      { method: "POST", body: categoriesRequestBody(next) },
-      describeClassicError,
-    );
-    if (!result.ok) return result;
-    const { status, data } = result;
-    if (!Array.isArray(data.categories)) return { ok: false, message: describeClassicError(status, data.error) };
-    return { ok: true, categories: data.categories };
-  }
-
-  async function applyCategories(next: string[]) {
-    const before = categories;
-    setCategories(next);
-    setCategoryPending(true);
-    setCategoryError(null);
-    const result = await postCategories(next);
-    setCategoryPending(false);
-    if (!result.ok) {
-      setCategories(before);
-      setCategoryError(result.message);
-      return;
-    }
-    setCategories(result.categories);
-  }
-
-  function addCategory() {
-    const name = newCategoryInput.trim();
-    if (!name) return;
-    if (categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
-      setCategoryError(`"${name}" is already a category.`);
-      return;
-    }
-    setNewCategoryInput("");
-    void applyCategories([...categories, name]);
-  }
-
-  /** Refuses to remove a category still in use, naming exactly how many
-   *  challenges reference it — the store itself does not check this (see
-   *  `categoryUsageCount`'s comment), so this is the only guard there is. */
-  function removeCategory(name: string) {
-    const count = categoryUsageCount(challenges, name);
-    if (count > 0) {
-      setCategoryError(
-        `Can't remove "${name}" — ${count} challenge${count === 1 ? "" : "s"} still ${count === 1 ? "uses" : "use"} it. Reassign or delete ${count === 1 ? "it" : "them"} first.`,
-      );
-      return;
-    }
-    setCategoryError(null);
-    void applyCategories(categories.filter((c) => c !== name));
-  }
-
-  function moveCategory(from: number, to: number) {
-    if (to < 0 || to >= categories.length) return;
-    const next = [...categories];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    setCategoryError(null);
-    void applyCategories(next);
-  }
-
   /** The export button's whole handler: build the bundle from the board this
    *  component already holds (`exportBundleFrom`), serialize it, and hand it
    *  to the browser as a download. Entirely client-side — no endpoint round
@@ -811,71 +748,16 @@ export default function AdminClassicControls({
         }
       />
 
-      <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-white">Categories</span>
-        </div>
-        {categoryError && <p className="text-xs text-[#e53e3e]">{categoryError}</p>}
-        {categories.length === 0 ? (
-          <p className="text-xs text-muted">No categories yet — add one before authoring a challenge.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {categories.map((name, i) => (
-              <li
-                key={name}
-                className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-              >
-                <span className="truncate text-sm text-white">{name}</span>
-                <div className="flex flex-none gap-2">
-                  <button
-                    type="button"
-                    aria-label={`Move "${name}" up`}
-                    disabled={categoryPending || i === 0}
-                    onClick={() => moveCategory(i, i - 1)}
-                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-                  >
-                    Move up
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Move "${name}" down`}
-                    disabled={categoryPending || i === categories.length - 1}
-                    onClick={() => moveCategory(i, i + 1)}
-                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-                  >
-                    Move down
-                  </button>
-                  <button
-                    type="button"
-                    disabled={categoryPending}
-                    onClick={() => removeCategory(name)}
-                    className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="flex gap-2">
-          <input
-            value={newCategoryInput}
-            placeholder="New category"
-            disabled={categoryPending}
-            onChange={(e) => setNewCategoryInput(e.target.value)}
-            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-          <button
-            type="button"
-            disabled={categoryPending || newCategoryInput.trim().length === 0}
-            onClick={addCategory}
-            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
-          >
-            Add category
-          </button>
-        </div>
-      </div>
+      <CategoryEditor
+        categories={categories}
+        input={categoryEditor.input}
+        error={categoryEditor.error}
+        pending={categoryEditor.pending}
+        onInput={categoryEditor.setInput}
+        onAdd={categoryEditor.add}
+        onRemove={categoryEditor.remove}
+        onMove={categoryEditor.move}
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div className="flex items-center justify-between gap-3">

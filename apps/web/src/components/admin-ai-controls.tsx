@@ -93,6 +93,8 @@ import {
 import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import CategoryEditor from "@/components/admin/category-editor";
+import { categoriesRequestBody, useCategoryEditor } from "@/components/admin/use-category-editor";
 import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
 import {
   CaseSensitiveField,
@@ -366,10 +368,10 @@ export function categoryUsageCount(challenges: readonly AdminAiChallenge[], cate
 
 /** The exact request body a categories POST sends: EXACTLY one key,
  *  `categories` — see the route's header comment for why the shape has to be
- *  this precise. Exported so it is the ONE place `postCategories` builds this
- *  body from. Mirrors classic's `categoriesRequestBody`. */
+ *  this precise. Built once, in `useCategoryEditor` (components/admin); this
+ *  binding keeps the name this module's tests drive into the real route. */
 export function aiCategoriesRequestBody(categories: readonly string[]): { categories: string[] } {
-  return { categories: [...categories] };
+  return categoriesRequestBody(categories);
 }
 
 const AI_MODE_LABELS: Record<AiMode, string> = {
@@ -432,9 +434,15 @@ export default function AdminAiControls({
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [rotateError, setRotateError] = useState<string | null>(null);
 
-  const [newCategoryInput, setNewCategoryInput] = useState("");
-  const [categoryPending, setCategoryPending] = useState(false);
-  const [categoryError, setCategoryError] = useState<string | null>(null);
+  // Category editing (input, in-flight flag, refusal) and its writes; the
+  // list itself stays here because the same GET owns it.
+  const categoryEditor = useCategoryEditor({
+    endpoint: "/api/admin/ai",
+    describeError: describeAiError,
+    categories,
+    setCategories,
+    usageCount: (name) => categoryUsageCount(challenges, name),
+  });
 
   /** Re-fetches the challenge and category lists from the store. Wired to
    *  the Retry control rendered below `listError` — a real user click, never
@@ -594,70 +602,6 @@ export default function AdminAiControls({
     }
   }
 
-  /** POSTs the category list. The ONLY place in this component that builds a
-   *  categories body, and it builds EXACTLY `{categories}` — see
-   *  `aiCategoriesRequestBody`'s comment. */
-  async function postCategories(next: string[]): Promise<{ ok: true; categories: string[] } | { ok: false; message: string }> {
-    const result = await sendJson<{ error?: string; categories?: string[] }>(
-      "/api/admin/ai",
-      { method: "POST", body: aiCategoriesRequestBody(next) },
-      describeAiError,
-    );
-    if (!result.ok) return result;
-    const { status, data } = result;
-    if (!Array.isArray(data.categories)) return { ok: false, message: describeAiError(status, data.error) };
-    return { ok: true, categories: data.categories };
-  }
-
-  async function applyCategories(next: string[]) {
-    const before = categories;
-    setCategories(next);
-    setCategoryPending(true);
-    setCategoryError(null);
-    const result = await postCategories(next);
-    setCategoryPending(false);
-    if (!result.ok) {
-      setCategories(before);
-      setCategoryError(result.message);
-      return;
-    }
-    setCategories(result.categories);
-  }
-
-  function addCategory() {
-    const name = newCategoryInput.trim();
-    if (!name) return;
-    if (categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
-      setCategoryError(`"${name}" is already a category.`);
-      return;
-    }
-    setNewCategoryInput("");
-    void applyCategories([...categories, name]);
-  }
-
-  /** Refuses to remove a category still in use, naming exactly how many
-   *  challenges reference it — mirrors classic's `removeCategory` exactly. */
-  function removeCategory(name: string) {
-    const count = categoryUsageCount(challenges, name);
-    if (count > 0) {
-      setCategoryError(
-        `Can't remove "${name}" — ${count} challenge${count === 1 ? "" : "s"} still ${count === 1 ? "uses" : "use"} it. Reassign or delete ${count === 1 ? "it" : "them"} first.`,
-      );
-      return;
-    }
-    setCategoryError(null);
-    void applyCategories(categories.filter((c) => c !== name));
-  }
-
-  function moveCategory(from: number, to: number) {
-    if (to < 0 || to >= categories.length) return;
-    const next = [...categories];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    setCategoryError(null);
-    void applyCategories(next);
-  }
-
   const confirmCopy = deleteTarget ? aiChallengeDeleteConfirm(deleteTarget) : null;
 
   // Hydration-safe: "" on the server and on the first browser render, the
@@ -679,71 +623,16 @@ export default function AdminAiControls({
         onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
       />
 
-      <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-white">Categories</span>
-        </div>
-        {categoryError && <p className="text-xs text-[#e53e3e]">{categoryError}</p>}
-        {categories.length === 0 ? (
-          <p className="text-xs text-muted">No categories yet — add one before authoring a challenge.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {categories.map((name, i) => (
-              <li
-                key={name}
-                className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-              >
-                <span className="truncate text-sm text-white">{name}</span>
-                <div className="flex flex-none gap-2">
-                  <button
-                    type="button"
-                    aria-label={`Move "${name}" up`}
-                    disabled={categoryPending || i === 0}
-                    onClick={() => moveCategory(i, i - 1)}
-                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-                  >
-                    Move up
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Move "${name}" down`}
-                    disabled={categoryPending || i === categories.length - 1}
-                    onClick={() => moveCategory(i, i + 1)}
-                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
-                  >
-                    Move down
-                  </button>
-                  <button
-                    type="button"
-                    disabled={categoryPending}
-                    onClick={() => removeCategory(name)}
-                    className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="flex gap-2">
-          <input
-            value={newCategoryInput}
-            placeholder="New category"
-            disabled={categoryPending}
-            onChange={(e) => setNewCategoryInput(e.target.value)}
-            className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-          />
-          <button
-            type="button"
-            disabled={categoryPending || newCategoryInput.trim().length === 0}
-            onClick={addCategory}
-            className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
-          >
-            Add category
-          </button>
-        </div>
-      </div>
+      <CategoryEditor
+        categories={categories}
+        input={categoryEditor.input}
+        error={categoryEditor.error}
+        pending={categoryEditor.pending}
+        onInput={categoryEditor.setInput}
+        onAdd={categoryEditor.add}
+        onRemove={categoryEditor.remove}
+        onMove={categoryEditor.move}
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div className="flex items-center justify-between gap-3">
