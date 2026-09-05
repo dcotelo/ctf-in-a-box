@@ -95,6 +95,7 @@ import { MARKDOWN_MAX } from "@/lib/markdown";
 import Markdown from "@/components/markdown";
 import ConfirmModal from "@/components/confirm-modal";
 import { confirmPhrase } from "@/components/admin/confirm-phrase";
+import { type RowAccessors, nextOrder as nextOrderOf, sortByOrder, upsertRow } from "@/components/admin/ordered-rows";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
@@ -366,12 +367,19 @@ const AI_MODE_LABELS: Record<AiMode, string> = {
   both: "Either — flag or external event",
 };
 
+/** Where an ai row keeps its id and position (components/admin/ordered-rows.ts). */
+const AI_ROWS: RowAccessors<AdminAiChallenge> = {
+  id: (row) => row.challenge.id,
+  order: (row) => row.challenge.order,
+  withOrder: (row, order) => ({ ...row, challenge: { ...row.challenge, order } }),
+};
+
 function sortChallenges(list: AdminAiChallenge[]): AdminAiChallenge[] {
-  return [...list].sort((a, b) => a.challenge.order - b.challenge.order || a.challenge.id.localeCompare(b.challenge.id));
+  return sortByOrder(list, AI_ROWS);
 }
 
 function upsertInList(list: AdminAiChallenge[], row: AdminAiChallenge): AdminAiChallenge[] {
-  return sortChallenges([...list.filter((x) => x.challenge.id !== row.challenge.id), row]);
+  return upsertRow(list, row, AI_ROWS);
 }
 
 export default function AdminAiControls({
@@ -482,7 +490,7 @@ export default function AdminAiControls({
     };
   }, []);
 
-  const nextOrder = challenges.reduce((max, c) => Math.max(max, c.challenge.order), 0) + 1;
+  const nextOrder = nextOrderOf(challenges, AI_ROWS);
 
   async function postChallenge(
     payload: AiChallengePayload,

@@ -81,6 +81,14 @@ import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
 import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
+import {
+  type RowAccessors,
+  changedOrderRows as changedRows,
+  nextOrder as nextOrderOf,
+  reorderRows,
+  sortByOrder,
+  upsertRow,
+} from "@/components/admin/ordered-rows";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -335,50 +343,35 @@ export function payloadFromRow({ question: q, correct }: AdminQuestion): Questio
   };
 }
 
+/** Where a quiz row keeps its id and position — the one thing that
+ *  distinguishes this panel's list arithmetic from classic's and ai's (see
+ *  components/admin/ordered-rows.ts). */
+const QUESTION_ROWS: RowAccessors<AdminQuestion> = {
+  id: (row) => row.question.id,
+  order: (row) => row.question.order,
+  withOrder: (row, order) => ({ ...row, question: { ...row.question, order } }),
+};
+
 /** Moves the row at `from` to index `to` and rewrites EVERY row's `order`
- *  from its new position (1-based, so the list reads `#1, #2, …`).
- *
- *  Pure, and exported, because it is the whole of the reordering logic: the
- *  drag handlers and the Move up/down buttons only work out a pair of indices
- *  and hand them here. That split is deliberate — this repo has no
- *  testing-library and deliberately does not want one, so drag events cannot
- *  be simulated in a unit test; keeping every decision about what the new
- *  order values ARE inside a plain function means the untestable part is
- *  reduced to "which two numbers get passed in".
- *
- *  Rows whose order is already correct for their new position are returned by
- *  REFERENCE, unchanged. That is what lets the caller persist only the rows
- *  that actually moved (see `changedOrderRows`) instead of re-POSTing the
- *  whole list on every nudge.
- *
- *  An out-of-range index is a no-op: a copy of the list, not a renumbering.
- *  A drag that lands nowhere must not quietly rewrite every row's order. */
+ *  from its new position (1-based) — the shared `reorderRows` over quiz rows.
+ *  Pure and exported so the drag handlers and Move up/down buttons only ever
+ *  work out a pair of indices (see the shared module's header for why). */
 export function reorderQuestions(list: readonly AdminQuestion[], from: number, to: number): AdminQuestion[] {
-  const next = [...list];
-  if (from < 0 || from >= next.length || to < 0 || to >= next.length) return next;
-
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
-
-  return next.map((row, i) =>
-    row.question.order === i + 1 ? row : { ...row, question: { ...row.question, order: i + 1 } },
-  );
+  return reorderRows(list, from, to, QUESTION_ROWS);
 }
 
-/** The rows whose `order` differs between two versions of the list — i.e.
- *  exactly the questions a reorder has to write back. Matched by question id,
- *  never by position (position is the thing that changed). */
+/** The rows whose `order` differs between two versions of the list — exactly
+ *  the questions a reorder has to write back. Matched by question id. */
 export function changedOrderRows(before: readonly AdminQuestion[], after: readonly AdminQuestion[]): AdminQuestion[] {
-  const orderById = new Map(before.map((row) => [row.question.id, row.question.order]));
-  return after.filter((row) => orderById.get(row.question.id) !== row.question.order);
+  return changedRows(before, after, QUESTION_ROWS);
 }
 
 function sortQuestions(list: AdminQuestion[]): AdminQuestion[] {
-  return [...list].sort((a, b) => a.question.order - b.question.order || a.question.id.localeCompare(b.question.id));
+  return sortByOrder(list, QUESTION_ROWS);
 }
 
 function upsertInList(list: AdminQuestion[], row: AdminQuestion): AdminQuestion[] {
-  return sortQuestions([...list.filter((x) => x.question.id !== row.question.id), row]);
+  return upsertRow(list, row, QUESTION_ROWS);
 }
 
 /** Builds a bundle from the question bank this component already holds, so
@@ -505,7 +498,7 @@ export default function AdminQuizControls({
     };
   }, []);
 
-  const nextOrder = questions.reduce((max, q) => Math.max(max, q.question.order), 0) + 1;
+  const nextOrder = nextOrderOf(questions, QUESTION_ROWS);
 
   async function postQuestion(payload: QuestionPayload): Promise<{ ok: true; row: AdminQuestion } | { ok: false; message: string }> {
     const result = await sendJson<{ error?: string; question?: Question; correct?: string[] }>(

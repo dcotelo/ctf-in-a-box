@@ -107,6 +107,14 @@ import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import { NETWORK_ERROR, describeAdminError, parseJson, sendJson } from "@/components/admin/fetch";
 import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
+import {
+  type RowAccessors,
+  changedOrderRows as changedRows,
+  nextOrder as nextOrderOf,
+  reorderRows,
+  sortByOrder,
+  upsertRow,
+} from "@/components/admin/ordered-rows";
 
 // `CLASSIC_POINTS_MAX` is re-exported (not just imported) because this
 // component's OWN test file imports it from here, mirroring how the rest of
@@ -338,36 +346,35 @@ export function payloadFromRow({ challenge: c, flag, hint }: AdminChallenge): Ch
   return { id: c.id, title: c.title, category: c.category, description: c.description, points: c.points, order: c.order, flag, hint: hint ?? "" };
 }
 
+/** Where a classic row keeps its id and position — the one thing that
+ *  distinguishes this panel's list arithmetic from quiz's (see
+ *  components/admin/ordered-rows.ts). */
+const CHALLENGE_ROWS: RowAccessors<AdminChallenge> = {
+  id: (row) => row.challenge.id,
+  order: (row) => row.challenge.order,
+  withOrder: (row, order) => ({ ...row, challenge: { ...row.challenge, order } }),
+};
+
 /** Moves the row at `from` to index `to` and rewrites EVERY row's `order`
- *  from its new position (1-based). Mirrors `reorderQuestions` exactly —
- *  see that function's comment for why this is a pure, exported function
- *  rather than logic living inside a drag handler. */
+ *  from its new position (1-based) — the shared `reorderRows` over classic
+ *  rows. Pure and exported so the drag handlers and Move up/down buttons only
+ *  ever work out a pair of indices. */
 export function reorderChallenges(list: readonly AdminChallenge[], from: number, to: number): AdminChallenge[] {
-  const next = [...list];
-  if (from < 0 || from >= next.length || to < 0 || to >= next.length) return next;
-
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
-
-  return next.map((row, i) =>
-    row.challenge.order === i + 1 ? row : { ...row, challenge: { ...row.challenge, order: i + 1 } },
-  );
+  return reorderRows(list, from, to, CHALLENGE_ROWS);
 }
 
 /** The rows whose `order` differs between two versions of the list — exactly
- *  the challenges a reorder has to write back. Matched by challenge id, never
- *  by position. */
+ *  the challenges a reorder has to write back. Matched by challenge id. */
 export function changedOrderRows(before: readonly AdminChallenge[], after: readonly AdminChallenge[]): AdminChallenge[] {
-  const orderById = new Map(before.map((row) => [row.challenge.id, row.challenge.order]));
-  return after.filter((row) => orderById.get(row.challenge.id) !== row.challenge.order);
+  return changedRows(before, after, CHALLENGE_ROWS);
 }
 
 function sortChallenges(list: AdminChallenge[]): AdminChallenge[] {
-  return [...list].sort((a, b) => a.challenge.order - b.challenge.order || a.challenge.id.localeCompare(b.challenge.id));
+  return sortByOrder(list, CHALLENGE_ROWS);
 }
 
 function upsertInList(list: AdminChallenge[], row: AdminChallenge): AdminChallenge[] {
-  return sortChallenges([...list.filter((x) => x.challenge.id !== row.challenge.id), row]);
+  return upsertRow(list, row, CHALLENGE_ROWS);
 }
 
 /** The exact request body a categories POST sends: EXACTLY one key,
@@ -540,7 +547,7 @@ export default function AdminClassicControls({
     };
   }, []);
 
-  const nextOrder = challenges.reduce((max, c) => Math.max(max, c.challenge.order), 0) + 1;
+  const nextOrder = nextOrderOf(challenges, CHALLENGE_ROWS);
 
   async function postChallenge(payload: ChallengePayload): Promise<{ ok: true; row: AdminChallenge } | { ok: false; message: string }> {
     const result = await sendJson<{ error?: string; challenge?: Challenge; flag?: string; hint?: string | null }>(
