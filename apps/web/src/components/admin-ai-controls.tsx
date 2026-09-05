@@ -77,45 +77,45 @@
 // stay banked — the master reset's job), and it DOES revoke the signing key
 // immediately, breaking any external integration still using it — the
 // confirm copy below says so.
+//
+// The pure model (types, validation, payload builders, confirmation copy) is
+// in admin-ai-model.ts and the form in admin-ai-form.tsx; both are
+// re-exported here so tests and callers keep one import path.
 
 import { useEffect, useState } from "react";
 import { AI_COOLDOWN_SEC } from "@/lib/ai-defaults";
-import {
-  AI_MODES,
-  AI_POINTS_MAX,
-  generateChallengeId,
-  validateUrlTemplate,
-  type AiMode,
-} from "@/lib/ai-keys";
 // Type-only import: `ai-store.ts` is `server-only`, but a `import type` is
 // fully erased at compile time — no runtime import ever reaches the client
-// bundle. Same pattern admin-classic-controls.tsx uses for `classic-store.ts`.
+// bundle. Never change this to a value import.
 import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
-import { MARKDOWN_MAX } from "@/lib/markdown";
 import ConfirmDelete from "@/components/admin/confirm-delete";
 import CategoryEditor from "@/components/admin/category-editor";
-import { categoriesRequestBody, useCategoryEditor } from "@/components/admin/use-category-editor";
-import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
-import {
-  CaseSensitiveField,
-  CategorySelect,
-  DescriptionField,
-  FlagField,
-  HintField,
-  INPUT_CLASS,
-  MONO_INPUT_CLASS,
-  NumberField,
-  TextField,
-} from "@/components/admin/editor-fields";
-import { confirmPhrase } from "@/components/admin/confirm-phrase";
-import type { RowAccessors } from "@/components/admin/ordered-rows";
+import { useCategoryEditor } from "@/components/admin/use-category-editor";
+import { useAdminResource } from "@/components/admin/use-admin-resource";
+import { sendJson } from "@/components/admin/fetch";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
-import { describeAdminError, sendJson } from "@/components/admin/fetch";
-import { useAdminResource } from "@/components/admin/use-admin-resource";
+import { AiChallengeForm } from "@/components/admin-ai-form";
+import {
+  AI_COOLDOWN_LABEL,
+  AI_MODE_LABELS,
+  AI_ROWS,
+  type AiChallengeEditor,
+  type AiChallengePayload,
+  type NumericSettingKey,
+  aiChallengeDeleteConfirm,
+  aiInventory,
+  categoryUsageCount,
+  commitAiCooldown,
+  describeAiError,
+  editorFromAiChallenge,
+  newAiChallengeEditor,
+  payloadFromAiEditor,
+} from "@/components/admin-ai-model";
 
-type NumericSettingKey = "aiCooldownSec";
+export * from "@/components/admin-ai-model";
+export { AiChallengeForm } from "@/components/admin-ai-form";
 
 export type AdminAiControlsProps = {
   /** Parent-wide "a settings POST is in flight" flag — shared with every
@@ -133,259 +133,6 @@ export type AdminAiControlsProps = {
   /** Reports the board's size to the shell for the setup checklist above this
    *  panel — after the mount-time fetch has settled, never from the seed. */
   onInventory?: (inventory: ModuleInventory) => void;
-};
-
-/** What this panel tells the shell about its content — mirrors
- *  `classicInventory`. Pure; exported for direct testing. */
-export function aiInventory(rows: readonly AdminAiChallenge[], categories: readonly string[]): ModuleInventory {
-  return { items: rows.length, categories: categories.length };
-}
-
-/** Maps a `/api/admin/ai` response to a message that tells a validation
- *  failure (the organizer's payload was bad — 400) apart from an
- *  infrastructure failure (the store itself is unavailable — 503). Mirrors
- *  `describeClassicError`/`describeQuizError` — each module owns its own copy
- *  of this tiny mapping rather than sharing one, same convention as those. */
-export function describeAiError(status: number, message?: string): string {
-  return describeAdminError(status, message, "That didn't work — check the challenge and try again.");
-}
-
-/** The exact copy + gating for the delete confirmation. The phrase is the
- *  challenge's TITLE (falling back to its id via the shared `confirmPhrase` —
- *  see that function's own doc comment for why the fallback exists at all:
- *  `ConfirmModal` treats an empty `requireType` as "no confirmation
- *  required"). Exported for direct testing. */
-export function aiChallengeDeleteConfirm(challenge: AiChallenge): {
-  title: string;
-  body: string;
-  requireType: string;
-  confirmLabel: string;
-} {
-  const phrase = confirmPhrase(challenge.title, challenge.id);
-  return {
-    title: `Delete "${phrase}"?`,
-    body:
-      `This removes the challenge (id ${challenge.id}) from the board and hides it from contestants, ` +
-      "and revokes its signing key immediately — any external integration still using it will start failing. " +
-      "Points already banked for it stay on the leaderboard — to clear those, use the master reset.",
-    requireType: phrase,
-    confirmLabel: "Delete challenge",
-  };
-}
-
-/** Everything about a challenge that the FORM may change.
- *
- *  Deliberately missing: `id`. `order` is here (unlike classic's
- *  `ChallengeDraft`) because this panel has no drag-reorder UI — see the
- *  header comment — so position is just another number the form edits. */
-export type AiChallengeDraft = {
-  title: string;
-  category: string;
-  description: string;
-  points: string;
-  order: string;
-  /** flag / event / both — see AiMode in ai-keys.ts. */
-  mode: AiMode;
-  /** The external launch template, containing `{token}`. Validated live with
-   *  `validateUrlTemplate` — the same function the store runs. */
-  urlTemplate: string;
-  flag: string;
-  /** Compare the flag with capitalisation intact, mirroring classic's field
-   *  (issue #193). Meaningless (and hidden) in event mode. */
-  caseSensitive: boolean;
-  /** Optional paid-hint text, identical to classic's: empty = no hint, and
-   *  saving an emptied field is a deliberate CLEAR, not "leave unchanged". */
-  hint: string;
-};
-
-/** The form's whole state: the editable draft plus the identity the form
- *  does not own. Mirrors classic's `ChallengeEditor` discriminated union —
- *  an id is reachable only after establishing which case you are in, so an
- *  existing challenge's id can never be expressed as editable. */
-export type AiChallengeEditor =
-  | { mode: "new"; draft: AiChallengeDraft }
-  | { mode: "edit"; id: string; draft: AiChallengeDraft };
-
-/** The POST body `/api/admin/ai` parses for a challenge upsert. Mirrors that
- *  route's `ChallengePayload` (its exported `CHALLENGE_KEYS` names the exact
- *  key set) — this type just keeps the client from assembling something
- *  obviously wrong. `flag`/`caseSensitive` are optional in the TYPE because
- *  the route allows omitting them; in practice `hint` is always sent (see
- *  `payloadFromAiEditor`), same as classic. */
-export type AiChallengePayload = {
-  id: string;
-  title: string;
-  category: string;
-  description: string;
-  points: number;
-  order: number;
-  mode: AiMode;
-  urlTemplate: string;
-  flag?: string;
-  caseSensitive?: boolean;
-  hint?: string;
-};
-
-/** The cooldown field's `onBlur` handler logic, pulled out as a pure
- *  function so a test can prove the EXACT key wired to `commitNumber`
- *  without needing to simulate a real blur event — this repo's component
- *  tests render with `renderToStaticMarkup`, which never fires DOM events
- *  (see this file's test file header comment). */
-export const AI_COOLDOWN_LABEL = "Submission cooldown (sec)";
-
-export function commitAiCooldown(
-  commitNumber: (key: NumericSettingKey, raw: string, reset: (v: string) => void, label: string) => void,
-  raw: string,
-  reset: (v: string) => void,
-): void {
-  commitNumber("aiCooldownSec", raw, reset, AI_COOLDOWN_LABEL);
-}
-
-export function emptyAiDraft(defaultCategory: string = "", nextOrder: number = 1): AiChallengeDraft {
-  return {
-    title: "",
-    category: defaultCategory,
-    description: "",
-    points: "10",
-    order: String(nextOrder),
-    mode: "flag",
-    urlTemplate: "",
-    flag: "",
-    caseSensitive: false,
-    hint: "",
-  };
-}
-
-/** A brand-new challenge. No id: one is generated from the finished title
- *  when the draft is submitted. */
-export function newAiChallengeEditor(nextOrder: number, defaultCategory: string = ""): AiChallengeEditor {
-  return { mode: "new", draft: emptyAiDraft(defaultCategory, nextOrder) };
-}
-
-/** Seeds an edit draft from an existing challenge — INCLUDING its flag, for
- *  the same reason classic's `draftFromChallenge` does: an organizer fixing a
- *  typo should never have to retype a flag from memory. */
-export function draftFromAiChallenge({ challenge: c, flag, hint }: AdminAiChallenge): AiChallengeDraft {
-  return {
-    title: c.title,
-    category: c.category,
-    description: c.description,
-    points: String(c.points),
-    order: String(c.order),
-    mode: c.mode,
-    urlTemplate: c.urlTemplate,
-    flag,
-    hint: hint ?? "",
-    // Coerced, because the stored field is absent-when-false and a checkbox
-    // needs a real boolean — an `undefined` here makes React switch the
-    // input from controlled to uncontrolled the first time it is ticked.
-    caseSensitive: c.caseSensitive === true,
-  };
-}
-
-/** Opens an existing challenge for editing: its draft, plus the id the form
- *  cannot touch. */
-export function editorFromAiChallenge(row: AdminAiChallenge): AiChallengeEditor {
-  return { mode: "edit", id: row.challenge.id, draft: draftFromAiChallenge(row) };
-}
-
-/** Whether `draft` could be submitted as-is, mirroring the store's own rules
- *  (`upsertAiChallenge`) PLUS basic form hygiene, so an organizer can't build
- *  something the store would reject and only find out on submit. Unlike
- *  classic's `isDraftValid`, this takes no `categories` list — the category
- *  select only ever offers a value already in the current list, so there is
- *  nothing extra to police here. Exported for direct testing. */
-export function isAiDraftValid(draft: AiChallengeDraft): boolean {
-  if (draft.title.trim().length === 0) return false;
-  if (draft.category.trim().length === 0) return false;
-  if (draft.description.length > MARKDOWN_MAX) return false;
-
-  const points = Number(draft.points);
-  if (draft.points.trim() === "" || !Number.isInteger(points) || points < 0 || points > AI_POINTS_MAX) return false;
-
-  const order = Number(draft.order);
-  if (draft.order.trim() === "" || !Number.isInteger(order) || order < 0) return false;
-
-  if (!validateUrlTemplate(draft.urlTemplate).ok) return false;
-
-  // A flag is required unless the challenge is event-only — mirrors the
-  // store's own `graded` rule in `upsertAiChallenge` exactly.
-  if (draft.mode !== "event" && draft.flag.trim().length === 0) return false;
-
-  return true;
-}
-
-/** The POST body for an editor's current state.
- *
- *  The id rule mirrors `payloadFromEditor` in admin-classic-controls.tsx: on
- *  `mode: "edit"` it is `editor.id`, full stop — never re-derived from a
- *  (possibly just-rewritten) title, because changing an id would orphan every
- *  solve and invalidate every external integration already pinned to the old
- *  one. On `mode: "new"` it is minted from the title.
- *
- *  `flag` is included only when the challenge is graded (`mode !== "event"`)
- *  — the store deletes both flag hashes on an event-mode upsert regardless of
- *  what is sent, so sending a stale value from a form the organizer can no
- *  longer even see would only be confusing, never load-bearing. `caseSensitive`
- *  is likewise omitted in event mode for the same reason: with no flag to
- *  compare, an organizer who set it while the challenge was flag/both-mode and
- *  then flipped to event-mode would otherwise leave `caseSensitive: true`
- *  riding along in the payload and landing stored, semantically orphaned —
- *  a flag-comparison flag with no flag left to apply it to.
- *
- *  `newId` is injectable so a test can pin the generated value; production
- *  always uses `generateChallengeId`. Exported for direct testing. */
-export function payloadFromAiEditor(
-  editor: AiChallengeEditor,
-  newId: (title: string) => string = generateChallengeId,
-): AiChallengePayload {
-  const d = editor.draft;
-  const title = d.title.trim();
-  const graded = d.mode !== "event";
-  return {
-    id: editor.mode === "edit" ? editor.id : newId(title),
-    title,
-    category: d.category,
-    description: d.description,
-    points: Number(d.points),
-    order: Number(d.order),
-    mode: d.mode,
-    urlTemplate: d.urlTemplate.trim(),
-    // The hint is ALWAYS sent: an emptied field is a deliberate clear, and
-    // the store deletes the row for an empty string — identical to classic.
-    hint: d.hint,
-    ...(graded ? { flag: d.flag } : {}),
-    ...(graded && d.caseSensitive ? { caseSensitive: true as const } : {}),
-  };
-}
-
-/** How many challenges currently file under `category` — mirrors classic's
- *  `categoryUsageCount` exactly (small enough that reimplementing it here
- *  beats importing a function typed against classic's own row shape).
- *  Exported for direct testing. */
-export function categoryUsageCount(challenges: readonly AdminAiChallenge[], category: string): number {
-  return challenges.filter((row) => row.challenge.category === category).length;
-}
-
-/** The exact request body a categories POST sends: EXACTLY one key,
- *  `categories` — see the route's header comment for why the shape has to be
- *  this precise. Built once, in `useCategoryEditor` (components/admin); this
- *  binding keeps the name this module's tests drive into the real route. */
-export function aiCategoriesRequestBody(categories: readonly string[]): { categories: string[] } {
-  return categoriesRequestBody(categories);
-}
-
-const AI_MODE_LABELS: Record<AiMode, string> = {
-  flag: "Graded by flag",
-  event: "External event only (no flag)",
-  both: "Either — flag or external event",
-};
-
-/** Where an ai row keeps its id and position (components/admin/ordered-rows.ts). */
-const AI_ROWS: RowAccessors<AdminAiChallenge> = {
-  id: (row) => row.challenge.id,
-  order: (row) => row.challenge.order,
-  withOrder: (row, order) => ({ ...row, challenge: { ...row.challenge, order } }),
 };
 
 export default function AdminAiControls({
@@ -640,140 +387,5 @@ export default function AdminAiControls({
         />
       )}
     </>
-  );
-}
-
-// Exported (unlike a private form) so the masking/mode-gating/preview
-// properties can be proven directly against the SAME component this module
-// renders — not a copy — without first driving the parent's `editing`
-// useState open. Mirrors classic's exported `ChallengeForm`; see this
-// component's test file header comment for why.
-export function AiChallengeForm({
-  editor,
-  categories,
-  pending,
-  error,
-  flagRevealed,
-  setFlagRevealed,
-  onChange,
-  onCancel,
-  onSubmit,
-}: {
-  editor: AiChallengeEditor;
-  categories: readonly string[];
-  pending: boolean;
-  error: string | null;
-  flagRevealed: boolean;
-  setFlagRevealed: (v: boolean) => void;
-  // Takes a DRAFT, not an editor: this form cannot express a change to the
-  // challenge's id, which is what keeps an existing challenge's id immutable
-  // no matter how this component is edited later.
-  onChange: (draft: AiChallengeDraft) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  const draft = editor.draft;
-  const isNew = editor.mode === "new";
-  const set = (patch: Partial<AiChallengeDraft>) => onChange({ ...draft, ...patch });
-  const urlCheck = validateUrlTemplate(draft.urlTemplate);
-  const graded = draft.mode !== "event";
-  const phrase = editor.mode === "edit" ? confirmPhrase(draft.title, editor.id) : "";
-
-  return (
-    <EditorFrame
-      heading={editorHeading(isNew, "Add challenge", phrase)}
-      focusKey={editor.mode === "edit" ? editor.id : "new"}
-      pending={pending}
-      valid={isAiDraftValid(draft)}
-      isNew={isNew}
-      addLabel="Add challenge"
-      error={error}
-      onCancel={onCancel}
-      onSubmit={onSubmit}
-    >
-      <IdBlock
-        label="Challenge id"
-        id={editor.mode === "edit" ? editor.id : undefined}
-        fixedHelp={
-          <>
-            Fixed for the life of the challenge — contestants&rsquo; solves and any external integration&rsquo;s
-            signing key are pinned to it.
-          </>
-        }
-        generatedHelp="Generated from the title when you save."
-      />
-
-      <TextField label="Title" value={draft.title} disabled={pending} onChange={(title) => set({ title })} />
-
-      <div className="flex gap-3">
-        <CategorySelect value={draft.category} categories={categories} disabled={pending} onChange={(category) => set({ category })} />
-        <NumberField label="Points" value={draft.points} max={AI_POINTS_MAX} disabled={pending} onChange={(points) => set({ points })} />
-        <NumberField label="Position" value={draft.order} disabled={pending} onChange={(order) => set({ order })} />
-      </div>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Solve mode</span>
-        <select
-          value={draft.mode}
-          disabled={pending}
-          onChange={(e) => set({ mode: e.target.value as AiMode })}
-          className={INPUT_CLASS}
-        >
-          {AI_MODES.map((m) => (
-            <option key={m} value={m}>
-              {AI_MODE_LABELS[m]}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">
-          Launch URL — must contain <code className="rounded bg-white/10 px-1 text-white">{"{token}"}</code>, which
-          is replaced with the minted launch token.
-        </span>
-        <input
-          value={draft.urlTemplate}
-          disabled={pending}
-          onChange={(e) => set({ urlTemplate: e.target.value })}
-          className={MONO_INPUT_CLASS}
-        />
-        {!urlCheck.ok && <p className="text-xs text-[#e53e3e]">{urlCheck.reason}</p>}
-      </label>
-
-      {graded ? (
-        <>
-          {/* Masked, reveal-only, defaulting off on every fresh open (the
-              parent force-remounts via `key`). */}
-          <FlagField
-            value={draft.flag}
-            revealed={flagRevealed}
-            onToggle={() => setFlagRevealed(!flagRevealed)}
-            disabled={pending}
-            onChange={(flag) => set({ flag })}
-          />
-
-          <CaseSensitiveField
-            checked={draft.caseSensitive}
-            disabled={pending}
-            onChange={(caseSensitive) => set({ caseSensitive })}
-            help={
-              <>
-                Off by default, which forgives the commonest contestant mistake. Turn it on only when the
-                capitalisation IS the answer. Leading and trailing spaces are still forgiven either way.
-              </>
-            }
-          />
-        </>
-      ) : (
-        <p className="text-xs text-muted">
-          Event-mode challenges take no flag — solves arrive from the external site.
-        </p>
-      )}
-
-      <HintField value={draft.hint} disabled={pending} onChange={(hint) => set({ hint })} />
-
-      <DescriptionField value={draft.description} disabled={pending} onChange={(description) => set({ description })} />
-    </EditorFrame>
   );
 }

@@ -70,23 +70,39 @@
 // banked points is the master reset's job. The confirm copy below says so
 // in as many words; keep the two in step.
 
+//
+// The pure model (types, validation, payload builders, confirmation copy) is
+// in admin-quiz-model.ts and the form in admin-quiz-form.tsx; both are
+// re-exported here so tests and callers keep one import path.
+
 import { useEffect } from "react";
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
-import type { AdminQuestion, Choice, Question, QuestionType, QuizImportSummary } from "@/lib/quiz-store";
-import { generateQuestionId } from "@/lib/quiz-keys";
-import { QUIZ_BUNDLE_VERSION, parseBundle, serializeBundle, type QuizBundle } from "@/lib/quiz-io";
+import type { AdminQuestion, Question, QuizImportSummary } from "@/lib/quiz-store";
+import { parseBundle, serializeBundle } from "@/lib/quiz-io";
 import ConfirmDelete from "@/components/admin/confirm-delete";
 import ImportPanel from "@/components/admin/import-panel";
 import { downloadJson, useBundleImport } from "@/components/admin/use-bundle-import";
 import SortableList from "@/components/admin/sortable-list";
-import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
-import { INPUT_CLASS, NumberField, PositionReadout } from "@/components/admin/editor-fields";
+import { useAdminResource } from "@/components/admin/use-admin-resource";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
-import { describeAdminError } from "@/components/admin/fetch";
-import { useAdminResource } from "@/components/admin/use-admin-resource";
-import { DELETE_CONFIRM_PHRASE_MAX, confirmPhrase } from "@/components/admin/confirm-phrase";
-import { type RowAccessors, changedOrderRows as changedRows, reorderRows } from "@/components/admin/ordered-rows";
+import QuestionForm from "@/components/admin-quiz-form";
+import {
+  QUESTION_ROWS,
+  type QuestionEditor,
+  type QuestionPayload,
+  describeQuizError,
+  editorFromQuestion,
+  exportBundleFrom,
+  formatImportSummary,
+  newQuestionEditor,
+  payloadFromEditor,
+  payloadFromRow,
+  questionDeleteConfirm,
+  quizInventory,
+} from "@/components/admin-quiz-model";
+
+export * from "@/components/admin-quiz-model";
 
 type NumericSettingKey = "quizMaxAttempts" | "quizRetryAfterMin";
 
@@ -110,294 +126,6 @@ export type AdminQuizControlsProps = {
    *  for the second before the real list lands. */
   onInventory?: (inventory: ModuleInventory) => void;
 };
-
-/** What this panel tells the shell about its content. Pure, so the shape is
- *  provable without running the effect that sends it. Exported for direct
- *  testing. */
-export function quizInventory(rows: readonly AdminQuestion[]): ModuleInventory {
-  return { items: rows.length };
-}
-
-/** Maps a `/api/admin/quiz` response to a message that tells a validation
- *  failure (the organizer's payload was bad — 400) apart from an
- *  infrastructure failure (the store itself is unavailable — 503), so an
- *  organizer is never told "bad request" for a problem that was never
- *  theirs to fix. Exported for direct testing. */
-export function describeQuizError(status: number, message?: string): string {
-  return describeAdminError(status, message, "That didn't work — check the question and try again.");
-}
-
-export { DELETE_CONFIRM_PHRASE_MAX };
-
-/** The exact string the delete confirmation makes the organizer type: the
- *  question's prompt, through the shared `confirmPhrase` (whitespace-collapsed,
- *  cut at a word boundary inside `DELETE_CONFIRM_PHRASE_MAX`). No fallback:
- *  a prompt is required non-empty, so there is nothing to fall back from.
- *  Exported for direct testing. */
-export function confirmPhraseFromPrompt(prompt: string): string {
-  return confirmPhrase(prompt);
-}
-
-/** The exact copy + gating for the delete confirmation.
- *
- *  The phrase is the question's PROMPT, not its id. The id used to be typed
- *  here, back when an organizer chose it; now it is generated
- *  (`generateQuestionId`), and asking someone to transcribe
- *  "which-header-mitigates-cl-k3f9qa" proves only that they can copy a string
- *  — it doesn't make them read WHICH question they are about to remove, which
- *  is the entire job of this gate. The prompt does.
- *
- *  The id still appears in `body`, as a fact rather than a task: two questions
- *  whose prompts share a first 48 characters would ask for the same phrase, and
- *  the id is what tells them apart on screen. (Which one actually goes is never
- *  in doubt — the delete is dispatched against the selected row's id, not
- *  against anything typed.)
- *
- *  `body` states the real contract, which is narrower than it looks: the
- *  question goes away, banked points do not. Saying otherwise (an earlier
- *  draft claimed it "permanently destroys every contestant's answer and
- *  attempt history") would send an organizer trying to un-award points down
- *  a path that doesn't do that — the master reset is what does. Exported for
- *  direct testing. */
-export function questionDeleteConfirm(question: Question): {
-  title: string;
-  body: string;
-  requireType: string;
-  confirmLabel: string;
-} {
-  const phrase = confirmPhraseFromPrompt(question.prompt);
-  return {
-    title: `Delete "${phrase}"?`,
-    body:
-      `This removes the question (id ${question.id}) from the quiz and hides it from contestants. ` +
-      "Points already banked for it stay on the leaderboard — to clear those, use the master reset.",
-    requireType: phrase,
-    confirmLabel: "Delete question",
-  };
-}
-
-export type ChoiceDraft = Choice;
-
-/** Everything about a question that the FORM may change.
- *
- *  Deliberately missing: `id` and `order`. Both are storage plumbing derived
- *  elsewhere (`QuestionEditor` below holds them), and their absence here is
- *  what makes "an edit cannot change a question's id" a property of the types
- *  rather than of a `disabled` attribute somebody could remove. */
-export type QuestionDraft = {
-  prompt: string;
-  type: QuestionType;
-  points: string;
-  choices: ChoiceDraft[];
-  correct: string[];
-};
-
-/** The form's whole state: the editable draft plus the identity/position the
- *  form does not own.
- *
- *  A discriminated union rather than `{ id?: string }`, so the id is reachable
- *  only after establishing which case you are in — a NEW question genuinely
- *  has no id yet (it is minted from the prompt at save time), and an EXISTING
- *  one's is fixed. */
-export type QuestionEditor =
-  | { mode: "new"; order: number; draft: QuestionDraft }
-  | { mode: "edit"; id: string; order: number; draft: QuestionDraft };
-
-/** The POST body `/api/admin/quiz` parses. Mirrors that route's
- *  `QuestionPayload` — the route re-validates every field, this type just
- *  keeps the client from assembling something obviously wrong. */
-export type QuestionPayload = {
-  id: string;
-  prompt: string;
-  type: QuestionType;
-  choices: Choice[];
-  points: number;
-  order: number;
-  correct: string[];
-};
-
-export function emptyDraft(): QuestionDraft {
-  return {
-    prompt: "",
-    type: "single",
-    points: "10",
-    choices: [
-      { id: "a", label: "" },
-      { id: "b", label: "" },
-    ],
-    correct: [],
-  };
-}
-
-/** A brand-new question, positioned at the end of the list. No id: one is
- *  generated from the finished prompt when the draft is submitted, so the
- *  slug reflects what the organizer actually typed rather than whatever the
- *  prompt field held at the moment they clicked "Add question". */
-export function newQuestionEditor(nextOrder: number): QuestionEditor {
-  return { mode: "new", order: nextOrder, draft: emptyDraft() };
-}
-
-/** Seeds an edit draft from an existing question — INCLUDING the choices
- *  currently marked correct, which is the whole point of taking an
- *  `AdminQuestion` here rather than a bare `Question`. Starting a typo fix
- *  with nothing selected made re-picking the answer from memory a required
- *  step of every save, and a wrong guess there silently changed what counts
- *  as correct for every contestant.
- *
- *  `correct` is copied, never aliased: the draft is edited in place as the
- *  organizer toggles choices, and mutating the list row behind it would make
- *  a cancelled edit look saved. */
-export function draftFromQuestion({ question: q, correct }: AdminQuestion): QuestionDraft {
-  return {
-    prompt: q.prompt,
-    type: q.type,
-    points: String(q.points),
-    choices: q.choices.map((c) => ({ ...c })),
-    correct: [...correct],
-  };
-}
-
-/** Opens an existing question for editing: its draft, plus the id and order
- *  the form cannot touch. */
-export function editorFromQuestion(row: AdminQuestion): QuestionEditor {
-  return { mode: "edit", id: row.question.id, order: row.question.order, draft: draftFromQuestion(row) };
-}
-
-/** Whether `draft` could be submitted as-is. Mirrors the store's own rules
- *  (a `"single"` question needs exactly one correct choice) PLUS basic form
- *  hygiene (non-empty fields, at least two choices, unique choice ids) so an
- *  organizer can't build something the store would reject and only find out
- *  on submit (Requirement 4).
- *
- *  No id check any more, and that is not an oversight: a new question's id is
- *  derived from the prompt (which IS checked non-empty) and an existing one's
- *  is fixed, so there is no id for a draft to get wrong. Same for order, which
- *  now comes from list position. Exported for direct testing. */
-export function isDraftValid(d: QuestionDraft): boolean {
-  if (d.prompt.trim().length === 0) return false;
-
-  const points = Number(d.points);
-  if (d.points.trim() === "" || !Number.isInteger(points) || points < 0) return false;
-
-  if (d.choices.length < 2) return false;
-  const ids = new Set<string>();
-  for (const c of d.choices) {
-    const id = c.id.trim();
-    const label = c.label.trim();
-    if (id.length === 0 || label.length === 0) return false;
-    if (ids.has(id)) return false;
-    ids.add(id);
-  }
-
-  const correct = d.correct.filter((id) => ids.has(id));
-  if (d.type === "single" && correct.length !== 1) return false;
-  if (d.type === "multi" && correct.length < 1) return false;
-
-  return true;
-}
-
-/** The POST body for an editor's current state.
- *
- *  The id rule is the whole reason this is a function and not an inline object
- *  literal at the call site: on `mode: "edit"` it is `editor.id`, full stop —
- *  no derivation from the (possibly just-rewritten) prompt, because changing
- *  an id would orphan every answer already recorded against the old one. On
- *  `mode: "new"` it is minted from the prompt.
- *
- *  `newId` is injectable so a test can pin the generated value; production
- *  always uses `generateQuestionId`, whose output is checked against the
- *  store's own `QUIZ_ID_RE` before it is returned. Exported for direct
- *  testing. */
-export function payloadFromEditor(
-  editor: QuestionEditor,
-  newId: (prompt: string) => string = generateQuestionId,
-): QuestionPayload {
-  const d = editor.draft;
-  const prompt = d.prompt.trim();
-  return {
-    id: editor.mode === "edit" ? editor.id : newId(prompt),
-    prompt,
-    type: d.type,
-    choices: d.choices.map((c) => ({ id: c.id.trim(), label: c.label.trim() })),
-    points: Number(d.points),
-    order: editor.order,
-    correct: d.correct,
-  };
-}
-
-/** The POST body that re-saves an existing row unchanged apart from whatever
- *  the caller already rewrote on it — used by the reorder path, which changes
- *  `order` and nothing else. Goes through the same endpoint (and therefore
- *  the same validation and audit line) as an edit. */
-export function payloadFromRow({ question: q, correct }: AdminQuestion): QuestionPayload {
-  return {
-    id: q.id,
-    prompt: q.prompt,
-    type: q.type,
-    choices: q.choices.map((c) => ({ ...c })),
-    points: q.points,
-    order: q.order,
-    correct: [...correct],
-  };
-}
-
-/** Where a quiz row keeps its id and position — the one thing that
- *  distinguishes this panel's list arithmetic from classic's and ai's (see
- *  components/admin/ordered-rows.ts). */
-const QUESTION_ROWS: RowAccessors<AdminQuestion> = {
-  id: (row) => row.question.id,
-  order: (row) => row.question.order,
-  withOrder: (row, order) => ({ ...row, question: { ...row.question, order } }),
-};
-
-/** Moves the row at `from` to index `to` and rewrites EVERY row's `order`
- *  from its new position (1-based) — the shared `reorderRows` over quiz rows.
- *  Pure and exported so the drag handlers and Move up/down buttons only ever
- *  work out a pair of indices (see the shared module's header for why). */
-export function reorderQuestions(list: readonly AdminQuestion[], from: number, to: number): AdminQuestion[] {
-  return reorderRows(list, from, to, QUESTION_ROWS);
-}
-
-/** The rows whose `order` differs between two versions of the list — exactly
- *  the questions a reorder has to write back. Matched by question id. */
-export function changedOrderRows(before: readonly AdminQuestion[], after: readonly AdminQuestion[]): AdminQuestion[] {
-  return changedRows(before, after, QUESTION_ROWS);
-}
-
-/** Builds a bundle from the question bank this component already holds, so
- *  the export button's handler is a thin binding around a pure function —
- *  the same shape `payloadFromEditor`/`reorderQuestions` are pure for the
- *  same reason: `renderToStaticMarkup` cannot exercise a click handler, so
- *  the logic worth testing has to live outside one. Mirrors `exportBundle`
- *  in quiz-store.ts field for field (that one reads the store server-side;
- *  this one reads client state), so an export built here round-trips through
- *  `parseBundle` exactly like a server-side export would. Exported for
- *  direct testing. */
-export function exportBundleFrom(rows: readonly AdminQuestion[]): QuizBundle {
-  return {
-    version: QUIZ_BUNDLE_VERSION,
-    questions: rows.map(({ question: q, correct }) => ({
-      id: q.id,
-      prompt: q.prompt,
-      type: q.type,
-      choices: q.choices.map((c) => ({ id: c.id, label: c.label })),
-      points: q.points,
-      order: q.order,
-      correct,
-    })),
-  };
-}
-
-/** Formats a `QuizImportSummary` into the panel's after-import message. Pure
- *  for the same reason `exportBundleFrom` just above is: `importResult` is
- *  `useState`, which `renderToStaticMarkup` can never reach, so the
- *  pluralization branch has to live outside a render tree to be exercised by
- *  a test at all. Exported for direct testing. */
-export function formatImportSummary({ created, updated }: QuizImportSummary): string {
-  const total = created + updated;
-  const questionWord = total === 1 ? "question" : "questions";
-  return `Imported ${total} ${questionWord}: ${created} created, ${updated} updated.`;
-}
 
 export default function AdminQuizControls({
   pending,
@@ -566,164 +294,5 @@ export default function AdminQuizControls({
         />
       )}
     </>
-  );
-}
-
-function QuestionForm({
-  editor,
-  pending,
-  error,
-  onChange,
-  onCancel,
-  onSubmit,
-}: {
-  editor: QuestionEditor;
-  pending: boolean;
-  error: string | null;
-  // Takes a DRAFT, not an editor: this form cannot express a change to the
-  // question's id or its position, which is what keeps an existing question's
-  // id immutable no matter how this component is edited later.
-  onChange: (draft: QuestionDraft) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  const draft = editor.draft;
-  const isNew = editor.mode === "new";
-  const set = (patch: Partial<QuestionDraft>) => onChange({ ...draft, ...patch });
-  const singleNeedsExactlyOne = draft.type === "single" && draft.correct.length !== 1;
-  const multiNeedsAtLeastOne = draft.type === "multi" && draft.correct.length < 1;
-
-  function setChoice(index: number, patch: Partial<ChoiceDraft>) {
-    const choices = draft.choices.map((c, i) => (i === index ? { ...c, ...patch } : c));
-    onChange({ ...draft, choices });
-  }
-
-  function addChoice() {
-    onChange({ ...draft, choices: [...draft.choices, { id: "", label: "" }] });
-  }
-
-  function removeChoice(index: number) {
-    const removedId = draft.choices[index]?.id;
-    const choices = draft.choices.filter((_, i) => i !== index);
-    const correct = draft.correct.filter((id) => id !== removedId);
-    onChange({ ...draft, choices, correct });
-  }
-
-  function toggleCorrect(choiceId: string) {
-    if (draft.type === "single") {
-      onChange({ ...draft, correct: [choiceId] });
-      return;
-    }
-    const correct = draft.correct.includes(choiceId)
-      ? draft.correct.filter((id) => id !== choiceId)
-      : [...draft.correct, choiceId];
-    onChange({ ...draft, correct });
-  }
-
-  return (
-    <EditorFrame
-      heading={editorHeading(isNew, "Add question", confirmPhraseFromPrompt(draft.prompt))}
-      focusKey={editor.mode === "edit" ? editor.id : "new"}
-      pending={pending}
-      valid={isDraftValid(draft)}
-      isNew={isNew}
-      addLabel="Add question"
-      error={error}
-      onCancel={onCancel}
-      onSubmit={onSubmit}
-    >
-      <IdBlock
-        label="Question id"
-        id={editor.mode === "edit" ? editor.id : undefined}
-        fixedHelp="Fixed for the life of the question — contestants’ answers are recorded against it."
-        generatedHelp="Generated from the prompt when you save."
-      />
-
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Prompt</span>
-        <textarea
-          value={draft.prompt}
-          disabled={pending}
-          onChange={(e) => set({ prompt: e.target.value })}
-          rows={2}
-          className={INPUT_CLASS}
-        />
-      </label>
-
-      <div className="flex gap-3">
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-xs text-muted">Type</span>
-          <select
-            value={draft.type}
-            disabled={pending}
-            onChange={(e) => set({ type: e.target.value as QuestionType, correct: [] })}
-            className={INPUT_CLASS}
-          >
-            <option value="single">Single choice</option>
-            <option value="multi">Multiple choice</option>
-          </select>
-        </label>
-        <NumberField label="Points" value={draft.points} disabled={pending} onChange={(points) => set({ points })} />
-        {/* Position is set by dragging (or Move up / Move down) in the list
-            above, so the form states where this question sits and offers
-            nothing to type. */}
-        <PositionReadout order={editor.order} isNew={isNew} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <span className="text-xs text-muted">
-          Choices — select the correct {draft.type === "single" ? "answer" : "answer(s)"}
-        </span>
-        {draft.choices.map((c, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input
-              type={draft.type === "single" ? "radio" : "checkbox"}
-              name="quiz-draft-correct"
-              checked={draft.correct.includes(c.id)}
-              disabled={pending || c.id.trim().length === 0}
-              onChange={() => toggleCorrect(c.id)}
-              className="h-4 w-4 flex-none accent-[#2563eb]"
-            />
-            <input
-              value={c.id}
-              placeholder="choice id"
-              disabled={pending}
-              onChange={(e) => setChoice(i, { id: e.target.value })}
-              className="w-24 flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-            />
-            <input
-              value={c.label}
-              placeholder="label"
-              disabled={pending}
-              onChange={(e) => setChoice(i, { label: e.target.value })}
-              className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-            />
-            <button
-              type="button"
-              disabled={pending || draft.choices.length <= 2}
-              onClick={() => removeChoice(i)}
-              className="flex-none rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-400 hover:bg-white/[0.04] disabled:opacity-40"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          disabled={pending}
-          onClick={addChoice}
-          className="self-start rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
-        >
-          Add choice
-        </button>
-        {(singleNeedsExactlyOne || multiNeedsAtLeastOne) && (
-          <p className="text-xs text-[#d4a017]">
-            {draft.type === "single"
-              ? "A single-choice question needs exactly one correct answer selected."
-              : "Select at least one correct answer."}
-          </p>
-        )}
-      </div>
-    </EditorFrame>
   );
 }
