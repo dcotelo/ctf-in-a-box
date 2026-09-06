@@ -117,10 +117,10 @@ describe("AdminControls tab shell", () => {
     expect(html).toContain("Insights");
     expect(html).toContain("Secure Development");
     expect(html).toContain("Quiz");
-    // Overview + Event + Admins + Support + Activity + Insights + the two
-    // modules. The six control-plane destinations are not modules, so all
-    // six are present regardless of what the event enables.
-    expect(html.match(/href="\?tab=/g)?.length).toBe(8);
+    // Overview + Event + Hints + Admins + Support + Activity + Insights + the
+    // two modules. The seven control-plane destinations are not modules, so
+    // all seven are present regardless of what the event enables.
+    expect(html.match(/href="\?tab=/g)?.length).toBe(9);
   });
 
   // Setup instructions are a registry contract (`ModuleDef.setup`), resolved
@@ -180,10 +180,10 @@ describe("AdminControls tab shell", () => {
 
   it("renders every tab panel so only visibility is conditional", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
-    // Overview + Event + Admins + Support + Activity + Insights + the two modules.
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(8);
-    // Exactly the seven non-selected panels carry `hidden`.
-    expect(html.match(/hidden=""/g)?.length).toBe(7);
+    // Overview + Event + Hints + Admins + Support + Activity + Insights + the two modules.
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(9);
+    // Exactly the eight non-selected panels carry `hidden`.
+    expect(html.match(/hidden=""/g)?.length).toBe(8);
   });
 
   it("names each panel for assistive tech and links the sidebar to it", () => {
@@ -228,33 +228,36 @@ describe("AdminControls panel contents", () => {
   // Development's tab made them unreachable on any event without that
   // module (UX audit F1). Secure Development keeps the one knob that IS its
   // own: the re-run cooldown.
-  it("puts the hint controls on the Event panel and leaves only the re-run cooldown on Secure Development", () => {
+  it("puts the hint controls on their own Hints panel and leaves only the re-run cooldown on Secure Development", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const secureDev = panelFor(html, "secure-development");
     const eventPanel = panelFor(html, "event");
-    expect(eventPanel).toContain("Hints enabled");
-    expect(eventPanel).toContain("Hint cost");
-    expect(eventPanel).toContain("Hints: solves required");
-    expect(eventPanel).toContain("Hints: unlock after (min)");
+    const hintsPanel = panelFor(html, "hints");
+    expect(hintsPanel).toContain("Hints enabled");
+    expect(hintsPanel).toContain("Hint cost");
+    expect(hintsPanel).toContain("Hints: solves required");
+    expect(hintsPanel).toContain("Hints: unlock after (min)");
+    expect(eventPanel).not.toContain("Hint cost");
     expect(secureDev).toContain("Re-run cooldown (min)");
     expect(secureDev).not.toContain("Hint cost");
     expect(secureDev).not.toContain("Hints enabled");
   });
 
-  it("says on the Event panel which modules the hint policy reaches", () => {
+  it("says on the Hints panel which modules the hint policy reaches", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
-    const eventPanel = panelFor(html, "event");
-    expect(eventPanel).toMatch(/Secure Development, Classic CTF and AI Challenges/);
+    const hintsPanel = panelFor(html, "hints");
+    expect(hintsPanel).toMatch(/Secure Development, Classic CTF and AI Challenges/);
   });
 
   // UX audit F6: the unlock-after help used to say "a scoring start below",
-  // a leftover from the flat layout. On the Event tab the Schedule section
-  // sits ABOVE the hint knobs, and the field has a name.
-  it("points the unlock-after help at the Scoring opens field, not 'below'", () => {
+  // a leftover from the flat layout. Now that Hints is its own destination
+  // (not a section of Event), the field names WHERE to find Scoring opens
+  // instead of pointing at a field on the same panel.
+  it("points the unlock-after help at the Event tab, not 'below'", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
-    const eventPanel = panelFor(html, "event");
-    expect(eventPanel).toContain("Scoring opens");
-    expect(eventPanel).not.toContain("a scoring start below");
+    const hintsPanel = panelFor(html, "hints");
+    expect(hintsPanel).toContain("on the Event tab");
+    expect(hintsPanel).not.toContain("a scoring start below");
   });
 
   it("keeps freeze and registration in the Event panel", () => {
@@ -309,13 +312,13 @@ describe("AdminControls panel contents", () => {
     const html = renderToStaticMarkup(
       <AdminControls viewerLogin="organizer" initial={settings} modules={twoModules.filter((m) => m.id !== "secure-development")} />,
     );
-    // Overview + Event + Admins + Support + Activity + Insights + quiz. The
-    // control-plane destinations survive a module being disabled, because
-    // none of them is a module tab.
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(7);
+    // Overview + Event + Hints + Admins + Support + Activity + Insights +
+    // quiz. The control-plane destinations survive a module being disabled,
+    // because none of them is a module tab.
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(8);
     // The hint policy stays reachable: quiz has no hints, but classic and ai
     // do, and this event can switch either on at runtime.
-    expect(panelFor(html, "event")).toContain("Hint cost");
+    expect(panelFor(html, "hints")).toContain("Hint cost");
     expect(() => panelFor(html, "secure-development")).toThrow();
   });
 
@@ -474,11 +477,11 @@ describe("AdminControls ai panel", () => {
     { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and jailbreak challenges hosted externally.", targets: [] },
   ];
 
-  it("renders the ai module's tab with a ninth destination and panel", () => {
+  it("renders the ai module's tab with a tenth destination and panel", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
     expect(html).toContain("AI Challenges");
-    expect(html.match(/href="\?tab=/g)?.length).toBe(9);
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(9);
+    expect(html.match(/href="\?tab=/g)?.length).toBe(10);
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(10);
   });
 
   it("renders AdminAiControls in the ai panel, not the fallback placeholder", () => {

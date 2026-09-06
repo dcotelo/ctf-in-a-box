@@ -55,6 +55,7 @@ import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
+import AdminHintsTab from "./admin-hints-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
 import type { CommitNumber, ConfirmState } from "./types";
@@ -101,6 +102,9 @@ const OVERVIEW_TAB = "overview";
 /** The always-present control-plane tab. Module tabs follow it, in the order
  *  the event config lists them. */
 const EVENT_TAB = "event";
+// The hint policy's own destination (admin-redesign.md's Event/Hints/Admins
+// split) — see admin-hints-tab.tsx for why it isn't a module's or Event's.
+const HINTS_TAB = "hints";
 /** Runtime admin management (issue #147). Sits beside Event rather than
  *  inside it: it manages WHO may use the panel, not what the event does. */
 const ADMINS_TAB = "admins";
@@ -273,6 +277,7 @@ export default function AdminControls({
   const tabs = [
     { id: OVERVIEW_TAB, label: "Overview" },
     { id: EVENT_TAB, label: "Event" },
+    { id: HINTS_TAB, label: "Hints" },
     { id: ADMINS_TAB, label: "Admins" },
     { id: SUPPORT_TAB, label: "Support" },
     { id: ACTIVITY_TAB, label: "Activity" },
@@ -285,8 +290,7 @@ export default function AdminControls({
 
   // The sidebar's three groups (admin-redesign.md). CONTENT is every enabled
   // module, in the order `modules` lists them — the same order the flat tab
-  // row used. SETUP holds Event and Admins here; Hints joins it once the
-  // Event/Hints split lands.
+  // row used.
   const sidebarGroups: readonly SidebarGroup[] = [
     {
       heading: "Run",
@@ -305,6 +309,7 @@ export default function AdminControls({
       heading: "Setup",
       items: [
         { id: EVENT_TAB, label: "Event" },
+        { id: HINTS_TAB, label: "Hints" },
         { id: ADMINS_TAB, label: "Admins" },
       ],
     },
@@ -524,15 +529,23 @@ export default function AdminControls({
                   teamMaxMembersInput={teamMaxMembersInput}
                   setTeamMaxMembersInput={setTeamMaxMembersInput}
                   commitNumber={commitNumber}
+                  moduleChoices={MODULE_CHOICES}
+                  liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
+                  nowMs={settingsAt}
+                />
+              ) : tab.id === HINTS_TAB ? (
+                <AdminHintsTab
+                  settings={settings}
+                  pending={pending}
+                  apply={apply}
+                  statusOf={statusOf}
+                  commitNumber={commitNumber}
                   hintCostInput={hintCostInput}
                   setHintCostInput={setHintCostInput}
                   minSolvesInput={minSolvesInput}
                   setMinSolvesInput={setMinSolvesInput}
                   unlockAfterInput={unlockAfterInput}
                   setUnlockAfterInput={setUnlockAfterInput}
-                  moduleChoices={MODULE_CHOICES}
-                  liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
-                  nowMs={settingsAt}
                 />
               ) : tab.id === ADMINS_TAB ? (
                 <AdminAdminsTab viewerLogin={viewerLogin} />
