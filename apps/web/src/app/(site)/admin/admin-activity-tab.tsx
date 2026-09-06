@@ -22,7 +22,7 @@ const PAGE_SIZE = 200;
 /** Human labels for the known types. Unknown types (an entry written by a
  *  newer or older build than this one) render their raw type string rather
  *  than being dropped — the log must never silently hide events. */
-const TYPE_LABELS: Record<string, string> = {
+export const TYPE_LABELS: Record<string, string> = {
   login: "signed in",
   "quiz-solve": "quiz solve",
   "classic-solve": "flag solve",

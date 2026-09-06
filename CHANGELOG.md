@@ -8,6 +8,23 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The admin panel has a sidebar, an Overview, and a compact header (admin
+  redesign, PR 1 of 3).** The nine flat tabs are now a left sidebar in three
+  groups — Run (Overview, Activity, Insights, Support), Content (one per
+  enabled module), Setup (Event, Hints, Admins) — collapsing to a drawer on
+  narrow screens. Deep links stay `?tab=<id>`; an unknown id falls back to
+  the new **Overview** instead of Event. Overview answers "is scoring on, how
+  many teams, is anything stuck" in one screen: phase and time remaining,
+  Scoring and Registration as switches, the four funnel figures (Stuck first
+  when non-zero), the sync health line folded in from the old Status card,
+  the five most recent activity rows, and a setup-status line per module —
+  read-only apart from the two switches, and a snapshot for now (the 15 s
+  refresh is PR 2). The header is one row (`Admin · event · phase · until
+  date`) reusing the public phase strip's vocabulary; the "Organizer / Admin"
+  block and the outer Controls frame are gone. The hint policy moved out of
+  Event onto its own **Hints** destination — stored keys and validation
+  unchanged, as with its earlier moves. Every existing tab renders unchanged
+  inside the new shell.
 - **Every fail-direction gate in the pause/schedule contract is now pinned by
   a test (#232).** `hint-store.ts` `revealHint` documents and pins fail-CLOSED
   on a settings-read error (never charge on uncertainty); `team-store.ts`

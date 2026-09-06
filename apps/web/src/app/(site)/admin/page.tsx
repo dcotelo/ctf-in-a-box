@@ -7,14 +7,15 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import PageHeader from "@/components/page-header";
+import { phaseFromSettings } from "@/components/phase";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { enabledApps, joinAppNames } from "@/lib/apps";
 import { eventConfig } from "@/lib/event-config";
 import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
-import { formatRelativeTime } from "@/lib/relative-time";
 import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
 import AdminControls from "./admin-controls";
+import AdminHeader from "./admin-header";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -94,61 +95,16 @@ export default async function AdminPage({
     if (setup) setups[mod.id] = setup(ctx);
   }
 
+  const resolution = settings ? phaseFromSettings(settings) : null;
+
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader eyebrow="Organizer" title="Admin" description="Event controls and sync status." />
+      <AdminHeader eventName={eventConfig.name} resolution={resolution} />
 
-      <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Status</h2>
-        {sync ? (
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Last poll</dt>
-              <dd className="font-mono text-white">
-                {sync.lastPollAt ? formatRelativeTime(sync.lastPollAt) : "never"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Ingested</dt>
-              <dd className="font-mono tabular-nums text-white">{sync.ingested}</dd>
-            </div>
-            {/* Sits beside Ingested on purpose: the pair is the whole health
-                check. Points that reached the leaderboard, and points that
-                reached a PR and stopped there. Amber only when nonzero — a
-                warning colour on a permanent zero teaches organizers to
-                ignore the colour. */}
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Dropped</dt>
-              <dd className={`font-mono tabular-nums ${sync.dropped > 0 ? "text-[#d4a017]" : "text-white"}`}>
-                {sync.dropped}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Repos polled</dt>
-              <dd className="font-mono tabular-nums text-white">{sync.reposPolled}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Sync paused</dt>
-              <dd className="font-mono text-white">{sync.paused ? "yes" : "no"}</dd>
-            </div>
-            {sync.lastDrop && (
-              <div className="col-span-2 sm:col-span-5">
-                <dt className="text-xs uppercase tracking-wide text-muted">Last drop</dt>
-                <dd className="font-mono text-xs text-[#d4a017]">{sync.lastDrop}</dd>
-              </div>
-            )}
-            {sync.lastError && (
-              <div className="col-span-2 sm:col-span-5">
-                <dt className="text-xs uppercase tracking-wide text-muted">Last error</dt>
-                <dd className="font-mono text-xs text-[#e53e3e]">{sync.lastError}</dd>
-              </div>
-            )}
-          </dl>
-        ) : (
-          <p className="text-sm text-zinc-400">Sync not running.</p>
-        )}
-      </div>
-
+      {/* The sync heartbeat is no longer its own card: Overview renders it as
+          a one-line health readout with the full breakdown behind a
+          disclosure (admin-redesign.md). `sync` is still fetched here and
+          handed down. */}
       {settings ? (
         <AdminControls
           initial={settings}
@@ -157,6 +113,7 @@ export default async function AdminPage({
           setups={setups}
           initialTab={tabParam(params)}
           viewerLogin={gate.login}
+          sync={sync}
         />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
