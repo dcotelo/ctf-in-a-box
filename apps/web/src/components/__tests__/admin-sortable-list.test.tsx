@@ -8,9 +8,9 @@
 // Delete, and the empty placeholder.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import SortableList from "@/components/admin/sortable-list";
+import SortableList, { bucketRows } from "@/components/admin/sortable-list";
 
-type Row = { item: { id: string; title: string; order: number } };
+type Row = { item: { id: string; title: string; order: number; group?: string } };
 const rows: Row[] = [
   { item: { id: "a", title: "First thing", order: 1 } },
   { item: { id: "b", title: "Second thing", order: 2 } },
@@ -58,6 +58,77 @@ describe("SortableList", () => {
     expect(html).toContain('aria-label="Move &quot;Second thing&quot; down"');
     expect(html.match(/>Edit</g)?.length).toBe(2);
     expect(html.match(/>Delete</g)?.length).toBe(2);
+  });
+
+  it("keeps Edit on the row and folds Move up / Move down / Delete into a per-row ⋯ menu, Delete in a neutral colour", () => {
+    const html = render();
+    // One native <details> menu per row, closed, named after the row.
+    expect(html.match(/<details/g)?.length).toBe(2);
+    expect(html).not.toContain("<details open");
+    expect(html).toContain('aria-label="More actions for &quot;First thing&quot;"');
+    // Edit is outside the menu; the menu holds the rarer actions.
+    expect(html).toMatch(/>Edit<\/button><details/);
+    expect(html).toMatch(/<details[\s\S]*?Move up[\s\S]*?Move down[\s\S]*?Delete[\s\S]*?<\/details>/);
+    // Danger colour is for the confirmation the item opens, not the item.
+    expect(html).not.toContain("#e53e3e");
+  });
+
+  it("without onMove renders no grip, no drag and no Move items — only Edit and Delete", () => {
+    const html = render({ onMove: undefined });
+    expect(html).not.toContain("⠿");
+    expect(html).not.toContain('draggable="true"');
+    expect(html).not.toContain("Move up");
+    expect(html.match(/>Edit</g)?.length).toBe(2);
+    expect(html.match(/>Delete</g)?.length).toBe(2);
+  });
+
+  it("renders rowExtra under each row", () => {
+    const html = render({ rowExtra: (r) => <span>extra for {r.item.id}</span> });
+    expect(html).toContain("extra for a");
+    expect(html).toContain("extra for b");
+  });
+
+  describe("grouped", () => {
+    const grouped: Row[] = [
+      { item: { id: "c1", title: "Crypto one", order: 1, group: "Crypto" } },
+      { item: { id: "f1", title: "Forensics one", order: 2, group: "Forensics" } },
+      { item: { id: "c2", title: "Crypto two", order: 3, group: "Crypto" } },
+    ];
+
+    it("buckets rows by group in the panel's group order, keeping each row's global index", () => {
+      const buckets = bucketRows(grouped, (r) => r.item.group!, ["Forensics", "Crypto", "Web"]);
+      expect(buckets.map((b) => b.group)).toEqual(["Forensics", "Crypto", "Web"]);
+      expect(buckets[1].items.map((i) => [i.row.item.id, i.index])).toEqual([
+        ["c1", 0],
+        ["c2", 2],
+      ]);
+      expect(buckets[2].items).toEqual([]);
+    });
+
+    it("appends a group the panel did not name rather than dropping its rows", () => {
+      const buckets = bucketRows(grouped, (r) => r.item.group!, ["Crypto"]);
+      expect(buckets.map((b) => b.group)).toEqual(["Crypto", "Forensics"]);
+    });
+
+    it("is one flat bucket without groupOf", () => {
+      expect(bucketRows(grouped, undefined, undefined)).toEqual([
+        { group: null, items: grouped.map((row, index) => ({ row, index })) },
+      ]);
+    });
+
+    it("renders a heading with the count per group, an empty group's placeholder, and moves within the group", () => {
+      const html = render({ rows: grouped, groupOf: (r) => r.item.group!, groups: ["Crypto", "Forensics", "Web"] });
+      expect(html).toMatch(/<h4[^>]*>Crypto<span[^>]*>2<\/span><\/h4>/);
+      expect(html).toMatch(/<h4[^>]*>Web<span[^>]*>0<\/span><\/h4>/);
+      expect(html).toContain("Nothing here yet.");
+      // Crypto two is last IN ITS GROUP, so Move down is disabled although a
+      // Forensics row sits after Crypto one in the global order.
+      expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Crypto two&quot; down"[^>]*disabled=""/);
+      expect(html).not.toMatch(/<button[^>]*aria-label="Move &quot;Crypto one&quot; down"[^>]*disabled=""/);
+      // Forensics one is alone in its group: both moves disabled.
+      expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Forensics one&quot; up"[^>]*disabled=""/);
+      expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Forensics one&quot; down"[^>]*disabled=""/);
+    });
   });
 
   it("disables Move up on the first row and Move down on the last, only", () => {

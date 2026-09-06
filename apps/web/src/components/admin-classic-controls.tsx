@@ -291,13 +291,17 @@ export default function AdminClassicControls({
           rows={challenges}
           keyOf={(row) => row.challenge.id}
           titleOf={(row) => row.challenge.title}
+          // Grouped by category, as contestants see the board; the category
+          // is the heading, so the meta line does not repeat it.
+          groupOf={(row) => row.challenge.category}
+          groups={categories}
           meta={(row) => (
             <>
-              #{row.challenge.order} · {row.challenge.category} · {row.challenge.points} pt
+              #{row.challenge.order} · {row.challenge.points} pt
               {row.challenge.points === 1 ? "" : "s"}
             </>
           )}
-          intro="Drag a challenge to reorder it, or use Move up / Move down. Contestants see them in this order."
+          intro="Drag a challenge to reorder it, or use Move up / Move down from its ⋯ menu. Contestants see them in this order within each category."
           emptyText="No challenges yet."
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}

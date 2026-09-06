@@ -258,7 +258,7 @@ export default function AdminQuizControls({
               {row.question.points === 1 ? "" : "s"} · {row.question.choices.length} choices
             </>
           )}
-          intro="Drag a question to reorder it, or use Move up / Move down. Contestants see them in this order."
+          intro="Drag a question to reorder it, or use Move up / Move down from its ⋯ menu. Contestants see them in this order."
           emptyText="No questions yet."
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}
