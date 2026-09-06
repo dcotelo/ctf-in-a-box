@@ -154,7 +154,15 @@ export default function SortableList<Row>({
                         )}
                         <div className="min-w-0">
                           <p className="truncate text-sm text-white">{title}</p>
-                          <p className="text-sm text-muted">{meta(row)}</p>
+                          {/* The position is rendered HERE, from where the row
+                              actually sits in what the reader is looking at,
+                              rather than by each panel from the stored `order`
+                              field. On a board seeded per category that field
+                              repeats — four rows read #1 — and it is not a
+                              position in any list on screen (audit F16). */}
+                          <p className="text-sm text-muted">
+                            <span className="tabular-nums">#{pos + 1}</span> · {meta(row)}
+                          </p>
                         </div>
                       </div>
                       <div className="flex flex-none items-center gap-1">

@@ -8,7 +8,12 @@
 // on the module panels.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import AdminSupportTab, { contestantStats, resetProgressConfirm, type UserDetail } from "@/app/(site)/admin/admin-support-tab";
+import AdminSupportTab, {
+  contestantStats,
+  resetProgressConfirm,
+  teamCardSummary,
+  type UserDetail,
+} from "@/app/(site)/admin/admin-support-tab";
 
 const detail: UserDetail = {
   login: "octocat",
@@ -71,5 +76,32 @@ describe("resetProgressConfirm", () => {
   it("warns about Secure Development re-ingestion only when there are such solves", () => {
     expect(resetProgressConfirm(detail).warning).toMatch(/6 Secure Development solves/);
     expect(resetProgressConfirm({ ...detail, secureDev: { solves: 0 } }).warning).toBeNull();
+  });
+});
+
+// UX audit F21: the team actions took a hand-typed slug while the contestant
+// card directly above already held it, so the commonest ticket on this tab
+// began with retyping — and the card's `joined` stamp carried no timezone
+// while the line beneath it said UTC.
+describe("teamCardSummary", () => {
+  it("stamps the join time UTC, like every other timestamp on the tab", () => {
+    expect(teamCardSummary(detail).joined).toBe("joined 2026-09-03 01:45 UTC");
+  });
+
+  it("offers the slug the card already knows, so nothing is retyped", () => {
+    expect(teamCardSummary(detail).actionSlug).toBe("e2e-crew");
+  });
+
+  it("offers nothing for a contestant on no team", () => {
+    const teamless: UserDetail = { ...detail, team: null };
+    expect(teamCardSummary(teamless)).toEqual({ joined: null, actionSlug: null });
+  });
+
+  it("has no join stamp for a membership that predates the joinedAt field", () => {
+    const noJoinedAt: UserDetail = { ...detail, team: { ...detail.team!, joinedAt: null } };
+    const summary = teamCardSummary(noJoinedAt);
+    expect(summary.joined).toBeNull();
+    // The slug is still offered — the two are independent.
+    expect(summary.actionSlug).toBe("e2e-crew");
   });
 });

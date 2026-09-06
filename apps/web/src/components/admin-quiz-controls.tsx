@@ -255,7 +255,7 @@ export default function AdminQuizControls({
           titleOf={(row) => row.question.prompt}
           meta={(row) => (
             <>
-              #{row.question.order} · {row.question.type} · {row.question.points} pt
+              {row.question.type} · {row.question.points} pt
               {row.question.points === 1 ? "" : "s"} · {row.question.choices.length} choices
             </>
           )}

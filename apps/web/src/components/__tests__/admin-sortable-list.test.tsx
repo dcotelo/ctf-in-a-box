@@ -23,7 +23,7 @@ function render(overrides: Partial<Parameters<typeof SortableList<Row>>[0]> = {}
       rows={rows}
       keyOf={(r) => r.item.id}
       titleOf={(r) => r.item.title}
-      meta={(r) => <>#{r.item.order} · meta</>}
+      meta={(r) => <>{r.item.order} pts</>}
       intro="Drag a thing to reorder it, or use Move up / Move down."
       emptyText="No things yet."
       reorderPending={false}
@@ -48,8 +48,39 @@ describe("SortableList", () => {
     expect(html).toContain("Drag a thing to reorder it, or use Move up / Move down.");
     expect(html).toContain("First thing");
     expect(html).toContain("Second thing");
-    expect(html).toContain("#2 · meta");
+    expect(html).toContain("2 pts");
     expect(html.match(/<li /g)?.length).toBe(2);
+  });
+
+  // Audit F16. Each panel used to print the row's stored `order` field in its
+  // own meta line. That field is not a position in anything on screen: on a
+  // board seeded per category it repeats, and four rows read #1 under a
+  // sentence promising "Contestants see them in this order".
+  /** The rendered position badges, in document order. Matched on the badge's
+   *  own element rather than the raw text: Tailwind class names carry hex
+   *  colours like `bg-[#1d4ed8]`, so a bare search for "#1" finds five of
+   *  them and proves nothing. */
+  const positions = (html: string) => [...html.matchAll(/<span class="tabular-nums">#(\d+)<\/span>/g)].map((m) => m[1]);
+
+  it("numbers rows by where they sit, not by any field the panel passes", () => {
+    expect(positions(render())).toEqual(["1", "2"]);
+  });
+
+  it("restarts the numbering in each category, because that is what the reader sees", () => {
+    const grouped: Row[] = [
+      { item: { id: "a", title: "Alpha", order: 4, group: "Web" } },
+      { item: { id: "b", title: "Bravo", order: 7, group: "Web" } },
+      { item: { id: "c", title: "Charlie", order: 9, group: "Crypto" } },
+    ];
+    const html = render({ rows: grouped, groupOf: (r) => r.item.group!, groups: ["Web", "Crypto"] });
+
+    // Web numbers 1, 2; Crypto starts again at 1. Charlie opens its group, so
+    // it reads #1 there despite carrying a stored order of 9 — the number an
+    // organizer reads now matches the row they are looking at.
+    expect(positions(html)).toEqual(["1", "2", "1"]);
+    // Non-vacuity: those rows really did render, stored orders and all.
+    expect(html).toContain("Charlie");
+    expect(html).toContain("9 pts");
   });
 
   it("gives every row keyboard move buttons named after it, plus Edit and Delete", () => {
