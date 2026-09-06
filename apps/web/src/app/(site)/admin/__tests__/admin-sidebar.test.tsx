@@ -44,11 +44,11 @@ describe("AdminSidebar", () => {
   it("marks exactly the active destination current, and links every other one plainly", () => {
     const html = renderToStaticMarkup(<AdminSidebar groups={groups} active="quiz" onSelect={() => {}} />);
     expect(html.match(/aria-current="page"/g)?.length).toBe(1);
-    expect(html).toContain('href="?tab=quiz" aria-current="page"');
+    expect(html).toContain('href="/admin/quiz" aria-current="page"');
     // A non-active destination is still a real link — just with no
     // aria-current — so it stays reachable by Tab in normal document order.
-    expect(html).toContain('href="?tab=event"');
-    expect(html).not.toContain('href="?tab=event" aria-current="page"');
+    expect(html).toContain('href="/admin/event"');
+    expect(html).not.toContain('href="/admin/event" aria-current="page"');
   });
 
   it("is a nav, not the old tabs widget", () => {

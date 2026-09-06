@@ -8,6 +8,19 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Every admin destination has its own URL.** `/admin/overview`,
+  `/admin/activity`, `/admin/insights`, `/admin/support`, `/admin/event`,
+  `/admin/hints`, `/admin/admins`, and one per enabled module
+  (`/admin/quiz`, `/admin/ai`, …). The sidebar links to those paths, so a
+  link is safe to bookmark, paste into a runbook, or read out over a call —
+  and switching tabs now updates the address bar (`pushState`, no page load),
+  with Back walking the destinations, so the URL always names the screen in
+  front of you. Previously the panel lived at `/admin` alone: every tab click
+  was intercepted client-side, and the address bar kept saying `/admin`
+  whatever was on screen. The older `/admin?tab=<id>` form still works and
+  still means the same thing, both shapes render the same shell — one gate,
+  one set of reads — and an unrecognised tab in either form still falls back
+  to **Overview** rather than 404ing.
 - **Every AI endpoint now demonstrates itself.** The panel shipped a
   ready-to-run curl for one route — `/api/ai/event`, on each challenge's own
   row — and left the other two as a URL and nothing else: an organizer could
