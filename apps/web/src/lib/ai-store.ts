@@ -534,11 +534,15 @@ export type CategoryRename = { categories: string[]; moved: number };
  * is the one a retry can finish from) and why an existing name is refused
  * rather than merged.
  *
- * One deliberate difference: the collision check is case-SENSITIVE here,
- * because `setAiCategories` dedupes case-sensitively (`cleaned.includes`)
- * while classic's folds. Each rename has to refuse exactly what its own list
- * would refuse to hold — anything else lets a rename produce a pair the module
- * itself considers distinct.
+ * The collision check folds case, exactly as classic's does, even though
+ * `setAiCategories` dedupes case-SENSITIVELY (`cleaned.includes`). An earlier
+ * draft mirrored that dedupe instead, on the reasoning that a rename should
+ * refuse exactly what its own list would refuse to hold. That was wrong in
+ * effect: it let a rename land `["Web", "web"]`, which the panel's own
+ * `renameCategoryDecision` forbids and which would split one category's
+ * challenges across two headings. The stricter rule is the right one on both
+ * sides; a case-only rename of the SAME entry stays allowed, which is what the
+ * index comparison protects.
  */
 export async function renameAiCategory(from: string, to: string): Promise<CategoryRename> {
   const target = to.trim();
@@ -549,16 +553,22 @@ export async function renameAiCategory(from: string, to: string): Promise<Catego
 
   const categories = await listAiCategories();
   const source = from.trim();
-  const index = categories.indexOf(source);
+  const index = categories.findIndex((name) => name.toLowerCase() === source.toLowerCase());
   if (index === -1) throw new AiValidationError("categories", `No category named "${from}"`);
-  if (categories.some((name, i) => i !== index && name === target)) {
+  const targetFold = target.toLowerCase();
+  if (categories.some((name, i) => i !== index && name.toLowerCase() === targetFold)) {
     throw new AiValidationError(
       "categories",
       `"${target}" already exists. Rename it to something else, or move these challenges one at a time.`,
     );
   }
 
-  const moving = (await listAiChallenges()).filter((c) => c.category === source);
+  // Same fail-closed read as classic's: `listAiChallenges` does not check the
+  // reply's error, so a failed HGETALL would look like "nothing uses this
+  // category" and the rename would orphan every challenge in it.
+  const [challengesRes] = await upstashPipeline([["HGETALL", CHALLENGES_KEY]]);
+  if (challengesRes.error) throw new Error(`Upstash HGETALL failed: ${challengesRes.error}`);
+  const moving = parseChallengeHash(challengesRes.result).filter((c) => c.category === source);
   if (moving.length > 0) {
     const writes = await upstashPipeline(
       moving.map((c) => ["HSET", CHALLENGES_KEY, c.id, JSON.stringify({ ...c, category: target })]),

@@ -875,6 +875,24 @@ describe("renameCategory", () => {
     );
   });
 
+  it("does NOT rewrite the list when the challenge READ failed", async () => {
+    // The subtler half of the same AGENTS.md rule. `listChallenges` reads
+    // `.result` without checking `.error`, so a failed HGETALL comes back as an
+    // empty list — indistinguishable from "no challenge uses this category".
+    // Renaming on top of that would rewrite the list while moving nothing:
+    // every challenge in the category orphaned onto a name that no longer
+    // exists, and a retry unable to find the source to finish from.
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: JSON.stringify(["Webb"]) }])
+      .mockResolvedValueOnce([{ error: "WRONGTYPE" }]);
+
+    await expect(renameCategory("Webb", "Web")).rejects.toThrow(/HGETALL failed/);
+    // Two pipelines: the categories read and the failed challenge read. No
+    // SET followed.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(2);
+  });
+
   it("does NOT rewrite the list when a challenge write failed", async () => {
     // `upstashPipeline` reports a per-command failure as a value, not a throw
     // (AGENTS.md). Reading `.result` blindly would report a partial move as a

@@ -238,23 +238,32 @@ export function useCategoryEditor({
   async function applyRename(from: string, to: string) {
     setPending(true);
     setError(null);
-    const result = await sendJson<{ error?: string; categories?: string[] }>(
-      endpoint,
-      { method: "POST", body: renameCategoryRequestBody(from, to) },
-      describeError,
-    );
-    setPending(false);
-    if (!result.ok) {
-      setError(result.message);
-      return;
+    try {
+      const result = await sendJson<{ error?: string; categories?: string[] }>(
+        endpoint,
+        { method: "POST", body: renameCategoryRequestBody(from, to) },
+        describeError,
+      );
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      if (!Array.isArray(result.data.categories)) {
+        setError(describeError(result.status, result.data.error));
+        return;
+      }
+      setCategories(result.data.categories);
+      cancelRename();
+      // Awaited INSIDE the pending window on purpose. `afterRename` is the
+      // panel's `reload`, which replaces the shared category list; clearing
+      // `pending` first would leave every other category control live during
+      // that read, and a move or remove dispatched against the pre-reload list
+      // would then persist it — writing a stale list back over a fresh one.
+      if (afterRename) await afterRename();
+    } finally {
+      // `finally`, so a rejected reload does not strand the panel disabled.
+      setPending(false);
     }
-    if (!Array.isArray(result.data.categories)) {
-      setError(describeError(result.status, result.data.error));
-      return;
-    }
-    setCategories(result.data.categories);
-    cancelRename();
-    if (afterRename) await afterRename();
   }
 
   return {

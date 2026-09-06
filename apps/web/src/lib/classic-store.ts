@@ -403,7 +403,18 @@ export async function renameCategory(from: string, to: string): Promise<Category
   }
 
   const stored = categories[index];
-  const moving = (await listChallenges()).filter((c) => c.category === stored);
+
+  // Read the challenges HERE rather than through `listChallenges`, and check
+  // the reply's error. `listChallenges` reads `.result` without checking
+  // `.error` (AGENTS.md: `upstashPipeline` reports a per-command failure as a
+  // VALUE), so a failed HGETALL comes back as an empty list — indistinguishable
+  // from "no challenge uses this category". Renaming on top of that would
+  // rewrite the list while moving nothing, orphaning every challenge in the
+  // category onto a name that no longer exists AND leaving a retry unable to
+  // find the source. Fail closed instead.
+  const [challengesRes] = await upstashPipeline([["HGETALL", CHALLENGES_KEY]]);
+  if (challengesRes.error) throw new Error(`Upstash HGETALL failed: ${challengesRes.error}`);
+  const moving = parseChallengeHash(challengesRes.result).filter((c) => c.category === stored);
 
   if (moving.length > 0) {
     const writes = await upstashPipeline(

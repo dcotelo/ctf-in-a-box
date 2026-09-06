@@ -1301,13 +1301,25 @@ verdict is read in the Send test list further down this section.
 
 **Authoring** happens in `/admin`, under the AI module's tab. Before adding
 a challenge you need at least one **category** — same chip row as classic's
-(add, move left or right, rename — carrying that category's challenges across
-— and remove only while no challenge still files under it, the panel naming
-exactly how many are blocking a removal), capped at
+(add, move left or right, rename, and remove only while no challenge still
+files under it, the panel naming exactly how many are blocking a removal),
+capped at
 **50 categories** with names of at most **64
 characters** each (`AI_CATEGORIES_MAX`/`AI_CATEGORY_MAX_LEN`, enforced in
 `setAiCategories`).
 
+
+**Renaming behaves exactly as it does on Classic**, and for the same reasons:
+the rename rewrites every AI challenge filed under that category in the same
+operation, so a typo ten challenges share is one edit rather than eleven.
+Renaming onto a name another category already holds is **refused, not merged**
+— including when the two differ only in capitalisation, since two casings would
+split one category across two headings on the board. Changing only the
+capitalisation of the category being renamed ("jailbreak" to "Jailbreak") is a
+rename and is allowed. If a rename is interrupted part-way, **run the same
+rename again**: the challenges move before the list is rewritten, so a repeat
+finishes from wherever it stopped, and no challenge disappears from the panel
+in the meantime.
 
 A challenge itself has a title, a category, a Markdown description (live
 preview alongside the box, same as classic's), a point value, and one more
