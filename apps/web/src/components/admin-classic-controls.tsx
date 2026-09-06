@@ -209,6 +209,11 @@ export default function AdminClassicControls({
     categories,
     setCategories: resource.setCategories,
     usageCount: (name) => categoryUsageCount(challenges, name),
+    // A rename rewrites every challenge in the category, so the rows on
+    // screen still carry the old name until the list is re-read. Without
+    // this the panel keeps grouping them under a heading the store no
+    // longer has.
+    afterRename: resource.reload,
   });
 
   // The bulk import/export flow (textarea, file pick, `{import}` POST,
@@ -265,6 +270,12 @@ export default function AdminClassicControls({
         onAdd={categoryEditor.add}
         onRemove={categoryEditor.remove}
         onMove={categoryEditor.move}
+        renaming={categoryEditor.renaming}
+        renameInput={categoryEditor.renameInput}
+        onRenameInput={categoryEditor.setRenameInput}
+        onStartRename={categoryEditor.startRename}
+        onCancelRename={categoryEditor.cancelRename}
+        onCommitRename={categoryEditor.commitRename}
       />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
