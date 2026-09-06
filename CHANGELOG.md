@@ -27,7 +27,29 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   handshake, and the operations guide's AI section carries it too, above a
   checklist of what an operator configures on the far end. No store, key or
   API change; no secret is rendered by the new drawer.
-
+- **The profile and the leaderboard show progress the same way, and a module's
+  ceiling adds up.** `/profile`'s Secure Development header read
+  "6 / 321 patched  8 / 0 pts" — earned 8, available 0 — above target rows
+  whose own ceilings summed to 668: the lambda source returned a hardcoded
+  `maxPoints: 0` for a profile while computing a real one per target. It now
+  sums its targets', as the mock source always has. Every level of both
+  screens — module, target, and a module with no targets — is one shared row
+  (`components/progress/`): its bar measures points (what the board ranks on,
+  and the only measure that means the same thing at each level), with a
+  minimum visible fill so early progress is not a dot on a grey line; its
+  count carries each module's own word (`patched` / `answered` / `solved` /
+  `cleared`, and `flags` as classic's verb), so a team card can no longer read
+  "3 answered · 3 solved · 3 solved" for two different modules; and its points
+  sit in a fixed right-aligned column, ending the run-together
+  "1 / 38 patched2 / 141 pts". An expanded target groups its challenges by
+  OWASP category with the most winnable group first, sinks the done rows, and
+  collapses them behind a **Show patched (n)** toggle past ten rows. The
+  profile gains one line of genuinely new information — how many points are
+  still on the board and which module holds most of them — and an expanded
+  leaderboard team renders that same tree read-only, replacing a chip row that
+  gave points with no denominator and a target list that gave counts with no
+  points; a team's hint spend is no longer shown to rivals, so its total is
+  labelled `net pts`. No store, key or API change.
 - **Module screens are content screens (admin redesign, PR 3 of 3).** Each
   module's admin screen opens with a sticky header — its name and an
   **Enabled** switch, the same control as Event's Modules row — and a setup

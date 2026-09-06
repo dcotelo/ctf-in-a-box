@@ -112,11 +112,12 @@ beforeEach(() => {
 describe("/profile on a quiz-only event", () => {
   it("shows a quiz contribution block when the module is enabled", async () => {
     const html = renderToStaticMarkup(await ProfilePage());
-    // The block opens with the shared ProgressSummary (spans split the pair)…
+    // The block opens with the shared ProgressRow (spans split the pair)…
     expect(html).toContain("/ 5 answered");
-    // …and offers the Show-N item list (collapsed by default, same as the
-    // target cards' AppChallengeList).
-    expect(html).toContain("Show 5 questions");
+    // …and that row IS the disclosure now, holding the five questions
+    // directly instead of a second "Show N" toggle inside it.
+    expect(html).toMatch(/<details[\s\S]*<ul/);
+    expect(html.match(/<li /g)?.length).toBe(5);
   });
 
   // The list is enumerated, not sampled — see the file-level comment. This

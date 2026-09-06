@@ -316,12 +316,16 @@ expanded leaderboard row renders each enabled
 module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count, `classic`'s
-a solved/total count, and `ai`'s a solved/total count of its own — with the
+a solved/total count, and `ai`'s a cleared/total count of its own — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; `/profile` renders
 the same per-module blocks for the signed-in contestant's own progress,
-built off the same `ModuleDetail` renderer as the leaderboard rather than a
-second one — the page's headline total was already net and correct before
+built off the shared `components/progress/progress-row.tsx` — module, target
+and module-without-targets are all one row shape, each carrying its module's
+own unit word (`patched` / `answered` / `solved` / `cleared`, with `flags` as
+classic's verb on the team card) and a bar that measures POINTS at every
+level, since points are what the board ranks on. A module whose source
+reports no ceiling shows what was earned rather than an `N / 0 pts` fraction — the page's headline total was already net and correct before
 this, what it was missing was the per-module breakdown behind it; the admin
 panel
 (`app/(site)/admin/admin-controls.tsx`) is a tab shell — five control-plane

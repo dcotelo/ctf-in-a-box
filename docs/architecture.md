@@ -181,7 +181,11 @@ state; everything else that touches scores goes through it.
    `apps.<target>`. The app joins the two to show *which* flags are solved —
    the collapsible per-target list under a contestant's breakdown, and a
    team's per-target flags (solved by its members' union, plus the ones still
-   open). Both fields are
+   open), both drawn by the same `components/progress/` row the profile uses.
+   Where a challenge carries an `owasp` code the list groups by it, most
+   winnable group first; a target whose catalogue reports `owasp: null`
+   throughout (a declarative YAML target — see above) has nothing to group by
+   and renders one unheaded, unbadged list instead. Both fields are
    additive; an older scorer that omits them simply falls back to the
    solved/total counts.
 9. Before rendering, the app composes the fetched `LeaderboardData` through a
@@ -219,7 +223,14 @@ state; everything else that touches scores goes through it.
    expanded leaderboard row then renders each enabled module's own detail
    block (`components/module-detail.tsx` switches on `moduleId` — a
    `secure-development` row shows the existing per-target breakdown, and a
-   module with a different progress shape defines its own).
+   module with a different progress shape defines its own). An expanded
+   **team** row instead renders the shared progress tree read-only
+   (`components/leaderboard-team-row.tsx` → `components/progress/progress-row.tsx`):
+   one row per module carrying that module's points and its `done/total` in
+   the module's own unit word, `secure-development` opening into the same
+   per-target rows the profile draws. The team's own hint spend is not shown
+   there — it is that team's business — so the header total is labelled
+   `net pts` instead of carrying a `−N hints` marker.
 
 ## Leaderboard with no scoring backend
 
