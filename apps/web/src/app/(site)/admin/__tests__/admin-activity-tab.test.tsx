@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import AdminActivityTab, {
   filterEntries,
   formatWhen,
+  refreshLimit,
   type ActivityEntry,
 } from "@/app/(site)/admin/admin-activity-tab";
 
@@ -19,6 +20,31 @@ describe("AdminActivityTab initial view", () => {
     expect(html).toContain("Load activity");
     expect(html).toMatch(/never a flag or an answer/i);
     expect(html).not.toContain("<table");
+  });
+
+  it("shows the load button as primary while nothing is loaded — the poll has not run yet", () => {
+    const html = renderToStaticMarkup(<AdminActivityTab visible live />);
+    expect(html).toMatch(/<button[^>]*bg-\[#2563eb\][^>]*>Load activity/);
+    // The stamp has nothing to say before a first load lands.
+    expect(html).not.toContain("updated ");
+  });
+});
+
+// A timed refresh re-reads from the top; this decides how far down. Dropping
+// rows the organizer had paged in would make the log jump under them every
+// 15 seconds.
+describe("refreshLimit", () => {
+  it("re-reads at least a page", () => {
+    expect(refreshLimit(0)).toBe(200);
+    expect(refreshLimit(37)).toBe(200);
+  });
+
+  it("keeps everything already paged in", () => {
+    expect(refreshLimit(400)).toBe(400);
+  });
+
+  it("stops at the route's cap", () => {
+    expect(refreshLimit(900)).toBe(500);
   });
 });
 

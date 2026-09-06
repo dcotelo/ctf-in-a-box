@@ -12,12 +12,13 @@
 // beside the row through `applyField`/`statusOf`, under the same status key
 // as Event's row for the same setting, so the two screens never disagree.
 //
-// The team/player/submitted/stuck figures and the activity preview are each
-// ONE fetch on mount, not a poll: PR 2 adds the 15s refresh this screen will
-// eventually keep itself current with. Until then this is a snapshot as of
-// when the organizer opened the tab, same as Insights already is.
+// The team/player/submitted/stuck figures and the activity preview load when
+// this becomes the active destination and, while the event phase is live,
+// every 15 s after that (use-live-poll.ts — the one loop Activity and
+// Insights share), with the stamp on the phase row saying how old the read
+// is and whether the loop is running.
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { AdminSettings, SyncStatus } from "@/lib/admin-store";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { getRemaining, formatCompact } from "@/lib/countdown";
@@ -27,6 +28,8 @@ import { setupCountLabel, setupStepStatus, type ModuleInventory } from "@/compon
 import AdminSwitch from "@/components/admin-switch";
 import type { FieldStatus } from "@/components/admin-number-field";
 import { formatWhen, TYPE_LABELS, type ActivityEntry } from "./admin-activity-tab";
+import AdminLiveStamp from "./admin-live-stamp";
+import { LIVE_POLL_MS, useLivePoll } from "./use-live-poll";
 import type { ConfirmState } from "./types";
 
 type Funnel = { onATeam: number; attempted: number; stuck: number };
@@ -79,6 +82,7 @@ export default function AdminOverviewTab({
   setups,
   inventory,
   onNavigate,
+  visible = false,
 }: {
   settings: AdminSettings;
   pending: boolean;
@@ -98,6 +102,9 @@ export default function AdminOverviewTab({
    *  `onSelect`, threaded down so "linking to Activity" etc. is a real state
    *  change, not a second navigation mechanism. */
   onNavigate: (id: string) => void;
+  /** This is the active destination. Gates the fetches — see use-live-poll.ts.
+   *  Optional so a static render (the tests) fetches nothing. */
+  visible?: boolean;
 }) {
   const resolution = phaseFromSettings(settings, nowMs);
   const boundary = phaseBoundaryLabel(resolution.phase, resolution.startsAt, resolution.endsAt);
@@ -117,38 +124,37 @@ export default function AdminOverviewTab({
   const [metricsFailed, setMetricsFailed] = useState(false);
   const [activityFailed, setActivityFailed] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    fetch("/api/admin/metrics")
-      .then((res) => {
-        if (!res.ok) throw new Error(`metrics ${res.status}`);
-        return res.json();
-      })
-      .then((data: MetricsResponse) => {
-        if (!live) return;
-        if (data.error) setMetricsFailed(true);
-        else setMetrics(data);
-      })
-      .catch(() => {
-        if (live) setMetricsFailed(true);
-      });
-    fetch("/api/admin/activity?offset=0&limit=5")
-      .then((res) => {
-        if (!res.ok) throw new Error(`activity ${res.status}`);
-        return res.json();
-      })
-      .then((data: ActivityResponse) => {
-        if (!live) return;
-        if (Array.isArray(data.entries)) setActivity(data.entries);
-        else setActivityFailed(true);
-      })
-      .catch(() => {
-        if (live) setActivityFailed(true);
-      });
-    return () => {
-      live = false;
-    };
+  // Both reads, as one load for the poll loop. A read that fails flips its
+  // own flag and leaves the other's result standing; a later successful poll
+  // clears the flag again, so a blip is not a permanent red line.
+  const load = useCallback(async () => {
+    await Promise.all([
+      fetch("/api/admin/metrics")
+        .then((res) => {
+          if (!res.ok) throw new Error(`metrics ${res.status}`);
+          return res.json();
+        })
+        .then((data: MetricsResponse) => {
+          if (data.error) throw new Error(data.error);
+          setMetrics(data);
+          setMetricsFailed(false);
+        })
+        .catch(() => setMetricsFailed(true)),
+      fetch("/api/admin/activity?offset=0&limit=5")
+        .then((res) => {
+          if (!res.ok) throw new Error(`activity ${res.status}`);
+          return res.json();
+        })
+        .then((data: ActivityResponse) => {
+          if (!Array.isArray(data.entries)) throw new Error("no entries");
+          setActivity(data.entries);
+          setActivityFailed(false);
+        })
+        .catch(() => setActivityFailed(true)),
+    ]);
   }, []);
+  const eventLive = resolution.phase === "live";
+  const { updatedAt } = useLivePoll({ visible, live: eventLive, intervalMs: LIVE_POLL_MS, load });
 
   const figures = metrics
     ? [
@@ -178,6 +184,9 @@ export default function AdminOverviewTab({
           </span>
           {boundary && <span className="text-xs text-muted">{boundary}</span>}
           {remaining && <span className="text-xs text-muted">({formatCompact(remaining)} left)</span>}
+          <span className="ml-auto">
+            <AdminLiveStamp updatedAt={updatedAt} live={eventLive} intervalMs={LIVE_POLL_MS} />
+          </span>
         </div>
 
         {/* Status keys are the stored setting keys (`paused`,

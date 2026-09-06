@@ -3,9 +3,12 @@
 // The admin activity log (issue #212): who signed in, who solved what, and
 // team changes, newest first, from GET /api/admin/activity.
 //
-// Loaded on demand rather than on mount, like Insights: an organizer opening
-// the tab strip to reach Support shouldn't pay a Redis read for a panel they
-// aren't looking at. The load button doubles as refresh.
+// Loaded when this becomes the active destination, not on mount, like
+// Insights: an organizer opening the sidebar to reach Support shouldn't pay
+// a Redis read for a panel they aren't looking at. While the event phase is
+// live it then refreshes itself every 15 s (use-live-poll.ts), with the
+// stamp beside the count saying how old the read is; the Refresh button is
+// the same code path for an organizer who won't wait.
 //
 // Filters (type chips + login text) are CLIENT-SIDE over the pages loaded so
 // far — the route serves raw offset pages by design (see its header comment).
@@ -14,10 +17,22 @@
 
 import { useMemo, useState } from "react";
 import { ACTIVITY_TYPES } from "@/lib/activity-keys";
+import AdminLiveStamp from "./admin-live-stamp";
+import { LIVE_POLL_MS, useLivePoll } from "./use-live-poll";
 
 export type ActivityEntry = { at: string; type: string; login: string; detail?: string };
 
 const PAGE_SIZE = 200;
+/** The route's own cap on `limit` (src/app/api/admin/activity/route.ts). */
+const LIMIT_MAX = 500;
+
+/** How many rows a refresh re-reads from the top: at least a page, and as
+ *  many as the organizer has paged in (up to the route's cap), so a timed
+ *  refresh never silently drops the older rows they scrolled down to.
+ *  Exported for direct testing. */
+export function refreshLimit(loaded: number): number {
+  return Math.min(LIMIT_MAX, Math.max(PAGE_SIZE, loaded));
+}
 
 /** Human labels for the known types. Unknown types (an entry written by a
  *  newer or older build than this one) render their raw type string rather
@@ -55,7 +70,16 @@ export function filterEntries(entries: ActivityEntry[], type: string | null, log
   });
 }
 
-export default function AdminActivityTab() {
+export default function AdminActivityTab({
+  visible = false,
+  live = false,
+}: {
+  /** This is the active destination — gates the first load and the loop.
+   *  Optional so a static render (the tests) fetches nothing. */
+  visible?: boolean;
+  /** The event phase is live (components/phase.ts) — gates the loop. */
+  live?: boolean;
+}) {
   const [entries, setEntries] = useState<ActivityEntry[] | null>(null);
   const [total, setTotal] = useState(0);
   const [pending, setPending] = useState(false);
@@ -65,12 +89,12 @@ export default function AdminActivityTab() {
 
   /** `fresh` reloads from the top (the newest events — also the refresh
    *  semantics); otherwise appends the next page after what's loaded. */
-  async function load(fresh: boolean) {
+  async function load(fresh: boolean, limit = PAGE_SIZE) {
     setPending(true);
     setError(null);
     try {
       const offset = fresh ? 0 : (entries?.length ?? 0);
-      const res = await fetch(`/api/admin/activity?offset=${offset}&limit=${PAGE_SIZE}`);
+      const res = await fetch(`/api/admin/activity?offset=${offset}&limit=${limit}`);
       const data = (await res.json().catch(() => ({}))) as {
         entries?: ActivityEntry[];
         total?: number;
@@ -89,31 +113,48 @@ export default function AdminActivityTab() {
     }
   }
 
-  const visible = useMemo(
+  const shown = useMemo(
     () => (entries ? filterEntries(entries, typeFilter, loginFilter) : []),
     [entries, typeFilter, loginFilter],
   );
   const filtered = typeFilter !== null || loginFilter.trim() !== "";
   const loaded = entries?.length ?? 0;
 
+  // The poll loop and the Refresh button share this: a fresh read from the
+  // top, wide enough to keep every row already paged in.
+  const { updatedAt, refresh } = useLivePoll({
+    visible,
+    live,
+    intervalMs: LIVE_POLL_MS,
+    load: () => load(true, refreshLimit(loaded)),
+  });
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
+        {/* Primary (filled) only while there is nothing on screen yet — once
+            the log is showing and refreshing itself, the button is the
+            secondary "now, please", not the way the screen works. */}
         <button
           type="button"
           disabled={pending}
-          onClick={() => void load(true)}
-          className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
+          onClick={() => void refresh()}
+          className={
+            entries
+              ? "flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+              : "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
+          }
         >
           {pending ? "Loading…" : entries ? "Refresh" : "Load activity"}
         </button>
         {entries && (
           <span className="text-[10px] text-muted">
             {filtered
-              ? `${visible.length} matching, of ${loaded} loaded (${total} total)`
+              ? `${shown.length} matching, of ${loaded} loaded (${total} total)`
               : `${loaded} of ${total} loaded, newest first`}
           </span>
         )}
+        <AdminLiveStamp updatedAt={updatedAt} live={live} intervalMs={LIVE_POLL_MS} />
       </div>
 
       {!entries && !error && (
@@ -165,7 +206,7 @@ export default function AdminActivityTab() {
             />
           </div>
 
-          {visible.length === 0 ? (
+          {shown.length === 0 ? (
             <p className="text-xs text-muted">
               {filtered ? "Nothing loaded matches these filters." : "Nothing recorded yet."}
             </p>
@@ -181,7 +222,7 @@ export default function AdminActivityTab() {
                   </tr>
                 </thead>
                 <tbody className="text-zinc-300">
-                  {visible.map((e, i) => (
+                  {shown.map((e, i) => (
                     <tr key={`${e.at}-${e.type}-${e.login}-${i}`} className="border-b border-white/[0.03]">
                       <td className="py-1 pr-3 font-mono tabular-nums text-muted" title={e.at}>
                         {formatWhen(e.at)}

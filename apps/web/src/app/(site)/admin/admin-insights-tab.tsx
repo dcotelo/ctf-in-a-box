@@ -2,16 +2,21 @@
 
 // Event engagement metrics (issue #169).
 //
-// Loaded on demand, not on mount: this is an O(contestants) fold over Redis,
-// and an organizer opening the tab strip to reach Support should not pay for
-// it. The button is also the refresh — mid-event these numbers move.
+// Loaded when this becomes the active destination, not on mount: this is an
+// O(contestants) fold over Redis, and an organizer opening the sidebar to
+// reach Support should not pay for it. While the event phase is live it then
+// recomputes every 30 s (use-live-poll.ts — half Overview's cadence, because
+// of that fold), with the stamp saying how old the read is; the Refresh
+// button is the same code path for an organizer who won't wait.
 //
 // Everything here comes from data the box already stores. There is no
 // collection step and nothing is fetched from a contestant's fork; see
 // metrics-store.ts for why fork-reported engagement would be forgeable by the
 // contestants it measures.
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import AdminLiveStamp from "./admin-live-stamp";
+import { SLOW_POLL_MS, useLivePoll } from "./use-live-poll";
 
 type ChallengeStat = {
   module: "quiz" | "classic" | "ai";
@@ -56,12 +61,21 @@ function duration(seconds: number | null): string {
   return `${(seconds / 3600).toFixed(1)}h`;
 }
 
-export default function AdminInsightsTab() {
+export default function AdminInsightsTab({
+  visible = false,
+  live = false,
+}: {
+  /** This is the active destination — gates the first load and the loop.
+   *  Optional so a static render (the tests) fetches nothing. */
+  visible?: boolean;
+  /** The event phase is live (components/phase.ts) — gates the loop. */
+  live?: boolean;
+}) {
   const [metrics, setMetrics] = useState<EventMetrics | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setPending(true);
     setError(null);
     try {
@@ -77,7 +91,8 @@ export default function AdminInsightsTab() {
     } finally {
       setPending(false);
     }
-  }
+  }, []);
+  const { updatedAt, refresh } = useLivePoll({ visible, live, intervalMs: SLOW_POLL_MS, load });
 
   // The timeline's tallest bucket sets the bar scale. A sparkline of absolute
   // counts with no reference is unreadable; relative height is the whole
@@ -87,11 +102,18 @@ export default function AdminInsightsTab() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
+        {/* Primary (filled) only while nothing is on screen yet — once the
+            metrics are showing and recomputing themselves, the button is the
+            secondary "now, please". */}
         <button
           type="button"
           disabled={pending}
-          onClick={() => void load()}
-          className="flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
+          onClick={() => void refresh()}
+          className={
+            metrics
+              ? "flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+              : "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
+          }
         >
           {pending ? "Computing…" : metrics ? "Refresh" : "Compute metrics"}
         </button>
@@ -108,6 +130,7 @@ export default function AdminInsightsTab() {
             </span>
           </>
         )}
+        <AdminLiveStamp updatedAt={updatedAt} live={live} intervalMs={SLOW_POLL_MS} />
       </div>
 
       {!metrics && !error && (

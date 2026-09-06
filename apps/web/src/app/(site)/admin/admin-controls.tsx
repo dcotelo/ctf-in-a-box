@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { nextScheduleBoundary } from "@/lib/schedule-window";
+import { phaseFromSettings } from "@/components/phase";
 import {
   ALL_MODULE_IDS,
   bakedModuleIds,
@@ -493,6 +494,12 @@ export default function AdminControls({
   };
   const statusOf = (key: string): FieldStatus => fieldStatus[key] ?? { state: "idle" };
 
+  // Whether the live views (Overview, Activity, Insights) keep polling — see
+  // use-live-poll.ts. Evaluated at `settingsAt`, which the boundary timer
+  // above re-stamps when a scheduled window opens or closes, so the loop
+  // starts and stops with the phase without a page reload.
+  const eventLive = phaseFromSettings(settings, settingsAt).phase === "live";
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -514,6 +521,7 @@ export default function AdminControls({
                   setups={setups}
                   inventory={inventory}
                   onNavigate={setActive}
+                  visible={active === OVERVIEW_TAB}
                 />
               ) : tab.id === EVENT_TAB ? (
                 <AdminEventTab
@@ -552,9 +560,9 @@ export default function AdminControls({
               ) : tab.id === SUPPORT_TAB ? (
                 <AdminSupportTab setConfirm={setConfirm} />
               ) : tab.id === ACTIVITY_TAB ? (
-                <AdminActivityTab />
+                <AdminActivityTab visible={active === ACTIVITY_TAB} live={eventLive} />
               ) : tab.id === INSIGHTS_TAB ? (
-                <AdminInsightsTab />
+                <AdminInsightsTab visible={active === INSIGHTS_TAB} live={eventLive} />
               ) : (
                 <section className="flex flex-col gap-4">
                   {/* Setup instructions FIRST, then the identity editor, then the
