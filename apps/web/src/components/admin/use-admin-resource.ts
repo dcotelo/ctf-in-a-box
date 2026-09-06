@@ -35,6 +35,36 @@ import {
   upsertRow,
 } from "@/components/admin/ordered-rows";
 
+/** Whether the open editor has been touched since it was opened.
+ *
+ *  Compared by serialized value, not by reference: the panels replace the
+ *  whole editor object on every keystroke (`setEditing({...editing, draft})`),
+ *  so identity always differs and only the content answers the question. An
+ *  editor that will not serialize (a cycle, which no draft type has) counts as
+ *  dirty — the safe direction, since the cost of being wrong is a confirmation
+ *  nobody needed rather than work silently thrown away.
+ *
+ *  Exported for direct testing: this repo's tests render to static markup and
+ *  cannot type into a form. */
+export function editorIsDirty<Editor>(current: Editor | null, openedAs: string | null): boolean {
+  if (current === null || openedAs === null) return false;
+  try {
+    return JSON.stringify(current) !== openedAs;
+  } catch {
+    return true;
+  }
+}
+
+/** The baseline `editorIsDirty` compares against. `null` for an editor that
+ *  will not serialize, which `editorIsDirty` then reads as dirty. */
+function safeSnapshot<Editor>(editor: Editor): string | null {
+  try {
+    return JSON.stringify(editor);
+  } catch {
+    return null;
+  }
+}
+
 export type LoadResult<Row> = { ok: true; rows: Row[]; categories: string[] } | { ok: false; message: string };
 
 export type PostResult<Row> = { ok: true; row: Row } | { ok: false; message: string };
@@ -136,7 +166,20 @@ export type AdminResource<Row, Item, Editor> = {
   nextOrder: number;
 
   editing: Editor | null;
+  /** Records a change to the OPEN editor — what the form calls per keystroke.
+   *  To open a different one, use `openEditor`, which guards the draft. */
   setEditing: (editor: Editor | null) => void;
+  /** Opens `next` for editing, or — when the open draft has unsaved changes —
+   *  parks it in `pendingEditor` and waits to be told what to do (audit F17).
+   *  Every Edit and Add button goes through this. */
+  openEditor: (next: Editor) => void;
+  /** The editor waiting behind a discard confirmation, or null. Non-null is
+   *  the panel's cue to render one. */
+  pendingEditor: Editor | null;
+  /** Discards the current draft and opens the parked one. */
+  confirmDraftSwitch: () => void;
+  /** Keeps the current draft; the parked editor is dropped. */
+  cancelDraftSwitch: () => void;
   formPending: boolean;
   formError: string | null;
   /** Closes the form unless a save is in flight. */
@@ -172,6 +215,11 @@ export function useAdminResource<Row, Item, Editor, Payload>(
   const [loaded, setLoaded] = useState(false);
 
   const [editing, setEditing] = useState<Editor | null>(null);
+  // What the open editor looked like when it opened, serialized — the baseline
+  // `editorIsDirty` compares against. Held as state rather than a ref so a
+  // render that reads it is never a render behind.
+  const [openedAs, setOpenedAs] = useState<string | null>(null);
+  const [pendingEditor, setPendingEditor] = useState<Editor | null>(null);
   const [formPending, setFormPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -228,11 +276,44 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     setRows((prev) => upsertRow(prev, result.row, accessors));
     onWrite?.();
     setEditing(null);
+    setOpenedAs(null);
+  }
+
+  /** The one place an editor is opened. A half-written question used to
+   *  vanish the moment Edit was clicked on the next row, or Add on a board
+   *  where the form sits below the list and every list control stays live
+   *  while editing (audit F17). A save in flight is left alone entirely —
+   *  swapping the subject out from under an in-flight POST is worse than
+   *  making the organizer wait a moment. */
+  function openEditor(next: Editor) {
+    if (formPending) return;
+    if (editorIsDirty(editing, openedAs)) {
+      setPendingEditor(next);
+      return;
+    }
+    applyEditor(next);
+  }
+
+  function applyEditor(next: Editor) {
+    setPendingEditor(null);
+    setFormError(null);
+    setEditing(next);
+    setOpenedAs(safeSnapshot(next));
+  }
+
+  function confirmDraftSwitch() {
+    if (pendingEditor !== null) applyEditor(pendingEditor);
+  }
+
+  function cancelDraftSwitch() {
+    setPendingEditor(null);
   }
 
   function cancelEditor() {
     if (formPending) return;
     setEditing(null);
+    setOpenedAs(null);
+    setPendingEditor(null);
     setFormError(null);
   }
 
@@ -303,6 +384,10 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     nextOrder: nextOrderOf(rows, accessors),
     editing,
     setEditing,
+    openEditor,
+    pendingEditor,
+    confirmDraftSwitch,
+    cancelDraftSwitch,
     formPending,
     formError,
     cancelEditor,

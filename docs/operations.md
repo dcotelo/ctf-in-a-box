@@ -621,8 +621,12 @@ Every settings change is recorded in an audit log (who, when, what changed)
 alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest
 **500** entries and drops older ones automatically. **Disruptive controls
 prompt for confirmation**: the freeze and team-registration toggles, each
-module's Enable/Disable switch, and the demo-mode **Seed demo data** button
-ask a one-click "are you sure?"; the master reset requires type-to-confirm.
+module's Enable/Disable switch, **removing an admin** on the Admins tab, and
+the demo-mode **Seed demo data** button ask a one-click "are you sure?"; the
+master reset requires type-to-confirm. Opening a different question or
+challenge while an unsaved draft is open also asks before discarding it —
+the module forms sit below the list, so every list control stays clickable
+while you write.
 **The panel accepts only the event's name** as that phrase — `event.yaml`'s
 `name`, exactly as baked into the running build. The route behind the button,
 `POST /api/admin/reset`, additionally accepts the literal `RESET` as its

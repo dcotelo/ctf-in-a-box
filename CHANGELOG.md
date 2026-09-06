@@ -8,6 +8,20 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Nothing in the admin panel destroys work without asking.** Opening a
+  different question or challenge — or clicking Add — replaced a half-written
+  draft in silence: the module forms sit *below* the list, so every list
+  control stays live while you write, and text typed into one prompt vanished
+  the moment Edit was clicked on the next row. All three panels now ask before
+  discarding, through one guard in the shared editor hook; a form with nothing
+  typed into it still opens straight away, and a save in flight is left alone.
+  On the **Admins** tab, removing a colleague fired immediately on the click,
+  with no gate at all, while removing *yourself* used `window.confirm` — the
+  one native dialog in a panel where every other destructive action has a
+  focus-managed, styled one. Both now go through that dialog, each with the
+  consequence stated, and neither asks you to type a phrase: losing panel
+  access is recoverable by any other admin, and reserving type-to-confirm for
+  what genuinely cannot be undone is what keeps organizers reading it.
 - **The admin panel calls things by the names an organizer uses.** Insights'
   Hardest-first table and its CSV named every challenge by generated id
   (`case-probe-control-xf1ob0`), never by title — unreadable out loud at a

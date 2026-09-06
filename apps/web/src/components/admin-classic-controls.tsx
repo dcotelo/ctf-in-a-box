@@ -102,6 +102,7 @@ import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 import type { AdminChallenge, Challenge, ImportSummary } from "@/lib/classic-store";
 import { parseBundle, serializeBundle } from "@/lib/classic-io";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import DiscardDraftConfirm from "@/components/admin/discard-draft-confirm";
 import ImportPanel from "@/components/admin/import-panel";
 import { downloadJson, useBundleImport } from "@/components/admin/use-bundle-import";
 import CategoryEditor from "@/components/admin/category-editor";
@@ -274,7 +275,7 @@ export default function AdminClassicControls({
             disabled={formPending || categories.length === 0}
             onClick={() => {
               setFlagRevealed(false);
-              resource.setEditing(newChallengeEditor(nextOrder, categories[0] ?? ""));
+              resource.openEditor(newChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
             className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
@@ -307,7 +308,7 @@ export default function AdminClassicControls({
           onMove={(from, to) => void resource.move(from, to)}
           onEdit={(row) => {
             setFlagRevealed(false);
-            resource.setEditing(editorFromChallenge(row));
+            resource.openEditor(editorFromChallenge(row));
           }}
           onDelete={(row) => resource.requestDelete(row.challenge)}
         />
@@ -348,6 +349,16 @@ export default function AdminClassicControls({
           onChange={(draft) => resource.setEditing({ ...editing, draft })}
           onCancel={resource.cancelEditor}
           onSubmit={() => void resource.submitEditor(editing)}
+        />
+      )}
+
+      {/* Audit F17: Edit on another row, or Add, parks the new editor
+          here rather than replacing a half-written draft in silence. */}
+      {resource.pendingEditor && (
+        <DiscardDraftConfirm
+          noun="challenge"
+          onConfirm={resource.confirmDraftSwitch}
+          onCancel={resource.cancelDraftSwitch}
         />
       )}
 

@@ -80,6 +80,7 @@ import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import type { AdminQuestion, Question, QuizImportSummary } from "@/lib/quiz-store";
 import { parseBundle, serializeBundle } from "@/lib/quiz-io";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import DiscardDraftConfirm from "@/components/admin/discard-draft-confirm";
 import ImportPanel from "@/components/admin/import-panel";
 import { downloadJson, useBundleImport } from "@/components/admin/use-bundle-import";
 import SortableList from "@/components/admin/sortable-list";
@@ -236,7 +237,7 @@ export default function AdminQuizControls({
           <button
             type="button"
             disabled={formPending}
-            onClick={() => resource.setEditing(newQuestionEditor(nextOrder))}
+            onClick={() => resource.openEditor(newQuestionEditor(nextOrder))}
             className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
             Add question
@@ -262,7 +263,7 @@ export default function AdminQuizControls({
           emptyText="No questions yet."
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}
-          onEdit={(row) => resource.setEditing(editorFromQuestion(row))}
+          onEdit={(row) => resource.openEditor(editorFromQuestion(row))}
           onDelete={(row) => resource.requestDelete(row.question)}
         />
       </div>
@@ -298,6 +299,16 @@ export default function AdminQuizControls({
           onChange={(draft) => resource.setEditing({ ...editing, draft })}
           onCancel={resource.cancelEditor}
           onSubmit={() => void resource.submitEditor(editing)}
+        />
+      )}
+
+      {/* Audit F17: Edit on another row, or Add, parks the new editor
+          here rather than replacing a half-written draft in silence. */}
+      {resource.pendingEditor && (
+        <DiscardDraftConfirm
+          noun="question"
+          onConfirm={resource.confirmDraftSwitch}
+          onCancel={resource.cancelDraftSwitch}
         />
       )}
 
