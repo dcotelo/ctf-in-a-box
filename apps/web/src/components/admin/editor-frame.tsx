@@ -14,7 +14,9 @@
 //     puts the cursor in its first text input on every open, keyed on WHICH
 //     item is being edited (`focusKey`) rather than on mount alone: clicking
 //     Edit on another row (same mounted form, new subject) counts as a fresh
-//     open, while a keystroke re-render does not re-steal the scroll.
+//     open, while a keystroke re-render does not re-steal the scroll. A form
+//     whose first field is not a plain text input marks the field it wants
+//     with `EDITOR_FOCUS_ATTR` — see the constant.
 //   - The id is never an input. On an existing item it is the reference every
 //     banked answer or solve points at, so changing it would orphan them; on a
 //     new one it does not exist yet (it is minted from the prompt or title at
@@ -22,6 +24,14 @@
 //     generated — the exact sentences are the module's.
 
 import { useEffect, useRef, type ReactNode } from "react";
+
+/** Marks the control an editor wants focused on open, for a form whose first
+ *  field is not a plain text input. The quiz's is a textarea (the prompt), so
+ *  the `input[type='text']` fallback below skipped past it and landed on the
+ *  first choice-id input — the cursor sat in storage plumbing rather than in
+ *  the sentence the organizer came to write (#282). Put it on the control
+ *  itself: `<textarea {...{ [EDITOR_FOCUS_ATTR]: "" }} />`. */
+export const EDITOR_FOCUS_ATTR = "data-editor-focus";
 
 /** The card's heading: the add label for a new item, `Edit "<phrase>"` for
  *  an existing one (the phrase being the same one the delete confirmation
@@ -91,8 +101,12 @@ export default function EditorFrame({
 }) {
   const formRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    formRef.current?.querySelector<HTMLInputElement>("input[type='text']")?.focus({ preventScroll: true });
+    const card = formRef.current;
+    card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const target =
+      card?.querySelector<HTMLElement>(`[${EDITOR_FOCUS_ATTR}]`) ??
+      card?.querySelector<HTMLElement>("input[type='text']");
+    target?.focus({ preventScroll: true });
   }, [focusKey]);
 
   return (

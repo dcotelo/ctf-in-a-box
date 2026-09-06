@@ -30,6 +30,16 @@ describe("TextField", () => {
   it("disables the input while saving", () => {
     expect(renderToStaticMarkup(<TextField label="Title" value="" disabled={true} onChange={noop} />)).toMatch(/<input[^>]*disabled=""/);
   });
+
+  it("states type=text, which is how EditorFrame finds it to focus (#282)", () => {
+    // An attribute-less input behaves identically but does not match
+    // `input[type='text']`, so the classic and ai forms opened with the cursor
+    // nowhere. Asserted on the attribute rather than on focus because these
+    // tests render to static markup and never mount.
+    expect(renderToStaticMarkup(<TextField label="Title" value="" disabled={false} onChange={noop} />)).toMatch(
+      /<input[^>]*type="text"/,
+    );
+  });
 });
 
 describe("NumberField", () => {

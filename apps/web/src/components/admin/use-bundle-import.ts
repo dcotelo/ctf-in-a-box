@@ -30,6 +30,15 @@ import { type DescribeError, NETWORK_ERROR, parseJson } from "@/components/admin
 /** One import problem, as both `quiz-io` and `classic-io` shape it. */
 export type ImportError = { where: string; message: string };
 
+/** What the organizer is told when the browser cannot read the file they
+ *  chose. Shared with the event archive's import, which reads a file the same
+ *  way. `where` is `(file)` rather than a bundle path: nothing was parsed, so
+ *  there is no path to name. */
+export const FILE_READ_ERROR: ImportError = {
+  where: "(file)",
+  message: "Couldn’t read that file — try choosing it again.",
+};
+
 /** What a module's `parseBundle` returns, as far as this hook cares. */
 export type BundleParse = { ok: true } | { ok: false; errors: ImportError[] };
 
@@ -71,14 +80,21 @@ export type BundleImportState<Summary> = {
   setText: (value: string) => void;
   pending: boolean;
   clientErrors: ImportError[] | null;
-  serverErrors: ImportError[] | null;
+  /** Everything that went wrong outside client-side validation: the POST's own
+   *  errors, and a file the browser could not read. Named for where it is
+   *  shown rather than for the server, because the read failure never reaches
+   *  one (#284). */
+  importErrors: ImportError[] | null;
   result: Summary | null;
   canImport: boolean;
   submit: () => Promise<void>;
   /** Reads a chosen `.json` file client-side into the same textarea the
    *  paste path uses, so both paths share one validation/submit flow. Clears
    *  the input's value afterward so choosing the SAME file again (e.g. after
-   *  editing it on disk) still fires a change event. */
+   *  editing it on disk) still fires a change event. A read that rejects
+   *  (the file was moved, or is unreadable) surfaces in `importErrors`: both
+   *  panels `void` this promise, so an uncaught rejection left the organizer
+   *  staring at an unchanged textarea with no idea the file had not landed. */
   handleFile: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
   /** Retires the summary and errors — call after any other write. */
   retire: () => void;
@@ -99,12 +115,12 @@ export function useBundleImport<Summary>({
 }): BundleImportState<Summary> {
   const [text, setTextState] = useState("");
   const [pending, setPending] = useState(false);
-  const [serverErrors, setServerErrors] = useState<ImportError[] | null>(null);
+  const [importErrors, setImportErrors] = useState<ImportError[] | null>(null);
   const [result, setResult] = useState<Summary | null>(null);
 
   function retire() {
     setResult(null);
-    setServerErrors(null);
+    setImportErrors(null);
   }
 
   function setText(value: string) {
@@ -116,12 +132,26 @@ export function useBundleImport<Summary>({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    setText(await file.text());
+    let raw: string;
+    try {
+      raw = await file.text();
+    } catch {
+      // The failure retires the previous summary with it (#127's rule: a
+      // summary of a write does not outlive the next attempt). Otherwise
+      // choosing an unreadable file straight after a successful import shows
+      // "Imported 4 questions" directly above the failure. `text` is left
+      // alone — whatever is in the textarea is still the organizer's, and
+      // nothing replaced it.
+      setResult(null);
+      setImportErrors([FILE_READ_ERROR]);
+      return;
+    }
+    setText(raw);
   }
 
   async function submit() {
     setPending(true);
-    setServerErrors(null);
+    setImportErrors(null);
     setResult(null);
     try {
       const res = await fetch(endpoint, {
@@ -137,12 +167,12 @@ export function useBundleImport<Summary>({
         return;
       }
       if (Array.isArray(data.errors)) {
-        setServerErrors(data.errors);
+        setImportErrors(data.errors);
         return;
       }
-      setServerErrors([{ where: "(request)", message: describeError(res.status, data.error) }]);
+      setImportErrors([{ where: "(request)", message: describeError(res.status, data.error) }]);
     } catch {
-      setServerErrors([{ where: "(request)", message: NETWORK_ERROR }]);
+      setImportErrors([{ where: "(request)", message: NETWORK_ERROR }]);
     } finally {
       setPending(false);
     }
@@ -150,5 +180,5 @@ export function useBundleImport<Summary>({
 
   const { errors: clientErrors, canImport } = clientValidation(text, parse);
 
-  return { text, setText, pending, clientErrors, serverErrors, result, canImport, submit, handleFile, retire };
+  return { text, setText, pending, clientErrors, importErrors, result, canImport, submit, handleFile, retire };
 }

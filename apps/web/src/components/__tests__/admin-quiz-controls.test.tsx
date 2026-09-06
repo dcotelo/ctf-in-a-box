@@ -212,6 +212,50 @@ describe("payloadFromEditor — an edit can never change a question's id", () =>
     expect(payload.id).toBe("legacy-hand-typed-id");
   });
 
+  it("drops a correct id no choice carries any more — a renamed choice (#280)", () => {
+    // The organizer renames choice `a` to `option-a` and re-picks it. The
+    // draft's `correct` still holds the pre-rename `a` alongside the new id,
+    // and `isDraftValid` — which filters before counting — sees exactly one
+    // match and enables Save. Sending `correct` verbatim then put an id in the
+    // body naming no choice, which the route 400s on: a form the panel said
+    // was saveable could not be saved.
+    const editor = editorFromQuestion(row);
+    const draft: QuestionDraft = {
+      ...editor.draft,
+      choices: [
+        { id: "option-a", label: "X-Frame-Options" },
+        { id: "b", label: "Content-Length" },
+      ],
+      correct: ["a", "option-a"],
+    };
+
+    expect(isDraftValid(draft)).toBe(true);
+    const payload = payloadFromEditor({ ...editor, draft });
+    expect(payload.correct).toEqual(["option-a"]);
+    for (const id of payload.correct) {
+      expect(payload.choices.map((c) => c.id)).toContain(id);
+    }
+  });
+
+  it("trims a correct id the same way it trims the choice it names", () => {
+    const editor = editorFromQuestion(row);
+    const draft: QuestionDraft = {
+      ...editor.draft,
+      choices: [
+        { id: " a ", label: "X-Frame-Options" },
+        { id: "b", label: "Content-Length" },
+      ],
+      correct: [" a "],
+    };
+
+    // The gate and the body have to agree about what counts as selected:
+    // `isDraftValid` compares against trimmed choice ids, so leaving `correct`
+    // untrimmed there made this draft "no answer chosen" while the payload
+    // sent one.
+    expect(isDraftValid(draft)).toBe(true);
+    expect(payloadFromEditor({ ...editor, draft }).correct).toEqual(["a"]);
+  });
+
   it("keeps the question's existing position rather than re-deriving one", () => {
     const editor = editorFromQuestion({ question: { ...question, order: 7 }, correct: ["a"] });
     expect(payloadFromEditor(editor).order).toBe(7);
