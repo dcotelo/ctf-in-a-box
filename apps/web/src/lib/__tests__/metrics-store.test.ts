@@ -346,6 +346,19 @@ describe("naming the challenges", () => {
     expect(m.challenges.find((c) => c.id === "cookie-jar-x1")?.solves).toBe(1);
   });
 
+  it("keeps every number when the catalogue read itself fails", async () => {
+    // `upstashPipeline` throws on a timeout, a missing URL/token or a non-2xx
+    // response — it returns only PER-COMMAND errors as values. An uncaught
+    // call here would reject the whole fold, so failing to fetch the LABELS
+    // would cost the organizer every NUMBER on the tab.
+    mockStore(solvedOne);
+    mocks.upstashPipeline.mockRejectedValueOnce(new Error("Upstash pipeline failed: HTTP 503"));
+    const m = await computeEventMetrics();
+    expect(m.challenges).toHaveLength(3);
+    expect(m.challenges.every((c) => c.title === null)).toBe(true);
+    expect(m.challenges.find((c) => c.id === "cookie-jar-x1")?.solves).toBe(1);
+  });
+
   it("survives an unparseable catalogue row without losing the others", async () => {
     mockStore({
       ...solvedOne,

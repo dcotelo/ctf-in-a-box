@@ -193,19 +193,25 @@ async function readSecureDevSolves(): Promise<Map<string, string>> {
  * Quiz questions carry a `prompt` rather than a `title`; classic and ai carry
  * `title`. Both are read here so the caller never has to know which.
  *
- * Deliberately best-effort. A title is decoration over a number, so a
- * catalogue read that fails or returns junk yields no title and the row falls
- * back to its id — the same thing that happens for a challenge deleted after
- * it was solved. Losing the metric because its label could not be fetched
- * would be the worse trade, and this file already treats every hash read that
- * way (`hashEntries` yields nothing rather than throwing).
+ * Deliberately best-effort, and that has to be enforced here rather than
+ * assumed: `upstashPipeline` THROWS on a timeout, a missing URL/token or a
+ * non-2xx response (it is only per-command errors it returns as values), so an
+ * uncaught call would reject `computeEventMetrics` and a failure to fetch
+ * LABELS would cost the organizer every NUMBER on the tab. The whole request
+ * is therefore caught and degrades to an empty map: rows keep their ids, which
+ * is the same thing that happens for a challenge deleted after it was solved.
  */
 async function readTitles(): Promise<Map<string, string>> {
-  const replies = await upstashPipeline([
-    ["HGETALL", QUIZ_QUESTIONS_KEY],
-    ["HGETALL", CLASSIC_CHALLENGES_KEY],
-    ["HGETALL", AI_CHALLENGES_KEY],
-  ]);
+  let replies: { result?: unknown }[];
+  try {
+    replies = await upstashPipeline([
+      ["HGETALL", QUIZ_QUESTIONS_KEY],
+      ["HGETALL", CLASSIC_CHALLENGES_KEY],
+      ["HGETALL", AI_CHALLENGES_KEY],
+    ]);
+  } catch {
+    return new Map();
+  }
   const out = new Map<string, string>();
   (["quiz", "classic", "ai"] as const).forEach((module, i) => {
     for (const [id, raw] of hashEntries(replies[i]?.result)) {
