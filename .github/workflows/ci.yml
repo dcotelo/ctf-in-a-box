@@ -10,6 +10,22 @@ on:
 permissions:
   contents: read
 
+# Two rules hold for every step below, and a new job is expected to follow
+# them (#291):
+#
+#   - Every `uses:` is pinned to a full 40-character commit, with the tag kept
+#     as a trailing comment. That comment is not decoration: it is what
+#     Dependabot's `github_actions` ecosystem reads to keep the pin current, so
+#     pinning costs no staleness. Same posture ADR 51 takes for base images.
+#   - Every `actions/checkout` sets `persist-credentials: false`. No job here
+#     runs `git` after checking out, so the GITHUB_TOKEN checkout would
+#     otherwise leave in `.git/config` is never used — it only widens what
+#     checked-out code could reach. Exposure is already bounded (the
+#     `contents: read` default above, and `pull_request` rather than
+#     `pull_request_target`), which is why this is hardening rather than a fix.
+#     A job that genuinely needs to push must say so, and say why, instead of
+#     inheriting a token by omission.
+
 jobs:
   # Decide which areas a PR actually touches so only the relevant jobs run.
   # Native `git diff` — no third-party action — keeps this self-contained. A push
@@ -31,9 +47,10 @@ jobs:
       docs: ${{ steps.f.outputs.docs }}
       registries: ${{ steps.f.outputs.registries }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - id: f
         env:
           EVENT: ${{ github.event_name }}
@@ -128,8 +145,10 @@ jobs:
     if: needs.changes.outputs.sync == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 22, cache: npm, cache-dependency-path: sync/package-lock.json }
       - run: npm ci
         working-directory: sync
@@ -141,8 +160,10 @@ jobs:
     if: needs.changes.outputs.scorer == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 22, cache: npm, cache-dependency-path: scorer/package-lock.json }
       - run: npm ci
         working-directory: scorer
@@ -167,8 +188,10 @@ jobs:
     if: needs.changes.outputs.scorer == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 22, cache: npm, cache-dependency-path: scorer/package-lock.json }
       - run: npm ci
         working-directory: scorer
@@ -180,7 +203,9 @@ jobs:
     if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
       # scripts/dev-stack is listed by name: it has no .sh suffix, so the glob
       # alone would leave the one developer entry point unlinted.
@@ -206,7 +231,9 @@ jobs:
     if: needs.changes.outputs.smoke == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: ./scripts/smoke.sh
 
   app:
@@ -214,8 +241,10 @@ jobs:
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 22 }
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
@@ -294,7 +323,9 @@ jobs:
     if: needs.changes.outputs.quiz == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: ./scripts/acceptance-quiz-only.sh
 
   classic-only:
@@ -302,7 +333,9 @@ jobs:
     if: needs.changes.outputs.classic == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: ./scripts/acceptance-classic-only.sh
 
   ai-only:
@@ -310,7 +343,9 @@ jobs:
     if: needs.changes.outputs.ai == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: ./scripts/acceptance-ai-only.sh
 
   # KNOWN_MODULES/target lists are deliberately duplicated across sync, setup,
@@ -322,11 +357,6 @@ jobs:
     if: needs.changes.outputs.registries == 'true'
     runs-on: ubuntu-latest
     steps:
-      # This job runs a script FROM the checkout, so it takes the hardened
-      # shape CodeRabbit asked for: SHA-pinned actions (tag kept as a comment
-      # so Dependabot's github_actions ecosystem still bumps them, the ADR 51
-      # posture) and no persisted token — nothing here runs git afterwards.
-      # The sibling jobs above are being brought to the same shape in #291.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -343,9 +373,11 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build the Pages site
-        uses: actions/jekyll-build-pages@v1
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
           source: docs
           destination: docs/_site
