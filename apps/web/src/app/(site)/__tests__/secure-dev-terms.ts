@@ -98,7 +98,20 @@ export const SECURE_DEV_TERMS = [
   // those surfaces, per this file's header rule, never a reason to drop the
   // term.
   "challenge",
-  "hint",
+  // "hint" was here, and is deliberately gone (#249). It stopped being
+  // secure-development vocabulary when classic (#209/#210) and ai began
+  // selling hints through the same gate and the same four settings — so a
+  // classic-only or ai-only page naming one is describing ITS OWN game, and
+  // is now REQUIRED to: the price of a hint reached those contestants only
+  // from the reveal button. Unlike "challenge" just above, this cannot be
+  // handled by scoping which surfaces are checked, because the term now
+  // belongs in the contestant copy of the very pages these suites render.
+  //
+  // What that costs: the quiz-only variants no longer catch a stray "hint",
+  // and quiz has no hints by design. That guarantee moved to the registry
+  // itself — see "hint cost is stated wherever hints are sold" in
+  // lib/__tests__/modules.test.ts, which asserts it per module rather than
+  // per page.
   "top 10",
   "secure agent playbook",
   "please use ai",
