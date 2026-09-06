@@ -111,6 +111,12 @@ files themselves.
 node scripts/check-module-registries.mjs
 ```
 
+The wrapped commands are also exposed as `make <target>` from the repo root
+(`make help` lists them). Not wrapped, deliberately: the live Lua/upstash
+suite (needs redis + srh), the production build and `acceptance-app.sh`,
+and the two real-target scoring gates — run those from the commands above.
+The Makefile does not add a full-repo `test` target on purpose.
+
 ## CI
 
 `.github/workflows/ci.yml` has a `changes` job that path-filters which areas
