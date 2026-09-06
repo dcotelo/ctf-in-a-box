@@ -96,6 +96,7 @@ import { sendJson } from "@/components/admin/fetch";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
 import { AiChallengeForm } from "@/components/admin-ai-form";
 import {
   AI_COOLDOWN_LABEL,
@@ -127,6 +128,9 @@ export type AdminAiControlsProps = {
   /** The shell's per-field save status, by stored key (UX audit F2). Optional
    *  so a static render without a shell still works; idle when absent. */
   statusOf?: (key: string) => FieldStatus;
+  /** The module screen's settings card slot (identity editor + Hints link);
+   *  absent, the knob renders bare — see components/admin/settings-card.tsx. */
+  moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminAiChallenge[];
   initialCategories?: string[];
@@ -141,6 +145,7 @@ export default function AdminAiControls({
   setAiCooldownSecInput,
   commitNumber,
   statusOf = () => ({ state: "idle" }),
+  moduleSettings,
   initialChallenges = [],
   initialCategories = [],
   onInventory,
@@ -247,19 +252,29 @@ export default function AdminAiControls({
   // same hook, so both halves of the integration UI agree.
   const origin = useBrowserOrigin();
 
+  const knob = (
+    <AdminNumberField
+      id="ai-cooldown-sec"
+      label={AI_COOLDOWN_LABEL}
+      help="Seconds a contestant must wait between graded flag submissions on the same challenge. 0 = no cooldown. Signed events from the external side are never rate-limited by this — there is no wrong answer to throttle."
+      value={aiCooldownSecInput}
+      placeholder={String(AI_COOLDOWN_SEC)}
+      disabled={pending}
+      status={statusOf("aiCooldownSec")}
+      onChange={setAiCooldownSecInput}
+      onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
+    />
+  );
+
   return (
     <>
-      <AdminNumberField
-        id="ai-cooldown-sec"
-        label={AI_COOLDOWN_LABEL}
-        help="Seconds a contestant must wait between graded flag submissions on the same challenge. 0 = no cooldown. Signed events from the external side are never rate-limited by this — there is no wrong answer to throttle."
-        value={aiCooldownSecInput}
-        placeholder={String(AI_COOLDOWN_SEC)}
-        disabled={pending}
-        status={statusOf("aiCooldownSec")}
-        onChange={setAiCooldownSecInput}
-        onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
-      />
+      {moduleSettings ? (
+        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints}>
+          {knob}
+        </AdminSettingsCard>
+      ) : (
+        knob
+      )}
 
       <CategoryEditor
         categories={categories}

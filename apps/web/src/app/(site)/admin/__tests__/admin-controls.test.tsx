@@ -387,14 +387,23 @@ describe("AdminControls module identity fields", () => {
     expect(quizPanel).toContain('maxLength="200"');
   });
 
-  it("renders module identity as the first child of the module panel", () => {
+  it("renders module identity inside the settings card, above the module's knobs and its list", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");
-    const identityAt = quizPanel.indexOf("Module identity");
+    const cardAt = quizPanel.indexOf(">Settings<");
+    const identityAt = quizPanel.indexOf('name="moduleTitle:quiz"');
+    const knobAt = quizPanel.indexOf("Max attempts");
     const questionsAt = quizPanel.indexOf("Add question");
-    expect(identityAt).toBeGreaterThan(-1);
-    expect(questionsAt).toBeGreaterThan(-1);
-    expect(identityAt).toBeLessThan(questionsAt);
+    expect(cardAt).toBeGreaterThan(-1);
+    expect(identityAt).toBeGreaterThan(cardAt);
+    expect(knobAt).toBeGreaterThan(identityAt);
+    expect(questionsAt).toBeGreaterThan(knobAt);
+  });
+
+  it("links to the Hints screen from the settings card of every module that sells hints, and not from the quiz", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    expect(panelFor(html, "secure-development")).toContain("Hint pricing is on the Hints screen");
+    expect(panelFor(html, "quiz")).not.toContain("Hint pricing is on the Hints screen");
   });
 });
 

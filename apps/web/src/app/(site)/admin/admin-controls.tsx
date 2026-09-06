@@ -56,6 +56,7 @@ import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
 import AdminHintsTab from "./admin-hints-tab";
+import AdminSettingsCard from "@/components/admin/settings-card";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModulePanel from "./admin-module-panel";
 import type { CommitNumber, ConfirmState } from "./types";
@@ -589,49 +590,60 @@ export default function AdminControls({
                   applyField={applyField}
                   statusOf={statusOf}
                   setConfirm={setConfirm}
+                  sellsHints={tab.id !== "quiz"}
+                  onNavigateHints={() => setActive(HINTS_TAB)}
                 >
-                  {tab.id === "secure-development" ? (
-                    <AdminSecureDevTab
-                      settings={settings}
-                      pending={pending}
-                      apply={apply}
-                      commitNumber={commitNumber}
-                      statusOf={statusOf}
-                      cooldownInput={cooldownInput}
-                      setCooldownInput={setCooldownInput}
-                    />
-                  ) : tab.id === "quiz" ? (
-                    <AdminQuizControls
-                      pending={pending}
-                      quizMaxAttemptsInput={quizMaxAttemptsInput}
-                      setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
-                      quizRetryAfterInput={quizRetryAfterInput}
-                      setQuizRetryAfterInput={setQuizRetryAfterInput}
-                      commitNumber={commitNumber}
-                      statusOf={statusOf}
-                      onInventory={inventoryReporters[tab.id]}
-                    />
-                  ) : tab.id === "classic" ? (
-                    <AdminClassicControls
-                      pending={pending}
-                      classicCooldownSecInput={classicCooldownSecInput}
-                      setClassicCooldownSecInput={setClassicCooldownSecInput}
-                      commitNumber={commitNumber}
-                      statusOf={statusOf}
-                      onInventory={inventoryReporters[tab.id]}
-                    />
-                  ) : tab.id === "ai" ? (
-                    <AdminAiControls
-                      pending={pending}
-                      aiCooldownSecInput={aiCooldownSecInput}
-                      setAiCooldownSecInput={setAiCooldownSecInput}
-                      commitNumber={commitNumber}
-                      statusOf={statusOf}
-                      onInventory={inventoryReporters[tab.id]}
-                    />
-                  ) : (
-                    <p className="text-xs text-muted">No settings for this module yet.</p>
-                  )}
+                  {(moduleSettings) =>
+                    tab.id === "secure-development" ? (
+                      <AdminSecureDevTab
+                        settings={settings}
+                        pending={pending}
+                        apply={apply}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        cooldownInput={cooldownInput}
+                        setCooldownInput={setCooldownInput}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : tab.id === "quiz" ? (
+                      <AdminQuizControls
+                        pending={pending}
+                        quizMaxAttemptsInput={quizMaxAttemptsInput}
+                        setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
+                        quizRetryAfterInput={quizRetryAfterInput}
+                        setQuizRetryAfterInput={setQuizRetryAfterInput}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        onInventory={inventoryReporters[tab.id]}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : tab.id === "classic" ? (
+                      <AdminClassicControls
+                        pending={pending}
+                        classicCooldownSecInput={classicCooldownSecInput}
+                        setClassicCooldownSecInput={setClassicCooldownSecInput}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        onInventory={inventoryReporters[tab.id]}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : tab.id === "ai" ? (
+                      <AdminAiControls
+                        pending={pending}
+                        aiCooldownSecInput={aiCooldownSecInput}
+                        setAiCooldownSecInput={setAiCooldownSecInput}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        onInventory={inventoryReporters[tab.id]}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : (
+                      <>
+                        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints} />
+                        <p className="text-sm text-muted">No settings for this module yet.</p>
+                      </>
+                    )
+                  }
                 </AdminModulePanel>
               )}
             </div>

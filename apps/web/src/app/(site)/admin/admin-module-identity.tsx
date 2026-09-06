@@ -129,18 +129,18 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
   const titleKey = `moduleTitle:${moduleId}`;
   const blurbKey = `moduleBlurb:${moduleId}`;
 
+  // Compact (admin-redesign.md § Content screens): the two fields side by
+  // side inside the module's settings card, one sentence of help each. The
+  // help still names only surfaces that actually render the value today —
+  // the title on this screen, the nav and the module's page (plus its
+  // leaderboard block and landing section when more than one module is on);
+  // the blurb as the lede and meta description of the module's page (UX
+  // audit F3 was this help claiming the blurb was "not shown on any page").
+  // Blank clears the override; the placeholder is what blank restores.
   return (
-    <div className="flex flex-col gap-3 border-b border-white/[0.06] pb-4">
-      <div>
-        <span className="text-white">Module identity</span>
-        <span className="block text-xs text-muted">
-          Plain text. Leave a field blank to clear the override and go back to the default shown in
-          the box.
-        </span>
-      </div>
-
+    <div className="grid gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Title</span>
+        <span className="text-sm text-white">Title</span>
         <IdentityField
           key={`title-${storedTitle}`}
           patchKey={titleKey}
@@ -151,22 +151,14 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
           multiline={false}
           apply={apply}
         />
-        {/* Each claim here is a surface that actually renders the resolved
-            title today. The leaderboard block and the landing-page section
-            heading are called out as multi-module only because both are
-            suppressed on a single-module event (there is nothing to
-            disambiguate), so on most events a rename reaches the first three
-            and no more. Overstating the reach is how an organizer ends up
-            hunting for a name that was never going to appear. */}
-        <span className="text-xs text-muted">
-          Renames the module on this tab, in the nav, and on the module&rsquo;s own page. With more
-          than one module enabled it also heads that module&rsquo;s leaderboard block and its
-          landing-page section.
+        <span className="text-sm text-muted">
+          Names the module here, in the nav and on its own page (and its leaderboard and landing blocks on a
+          multi-module event). Blank restores the default shown.
         </span>
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Blurb</span>
+        <span className="text-sm text-white">Blurb</span>
         <IdentityField
           key={`blurb-${storedBlurb}`}
           patchKey={blurbKey}
@@ -177,17 +169,9 @@ export default function AdminModuleIdentity({ moduleId, defaults, override, pend
           multiline
           apply={apply}
         />
-        {/* Each claim here is a surface that renders the resolved blurb
-            today: /quiz, /flags and /ai pass it to PageHeader as the
-            description under the title, and the same pages use it as their
-            meta description. This help used to say the blurb was "not shown
-            on any page", from before those headers rendered it — the one
-            false sentence on the panel (UX audit F3). Keep it in step with
-            docs/operations.md's "The blurb is contestant-facing copy". */}
-        <span className="text-xs text-muted">
-          Contestant-facing. Shown as the lede under the title on the module&rsquo;s own page (the quiz,
-          flags and AI boards), and used as that page&rsquo;s meta description for search results and
-          link previews. Blank restores the default sentence shown in the box.
+        <span className="text-sm text-muted">
+          Contestant-facing: the lede under the title on the module&rsquo;s page, and that page&rsquo;s meta
+          description. Blank restores the default shown.
         </span>
       </label>
     </div>

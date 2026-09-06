@@ -110,6 +110,7 @@ import SortableList from "@/components/admin/sortable-list";
 import { useAdminResource } from "@/components/admin/use-admin-resource";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
 import { ChallengeForm } from "@/components/admin-classic-form";
 import {
   CHALLENGE_ROWS,
@@ -142,6 +143,9 @@ export type AdminClassicControlsProps = {
   /** The shell's per-field save status, by stored key (UX audit F2). Optional
    *  so a static render without a shell still works; idle when absent. */
   statusOf?: (key: string) => FieldStatus;
+  /** The module screen's settings card slot (identity editor + Hints link);
+   *  absent, the knob renders bare — see components/admin/settings-card.tsx. */
+  moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminChallenge[];
   initialCategories?: string[];
@@ -156,6 +160,7 @@ export default function AdminClassicControls({
   setClassicCooldownSecInput,
   commitNumber,
   statusOf = () => ({ state: "idle" }),
+  moduleSettings,
   initialChallenges = [],
   initialCategories = [],
   onInventory,
@@ -224,21 +229,31 @@ export default function AdminClassicControls({
 
   const confirmCopy = deleteTarget ? challengeDeleteConfirm(deleteTarget) : null;
 
+  const knob = (
+    <AdminNumberField
+      id="classic-cooldown-sec"
+      label="Submission cooldown (sec)"
+      help="Seconds a contestant must wait between flag submissions on the same challenge. 0 = no cooldown."
+      value={classicCooldownSecInput}
+      placeholder={String(CLASSIC_COOLDOWN_SEC)}
+      disabled={pending}
+      status={statusOf("classicCooldownSec")}
+      onChange={setClassicCooldownSecInput}
+      onBlur={() =>
+        commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput, "Submission cooldown (sec)")
+      }
+    />
+  );
+
   return (
     <>
-      <AdminNumberField
-        id="classic-cooldown-sec"
-        label="Submission cooldown (sec)"
-        help="Seconds a contestant must wait between flag submissions on the same challenge. 0 = no cooldown."
-        value={classicCooldownSecInput}
-        placeholder={String(CLASSIC_COOLDOWN_SEC)}
-        disabled={pending}
-        status={statusOf("classicCooldownSec")}
-        onChange={setClassicCooldownSecInput}
-        onBlur={() =>
-          commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput, "Submission cooldown (sec)")
-        }
-      />
+      {moduleSettings ? (
+        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints}>
+          {knob}
+        </AdminSettingsCard>
+      ) : (
+        knob
+      )}
 
       <CategoryEditor
         categories={categories}

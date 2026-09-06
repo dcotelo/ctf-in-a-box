@@ -2,11 +2,15 @@
 
 // One module's Content screen (admin-redesign.md § Content screens): the
 // sticky header — the module's own title and its enabled switch — the setup
-// status line that opens into the checklist, the identity editor, and then
-// the module's own controls (`children`: the quiz, classic, ai or
-// secure-development panel). Extracted from admin-controls.tsx so the shell
-// stays a shell; driven by the modules list and the `setups` map, so a fifth
-// module gets this screen with no per-module branch.
+// status line that opens into the checklist, and then the module's own
+// controls (`children`: the quiz, classic, ai or secure-development panel),
+// which open with the compact settings card (components/admin/settings-
+// card.tsx). The identity editor is built HERE — it is driven by the modules
+// list, not by any module's code — and handed to the controls through the
+// `children` render prop so they can place it inside that card above their
+// own knobs. Extracted from admin-controls.tsx so the shell stays a shell;
+// driven by the modules list and the `setups` map, so a fifth module gets
+// this screen with no per-module branch.
 //
 // The enabled switch is the SAME control as the row on Event's Modules
 // section — same status key (`module:<id>`), same lock rule and confirmation
@@ -23,6 +27,7 @@ import type { ModuleSetupContent, ResolvedModule } from "@/lib/modules";
 import AdminModuleSetup, { type ModuleInventory } from "@/components/admin-module-setup";
 import AdminSwitch from "@/components/admin-switch";
 import type { FieldStatus } from "@/components/admin-number-field";
+import type { ModuleSettingsSlot } from "@/components/admin/settings-card";
 import AdminModuleIdentity from "./admin-module-identity";
 import { moduleToggleConfirm, moduleToggleState, type ModuleToggleChoice } from "./module-toggle";
 import type { ConfirmState } from "./types";
@@ -41,6 +46,8 @@ export default function AdminModulePanel({
   applyField,
   statusOf,
   setConfirm,
+  sellsHints,
+  onNavigateHints,
   children,
 }: {
   mod: ResolvedModule;
@@ -62,10 +69,28 @@ export default function AdminModulePanel({
   applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
   statusOf: (key: string) => FieldStatus;
   setConfirm: (c: ConfirmState) => void;
-  children: ReactNode;
+  /** Whether this module sells hints — the settings card then links to the
+   *  Hints screen, where their price and gating live. The quiz does not. */
+  sellsHints: boolean;
+  onNavigateHints: () => void;
+  /** The module's own controls, given the settings-card slot to render the
+   *  identity editor and Hints link inside their card. */
+  children: (settings: ModuleSettingsSlot) => ReactNode;
 }) {
   const live = new Set(liveModuleIds);
   const toggle = moduleToggleState(choice, live, liveCount);
+  const settingsSlot: ModuleSettingsSlot = {
+    identity: (
+      <AdminModuleIdentity
+        moduleId={mod.id}
+        defaults={defaults}
+        override={settings.moduleOverrides[mod.id as keyof AdminSettings["moduleOverrides"]]}
+        pending={pending}
+        apply={apply}
+      />
+    ),
+    onHints: sellsHints ? onNavigateHints : undefined,
+  };
 
   return (
     <section className="flex flex-col gap-4">
@@ -97,15 +122,7 @@ export default function AdminModulePanel({
 
       {setup && <AdminModuleSetup title={mod.title} setup={setup} inventory={inventory} />}
 
-      <AdminModuleIdentity
-        moduleId={mod.id}
-        defaults={defaults}
-        override={settings.moduleOverrides[mod.id as keyof AdminSettings["moduleOverrides"]]}
-        pending={pending}
-        apply={apply}
-      />
-
-      {children}
+      {children(settingsSlot)}
     </section>
   );
 }
