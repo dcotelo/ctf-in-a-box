@@ -150,6 +150,9 @@ Keep link text on one line; link outside `docs/` with an absolute `https://`
 URL, never `../`. `codeql.yml` is a stock JavaScript/TypeScript scan on PRs
 and weekly, with no repo-side config to keep in step.
 
+The `registries` job compares the duplicated KNOWN_MODULES / target lists
+and needs no install.
+
 **Every PR must also pass CodeRabbit review before merge, not just the CI
 jobs above.** CodeRabbit runs automatically on each PR (`.coderabbit.yaml`
 tunes it); treat its findings as a required gate. Resolve every actionable
