@@ -205,10 +205,54 @@ export default function AdminOverviewTab({
       <section className="flex flex-col gap-1.5">
         <h3 className="text-sm font-semibold text-white">Sync</h3>
         {sync ? (
-          <p className="text-xs text-muted">
-            last poll {sync.lastPollAt ? formatRelativeTime(sync.lastPollAt) : "never"} · ingested {sync.ingested} ·
-            dropped {sync.dropped} · {sync.paused ? "paused" : "running"}
-          </p>
+          <details>
+            {/* The one-line health check; the full breakdown — the whole old
+                Status card — sits behind the disclosure. */}
+            <summary className="cursor-pointer text-xs text-muted">
+              last poll {sync.lastPollAt ? formatRelativeTime(sync.lastPollAt) : "never"} · ingested {sync.ingested} ·{" "}
+              <span className={sync.dropped > 0 ? "text-[#d4a017]" : undefined}>dropped {sync.dropped}</span> ·{" "}
+              {sync.paused ? "paused" : "running"}
+            </summary>
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-muted">Last poll</dt>
+                <dd className="font-mono text-white">{sync.lastPollAt ? formatRelativeTime(sync.lastPollAt) : "never"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-muted">Ingested</dt>
+                <dd className="font-mono tabular-nums text-white">{sync.ingested}</dd>
+              </div>
+              {/* Beside Ingested on purpose: the pair is the whole health
+                  check. Amber only when nonzero — a warning colour on a
+                  permanent zero teaches organizers to ignore the colour. */}
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-muted">Dropped</dt>
+                <dd className={`font-mono tabular-nums ${sync.dropped > 0 ? "text-[#d4a017]" : "text-white"}`}>
+                  {sync.dropped}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-muted">Repos polled</dt>
+                <dd className="font-mono tabular-nums text-white">{sync.reposPolled}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-muted">Sync paused</dt>
+                <dd className="font-mono text-white">{sync.paused ? "yes" : "no"}</dd>
+              </div>
+              {sync.lastDrop && (
+                <div className="col-span-2 sm:col-span-5">
+                  <dt className="text-xs uppercase tracking-wide text-muted">Last drop</dt>
+                  <dd className="font-mono text-xs text-[#d4a017]">{sync.lastDrop}</dd>
+                </div>
+              )}
+              {sync.lastError && (
+                <div className="col-span-2 sm:col-span-5">
+                  <dt className="text-xs uppercase tracking-wide text-muted">Last error</dt>
+                  <dd className="font-mono text-xs text-[#e53e3e]">{sync.lastError}</dd>
+                </div>
+              )}
+            </dl>
+          </details>
         ) : (
           <p className="text-xs text-muted">Sync not running.</p>
         )}
