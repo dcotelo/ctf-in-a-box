@@ -48,14 +48,14 @@ export function IdBlock({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted">{label}</span>
+      <span className="text-sm text-muted">{label}</span>
       {id !== undefined ? (
         <>
           <code className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">{id}</code>
-          <span className="text-xs text-muted">{fixedHelp}</span>
+          <span className="text-sm text-muted">{fixedHelp}</span>
         </>
       ) : (
-        <span className="text-xs text-muted">{generatedHelp}</span>
+        <span className="text-sm text-muted">{generatedHelp}</span>
       )}
     </div>
   );
@@ -101,7 +101,7 @@ export default function EditorFrame({
 
       {children}
 
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <button

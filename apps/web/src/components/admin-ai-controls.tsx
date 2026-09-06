@@ -93,9 +93,11 @@ import CategoryEditor from "@/components/admin/category-editor";
 import { useCategoryEditor } from "@/components/admin/use-category-editor";
 import { useAdminResource } from "@/components/admin/use-admin-resource";
 import { sendJson } from "@/components/admin/fetch";
+import SortableList from "@/components/admin/sortable-list";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
 import { AiChallengeForm } from "@/components/admin-ai-form";
 import {
   AI_COOLDOWN_LABEL,
@@ -127,6 +129,9 @@ export type AdminAiControlsProps = {
   /** The shell's per-field save status, by stored key (UX audit F2). Optional
    *  so a static render without a shell still works; idle when absent. */
   statusOf?: (key: string) => FieldStatus;
+  /** The module screen's settings card slot (identity editor + Hints link);
+   *  absent, the knob renders bare — see components/admin/settings-card.tsx. */
+  moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminAiChallenge[];
   initialCategories?: string[];
@@ -141,6 +146,7 @@ export default function AdminAiControls({
   setAiCooldownSecInput,
   commitNumber,
   statusOf = () => ({ state: "idle" }),
+  moduleSettings,
   initialChallenges = [],
   initialCategories = [],
   onInventory,
@@ -247,19 +253,29 @@ export default function AdminAiControls({
   // same hook, so both halves of the integration UI agree.
   const origin = useBrowserOrigin();
 
+  const knob = (
+    <AdminNumberField
+      id="ai-cooldown-sec"
+      label={AI_COOLDOWN_LABEL}
+      help="Seconds a contestant must wait between graded flag submissions on the same challenge. 0 = no cooldown. Signed events from the external side are never rate-limited by this — there is no wrong answer to throttle."
+      value={aiCooldownSecInput}
+      placeholder={String(AI_COOLDOWN_SEC)}
+      disabled={pending}
+      status={statusOf("aiCooldownSec")}
+      onChange={setAiCooldownSecInput}
+      onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
+    />
+  );
+
   return (
     <>
-      <AdminNumberField
-        id="ai-cooldown-sec"
-        label={AI_COOLDOWN_LABEL}
-        help="Seconds a contestant must wait between graded flag submissions on the same challenge. 0 = no cooldown. Signed events from the external side are never rate-limited by this — there is no wrong answer to throttle."
-        value={aiCooldownSecInput}
-        placeholder={String(AI_COOLDOWN_SEC)}
-        disabled={pending}
-        status={statusOf("aiCooldownSec")}
-        onChange={setAiCooldownSecInput}
-        onBlur={() => commitAiCooldown(commitNumber, aiCooldownSecInput, setAiCooldownSecInput)}
-      />
+      {moduleSettings ? (
+        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints}>
+          {knob}
+        </AdminSettingsCard>
+      ) : (
+        knob
+      )}
 
       <CategoryEditor
         categories={categories}
@@ -293,7 +309,7 @@ export default function AdminAiControls({
         <AiEndpointsBlock origin={origin} />
 
         {listError && (
-          <p className="text-xs text-[#e53e3e]">
+          <p className="text-sm text-[#e53e3e]">
             {listError}{" "}
             <button type="button" onClick={() => void resource.reload()} className="text-white hover:underline">
               Retry
@@ -304,62 +320,43 @@ export default function AdminAiControls({
         {/* Rotate errors are global rather than per-row, same as every other
             write in this component (listError, categoryError, deleteError) —
             an organizer only ever has one rotate in flight at a time. */}
-        {rotateError && <p className="text-xs text-[#e53e3e]">{rotateError}</p>}
+        {rotateError && <p className="text-sm text-[#e53e3e]">{rotateError}</p>}
 
-        {challenges.length === 0 ? (
-          <p className="text-xs text-muted">No challenges yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {challenges.map((row) => (
-              // Every row renders `AdminAiIntegration` below, but the flag
-              // and signing key stay out of the list itself: the flag
-              // appears only once the organizer opens the edit form, and the
-              // signing key is masked by default inside the integration
-              // panel (Reveal is an explicit click) — the raw key is absent
-              // from this row's markup until then, never sitting exposed on
-              // a panel that might be on a projector.
-              <li
-                key={row.challenge.id}
-                className="flex flex-col gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-white">{row.challenge.title}</p>
-                    <p className="text-xs text-muted">
-                      #{row.challenge.order} · {row.challenge.category} · {row.challenge.points} pt
-                      {row.challenge.points === 1 ? "" : "s"} · {AI_MODE_LABELS[row.challenge.mode]}
-                    </p>
-                  </div>
-                  <div className="flex flex-none gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFlagRevealed(false);
-                        resource.setEditing(editorFromAiChallenge(row));
-                      }}
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.04]"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => resource.requestDelete(row.challenge)}
-                      className="rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-                <AdminAiIntegration
-                  challenge={row.challenge}
-                  signingKey={row.signingKey}
-                  pending={rotatingId === row.challenge.id}
-                  onRotate={() => rotateSigningKey(row.challenge.id)}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* The shared list, grouped by category like classic's — with no
+            `onMove` (this board has no reorder) and each row's integration
+            disclosure rendered under it. The flag and signing key stay out
+            of the list itself: the flag appears only once the organizer
+            opens the edit form, and the signing key is masked by default
+            inside the integration panel (Reveal is an explicit click) — the
+            raw key is absent from the row's markup until then, never sitting
+            exposed on a panel that might be on a projector. */}
+        <SortableList<AdminAiChallenge>
+          rows={challenges}
+          keyOf={(row) => row.challenge.id}
+          titleOf={(row) => row.challenge.title}
+          groupOf={(row) => row.challenge.category}
+          groups={categories}
+          meta={(row) => (
+            <>
+              #{row.challenge.order} · {row.challenge.points} pt
+              {row.challenge.points === 1 ? "" : "s"} · {AI_MODE_LABELS[row.challenge.mode]}
+            </>
+          )}
+          emptyText="No challenges yet."
+          onEdit={(row) => {
+            setFlagRevealed(false);
+            resource.setEditing(editorFromAiChallenge(row));
+          }}
+          onDelete={(row) => resource.requestDelete(row.challenge)}
+          rowExtra={(row) => (
+            <AdminAiIntegration
+              challenge={row.challenge}
+              signingKey={row.signingKey}
+              pending={rotatingId === row.challenge.id}
+              onRotate={() => rotateSigningKey(row.challenge.id)}
+            />
+          )}
+        />
       </div>
 
       {editing && (

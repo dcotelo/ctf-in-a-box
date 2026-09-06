@@ -24,6 +24,7 @@ import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import AdminSwitch from "@/components/admin-switch";
+import { moduleToggleConfirm, moduleToggleState, type ModuleToggleChoice } from "./module-toggle";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
@@ -82,7 +83,7 @@ function ScheduleField({
   return (
     <div className="flex flex-col gap-1">
       <label className="flex items-center justify-between gap-3">
-        <span className="text-xs text-muted">{label}</span>
+        <span className="text-sm text-muted">{label}</span>
         <input
           type="datetime-local"
           value={input}
@@ -103,7 +104,7 @@ function ScheduleField({
         <p
           id={statusId}
           role={rejected ? "alert" : undefined}
-          className={`text-right text-xs ${rejected ? "text-[#e53e3e]" : status.state === "saved" ? "text-[#22c55e]" : "text-muted"}`}
+          className={`text-right text-sm ${rejected ? "text-[#e53e3e]" : status.state === "saved" ? "text-[#22c55e]" : "text-muted"}`}
         >
           {line}
         </p>
@@ -141,14 +142,9 @@ export type AdminEventTabProps = {
   nowMs: number;
 };
 
-export type ModuleChoice = {
-  id: string;
-  label: string;
-  /** False for secure-development, which is provisioning rather than a flag.
-   *  `reason` says so on the row instead of leaving a dead control. */
-  toggleable: boolean;
-  reason?: string;
-};
+/** The registry row a module switch renders from — see module-toggle.ts,
+ *  which the module panels' own header switches share with this tab. */
+export type ModuleChoice = ModuleToggleChoice;
 
 export default function AdminEventTab({
   settings,
@@ -168,18 +164,9 @@ export default function AdminEventTab({
   nowMs,
 }: AdminEventTabProps) {
   const live = new Set(liveModuleIds);
-  // The last LIVE module cannot be switched off — the server refuses a set that
-  // would end up empty (ADR 24's runtime analogue), and a control that always
-  // errors is worse than one that explains itself.
-  //
-  // Counted over every live module, INCLUDING the ones that cannot be toggled.
-  // Counting only the toggleable ones was wrong: on an event running
-  // secure-development plus quiz, it locked quiz on the grounds that quiz was
-  // the last *switchable* module — while secure-development sat right above it,
-  // enabled and serving. The event would have been left with content, the
-  // server would have accepted the change, and the UI refused it anyway. What
-  // makes a set legal is that SOMETHING is live, not that something switchable
-  // is live.
+  // The lock rule and the confirmation copy live in module-toggle.ts, shared
+  // with each module panel's header switch. The count is over every live
+  // module, toggleable or not — that file says why.
   const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
   // Effective state for the schedule section's readout — the same
   // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
@@ -203,44 +190,33 @@ export default function AdminEventTab({
       <section className="flex flex-col gap-2 border-b border-white/[0.06] pb-4">
         <div>
           <h3 className="text-white">Modules</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             What this event serves. Switching one off hides its board and its nav link straight away —
             it deletes nothing, so switching it back on restores the same answers, solves and points.
           </p>
         </div>
         {moduleChoices.map((mod) => {
-          const on = live.has(mod.id);
-          const isLastOn = on && mod.toggleable && liveCount === 1;
-          const disabled = pending || !mod.toggleable || isLastOn;
+          const toggle = moduleToggleState(mod, live, liveCount);
           // One status key per module row, not one for the whole
           // `enabledModules` write: "Saved" belongs beside the switch that
-          // was flipped, not beside every module at once.
+          // was flipped, not beside every module at once. The same key the
+          // module's own panel header reports under.
           return (
             <AdminSwitch
               key={mod.id}
               id={`module-${mod.id}`}
               label={mod.label}
-              help={
-                !mod.toggleable && mod.reason
-                  ? mod.reason
-                  : isLastOn
-                    ? "The only module left — an event has to serve something."
-                    : undefined
-              }
-              checked={on}
-              disabled={disabled}
+              help={toggle.help}
+              checked={toggle.on}
+              disabled={pending || toggle.disabled}
               status={statusOf(`module:${mod.id}`)}
               onChange={(next) => {
-                const ids = next
-                  ? [...live, mod.id]
-                  : [...live].filter((id) => id !== mod.id);
+                const c = moduleToggleConfirm(mod, next, live);
                 setConfirm({
-                  title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
-                  body: next
-                    ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
-                    : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
-                  confirmLabel: next ? "Enable" : "Disable",
-                  onConfirm: () => applyField(`module:${mod.id}`, { enabledModules: ids }, mod.label),
+                  title: c.title,
+                  body: c.body,
+                  confirmLabel: c.confirmLabel,
+                  onConfirm: () => applyField(`module:${mod.id}`, { enabledModules: c.ids }, mod.label),
                 });
               }}
             />
@@ -311,7 +287,7 @@ export default function AdminEventTab({
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div>
           <span className="text-white">Schedule (auto dates)</span>
-          <span className="block text-xs text-muted">
+          <span className="block text-sm text-muted">
             Optional. Times are your local time; leave blank for no bound. Scoring
             auto-freezes outside its window; registration auto-closes outside its
             window — on top of the manual toggles above.
@@ -323,7 +299,7 @@ export default function AdminEventTab({
             organizer does that boolean in their head from four datetime
             fields plus two toggles, mid-event (issue #200, 3.3). Client
             render time is the "now"; it refreshes with every edit. */}
-        <p className="text-xs leading-relaxed">
+        <p className="text-sm leading-relaxed">
           <span className="uppercase tracking-wider text-muted">Right now: </span>
           <span className={scoringLiveNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
             scoring {scoringLiveNow ? "is live" : settings.paused ? "is frozen (manual)" : "is frozen (outside its window)"}
@@ -371,7 +347,7 @@ export default function AdminEventTab({
         <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
           <div>
             <span className="text-white">Demo mode</span>
-            <span className="block text-xs text-muted">
+            <span className="block text-sm text-muted">
               Populate the leaderboard with fake contestants, teams, and solves to
               preview the app. Injects real-challenge-id scores so points render.
               Only shown because <code>DEMO_MODE</code> is set — never in a real event.
@@ -398,7 +374,7 @@ export default function AdminEventTab({
       <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
         <div>
           <span className="text-[#e53e3e]">Danger zone</span>
-          <span className="block text-xs text-muted">
+          <span className="block text-sm text-muted">
             Master reset wipes <strong>all</strong> event data — teams, points,
             per-player data, and hint spend. It freezes scoring and can&apos;t be
             undone. In poll mode, also clear the source PR comments for a wipe that
@@ -427,7 +403,7 @@ export default function AdminEventTab({
         >
           Reset event data…
         </button>
-        {resetInfo && <p className="text-xs text-[#22c55e]">{resetInfo}</p>}
+        {resetInfo && <p className="text-sm text-[#22c55e]">{resetInfo}</p>}
 
         {/* Whole-event archive export/import (issue: event-archive-bundle).
             Lives inside the danger zone: an import is a replace-all that runs
@@ -439,7 +415,7 @@ export default function AdminEventTab({
           <summary className="cursor-pointer list-none text-sm font-medium text-[#e53e3e] marker:content-none">
             Event archive — export / import
           </summary>
-          <p className="mt-1 text-xs text-muted">
+          <p className="mt-1 text-sm text-muted">
             Export the whole event — Classic and Quiz content plus event policy settings — as one JSON file, or
             replace it wholesale from a previously exported file. An import is a full replace-all: it runs the same
             wipe as the master reset above.

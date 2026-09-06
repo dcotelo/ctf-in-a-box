@@ -44,8 +44,8 @@ function Figure({ label, value, hint }: { label: string; value: number; hint?: s
   return (
     <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
       <p className="font-mono text-xl tabular-nums text-white">{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
-      {hint && <p className="mt-1 text-[10px] leading-tight text-zinc-500">{hint}</p>}
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
+      {hint && <p className="mt-1 text-sm leading-tight text-zinc-500">{hint}</p>}
     </div>
   );
 }
@@ -139,8 +139,8 @@ export default function AdminInsightsTab({
           onClick={() => void refresh()}
           className={
             metrics
-              ? "flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
-              : "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
+              ? "flex-none rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-50"
+              : "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:opacity-50"
           }
         >
           {pending ? "Computing…" : metrics ? "Refresh" : "Compute metrics"}
@@ -149,11 +149,11 @@ export default function AdminInsightsTab({
           <>
             <a
               href="/api/admin/metrics?format=csv"
-              className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white"
+              className="flex-none rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white"
             >
               Download challenges CSV
             </a>
-            <span className="text-[10px] text-muted">
+            <span className="text-sm text-muted">
               as of {metrics.generatedAt.slice(0, 16).replace("T", " ")} UTC
             </span>
           </>
@@ -162,13 +162,13 @@ export default function AdminInsightsTab({
       </div>
 
       {!metrics && !error && (
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           Reads the event&rsquo;s own stored data — nothing is collected from contestants&rsquo; forks. On a
           large event this takes a moment.
         </p>
       )}
 
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
 
       {metrics && (
         <>
@@ -211,13 +211,13 @@ export default function AdminInsightsTab({
               {/* The axis. Without it the bars say "when did the room go
                   quiet" only relative to each other; with it, at what time. */}
               {axis && (
-                <div aria-hidden="true" className="flex justify-between border-t border-white/[0.06] pt-1 font-mono text-[10px] tabular-nums text-muted">
+                <div aria-hidden="true" className="flex justify-between border-t border-white/[0.06] pt-1 font-mono text-xs tabular-nums text-muted">
                   <span>{axis.start}</span>
                   <span>{axis.mid}</span>
                   <span>{axis.end} UTC</span>
                 </div>
               )}
-              <p className="text-[10px] text-muted">
+              <p className="text-sm text-muted">
                 Ten-minute buckets, quiz, classic and AI. Attempt rows carry a first and a last time but not
                 one per try, so this is solves, not submissions.
               </p>
@@ -230,7 +230,7 @@ export default function AdminInsightsTab({
               <span className="font-normal text-muted">— fewest solves at the top</span>
             </h3>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[32rem] text-xs">
+              <table className="w-full min-w-[32rem] text-sm">
                 <thead className="text-muted">
                   <tr className="border-b border-white/[0.06] text-left">
                     <th className="py-1 pr-2 font-medium">Challenge</th>
@@ -260,7 +260,7 @@ export default function AdminInsightsTab({
               </table>
             </div>
             {metrics.challenges.length > 40 && (
-              <p className="text-[10px] text-muted">
+              <p className="text-sm text-muted">
                 Showing 40 of {metrics.challenges.length}. The CSV has every row.
               </p>
             )}
@@ -287,7 +287,7 @@ export default function AdminInsightsTab({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
               What these numbers do not measure
             </h3>
-            <ul className="flex list-disc flex-col gap-1 pl-4 text-[11px] leading-relaxed text-zinc-500">
+            <ul className="flex list-disc flex-col gap-1 pl-4 text-sm leading-relaxed text-zinc-500">
               {metrics.caveats.map((c) => (
                 <li key={c}>{c}</li>
               ))}

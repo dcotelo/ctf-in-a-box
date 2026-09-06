@@ -95,7 +95,12 @@ describe("admin page gate", () => {
     // Interpolated from the real event config the page builds its context
     // from, so the sentence proves the function was CALLED, not just found.
     expect(html).toMatch(/Contestants fork .+ under .+ and patch it\./);
-    expect(html).toContain("Provision the org");
+    // Steps done OUTSIDE the panel (provisioning, ctf-setup.sh) are not
+    // repeated on an enabled module's screen — the guide link carries them
+    // (admin-redesign.md § Content screens; see admin-module-setup.tsx).
+    expect(html).not.toContain("Provision the org");
+    expect(html).toContain('href="https://example.test/operations"');
+    expect(html).toContain("One provisioning step done outside this panel is not repeated here");
   });
 
   // A healthy poller must not show a warning: an amber "Dropped" that is

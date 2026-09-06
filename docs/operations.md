@@ -176,28 +176,34 @@ storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
 `hintsUnlockAfterMin`) and their validation are completely unchanged, so no
 deployed event's settings, or their meaning, changed by upgrading.
 
-**Every module tab opens with a setup checklist** — "Setting up Quiz",
-"Setting up Classic CTF", and so on — ahead of the identity editor and the
-module's own knobs. It says in a sentence what contestants experience in that
-module, lists the minimum you must do before the event in dependency order,
-marks each step **In this panel** or **Outside this panel** (`ctf-setup.sh`,
-the GitHub org, `event.yaml`), says what is safe to change mid-event and what
-is not, and links to that module's section of this page. Where the panel can
-tell whether a step is done — questions or challenges or categories exist —
-it shows the live count ("3 questions", "None yet") rather than asking you to
-remember; while its list is still loading it says "Checking…", and a step the
-panel cannot verify (a fork provisioned, an App installed) is a plain item
-with no tick. The checklist is a `<details>` block, so fold it once the module
-is set up. It is registry content (the module contract's §5.9), not copy
+**Every module screen opens with a sticky header and a setup status line.**
+The header is the module's name and its **Enabled** switch — the same control
+as the module's row on Event, with the same lock (the last live module cannot
+be switched off) and the same confirmation, so a flip on either screen shows
+"Saved" on both. Under it, one line — "Setup complete · 4 categories · 12
+challenges" — opens into the setup checklist: what contestants experience in
+that module, the steps you do **in this panel** in dependency order, and a
+link to that module's section of this page. The checklist is **expanded only
+while a step the panel can verify is still to do**; once questions or
+challenges or categories exist it collapses to the line, and stays collapsed
+while the counts are still loading ("checking…") rather than accuse a set-up
+module on first paint. Steps done outside the panel (`ctf-setup.sh`, the
+GitHub org, `event.yaml`) are not repeated — the screen exists only while the
+module is enabled, so they are behind you; the linked guide has them. A
+second line, **What is safe to change mid-event**, opens the safe / not-safe
+lists. All of it is registry content (the module contract's §5.9), not copy
 typed into each tab.
 
-**Module identity.** Every module's tab opens with a title/blurb editor for
-that module's display name. The title is capped at 60 characters, the blurb at
-200; both are plain text only — control characters and Unicode bidi-override
-characters are rejected, since there is no markup to sanitise, only rendered
-text to keep intact. **Leaving a field blank clears the override and restores
-the module's registry default** — the field's placeholder shows what that
-default is, so clearing it is discoverable rather than a guess. Changes are
+**Settings card.** Below the status line, one card holds the module's
+**title** and **blurb** side by side, its own knobs (the quiz's retry gate,
+the cooldowns), and — on every module that sells hints — a link to the Hints
+screen where their price lives. The title is capped at 60 characters, the
+blurb at 200; both are plain text only — control characters and Unicode
+bidi-override characters are rejected, since there is no markup to sanitise,
+only rendered text to keep intact. **Leaving a field blank clears the override
+and restores the module's registry default** — the field's placeholder shows
+what that default is, so clearing it is discoverable rather than a guess.
+Changes are
 live on the next request; there is no rebuild and no cache to wait out.
 
 **Where a rename actually shows up.** Set a title and it replaces the module's
@@ -545,13 +551,16 @@ The panel offers:
 - **Quiz controls** (Quiz tab, present only when the `quiz` module is enabled) — the two
   retry-gate knobs (max attempts, accepted from 0 to **100**; retry cooldown,
   from 0 to **100000** minutes) plus full question
-  authoring: add, edit, reorder (drag, or Move up / Move down), and delete.
-  See [Quiz](#quiz) below for what these do and their defaults.
+  authoring: add, edit, reorder (drag, or Move up / Move down from the row's
+  **⋯** menu), and delete (also in that menu). See [Quiz](#quiz) below for
+  what these do and their defaults.
 - **Classic controls** (Classic tab, present only when the `classic` module
   is enabled) — the submission-cooldown knob (in **seconds**, not minutes)
   plus category management and full challenge authoring: add, edit, reorder
-  (drag, or Move up / Move down), and delete. See [Classic](#classic) below
-  for what these do and their defaults.
+  (drag, or Move up / Move down from the row's **⋯** menu), and delete (also
+  in that menu), with the list grouped by category the way contestants see
+  the board. See [Classic](#classic) below for what these do and their
+  defaults.
 - **Seed demo data** (demo mode only) — populates the leaderboard with fake
   contestants, teams, and real-challenge-id solves so you can preview the app
   without running real PRs. When the `quiz` module is enabled, this also seeds
@@ -822,8 +831,9 @@ question needs a different id, delete it and add a new one, and read the
 paragraph below first about what deletion does and doesn't take with it.
 
 **Ordering is done by dragging.** The question list in `/admin` is sortable:
-drag a row to where you want it, or use its **Move up** / **Move down**
-buttons (the keyboard-operable path — dragging is not the only way in). The
+drag a row to where you want it, or use **Move up** / **Move down** from the
+row's **⋯** menu (the keyboard-operable path — dragging is not the only way
+in; **Delete** lives in the same menu, and opens the confirmation). The
 stored `order` field is rewritten from the resulting positions and the moved
 questions are saved immediately; contestants see the new order on their next
 page load. There is no order number to type any more, and nothing to
@@ -1000,10 +1010,12 @@ grading answers the instant you submit.</sup>
 
 **Authoring** happens in `/admin`, under the Classic module's tab (see
 "Classic controls" above). Before adding a challenge you need at least one
-**category** — categories are a simple ordered list (add, reorder by
-dragging or Move up/Move down, remove), and a category can only be removed
+**category** — categories are a row of chips in the order contestants see
+them (add; move a chip left or right, or remove it, with the controls that
+appear when you hover or focus it), and a category can only be removed
 while no challenge still files under it; the panel tells you exactly how
-many challenges are blocking a removal. A challenge itself has a title, a
+many challenges are blocking a removal. The challenge list is grouped under
+those categories, each heading carrying its count. A challenge itself has a title, a
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
 
@@ -1047,8 +1059,10 @@ Delete and re-add if a challenge genuinely needs a new one, after reading
 the deletion paragraph below.
 
 **Ordering is done by dragging**, the same as the quiz's question list: drag
-a row, or use its Move up/Move down buttons, and the stored `order` is
-rewritten from the resulting positions.
+a row, or use Move up / Move down from its **⋯** menu, and the stored `order`
+is rewritten from the resulting positions. The order is one sequence across
+the whole board; within a category group the moves step past the group's own
+neighbours, so a challenge never leaves its category by being moved.
 
 **Deleting a challenge removes it from the board and hides it from
 contestants — but points already banked for it remain on the leaderboard.**
@@ -1209,10 +1223,10 @@ point value, and a 💡 marker where a paid hint is on offer, the same board
 component classic's flag list uses.</sup>
 
 **Authoring** happens in `/admin`, under the AI module's tab. Before adding
-a challenge you need at least one **category** — same ordered-list pattern
-as classic's (add, reorder with Move up/Move down, remove only while no
-challenge still files under it, the panel naming exactly how many are
-blocking a removal), capped at **50 categories** with names of at most **64
+a challenge you need at least one **category** — same chip row as classic's
+(add, move left or right, remove only while no challenge still files under
+it, the panel naming exactly how many are blocking a removal), capped at
+**50 categories** with names of at most **64
 characters** each (`AI_CATEGORIES_MAX`/`AI_CATEGORY_MAX_LEN`, enforced in
 `setAiCategories`).
 
@@ -1285,7 +1299,11 @@ carries:
   the rendered markup while masked, not merely styled to look hidden.
 - **Rotate**, behind a confirm dialog, because it takes effect immediately
   with no grace window. Its consequence sentence, verbatim: "The external
-  system stops posting until you redeploy it with the new key."
+  system stops posting until you redeploy it with the new key." It is amber,
+  not red — rotating is recoverable by pasting the new key into the external
+  site; red in the panel is reserved for what cannot be undone (deletes, the
+  master reset). A Send test that comes back **solved** or **would-award** is
+  shown in green; only a refusal or a failure is red.
 - **A ready-to-run test curl** that computes its own HMAC signature at the
   moment you run it (`TS=$(date +%s)` and an `openssl dgst -hmac` call
   inline) rather than shipping a pre-signed one — a signature is only valid

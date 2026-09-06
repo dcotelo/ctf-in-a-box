@@ -164,8 +164,9 @@ describe("AdminAiControls", () => {
       expect(html).toContain("AI");
       expect(html).toContain("Prompting");
       expect(html).toContain("Add category");
-      expect(html).toMatch(/Move up/);
-      expect(html).toMatch(/Move down/);
+      // Inline chips: move left/right.
+      expect(html).toContain('aria-label="Move &quot;AI&quot; left"');
+      expect(html).toContain('aria-label="Move &quot;Prompting&quot; right"');
       expect(html).toContain("Remove");
     });
 
@@ -686,7 +687,10 @@ describe("AdminAiControls — density", () => {
       <Controls pending={false} aiCooldownSecInput="" setAiCooldownSecInput={noop} commitNumber={noop} initialChallenges={[row1, row2]} initialCategories={["AI"]} />,
     );
     expect(html.match(/\/api\/ai\/submit/g)?.length).toBe(1);
-    expect(html.match(/<details/g)?.length).toBe(2);
+    // Two rows: one integration disclosure and one ⋯ actions menu each, all
+    // closed.
+    expect(html.match(/<details/g)?.length).toBe(4);
+    expect(html.match(/Integration —/g)?.length).toBe(2);
     expect(html).not.toContain("<details open");
   });
 });

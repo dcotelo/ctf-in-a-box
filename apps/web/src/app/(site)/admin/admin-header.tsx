@@ -35,7 +35,7 @@ export default function AdminHeader({
             ·
           </span>
           <span
-            className="rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider"
+            className="rounded-sm border px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider"
             style={{ color, borderColor: `${color}80`, background: `${color}1a` }}
           >
             {resolution.phase}
@@ -47,7 +47,7 @@ export default function AdminHeader({
           <span aria-hidden="true" className="text-zinc-600">
             ·
           </span>
-          <span className="text-xs text-muted">{boundary}</span>
+          <span className="text-sm text-muted">{boundary}</span>
         </>
       )}
     </div>

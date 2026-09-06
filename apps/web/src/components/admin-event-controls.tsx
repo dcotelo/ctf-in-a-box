@@ -287,7 +287,7 @@ export default function AdminEventControls({ initialImportText = "", showHeading
       {showHeading && (
         <>
           <h3 className="text-sm font-semibold text-white">Event archive</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             Export the whole event — Classic, Quiz and AI content plus event policy settings — as one JSON file, or
             replace it wholesale from a previously exported file.
           </p>
@@ -306,9 +306,9 @@ export default function AdminEventControls({ initialImportText = "", showHeading
             {exportPending ? "Exporting…" : "Export event"}
           </button>
         </div>
-        {exportError && <p className="text-xs text-[#e53e3e]">{exportError}</p>}
+        {exportError && <p className="text-sm text-[#e53e3e]">{exportError}</p>}
         {exportWarnings && exportWarnings.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-md border border-[#d4a017]/40 bg-[#d4a017]/10 px-3 py-2 text-xs text-[#d4a017]">
+          <ul className="flex flex-col gap-1 rounded-md border border-[#d4a017]/40 bg-[#d4a017]/10 px-3 py-2 text-sm text-[#d4a017]">
             {exportWarnings.map((w, i) => (
               <li key={i}>{w}</li>
             ))}
@@ -320,7 +320,7 @@ export default function AdminEventControls({ initialImportText = "", showHeading
         <span className="text-sm text-white">Import a bundle (replaces everything)</span>
         {/* The opposite of the siblings' "import never deletes" notice — see
             this component's header comment for why. */}
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           This REPLACES every Classic challenge, Quiz question and AI challenge with the file&rsquo;s content, and
           wipes all teams, solves, attempts and answers. Refused outright while the event is live.
         </p>
@@ -344,11 +344,11 @@ export default function AdminEventControls({ initialImportText = "", showHeading
           accept=".json"
           disabled={importPending}
           onChange={(e) => void handleFileChange(e)}
-          className="text-xs text-zinc-300"
+          className="text-sm text-zinc-300"
         />
 
         {clientErrors && clientErrors.length > 0 && (
-          <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+          <ul className="flex flex-col gap-1 text-sm text-[#e53e3e]">
             {clientErrors.map((err, i) => (
               <li key={i}>
                 {err.where}: {err.message}
@@ -358,7 +358,7 @@ export default function AdminEventControls({ initialImportText = "", showHeading
         )}
 
         {importErrors && importErrors.length > 0 && (
-          <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+          <ul className="flex flex-col gap-1 text-sm text-[#e53e3e]">
             {importErrors.map((err, i) => (
               <li key={i}>
                 {err.where}: {err.message}
@@ -367,9 +367,9 @@ export default function AdminEventControls({ initialImportText = "", showHeading
           </ul>
         )}
 
-        {importResult && <p className="text-xs text-white">{formatImportSummary(importResult)}</p>}
+        {importResult && <p className="text-sm text-white">{formatImportSummary(importResult)}</p>}
         {importSkipped && importSkipped.length > 0 && (
-          <ul className="flex flex-col gap-1 text-xs text-muted">
+          <ul className="flex flex-col gap-1 text-sm text-muted">
             {importSkipped.map((s, i) => (
               <li key={i}>{s}</li>
             ))}

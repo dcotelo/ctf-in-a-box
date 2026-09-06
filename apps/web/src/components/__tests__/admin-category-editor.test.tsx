@@ -85,23 +85,37 @@ describe("CategoryEditor", () => {
     );
   }
 
-  it("renders every category with keyboard move and remove controls", () => {
+  it("renders every category as a chip with keyboard move and remove controls", () => {
     const html = render();
     expect(html).toContain("Categories");
     expect(html).toContain("Web");
     expect(html).toContain("Crypto");
-    expect(html).toContain('aria-label="Move &quot;Web&quot; up"');
-    expect(html).toContain('aria-label="Move &quot;Crypto&quot; down"');
+    // Inline chips move left/right, not up/down; every control is named
+    // after its chip for assistive tech.
+    expect(html).toContain('aria-label="Move &quot;Web&quot; left"');
+    expect(html).toContain('aria-label="Move &quot;Crypto&quot; right"');
+    expect(html).toContain('aria-label="Remove &quot;Web&quot;"');
     expect(html).toContain("Remove");
     expect(html).toContain("Add category");
     expect(html).not.toContain("<details");
   });
 
-  it("disables Move up on the first row and Move down on the last", () => {
+  it("keeps the chip controls in the tree at low opacity, revealed on hover or focus, never hidden", () => {
     const html = render();
-    expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Web&quot; up"[^>]*disabled=""/);
-    expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Crypto&quot; down"[^>]*disabled=""/);
-    expect(html).not.toMatch(/<button[^>]*aria-label="Move &quot;Web&quot; down"[^>]*disabled=""/);
+    expect(html).toMatch(/opacity-40[^"]*group-focus-within:opacity-100[^"]*group-hover:opacity-100/);
+    expect(html).not.toContain("opacity-0");
+  });
+
+  it("gives Remove a neutral colour — danger is for the confirmations that destroy something", () => {
+    const html = render();
+    expect(html).not.toContain("#e53e3e]/40");
+  });
+
+  it("disables Move left on the first chip and Move right on the last", () => {
+    const html = render();
+    expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Web&quot; left"[^>]*disabled=""/);
+    expect(html).toMatch(/<button[^>]*aria-label="Move &quot;Crypto&quot; right"[^>]*disabled=""/);
+    expect(html).not.toMatch(/<button[^>]*aria-label="Move &quot;Web&quot; right"[^>]*disabled=""/);
   });
 
   it("shows the empty-list placeholder", () => {
@@ -115,7 +129,7 @@ describe("CategoryEditor", () => {
 
   it("renders the error line when there is one", () => {
     expect(render({ error: '"Web" is already a category.' })).toContain(
-      '<p class="text-xs text-[#e53e3e]">&quot;Web&quot; is already a category.</p>',
+      '<p class="text-sm text-[#e53e3e]">&quot;Web&quot; is already a category.</p>',
     );
   });
 });

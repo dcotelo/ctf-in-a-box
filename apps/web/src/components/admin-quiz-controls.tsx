@@ -86,6 +86,7 @@ import SortableList from "@/components/admin/sortable-list";
 import { useAdminResource } from "@/components/admin/use-admin-resource";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
 import QuestionForm from "@/components/admin-quiz-form";
 import {
   QUESTION_ROWS,
@@ -118,6 +119,9 @@ export type AdminQuizControlsProps = {
   /** The shell's per-field save status, by stored key (UX audit F2). Optional
    *  so a static render without a shell still works; idle when absent. */
   statusOf?: (key: string) => FieldStatus;
+  /** The module screen's settings card slot (identity editor + Hints link);
+   *  absent, the knobs render bare — see components/admin/settings-card.tsx. */
+  moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialQuestions?: AdminQuestion[];
   /** Reports the bank's size to the shell for the setup checklist above this
@@ -135,6 +139,7 @@ export default function AdminQuizControls({
   setQuizRetryAfterInput,
   commitNumber,
   statusOf = () => ({ state: "idle" }),
+  moduleSettings,
   initialQuestions = [],
   onInventory,
 }: AdminQuizControlsProps) {
@@ -187,7 +192,7 @@ export default function AdminQuizControls({
 
   const confirmCopy = deleteTarget ? questionDeleteConfirm(deleteTarget) : null;
 
-  return (
+  const knobs = (
     <>
       <AdminNumberField
         id="quiz-max-attempts"
@@ -212,6 +217,18 @@ export default function AdminQuizControls({
         onChange={setQuizRetryAfterInput}
         onBlur={() => commitNumber("quizRetryAfterMin", quizRetryAfterInput, setQuizRetryAfterInput, "Retry after (min)")}
       />
+    </>
+  );
+
+  return (
+    <>
+      {moduleSettings ? (
+        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints}>
+          {knobs}
+        </AdminSettingsCard>
+      ) : (
+        knobs
+      )}
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div className="flex items-center justify-between gap-3">
@@ -226,7 +243,7 @@ export default function AdminQuizControls({
           </button>
         </div>
 
-        {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
+        {listError && <p className="text-sm text-[#e53e3e]">{listError}</p>}
 
         {/* The collapsed list shows the public half only — which choice is
             correct appears when the organizer opens the edit form, not on a
@@ -241,7 +258,7 @@ export default function AdminQuizControls({
               {row.question.points === 1 ? "" : "s"} · {row.question.choices.length} choices
             </>
           )}
-          intro="Drag a question to reorder it, or use Move up / Move down. Contestants see them in this order."
+          intro="Drag a question to reorder it, or use Move up / Move down from its ⋯ menu. Contestants see them in this order."
           emptyText="No questions yet."
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}

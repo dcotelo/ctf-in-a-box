@@ -98,6 +98,16 @@ export async function fetchAiTest(challengeId: string): Promise<AiTestOutcome> {
   }
 }
 
+/** Which colour a Send test outcome earns (admin-redesign.md § Controls):
+ *  green for a solve or a would-award — the integration works end to end —
+ *  and red only for a refusal or a failure. Before this every named outcome
+ *  was red, so "Test result: solved" read as an error. Exported for direct
+ *  testing. */
+export function testOutcomeTone(outcome: AiTestOutcome): "good" | "bad" {
+  if (outcome.kind === "award") return "good";
+  return outcome.label === "solved" || outcome.label === "would-award" ? "good" : "bad";
+}
+
 /** "Rotate" opens the confirm. It must never call `onRotate` directly — the
  *  confirm is the only gate between a click and a live integration breaking. */
 export function requestRotate(setOpen: (v: boolean) => void): void {
@@ -165,14 +175,14 @@ export function useBrowserOrigin(): string {
 export function AiEndpointsBlock({ origin }: { origin: string }) {
   return (
     <div className="flex flex-col gap-1 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
-      <span className="text-xs text-white">Endpoints</span>
-      <span className="text-xs text-muted">The same for every challenge — what the external site posts to and reads from.</span>
+      <span className="text-sm text-white">Endpoints</span>
+      <span className="text-sm text-muted">The same for every challenge — what the external site posts to and reads from.</span>
       <ul className="mt-1 flex flex-col gap-1">
         {ENDPOINTS.map(({ label, path }) => {
           const url = `${origin}${path}`;
           return (
             <li key={path} className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-zinc-300">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
                 {url}
               </code>
               <CopyButton value={url} label={`Copy ${label} URL`} />
@@ -238,21 +248,21 @@ export function AiIntegrationPanel({
   // list. Native <details>, so the content stays in the static markup.
   return (
     <details className="rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-2">
-      <summary className="cursor-pointer text-xs text-muted">
+      <summary className="cursor-pointer text-sm text-muted">
         {flagOnly
           ? "Integration — not needed for this challenge; it is graded by flag through the Submit endpoint"
           : "Integration — signing key, test curl, Send test"}
       </summary>
       <div className="mt-3 flex flex-col gap-3">
       {flagOnly ? (
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           The signing key and Send test apply to event-mode challenges only — this challenge is graded solely
           through a typed flag submitted to the Submit endpoint listed above the challenge list.
         </p>
       ) : (
         <>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted">
+            <span className="text-sm text-muted">
               Signing key
               <button type="button" onClick={onToggleReveal} className="ml-2 text-white hover:underline">
                 {revealed ? "Hide" : "Reveal"}
@@ -267,22 +277,25 @@ export function AiIntegrationPanel({
               </code>
               <CopyButton value={signingKey} label="Copy signing key" />
             </div>
+            {/* Amber, not red: rotating is recoverable (paste the new key
+                into the external site) and sits behind a confirm; red is for
+                what cannot be undone (redesign § Controls). */}
             <button
               type="button"
               disabled={pending}
               onClick={onRequestRotate}
-              className="self-start rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
+              className="self-start rounded-md border border-[#d4a017]/50 px-2 py-1 text-sm text-[#d4a017] hover:bg-[#d4a017]/10 disabled:opacity-40"
             >
               Rotate
             </button>
           </div>
 
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted">Test curl (dry run)</span>
+            <span className="text-sm text-muted">Test curl (dry run)</span>
             <pre className="overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-zinc-300">
               {testCurl(origin, challenge.id, revealed, signingKey)}
             </pre>
-            <span className="text-xs text-muted">{TOKEN_CAPTION}</span>
+            <span className="text-sm text-muted">{TOKEN_CAPTION}</span>
           </div>
 
           <div className="flex flex-col gap-1">
@@ -296,9 +309,11 @@ export function AiIntegrationPanel({
             </button>
             {testOutcome &&
               (testOutcome.kind === "award" ? (
-                <p className="text-xs text-[#22c55e]">Would award — the dry run verified end to end.</p>
+                <p className="text-sm text-[#22c55e]">Would award — the dry run verified end to end.</p>
               ) : (
-                <p className="text-xs text-[#e53e3e]">Test result: {testOutcome.label}</p>
+                <p className={`text-sm ${testOutcomeTone(testOutcome) === "good" ? "text-[#22c55e]" : "text-[#e53e3e]"}`}>
+                  Test result: {testOutcome.label}
+                </p>
               ))}
           </div>
 
@@ -307,7 +322,6 @@ export function AiIntegrationPanel({
               title="Rotate signing key?"
               body={ROTATE_CONSEQUENCE}
               confirmLabel="Rotate key"
-              danger
               pending={pending}
               onConfirm={onConfirmRotate}
               onCancel={onCancelRotate}

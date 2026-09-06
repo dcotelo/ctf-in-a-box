@@ -132,8 +132,9 @@ describe("AdminClassicControls", () => {
       expect(html).toContain("Web");
       expect(html).toContain("Crypto");
       expect(html).toContain("Add category");
-      expect(html).toMatch(/Move up/);
-      expect(html).toMatch(/Move down/);
+      // Inline chips: move left/right.
+      expect(html).toContain('aria-label="Move &quot;Web&quot; left"');
+      expect(html).toContain('aria-label="Move &quot;Crypto&quot; right"');
       expect(html).toContain("Remove");
     });
 

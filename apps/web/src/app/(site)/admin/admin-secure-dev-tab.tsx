@@ -18,6 +18,7 @@
 import type { AdminSettings } from "@/lib/admin-store";
 import { SCORE_COOLDOWN_MIN, SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
 import type { CommitNumber } from "./types";
 
 export type AdminSecureDevTabProps = {
@@ -29,12 +30,22 @@ export type AdminSecureDevTabProps = {
   statusOf: (key: string) => FieldStatus;
   cooldownInput: string;
   setCooldownInput: (v: string) => void;
+  /** The module screen's settings card slot (identity editor + Hints link);
+   *  absent, the knob renders bare — see components/admin/settings-card.tsx. */
+  moduleSettings?: ModuleSettingsSlot;
 };
 
 const COOLDOWN_LABEL = "Re-run cooldown (min)";
 
-export default function AdminSecureDevTab({ pending, commitNumber, statusOf, cooldownInput, setCooldownInput }: AdminSecureDevTabProps) {
-  return (
+export default function AdminSecureDevTab({
+  pending,
+  commitNumber,
+  statusOf,
+  cooldownInput,
+  setCooldownInput,
+  moduleSettings,
+}: AdminSecureDevTabProps) {
+  const knob = (
     <AdminNumberField
       id="score-cooldown-min"
       label={COOLDOWN_LABEL}
@@ -42,8 +53,7 @@ export default function AdminSecureDevTab({ pending, commitNumber, statusOf, coo
         <>
           Minimum minutes between SCORED runs on the same PR. Every run hands back a per-challenge pass/fail, so a
           short cooldown lets a contestant iterate a check-gaming patch against the rubric. 0 disables it. Takes
-          effect on the next push — each fork&apos;s Action reads this value when it runs. Hint policy is on the
-          Event tab.
+          effect on the next push — each fork&apos;s Action reads this value when it runs.
         </>
       }
       value={cooldownInput}
@@ -54,5 +64,12 @@ export default function AdminSecureDevTab({ pending, commitNumber, statusOf, coo
       onChange={setCooldownInput}
       onBlur={() => commitNumber("scoreCooldownMin", cooldownInput, setCooldownInput, COOLDOWN_LABEL)}
     />
+  );
+  return moduleSettings ? (
+    <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints}>
+      {knob}
+    </AdminSettingsCard>
+  ) : (
+    knob
   );
 }

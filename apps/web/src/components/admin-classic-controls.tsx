@@ -110,6 +110,7 @@ import SortableList from "@/components/admin/sortable-list";
 import { useAdminResource } from "@/components/admin/use-admin-resource";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
 import { ChallengeForm } from "@/components/admin-classic-form";
 import {
   CHALLENGE_ROWS,
@@ -142,6 +143,9 @@ export type AdminClassicControlsProps = {
   /** The shell's per-field save status, by stored key (UX audit F2). Optional
    *  so a static render without a shell still works; idle when absent. */
   statusOf?: (key: string) => FieldStatus;
+  /** The module screen's settings card slot (identity editor + Hints link);
+   *  absent, the knob renders bare — see components/admin/settings-card.tsx. */
+  moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminChallenge[];
   initialCategories?: string[];
@@ -156,6 +160,7 @@ export default function AdminClassicControls({
   setClassicCooldownSecInput,
   commitNumber,
   statusOf = () => ({ state: "idle" }),
+  moduleSettings,
   initialChallenges = [],
   initialCategories = [],
   onInventory,
@@ -224,21 +229,31 @@ export default function AdminClassicControls({
 
   const confirmCopy = deleteTarget ? challengeDeleteConfirm(deleteTarget) : null;
 
+  const knob = (
+    <AdminNumberField
+      id="classic-cooldown-sec"
+      label="Submission cooldown (sec)"
+      help="Seconds a contestant must wait between flag submissions on the same challenge. 0 = no cooldown."
+      value={classicCooldownSecInput}
+      placeholder={String(CLASSIC_COOLDOWN_SEC)}
+      disabled={pending}
+      status={statusOf("classicCooldownSec")}
+      onChange={setClassicCooldownSecInput}
+      onBlur={() =>
+        commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput, "Submission cooldown (sec)")
+      }
+    />
+  );
+
   return (
     <>
-      <AdminNumberField
-        id="classic-cooldown-sec"
-        label="Submission cooldown (sec)"
-        help="Seconds a contestant must wait between flag submissions on the same challenge. 0 = no cooldown."
-        value={classicCooldownSecInput}
-        placeholder={String(CLASSIC_COOLDOWN_SEC)}
-        disabled={pending}
-        status={statusOf("classicCooldownSec")}
-        onChange={setClassicCooldownSecInput}
-        onBlur={() =>
-          commitNumber("classicCooldownSec", classicCooldownSecInput, setClassicCooldownSecInput, "Submission cooldown (sec)")
-        }
-      />
+      {moduleSettings ? (
+        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints}>
+          {knob}
+        </AdminSettingsCard>
+      ) : (
+        knob
+      )}
 
       <CategoryEditor
         categories={categories}
@@ -267,7 +282,7 @@ export default function AdminClassicControls({
           </button>
         </div>
 
-        {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
+        {listError && <p className="text-sm text-[#e53e3e]">{listError}</p>}
 
         {/* The collapsed list shows the public half only — the flag appears
             when the organizer opens the edit form, not on a panel that might
@@ -276,13 +291,17 @@ export default function AdminClassicControls({
           rows={challenges}
           keyOf={(row) => row.challenge.id}
           titleOf={(row) => row.challenge.title}
+          // Grouped by category, as contestants see the board; the category
+          // is the heading, so the meta line does not repeat it.
+          groupOf={(row) => row.challenge.category}
+          groups={categories}
           meta={(row) => (
             <>
-              #{row.challenge.order} · {row.challenge.category} · {row.challenge.points} pt
+              #{row.challenge.order} · {row.challenge.points} pt
               {row.challenge.points === 1 ? "" : "s"}
             </>
           )}
-          intro="Drag a challenge to reorder it, or use Move up / Move down. Contestants see them in this order."
+          intro="Drag a challenge to reorder it, or use Move up / Move down from its ⋯ menu. Contestants see them in this order within each category."
           emptyText="No challenges yet."
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}

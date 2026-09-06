@@ -52,7 +52,7 @@ export default function AdminHintsTab({
     <section className="flex flex-col gap-3">
       <div>
         <h3 className="text-white">Hints</h3>
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           Event-wide policy. Secure Development, Classic CTF and AI Challenges all sell their hints through
           these four settings; the quiz has no hints. Each module&rsquo;s own tab holds the hint text.
         </p>

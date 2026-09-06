@@ -54,7 +54,7 @@ export default function AdminSwitch({
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className={disabled && !checked ? "text-zinc-400" : "text-white"}>{label}</span>
-          {help && <span className="block text-xs text-muted">{help}</span>}
+          {help && <span className="block text-sm text-muted">{help}</span>}
         </span>
         <span className="relative inline-flex flex-none items-center">
           <input
