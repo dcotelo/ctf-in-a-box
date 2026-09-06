@@ -16,12 +16,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AiChallenge } from "@/lib/ai-store";
 import AdminAiIntegration, {
+  AiEndpointsBlock,
   AiIntegrationPanel,
   ROTATE_CONSEQUENCE,
   classifyAiTestResponse,
   confirmRotate,
   fetchAiTest,
   requestRotate,
+  testOutcomeHelp,
+  testOutcomeTone,
   type AiIntegrationPanelProps,
 } from "@/components/admin-ai-integration";
 
@@ -188,18 +191,43 @@ describe("AiIntegrationPanel — curl signature formula (pins the load-bearing r
   });
 });
 
-describe("AiIntegrationPanel — endpoint URLs", () => {
+// UX audit F5: the three endpoint URLs are module-wide, but rendered inside
+// every challenge row — three challenges printed them twelve times, at 542 px
+// a row. They now live in `AiEndpointsBlock`, rendered ONCE above the list by
+// admin-ai-controls.tsx, and the per-row panel no longer carries them.
+describe("AiEndpointsBlock", () => {
   it("renders the three endpoint URLs with the given origin", () => {
-    const html = renderPanel();
+    const html = renderToStaticMarkup(<AiEndpointsBlock origin={ORIGIN} />);
     expect(html).toContain(`${ORIGIN}/api/ai/submit`);
     expect(html).toContain(`${ORIGIN}/api/ai/event`);
     expect(html).toContain(`${ORIGIN}/api/ai/state`);
+    expect(html).toContain("same for every challenge");
   });
 
   it("a different origin changes all three — not hard-coded to one host", () => {
-    const html = renderPanel({ origin: "http://localhost:3000" });
+    const html = renderToStaticMarkup(<AiEndpointsBlock origin="http://localhost:3000" />);
     expect(html).toContain("http://localhost:3000/api/ai/submit");
     expect(html).not.toContain(`${ORIGIN}/api/ai/submit`);
+  });
+});
+
+describe("AiIntegrationPanel — density", () => {
+  it("no longer repeats the endpoint URLs per row", () => {
+    expect(renderPanel()).not.toContain("/api/ai/submit");
+  });
+
+  it("is collapsed by default, with a summary that names what is inside", () => {
+    const html = renderPanel();
+    expect(html).toContain("<details");
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("Integration");
+    expect(html).toContain("signing key");
+  });
+
+  it("flag-mode: the summary says the integration panel is not needed", () => {
+    const html = renderPanel({ challenge: { ...CHALLENGE, mode: "flag" } });
+    expect(html).toContain("<details");
+    expect(html).toMatch(/graded by flag/);
   });
 });
 
@@ -222,11 +250,9 @@ describe("AiIntegrationPanel — mode gating", () => {
     expect(html).not.toContain(REAL_KEY);
   });
 
-  it("flag-mode: still shows the three endpoint URLs", () => {
+  it("flag-mode: carries no endpoint URLs either — they live in AiEndpointsBlock, once", () => {
     const html = renderPanel({ challenge: FLAG_CHALLENGE });
-    expect(html).toContain(`${ORIGIN}/api/ai/submit`);
-    expect(html).toContain(`${ORIGIN}/api/ai/event`);
-    expect(html).toContain(`${ORIGIN}/api/ai/state`);
+    expect(html).not.toContain("/api/ai/submit");
   });
 
   it("flag-mode: shows a note pointing the signing key and Send test at event-mode challenges", () => {
@@ -420,6 +446,56 @@ describe("AiIntegrationPanel — Send test rendering", () => {
   it("a named rate-limited result names the slug", () => {
     const html = renderPanel({ testOutcome: { kind: "named", label: "rate-limited" } });
     expect(html).toContain("Test result: rate-limited");
+  });
+
+  // admin-redesign.md § Controls: green for solved / would-award, red only
+  // for a refused or failed test. "Test result: solved" used to be red.
+  it("colours a solve green and a refusal red", () => {
+    expect(testOutcomeTone({ kind: "award" })).toBe("good");
+    expect(testOutcomeTone({ kind: "named", label: "solved" })).toBe("good");
+    expect(testOutcomeTone({ kind: "named", label: "would-award" })).toBe("good");
+    expect(testOutcomeTone({ kind: "named", label: "would-refuse" })).toBe("bad");
+    expect(testOutcomeTone({ kind: "named", label: "unavailable" })).toBe("bad");
+    expect(renderPanel({ testOutcome: { kind: "named", label: "solved" } })).toMatch(/text-\[#22c55e\][^>]*>Test result: solved/);
+    expect(renderPanel({ testOutcome: { kind: "named", label: "would-refuse" } })).toMatch(/text-\[#e53e3e\][^>]*>Test result: would-refuse/);
+  });
+
+  // Audit F22: the decoder ring for these verdicts lived in
+  // docs/operations.md and nowhere on the panel, so a dry run answering
+  // `no-team` looked like an integration fault when it means the organizer is
+  // simply not on a team.
+  it("explains the three refusals that are not faults", () => {
+    for (const label of ["paused", "solved", "no-team"]) {
+      expect(testOutcomeHelp(label)).toMatch(/^Not a fault/);
+    }
+  });
+
+  it("explains the three that ARE something to fix", () => {
+    expect(testOutcomeHelp("unavailable")).toMatch(/Try again/);
+    expect(testOutcomeHelp("wrong-mode")).toMatch(/flag-only/);
+    expect(testOutcomeHelp("no-signing-key")).toMatch(/Rotate/);
+  });
+
+  it("says nothing at all for a verdict this build has never seen", () => {
+    // The route relays the event handler's verdict verbatim, so a newer
+    // handler can hand back a string this build does not know. Inventing an
+    // explanation for it would be worse than showing the bare name.
+    expect(testOutcomeHelp("some-future-verdict")).toBeNull();
+  });
+
+  it("renders the sentence under the raw name, keeping both", () => {
+    // The name is what the docs and any issue thread index; the sentence is
+    // what it means here, now.
+    const html = renderPanel({ testOutcome: { kind: "named", label: "no-team" } });
+    expect(html).toContain("Test result: no-team");
+    expect(html).toContain("you are not on a team");
+  });
+
+  it("styles Rotate amber, not red, and its confirm without the danger accent — rotating is recoverable", () => {
+    const html = renderPanel({ rotateConfirmOpen: true });
+    expect(html).toMatch(/<button[^>]*text-\[#d4a017\][^>]*>Rotate</);
+    expect(html).not.toMatch(/<button[^>]*text-\[#e53e3e\][^>]*>Rotate</);
+    expect(html).not.toContain("bg-[#e53e3e]");
   });
 
   it("Send test is disabled while `pending`", () => {

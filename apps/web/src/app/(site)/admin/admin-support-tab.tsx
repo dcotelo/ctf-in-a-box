@@ -15,19 +15,89 @@
 // own endpoints with their own shapes, and folding it into the shell's shared
 // settings `apply` would make that helper mean two different things.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ConfirmState } from "./types";
 
-type UserDetail = {
+/** The shape `GET /api/admin/ops/user` answers with — mirrors `UserDetail` in
+ *  lib/admin-ops-store.ts (a value import would drag `server-only` into the
+ *  client bundle). Exported so the pure builders below can be tested against
+ *  a hand-built record. */
+export type UserDetail = {
   login: string;
   team: { slug: string; name: string; captain: string | null; isCaptain: boolean; joinedAt: string | null } | null;
   firstTeamAt: string | null;
   quiz: { answered: number; points: number; attempts: number };
   classic: { solved: number; points: number; attempts: number };
+  ai: { solved: number; points: number; attempts: number };
   secureDev: { solves: number };
   hints: { bought: number; spent: number };
   known: boolean;
 };
+
+/** The figures the contestant card shows, in reading order — every module
+ *  the reset below touches (quiz, classic, ai) plus Secure Development and
+ *  hints. Pure, so a test can prove the AI figures are present without a
+ *  lookup having returned (UX audit F4: the card had none). Exported for
+ *  direct testing. */
+export function contestantStats(detail: UserDetail): { label: string; value: number }[] {
+  return [
+    { label: "Quiz pts", value: detail.quiz.points },
+    { label: "Classic pts", value: detail.classic.points },
+    { label: "AI pts", value: detail.ai.points },
+    { label: "Quiz answered", value: detail.quiz.answered },
+    { label: "Classic solved", value: detail.classic.solved },
+    { label: "AI solved", value: detail.ai.solved },
+    { label: "Secure Development solves", value: detail.secureDev.solves },
+    { label: "Attempts", value: detail.quiz.attempts + detail.classic.attempts + detail.ai.attempts },
+    { label: "Hints bought", value: detail.hints.bought },
+    { label: "Hints spend", value: detail.hints.spent },
+  ];
+}
+
+/** The reset-progress confirmation, with the total the reset will actually
+ *  remove: quiz, classic AND ai points — `resetUserProgress` clears all three
+ *  (admin-ops-store.ts). The Secure Development warning is separate because
+ *  it is the part the organizer has to act on, and it only applies when there
+ *  are such solves. Exported for direct testing. */
+export function resetProgressConfirm(detail: UserDetail): {
+  title: string;
+  requireType: string;
+  confirmLabel: string;
+  body: string;
+  warning: string | null;
+} {
+  const total = detail.quiz.points + detail.classic.points + detail.ai.points;
+  return {
+    title: `Reset ${detail.login}'s progress?`,
+    requireType: detail.login,
+    confirmLabel: "Reset progress",
+    body: `Clears their quiz answers, classic and AI solves, attempts and hints — ${total} points in total. Their account and team stay.`,
+    warning:
+      detail.secureDev.solves > 0
+        ? `Their ${detail.secureDev.solves} Secure Development solves are re-ingested from PR comments and will come back if that PR is scored again.`
+        : null,
+  };
+}
+
+/** The two things the contestant card says about their team, built purely so
+ *  they are provable: the card itself sits behind a lookup and never appears
+ *  in a static render (see this file's test header).
+ *
+ *  `joined` states UTC. Every other timestamp on this tab does — the line
+ *  directly beneath this one says so — and a bare "2026-09-03 01:45" beside it
+ *  invites the reader to assume local (audit F21).
+ *
+ *  `actionSlug` is the slug the card already holds. The team actions further
+ *  down took it hand-typed, so the commonest ticket on this tab ("the captain
+ *  vanished") began by retyping a slug from the line above. Null for a
+ *  contestant on no team, which is what hides the control. Exported for direct
+ *  testing. */
+export function teamCardSummary(detail: UserDetail): { joined: string | null; actionSlug: string | null } {
+  return {
+    joined: detail.team?.joinedAt ? `joined ${detail.team.joinedAt.slice(0, 16).replace("T", " ")} UTC` : null,
+    actionSlug: detail.team?.slug ?? null,
+  };
+}
 
 const FIELD =
   "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
@@ -39,16 +109,16 @@ const FIELD =
 // live next to a faded "Disband team" that looked dead (issue #200, 3.2).
 // Same treatment as team-card.tsx's PAIRED_ACTION_CLASS, the #195 fix.
 const BTN =
-  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] " +
+  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] " +
   "disabled:cursor-not-allowed disabled:border disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 const DANGER =
-  "flex-none rounded-md border border-[#e53e3e]/50 px-3 py-1.5 text-xs text-[#e53e3e] transition-colors hover:bg-[#e53e3e]/10 " +
+  "flex-none rounded-md border border-[#e53e3e]/50 px-3 py-1.5 text-sm text-[#e53e3e] transition-colors hover:bg-[#e53e3e]/10 " +
   "disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
       <p className="font-mono text-sm tabular-nums text-white">{value}</p>
     </div>
   );
@@ -66,6 +136,9 @@ export default function AdminSupportTab({
   const [notice, setNotice] = useState<string | null>(null);
 
   const [teamSlug, setTeamSlug] = useState("");
+  /** The team-actions slug field, so the contestant card can hand it the
+   *  slug it already knows and put the cursor there (audit F21). */
+  const teamSlugRef = useRef<HTMLInputElement>(null);
   const [teamLogin, setTeamLogin] = useState("");
 
   /** Runs a request and folds the outcome into the shared notice/error state.
@@ -135,7 +208,7 @@ export default function AdminSupportTab({
       <section className="flex flex-col gap-3">
         <div>
           <h3 className="text-sm font-semibold text-white">Find a contestant</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             Look them up before acting. Every control below stays disabled until a lookup returns.
           </p>
         </div>
@@ -162,13 +235,13 @@ export default function AdminSupportTab({
           <div className="flex items-center justify-between gap-2">
             <p className="font-mono text-white">{detail.login}</p>
             {!detail.known && (
-              <span className="rounded border border-[#d4a017]/40 bg-[#d4a017]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#d4a017]">
+              <span className="rounded border border-[#d4a017]/40 bg-[#d4a017]/10 px-1.5 py-0.5 text-xs uppercase tracking-wide text-[#d4a017]">
                 no data — check the spelling
               </span>
             )}
           </div>
 
-          <p className="text-xs text-zinc-400">
+          <p className="text-sm text-zinc-400">
             {detail.team ? (
               <>
                 Team <span className="font-mono text-white">{detail.team.name}</span>
@@ -178,27 +251,47 @@ export default function AdminSupportTab({
             ) : (
               "On no team."
             )}
-            {detail.team?.joinedAt && (
-              <span className="text-muted"> — joined {detail.team.joinedAt.slice(0, 16).replace("T", " ")}</span>
+            {teamCardSummary(detail).joined && (
+              <span className="text-muted"> — {teamCardSummary(detail).joined}</span>
             )}
           </p>
 
+          {/* The card already holds the slug; the team actions below took it
+              hand-typed. The common ticket ("the captain vanished") started
+              with retyping a slug from the line directly above (audit F21).
+              This fills that field and puts the cursor in it, and deliberately
+              stops there: Disband and Transfer keep their confirmations where
+              they are rather than gaining a second trigger on a card whose
+              subject is a person, not a team. */}
+          {detail.team && (
+            <p>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  const slug = teamCardSummary(detail).actionSlug;
+                  if (!slug) return;
+                  setTeamSlug(slug);
+                  teamSlugRef.current?.focus();
+                }}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-40"
+              >
+                Team actions for {detail.team.slug}
+              </button>
+            </p>
+          )}
+
           {detail.firstTeamAt && (
-            <p className="text-[11px] text-muted">
+            <p className="text-sm text-muted">
               First on a team {detail.firstTeamAt.slice(0, 16).replace("T", " ")} UTC
               {detail.team?.joinedAt && detail.firstTeamAt !== detail.team.joinedAt && " (has switched teams since)"}
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Quiz pts" value={detail.quiz.points} />
-            <Stat label="Classic pts" value={detail.classic.points} />
-            <Stat label="Quiz answered" value={detail.quiz.answered} />
-            <Stat label="Classic solved" value={detail.classic.solved} />
-            <Stat label="Sec-dev solves" value={detail.secureDev.solves} />
-            <Stat label="Attempts" value={detail.quiz.attempts + detail.classic.attempts} />
-            <Stat label="Hints bought" value={detail.hints.bought} />
-            <Stat label="Hints spend" value={detail.hints.spent} />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {contestantStats(detail).map((s) => (
+              <Stat key={s.label} label={s.label} value={s.value} />
+            ))}
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
@@ -206,22 +299,20 @@ export default function AdminSupportTab({
               type="button"
               disabled={pending}
               className={DANGER}
-              onClick={() =>
+              onClick={() => {
+                const c = resetProgressConfirm(detail);
                 setConfirm({
-                  title: `Reset ${detail.login}'s progress?`,
+                  title: c.title,
                   danger: true,
-                  requireType: detail.login,
-                  confirmLabel: "Reset progress",
+                  requireType: c.requireType,
+                  confirmLabel: c.confirmLabel,
                   body: (
                     <>
-                      Clears their quiz answers, classic solves, attempts and hints — {detail.quiz.points + detail.classic.points} points in total. Their account and team stay.
-                      {detail.secureDev.solves > 0 && (
+                      {c.body}
+                      {c.warning && (
                         <>
                           {" "}
-                          <strong>
-                            Their {detail.secureDev.solves} Secure Development solves are re-ingested from PR comments and will come back if that PR is scored again.
-                          </strong>{" "}
-                          Close the PR or freeze scoring to make this stick.
+                          <strong>{c.warning}</strong> Close the PR or freeze scoring to make this stick.
                         </>
                       )}
                     </>
@@ -237,8 +328,8 @@ export default function AdminSupportTab({
                       (data) => withWarnings(`Reset ${detail.login}.`, data),
                       refresh,
                     ),
-                })
-              }
+                });
+              }}
             >
               Reset progress
             </button>
@@ -322,7 +413,7 @@ export default function AdminSupportTab({
       <section className="flex flex-col gap-3 border-t border-white/[0.06] pt-5">
         <div>
           <h3 className="text-sm font-semibold text-white">Team actions</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             The captain-only controls, for when the captain is unreachable — a captainless team
             cannot rename, remove anyone, regenerate its code, or disband on its own.
           </p>
@@ -331,6 +422,7 @@ export default function AdminSupportTab({
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             id="support-team-slug"
+            ref={teamSlugRef}
             value={teamSlug}
             onChange={(e) => setTeamSlug(e.target.value)}
             placeholder="team-slug"
@@ -414,8 +506,8 @@ export default function AdminSupportTab({
         </div>
       </section>
 
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
-      {notice && <p className="text-xs text-[#22c55e]">{notice}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
+      {notice && <p className="text-sm text-[#22c55e]">{notice}</p>}
     </div>
   );
 }

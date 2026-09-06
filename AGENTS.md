@@ -4,6 +4,9 @@ Guidance for AI coding agents (and humans who want the short version) working
 in this repo. This follows the tool-agnostic [AGENTS.md](https://agents.md)
 convention: any agent operating here should read this file first.
 
+If you only opened a nested folder, stop and read this file from the
+repo root. `apps/web/AGENTS.md` and `CLAUDE.md` point here on purpose.
+
 ## Build/test/lint
 
 These are the authoritative commands — they match what CI runs in
@@ -102,6 +105,18 @@ scorer Dockerfile, `package.json` and lockfile, the entrypoints, the gate
 scripts and `scripts/lib/acceptance-lib.sh`, `patches/`, and the workflow
 files themselves.
 
+**registries** (KNOWN_MODULES / target lists must agree; no Docker):
+
+```sh
+node scripts/check-module-registries.mjs
+```
+
+The wrapped commands are also exposed as `make <target>` from the repo root
+(`make help` lists them). Not wrapped, deliberately: the live Lua/upstash
+suite (needs redis + srh), the production build and `acceptance-app.sh`,
+and the two real-target scoring gates — run those from the commands above.
+The Makefile does not add a full-repo `test` target on purpose.
+
 ## CI
 
 `.github/workflows/ci.yml` has a `changes` job that path-filters which areas
@@ -134,6 +149,9 @@ fine on GitHub and 404s on the site — two shipped before the check existed.
 Keep link text on one line; link outside `docs/` with an absolute `https://`
 URL, never `../`. `codeql.yml` is a stock JavaScript/TypeScript scan on PRs
 and weekly, with no repo-side config to keep in step.
+
+The `registries` job compares the duplicated KNOWN_MODULES / target lists
+and needs no install.
 
 **Every PR must also pass CodeRabbit review before merge, not just the CI
 jobs above.** CodeRabbit runs automatically on each PR (`.coderabbit.yaml`

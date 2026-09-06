@@ -126,7 +126,7 @@ describe("resolveModules", () => {
       return [];
     };
     for (const m of resolveModules({ quiz: { title: "Trivia" } })) {
-      for (const stripped of ["home", "guide", "rules", "faq", "terms", "routeCard"]) {
+      for (const stripped of ["home", "guide", "rules", "faq", "terms", "routeCard", "setup"]) {
         expect(m).not.toHaveProperty(stripped);
       }
       expect(findFunctions(m, `resolved module ${m.id}`)).toEqual([]);
@@ -149,6 +149,7 @@ describe("resolveModules", () => {
     const faqIsOmitted: "faq" extends keyof ResolvedModule ? false : true = true;
     const termsIsOmitted: "terms" extends keyof ResolvedModule ? false : true = true;
     const routeCardIsOmitted: "routeCard" extends keyof ResolvedModule ? false : true = true;
+    const setupIsOmitted: "setup" extends keyof ResolvedModule ? false : true = true;
     expect([
       noFunctionValuedKeys,
       homeIsOmitted,
@@ -157,7 +158,8 @@ describe("resolveModules", () => {
       faqIsOmitted,
       termsIsOmitted,
       routeCardIsOmitted,
-    ]).toEqual([true, true, true, true, true, true, true]);
+      setupIsOmitted,
+    ]).toEqual([true, true, true, true, true, true, true, true]);
   });
 });
 

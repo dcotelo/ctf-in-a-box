@@ -30,9 +30,10 @@
 // echoes `value` into the DOM (see copy-button.tsx), it only closes over it
 // inside the click handler, which `renderToStaticMarkup` never serializes.
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import ConfirmModal from "@/components/confirm-modal";
 import CopyButton from "@/components/copy-button";
+import AiEndpointDemo, { ENDPOINT_DEMOS } from "@/components/admin-ai-endpoint-demos";
 import type { AiChallenge } from "@/lib/ai-store";
 
 export type AdminAiIntegrationProps = {
@@ -50,12 +51,6 @@ const TOKEN_CAPTION =
   "Use Send test below for a server-minted token, or copy a token from your own launcher link.";
 
 const MASKED_KEY = "aik_…";
-
-const ENDPOINTS: { label: string; path: string }[] = [
-  { label: "Submit", path: "/api/ai/submit" },
-  { label: "Event", path: "/api/ai/event" },
-  { label: "State", path: "/api/ai/state" },
-];
 
 export type AiTestOutcome = { kind: "award" } | { kind: "named"; label: string };
 
@@ -95,6 +90,49 @@ export async function fetchAiTest(challengeId: string): Promise<AiTestOutcome> {
     return classifyAiTestResponse(res.ok, data);
   } catch {
     return { kind: "named", label: "unavailable" };
+  }
+}
+
+/** Which colour a Send test outcome earns (admin-redesign.md § Controls):
+ *  green for a solve or a would-award — the integration works end to end —
+ *  and red only for a refusal or a failure. Before this every named outcome
+ *  was red, so "Test result: solved" read as an error. Exported for direct
+ *  testing. */
+export function testOutcomeTone(outcome: AiTestOutcome): "good" | "bad" {
+  if (outcome.kind === "award") return "good";
+  return outcome.label === "solved" || outcome.label === "would-award" ? "good" : "bad";
+}
+
+/** What a relayed verdict MEANS, in one sentence (audit F22).
+ *
+ *  The raw name stays on screen — `docs/operations.md` indexes these strings,
+ *  and so does anyone searching an issue tracker — but the name alone sends an
+ *  organizer to the docs mid-event to learn that `no-team` is not an
+ *  integration fault at all: it means they personally are not on a team. The
+ *  three that read like breakage and are not (`paused`, `solved`, `no-team`)
+ *  are the whole reason this exists.
+ *
+ *  Deliberately silent for an unknown label. The route relays the event
+ *  handler's verdict verbatim, so a newer handler can hand back a string this
+ *  build has never seen; inventing an explanation for it would be worse than
+ *  showing the name on its own. Exported for direct testing — `renderToStaticMarkup`
+ *  cannot click Send test. */
+export function testOutcomeHelp(label: string): string | null {
+  switch (label) {
+    case "paused":
+      return "Not a fault: scoring is frozen, or the event is outside its scheduled window. The dry run honours the schedule exactly as a real submission would.";
+    case "solved":
+      return "Not a fault: the signature and token were accepted, and your own login already holds this challenge.";
+    case "no-team":
+      return "Not a fault: the signature and token were accepted, but you are not on a team — the event route refuses a teamless login before awarding, organizers included.";
+    case "unavailable":
+      return "Redis could not be read, or the request itself failed. Try again.";
+    case "wrong-mode":
+      return "This challenge is flag-only, so it has no external event to report. Its mode changed after this panel loaded — refresh and re-check.";
+    case "no-signing-key":
+      return "This challenge has never had a signing key minted — a row from before signing keys existed. Click Rotate once to mint one.";
+    default:
+      return null;
   }
 }
 
@@ -139,6 +177,54 @@ function testCurl(origin: string, challengeId: string, revealed: boolean, signin
     '  -H "X-CTF-Timestamp: $TS" -H "X-CTF-Signature: sha256=$SIG" \\',
     '  -d "$BODY"',
   ].join("\n");
+}
+
+const noopSubscribe = () => () => {};
+
+/** The browser's origin, hydration-safe: the server snapshot is "" and the
+ *  browser's first render uses the same "" before React swaps in the real
+ *  value, so the SSR markup and the hydrating render agree. Reading
+ *  `window.location.origin` during render would make them disagree on every
+ *  endpoint URL (CodeRabbit on #275). Shared by the endpoints block and the
+ *  per-row panel so both agree on the origin. */
+export function useBrowserOrigin(): string {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => window.location.origin,
+    () => "",
+  );
+}
+
+/** The three module-wide endpoint URLs, with copy buttons. Rendered ONCE by
+ *  admin-ai-controls.tsx above the challenge list — they are the same for
+ *  every challenge, and rendering them inside every row printed them N×3
+ *  times and made the list unscannable (UX audit F5). Presentational;
+ *  `origin` is passed in for the same testability reason the panel's is. */
+export function AiEndpointsBlock({ origin }: { origin: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
+      <span className="text-sm text-white">Endpoints</span>
+      <span className="text-sm text-muted">The same for every challenge — what the external site posts to and reads from.</span>
+      <ul className="mt-1 flex flex-col gap-2">
+        {ENDPOINT_DEMOS.map((demo) => {
+          const url = `${origin}${demo.path}`;
+          return (
+            <li key={demo.path} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
+                  {url}
+                </code>
+                <CopyButton value={url} label={`Copy ${demo.label} URL`} />
+              </div>
+              {/* What to send, what comes back, what else to expect — the
+                  per-row panel only ever demonstrated Event. */}
+              <AiEndpointDemo demo={demo} origin={origin} />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 export type AiIntegrationPanelProps = {
@@ -188,34 +274,28 @@ export function AiIntegrationPanel({
   onSendTest,
 }: AiIntegrationPanelProps) {
   const flagOnly = challenge.mode === "flag";
+  // Collapsed by default (UX audit F5): the integration plumbing is needed
+  // once, while wiring the external site, and the list an organizer scrolls
+  // to find a challenge should read as a list. The endpoint URLs are not
+  // here at all any more — `AiEndpointsBlock` renders them once, above the
+  // list. Native <details>, so the content stays in the static markup.
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Endpoints</span>
-        <ul className="flex flex-col gap-1">
-          {ENDPOINTS.map(({ label, path }) => {
-            const url = `${origin}${path}`;
-            return (
-              <li key={path} className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs text-zinc-300">
-                  {url}
-                </code>
-                <CopyButton value={url} label={`Copy ${label} URL`} />
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
+    <details className="rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-2">
+      <summary className="cursor-pointer text-sm text-muted">
+        {flagOnly
+          ? "Integration — not needed for this challenge; it is graded by flag through the Submit endpoint"
+          : "Integration — signing key, test curl, Send test"}
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">
       {flagOnly ? (
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           The signing key and Send test apply to event-mode challenges only — this challenge is graded solely
-          through a typed flag submitted to the Submit endpoint above.
+          through a typed flag submitted to the Submit endpoint listed above the challenge list.
         </p>
       ) : (
         <>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted">
+            <span className="text-sm text-muted">
               Signing key
               <button type="button" onClick={onToggleReveal} className="ml-2 text-white hover:underline">
                 {revealed ? "Hide" : "Reveal"}
@@ -230,22 +310,25 @@ export function AiIntegrationPanel({
               </code>
               <CopyButton value={signingKey} label="Copy signing key" />
             </div>
+            {/* Amber, not red: rotating is recoverable (paste the new key
+                into the external site) and sits behind a confirm; red is for
+                what cannot be undone (redesign § Controls). */}
             <button
               type="button"
               disabled={pending}
               onClick={onRequestRotate}
-              className="self-start rounded-md border border-[#e53e3e]/40 px-2 py-1 text-xs text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-40"
+              className="self-start rounded-md border border-[#d4a017]/50 px-2 py-1 text-sm text-[#d4a017] hover:bg-[#d4a017]/10 disabled:opacity-40"
             >
               Rotate
             </button>
           </div>
 
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted">Test curl (dry run)</span>
+            <span className="text-sm text-muted">Test curl (dry run)</span>
             <pre className="overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-zinc-300">
               {testCurl(origin, challenge.id, revealed, signingKey)}
             </pre>
-            <span className="text-xs text-muted">{TOKEN_CAPTION}</span>
+            <span className="text-sm text-muted">{TOKEN_CAPTION}</span>
           </div>
 
           <div className="flex flex-col gap-1">
@@ -259,9 +342,18 @@ export function AiIntegrationPanel({
             </button>
             {testOutcome &&
               (testOutcome.kind === "award" ? (
-                <p className="text-xs text-[#22c55e]">Would award — the dry run verified end to end.</p>
+                <p className="text-sm text-[#22c55e]">Would award — the dry run verified end to end.</p>
               ) : (
-                <p className="text-xs text-[#e53e3e]">Test result: {testOutcome.label}</p>
+                <>
+                  <p className={`text-sm ${testOutcomeTone(testOutcome) === "good" ? "text-[#22c55e]" : "text-[#e53e3e]"}`}>
+                    Test result: {testOutcome.label}
+                  </p>
+                  {/* The name is what the docs and any issue thread call it;
+                      the sentence is what it means here, now. */}
+                  {testOutcomeHelp(testOutcome.label) && (
+                    <p className="text-sm text-muted">{testOutcomeHelp(testOutcome.label)}</p>
+                  )}
+                </>
               ))}
           </div>
 
@@ -270,7 +362,6 @@ export function AiIntegrationPanel({
               title="Rotate signing key?"
               body={ROTATE_CONSEQUENCE}
               confirmLabel="Rotate key"
-              danger
               pending={pending}
               onConfirm={onConfirmRotate}
               onCancel={onCancelRotate}
@@ -278,7 +369,8 @@ export function AiIntegrationPanel({
           )}
         </>
       )}
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -288,10 +380,9 @@ export default function AdminAiIntegration({ challenge, signingKey, onRotate, pe
   const [testPending, setTestPending] = useState(false);
   const [testOutcome, setTestOutcome] = useState<AiTestOutcome | null>(null);
 
-  // Browser-only; empty on the server (this panel is never statically
-  // prerendered — see AGENTS.md on `/` — and this component's own tests
-  // render `AiIntegrationPanel` directly with an explicit `origin`).
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  // Hydration-safe (see `useBrowserOrigin`); this component's own tests
+  // render `AiIntegrationPanel` directly with an explicit `origin`.
+  const origin = useBrowserOrigin();
 
   async function sendTest() {
     setTestPending(true);

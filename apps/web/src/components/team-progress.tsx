@@ -12,21 +12,17 @@
 
 import Image from "next/image";
 import type { LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
-import type { ModuleId } from "@/lib/modules";
+import { moduleVerb } from "@/components/progress/progress-row";
 
-/** Each module's own noun for a completed item — mirrors the leaderboard's
- *  TeamRow vocabulary so the two surfaces describe progress identically. */
-const COMPLETED_NOUN: Record<string, string> = {
-  "secure-development": "patched",
-  quiz: "answered",
-  classic: "solved",
-};
-
-function memberSummary(entry: LeaderboardEntry | null): string | null {
+/** Each module's own noun for a completed item, from the shared vocabulary
+ *  every progress surface now reads. This map used to be local, name only
+ *  three modules, and fall through to "solved" for anything else — so a
+ *  member who had played classic AND ai read "3 solved · 3 solved". */
+export function memberSummary(entry: LeaderboardEntry | null): string | null {
   if (!entry?.modules) return null;
   const parts = Object.entries(entry.modules)
     .filter(([, p]) => p && p.completed > 0)
-    .map(([id, p]) => `${p!.completed} ${COMPLETED_NOUN[id as ModuleId] ?? "solved"}`);
+    .map(([id, p]) => `${p!.completed} ${moduleVerb(id)}`);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 

@@ -132,8 +132,9 @@ describe("AdminClassicControls", () => {
       expect(html).toContain("Web");
       expect(html).toContain("Crypto");
       expect(html).toContain("Add category");
-      expect(html).toMatch(/Move up/);
-      expect(html).toMatch(/Move down/);
+      // Inline chips: move left/right.
+      expect(html).toContain('aria-label="Move &quot;Web&quot; left"');
+      expect(html).toContain('aria-label="Move &quot;Crypto&quot; right"');
       expect(html).toContain("Remove");
     });
 
@@ -393,6 +394,18 @@ describe("payloadFromRow", () => {
       flag: "CTF{real}",
       hint: "",
     });
+  });
+
+  // #279: the reorder write-back re-saves the row through the upsert route,
+  // which treats an absent caseSensitive as false — so dragging a
+  // case-sensitive challenge used to silently downgrade its grading.
+  it("carries caseSensitive when it is on, so a reorder cannot downgrade the grading", () => {
+    const payload = payloadFromRow({ challenge: { ...c1, caseSensitive: true }, flag: "CTF{real}", hint: null });
+    expect(payload.caseSensitive).toBe(true);
+  });
+
+  it("omits caseSensitive when it is off, matching the stored shape", () => {
+    expect("caseSensitive" in payloadFromRow({ challenge: c1, flag: "CTF{real}", hint: null })).toBe(false);
   });
 });
 
@@ -692,5 +705,17 @@ describe("caseSensitive survives the form round trip", () => {
       challenge: { ...row1.challenge, caseSensitive: true },
     });
     expect(draft.caseSensitive).toBe(true);
+  });
+});
+
+// What the panel reports up to the shell for the setup checklist above it
+// (see `ModuleInventory` in admin-module-setup.tsx): challenges AND
+// categories, because "add a category first" is the classic board's first
+// setup step and the checklist has to be able to tick it.
+describe("classicInventory", () => {
+  it("counts challenges and categories separately", async () => {
+    const { classicInventory } = await import("@/components/admin-classic-controls");
+    expect(classicInventory([], [])).toEqual({ items: 0, categories: 0 });
+    expect(classicInventory([], ["Web", "Crypto"])).toEqual({ items: 0, categories: 2 });
   });
 });

@@ -1,0 +1,190 @@
+<svg viewBox="0 0 960 780" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="ttl">AI launch token: what each side does</title>
+  <desc id="desc">The handshake between the box and an external AI challenge site, and which key does what. The box mints an Ed25519 JWT scoped to one challenge (sub is the player's login, aud is the challenge id, 24-hour expiry, jti as the replay nonce) and substitutes it into the challenge's launch URL wherever the operator wrote the {token} placeholder. The contestant opens that link on the external site. The site fetches the module-wide public key from /api/ai/launch-key and caches it for about five minutes — re-fetching on any verification failure and after an event reset, since a master reset rotates the keypair — then verifies the token with hard-coded Ed25519 — never trusting the token's own alg or kid — and pins aud to the challenge it expects. The contestant plays; the site may re-read GET /api/ai/state for live progress rather than trusting the token's mint-time snapshot. On a solve the site POSTs /api/ai/event with the token and challenge id, signed with that challenge's own secret HMAC key over the exact string timestamp dot raw-request-body, sent as X-CTF-Signature with a matching X-CTF-Timestamp inside 300 seconds of the box's clock. The box verifies the signature, then the token, then claims the token's jti exactly once — a replay gets 409 — and the shared award script banks the points. Two different keys are involved: the launch key is public, one per event, and fetched; the signing key is secret, one per challenge, and pasted into the external site from the admin panel.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <style>
+    .bg { fill: #0d1117; }
+    .frame { fill: none; stroke: #30363d; stroke-width: 1; }
+    .lane { fill: #10151c; stroke: #30363d; stroke-width: 1; stroke-dasharray: 4 4; }
+    .node rect { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
+    .node .title { fill: #f0f6fc; font-size: 14px; font-weight: 600; }
+    .node .sub { fill: #8b949e; font-size: 11px; }
+    .glow { fill: none; stroke-width: 2.5; opacity: 0; }
+    .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
+    .caption { fill: #8b949e; font-size: 14px; }
+    .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .kicker { fill: #8b949e; font-size: 10px; letter-spacing: 1px; }
+    .badge rect { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .badge text { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
+    .keynote { font-size: 11px; }
+  </style>
+
+  <rect class="bg" width="960" height="780" rx="10"/>
+  <rect class="frame" x="0.5" y="0.5" width="959" height="779" rx="10"/>
+
+  <!-- lanes: who owns which half of the handshake -->
+  <rect class="lane" x="40" y="32" width="420" height="640" rx="10"/>
+  <rect class="lane" x="500" y="32" width="420" height="640" rx="10"/>
+  <text x="250" y="24" text-anchor="middle" class="kicker">THE BOX · ALREADY RUNNING</text>
+  <text x="710" y="24" text-anchor="middle" class="kicker">YOUR CHALLENGE SITE · WHAT YOU CONFIGURE</text>
+
+  <!-- edges -->
+  <path id="eA" class="edge" d="M440,80 C480,92 490,120 520,150"/>
+  <path id="eB" class="edge" d="M710,208 C710,216 710,220 710,228"/>
+  <path id="eC" class="edge" d="M710,300 C710,308 710,312 710,320"/>
+  <path id="eD" class="edge" d="M710,392 C710,400 710,404 710,412"/>
+  <path id="eE" class="edge" d="M520,470 C480,494 470,516 440,532"/>
+  <path id="eF" class="edge" d="M250,576 C250,584 250,588 250,596"/>
+
+  <!-- nodes -->
+  <g class="node">
+    <rect x="60" y="44" width="380" height="72" rx="10"/>
+    <text x="250" y="70" text-anchor="middle" class="title">mint the launch token</text>
+    <text x="250" y="90" text-anchor="middle" class="sub">Ed25519 JWT · sub = login · aud = challenge id</text>
+    <text x="250" y="105" text-anchor="middle" class="sub">24h expiry · jti = the one-shot replay nonce</text>
+    <g class="badge"><rect x="384" y="36" width="52" height="16" rx="8"/><text x="410" y="47" text-anchor="middle" fill="#58a6ff">BOX</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="520" y="136" width="380" height="72" rx="10"/>
+    <text x="710" y="162" text-anchor="middle" class="title">the launch link opens</text>
+    <text x="710" y="182" text-anchor="middle" class="sub">your launch URL, with {token} substituted</text>
+    <text x="710" y="197" text-anchor="middle" class="sub">no cookies cross — the token is the identity</text>
+    <g class="badge"><rect x="844" y="128" width="52" height="16" rx="8"/><text x="870" y="139" text-anchor="middle" fill="#d2a8ff">YOURS</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="520" y="228" width="380" height="72" rx="10"/>
+    <text x="710" y="254" text-anchor="middle" class="title">verify it</text>
+    <text x="710" y="274" text-anchor="middle" class="sub">GET /api/ai/launch-key · cache ~5m · re-fetch on failure</text>
+    <text x="710" y="289" text-anchor="middle" class="sub">hard-code Ed25519 · pin aud · ignore alg and kid</text>
+    <g class="badge"><rect x="844" y="220" width="52" height="16" rx="8"/><text x="870" y="231" text-anchor="middle" fill="#d2a8ff">YOURS</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="520" y="320" width="380" height="72" rx="10"/>
+    <text x="710" y="346" text-anchor="middle" class="title">the contestant plays</text>
+    <text x="710" y="366" text-anchor="middle" class="sub">the claims carry a mint-time progress snapshot</text>
+    <text x="710" y="381" text-anchor="middle" class="sub">GET /api/ai/state for anything fresher</text>
+    <g class="badge"><rect x="844" y="312" width="52" height="16" rx="8"/><text x="870" y="323" text-anchor="middle" fill="#d2a8ff">YOURS</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="520" y="412" width="380" height="76" rx="10"/>
+    <text x="710" y="438" text-anchor="middle" class="title">report the solve</text>
+    <text x="710" y="458" text-anchor="middle" class="sub">POST /api/ai/event {token, challengeId}</text>
+    <text x="710" y="473" text-anchor="middle" class="sub">HMAC the exact bytes: "&lt;timestamp&gt;.&lt;raw body&gt;"</text>
+    <g class="badge"><rect x="844" y="404" width="52" height="16" rx="8"/><text x="870" y="415" text-anchor="middle" fill="#ffa657">SIGNED</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="60" y="504" width="380" height="72" rx="10"/>
+    <text x="250" y="530" text-anchor="middle" class="title">the box checks, in order</text>
+    <text x="250" y="550" text-anchor="middle" class="sub">signature (±300s) → token → jti claimed once</text>
+    <text x="250" y="565" text-anchor="middle" class="sub">a replayed jti gets 409, not a second award</text>
+    <g class="badge"><rect x="384" y="496" width="52" height="16" rx="8"/><text x="410" y="507" text-anchor="middle" fill="#58a6ff">BOX</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="60" y="596" width="380" height="72" rx="10"/>
+    <text x="250" y="622" text-anchor="middle" class="title">points banked</text>
+    <text x="250" y="642" text-anchor="middle" class="sub">the same atomic award script every surface uses</text>
+    <text x="250" y="657" text-anchor="middle" class="sub">dryRun: true runs all of it and writes nothing</text>
+    <g class="badge"><rect x="384" y="588" width="52" height="16" rx="8"/><text x="410" y="599" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
+  </g>
+
+  <!-- the two keys: the thing operators most often conflate -->
+  <text x="250" y="692" text-anchor="middle" class="keynote" fill="#d2a8ff">launch key · public · one per event · you FETCH it</text>
+  <text x="710" y="692" text-anchor="middle" class="keynote" fill="#ffa657">signing key · secret · one per challenge · you PASTE it</text>
+
+  <!-- arrival / self glows -->
+  <rect class="glow" x="56" y="40" width="388" height="80" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1137;0.1237;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="516" y="132" width="388" height="80" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="516" y="224" width="388" height="80" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="516" y="316" width="388" height="80" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="516" y="408" width="388" height="84" rx="12" style="stroke:#ffa657">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="56" y="500" width="388" height="80" rx="12" style="stroke:#ffa657">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="56" y="592" width="388" height="80" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
+  </rect>
+
+  <!-- travelling dots -->
+  <circle r="5" fill="#d2a8ff">
+    <animateMotion dur="11.5s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.1237;0.2474;1" calcMode="linear"><mpath href="#eA" xlink:href="#eA"/></animateMotion>
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1337;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="11.5s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.2474;0.3711;1" calcMode="linear"><mpath href="#eB" xlink:href="#eB"/></animateMotion>
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2574;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="11.5s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.3711;0.4948;1" calcMode="linear"><mpath href="#eC" xlink:href="#eC"/></animateMotion>
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3811;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#ffa657">
+    <animateMotion dur="11.5s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.4948;0.6186;1" calcMode="linear"><mpath href="#eD" xlink:href="#eD"/></animateMotion>
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5048;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#ffa657">
+    <animateMotion dur="11.5s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.6186;0.7423;1" calcMode="linear"><mpath href="#eE" xlink:href="#eE"/></animateMotion>
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6286;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="11.5s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.7423;0.8660;1" calcMode="linear"><mpath href="#eF" xlink:href="#eF"/></animateMotion>
+    <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7523;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
+  </circle>
+
+  <!-- step captions -->
+  <g text-anchor="middle">
+    <text x="480" y="724" class="caption" opacity="0">1 — the box mints a token scoped to ONE challenge, for ONE player, for 24h
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1137;0.1237;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="724" class="caption" opacity="0">2 — it is substituted into your launch URL wherever you wrote {token}
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="724" class="caption" opacity="0">3 — you verify it with the PUBLIC launch key, fetched once and cached
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="724" class="caption" opacity="0">4 — play; re-read /api/ai/state rather than trusting a stale snapshot
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="724" class="caption" opacity="0">5 — you report the solve, signed with THAT CHALLENGE's secret signing key
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="724" class="caption" opacity="0">6 — signature, then token, then the jti — spent once, so a replay is a 409
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="724" class="caption" opacity="0">7 — the shared award script banks it; Send test runs all of this and writes nothing
+      <animate attributeName="opacity" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
+    </text>
+  </g>
+
+  <!-- progress ticks -->
+  <g>
+    <circle class="tick" cx="360" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+    <circle class="tick" cx="400" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+    <circle class="tick" cx="440" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="480" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="520" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
+    <circle class="tick" cx="560" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
+    <circle class="tick" cx="600" cy="752" r="5"><animate attributeName="fill" dur="11.5s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+  </g>
+</svg>

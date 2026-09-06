@@ -168,6 +168,18 @@ are path-scoped to judge-relevant scorer inputs plus `patches/`.
    with why it doesn't apply and mark the thread resolved. A reasoned
    disagreement is fine; an ignored finding is not.
 
+A PR is ready when all of these are true:
+
+- The commands for the touched area in AGENTS.md were run locally
+  (or the PR says why they could not be — e.g. no Docker).
+- New tests can fail: the summary names the single-token mutation
+  each new/changed test would catch.
+- Invariants in docs/reviewing.md that this diff touches were checked.
+- No `Generated with` / AI `Co-authored-by:` trailers.
+- Breaking-change box in the PR template is filled in (`None` is fine).
+- Latest commit has a CodeRabbit "Review completed" and no open
+  actionable thread.
+
 ## Proposing a new module
 
 Modules are the kit's extension point — a new CTF vertical (forensics,

@@ -16,6 +16,25 @@ external site needs to integrate: no box source access required. For where
 [docs/modules.md](modules.md); for why its two signatures use different key
 types, see [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric).
 
+## Section 0. The whole handshake, in one picture
+
+<img src="assets/diagrams/ai-launch-token-flow.svg" alt="Animated diagram: the box mints an Ed25519 launch token scoped to one player and one challenge, with a 24-hour expiry and a jti that doubles as a one-shot replay nonce, and substitutes it into the challenge's launch URL wherever the operator wrote the {token} placeholder. The contestant opens that link on the external site, which fetches the module-wide public key from /api/ai/launch-key and caches it for about five minutes — re-fetching on any verification failure and after an event reset, since a master reset rotates the keypair — then verifies the token with hard-coded Ed25519 — never trusting the token's own alg or kid — pinning aud to the challenge it expects. The contestant plays, and the site re-reads GET /api/ai/state rather than trusting the token's mint-time progress snapshot. On a solve the site POSTs /api/ai/event with the token and challenge id, signed with that challenge's own secret HMAC key over the exact string timestamp-dot-raw-body, with a matching X-CTF-Timestamp inside 300 seconds of the box's clock. The box checks the signature, then the token, then claims the jti exactly once — a replay gets 409 — and the shared atomic award script banks the points. The launch key is public, one per event, and fetched; the signing key is secret, one per challenge, and pasted in from the admin panel.">
+
+**Two keys, and they are not interchangeable** — this is the single most
+common wiring mistake:
+
+| | Launch key | Signing key |
+|---|---|---|
+| What it is | The box's Ed25519 **public** key | A **secret** HMAC key |
+| How many | One per event | One per challenge |
+| How you get it | `GET /api/ai/launch-key`; cache ~5 min, re-fetch on a verification failure and after an event reset (§3, §9) | Copy it from the admin panel's Reveal control |
+| What you do with it | **Verify** the launch token | **Sign** the solve event you POST |
+| If it leaks | Nothing. It is public by design | Anyone could assert solves for that challenge — rotate it |
+
+The rest of this document is each step in detail. If you read only two
+sections, read §3 (verifying) and §5 (the signature — where the expensive
+mistake lives).
+
 ## Section 1. What you get, and what you owe
 
 When a signed-in player with a team clicks "Open challenge" on `/ai/<id>`,

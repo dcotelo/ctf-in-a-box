@@ -5,10 +5,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { requireAdmin, getAdminSettings, getSyncStatus, getResolvedModules } = vi.hoisted(() => ({
+const { requireAdmin, getAdminSettings, getSyncStatus, getResolvedModules, getModuleSetup } = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
   getAdminSettings: vi.fn(),
   getSyncStatus: vi.fn(),
+  // The registry's setup block is a FUNCTION of the org context (it names
+  // the event's targets and GitHub org), so the page must call it here and
+  // hand the resulting plain data to the client shell — the same rule
+  // `home`/`guide`/`faq` follow. This stub is what the page is expected to
+  // invoke; the assertion below checks its output reached the markup.
+  getModuleSetup: vi.fn((id: string) =>
+    id === "secure-development"
+      ? (ctx: { githubOrg: string; appList: string }) => ({
+          experience: `Contestants fork ${ctx.appList} under ${ctx.githubOrg} and patch it.`,
+          steps: [{ title: "Provision the org", where: "outside" as const }],
+          midEvent: { safe: [], unsafe: [] },
+          docs: { href: "https://example.test/operations", label: "Operations" },
+        })
+      : undefined,
+  ),
   // The real one calls `connection()`, which needs a request context that
   // renderToStaticMarkup does not provide — and the resolution itself has its
   // own suite (lib/__tests__/resolved-modules.test.ts).
@@ -26,7 +41,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
-vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
+vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
 
 import AdminPage from "@/app/(site)/admin/page";
 
@@ -61,6 +76,31 @@ describe("admin page gate", () => {
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/freeze|pause/i);
     expect(html).toMatch(/last poll|ingested/i);
+  });
+
+  it("resolves each module's setup block server-side and renders it in that module's panel", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: null,
+      hintCost: null,
+      updatedBy: null,
+      updatedAt: null,
+      moduleOverrides: {},
+    });
+    getSyncStatus.mockResolvedValue(null);
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(ui);
+    expect(getModuleSetup).toHaveBeenCalledWith("secure-development");
+    // Interpolated from the real event config the page builds its context
+    // from, so the sentence proves the function was CALLED, not just found.
+    expect(html).toMatch(/Contestants fork .+ under .+ and patch it\./);
+    // Steps done OUTSIDE the panel (provisioning, ctf-setup.sh) are not
+    // repeated on an enabled module's screen — the guide link carries them
+    // (admin-redesign.md § Content screens; see admin-module-setup.tsx).
+    expect(html).not.toContain("Provision the org");
+    expect(html).toContain('href="https://example.test/operations"');
+    expect(html).toContain("One provisioning step done outside this panel is not repeated here");
   });
 
   // A healthy poller must not show a warning: an amber "Dropped" that is
@@ -154,16 +194,18 @@ describe("?tab= deep link", () => {
     return renderToStaticMarkup(await AdminPage({ searchParams: Promise.resolve(searchParams) }));
   }
 
-  /** Which tab the ARIA tablist reports as selected — the only assertion that
-   *  survives every panel being mounted at once (they are, deliberately, so a
-   *  half-typed form isn't lost on a tab switch). */
+  /** Which sidebar destination the shell reports as current — the only
+   *  assertion that survives every panel being mounted at once (they are,
+   *  deliberately, so a half-typed form isn't lost on a tab switch). */
+  // The sidebar links to `/admin/<tab>` now; `?tab=` remains a working deep
+  // link into the same shell, which is what these cases still exercise.
   function selectedTab(html: string): string | null {
-    const match = html.match(/id="tab-([a-z-]+)"[^>]*aria-selected="true"/);
+    const match = html.match(/href="\/admin\/([a-z-]+)"[^>]*aria-current="page"/);
     return match ? match[1] : null;
   }
 
-  it("opens the Event tab with no parameter", async () => {
-    expect(selectedTab(await render({}))).toBe("event");
+  it("opens the Overview destination with no parameter", async () => {
+    expect(selectedTab(await render({}))).toBe("overview");
   });
 
   it("opens the named module's tab", async () => {
@@ -172,9 +214,9 @@ describe("?tab= deep link", () => {
 
   // A stale bookmark, a typo, or a link to a module this event did not enable
   // must land somewhere real rather than on an empty shell.
-  it("falls back to Event for a tab this event does not have", async () => {
-    expect(selectedTab(await render({ tab: "classic" }))).toBe("event");
-    expect(selectedTab(await render({ tab: "nonsense" }))).toBe("event");
-    expect(selectedTab(await render({ tab: ["quiz", "event"] }))).toBe("event");
+  it("falls back to Overview for a tab this event does not have", async () => {
+    expect(selectedTab(await render({ tab: "classic" }))).toBe("overview");
+    expect(selectedTab(await render({ tab: "nonsense" }))).toBe("overview");
+    expect(selectedTab(await render({ tab: ["quiz", "event"] }))).toBe("overview");
   });
 });

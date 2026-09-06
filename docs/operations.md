@@ -120,34 +120,90 @@ Those are the **bootstrap** admins: baked into the image, so changing them
 needs a rebuild. Everyone else is granted from the panel itself, on the
 **Admins** tab, and takes effect immediately (see below).
 
-The controls are grouped into **tabs**: an **Event** tab for the settings that
-belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), an **Admins** tab, a **Support** tab, an **Activity**
-tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
-module's name as the organizer has set it. A module's own knobs live in its own
-tab, so an event that doesn't run a module never sees its settings at all.
+The header is one row — `Admin · <event name> · <phase badge> · until <date>`
+— with the same phase vocabulary and colours as the public phase strip. The
+controls sit behind a **left sidebar** in three groups (it collapses to a
+"Sections" drawer on narrow screens):
+
+- **Run** — **Overview**, **Activity**, **Insights**, **Support**.
+- **Content** — **one destination per enabled module**, in event-config
+  order, labelled with that module's name as the organizer has set it. A
+  module's own knobs live in its own destination, so an event that doesn't
+  run a module never sees its settings at all.
+- **Setup** — **Event** (modules, freeze, team registration, team size, the
+  schedule, then demo seed and the master reset at the bottom), **Hints**,
+  **Admins**.
 
 ![The admin panel's Event tab: the per-module switches, the freeze and team-registration toggles, the players-per-team cap, and the schedule fields with a live "right now: scoring is live" readout](assets/admin-event.jpg)
 
-The tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump
-to the ends). **Event is the default tab** on load, regardless of how many
-modules are enabled — unless the URL names another one (see the deep links
-below).
+**Overview is the default** on load, regardless of how many modules are
+enabled — unless the URL names another destination (see the deep links
+below). It answers "is scoring on, how many teams, is anything stuck" in one
+screen: the phase and time remaining, **Scoring** and **Registration** as
+switches you can flip from there, the team / player / submitted / stuck
+figures (stuck leads when it is non-zero), the poller's sync health line
+(one line — last poll, ingested, dropped, running/paused — that opens into
+the full breakdown, repos polled, last drop and last error, the old Status
+card), the five most recent activity rows, and a setup-status line per
+module ("checking…" until that module's own panel has reported its counts;
+"enabled" for a module with nothing countable). The figures and the activity
+rows load when you open Overview and, **while the event phase is live,
+refresh every 15 seconds**; the stamp on the phase row ("updated 12s ago ·
+refreshes every 15 s") says how old the read is, and reads "auto-refresh
+paused while the event is not live" before scoring opens or once it is
+frozen or over — the panel still loads once when you open it, but the
+numbers do not move in those phases, so nothing is re-polled. While live, a
+hidden browser tab never polls, and switching back to it refreshes at once.
+A read that fails says so in place rather than sitting on "Loading…", keeps
+the previous figures and the stamp's age (so retained data is never called
+"updated"), and clears itself when a later refresh succeeds.
 
-Hints moved from a flat settings list into the Secure Development tab as part
-of this reorganization. **This is a UI relocation only** — the underlying
+Every on/off control in the panel — the module switches, Freeze scoring and
+Team registration on Event, Scoring and Registration on Overview, Hints
+enabled — is a switch that reports its own save beside the row: "Saving…",
+then "Saved" for a moment, or the reason the server refused it (with the
+switch snapped back to the stored state). Overview's Scoring switch and
+Event's Freeze scoring row write the same setting, so a flip on either
+screen shows "Saved" on both. The numeric fields do the same and no longer
+show a browser spinner: type the value, tab out, read the line under it.
+
+The hint policy has its own **Hints** destination because it is event-wide:
+Secure Development, Classic and AI all sell their hints through the same
+four settings. (It sat on the Secure Development tab for a while, which left
+a classic-only or ai-only event with no hint switch at all, then in a section
+of Event.) **Every move has been a UI relocation only** — the underlying
 storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
 `hintsUnlockAfterMin`) and their validation are completely unchanged, so no
-deployed event's settings, or their meaning, changed by upgrading to this
-tabbed panel.
+deployed event's settings, or their meaning, changed by upgrading.
 
-**Module identity.** Every module's tab opens with a title/blurb editor for
-that module's display name. The title is capped at 60 characters, the blurb at
-200; both are plain text only — control characters and Unicode bidi-override
-characters are rejected, since there is no markup to sanitise, only rendered
-text to keep intact. **Leaving a field blank clears the override and restores
-the module's registry default** — the field's placeholder shows what that
-default is, so clearing it is discoverable rather than a guess. Changes are
+**Every module screen opens with a sticky header and a setup status line.**
+The header is the module's name and its **Enabled** switch — the same control
+as the module's row on Event, with the same lock (the last live module cannot
+be switched off) and the same confirmation, so a flip on either screen shows
+"Saved" on both. Under it, one line — "Setup complete · 4 categories · 12
+challenges" — opens into the setup checklist: what contestants experience in
+that module, the steps you do **in this panel** in dependency order, and a
+link to that module's section of this page. The checklist is **expanded only
+while a step the panel can verify is still to do**; once questions or
+challenges or categories exist it collapses to the line, and stays collapsed
+while the counts are still loading ("checking…") rather than accuse a set-up
+module on first paint. Steps done outside the panel (`ctf-setup.sh`, the
+GitHub org, `event.yaml`) are not repeated — the screen exists only while the
+module is enabled, so they are behind you; the linked guide has them. A
+second line, **What is safe to change mid-event**, opens the safe / not-safe
+lists. All of it is registry content (the module contract's §5.9), not copy
+typed into each tab.
+
+**Settings card.** Below the status line, one card holds the module's
+**title** and **blurb** side by side, its own knobs (the quiz's retry gate,
+the cooldowns), and — on every module that sells hints — a link to the Hints
+screen where their price lives. The title is capped at 60 characters, the
+blurb at 200; both are plain text only — control characters and Unicode
+bidi-override characters are rejected, since there is no markup to sanitise,
+only rendered text to keep intact. **Leaving a field blank clears the override
+and restores the module's registry default** — the field's placeholder shows
+what that default is, so clearing it is discoverable rather than a guess.
+Changes are
 live on the next request; there is no rebuild and no cache to wait out.
 
 **Where a rename actually shows up.** Set a title and it replaces the module's
@@ -298,7 +354,7 @@ The panel offers:
   every reader of scoring state (the app, the scorer, the sync poller — see
   [architecture](architecture.md)); the registration window is enforced by
   `team-store.ts` on exactly the mutations the manual switch gates.
-- **Hint controls** (Secure Development tab) — whether hints are enabled and
+- **Hint controls** (the **Hints** destination, under Setup) — whether hints are enabled and
   what they cost. Hints are **on by default** and cost 10 points each; the
   cost (`hintCost`) is a whole number from 0 to **100000**. This is
   the **only** hint switch: there is no environment variable, and the toggle
@@ -355,8 +411,12 @@ The panel offers:
   but never fail the sign-in or solve it describes. Entries carry the
   challenge/question id or team slug — **never a flag, an answer, or hint
   text** — and no IP or device data, which is what keeps the tab safe to
-  screen-share mid-event. Loaded on demand; the button doubles as refresh.
-  The master reset wipes it with the rest of the event's progress.
+  screen-share mid-event. It loads when you open the tab and, while the
+  event phase is live, refreshes every 15 seconds — re-reading as many rows
+  as you have paged in, so the log never jumps back to its first page under
+  you — with an "updated Ns ago" stamp beside the count; **Refresh** is the
+  same read for when you won't wait. The master reset wipes it with the rest
+  of the event's progress.
 
 - **Insights** (its own tab) — engagement metrics for the event, computed
   **entirely from data the box already stores**. Nothing is collected from
@@ -365,8 +425,11 @@ The panel offers:
   solves are timestamped as they are ingested, attempts are counted per login,
   and `firstTeamAt` supplies the funnel's conversion moment.
 
-  It is loaded on demand rather than on arrival — the fold is O(contestants),
-  so the button doubles as the refresh. You get:
+  It computes when you open the tab, not when the admin page loads — the fold
+  is O(contestants) — and, while the event phase is live, recomputes every
+  30 seconds (half Overview's cadence, for the same reason) with an "updated
+  Ns ago" stamp beside the "as of" time; **Refresh** is the same read for when
+  you won't wait. You get:
 
   ![The Insights tab: the five participation figures, a ten-minute-bucket solve timeline, and the hardest-first challenge table with solves, attempts, solve rate, average tries and median time to solve per challenge](assets/admin-insights.jpg)
 
@@ -374,14 +437,19 @@ The panel offers:
   - **Participation** — on a team / ever on a team / submitted / scored /
     **stuck** (submitted and never scored). The gap between the last two is the
     number worth watching during an event.
-  - **Solves over time**, in ten-minute buckets, so a room going quiet is
-    visible and datable.
+  - **Solves over time**, in ten-minute buckets with a time axis (first,
+    middle and last bucket, UTC; dated once the buckets cross midnight), so
+    a room going quiet is visible and datable.
   - **Hardest first** — every challenge by solves, attempts, solve rate,
     *average tries taken by the people who did solve it*, and the *median time
     from their first attempt to their solve*. Those last two are the difficulty
     signal solve rate alone hides: a challenge everyone eventually solved on
     their fourth attempt, forty minutes in, is harder than its 100% rate
-    suggests. **Download challenges CSV** exports the full table.
+    suggests. Each row is named by its **title** — the quiz question's prompt,
+    the challenge's title — with its generated id underneath, so the table can
+    be read out without decoding slugs; a challenge deleted since it was solved
+    keeps its metrics and shows its id alone. **Download challenges CSV**
+    exports the full table, `title` beside `id` rather than instead of it.
   - **Where attention went** — scorers per module, hint buyers and spend, and
     how many hints were bought *before* the buyer solved the thing. A hint
     bought afterwards bought nothing, so that split is the difference between
@@ -443,7 +511,7 @@ The panel offers:
   ![The Support tab after a contestant lookup: their team and captain status, when they first joined a team, points and solves per module, attempt count and hint spend, with the reset and delete controls beneath](assets/admin-support.jpg)
 
 
-  From there: **reset progress** (clears their answers, solves, attempts and
+  From there: **reset progress** (clears their quiz answers, classic and AI solves, attempts and
   hints; keeps the account and the team), **delete contestant** (all of that
   plus the team membership and the account record), or **remove from team**.
   Team-side, there is **transfer captaincy** and **disband** — the captain-only
@@ -469,10 +537,14 @@ The panel offers:
   after an event, not during it. The destructive ones require type-to-confirm
   against the specific login or slug, not a generic word.
 
-- **Master reset** (danger zone) — wipes **all** event data so a test run or a
-  botched setup can be cleared before the real event. It deletes every solve,
-  team, per-player record, join code, and hint purchase; it **keeps** your admin
-  settings and appends the reset to the audit log. It is server-side and
+- **Master reset** (danger zone) — wipes **all** contestant progress so a test
+  run or a botched setup can be cleared before the real event. It deletes every
+  solve, team, per-player record, join code, and hint purchase; it **keeps**
+  everything you authored — quiz questions and their answer key, classic and AI
+  challenges with their flags, hints and categories — along with your admin
+  settings, and appends the reset to the audit log. It does rotate the AI
+  module's launch keypair (see [below](#ai)), so an external challenge site
+  re-fetches the public key on its next verification. It is server-side and
   admin-gated, and requires **typing the event name** to proceed (a single click
   can't fire it).
 
@@ -487,13 +559,16 @@ The panel offers:
 - **Quiz controls** (Quiz tab, present only when the `quiz` module is enabled) — the two
   retry-gate knobs (max attempts, accepted from 0 to **100**; retry cooldown,
   from 0 to **100000** minutes) plus full question
-  authoring: add, edit, reorder (drag, or Move up / Move down), and delete.
-  See [Quiz](#quiz) below for what these do and their defaults.
+  authoring: add, edit, reorder (drag, or Move up / Move down from the row's
+  **⋯** menu), and delete (also in that menu). See [Quiz](#quiz) below for
+  what these do and their defaults.
 - **Classic controls** (Classic tab, present only when the `classic` module
   is enabled) — the submission-cooldown knob (in **seconds**, not minutes)
   plus category management and full challenge authoring: add, edit, reorder
-  (drag, or Move up / Move down), and delete. See [Classic](#classic) below
-  for what these do and their defaults.
+  (drag, or Move up / Move down from the row's **⋯** menu), and delete (also
+  in that menu), with the list grouped by category the way contestants see
+  the board. See [Classic](#classic) below for what these do and their
+  defaults.
 - **Seed demo data** (demo mode only) — populates the leaderboard with fake
   contestants, teams, and real-challenge-id solves so you can preview the app
   without running real PRs. When the `quiz` module is enabled, this also seeds
@@ -511,19 +586,47 @@ The panel offers:
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
 
-Tabs are deep-linkable: `/admin?tab=quiz` (or `?tab=classic`, `?tab=ai`,
-`?tab=secure-development`) opens straight into that module's panel. This is
+**Every destination has its own URL.** `/admin/overview`, `/admin/activity`,
+`/admin/insights`, `/admin/support`, `/admin/event`, `/admin/hints`,
+`/admin/admins`, and one per enabled module — `/admin/quiz`,
+`/admin/classic`, `/admin/ai`, `/admin/secure-development`. That is what the
+sidebar links to, so a link is safe to bookmark, paste into a runbook, or
+read out over a call. Switching tabs updates the address bar without a page
+load, and Back walks the destinations you visited, so the URL always names
+the screen in front of you.
+
+The older `/admin?tab=<id>` form still works and still means the same thing —
+docs, bookmarks and cross-links written before this keep resolving. This is
 what `/quiz`, `/flags` and `/ai` link an organizer to when the module has no
 content yet — an empty board shows them **Author questions** / **Author
-challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
-name falls back to **Event**.
+challenges** instead of the contestant's "check back soon". An unknown or
+not-enabled tab name, in either form, falls back to **Overview** rather than
+404ing.
+
+**Every setting says whether it saved.** The number knobs (hint cost and
+gating, players per team, the retry gate, the cooldowns) and the four
+schedule fields commit when you leave the field, and report beside it:
+**Saving…** while the write is in flight, **Saved** for a moment after, or the
+reason it was refused. Junk, a fraction, a negative, or a blanked field snaps
+back to the stored value with that reason ("Whole numbers only — kept 10.");
+a value the server refuses is rewritten through the field's own label ("Hint
+cost must be a whole number between 0 and 100,000.") and the field snaps back
+too, so what you see is always what is stored. The switches — module on/off,
+Freeze scoring, Team registration, Hints enabled, and Overview's Scoring and
+Registration — report the same three states beside their own row, so
+nothing in the panel writes into the error line under it any more except the
+demo seed and the master reset.
 
 Every settings change is recorded in an audit log (who, when, what changed)
 alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest
 **500** entries and drops older ones automatically. **Disruptive controls
 prompt for confirmation**: the freeze and team-registration toggles, each
-module's Enable/Disable switch, and the demo-mode **Seed demo data** button
-ask a one-click "are you sure?"; the master reset requires type-to-confirm.
+module's Enable/Disable switch, **removing an admin** on the Admins tab, and
+the demo-mode **Seed demo data** button ask a one-click "are you sure?"; the
+master reset requires type-to-confirm. Opening a different question or
+challenge while an unsaved draft is open also asks before discarding it —
+the module forms sit below the list, so every list control stays clickable
+while you write.
 **The panel accepts only the event's name** as that phrase — `event.yaml`'s
 `name`, exactly as baked into the running build. The route behind the button,
 `POST /api/admin/reset`, additionally accepts the literal `RESET` as its
@@ -614,7 +717,9 @@ Redis at all — which is exactly when you most need the panel.
 
 ## Archiving and replaying an event
 
-The **Event** tab carries an **Event archive** section (an **Export** button
+The **Event** tab carries an **Event archive** section — its own collapsed
+block, above the danger zone rather than inside it, because **Export changes
+nothing** and is the thing to run *before* anything risky (an **Export** button
 and an **Import a bundle (replaces everything)** box, backed by `GET`/`POST
 /api/admin/event`) for exporting
 the whole event as one JSON file, or replacing it wholesale from a
@@ -750,8 +855,9 @@ question needs a different id, delete it and add a new one, and read the
 paragraph below first about what deletion does and doesn't take with it.
 
 **Ordering is done by dragging.** The question list in `/admin` is sortable:
-drag a row to where you want it, or use its **Move up** / **Move down**
-buttons (the keyboard-operable path — dragging is not the only way in). The
+drag a row to where you want it, or use **Move up** / **Move down** from the
+row's **⋯** menu (the keyboard-operable path — dragging is not the only way
+in; **Delete** lives in the same menu, and opens the confirmation). The
 stored `order` field is rewritten from the resulting positions and the moved
 questions are saved immediately; contestants see the new order on their next
 page load. There is no order number to type any more, and nothing to
@@ -928,10 +1034,12 @@ grading answers the instant you submit.</sup>
 
 **Authoring** happens in `/admin`, under the Classic module's tab (see
 "Classic controls" above). Before adding a challenge you need at least one
-**category** — categories are a simple ordered list (add, reorder by
-dragging or Move up/Move down, remove), and a category can only be removed
+**category** — categories are a row of chips in the order contestants see
+them (add; move a chip left or right, or remove it, with the controls that
+appear when you hover or focus it), and a category can only be removed
 while no challenge still files under it; the panel tells you exactly how
-many challenges are blocking a removal. A challenge itself has a title, a
+many challenges are blocking a removal. The challenge list is grouped under
+those categories, each heading carrying its count. A challenge itself has a title, a
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
 
@@ -975,8 +1083,10 @@ Delete and re-add if a challenge genuinely needs a new one, after reading
 the deletion paragraph below.
 
 **Ordering is done by dragging**, the same as the quiz's question list: drag
-a row, or use its Move up/Move down buttons, and the stored `order` is
-rewritten from the resulting positions.
+a row, or use Move up / Move down from its **⋯** menu, and the stored `order`
+is rewritten from the resulting positions. The order is one sequence across
+the whole board; within a category group the moves step past the group's own
+neighbours, so a challenge never leaves its category by being moved.
 
 **Deleting a challenge removes it from the board and hides it from
 contestants — but points already banked for it remain on the leaderboard.**
@@ -1136,11 +1246,54 @@ ways.
 point value, and a 💡 marker where a paid hint is on offer, the same board
 component classic's flag list uses.</sup>
 
+### What the external site has to be configured to do
+
+The box hosts none of the challenge itself. Somebody stands up a site, and
+that site has to do four things — the admin panel's **Wiring the external
+site** drawer says the same next to the values you paste, and
+[docs/ai-module.md](ai-module.md) is the full contract:
+
+1. **Accept the launch token.** A challenge's launch URL must contain the
+   literal `{token}` placeholder; the box substitutes a freshly minted token
+   there and sends the contestant to the result. No cookie crosses the
+   boundary — that token is the whole identity.
+2. **Verify it against the published public key.** `GET /api/ai/launch-key`,
+   verify with **hard-coded** Ed25519, and pin `aud` to the challenge id you
+   expect. Never let the token's own `alg` or `kid` choose the algorithm or
+   the key. Cache the key for about five minutes (it is served
+   `Cache-Control: public, max-age=300`), but **re-fetch on any verification
+   failure and after an event reset** — a master reset rotates the keypair,
+   and a site caching the old key indefinitely rejects every launch token
+   issued afterwards.
+3. **Report the solve, signed.** For an `event` or `both` challenge, POST
+   `/api/ai/event` with `X-CTF-Signature: sha256=<hex>` over the exact bytes
+   `"<unix-timestamp>.<raw request body>"`, using **that challenge's own**
+   signing key, plus a matching `X-CTF-Timestamp` within ±300 seconds of the
+   box's clock. Re-serializing the body before signing is the most expensive
+   mistake available here — it fails exactly like a wrong key would.
+4. **Expect one award per token.** The token's `jti` is a one-shot nonce; a
+   replay answers `409`, not a second award.
+
+<img src="assets/diagrams/ai-launch-token-flow.svg" alt="Animated diagram: the box mints an Ed25519 launch token scoped to one player and one challenge, with a 24-hour expiry and a jti that doubles as a one-shot replay nonce, and substitutes it into the challenge's launch URL wherever the operator wrote the {token} placeholder. The contestant opens that link on the external site, which fetches the module-wide public key from /api/ai/launch-key and caches it for about five minutes — re-fetching on any verification failure and after an event reset, since a master reset rotates the keypair — then verifies the token with hard-coded Ed25519 — never trusting the token's own alg or kid — pinning aud to the challenge it expects. The contestant plays, and the site re-reads GET /api/ai/state rather than trusting the token's mint-time progress snapshot. On a solve the site POSTs /api/ai/event with the token and challenge id, signed with that challenge's own secret HMAC key over the exact string timestamp-dot-raw-body, with a matching X-CTF-Timestamp inside 300 seconds of the box's clock. The box checks the signature, then the token, then claims the jti exactly once — a replay gets 409 — and the shared atomic award script banks the points. The launch key is public, one per event, and fetched; the signing key is secret, one per challenge, and pasted in from the admin panel.">
+
+<sup>The two keys are not interchangeable, and conflating them is the usual
+wiring failure. The <strong>launch key</strong> is public, one per event, and
+you fetch it to <em>verify</em>. The <strong>signing key</strong> is secret,
+one per challenge, and you paste it in to <em>sign</em>. A leaked launch key
+costs nothing — it is public by design; a leaked signing key lets anyone
+assert solves for that one challenge, so rotate it.</sup>
+
+**Nothing is live until you have proved it.** The panel's **Send test**
+signs a demo event with the challenge's real key and runs the whole pipeline
+with `dryRun: true` — writing no solve and claiming no nonce — then relays
+the box's own verdict. **Would award** is the answer you want; every other
+verdict is read in the Send test list further down this section.
+
 **Authoring** happens in `/admin`, under the AI module's tab. Before adding
-a challenge you need at least one **category** — same ordered-list pattern
-as classic's (add, reorder with Move up/Move down, remove only while no
-challenge still files under it, the panel naming exactly how many are
-blocking a removal), capped at **50 categories** with names of at most **64
+a challenge you need at least one **category** — same chip row as classic's
+(add, move left or right, remove only while no challenge still files under
+it, the panel naming exactly how many are blocking a removal), capped at
+**50 categories** with names of at most **64
 characters** each (`AI_CATEGORIES_MAX`/`AI_CATEGORY_MAX_LEN`, enforced in
 `setAiCategories`).
 
@@ -1197,19 +1350,37 @@ reorder-by-dragging UI — organizers curate a long-running board there;
 nothing about this task called for the same parity here, so `order` is just
 another field the form edits directly.
 
-**The integration panel**, rendered inside every challenge row underneath
-its summary line, is what an external challenge actually wires up against.
-It carries:
+**The integration panel** is what an external challenge actually wires up
+against. It comes in two parts. The **Endpoints** block sits once, above the
+challenge list — **three endpoint URLs**, Submit (`/api/ai/submit`), Event
+(`/api/ai/event`), and State (`/api/ai/state`), each with its own copy
+button so an integrator never has to hand-assemble the full origin, and each
+with a collapsed **demo** under it answering send / receive / expect: a
+runnable request (the Event one computes its own signature at run time, for
+the same reason the per-challenge curl does), the 200 it returns, and the
+handful of refusals worth designing for — a wrong flag, a cooldown, a
+`replay`, an `invalid-signature`. State is marked **read-only**, because it
+is the one route of the three that writes nothing and can be tried against a
+live event with no consequence. Every value in those demos is a placeholder
+(`aik_…`, `eyJ…`); the real signing key and the one-click dry run stay on
+the per-challenge row below. The full contract, including the complete error
+table, is [docs/ai-module.md](ai-module.md). The three URLs are
+the same for every challenge, which is why they are not repeated per row. The
+rest is **per challenge**, collapsed under each row's summary line (open it
+with the "Integration — signing key, test curl, Send test" disclosure; a
+flag-only row's disclosure says the panel is not needed for it), and
+carries:
 
-- **Three endpoint URLs** — Submit (`/api/ai/submit`), Event
-  (`/api/ai/event`), and State (`/api/ai/state`) — each with its own copy
-  button, so an integrator never has to hand-assemble the full origin.
 - **The per-challenge signing key**, masked by default (`aik_…`) with a
   Reveal toggle and its own Copy button — the raw key is never referenced in
   the rendered markup while masked, not merely styled to look hidden.
 - **Rotate**, behind a confirm dialog, because it takes effect immediately
   with no grace window. Its consequence sentence, verbatim: "The external
-  system stops posting until you redeploy it with the new key."
+  system stops posting until you redeploy it with the new key." It is amber,
+  not red — rotating is recoverable by pasting the new key into the external
+  site; red in the panel is reserved for what cannot be undone (deletes, the
+  master reset). A Send test that comes back **solved** or **would-award** is
+  shown in green; only a refusal or a failure is red.
 - **A ready-to-run test curl** that computes its own HMAC signature at the
   moment you run it (`TS=$(date +%s)` and an `openssl dgst -hmac` call
   inline) rather than shipping a pre-signed one — a signature is only valid
@@ -1228,7 +1399,9 @@ It carries:
   end.** for the good case, or a red **Test result: `<name>`** for anything
   else, where `<name>` is the verdict or error string the route handed back
   (or `unavailable` when it handed back nothing readable — a 503, or the
-  request itself failing). Reading the result:
+  request itself failing). The panel now prints a one-sentence explanation
+  under that name for every verdict listed below, so the table here is a
+  reference rather than something to look up mid-event. Reading the result:
   - **`would-award`** (shown as the green line) — good: the dry run
     verified the whole pipeline end
     to end (signature, token, rate limit, team, schedule).

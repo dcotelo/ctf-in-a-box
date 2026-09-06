@@ -272,6 +272,28 @@ describe("lambdaSource.getLeaderboard catalog (per-challenge)", () => {
     expect(app.maxPoints).toBe(15);
   });
 
+  it("aggregates a profile's maxPoints as the sum of its targets', not a hardcoded 0", async () => {
+    // The bug this replaces: getUser returned maxPoints 0 while toAppProgress
+    // computed a real per-target maxPoints from the same catalogue, so
+    // /profile's module header read "N / 0 pts" above target rows that summed
+    // to a real ceiling. Same aggregation mockSource has always done.
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(WITH_CATALOG);
+    const profile = await lambdaSource.getUser("neo");
+    expect(profile).toMatchObject({ login: "neo", points: 15, maxPoints: 15 });
+    expect(profile!.apps.reduce((n, a) => n + a.maxPoints, 0)).toBe(profile!.maxPoints);
+  });
+
+  it("still reports 0 when no catalogue means no target carries points at all", async () => {
+    // Not a regression: with maxPoints 0 everywhere there is genuinely no
+    // ceiling to show, and the row hides the points pair rather than
+    // inventing one.
+    vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
+    stubFetch(RESPONSE); // no catalog field
+    const profile = await lambdaSource.getUser("dcotelo");
+    expect(profile?.maxPoints).toBe(0);
+  });
+
   it("builds the team's union of solved flags from its apps.solvedIds", async () => {
     vi.stubEnv("LEADERBOARD_API_URL", "https://scorer.example");
     stubFetch(WITH_CATALOG);

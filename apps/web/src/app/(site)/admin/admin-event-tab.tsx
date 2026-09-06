@@ -3,11 +3,18 @@
 // The Event tab: the control-plane settings that belong to the platform
 // itself rather than to any one module — the scoring freeze, team
 // registration, the scheduling windows, demo seeding, and the master reset.
+// The hint policy used to live here too; admin-redesign.md's Event/Hints/
+// Admins split moved it to its own destination (admin-hints-tab.tsx) — see
+// that file's header for why it is a destination of its own rather than a
+// module's.
 //
 // Presentational: every piece of state it reads (`settings`, `pending`,
-// `resetInfo`) and every mutation it triggers (`apply`, `setConfirm`,
+// `resetInfo`) and every mutation it triggers (`applyField`, `setConfirm`,
 // `doReset`, `doSeed`) is owned by `admin-controls.tsx` and passed in, so the
-// shell stays the single writer of settings state across all tabs.
+// shell stays the single writer of settings state across all tabs. Every
+// write here belongs to one row — a switch or a field — so all of them go
+// through `applyField` and report beside that row (admin-redesign.md
+// § Controls); there is no panel-wide `apply` left on this tab.
 
 import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
@@ -15,6 +22,10 @@ import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
+import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSwitch from "@/components/admin-switch";
+import { FREEZE_HELP, freezeConfirm } from "./freeze-copy";
+import { moduleToggleConfirm, moduleToggleState, type ModuleToggleChoice } from "./module-toggle";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
@@ -37,12 +48,18 @@ function ScheduleField({
   label,
   value,
   disabled,
+  status,
   onCommit,
 }: {
   label: string;
   value: string | null;
   disabled: boolean;
-  onCommit: (iso: string | null) => void;
+  /** The shell's save status for this field (UX audit F2), shown under it. */
+  status: FieldStatus;
+  /** Resolves to whether the server accepted the value. On refusal the draft
+   *  snaps back to the stored value — the sync effect below only fires when
+   *  the STORED value changes, which a rejection never does. */
+  onCommit: (iso: string | null) => Promise<boolean>;
 }) {
   // The datetime-local value is the VIEWER's wall clock, which the server
   // cannot know: seeding the input from toLocalInput() during render made the
@@ -60,20 +77,40 @@ function ScheduleField({
     return () => clearTimeout(timeout);
   }, [value]);
   const canonical = toLocalInput(value);
+  const rejected = status.state === "rejected";
+  const line =
+    status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
+  const statusId = `schedule-${label.toLowerCase().replace(/\s+/g, "-")}-status`;
   return (
-    <label className="flex items-center justify-between gap-3">
-      <span className="text-xs text-muted">{label}</span>
-      <input
-        type="datetime-local"
-        value={input}
-        disabled={disabled}
-        onChange={(e) => setInput(e.target.value)}
-        onBlur={() => {
-          if (input !== canonical) onCommit(fromLocalInput(input));
-        }}
-        className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-      />
-    </label>
+    <div className="flex flex-col gap-1">
+      <label className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted">{label}</span>
+        <input
+          type="datetime-local"
+          value={input}
+          disabled={disabled}
+          aria-invalid={rejected ? true : undefined}
+          aria-describedby={line ? statusId : undefined}
+          onChange={(e) => setInput(e.target.value)}
+          onBlur={() => {
+            if (input === canonical) return;
+            void onCommit(fromLocalInput(input)).then((ok) => {
+              if (!ok) setInput(canonical);
+            });
+          }}
+          className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+        />
+      </label>
+      {line && (
+        <p
+          id={statusId}
+          role={rejected ? "alert" : undefined}
+          className={`text-right text-sm ${rejected ? "text-[#e53e3e]" : status.state === "saved" ? "text-[#22c55e]" : "text-muted"}`}
+        >
+          {line}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -82,7 +119,10 @@ export type AdminEventTabProps = {
   pending: boolean;
   demoMode: boolean;
   resetInfo: string | null;
-  apply: (patch: Record<string, unknown>) => Promise<boolean>;
+  /** A write that belongs to one field or switch: reported into that row's
+   *  status rather than the panel-wide error line (UX audit F2). */
+  applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
+  statusOf: (key: string) => FieldStatus;
   setConfirm: (c: ConfirmState) => void;
   doReset: (confirmValue: string) => Promise<void>;
   doSeed: () => Promise<void>;
@@ -103,21 +143,17 @@ export type AdminEventTabProps = {
   nowMs: number;
 };
 
-export type ModuleChoice = {
-  id: string;
-  label: string;
-  /** False for secure-development, which is provisioning rather than a flag.
-   *  `reason` says so on the row instead of leaving a dead control. */
-  toggleable: boolean;
-  reason?: string;
-};
+/** The registry row a module switch renders from — see module-toggle.ts,
+ *  which the module panels' own header switches share with this tab. */
+export type ModuleChoice = ModuleToggleChoice;
 
 export default function AdminEventTab({
   settings,
   pending,
   demoMode,
   resetInfo,
-  apply,
+  applyField,
+  statusOf,
   setConfirm,
   doReset,
   doSeed,
@@ -129,18 +165,9 @@ export default function AdminEventTab({
   nowMs,
 }: AdminEventTabProps) {
   const live = new Set(liveModuleIds);
-  // The last LIVE module cannot be switched off — the server refuses a set that
-  // would end up empty (ADR 24's runtime analogue), and a control that always
-  // errors is worse than one that explains itself.
-  //
-  // Counted over every live module, INCLUDING the ones that cannot be toggled.
-  // Counting only the toggleable ones was wrong: on an event running
-  // secure-development plus quiz, it locked quiz on the grounds that quiz was
-  // the last *switchable* module — while secure-development sat right above it,
-  // enabled and serving. The event would have been left with content, the
-  // server would have accepted the change, and the UI refused it anyway. What
-  // makes a set legal is that SOMETHING is live, not that something switchable
-  // is live.
+  // The lock rule and the confirmation copy live in module-toggle.ts, shared
+  // with each module panel's header switch. The count is over every live
+  // module, toggleable or not — that file says why.
   const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
   // Effective state for the schedule section's readout — the same
   // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
@@ -164,125 +191,100 @@ export default function AdminEventTab({
       <section className="flex flex-col gap-2 border-b border-white/[0.06] pb-4">
         <div>
           <h3 className="text-white">Modules</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             What this event serves. Switching one off hides its board and its nav link straight away —
             it deletes nothing, so switching it back on restores the same answers, solves and points.
           </p>
         </div>
         {moduleChoices.map((mod) => {
-          const on = live.has(mod.id);
-          const isLastOn = on && mod.toggleable && liveCount === 1;
-          const disabled = pending || !mod.toggleable || isLastOn;
+          const toggle = moduleToggleState(mod, live, liveCount);
+          // One status key per module row, not one for the whole
+          // `enabledModules` write: "Saved" belongs beside the switch that
+          // was flipped, not beside every module at once. The same key the
+          // module's own panel header reports under.
           return (
-            <label key={mod.id} className="flex items-center justify-between gap-3">
-              <span>
-                <span className={mod.toggleable ? "text-white" : "text-zinc-400"}>{mod.label}</span>
-                {!mod.toggleable && mod.reason && <span className="block text-xs text-muted">{mod.reason}</span>}
-                {isLastOn && (
-                  <span className="block text-xs text-muted">
-                    The only module left — an event has to serve something.
-                  </span>
-                )}
-              </span>
-              <input
-                type="checkbox"
-                checked={on}
-                disabled={disabled}
-                onChange={(e) => {
-                  const next = e.target.checked;
-                  const ids = next
-                    ? [...live, mod.id]
-                    : [...live].filter((id) => id !== mod.id);
-                  setConfirm({
-                    title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
-                    body: next
-                      ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
-                      : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
-                    confirmLabel: next ? "Enable" : "Disable",
-                    onConfirm: () => apply({ enabledModules: ids }),
-                  });
-                }}
-                className="h-5 w-5 flex-none accent-[#2563eb] disabled:opacity-40"
-              />
-            </label>
+            <AdminSwitch
+              key={mod.id}
+              id={`module-${mod.id}`}
+              label={mod.label}
+              help={toggle.help}
+              checked={toggle.on}
+              disabled={pending || toggle.disabled}
+              status={statusOf(`module:${mod.id}`)}
+              onChange={(next) => {
+                const c = moduleToggleConfirm(mod, next, live);
+                setConfirm({
+                  title: c.title,
+                  body: c.body,
+                  confirmLabel: c.confirmLabel,
+                  onConfirm: () => applyField(`module:${mod.id}`, { enabledModules: c.ids }, mod.label),
+                });
+              }}
+            />
           );
         })}
       </section>
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Freeze scoring</span>
-          <span className="block text-xs text-muted">Pause new submissions from being scored.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.paused}
-          disabled={pending}
-          onChange={(e) => {
-            const next = e.target.checked;
-            setConfirm({
-              title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-              body: next
-                ? "New submissions will stop being scored for everyone."
-                : "Scoring resumes for everyone.",
-              confirmLabel: next ? "Freeze" : "Unfreeze",
-              onConfirm: () => apply({ paused: next }),
-            });
-          }}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
-        />
-      </label>
+      {/* Status keys are the stored setting keys, shared with Overview's
+          Scoring and Registration switches (admin-overview-tab.tsx), so a
+          flip made on either screen reports on both. */}
+      <AdminSwitch
+        id="event-paused"
+        label="Freeze scoring"
+        help={FREEZE_HELP}
+        checked={settings.paused}
+        disabled={pending}
+        status={statusOf("paused")}
+        onChange={(next) => {
+          setConfirm({
+            ...freezeConfirm(next),
+            onConfirm: () => applyField("paused", { paused: next }, "Freeze scoring"),
+          });
+        }}
+      />
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Team registration open</span>
-          <span className="block text-xs text-muted">Allow players to create or join teams.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.teamRegistrationOpen}
-          disabled={pending}
-          onChange={(e) => {
-            const next = e.target.checked;
-            setConfirm({
-              title: next ? "Open team registration?" : "Close team registration?",
-              body: next
-                ? "Players will be able to create and join teams."
-                : "Players will no longer be able to create or join teams.",
-              confirmLabel: next ? "Open" : "Close",
-              onConfirm: () => apply({ teamRegistrationOpen: next }),
-            });
-          }}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
-        />
-      </label>
+      <AdminSwitch
+        id="event-registration"
+        label="Team registration open"
+        help="Allow players to create or join teams."
+        checked={settings.teamRegistrationOpen}
+        disabled={pending}
+        status={statusOf("teamRegistrationOpen")}
+        onChange={(next) => {
+          setConfirm({
+            title: next ? "Open team registration?" : "Close team registration?",
+            body: next
+              ? "Players will be able to create and join teams."
+              : "Players will no longer be able to create or join teams.",
+            confirmLabel: next ? "Open" : "Close",
+            onConfirm: () => applyField("teamRegistrationOpen", { teamRegistrationOpen: next }, "Team registration"),
+          });
+        }}
+      />
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Players per team</span>
-          <span className="block text-xs text-muted">
-            Enforced when someone joins. Lowering it never removes anyone from a team
-            that is already larger — those teams keep their players and simply cannot
-            take another. Blank uses the default ({TEAM_MAX_MEMBERS}).
-          </span>
-        </span>
-        <input
-          type="number"
-          min={1}
-          max={TEAM_MAX_MEMBERS_MAX}
-          value={teamMaxMembersInput}
-          placeholder={String(TEAM_MAX_MEMBERS)}
-          disabled={pending}
-          onChange={(e) => setTeamMaxMembersInput(e.target.value)}
-          onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput)}
-          className="w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-        />
-      </label>
+      <AdminNumberField
+        id="team-max-members"
+        label="Players per team"
+        help={
+          <>
+            Enforced when someone joins. Lowering it never removes anyone from a team that is already larger — those
+            teams keep their players and simply cannot take another. Blank uses the default ({TEAM_MAX_MEMBERS}).
+          </>
+        }
+        value={teamMaxMembersInput}
+        placeholder={String(TEAM_MAX_MEMBERS)}
+        min={1}
+        max={TEAM_MAX_MEMBERS_MAX}
+        disabled={pending}
+        status={statusOf("teamMaxMembers")}
+        onChange={setTeamMaxMembersInput}
+        onBlur={() => commitNumber("teamMaxMembers", teamMaxMembersInput, setTeamMaxMembersInput, "Players per team")}
+      />
 
       <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
         <div>
           <span className="text-white">Schedule (auto dates)</span>
-          <span className="block text-xs text-muted">
+          <span className="block text-sm text-muted">
             Optional. Times are your local time; leave blank for no bound. Scoring
             auto-freezes outside its window; registration auto-closes outside its
             window — on top of the manual toggles above.
@@ -294,7 +296,7 @@ export default function AdminEventTab({
             organizer does that boolean in their head from four datetime
             fields plus two toggles, mid-event (issue #200, 3.3). Client
             render time is the "now"; it refreshes with every edit. */}
-        <p className="text-xs leading-relaxed">
+        <p className="text-sm leading-relaxed">
           <span className="uppercase tracking-wider text-muted">Right now: </span>
           <span className={scoringLiveNow ? "text-[#22c55e]" : "text-[#d4a017]"}>
             scoring {scoringLiveNow ? "is live" : settings.paused ? "is frozen (manual)" : "is frozen (outside its window)"}
@@ -309,28 +311,32 @@ export default function AdminEventTab({
           label="Scoring opens"
           value={settings.scoringStartsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ scoringStartsAt: iso })}
+          status={statusOf("scoringStartsAt")}
+          onCommit={(iso) => applyField("scoringStartsAt", { scoringStartsAt: iso }, "Scoring opens")}
         />
         <ScheduleField
           key={`se-${settings.scoringEndsAt ?? ""}`}
           label="Scoring closes"
           value={settings.scoringEndsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ scoringEndsAt: iso })}
+          status={statusOf("scoringEndsAt")}
+          onCommit={(iso) => applyField("scoringEndsAt", { scoringEndsAt: iso }, "Scoring closes")}
         />
         <ScheduleField
           key={`rs-${settings.registrationStartsAt ?? ""}`}
           label="Registration opens"
           value={settings.registrationStartsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ registrationStartsAt: iso })}
+          status={statusOf("registrationStartsAt")}
+          onCommit={(iso) => applyField("registrationStartsAt", { registrationStartsAt: iso }, "Registration opens")}
         />
         <ScheduleField
           key={`re-${settings.registrationEndsAt ?? ""}`}
           label="Registration closes"
           value={settings.registrationEndsAt}
           disabled={pending}
-          onCommit={(iso) => void apply({ registrationEndsAt: iso })}
+          status={statusOf("registrationEndsAt")}
+          onCommit={(iso) => applyField("registrationEndsAt", { registrationEndsAt: iso }, "Registration closes")}
         />
       </div>
 
@@ -338,7 +344,7 @@ export default function AdminEventTab({
         <div className="flex flex-col gap-3 rounded-md border border-[#2563eb]/30 bg-white/[0.04] p-4">
           <div>
             <span className="text-white">Demo mode</span>
-            <span className="block text-xs text-muted">
+            <span className="block text-sm text-muted">
               Populate the leaderboard with fake contestants, teams, and solves to
               preview the app. Injects real-challenge-id scores so points render.
               Only shown because <code>DEMO_MODE</code> is set — never in a real event.
@@ -362,14 +368,48 @@ export default function AdminEventTab({
         </div>
       )}
 
+      {/* The archive is NOT in the danger zone below, and that is the point
+          (audit F13). Half of it — Export — is the safest control on this
+          screen: it reads, writes nothing, and is what an organizer runs
+          BEFORE anything risky. Painting it the same red as a wipe taught the
+          opposite. Import is the dangerous half, and it carries its own
+          staged confirmations inside AdminEventControls, which is where that
+          warning belongs. */}
+      <details className="group flex flex-col gap-3 rounded-md border border-white/10 bg-white/[0.02] p-4">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-white marker:content-none">
+          <span className="text-muted transition-transform group-open:rotate-90" aria-hidden="true">
+            ›
+          </span>
+          Event archive — export / import
+        </summary>
+        <p className="mt-2 text-sm text-muted">
+          Export the whole event — Classic, Quiz and AI content plus event policy settings — as one JSON file. Export
+          changes nothing; it is worth running before any of the actions below. Import replaces the event wholesale
+          from a previously exported file, which runs the same wipe as the master reset, and asks twice before it does.
+        </p>
+        <div className="mt-3">
+          <AdminEventControls showHeading={false} />
+        </div>
+      </details>
+
       <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
         <div>
           <span className="text-[#e53e3e]">Danger zone</span>
-          <span className="block text-xs text-muted">
-            Master reset wipes <strong>all</strong> event data — teams, points,
-            per-player data, and hint spend. It freezes scoring and can&apos;t be
-            undone. In poll mode, also clear the source PR comments for a wipe that
-            stays gone after you unfreeze.
+          <span className="block text-sm text-muted">
+            Master reset wipes every contestant&apos;s <strong>progress</strong> —
+            teams, points, solves, attempts and hint spend — freezes scoring, and
+            cannot be undone. It <strong>keeps</strong> everything you authored:
+            quiz questions and their answer key, classic and AI challenges with
+            their flags, hints and categories, and every setting on this screen.
+            It does rotate the AI launch key, so an external challenge site has to
+            re-fetch it. Export the archive above first if you want a way back.
+          </span>
+          <span className="block text-sm text-muted">
+            Scores already ingested are gone, but their source is not: a scored PR
+            comment stays on GitHub, and in poll mode the poller reads those
+            comments again — so if this event ingests scores by polling
+            (<code>SCORE_INGEST=poll</code>), close or clear the source PRs too, or
+            the points come back when you unfreeze.
           </span>
         </div>
         <button
@@ -384,7 +424,10 @@ export default function AdminEventTab({
               body: (
                 <>
                   This permanently deletes every team, score, player record, and
-                  hint purchase, and freezes scoring. This cannot be undone.
+                  hint purchase, and freezes scoring. Your authored content —
+                  questions, challenges, flags, hints, categories — and every
+                  setting are kept. The AI launch key is rotated, so an external
+                  challenge site must re-fetch it. This cannot be undone.
                 </>
               ),
               onConfirm: () => doReset(eventConfig.name),
@@ -394,27 +437,7 @@ export default function AdminEventTab({
         >
           Reset event data…
         </button>
-        {resetInfo && <p className="text-xs text-[#22c55e]">{resetInfo}</p>}
-
-        {/* Whole-event archive export/import (issue: event-archive-bundle).
-            Lives inside the danger zone: an import is a replace-all that runs
-            the same wipe as the master reset above, so it belongs beside it
-            rather than as a neutral panel. Export is grouped with it as the
-            other half of the same archive control. Collapsed by default — a
-            rarely-used control that shouldn't crowd the reset button. */}
-        <details className="mt-1 border-t border-[#e53e3e]/20 pt-3">
-          <summary className="cursor-pointer list-none text-sm font-medium text-[#e53e3e] marker:content-none">
-            Event archive — export / import
-          </summary>
-          <p className="mt-1 text-xs text-muted">
-            Export the whole event — Classic and Quiz content plus event policy settings — as one JSON file, or
-            replace it wholesale from a previously exported file. An import is a full replace-all: it runs the same
-            wipe as the master reset above.
-          </p>
-          <div className="mt-3">
-            <AdminEventControls showHeading={false} />
-          </div>
-        </details>
+        {resetInfo && <p className="text-sm text-[#22c55e]">{resetInfo}</p>}
       </div>
     </section>
   );

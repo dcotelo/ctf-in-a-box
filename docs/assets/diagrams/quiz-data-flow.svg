@@ -1,0 +1,146 @@
+<svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="ttl">Quiz data flow</title>
+  <desc id="desc">A contestant submits an answer; a cheap JS gate pre-check runs first; the real authority is one atomic Lua script that rechecks the cap and cooldown against current state, compares the answer, and on a match writes the answer row and bumps the aggregates; quiz points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' correct answers, never their sum.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <style>
+    .bg { fill: #0d1117; }
+    .frame { fill: none; stroke: #30363d; stroke-width: 1; }
+    .node rect { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
+    .node .title { fill: #f0f6fc; font-size: 14px; font-weight: 600; }
+    .node .sub { fill: #8b949e; font-size: 11px; }
+    .glow { fill: none; stroke-width: 2.5; opacity: 0; }
+    .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
+    .caption { fill: #8b949e; font-size: 14px; }
+    .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .kicker { fill: #8b949e; font-size: 10px; letter-spacing: 1px; }
+    .badge rect { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+    .badge text { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
+  </style>
+
+  <rect class="bg" width="960" height="600" rx="10"/>
+  <rect class="frame" x="0.5" y="0.5" width="959" height="599" rx="10"/>
+  <text x="480" y="14" text-anchor="middle" class="kicker">RUNTIME · A USER STORY, MOSTLY INSIDE ONE APP CONTAINER</text>
+
+  <!-- edges -->
+  <path id="e1" class="edge" d="M480,80 C480,96 480,104 480,120"/>
+  <path id="e2" class="edge" d="M480,188 C480,204 480,212 480,228"/>
+  <path id="e3" class="edge" d="M480,296 C480,312 480,320 480,336"/>
+  <path id="e4" class="edge" d="M430,392 C380,410 340,420 300,440"/>
+  <path id="e5" class="edge" d="M530,392 C580,410 620,420 660,440"/>
+
+  <!-- nodes -->
+  <g class="node">
+    <rect x="380" y="24" width="200" height="56" rx="10"/>
+    <text x="480" y="49" text-anchor="middle" class="title">contestant</text>
+    <text x="480" y="67" text-anchor="middle" class="sub">submits an answer</text>
+    <g class="badge"><rect x="534" y="16" width="52" height="16" rx="8"/><text x="560" y="27" text-anchor="middle" fill="#ffa657">ACTOR</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="360" y="120" width="240" height="68" rx="10"/>
+    <text x="480" y="147" text-anchor="middle" class="title">JS gate pre-check</text>
+    <text x="480" y="165" text-anchor="middle" class="sub">cheap early-out, non-atomic</text>
+    <g class="badge"><rect x="554" y="112" width="52" height="16" rx="8"/><text x="580" y="123" text-anchor="middle" fill="#58a6ff">APP</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="350" y="228" width="260" height="68" rx="10"/>
+    <text x="480" y="255" text-anchor="middle" class="title">atomic GRADE script</text>
+    <text x="480" y="273" text-anchor="middle" class="sub">recheck fresh, compare ctf:quiz:key</text>
+    <g class="badge"><rect x="564" y="220" width="52" height="16" rx="8"/><text x="590" y="231" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="380" y="336" width="200" height="56" rx="10"/>
+    <text x="480" y="361" text-anchor="middle" class="title">redis</text>
+    <text x="480" y="379" text-anchor="middle" class="sub">answer row + aggregates bumped</text>
+    <g class="badge"><rect x="534" y="328" width="52" height="16" rx="8"/><text x="560" y="339" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="170" y="440" width="260" height="68" rx="10"/>
+    <text x="300" y="467" text-anchor="middle" class="title">leaderboard overlay</text>
+    <text x="300" y="485" text-anchor="middle" class="sub">ADDS points, never attributed</text>
+    <g class="badge"><rect x="384" y="432" width="52" height="16" rx="8"/><text x="410" y="443" text-anchor="middle" fill="#58a6ff">APP</text></g>
+  </g>
+
+  <g class="node">
+    <rect x="530" y="440" width="260" height="68" rx="10"/>
+    <text x="660" y="467" text-anchor="middle" class="title">team total</text>
+    <text x="660" y="485" text-anchor="middle" class="sub">union of members, never summed</text>
+    <g class="badge"><rect x="744" y="432" width="52" height="16" rx="8"/><text x="770" y="443" text-anchor="middle" fill="#58a6ff">APP</text></g>
+  </g>
+
+  <!-- arrival glows -->
+  <rect class="glow" x="356" y="116" width="248" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1544;0.1644;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="346" y="224" width="268" height="76" rx="12" style="stroke:#58a6ff">
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1644;0.1844;0.3188;0.3288;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="376" y="332" width="208" height="64" rx="12" style="stroke:#ffa657">
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3288;0.3488;0.4832;0.4932;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="166" y="436" width="268" height="76" rx="12" style="stroke:#56d4a4">
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4932;0.5132;0.6475;0.6575;1" values="0;0;1;1;0;0"/>
+  </rect>
+  <rect class="glow" x="526" y="436" width="268" height="76" rx="12" style="stroke:#d2a8ff">
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6575;0.6775;0.8119;0.8219;1" values="0;0;1;1;0;0"/>
+  </rect>
+
+  <!-- travelling dots -->
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="7.3s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0;0.1644;1" calcMode="linear"><mpath href="#e1" xlink:href="#e1"/></animateMotion>
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.01;0.1544;0.1644;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#58a6ff">
+    <animateMotion dur="7.3s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.1644;0.3288;1" calcMode="linear"><mpath href="#e2" xlink:href="#e2"/></animateMotion>
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1644;0.1744;0.3188;0.3288;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#ffa657">
+    <animateMotion dur="7.3s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.3288;0.4932;1" calcMode="linear"><mpath href="#e3" xlink:href="#e3"/></animateMotion>
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3288;0.3388;0.4832;0.4932;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#56d4a4">
+    <animateMotion dur="7.3s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.4932;0.6575;1" calcMode="linear"><mpath href="#e4" xlink:href="#e4"/></animateMotion>
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4932;0.5032;0.6475;0.6575;1" values="0;0;1;1;0;0"/>
+  </circle>
+  <circle r="5" fill="#d2a8ff">
+    <animateMotion dur="7.3s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.6575;0.8219;1" calcMode="linear"><mpath href="#e5" xlink:href="#e5"/></animateMotion>
+    <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6575;0.6675;0.8119;0.8219;1" values="0;0;1;1;0;0"/>
+  </circle>
+
+  <!-- step captions -->
+  <g text-anchor="middle">
+    <text x="480" y="540" class="caption" opacity="0">1 — contestant submits an answer
+      <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1544;0.1644;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="540" class="caption" opacity="0">2 — JS gate pre-check: cheap early-out, non-atomic
+      <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1644;0.1844;0.3188;0.3288;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="540" class="caption" opacity="0">3 — atomic script rechecks fresh, compares, writes on a match
+      <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3288;0.3488;0.4832;0.4932;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="540" class="caption" opacity="0">4 — quiz points are ADDED to entry.points, never attributed
+      <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4932;0.5132;0.6475;0.6575;1" values="0;0;1;1;0;0"/>
+    </text>
+    <text x="480" y="540" class="caption" opacity="0">5 — a team's total is the union of members' correct answers, never summed
+      <animate attributeName="opacity" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6575;0.6775;0.8119;0.8219;1" values="0;0;1;1;0;0"/>
+    </text>
+  </g>
+
+  <!-- progress ticks -->
+  <g>
+    <circle class="tick" cx="400" cy="562" r="5"><animate attributeName="fill" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="440" cy="562" r="5"><animate attributeName="fill" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1644;0.1844;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
+    <circle class="tick" cx="480" cy="562" r="5"><animate attributeName="fill" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3288;0.3488;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
+    <circle class="tick" cx="520" cy="562" r="5"><animate attributeName="fill" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4932;0.5132;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
+    <circle class="tick" cx="560" cy="562" r="5"><animate attributeName="fill" dur="7.3s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6575;0.6775;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
+  </g>
+</svg>
