@@ -29,8 +29,7 @@
 // `tabIndex`, `aria-selected`/`aria-controls`/`aria-labelledby` wiring, and
 // ArrowLeft/ArrowRight/Home/End movement with wraparound.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { nextScheduleBoundary } from "@/lib/schedule-window";
@@ -48,11 +47,15 @@ import { describeFieldError, parseNumberCommit, type FieldStatus } from "@/compo
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAiControls from "@/components/admin-ai-controls";
+import type { SyncStatus } from "@/lib/admin-store";
+import AdminSidebar, { type SidebarGroup } from "./admin-sidebar";
+import AdminOverviewTab from "./admin-overview-tab";
 import AdminAdminsTab from "./admin-admins-tab";
 import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
+import AdminHintsTab from "./admin-hints-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModuleIdentity from "./admin-module-identity";
 import type { CommitNumber, ConfirmState } from "./types";
@@ -91,9 +94,17 @@ const MODULE_CHOICES: readonly ModuleChoice[] = ALL_MODULE_IDS.map((id) => ({
   reason: id === "secure-development" ? "Configured at setup — it needs its scorer, its sync poller and its provisioned forks." : undefined,
 }));
 
+// The landing destination (admin-redesign.md PR 1): "is scoring on, how many
+// teams, is anything stuck" answered in one screen rather than three tabs.
+// Also the fallback for a deep link this shell doesn't recognise — a stale
+// bookmark or a typo lands an organizer somewhere real, not on nothing.
+const OVERVIEW_TAB = "overview";
 /** The always-present control-plane tab. Module tabs follow it, in the order
  *  the event config lists them. */
 const EVENT_TAB = "event";
+// The hint policy's own destination (admin-redesign.md's Event/Hints/Admins
+// split) — see admin-hints-tab.tsx for why it isn't a module's or Event's.
+const HINTS_TAB = "hints";
 /** Runtime admin management (issue #147). Sits beside Event rather than
  *  inside it: it manages WHO may use the panel, not what the event does. */
 const ADMINS_TAB = "admins";
@@ -155,6 +166,7 @@ export default function AdminControls({
   setups,
   initialTab,
   viewerLogin,
+  sync = null,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -169,14 +181,20 @@ export default function AdminControls({
   setups?: Partial<Record<string, ModuleSetupContent>>;
   /** Which tab to open on arrival, from `/admin?tab=<module id>`. Anything
    *  this shell doesn't recognise — a typo, or a module this event didn't
-   *  enable — falls back to Event rather than opening nothing. Resolved on
-   *  the server (see page.tsx) so the first render already has the right
+   *  enable — falls back to Overview rather than opening nothing. Resolved
+   *  on the server (see page.tsx) so the first render already has the right
    *  panel open; the organizer never sees it flip. */
   initialTab?: string;
   /** The signed-in organizer's GitHub login, from the same `requireAdmin`
    *  gate that rendered this page. The Admins tab uses it to warn before
    *  someone revokes their own access. */
   viewerLogin: string;
+  /** The poller's own heartbeat — page.tsx already fetches this for the old
+   *  Status card; Overview folds it into its "Sync" line instead. `null`
+   *  when no poller has ever reported in (poll mode not configured, or push
+   *  mode, which has no poller at all) — the default for callers (most
+   *  tests) that don't care about it. */
+  sync?: SyncStatus | null;
 }) {
   const [settings, setSettings] = useState(initial);
   // The "now" the Event tab's schedule readout is evaluated at (epoch ms).
@@ -257,7 +275,9 @@ export default function AdminControls({
   );
 
   const tabs = [
+    { id: OVERVIEW_TAB, label: "Overview" },
     { id: EVENT_TAB, label: "Event" },
+    { id: HINTS_TAB, label: "Hints" },
     { id: ADMINS_TAB, label: "Admins" },
     { id: SUPPORT_TAB, label: "Support" },
     { id: ACTIVITY_TAB, label: "Activity" },
@@ -265,26 +285,35 @@ export default function AdminControls({
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
   const [active, setActive] = useState<string>(
-    tabs.some((t) => t.id === initialTab) ? (initialTab as string) : EVENT_TAB,
+    tabs.some((t) => t.id === initialTab) ? (initialTab as string) : OVERVIEW_TAB,
   );
-  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  /** WAI-ARIA tabs keyboard model, automatic activation: moving focus moves
-   *  the selection, so an organizer arrowing across the strip sees each panel
-   *  without a second keystroke. Left/Right wrap; Home/End jump to the ends. */
-  const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const last = tabs.length - 1;
-    let next: number;
-    if (e.key === "ArrowRight") next = index === last ? 0 : index + 1;
-    else if (e.key === "ArrowLeft") next = index === 0 ? last : index - 1;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = last;
-    else return;
-    e.preventDefault();
-    const id = tabs[next].id;
-    setActive(id);
-    tabRefs.current[id]?.focus();
-  };
+  // The sidebar's three groups (admin-redesign.md). CONTENT is every enabled
+  // module, in the order `modules` lists them — the same order the flat tab
+  // row used.
+  const sidebarGroups: readonly SidebarGroup[] = [
+    {
+      heading: "Run",
+      items: [
+        { id: OVERVIEW_TAB, label: "Overview" },
+        { id: ACTIVITY_TAB, label: "Activity" },
+        { id: INSIGHTS_TAB, label: "Insights" },
+        { id: SUPPORT_TAB, label: "Support" },
+      ],
+    },
+    {
+      heading: "Content",
+      items: modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
+    },
+    {
+      heading: "Setup",
+      items: [
+        { id: EVENT_TAB, label: "Event" },
+        { id: HINTS_TAB, label: "Hints" },
+        { id: ADMINS_TAB, label: "Admins" },
+      ],
+    },
+  ];
 
   const runConfirm = async () => {
     if (!confirm) return;
@@ -465,142 +494,135 @@ export default function AdminControls({
   const statusOf = (key: string): FieldStatus => fieldStatus[key] ?? { state: "idle" };
 
   return (
-    <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <AdminSidebar groups={sidebarGroups} active={active} onSelect={setActive} />
 
-      <div role="tablist" aria-label="Admin controls" className="flex flex-wrap gap-1 border-b border-white/[0.06]">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`tab-${tab.id}`}
-            aria-selected={active === tab.id}
-            aria-controls={`panel-${tab.id}`}
-            tabIndex={active === tab.id ? 0 : -1}
-            ref={(el) => {
-              tabRefs.current[tab.id] = el;
-            }}
-            onClick={() => setActive(tab.id)}
-            onKeyDown={(e) => onTabKeyDown(e, index)}
-            className={
-              active === tab.id
-                ? "-mb-px rounded-t-md border-b-2 border-[#2563eb]/70 px-3 py-2 text-sm font-medium text-white"
-                : "-mb-px rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200"
-            }
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          role="tabpanel"
-          id={`panel-${tab.id}`}
-          aria-labelledby={`tab-${tab.id}`}
-          hidden={active !== tab.id}
-        >
-          {tab.id === EVENT_TAB ? (
-            <AdminEventTab
-              settings={settings}
-              pending={pending}
-              demoMode={demoMode}
-              resetInfo={resetInfo}
-              apply={apply}
-              applyField={applyField}
-              statusOf={statusOf}
-              setConfirm={setConfirm}
-              doReset={doReset}
-              doSeed={doSeed}
-              teamMaxMembersInput={teamMaxMembersInput}
-              setTeamMaxMembersInput={setTeamMaxMembersInput}
-              commitNumber={commitNumber}
-              hintCostInput={hintCostInput}
-              setHintCostInput={setHintCostInput}
-              minSolvesInput={minSolvesInput}
-              setMinSolvesInput={setMinSolvesInput}
-              unlockAfterInput={unlockAfterInput}
-              setUnlockAfterInput={setUnlockAfterInput}
-              moduleChoices={MODULE_CHOICES}
-              liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
-              nowMs={settingsAt}
-            />
-          ) : tab.id === ADMINS_TAB ? (
-            <AdminAdminsTab viewerLogin={viewerLogin} />
-          ) : tab.id === SUPPORT_TAB ? (
-            <AdminSupportTab setConfirm={setConfirm} />
-          ) : tab.id === ACTIVITY_TAB ? (
-            <AdminActivityTab />
-          ) : tab.id === INSIGHTS_TAB ? (
-            <AdminInsightsTab />
-          ) : (
-            <section className="flex flex-col gap-4">
-              {/* Setup instructions FIRST, then the identity editor, then the
-                  module's own knobs. An organizer who has never seen this tab
-                  needs "what is this and what do I do" before "what do I call
-                  it": the checklist is the orientation, the rename is a
-                  refinement of something already working, and the knobs below
-                  are what the checklist points at. Driven by the `setups` map,
-                  like identity is driven by the modules list — no per-module
-                  branch, so a fifth module gets its panel for free. */}
-              {setups?.[tab.id] && (
-                <AdminModuleSetup title={tab.label} setup={setups[tab.id]!} inventory={inventory[tab.id]} />
-              )}
-              <AdminModuleIdentity
-                moduleId={tab.id}
-                defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
-                override={settings.moduleOverrides[tab.id as ModuleId]}
-                pending={pending}
-                apply={apply}
-              />
-              {tab.id === "secure-development" ? (
-                <AdminSecureDevTab
+        <div className="min-w-0 flex-1">
+          {tabs.map((tab) => (
+            <div key={tab.id} role="region" id={`panel-${tab.id}`} aria-label={tab.label} hidden={active !== tab.id}>
+              {tab.id === OVERVIEW_TAB ? (
+                <AdminOverviewTab
                   settings={settings}
                   pending={pending}
                   apply={apply}
-                  commitNumber={commitNumber}
-                  statusOf={statusOf}
-                  cooldownInput={cooldownInput}
-                  setCooldownInput={setCooldownInput}
+                  setConfirm={setConfirm}
+                  nowMs={settingsAt}
+                  sync={sync}
+                  modules={modules}
+                  setups={setups}
+                  inventory={inventory}
+                  onNavigate={setActive}
                 />
-              ) : tab.id === "quiz" ? (
-                <AdminQuizControls
+              ) : tab.id === EVENT_TAB ? (
+                <AdminEventTab
+                  settings={settings}
                   pending={pending}
-                  quizMaxAttemptsInput={quizMaxAttemptsInput}
-                  setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
-                  quizRetryAfterInput={quizRetryAfterInput}
-                  setQuizRetryAfterInput={setQuizRetryAfterInput}
-                  commitNumber={commitNumber}
+                  demoMode={demoMode}
+                  resetInfo={resetInfo}
+                  apply={apply}
+                  applyField={applyField}
                   statusOf={statusOf}
-                  onInventory={inventoryReporters[tab.id]}
+                  setConfirm={setConfirm}
+                  doReset={doReset}
+                  doSeed={doSeed}
+                  teamMaxMembersInput={teamMaxMembersInput}
+                  setTeamMaxMembersInput={setTeamMaxMembersInput}
+                  commitNumber={commitNumber}
+                  moduleChoices={MODULE_CHOICES}
+                  liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
+                  nowMs={settingsAt}
                 />
-              ) : tab.id === "classic" ? (
-                <AdminClassicControls
+              ) : tab.id === HINTS_TAB ? (
+                <AdminHintsTab
+                  settings={settings}
                   pending={pending}
-                  classicCooldownSecInput={classicCooldownSecInput}
-                  setClassicCooldownSecInput={setClassicCooldownSecInput}
-                  commitNumber={commitNumber}
+                  apply={apply}
                   statusOf={statusOf}
-                  onInventory={inventoryReporters[tab.id]}
-                />
-              ) : tab.id === "ai" ? (
-                <AdminAiControls
-                  pending={pending}
-                  aiCooldownSecInput={aiCooldownSecInput}
-                  setAiCooldownSecInput={setAiCooldownSecInput}
                   commitNumber={commitNumber}
-                  statusOf={statusOf}
-                  onInventory={inventoryReporters[tab.id]}
+                  hintCostInput={hintCostInput}
+                  setHintCostInput={setHintCostInput}
+                  minSolvesInput={minSolvesInput}
+                  setMinSolvesInput={setMinSolvesInput}
+                  unlockAfterInput={unlockAfterInput}
+                  setUnlockAfterInput={setUnlockAfterInput}
                 />
+              ) : tab.id === ADMINS_TAB ? (
+                <AdminAdminsTab viewerLogin={viewerLogin} />
+              ) : tab.id === SUPPORT_TAB ? (
+                <AdminSupportTab setConfirm={setConfirm} />
+              ) : tab.id === ACTIVITY_TAB ? (
+                <AdminActivityTab />
+              ) : tab.id === INSIGHTS_TAB ? (
+                <AdminInsightsTab />
               ) : (
-                <p className="text-xs text-muted">No settings for this module yet.</p>
+                <section className="flex flex-col gap-4">
+                  {/* Setup instructions FIRST, then the identity editor, then the
+                      module's own knobs. An organizer who has never seen this tab
+                      needs "what is this and what do I do" before "what do I call
+                      it": the checklist is the orientation, the rename is a
+                      refinement of something already working, and the knobs below
+                      are what the checklist points at. Driven by the `setups` map,
+                      like identity is driven by the modules list — no per-module
+                      branch, so a fifth module gets its panel for free. */}
+                  {setups?.[tab.id] && (
+                    <AdminModuleSetup title={tab.label} setup={setups[tab.id]!} inventory={inventory[tab.id]} />
+                  )}
+                  <AdminModuleIdentity
+                    moduleId={tab.id}
+                    defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
+                    override={settings.moduleOverrides[tab.id as ModuleId]}
+                    pending={pending}
+                    apply={apply}
+                  />
+                  {tab.id === "secure-development" ? (
+                    <AdminSecureDevTab
+                      settings={settings}
+                      pending={pending}
+                      apply={apply}
+                      commitNumber={commitNumber}
+                      statusOf={statusOf}
+                      cooldownInput={cooldownInput}
+                      setCooldownInput={setCooldownInput}
+                    />
+                  ) : tab.id === "quiz" ? (
+                    <AdminQuizControls
+                      pending={pending}
+                      quizMaxAttemptsInput={quizMaxAttemptsInput}
+                      setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
+                      quizRetryAfterInput={quizRetryAfterInput}
+                      setQuizRetryAfterInput={setQuizRetryAfterInput}
+                      commitNumber={commitNumber}
+                      statusOf={statusOf}
+                      onInventory={inventoryReporters[tab.id]}
+                    />
+                  ) : tab.id === "classic" ? (
+                    <AdminClassicControls
+                      pending={pending}
+                      classicCooldownSecInput={classicCooldownSecInput}
+                      setClassicCooldownSecInput={setClassicCooldownSecInput}
+                      commitNumber={commitNumber}
+                      statusOf={statusOf}
+                      onInventory={inventoryReporters[tab.id]}
+                    />
+                  ) : tab.id === "ai" ? (
+                    <AdminAiControls
+                      pending={pending}
+                      aiCooldownSecInput={aiCooldownSecInput}
+                      setAiCooldownSecInput={setAiCooldownSecInput}
+                      commitNumber={commitNumber}
+                      statusOf={statusOf}
+                      onInventory={inventoryReporters[tab.id]}
+                    />
+                  ) : (
+                    <p className="text-xs text-muted">No settings for this module yet.</p>
+                  )}
+                </section>
               )}
-            </section>
-          )}
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
 
       {settings.updatedBy && settings.updatedAt && (
         <p className="text-xs text-muted">
