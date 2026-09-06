@@ -120,25 +120,37 @@ Those are the **bootstrap** admins: baked into the image, so changing them
 needs a rebuild. Everyone else is granted from the panel itself, on the
 **Admins** tab, and takes effect immediately (see below).
 
-The controls are grouped into **tabs**: an **Event** tab for the settings that
-belong to the platform itself (freeze, team registration, the schedule, demo
-seed, master reset), an **Admins** tab, a **Support** tab, an **Activity**
-tab, an **Insights** tab, then **one tab per enabled module**, labelled with that
-module's name as the organizer has set it. A module's own knobs live in its own
-tab, so an event that doesn't run a module never sees its settings at all.
+The header is one row — `Admin · <event name> · <phase badge> · until <date>`
+— with the same phase vocabulary and colours as the public phase strip. The
+controls sit behind a **left sidebar** in three groups (it collapses to a
+"Sections" drawer on narrow screens):
+
+- **Run** — **Overview**, **Activity**, **Insights**, **Support**.
+- **Content** — **one destination per enabled module**, in event-config
+  order, labelled with that module's name as the organizer has set it. A
+  module's own knobs live in its own destination, so an event that doesn't
+  run a module never sees its settings at all.
+- **Setup** — **Event** (modules, freeze, team registration, team size, the
+  schedule, then demo seed and the master reset at the bottom), **Hints**,
+  **Admins**.
 
 ![The admin panel's Event tab: the per-module switches, the freeze and team-registration toggles, the players-per-team cap, and the schedule fields with a live "right now: scoring is live" readout](assets/admin-event.jpg)
 
-The tab strip is keyboard-operable (arrow keys move between tabs, Home/End jump
-to the ends). **Event is the default tab** on load, regardless of how many
-modules are enabled — unless the URL names another one (see the deep links
-below).
+**Overview is the default** on load, regardless of how many modules are
+enabled — unless the URL names another destination (see the deep links
+below). It answers "is scoring on, how many teams, is anything stuck" in one
+screen: the phase and time remaining, **Scoring** and **Registration** as
+switches you can flip from there, the team / player / submitted / stuck
+figures (stuck leads when it is non-zero), the poller's sync health line,
+the five most recent activity rows, and a setup-status line per module.
+Every figure on it is a snapshot as of when you opened it; a later change
+will add a 15-second refresh.
 
-The hint policy lives on the **Event** tab, in a **Hints** section under the
-schedule, because it is event-wide: Secure Development, Classic and AI all
-sell their hints through the same four settings. (It sat on the Secure
-Development tab for a while, which left a classic-only or ai-only event with
-no hint switch at all.) **This is a UI relocation only** — the underlying
+The hint policy has its own **Hints** destination because it is event-wide:
+Secure Development, Classic and AI all sell their hints through the same
+four settings. (It sat on the Secure Development tab for a while, which left
+a classic-only or ai-only event with no hint switch at all, then in a section
+of Event.) **Every move has been a UI relocation only** — the underlying
 storage keys (`hintsEnabled`, `hintCost`, `hintsMinSolves`,
 `hintsUnlockAfterMin`) and their validation are completely unchanged, so no
 deployed event's settings, or their meaning, changed by upgrading.
@@ -315,7 +327,7 @@ The panel offers:
   every reader of scoring state (the app, the scorer, the sync poller — see
   [architecture](architecture.md)); the registration window is enforced by
   `team-store.ts` on exactly the mutations the manual switch gates.
-- **Hint controls** (Event tab, **Hints** section) — whether hints are enabled and
+- **Hint controls** (the **Hints** destination, under Setup) — whether hints are enabled and
   what they cost. Hints are **on by default** and cost 10 points each; the
   cost (`hintCost`) is a whole number from 0 to **100000**. This is
   the **only** hint switch: there is no environment variable, and the toggle
@@ -533,7 +545,7 @@ Tabs are deep-linkable: `/admin?tab=quiz` (or `?tab=classic`, `?tab=ai`,
 what `/quiz`, `/flags` and `/ai` link an organizer to when the module has no
 content yet — an empty board shows them **Author questions** / **Author
 challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
-name falls back to **Event**.
+name falls back to **Overview**.
 
 **Every numeric setting says whether it saved.** The number knobs (hint cost
 and gating, players per team, the retry gate, the cooldowns) and the four
