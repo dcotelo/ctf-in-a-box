@@ -335,7 +335,7 @@ environment, the CI gates, and how to propose a module;
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies.
 
 Agents should follow [AGENTS.md](AGENTS.md). The commands below match CI;
-`make help` lists the same targets once the root Makefile exists.
+`make help` lists the same targets.
 
 Each service tests independently (Node 22 across the board):
 
