@@ -89,6 +89,7 @@ import { AI_COOLDOWN_SEC } from "@/lib/ai-defaults";
 // bundle. Never change this to a value import.
 import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
 import ConfirmDelete from "@/components/admin/confirm-delete";
+import DiscardDraftConfirm from "@/components/admin/discard-draft-confirm";
 import CategoryEditor from "@/components/admin/category-editor";
 import { useCategoryEditor } from "@/components/admin/use-category-editor";
 import { useAdminResource } from "@/components/admin/use-admin-resource";
@@ -297,7 +298,7 @@ export default function AdminAiControls({
             disabled={formPending || categories.length === 0}
             onClick={() => {
               setFlagRevealed(false);
-              resource.setEditing(newAiChallengeEditor(nextOrder, categories[0] ?? ""));
+              resource.openEditor(newAiChallengeEditor(nextOrder, categories[0] ?? ""));
             }}
             className="rounded-md border border-[#2563eb]/45 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/[0.06] disabled:opacity-50"
           >
@@ -350,7 +351,7 @@ export default function AdminAiControls({
           emptyText="No challenges yet."
           onEdit={(row) => {
             setFlagRevealed(false);
-            resource.setEditing(editorFromAiChallenge(row));
+            resource.openEditor(editorFromAiChallenge(row));
           }}
           onDelete={(row) => resource.requestDelete(row.challenge)}
           rowExtra={(row) => (
@@ -376,6 +377,16 @@ export default function AdminAiControls({
           onChange={(draft) => resource.setEditing({ ...editing, draft })}
           onCancel={resource.cancelEditor}
           onSubmit={() => void resource.submitEditor(editing)}
+        />
+      )}
+
+      {/* Audit F17: Edit on another row, or Add, parks the new editor
+          here rather than replacing a half-written draft in silence. */}
+      {resource.pendingEditor && (
+        <DiscardDraftConfirm
+          noun="challenge"
+          onConfirm={resource.confirmDraftSwitch}
+          onCancel={resource.cancelDraftSwitch}
         />
       )}
 

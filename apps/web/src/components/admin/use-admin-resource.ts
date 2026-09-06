@@ -35,6 +35,44 @@ import {
   upsertRow,
 } from "@/components/admin/ordered-rows";
 
+/** The baseline an open editor is compared against.
+ *
+ *  Three cases, kept apart deliberately. `none` is "no editor is open", which
+ *  is clean. `unserializable` is "an editor is open and we could not record
+ *  what it looked like" — which must count as DIRTY: collapsing it into `none`
+ *  made the one case the fallback exists for skip its own confirmation and
+ *  replace the draft silently, the exact failure being guarded against. */
+export type EditorSnapshot = { kind: "none" } | { kind: "value"; json: string } | { kind: "unserializable" };
+
+/** Records what an editor looks like at the moment it opens. */
+export function snapshotEditor<Editor>(editor: Editor): EditorSnapshot {
+  try {
+    return { kind: "value", json: JSON.stringify(editor) };
+  } catch {
+    // No draft type has a cycle. If one ever does, the cost of being wrong is
+    // a confirmation nobody needed, not work thrown away.
+    return { kind: "unserializable" };
+  }
+}
+
+/** Whether the open editor has been touched since it opened.
+ *
+ *  Compared by serialized value, not by reference: the panels replace the
+ *  whole editor object on every keystroke (`setEditing({...editing, draft})`),
+ *  so identity always differs and only the content answers the question.
+ *
+ *  Exported for direct testing: this repo's tests render to static markup and
+ *  cannot type into a form. */
+export function editorIsDirty<Editor>(current: Editor | null, snapshot: EditorSnapshot): boolean {
+  if (current === null || snapshot.kind === "none") return false;
+  if (snapshot.kind === "unserializable") return true;
+  try {
+    return JSON.stringify(current) !== snapshot.json;
+  } catch {
+    return true;
+  }
+}
+
 export type LoadResult<Row> = { ok: true; rows: Row[]; categories: string[] } | { ok: false; message: string };
 
 export type PostResult<Row> = { ok: true; row: Row } | { ok: false; message: string };
@@ -136,7 +174,20 @@ export type AdminResource<Row, Item, Editor> = {
   nextOrder: number;
 
   editing: Editor | null;
+  /** Records a change to the OPEN editor — what the form calls per keystroke.
+   *  To open a different one, use `openEditor`, which guards the draft. */
   setEditing: (editor: Editor | null) => void;
+  /** Opens `next` for editing, or — when the open draft has unsaved changes —
+   *  parks it in `pendingEditor` and waits to be told what to do (audit F17).
+   *  Every Edit and Add button goes through this. */
+  openEditor: (next: Editor) => void;
+  /** The editor waiting behind a discard confirmation, or null. Non-null is
+   *  the panel's cue to render one. */
+  pendingEditor: Editor | null;
+  /** Discards the current draft and opens the parked one. */
+  confirmDraftSwitch: () => void;
+  /** Keeps the current draft; the parked editor is dropped. */
+  cancelDraftSwitch: () => void;
   formPending: boolean;
   formError: string | null;
   /** Closes the form unless a save is in flight. */
@@ -172,6 +223,11 @@ export function useAdminResource<Row, Item, Editor, Payload>(
   const [loaded, setLoaded] = useState(false);
 
   const [editing, setEditing] = useState<Editor | null>(null);
+  // What the open editor looked like when it opened, serialized — the baseline
+  // `editorIsDirty` compares against. Held as state rather than a ref so a
+  // render that reads it is never a render behind.
+  const [openedAs, setOpenedAs] = useState<EditorSnapshot>({ kind: "none" });
+  const [pendingEditor, setPendingEditor] = useState<Editor | null>(null);
   const [formPending, setFormPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -228,11 +284,44 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     setRows((prev) => upsertRow(prev, result.row, accessors));
     onWrite?.();
     setEditing(null);
+    setOpenedAs({ kind: "none" });
+  }
+
+  /** The one place an editor is opened. A half-written question used to
+   *  vanish the moment Edit was clicked on the next row, or Add on a board
+   *  where the form sits below the list and every list control stays live
+   *  while editing (audit F17). A save in flight is left alone entirely —
+   *  swapping the subject out from under an in-flight POST is worse than
+   *  making the organizer wait a moment. */
+  function openEditor(next: Editor) {
+    if (formPending) return;
+    if (editorIsDirty(editing, openedAs)) {
+      setPendingEditor(next);
+      return;
+    }
+    applyEditor(next);
+  }
+
+  function applyEditor(next: Editor) {
+    setPendingEditor(null);
+    setFormError(null);
+    setEditing(next);
+    setOpenedAs(snapshotEditor(next));
+  }
+
+  function confirmDraftSwitch() {
+    if (pendingEditor !== null) applyEditor(pendingEditor);
+  }
+
+  function cancelDraftSwitch() {
+    setPendingEditor(null);
   }
 
   function cancelEditor() {
     if (formPending) return;
     setEditing(null);
+    setOpenedAs({ kind: "none" });
+    setPendingEditor(null);
     setFormError(null);
   }
 
@@ -303,6 +392,10 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     nextOrder: nextOrderOf(rows, accessors),
     editing,
     setEditing,
+    openEditor,
+    pendingEditor,
+    confirmDraftSwitch,
+    cancelDraftSwitch,
     formPending,
     formError,
     cancelEditor,
