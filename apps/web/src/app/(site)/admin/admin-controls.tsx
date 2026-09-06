@@ -116,8 +116,11 @@ export function adminTabHref(id: string): string {
  *
  *  Returns "" when neither names a tab; the caller reads that as Overview. */
 export function resolveAdminTab(pathTab: string | undefined, tabQuery: string | string[] | undefined): string {
-  const values = (Array.isArray(tabQuery) ? tabQuery : tabQuery == null ? [] : [tabQuery]).filter(Boolean);
-  if (values.length === 1) return values[0];
+  // Counted BEFORE empties are dropped: `?tab=&tab=admins` supplied the
+  // parameter twice, so it is unusable by the rule above even though only one
+  // half carries a value. Filtering first would have quietly picked `admins`.
+  const values = Array.isArray(tabQuery) ? tabQuery : tabQuery == null ? [] : [tabQuery];
+  if (values.length === 1 && values[0]) return values[0];
   return pathTab ?? "";
 }
 

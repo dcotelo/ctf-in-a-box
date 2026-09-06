@@ -74,6 +74,15 @@ describe("resolveAdminTab", () => {
     expect(resolveAdminTab("quiz", ["hints", "event"])).toBe("quiz");
   });
 
+  it("counts repeats before dropping empties — one blank half is still a repeat", () => {
+    // `?tab=&tab=admins` supplied the parameter twice. Filtering the empty
+    // one away first would leave a single value and quietly select it,
+    // against the rule that a repeated parameter is unusable.
+    expect(resolveAdminTab("overview", ["", "admins"])).toBe("overview");
+    expect(resolveAdminTab("overview", ["admins", ""])).toBe("overview");
+    expect(resolveAdminTab(undefined, ["", "admins"])).toBe("");
+  });
+
   it("is empty when neither source names a tab", () => {
     expect(resolveAdminTab(undefined, undefined)).toBe("");
     expect(resolveAdminTab(undefined, ["a", "b"])).toBe("");
