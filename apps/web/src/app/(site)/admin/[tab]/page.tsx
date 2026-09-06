@@ -13,17 +13,27 @@
 
 import type { Metadata } from "next";
 import AdminPanel from "@/app/(site)/admin/admin-panel";
+import { resolveAdminTab } from "@/app/(site)/admin/admin-controls";
 
 export const metadata: Metadata = {
   title: "Admin",
   description: "Organizer controls and sync status.",
 };
 
-export default async function AdminTabPage({ params }: { params: Promise<{ tab: string }> }) {
-  const { tab } = await params;
+export default async function AdminTabPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ tab: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // `?tab=` is honoured here as well as on /admin, through the same rule the
+  // popstate handler uses. Without it, /admin/overview?tab=admins would open
+  // Overview on load and Admins after a Back — one URL meaning two things.
+  const [{ tab }, query] = await Promise.all([params, searchParams]);
   // Called, not nested as <AdminPanel/>: an async Server Component inside
   // another one suspends, and this repo's page tests render with
   // `renderToStaticMarkup(await Page())`, which has no Suspense boundary to
   // catch it. Awaiting here keeps both the route and the tests on one path.
-  return AdminPanel({ tab });
+  return AdminPanel({ tab: resolveAdminTab(tab, query.tab) });
 }

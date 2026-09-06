@@ -7,7 +7,7 @@
 // pair of pure helpers that decide it — no DOM required, which matters
 // because this repo's tests run in vitest's `node` environment.
 import { describe, expect, it } from "vitest";
-import { adminTabHref, tabFromLocation } from "@/app/(site)/admin/admin-controls";
+import { adminTabHref, resolveAdminTab, tabFromLocation } from "@/app/(site)/admin/admin-controls";
 
 describe("adminTabHref", () => {
   it("builds the canonical path for a tab", () => {
@@ -42,5 +42,40 @@ describe("tabFromLocation", () => {
 
   it("decodes a percent-encoded segment", () => {
     expect(tabFromLocation("/admin/secure%2Ddevelopment", "")).toBe("secure-development");
+  });
+
+  it("survives a malformed percent-escape instead of throwing", () => {
+    // Browser history really can hold `/admin/%`. A throwing
+    // decodeURIComponent inside the popstate handler would leave the panel
+    // showing one destination while the URL says another.
+    expect(tabFromLocation("/admin/%", "")).toBe("");
+    expect(tabFromLocation("/admin/%E0%A4%A", "")).toBe("");
+    // …and a bad path still yields to an explicit query.
+    expect(tabFromLocation("/admin/%", "?tab=hints")).toBe("hints");
+  });
+
+  it("treats a repeated ?tab= as absent rather than picking one", () => {
+    expect(tabFromLocation("/admin/insights", "?tab=hints&tab=event")).toBe("insights");
+    expect(tabFromLocation("/admin", "?tab=hints&tab=event")).toBe("");
+  });
+});
+
+describe("resolveAdminTab", () => {
+  it("is the one rule both routes and the popstate handler share", () => {
+    expect(resolveAdminTab("overview", undefined)).toBe("overview");
+    expect(resolveAdminTab(undefined, "hints")).toBe("hints");
+    // The query is the more specific of the two, and what old links carry.
+    expect(resolveAdminTab("overview", "admins")).toBe("admins");
+  });
+
+  it("ignores an empty or repeated query and falls back to the path", () => {
+    expect(resolveAdminTab("quiz", "")).toBe("quiz");
+    expect(resolveAdminTab("quiz", [])).toBe("quiz");
+    expect(resolveAdminTab("quiz", ["hints", "event"])).toBe("quiz");
+  });
+
+  it("is empty when neither source names a tab", () => {
+    expect(resolveAdminTab(undefined, undefined)).toBe("");
+    expect(resolveAdminTab(undefined, ["a", "b"])).toBe("");
   });
 });

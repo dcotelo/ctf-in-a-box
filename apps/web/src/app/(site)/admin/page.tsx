@@ -4,6 +4,7 @@
 
 import type { Metadata } from "next";
 import AdminPanel from "@/app/(site)/admin/admin-panel";
+import { resolveAdminTab } from "@/app/(site)/admin/admin-controls";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -13,8 +14,9 @@ export const metadata: Metadata = {
 /** Which tab to open on arrival, from `?tab=<module id>`.
  *
  *  The sidebar links to `/admin/<tab>` now, so this form is what older
- *  bookmarks, docs and runbooks carry. It keeps working: both shapes hand the
- *  same string to the same shell.
+ *  bookmarks, docs and runbooks carry. It keeps working, and it resolves
+ *  through the SAME rule as the path form and the popstate handler
+ *  (`resolveAdminTab`) — including how it treats a repeated `?tab=`.
  *
  *  Read here rather than from `location.hash` in the tab shell: a hash is
  *  invisible to the server, so selecting from it means a post-hydration
@@ -22,15 +24,9 @@ export const metadata: Metadata = {
  *  takes seriously. A query param is on the request, so the very first
  *  server render already has the right panel open.
  *
- *  Unvalidated here on purpose: `AdminControls` owns the tab list, so it is
- *  the only thing that can say whether an id is real, and it falls back to
- *  Overview for anything it doesn't recognise. A link to a module that this
- *  event didn't enable lands on Overview rather than on nothing. */
-function tabParam(searchParams: Record<string, string | string[] | undefined>): string | undefined {
-  const tab = searchParams.tab;
-  return typeof tab === "string" ? tab : undefined;
-}
-
+ *  Unvalidated beyond that: `AdminControls` owns the tab list, so it is the
+ *  only thing that can say whether an id is real, and it falls back to
+ *  Overview for anything it doesn't recognise. */
 export default async function AdminPage({
   searchParams,
 }: {
@@ -40,5 +36,5 @@ export default async function AdminPage({
   // another one suspends, and this repo's page tests render with
   // `renderToStaticMarkup(await Page())`, which has no Suspense boundary to
   // catch it. Awaiting here keeps both the route and the tests on one path.
-  return AdminPanel({ tab: tabParam(await searchParams) });
+  return AdminPanel({ tab: resolveAdminTab(undefined, (await searchParams).tab) });
 }

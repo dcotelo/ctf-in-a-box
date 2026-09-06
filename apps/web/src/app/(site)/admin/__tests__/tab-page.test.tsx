@@ -37,8 +37,10 @@ const SETTINGS = {
   moduleOverrides: {},
 };
 
-async function render(tab: string): Promise<string> {
-  return renderToStaticMarkup(await AdminTabPage({ params: Promise.resolve({ tab }) }));
+async function render(tab: string, query: Record<string, string | string[] | undefined> = {}): Promise<string> {
+  return renderToStaticMarkup(
+    await AdminTabPage({ params: Promise.resolve({ tab }), searchParams: Promise.resolve(query) }),
+  );
 }
 
 function selectedTab(html: string): string | null {
@@ -71,6 +73,19 @@ describe("/admin/<tab>", () => {
     // all land somewhere real rather than on a 404.
     expect(selectedTab(await render("classic"))).toBe("overview");
     expect(selectedTab(await render("nonsense"))).toBe("overview");
+  });
+
+  it("honours an explicit ?tab= over the path, so one URL cannot mean two things", async () => {
+    asAdmin();
+    // The popstate handler resolves this URL to `hints`; the server has to
+    // agree, or loading the link and navigating to it open different panels.
+    expect(selectedTab(await render("overview", { tab: "hints" }))).toBe("hints");
+  });
+
+  it("treats a repeated ?tab= as absent and falls back to the path", async () => {
+    asAdmin();
+    // Two different answers is no answer — better the path than a guess.
+    expect(selectedTab(await render("insights", { tab: ["hints", "event"] }))).toBe("insights");
   });
 
   it("links every destination as a path, never the old query form", async () => {
