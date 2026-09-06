@@ -72,16 +72,36 @@ describe("AdminOverviewTab", () => {
     expect(html).toMatch(/Scoring[\s\S]*?aria-checked="false"/);
   });
 
+  // The sync poller exists for Secure Development and nothing else, so these
+  // cases hand the screen an event that serves it (audit F27).
+  const withSecureDev = [
+    { id: "secure-development", title: "Secure Development", blurb: "b", targets: [] },
+    ...modules,
+  ] as readonly ResolvedModule[];
+
   it("shows the sync line from the prop it was handed, no fetch involved", () => {
     const html = render({
+      modules: withSecureDev,
       sync: { lastPollAt: "2026-08-24T18:00:00.000Z", ingested: 5, dropped: 1, paused: false } as never,
     });
     expect(html).toMatch(/ingested 5/);
     expect(html).toMatch(/dropped 1/);
   });
 
-  it("says sync is not running when there is no poller", () => {
-    expect(render()).toContain("Sync not running.");
+  it("says sync is not running when there is no poller, and what that costs", () => {
+    const html = render({ modules: withSecureDev });
+    expect(html).toContain("Sync not running");
+    expect(html).toMatch(/Secure Development scores are not being ingested/);
+  });
+
+  it("has no Sync section at all on an event without Secure Development", () => {
+    // "Sync not running." was the first line of the admin page on a quiz-only
+    // event, forever, and read as a broken box: there is no poller because
+    // there are no forks to poll, which is not a fault to report (audit F27).
+    const html = render();
+    expect(html).not.toContain("Sync");
+    // Non-vacuity: the screen did render, and the module it DOES serve is on it.
+    expect(html).toContain("Quiz");
   });
 
   it("shows Loading… for the activity preview before its fetch could resolve", () => {

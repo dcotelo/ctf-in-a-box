@@ -150,6 +150,9 @@ export default function AdminOverviewTab({
     ]);
     return metricsOk && activityOk;
   }, []);
+  // Whether this event serves Secure Development at all — the only module the
+  // sync poller exists for. See the Sync section below.
+  const secureDevelopmentPresent = modules.some((mod) => mod.id === "secure-development");
   const eventLive = resolution.phase === "live";
   const { updatedAt } = useLivePoll({ visible, live: eventLive, intervalMs: LIVE_POLL_MS, load });
 
@@ -238,6 +241,13 @@ export default function AdminOverviewTab({
         </p>
       )}
 
+      {/* Sync polls contestants' forks for Secure Development score comments.
+          An event without that module has no forks and no poller, so the whole
+          section is absent rather than reporting "Sync not running." — which,
+          on a quiz-only event, was the first line of the admin page and read
+          as a broken box forever (audit F27). With the module present, that
+          same line is a real warning and still shows. */}
+      {secureDevelopmentPresent && (
       <section className="flex flex-col gap-1.5">
         <h3 className="text-sm font-semibold text-white">Sync</h3>
         {sync ? (
@@ -290,9 +300,12 @@ export default function AdminOverviewTab({
             </dl>
           </details>
         ) : (
-          <p className="text-sm text-muted">Sync not running.</p>
+          <p className="text-sm text-muted">
+            Sync not running — no poller has reported in, so Secure Development scores are not being ingested.
+          </p>
         )}
       </section>
+      )}
 
       <section className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">

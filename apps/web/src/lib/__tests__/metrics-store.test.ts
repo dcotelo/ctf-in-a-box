@@ -61,6 +61,15 @@ function mockStore(opts: {
   logins?: string[];
   /** Skip auto-registering the logins as a team. */
   noTeam?: boolean;
+  /** The three catalogue hashes the title join reads, LAST in the read order.
+   *  Omitted, the default mock answers empty and every row keeps its id —
+   *  which is the fallback under test in "a challenge deleted since it was
+   *  solved". */
+  titles?: {
+    quiz?: Record<string, string>;
+    classic?: Record<string, string>;
+    ai?: Record<string, string>;
+  };
 }) {
   const sdKeys = opts.sdKeys ?? {};
   const keys = Object.keys(sdKeys);
@@ -102,6 +111,17 @@ function mockStore(opts: {
         ];
       }),
     );
+  }
+
+  // The title join: HGETALL of the quiz, classic and ai catalogues, in that
+  // order. Values are the stored rows, so quiz carries `prompt` and the other
+  // two carry `title` — the join has to read both.
+  if (opts.titles) {
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: hash(opts.titles.quiz ?? {}) },
+      { result: hash(opts.titles.classic ?? {}) },
+      { result: hash(opts.titles.ai ?? {}) },
+    ]);
   }
 }
 
@@ -270,18 +290,88 @@ describe("honesty", () => {
   });
 });
 
+// Audit F7: the fold works in ids because progress is recorded against ids,
+// which is right for the arithmetic and useless to somebody reading numbers
+// out at a closing ceremony.
+describe("naming the challenges", () => {
+  const solvedOne = {
+    logins: ["alice"],
+    classicPoints: { alice: 10 },
+    aiPoints: { alice: 5 },
+    quizPoints: { alice: 7 },
+    perLogin: {
+      alice: {
+        classicSolves: { "cookie-jar-x1": earned(10, "2026-08-22T10:00:00Z") },
+        aiSolves: { "guardrail-bypass-0l": earned(5, "2026-08-22T10:01:00Z") },
+        quizAnswers: { "which-header-k3": earned(7, "2026-08-22T10:02:00Z") },
+      },
+    },
+  };
+
+  it("carries the organizer's own name for each row", async () => {
+    mockStore({
+      ...solvedOne,
+      titles: {
+        quiz: { "which-header-k3": JSON.stringify({ prompt: "Which header mitigates clickjacking?" }) },
+        classic: { "cookie-jar-x1": JSON.stringify({ title: "Cookie jar" }) },
+        ai: { "guardrail-bypass-0l": JSON.stringify({ title: "Guardrail bypass" }) },
+      },
+    });
+    const byId = new Map((await computeEventMetrics()).challenges.map((c) => [c.id, c]));
+
+    // A quiz question's name is its PROMPT; classic and ai carry a title. The
+    // join reads both so no caller has to know which.
+    expect(byId.get("which-header-k3")?.title).toBe("Which header mitigates clickjacking?");
+    expect(byId.get("cookie-jar-x1")?.title).toBe("Cookie jar");
+    expect(byId.get("guardrail-bypass-0l")?.title).toBe("Guardrail bypass");
+  });
+
+  it("keeps the id on every row, so nothing is renamed out of reach", async () => {
+    mockStore({
+      ...solvedOne,
+      titles: { classic: { "cookie-jar-x1": JSON.stringify({ title: "Cookie jar" }) } },
+    });
+    const row = (await computeEventMetrics()).challenges.find((c) => c.id === "cookie-jar-x1");
+    expect(row?.id).toBe("cookie-jar-x1");
+    expect(row?.title).toBe("Cookie jar");
+  });
+
+  it("falls back to no title for a challenge deleted since it was solved", async () => {
+    // Metrics outlive the catalogue row: the solve happened. Losing the
+    // numbers because the label could not be found would be the worse trade.
+    mockStore({ ...solvedOne, titles: {} });
+    const m = await computeEventMetrics();
+    expect(m.challenges).toHaveLength(3);
+    expect(m.challenges.every((c) => c.title === null)).toBe(true);
+    expect(m.challenges.find((c) => c.id === "cookie-jar-x1")?.solves).toBe(1);
+  });
+
+  it("survives an unparseable catalogue row without losing the others", async () => {
+    mockStore({
+      ...solvedOne,
+      titles: {
+        classic: { "cookie-jar-x1": "{not json" },
+        ai: { "guardrail-bypass-0l": JSON.stringify({ title: "Guardrail bypass" }) },
+      },
+    });
+    const byId = new Map((await computeEventMetrics()).challenges.map((c) => [c.id, c]));
+    expect(byId.get("cookie-jar-x1")?.title).toBeNull();
+    expect(byId.get("guardrail-bypass-0l")?.title).toBe("Guardrail bypass");
+  });
+});
+
 describe("challengesToCsv", () => {
   const metrics = {
     challenges: [
-      { module: "classic", id: "c1", solves: 2, attempts: 5, solveRate: 0.5, avgAttemptsToSolve: 2.5, medianSecondsToSolve: 90, solvedAfterHint: 0 },
-      { module: "quiz", id: "q,1", solves: 0, attempts: 0, solveRate: null, avgAttemptsToSolve: null, medianSecondsToSolve: null, solvedAfterHint: 0 },
+      { module: "classic", id: "c1", title: "Cookie jar", solves: 2, attempts: 5, solveRate: 0.5, avgAttemptsToSolve: 2.5, medianSecondsToSolve: 90, solvedAfterHint: 0 },
+      { module: "quiz", id: "q,1", title: null, solves: 0, attempts: 0, solveRate: null, avgAttemptsToSolve: null, medianSecondsToSolve: null, solvedAfterHint: 0 },
     ],
   } as EventMetrics;
 
   it("emits a header and one row per challenge", () => {
     const lines = challengesToCsv(metrics).trim().split("\n");
     expect(lines[0]).toBe(
-      "module,id,solves,attempts,solve_rate,avg_attempts_to_solve,median_seconds_to_solve",
+      "module,id,title,solves,attempts,solve_rate,avg_attempts_to_solve,median_seconds_to_solve",
     );
     expect(lines).toHaveLength(3);
   });
@@ -290,10 +380,18 @@ describe("challengesToCsv", () => {
     expect(challengesToCsv(metrics)).toContain('"q,1"');
   });
 
+  it("carries the title beside the id, never instead of it", () => {
+    // The id is what a support question and a store key name; the title is
+    // what an organizer reads out at a closing ceremony. A CSV that dropped
+    // the id to make room would be unusable for the first job (audit F7).
+    expect(challengesToCsv(metrics)).toMatch(/classic,c1,Cookie jar,2,5,/);
+  });
+
   it("writes an EMPTY cell for null, never the string 'null'", () => {
     // A spreadsheet reading `null` as text silently breaks every average over
-    // that column.
-    expect(challengesToCsv(metrics)).toMatch(/quiz,"q,1",0,0,,,\n/);
+    // that column. A missing title takes the same treatment as a missing
+    // number: an empty cell.
+    expect(challengesToCsv(metrics)).toMatch(/quiz,"q,1",,0,0,,,\n/);
   });
 });
 
@@ -643,6 +741,7 @@ describe("challengesToCsv carries the ai module column", () => {
         {
           module: "ai",
           id: "a1",
+          title: "Guardrail bypass",
           solves: 1,
           attempts: 2,
           solveRate: 0.5,
@@ -653,6 +752,6 @@ describe("challengesToCsv carries the ai module column", () => {
       ],
     } as EventMetrics;
     const lines = challengesToCsv(metrics).trim().split("\n");
-    expect(lines[1]).toBe("ai,a1,1,2,0.5000,2.00,30");
+    expect(lines[1]).toBe("ai,a1,Guardrail bypass,1,2,0.5000,2.00,30");
   });
 });

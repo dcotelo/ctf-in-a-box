@@ -16,11 +16,16 @@
 
 import { useCallback, useState } from "react";
 import AdminLiveStamp from "./admin-live-stamp";
+import { moduleLabel } from "./vocabulary";
 import { SLOW_POLL_MS, useLivePoll } from "./use-live-poll";
 
 type ChallengeStat = {
   module: "quiz" | "classic" | "ai";
   id: string;
+  /** The organizer's own name for it. Null when the catalogue no longer holds
+   *  it — a challenge deleted after it was solved keeps its metrics — so every
+   *  render falls back to the id (metrics-store.ts, audit F7). */
+  title: string | null;
   solves: number;
   attempts: number;
   solveRate: number | null;
@@ -245,8 +250,15 @@ export default function AdminInsightsTab({
                 <tbody className="font-mono tabular-nums text-zinc-300">
                   {metrics.challenges.slice(0, 40).map((c) => (
                     <tr key={`${c.module}:${c.id}`} className="border-b border-white/[0.03]">
-                      <td className="py-1 pr-2 font-sans text-white">{c.id}</td>
-                      <td className="py-1 pr-2 font-sans text-muted">{c.module}</td>
+                      {/* Title over id, both present. The title is what an
+                          organizer reads out; the id is what a support
+                          question or a store key names, and is all there is
+                          for a challenge deleted since it was solved. */}
+                      <td className="py-1 pr-2 font-sans text-white">
+                        {c.title ?? c.id}
+                        {c.title && <span className="block font-mono text-xs text-muted">{c.id}</span>}
+                      </td>
+                      <td className="py-1 pr-2 font-sans text-muted">{moduleLabel(c.module)}</td>
                       <td className="py-1 pr-2 text-right">{c.solves}</td>
                       <td className="py-1 pr-2 text-right">{c.attempts}</td>
                       <td className="py-1 pr-2 text-right">{pct(c.solveRate)}</td>
@@ -272,7 +284,7 @@ export default function AdminInsightsTab({
               <Figure label="Quiz scorers" value={metrics.modules.quiz} />
               <Figure label="Classic scorers" value={metrics.modules.classic} />
               <Figure label="AI scorers" value={metrics.modules.ai} />
-              <Figure label="Sec-dev scorers" value={metrics.modules.secureDevelopment} />
+              <Figure label="Secure Development scorers" value={metrics.modules.secureDevelopment} />
               <Figure label="Hint buyers" value={metrics.hints.buyers} />
               <Figure label="Points spent on hints" value={metrics.hints.totalSpend} />
               <Figure

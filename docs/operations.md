@@ -445,7 +445,11 @@ The panel offers:
     from their first attempt to their solve*. Those last two are the difficulty
     signal solve rate alone hides: a challenge everyone eventually solved on
     their fourth attempt, forty minutes in, is harder than its 100% rate
-    suggests. **Download challenges CSV** exports the full table.
+    suggests. Each row is named by its **title** — the quiz question's prompt,
+    the challenge's title — with its generated id underneath, so the table can
+    be read out without decoding slugs; a challenge deleted since it was solved
+    keeps its metrics and shows its id alone. **Download challenges CSV**
+    exports the full table, `title` beside `id` rather than instead of it.
   - **Where attention went** — scorers per module, hint buyers and spend, and
     how many hints were bought *before* the buyer solved the thing. A hint
     bought afterwards bought nothing, so that split is the difference between
@@ -1391,7 +1395,9 @@ carries:
   end.** for the good case, or a red **Test result: `<name>`** for anything
   else, where `<name>` is the verdict or error string the route handed back
   (or `unavailable` when it handed back nothing readable — a 503, or the
-  request itself failing). Reading the result:
+  request itself failing). The panel now prints a one-sentence explanation
+  under that name for every verdict listed below, so the table here is a
+  reference rather than something to look up mid-event. Reading the result:
   - **`would-award`** (shown as the green line) — good: the dry run
     verified the whole pipeline end
     to end (signature, token, rate limit, team, schedule).
