@@ -24,6 +24,7 @@ import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import AdminSwitch from "@/components/admin-switch";
+import { FREEZE_HELP, freezeConfirm } from "./freeze-copy";
 import { moduleToggleConfirm, moduleToggleState, type ModuleToggleChoice } from "./module-toggle";
 import type { CommitNumber, ConfirmState } from "./types";
 
@@ -230,17 +231,13 @@ export default function AdminEventTab({
       <AdminSwitch
         id="event-paused"
         label="Freeze scoring"
-        help="Pause new submissions from being scored."
+        help={FREEZE_HELP}
         checked={settings.paused}
         disabled={pending}
         status={statusOf("paused")}
         onChange={(next) => {
           setConfirm({
-            title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-            body: next
-              ? "New submissions will stop being scored for everyone."
-              : "Scoring resumes for everyone.",
-            confirmLabel: next ? "Freeze" : "Unfreeze",
+            ...freezeConfirm(next),
             onConfirm: () => applyField("paused", { paused: next }, "Freeze scoring"),
           });
         }}
@@ -371,14 +368,48 @@ export default function AdminEventTab({
         </div>
       )}
 
+      {/* The archive is NOT in the danger zone below, and that is the point
+          (audit F13). Half of it — Export — is the safest control on this
+          screen: it reads, writes nothing, and is what an organizer runs
+          BEFORE anything risky. Painting it the same red as a wipe taught the
+          opposite. Import is the dangerous half, and it carries its own
+          staged confirmations inside AdminEventControls, which is where that
+          warning belongs. */}
+      <details className="group flex flex-col gap-3 rounded-md border border-white/10 bg-white/[0.02] p-4">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-white marker:content-none">
+          <span className="text-muted transition-transform group-open:rotate-90" aria-hidden="true">
+            ›
+          </span>
+          Event archive — export / import
+        </summary>
+        <p className="mt-2 text-sm text-muted">
+          Export the whole event — Classic, Quiz and AI content plus event policy settings — as one JSON file. Export
+          changes nothing; it is worth running before any of the actions below. Import replaces the event wholesale
+          from a previously exported file, which runs the same wipe as the master reset, and asks twice before it does.
+        </p>
+        <div className="mt-3">
+          <AdminEventControls showHeading={false} />
+        </div>
+      </details>
+
       <div className="flex flex-col gap-3 rounded-md border border-[#e53e3e]/30 bg-[#e53e3e]/[0.04] p-4">
         <div>
           <span className="text-[#e53e3e]">Danger zone</span>
           <span className="block text-sm text-muted">
-            Master reset wipes <strong>all</strong> event data — teams, points,
-            per-player data, and hint spend. It freezes scoring and can&apos;t be
-            undone. In poll mode, also clear the source PR comments for a wipe that
-            stays gone after you unfreeze.
+            Master reset wipes every contestant&apos;s <strong>progress</strong> —
+            teams, points, solves, attempts and hint spend — freezes scoring, and
+            cannot be undone. It <strong>keeps</strong> everything you authored:
+            quiz questions and their answer key, classic and AI challenges with
+            their flags, hints and categories, and every setting on this screen.
+            It does rotate the AI launch key, so an external challenge site has to
+            re-fetch it. Export the archive above first if you want a way back.
+          </span>
+          <span className="block text-sm text-muted">
+            Scores already ingested are gone, but their source is not: a scored PR
+            comment stays on GitHub, and in poll mode the poller reads those
+            comments again — so if this event ingests scores by polling
+            (<code>SCORE_INGEST=poll</code>), close or clear the source PRs too, or
+            the points come back when you unfreeze.
           </span>
         </div>
         <button
@@ -393,7 +424,10 @@ export default function AdminEventTab({
               body: (
                 <>
                   This permanently deletes every team, score, player record, and
-                  hint purchase, and freezes scoring. This cannot be undone.
+                  hint purchase, and freezes scoring. Your authored content —
+                  questions, challenges, flags, hints, categories — and every
+                  setting are kept. The AI launch key is rotated, so an external
+                  challenge site must re-fetch it. This cannot be undone.
                 </>
               ),
               onConfirm: () => doReset(eventConfig.name),
@@ -404,26 +438,6 @@ export default function AdminEventTab({
           Reset event data…
         </button>
         {resetInfo && <p className="text-sm text-[#22c55e]">{resetInfo}</p>}
-
-        {/* Whole-event archive export/import (issue: event-archive-bundle).
-            Lives inside the danger zone: an import is a replace-all that runs
-            the same wipe as the master reset above, so it belongs beside it
-            rather than as a neutral panel. Export is grouped with it as the
-            other half of the same archive control. Collapsed by default — a
-            rarely-used control that shouldn't crowd the reset button. */}
-        <details className="mt-1 border-t border-[#e53e3e]/20 pt-3">
-          <summary className="cursor-pointer list-none text-sm font-medium text-[#e53e3e] marker:content-none">
-            Event archive — export / import
-          </summary>
-          <p className="mt-1 text-sm text-muted">
-            Export the whole event — Classic and Quiz content plus event policy settings — as one JSON file, or
-            replace it wholesale from a previously exported file. An import is a full replace-all: it runs the same
-            wipe as the master reset above.
-          </p>
-          <div className="mt-3">
-            <AdminEventControls showHeading={false} />
-          </div>
-        </details>
       </div>
     </section>
   );
