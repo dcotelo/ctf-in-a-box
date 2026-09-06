@@ -23,6 +23,7 @@ import AdminAiIntegration, {
   confirmRotate,
   fetchAiTest,
   requestRotate,
+  testOutcomeTone,
   type AiIntegrationPanelProps,
 } from "@/components/admin-ai-integration";
 
@@ -444,6 +445,25 @@ describe("AiIntegrationPanel — Send test rendering", () => {
   it("a named rate-limited result names the slug", () => {
     const html = renderPanel({ testOutcome: { kind: "named", label: "rate-limited" } });
     expect(html).toContain("Test result: rate-limited");
+  });
+
+  // admin-redesign.md § Controls: green for solved / would-award, red only
+  // for a refused or failed test. "Test result: solved" used to be red.
+  it("colours a solve green and a refusal red", () => {
+    expect(testOutcomeTone({ kind: "award" })).toBe("good");
+    expect(testOutcomeTone({ kind: "named", label: "solved" })).toBe("good");
+    expect(testOutcomeTone({ kind: "named", label: "would-award" })).toBe("good");
+    expect(testOutcomeTone({ kind: "named", label: "would-refuse" })).toBe("bad");
+    expect(testOutcomeTone({ kind: "named", label: "unavailable" })).toBe("bad");
+    expect(renderPanel({ testOutcome: { kind: "named", label: "solved" } })).toMatch(/text-\[#22c55e\][^>]*>Test result: solved/);
+    expect(renderPanel({ testOutcome: { kind: "named", label: "would-refuse" } })).toMatch(/text-\[#e53e3e\][^>]*>Test result: would-refuse/);
+  });
+
+  it("styles Rotate amber, not red, and its confirm without the danger accent — rotating is recoverable", () => {
+    const html = renderPanel({ rotateConfirmOpen: true });
+    expect(html).toMatch(/<button[^>]*text-\[#d4a017\][^>]*>Rotate</);
+    expect(html).not.toMatch(/<button[^>]*text-\[#e53e3e\][^>]*>Rotate</);
+    expect(html).not.toContain("bg-[#e53e3e]");
   });
 
   it("Send test is disabled while `pending`", () => {
