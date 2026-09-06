@@ -45,6 +45,9 @@ function Figure({ label, value, warn }: { label: string; value: number; warn?: b
 export function moduleSummary(setup: ModuleSetupContent | undefined, inventory: ModuleInventory | undefined): string {
   if (!setup) return "enabled";
   const checkable = setup.steps.filter((s) => s.check);
+  // Nothing countable (secure-development: every step is provisioning done
+  // outside the panel) — there is no verdict to give, so none is given.
+  if (checkable.length === 0) return "enabled";
   const statuses = checkable.map((s) => setupStepStatus(s, inventory));
   // The counts arrive from each module's own panel after ITS mount-time
   // fetch settles (see `inventory` in admin-controls.tsx). Until then the

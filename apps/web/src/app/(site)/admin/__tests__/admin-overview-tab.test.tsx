@@ -107,6 +107,11 @@ describe("moduleSummary", () => {
     expect(moduleSummary(undefined, undefined)).toBe("enabled");
   });
 
+  it("says 'enabled' — no verdict — for a module whose steps are all uncountable provisioning", () => {
+    const provisioningOnly = { ...(setup as object), steps: [{ title: "Provision the org", where: "outside" }] } as never;
+    expect(moduleSummary(provisioningOnly, undefined)).toBe("enabled");
+  });
+
   it("says setup incomplete with no count while nothing has been authored", () => {
     expect(moduleSummary(setup, { items: 0 })).toBe("setup incomplete");
   });
