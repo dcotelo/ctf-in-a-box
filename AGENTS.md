@@ -105,6 +105,12 @@ scorer Dockerfile, `package.json` and lockfile, the entrypoints, the gate
 scripts and `scripts/lib/acceptance-lib.sh`, `patches/`, and the workflow
 files themselves.
 
+**registries** (KNOWN_MODULES / target lists must agree; no Docker):
+
+```sh
+node scripts/check-module-registries.mjs
+```
+
 ## CI
 
 `.github/workflows/ci.yml` has a `changes` job that path-filters which areas
