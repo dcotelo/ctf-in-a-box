@@ -10,7 +10,7 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import { ALL_MODULE_ROUTES, enabledModules, isModuleEnabled } from "@/lib/modules";
+import { ALL_MODULE_ROUTES, enabledModules, isModuleEnabled, moduleDefById } from "@/lib/modules";
 
 describe("module registry", () => {
   it("derives the enabled modules from config, in registry order", () => {
@@ -53,5 +53,46 @@ describe("module registry — negative enablement", () => {
 
     vi.doUnmock("@/lib/event-config");
     vi.resetModules();
+  });
+});
+
+// Issue #249: secure-development's contestant copy said that revealing a hint
+// costs points; classic's and ai's did not, though all three sell hints
+// through the same gate. On a classic- or ai-only event a contestant learned
+// the price only from the reveal button itself.
+describe("hint cost is stated wherever hints are sold", () => {
+  // Driven by `HintTarget` (hint-store.ts) rather than a list written out
+  // here: the modules that sell hints are secure-development (via its
+  // targets), classic and ai. A fourth one added to that union without this
+  // copy should fail here rather than ship silently.
+  const SELL_HINTS = ["secure-development", "classic", "ai"] as const;
+
+  /** The registry hands its copy builders a live-facts context; these strings
+   *  read only the target count. */
+  const RULES_CTX = { appCount: 1, appNames: ["DVWA"] } as never;
+
+  it.each(SELL_HINTS)("%s tells contestants that a hint deducts points, in both rules and terms", (id) => {
+    const mod = moduleDefById(id)!;
+    // `scoring` is optional on the copy types, so its presence is part of
+    // what is being asserted: a module that sells hints and ships no scoring
+    // copy at all fails here rather than passing on an empty string.
+    const rulesScoring = mod.rules!(RULES_CTX).scoring;
+    const termsScoring = mod.terms!(RULES_CTX).scoring;
+    expect(rulesScoring).toBeDefined();
+    expect(termsScoring).toBeDefined();
+    const rules = rulesScoring!.join(" ");
+    const terms = termsScoring!.join(" ");
+    expect(rules).toMatch(/hint/i);
+    expect(rules).toMatch(/deduct/i);
+    expect(terms).toMatch(/hint/i);
+    expect(terms).toMatch(/deduct/i);
+  });
+
+  it("says nothing of the sort for quiz, which sells no hints", () => {
+    // Not an oversight to fix later: quiz has no hints by design, so the
+    // sentence would be a lie there.
+    const mod = moduleDefById("quiz")!;
+    expect((mod.rules!(RULES_CTX).scoring ?? []).join(" ")).not.toMatch(/hint/i);
+    expect((mod.terms!(RULES_CTX).scoring ?? []).join(" ")).not.toMatch(/hint/i);
   });
 });
