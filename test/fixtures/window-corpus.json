@@ -1,0 +1,21 @@
+{
+  "_comment": "Differential corpus for outsideWindow(nowMs, startsAt, endsAt), duplicated verbatim in apps/web/src/lib/schedule-window.ts, scorer/src/store.js and sync/src/redis.js (AGENTS.md: change all three together). Each reader's test suite runs every row here against its own copy so a <-><= flip in one reader fails CI even if that reader's own hand-written cases miss it. S/E below are fixed instants: S = 2023-11-14T22:13:20.000Z, E = S + 1h.",
+  "cases": [
+    { "description": "no bounds: never outside", "nowMs": 1700000000000, "startsAt": null, "endsAt": null, "expected": false },
+    { "description": "1ms before start (no end): outside", "nowMs": 1699999999999, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": null, "expected": true },
+    { "description": "exactly at start boundary (no end): inside", "nowMs": 1700000000000, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": null, "expected": false },
+    { "description": "1ms after start boundary (no end): inside", "nowMs": 1700000000001, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": null, "expected": false },
+    { "description": "1ms before end boundary (no start): inside", "nowMs": 1700003599999, "startsAt": null, "endsAt": "2023-11-14T23:13:20.000Z", "expected": false },
+    { "description": "exactly at end boundary (no start): inside", "nowMs": 1700003600000, "startsAt": null, "endsAt": "2023-11-14T23:13:20.000Z", "expected": false },
+    { "description": "1ms after end boundary (no start): outside", "nowMs": 1700003600001, "startsAt": null, "endsAt": "2023-11-14T23:13:20.000Z", "expected": true },
+    { "description": "full window, well inside", "nowMs": 1700001800000, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": "2023-11-14T23:13:20.000Z", "expected": false },
+    { "description": "full window, 1ms before start: outside", "nowMs": 1699999999999, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": "2023-11-14T23:13:20.000Z", "expected": true },
+    { "description": "full window, exactly at start: inside", "nowMs": 1700000000000, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": "2023-11-14T23:13:20.000Z", "expected": false },
+    { "description": "full window, exactly at end: inside", "nowMs": 1700003600000, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": "2023-11-14T23:13:20.000Z", "expected": false },
+    { "description": "full window, 1ms after end: outside", "nowMs": 1700003600001, "startsAt": "2023-11-14T22:13:20.000Z", "endsAt": "2023-11-14T23:13:20.000Z", "expected": true },
+    { "description": "unparseable start ignored (no bound)", "nowMs": 1700000000000, "startsAt": "not-a-date", "endsAt": null, "expected": false },
+    { "description": "unparseable end ignored (no bound)", "nowMs": 1700000000000, "startsAt": null, "endsAt": "not-a-date", "expected": false },
+    { "description": "unparseable start and end both ignored", "nowMs": 1700000000000, "startsAt": "nope", "endsAt": "bad", "expected": false },
+    { "description": "empty-string bounds treated as absent, not as epoch 0", "nowMs": 1700000000000, "startsAt": "", "endsAt": "", "expected": false }
+  ]
+}

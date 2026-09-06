@@ -36,4 +36,7 @@ export type CommitNumber = (
     | "scoreCooldownMin",
   raw: string,
   reset: (v: string) => void,
+  /** The field's visible label — what a rejection is phrased through, so the
+   *  organizer reads "Hint cost must be…", not "hintCost must be…". */
+  label: string,
 ) => void;

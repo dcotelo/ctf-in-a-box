@@ -262,7 +262,12 @@ export const lambdaSource: LeaderboardSource = {
       team: null,
       teamName: null,
       points: entry.points,
-      maxPoints: 0,
+      // A module's ceiling is the sum of its targets' ceilings — the same
+      // aggregation mockSource does. This used to be a hardcoded 0 while
+      // `toAppProgress` was computing a real `maxPoints` per target from the
+      // catalogue, so /profile's secure-development header read "8 / 0 pts"
+      // (earned 8, available 0) beside target rows that summed to 668.
+      maxPoints: Object.values(entry.apps).reduce((n, app) => n + (app?.maxPoints ?? 0), 0),
       patched: entry.patched,
       failed: entry.failed,
       total: entry.total,

@@ -87,17 +87,16 @@ describe("an ai-only entry's expansion", () => {
 });
 
 describe("an ai-only team's expansion", () => {
-  it("shows the per-item Show-N list, and the module chip's noun is 'solved' (verb-slot parity with classic)", () => {
+  it("shows the per-item Show-N list, and the module row's noun is ai's own 'cleared'", () => {
     const html = renderToStaticMarkup(
       <TeamRow team={aiOnlyTeam()} topPoints={20} isOpen onToggle={() => {}} modules={[AI_MODULE, SD_MODULE]} />,
     );
     expect(html).toContain('data-testid="board-item-lists"');
-    // TeamRow's own completedNoun ternary, not module-detail's — the chip is
-    // a VERB slot ("N solved"), and ai solves are solves, so it takes the
-    // same word classic falls through to. module-detail's "challenges" is a
-    // different slot (the unit label) and is unaffected — see
-    // leaderboard-ai-only's EntryRow test above for that one.
-    expect(html).toMatch(/2\s*solved/);
-    expect(html).not.toMatch(/2\s*challenges/);
+    // TeamRow had a noun ternary of its own that fell through to "solved"
+    // for ai — the same word classic used, so a team that had played both
+    // read the same count twice. Every surface reads the shared map now,
+    // where ai's word is "cleared".
+    expect(html).toMatch(/cleared/);
+    expect(html).not.toMatch(/2\s*solved/);
   });
 });

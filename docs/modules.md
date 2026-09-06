@@ -316,20 +316,25 @@ expanded leaderboard row renders each enabled
 module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count, `classic`'s
-a solved/total count, and `ai`'s a solved/total count of its own — with the
+a solved/total count, and `ai`'s a cleared/total count of its own — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; `/profile` renders
 the same per-module blocks for the signed-in contestant's own progress,
-built off the same `ModuleDetail` renderer as the leaderboard rather than a
-second one — the page's headline total was already net and correct before
+built off the shared `components/progress/progress-row.tsx` — module, target
+and module-without-targets are all one row shape, each carrying its module's
+own unit word (`patched` / `answered` / `solved` / `cleared`, with `flags` as
+classic's verb on the team card) and a bar that measures POINTS at every
+level, since points are what the board ranks on. A module whose source
+reports no ceiling shows what was earned rather than an `N / 0 pts` fraction — the page's headline total was already net and correct before
 this, what it was missing was the per-module breakdown behind it; the admin
 panel
 (`app/(site)/admin/admin-controls.tsx`) is a tab shell — five control-plane
 tabs that belong to the platform itself (**Event**, **Admins**, **Support**,
 **Activity**, **Insights**), then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
-the four hint controls living in Secure
-Development's tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
+the four hint controls on the Event tab (they are event policy shared by
+every module that sells hints), Secure Development's re-run cooldown in its
+own tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
 question-authoring UI (`components/admin-quiz-controls.tsx`) in Quiz's,
 classic's submission-cooldown knob plus its full challenge/category
@@ -707,6 +712,34 @@ of one module's shape.
    they must keep doing so, and a module MUST NOT treat "the gate is up" as
    a reason to skip a check in its own API. See `docs/operations.md`'s
    "Known limitations" for the operator-facing note.
+
+9. **Setup instructions (organizer-facing, optional but expected).** A module
+   MAY contribute a `setup` block (`ModuleSetup` in
+   `apps/web/src/lib/modules.ts`), and every shipped module does. It is what
+   the module's `/admin` tab opens with, ahead of the identity editor and the
+   module's own knobs, and it answers, in this order: what contestants
+   experience in the module; the minimum an organizer must do before the
+   event, as an ordered checklist in dependency order; on every step, whether
+   it happens **in this panel** or **outside it** (`ctf-setup.sh`, the GitHub
+   org, `event.yaml`); what is safe to change mid-event and what is not; and
+   a link to the module's section of [operations.md](operations.md).
+
+   A step may declare a `check` naming a count the module's own admin panel
+   already holds — its items, or its categories — and the panel then shows
+   "3 questions" / "None yet" beside it instead of asking the organizer to
+   remember, and "Checking…" until the panel's list has actually loaded. A
+   step the panel cannot verify (a fork provisioned, an App installed)
+   declares no `check` and renders as a plain item. Do not fake one: an honest
+   static checklist beats a tick that lies.
+
+   It is a **function** of `OrgContext`, like `faq` and `terms`, because
+   `secure-development`'s checklist names the event's targets and GitHub org
+   — so it carries the same server-only contract: called in `/admin`'s page
+   (`getModuleSetup` in `resolved-modules.ts`), stripped from
+   `ResolvedModule`, and only its plain-data result reaches the client shell.
+   The shell (`admin-controls.tsx`) renders it through one shared component
+   (`components/admin-module-setup.tsx`) driven by the modules list, so a
+   fifth module gets its setup panel with no per-module code.
 
 ## Section 6. Security requirements (non-negotiable)
 

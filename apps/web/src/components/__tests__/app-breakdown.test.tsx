@@ -24,7 +24,11 @@ function entry(overrides: Partial<LeaderboardEntry>): LeaderboardEntry {
   };
 }
 
-const count = (html: string, needle: string) => html.split(needle).length - 1;
+// Counts the target's VISIBLE name only. The bar's aria-label carries the
+// name too ("DVWA: 1 of 2 patched"), which a raw substring count reads as a
+// second card — the duplication this file exists to catch is two rendered
+// labels, not a label plus its accessible name.
+const count = (html: string, needle: string) => html.split(`>${needle}<`).length - 1;
 
 describe("AppBreakdown", () => {
   it("renders a target with a challenge list ONCE — stats and list in one card", () => {
@@ -51,10 +55,13 @@ describe("AppBreakdown", () => {
     // The duplication this replaces rendered the name in the grid AND above
     // the list — exactly the regression a bare `toContain` cannot catch.
     expect(count(html, "DVWA")).toBe(1);
-    expect(html).toContain("1 / 2 patched");
+    expect(html).toContain("/ 2 patched");
     // The stats moved INTO the list card rather than being dropped.
     expect(html).toContain("/ 60 pts");
-    expect(html).toContain("Show 2 challenges");
+    // The target row IS the disclosure now — no separate "Show N challenges"
+    // toggle nested inside it.
+    expect(html).toContain("<details");
+    expect(html).toContain("SQL Injection (Low)");
   });
 
   it("keeps the compact grid for targets without a catalogue", () => {

@@ -20,27 +20,17 @@
 // missing strip — same fail-open posture as the submission gates.
 
 import { getAdminSettings } from "@/lib/admin-store";
-import { outsideWindow } from "@/lib/schedule-window";
+import { phaseBoundaryLabel, phaseFromSettings, PHASE_COLOR, type EventPhase, type PhaseResolution } from "./phase";
 
-export type EventPhase = "registration" | "live" | "frozen" | "results";
+// Re-exported so existing importers (phase-line.test.tsx) are unaffected by
+// the split — see phase.ts for why the logic itself lives there now.
+export { phaseBoundaryLabel, phaseFromSettings, PHASE_COLOR };
+export type { EventPhase, PhaseResolution };
 
-export async function resolvePhase(): Promise<{
-  phase: EventPhase;
-  startsAt: string | null;
-  endsAt: string | null;
-} | null> {
+export async function resolvePhase(): Promise<PhaseResolution | null> {
   try {
     const s = await getAdminSettings();
-    const now = Date.now();
-    const start = s.scoringStartsAt ? Date.parse(s.scoringStartsAt) : NaN;
-    const end = s.scoringEndsAt ? Date.parse(s.scoringEndsAt) : NaN;
-    let phase: EventPhase;
-    if (Number.isFinite(end) && now > end) phase = "results";
-    else if (s.paused) phase = "frozen";
-    else if (Number.isFinite(start) && now < start) phase = "registration";
-    else if (outsideWindow(now, s.scoringStartsAt, s.scoringEndsAt)) phase = "frozen";
-    else phase = "live";
-    return { phase, startsAt: s.scoringStartsAt, endsAt: s.scoringEndsAt };
+    return phaseFromSettings(s);
   } catch {
     return null;
   }
@@ -53,32 +43,6 @@ const STOPS: { id: EventPhase; label: string }[] = [
   { id: "results", label: "results" },
 ];
 
-/** The current phase's node/chip color: green while scoring runs, amber for
- *  a freeze, brand blue for the lobby, paper for the final state. */
-const PHASE_COLOR: Record<EventPhase, string> = {
-  registration: "#2563eb",
-  live: "#22c55e",
-  frozen: "#d4a017",
-  results: "#d4d4d8", // --foreground: the event's final, settled state
-
-};
-
-/** UTC pinned explicitly: this is a Server Component, so whatever the box's
- *  clock renders is what every visitor sees — an unlabeled server-local time
- *  would just be UTC wearing no badge. Saying "UTC" makes it honest. */
-function fmt(iso: string | null): string | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
-}
-
 export default async function PhaseLine() {
   const resolved = await resolvePhase();
   if (!resolved) return null;
@@ -89,17 +53,7 @@ export default async function PhaseLine() {
   const activeIn = stops.findIndex((s) => s.id === phase);
   const color = PHASE_COLOR[phase];
 
-  // One boundary time, attached to the CURRENT phase — the moment a visitor
-  // would actually plan around. (A manual freeze has no known end, so it
-  // makes no promise.)
-  const boundary =
-    phase === "registration" && fmt(startsAt)
-      ? `scoring opens ${fmt(startsAt)} UTC`
-      : phase === "live" && fmt(endsAt)
-        ? `until ${fmt(endsAt)} UTC`
-        : phase === "results" && fmt(endsAt)
-          ? `ended ${fmt(endsAt)} UTC`
-          : null;
+  const boundary = phaseBoundaryLabel(phase, startsAt, endsAt);
 
   return (
     <div className="border-b border-white/[0.09] bg-[#12121e]">

@@ -164,8 +164,9 @@ describe("AdminAiControls", () => {
       expect(html).toContain("AI");
       expect(html).toContain("Prompting");
       expect(html).toContain("Add category");
-      expect(html).toMatch(/Move up/);
-      expect(html).toMatch(/Move down/);
+      // Inline chips: move left/right.
+      expect(html).toContain('aria-label="Move &quot;AI&quot; left"');
+      expect(html).toContain('aria-label="Move &quot;Prompting&quot; right"');
       expect(html).toContain("Remove");
     });
 
@@ -522,7 +523,8 @@ describe("commitAiCooldown", () => {
   it("commits under the exact key aiCooldownSec", () => {
     const spy = vi.fn();
     commitAiCooldown(spy, "10", noop);
-    expect(spy).toHaveBeenCalledWith("aiCooldownSec", "10", noop);
+    // The label rides along so a rejection is phrased through it (F2).
+    expect(spy).toHaveBeenCalledWith("aiCooldownSec", "10", noop, "Submission cooldown (sec)");
   });
 });
 
@@ -663,5 +665,48 @@ describe("rotate and delete wire contract, proven against the real route", () =>
     expect(await res.json()).toEqual({ ok: true });
     expect(wireDeleteAiChallenge).toHaveBeenCalledWith(c1.id);
     expect(wireWriteAdminAudit).toHaveBeenCalledWith("alice", "ai-delete", { id: c1.id });
+  });
+});
+
+// Same report as classic's, for the same checklist (see `ModuleInventory` in
+// admin-module-setup.tsx).
+describe("aiInventory", () => {
+  it("counts challenges and categories separately", async () => {
+    const { aiInventory } = await import("@/components/admin-ai-controls");
+    expect(aiInventory([], ["Prompt Injection"])).toEqual({ items: 0, categories: 1 });
+  });
+});
+
+// UX audit F5: the module-wide endpoint URLs render ONCE above the list, and
+// each row's integration panel is collapsed until opened, so the list an
+// organizer scrolls to find a challenge is a list again.
+describe("AdminAiControls — density", () => {
+  it("renders the endpoint URLs once for the whole board, not once per row", async () => {
+    const { default: Controls } = await import("@/components/admin-ai-controls");
+    const html = renderToStaticMarkup(
+      <Controls pending={false} aiCooldownSecInput="" setAiCooldownSecInput={noop} commitNumber={noop} initialChallenges={[row1, row2]} initialCategories={["AI"]} />,
+    );
+    // The endpoints block is rendered ONCE for the board, so its content must
+    // not scale with the number of challenge rows. Asserting a fixed count
+    // would only pin today's block; asserting that one row and two rows print
+    // the same number pins the invariant the block exists for. (Each URL
+    // appears twice within the block itself: the copyable row, and again
+    // inside that endpoint's own demo request.)
+    const oneRow = renderToStaticMarkup(
+      <Controls pending={false} aiCooldownSecInput="" setAiCooldownSecInput={noop} commitNumber={noop} initialChallenges={[row1]} initialCategories={["AI"]} />,
+    );
+    const count = (s: string) => s.match(/\/api\/ai\/submit/g)?.length ?? 0;
+    expect(count(html)).toBe(count(oneRow));
+    expect(count(html)).toBeGreaterThan(0);
+    // Two rows: one integration disclosure and one ⋯ actions menu each, plus
+    // the board-level "Wiring the external site" drawer — all closed.
+    // Two rows: one integration disclosure and one ⋯ actions menu each, plus
+    // the board-level drawers — "Wiring the external site" and one demo per
+    // endpoint — all closed.
+    expect(html.match(/<details/g)?.length).toBe(8);
+    expect(html.match(/Wiring the external site/g)?.length).toBe(1);
+    expect(html.match(/what to send and what comes back/g)?.length).toBe(3);
+    expect(html.match(/Integration —/g)?.length).toBe(2);
+    expect(html).not.toContain("<details open");
   });
 });

@@ -13,8 +13,35 @@
 // folding it into the shared helper would make that helper mean two things.
 
 import { useEffect, useState } from "react";
+import ConfirmModal from "@/components/confirm-modal";
 
 type AdminRow = { login: string; baked: boolean };
+
+/** The confirmation for removing a runtime admin (audit F8).
+ *
+ *  Removing someone else used to fire on the click, with no gate at all: one
+ *  misclick and a colleague lost the panel mid-event. Removing YOURSELF was
+ *  gated — by `window.confirm`, the only native dialog in the panel, which
+ *  skipped the focus-managed styled dialog every other destructive action here
+ *  uses.
+ *
+ *  Both go through the same dialog now. The self-removal keeps its own
+ *  sentence, which was always the sharper one and names the consequence the
+ *  other admin deserves to have stated too.
+ *
+ *  No `requireType`: this is recoverable by any admin who still has access,
+ *  and the baked `event.yaml` set can never be removed here at all — it is the
+ *  lockout recovery path. Exported for direct testing. */
+export function adminRemoveConfirm(login: string, viewerLogin: string): { title: string; body: string; confirmLabel: string } {
+  const self = login.toLowerCase() === viewerLogin.toLowerCase();
+  return {
+    title: self ? "Remove your own admin access?" : `Remove ${login} as an admin?`,
+    body: self
+      ? "You will lose this panel immediately. Another admin — or anyone in event.yaml's baked list — can grant it back."
+      : `${login} loses access to this panel immediately. Nothing they have done is undone, and you can grant it back at any time.`,
+    confirmLabel: "Remove admin",
+  };
+}
 
 export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string }) {
   const [rows, setRows] = useState<AdminRow[] | null>(null);
@@ -22,6 +49,8 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The login awaiting a removal confirmation, or null. */
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
   // The one legitimate effect here: fetch the current list once, on mount.
   // Every setState is inside a promise callback, never in the effect body —
@@ -121,7 +150,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             <li key={row.login} className="flex items-center justify-between gap-3 py-1">
               <span className="font-mono text-sm text-zinc-200">
                 {row.login}
-                <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs uppercase text-zinc-400">
                   event.yaml
                 </span>
               </span>
@@ -137,15 +166,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => {
-                  if (
-                    row.login === viewerLogin.toLowerCase() &&
-                    !window.confirm("Remove your own admin access? You will lose this panel immediately.")
-                  ) {
-                    return;
-                  }
-                  void mutate("DELETE", row.login);
-                }}
+                onClick={() => setRemoveTarget(row.login)}
                 className="rounded-md border border-white/10 px-2 py-1 font-mono text-xs text-zinc-400 transition-colors hover:border-[#e53e3e]/50 hover:text-[#e53e3e] disabled:opacity-40"
               >
                 Remove
@@ -158,6 +179,20 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
           {rows === null && !error && <li className="py-1 text-sm text-zinc-500">Loading…</li>}
         </ul>
       </div>
+
+      {removeTarget !== null && (
+        <ConfirmModal
+          {...adminRemoveConfirm(removeTarget, viewerLogin)}
+          danger
+          pending={pending}
+          onConfirm={() => {
+            const login = removeTarget;
+            setRemoveTarget(null);
+            void mutate("DELETE", login);
+          }}
+          onCancel={() => setRemoveTarget(null)}
+        />
+      )}
     </section>
   );
 }

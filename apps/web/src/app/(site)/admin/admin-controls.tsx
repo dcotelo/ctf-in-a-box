@@ -2,10 +2,13 @@
 
 // The organizer admin page's control surface: a tab shell. One "Event" tab
 // for the control-plane settings that belong to the platform itself (freeze,
-// scoring/registration windows, demo seed, master reset), then one tab per
-// entry in the resolved `modules` prop, labelled with the organizer's own
-// title for that module. A module's knobs — the hint toggle, cost and gating
-// live under Secure Development — therefore exist iff that module is enabled.
+// scoring/registration windows, the hint policy, demo seed, master reset),
+// then one tab per entry in the resolved `modules` prop, labelled with the
+// organizer's own title for that module. A module's own knobs — the re-run
+// cooldown under Secure Development, the retry gate under Quiz — therefore
+// exist iff that module is enabled. The hint policy is deliberately NOT one
+// of those: three modules sell hints through the same four settings, so it
+// sits on Event, where it is reachable whatever the event enables.
 //
 // This component owns ALL the settings state (`settings`, the draft input
 // strings, `pending`, `error`, `confirm`) plus the `apply`/`commitNumber`
@@ -26,23 +29,36 @@
 // `tabIndex`, `aria-selected`/`aria-controls`/`aria-labelledby` wiring, and
 // ArrowLeft/ArrowRight/Home/End movement with wraparound.
 
-import { useEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { nextScheduleBoundary } from "@/lib/schedule-window";
-import { ALL_MODULE_IDS, bakedModuleIds, moduleDefById, type ModuleId, type ResolvedModule } from "@/lib/modules";
+import { phaseFromSettings } from "@/components/phase";
+import {
+  ALL_MODULE_IDS,
+  bakedModuleIds,
+  moduleDefById,
+  type ModuleSetupContent,
+  type ResolvedModule,
+} from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
+import type { ModuleInventory } from "@/components/admin-module-setup";
+import { describeFieldError, parseNumberCommit, type FieldStatus } from "@/components/admin-number-field";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAiControls from "@/components/admin-ai-controls";
+import type { SyncStatus } from "@/lib/admin-store";
+import AdminSidebar, { type SidebarGroup } from "./admin-sidebar";
+import AdminOverviewTab from "./admin-overview-tab";
 import AdminAdminsTab from "./admin-admins-tab";
 import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
+import AdminHintsTab from "./admin-hints-tab";
+import AdminSettingsCard from "@/components/admin/settings-card";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
-import AdminModuleIdentity from "./admin-module-identity";
+import AdminModulePanel from "./admin-module-panel";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // Registry defaults (displayName/description) keyed by id, for the identity
@@ -79,9 +95,63 @@ const MODULE_CHOICES: readonly ModuleChoice[] = ALL_MODULE_IDS.map((id) => ({
   reason: id === "secure-development" ? "Configured at setup — it needs its scorer, its sync poller and its provisioned forks." : undefined,
 }));
 
+/** The canonical URL for a tab. One builder, used by the sidebar's `href`,
+ *  by the pushState that follows a click, and by the tests — so the link an
+ *  organizer copies and the panel they are looking at cannot disagree. */
+export function adminTabHref(id: string): string {
+  return `/admin/${id}`;
+}
+
+/** Which tab a URL names, given its two possible sources: the `/admin/<tab>`
+ *  path segment and the `?tab=` of the older form. ONE rule, used by both
+ *  routes on the server and by the popstate handler on the client — the
+ *  alternative is `/admin/overview?tab=admins` opening different panels
+ *  depending on whether you loaded it or navigated to it.
+ *
+ *  An explicit `?tab=` wins: it is the more specific of the two, and it is
+ *  what an old bookmark or doc link carries. Repeated `?tab=` values are
+ *  treated as absent rather than picking one — a request that says two
+ *  different things has said nothing usable, and falling through to the path
+ *  (or Overview) beats guessing.
+ *
+ *  Returns "" when neither names a tab; the caller reads that as Overview. */
+export function resolveAdminTab(pathTab: string | undefined, tabQuery: string | string[] | undefined): string {
+  // Counted BEFORE empties are dropped: `?tab=&tab=admins` supplied the
+  // parameter twice, so it is unusable by the rule above even though only one
+  // half carries a value. Filtering first would have quietly picked `admins`.
+  const values = Array.isArray(tabQuery) ? tabQuery : tabQuery == null ? [] : [tabQuery];
+  if (values.length === 1 && values[0]) return values[0];
+  return pathTab ?? "";
+}
+
+/** `resolveAdminTab` for a browser location — what the popstate handler has.
+ *  Decoding is guarded: history can hold `/admin/%`, and a throwing
+ *  `decodeURIComponent` there would leave the panel out of step with the URL
+ *  instead of falling back to Overview. */
+export function tabFromLocation(pathname: string, search: string): string {
+  const match = /^\/admin\/([^/?#]+)/.exec(pathname);
+  let pathTab: string | undefined;
+  if (match) {
+    try {
+      pathTab = decodeURIComponent(match[1]);
+    } catch {
+      pathTab = undefined;
+    }
+  }
+  return resolveAdminTab(pathTab, new URLSearchParams(search).getAll("tab"));
+}
+
+// The landing destination (admin-redesign.md PR 1): "is scoring on, how many
+// teams, is anything stuck" answered in one screen rather than three tabs.
+// Also the fallback for a deep link this shell doesn't recognise — a stale
+// bookmark or a typo lands an organizer somewhere real, not on nothing.
+const OVERVIEW_TAB = "overview";
 /** The always-present control-plane tab. Module tabs follow it, in the order
  *  the event config lists them. */
 const EVENT_TAB = "event";
+// The hint policy's own destination (admin-redesign.md's Event/Hints/Admins
+// split) — see admin-hints-tab.tsx for why it isn't a module's or Event's.
+const HINTS_TAB = "hints";
 /** Runtime admin management (issue #147). Sits beside Event rather than
  *  inside it: it manages WHO may use the panel, not what the event does. */
 const ADMINS_TAB = "admins";
@@ -140,8 +210,10 @@ export default function AdminControls({
   initial,
   demoMode = false,
   modules,
+  setups,
   initialTab,
   viewerLogin,
+  sync = null,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -149,16 +221,27 @@ export default function AdminControls({
    *  lib/resolved-modules.ts). Render `title` — a `ResolvedModule` has no
    *  `displayName`, by design. */
   modules: readonly ResolvedModule[];
+  /** Each module's setup checklist, keyed by module id — the registry's
+   *  `setup` block already CALLED server-side (page.tsx), so only plain data
+   *  crosses into this Client Component. A module with no block is simply
+   *  absent and renders no setup panel. */
+  setups?: Partial<Record<string, ModuleSetupContent>>;
   /** Which tab to open on arrival, from `/admin?tab=<module id>`. Anything
    *  this shell doesn't recognise — a typo, or a module this event didn't
-   *  enable — falls back to Event rather than opening nothing. Resolved on
-   *  the server (see page.tsx) so the first render already has the right
+   *  enable — falls back to Overview rather than opening nothing. Resolved
+   *  on the server (see page.tsx) so the first render already has the right
    *  panel open; the organizer never sees it flip. */
   initialTab?: string;
   /** The signed-in organizer's GitHub login, from the same `requireAdmin`
    *  gate that rendered this page. The Admins tab uses it to warn before
    *  someone revokes their own access. */
   viewerLogin: string;
+  /** The poller's own heartbeat — page.tsx already fetches this for the old
+   *  Status card; Overview folds it into its "Sync" line instead. `null`
+   *  when no poller has ever reported in (poll mode not configured, or push
+   *  mode, which has no poller at all) — the default for callers (most
+   *  tests) that don't care about it. */
+  sync?: SyncStatus | null;
 }) {
   const [settings, setSettings] = useState(initial);
   // The "now" the Event tab's schedule readout is evaluated at (epoch ms).
@@ -210,8 +293,38 @@ export default function AdminControls({
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [resetInfo, setResetInfo] = useState<string | null>(null);
 
+  // What each module's list panel has reported about its own content (how
+  // many questions/challenges/categories exist), so the setup checklist above
+  // it can show "3 questions" instead of asking the organizer to remember.
+  // The panels are the source of truth — they hold the live lists — and they
+  // report AFTER their mount-time fetch settles, so a module absent from this
+  // map is "not yet known", never "empty". Equal reports bail out without a
+  // state change: a panel re-reports on every list change, and a fresh object
+  // for the same numbers would otherwise re-render the whole shell for
+  // nothing.
+  const [inventory, setInventory] = useState<Record<string, ModuleInventory>>({});
+  const reportInventory = useCallback((id: string, next: ModuleInventory) => {
+    setInventory((prev) => {
+      const cur = prev[id];
+      if (cur && cur.items === next.items && cur.categories === next.categories) return prev;
+      return { ...prev, [id]: next };
+    });
+  }, []);
+  // One stable callback per module, so a panel's report effect (keyed on the
+  // callback) does not re-fire on every shell render.
+  const inventoryReporters = useMemo(
+    () =>
+      Object.fromEntries(modules.map((mod) => [mod.id, (next: ModuleInventory) => reportInventory(mod.id, next)])) as Record<
+        string,
+        (next: ModuleInventory) => void
+      >,
+    [modules, reportInventory],
+  );
+
   const tabs = [
+    { id: OVERVIEW_TAB, label: "Overview" },
     { id: EVENT_TAB, label: "Event" },
+    { id: HINTS_TAB, label: "Hints" },
     { id: ADMINS_TAB, label: "Admins" },
     { id: SUPPORT_TAB, label: "Support" },
     { id: ACTIVITY_TAB, label: "Activity" },
@@ -219,26 +332,56 @@ export default function AdminControls({
     ...modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
   ];
   const [active, setActive] = useState<string>(
-    tabs.some((t) => t.id === initialTab) ? (initialTab as string) : EVENT_TAB,
+    tabs.some((t) => t.id === initialTab) ? (initialTab as string) : OVERVIEW_TAB,
   );
-  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  /** WAI-ARIA tabs keyboard model, automatic activation: moving focus moves
-   *  the selection, so an organizer arrowing across the strip sees each panel
-   *  without a second keystroke. Left/Right wrap; Home/End jump to the ends. */
-  const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const last = tabs.length - 1;
-    let next: number;
-    if (e.key === "ArrowRight") next = index === last ? 0 : index + 1;
-    else if (e.key === "ArrowLeft") next = index === 0 ? last : index - 1;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = last;
-    else return;
-    e.preventDefault();
-    const id = tabs[next].id;
+  // Switching tabs is client-side state (instant, no server round-trip), so
+  // the address bar has to be told about it — otherwise the panel shows
+  // Activity while the URL still reads /admin/overview, and an organizer
+  // pasting "the link I'm looking at" sends the wrong screen. pushState keeps
+  // the two in step and leaves a real history entry, so Back walks the tabs.
+  const selectTab = useCallback((id: string) => {
     setActive(id);
-    tabRefs.current[id]?.focus();
-  };
+    window.history.pushState(null, "", adminTabHref(id));
+  }, []);
+
+  // …and Back/Forward has to move the panel, not just the URL.
+  const tabIds = tabs.map((t) => t.id).join(",");
+  useEffect(() => {
+    const onPop = () => {
+      const id = tabFromLocation(window.location.pathname, window.location.search);
+      setActive(tabIds.split(",").includes(id) ? id : OVERVIEW_TAB);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [tabIds]);
+
+  // The sidebar's three groups (admin-redesign.md). CONTENT is every enabled
+  // module, in the order `modules` lists them — the same order the flat tab
+  // row used.
+  const sidebarGroups: readonly SidebarGroup[] = [
+    {
+      heading: "Run",
+      items: [
+        { id: OVERVIEW_TAB, label: "Overview" },
+        { id: ACTIVITY_TAB, label: "Activity" },
+        { id: INSIGHTS_TAB, label: "Insights" },
+        { id: SUPPORT_TAB, label: "Support" },
+      ],
+    },
+    {
+      heading: "Content",
+      items: modules.map((mod) => ({ id: mod.id as string, label: mod.title })),
+    },
+    {
+      heading: "Setup",
+      items: [
+        { id: EVENT_TAB, label: "Event" },
+        { id: HINTS_TAB, label: "Hints" },
+        { id: ADMINS_TAB, label: "Admins" },
+      ],
+    },
+  ];
 
   const runConfirm = async () => {
     if (!confirm) return;
@@ -296,6 +439,22 @@ export default function AdminControls({
     );
   };
 
+  /** Re-seeds every numeric draft string from the settings the server just
+   *  confirmed, so what the fields show is what is stored. */
+  const syncInputs = (s: AdminSettings) => {
+    setSettings(s);
+    setSettingsAt(Date.now());
+    setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
+    setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
+    setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
+    setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
+    setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
+    setClassicCooldownSecInput(s.classicCooldownSec === null ? "" : String(s.classicCooldownSec));
+    setAiCooldownSecInput(s.aiCooldownSec === null ? "" : String(s.aiCooldownSec));
+    setTeamMaxMembersInput(s.teamMaxMembers === null ? "" : String(s.teamMaxMembers));
+    setCooldownInput(s.scoreCooldownMin === null ? "" : String(s.scoreCooldownMin));
+  };
+
   /** Returns whether the patch was accepted, so a caller with its own local
    *  draft state (AdminModuleIdentity) can snap back on rejection instead of
    *  leaving rejected text sitting in the field. Every tab's `apply` prop
@@ -303,174 +462,271 @@ export default function AdminControls({
    *  assignable to `Promise<void>` just because `T` goes unused — that's
    *  only true for a bare `void`-returning function type, not one nested
    *  inside a generic); callers that only need fire-and-forget keep calling
-   *  it exactly the same way (`void apply(...)`), just ignoring the result. */
+   *  it exactly the same way (`void apply(...)`), just ignoring the result.
+   *
+   *  This is the path for writes that have no field of their own to report
+   *  into — the toggles, the module switches — so a failure lands on the
+   *  panel-wide error line. A write that belongs to one field goes through
+   *  `applyField` below, which reports beside that field instead. */
   const apply = async (patch: Record<string, unknown>): Promise<boolean> => {
     setPending(true);
     setError(null);
-    const result = await postSettings(patch);
-    if (result.error) {
-      setError(result.error);
-      setPending(false);
+    try {
+      const result = await postSettings(patch);
+      if (result.error) {
+        setError(result.error);
+        return false;
+      }
+      if (result.settings) syncInputs(result.settings);
+      return true;
+    } catch {
+      // A network-level failure (fetch itself rejected) must not leave the
+      // whole panel disabled behind a `pending` that never clears.
+      setError("Couldn't reach the server — try again.");
       return false;
+    } finally {
+      setPending(false);
     }
-    if (result.settings) {
-      const s = result.settings;
-      setSettings(s);
-      setSettingsAt(Date.now());
-      setHintCostInput(s.hintCost === null ? "" : String(s.hintCost));
-      setMinSolvesInput(s.hintsMinSolves === null ? "" : String(s.hintsMinSolves));
-      setUnlockAfterInput(s.hintsUnlockAfterMin === null ? "" : String(s.hintsUnlockAfterMin));
-      setQuizMaxAttemptsInput(s.quizMaxAttempts === null ? "" : String(s.quizMaxAttempts));
-      setQuizRetryAfterInput(s.quizRetryAfterMin === null ? "" : String(s.quizRetryAfterMin));
-      setClassicCooldownSecInput(s.classicCooldownSec === null ? "" : String(s.classicCooldownSec));
-      setAiCooldownSecInput(s.aiCooldownSec === null ? "" : String(s.aiCooldownSec));
-    }
-    setPending(false);
-    return true;
   };
 
-  /** Shared commit for the numeric knobs (hint + quiz): junk snaps back to the
-   *  stored value, an unchanged value is a no-op, otherwise it's patched
-   *  server-side (which re-validates the range — see admin-store). */
+  // Per-field save status (UX audit F2). Keyed by the stored setting key —
+  // the same key the patch carries — and read by the field that owns it, so
+  // an organizer sees "Saving…", "Saved" or the reason for a refusal beside
+  // the box they typed in, never only on a line under the whole panel.
+  // "Saved" is transient: it clears itself after a moment unless a newer
+  // status has replaced it.
+  const [fieldStatus, setFieldStatus] = useState<Record<string, FieldStatus>>({});
+  const setStatus = useCallback((key: string, status: FieldStatus) => {
+    setFieldStatus((prev) => ({ ...prev, [key]: status }));
+  }, []);
+  const flashSaved = useCallback(
+    (key: string) => {
+      setStatus(key, { state: "saved" });
+      setTimeout(() => {
+        setFieldStatus((prev) => (prev[key]?.state === "saved" ? { ...prev, [key]: { state: "idle" } } : prev));
+      }, 2500);
+    },
+    [setStatus],
+  );
+
+  /** A write that belongs to ONE field. Same POST as `apply`, but the outcome
+   *  is reported into `fieldStatus[key]` — pending, then saved or rejected
+   *  with the server's message rewritten through `label` — and never onto the
+   *  panel-wide error line. Returns whether it was accepted, like `apply`, so
+   *  a caller can snap its draft back. */
+  const applyField = async (key: string, patch: Record<string, unknown>, label: string): Promise<boolean> => {
+    setPending(true);
+    setStatus(key, { state: "pending" });
+    try {
+      const result = await postSettings(patch);
+      if (result.error) {
+        setStatus(key, { state: "rejected", message: describeFieldError(label, result.error) });
+        return false;
+      }
+      if (result.settings) syncInputs(result.settings);
+      flashSaved(key);
+      return true;
+    } catch {
+      // Same as `apply`: a fetch that rejects outright must still release
+      // `pending` and tell the field why nothing saved.
+      setStatus(key, { state: "rejected", message: `${label} could not be saved: couldn't reach the server — try again.` });
+      return false;
+    } finally {
+      setPending(false);
+    }
+  };
+
+  /** Shared commit for the numeric knobs: a no-op when unchanged; junk, a
+   *  fraction, a negative or a blanked field snaps back to the stored value
+   *  WITH the reason shown beside the field; otherwise the value is posted
+   *  through `applyField`, which re-validates server-side (admin-store) and
+   *  snaps the draft back if that refuses. The decision itself is the pure
+   *  `parseNumberCommit`, so it is tested without a DOM. */
   // Typed as the shared `CommitNumber` rather than repeating its key union
   // here. The inline copy had already drifted once by the time a seventh key
   // was added, and a mismatch shows up as a type error at the call site rather
   // than anywhere near the cause.
-  const commitNumber: CommitNumber = (key, raw, reset) => {
+  const commitNumber: CommitNumber = (key, raw, reset, label) => {
     const current = settings[key];
-    const value = Number(raw);
-    if (raw.trim() === "" || !Number.isInteger(value) || value < 0) {
+    const decision = parseNumberCommit(raw, current);
+    if (decision.kind === "noop") return;
+    if (decision.kind === "snapback") {
       reset(current === null ? "" : String(current));
+      setStatus(key, { state: "rejected", message: decision.message });
       return;
     }
-    if (value === current) return;
-    void apply({ [key]: value });
+    void applyField(key, { [key]: decision.value }, label).then((ok) => {
+      if (!ok) reset(current === null ? "" : String(current));
+    });
   };
+  const statusOf = (key: string): FieldStatus => fieldStatus[key] ?? { state: "idle" };
+
+  // Whether the live views (Overview, Activity, Insights) keep polling — see
+  // use-live-poll.ts. Evaluated at `settingsAt`, which the boundary timer
+  // above re-stamps when a scheduled window opens or closes, so the loop
+  // starts and stops with the phase without a page reload.
+  const eventLive = phaseFromSettings(settings, settingsAt).phase === "live";
+
+  // The enabled set as the module switches see it (Event's rows and each
+  // module panel's header): the runtime set, or the baked one when no
+  // override is stored. `liveModuleCount` is counted over every registry
+  // module, toggleable or not — see module-toggle.ts.
+  const liveModuleIds: readonly string[] = settings.enabledModuleIds ?? bakedModuleIds;
+  const liveModuleCount = MODULE_CHOICES.filter((m) => liveModuleIds.includes(m.id)).length;
 
   return (
-    <div className="ds-card flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Controls</h2>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <AdminSidebar groups={sidebarGroups} active={active} onSelect={selectTab} />
 
-      <div role="tablist" aria-label="Admin controls" className="flex flex-wrap gap-1 border-b border-white/[0.06]">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`tab-${tab.id}`}
-            aria-selected={active === tab.id}
-            aria-controls={`panel-${tab.id}`}
-            tabIndex={active === tab.id ? 0 : -1}
-            ref={(el) => {
-              tabRefs.current[tab.id] = el;
-            }}
-            onClick={() => setActive(tab.id)}
-            onKeyDown={(e) => onTabKeyDown(e, index)}
-            className={
-              active === tab.id
-                ? "-mb-px rounded-t-md border-b-2 border-[#2563eb]/70 px-3 py-2 text-sm font-medium text-white"
-                : "-mb-px rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200"
-            }
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          role="tabpanel"
-          id={`panel-${tab.id}`}
-          aria-labelledby={`tab-${tab.id}`}
-          hidden={active !== tab.id}
-        >
-          {tab.id === EVENT_TAB ? (
-            <AdminEventTab
-              settings={settings}
-              pending={pending}
-              demoMode={demoMode}
-              resetInfo={resetInfo}
-              apply={apply}
-              setConfirm={setConfirm}
-              doReset={doReset}
-              doSeed={doSeed}
-              teamMaxMembersInput={teamMaxMembersInput}
-              setTeamMaxMembersInput={setTeamMaxMembersInput}
-              commitNumber={commitNumber}
-              moduleChoices={MODULE_CHOICES}
-              liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
-              nowMs={settingsAt}
-            />
-          ) : tab.id === ADMINS_TAB ? (
-            <AdminAdminsTab viewerLogin={viewerLogin} />
-          ) : tab.id === SUPPORT_TAB ? (
-            <AdminSupportTab setConfirm={setConfirm} />
-          ) : tab.id === ACTIVITY_TAB ? (
-            <AdminActivityTab />
-          ) : tab.id === INSIGHTS_TAB ? (
-            <AdminInsightsTab />
-          ) : (
-            <section className="flex flex-col gap-4">
-              <AdminModuleIdentity
-                moduleId={tab.id}
-                defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
-                override={settings.moduleOverrides[tab.id as ModuleId]}
-                pending={pending}
-                apply={apply}
-              />
-              {tab.id === "secure-development" ? (
-                <AdminSecureDevTab
+        <div className="min-w-0 flex-1">
+          {tabs.map((tab) => (
+            <div key={tab.id} role="region" id={`panel-${tab.id}`} aria-label={tab.label} hidden={active !== tab.id}>
+              {tab.id === OVERVIEW_TAB ? (
+                <AdminOverviewTab
                   settings={settings}
                   pending={pending}
-                  apply={apply}
+                  applyField={applyField}
+                  statusOf={statusOf}
+                  setConfirm={setConfirm}
+                  nowMs={settingsAt}
+                  sync={sync}
+                  modules={modules}
+                  setups={setups}
+                  inventory={inventory}
+                  onNavigate={setActive}
+                  visible={active === OVERVIEW_TAB}
+                />
+              ) : tab.id === EVENT_TAB ? (
+                <AdminEventTab
+                  settings={settings}
+                  pending={pending}
+                  demoMode={demoMode}
+                  resetInfo={resetInfo}
+                  applyField={applyField}
+                  statusOf={statusOf}
+                  setConfirm={setConfirm}
+                  doReset={doReset}
+                  doSeed={doSeed}
+                  teamMaxMembersInput={teamMaxMembersInput}
+                  setTeamMaxMembersInput={setTeamMaxMembersInput}
+                  commitNumber={commitNumber}
+                  moduleChoices={MODULE_CHOICES}
+                  liveModuleIds={liveModuleIds}
+                  nowMs={settingsAt}
+                />
+              ) : tab.id === HINTS_TAB ? (
+                <AdminHintsTab
+                  settings={settings}
+                  pending={pending}
+                  applyField={applyField}
+                  statusOf={statusOf}
+                  commitNumber={commitNumber}
                   hintCostInput={hintCostInput}
                   setHintCostInput={setHintCostInput}
                   minSolvesInput={minSolvesInput}
                   setMinSolvesInput={setMinSolvesInput}
                   unlockAfterInput={unlockAfterInput}
                   setUnlockAfterInput={setUnlockAfterInput}
-                  commitNumber={commitNumber}
-                  cooldownInput={cooldownInput}
-                  setCooldownInput={setCooldownInput}
                 />
-              ) : tab.id === "quiz" ? (
-                <AdminQuizControls
-                  pending={pending}
-                  quizMaxAttemptsInput={quizMaxAttemptsInput}
-                  setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
-                  quizRetryAfterInput={quizRetryAfterInput}
-                  setQuizRetryAfterInput={setQuizRetryAfterInput}
-                  commitNumber={commitNumber}
-                />
-              ) : tab.id === "classic" ? (
-                <AdminClassicControls
-                  pending={pending}
-                  classicCooldownSecInput={classicCooldownSecInput}
-                  setClassicCooldownSecInput={setClassicCooldownSecInput}
-                  commitNumber={commitNumber}
-                />
-              ) : tab.id === "ai" ? (
-                <AdminAiControls
-                  pending={pending}
-                  aiCooldownSecInput={aiCooldownSecInput}
-                  setAiCooldownSecInput={setAiCooldownSecInput}
-                  commitNumber={commitNumber}
-                />
+              ) : tab.id === ADMINS_TAB ? (
+                <AdminAdminsTab viewerLogin={viewerLogin} />
+              ) : tab.id === SUPPORT_TAB ? (
+                <AdminSupportTab setConfirm={setConfirm} />
+              ) : tab.id === ACTIVITY_TAB ? (
+                <AdminActivityTab visible={active === ACTIVITY_TAB} live={eventLive} />
+              ) : tab.id === INSIGHTS_TAB ? (
+                <AdminInsightsTab visible={active === INSIGHTS_TAB} live={eventLive} />
               ) : (
-                <p className="text-xs text-muted">No settings for this module yet.</p>
+                // The module's Content screen: header + switch, setup status,
+                // identity, then the module's own knobs and lists (below). The
+                // panel is driven by the `setups` map and the modules list —
+                // no per-module branch, so a fifth module gets its screen for
+                // free; only the controls inside it are module-specific.
+                <AdminModulePanel
+                  mod={modules.find((m) => m.id === tab.id)!}
+                  choice={MODULE_CHOICES.find((c) => c.id === tab.id) ?? { id: tab.id, label: tab.label, toggleable: true }}
+                  liveModuleIds={liveModuleIds}
+                  liveCount={liveModuleCount}
+                  setup={setups?.[tab.id]}
+                  inventory={inventory[tab.id]}
+                  defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
+                  settings={settings}
+                  pending={pending}
+                  apply={apply}
+                  applyField={applyField}
+                  statusOf={statusOf}
+                  setConfirm={setConfirm}
+                  sellsHints={tab.id !== "quiz"}
+                  onNavigateHints={() => setActive(HINTS_TAB)}
+                >
+                  {(moduleSettings) =>
+                    tab.id === "secure-development" ? (
+                      <AdminSecureDevTab
+                        settings={settings}
+                        pending={pending}
+                        apply={apply}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        cooldownInput={cooldownInput}
+                        setCooldownInput={setCooldownInput}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : tab.id === "quiz" ? (
+                      <AdminQuizControls
+                        pending={pending}
+                        quizMaxAttemptsInput={quizMaxAttemptsInput}
+                        setQuizMaxAttemptsInput={setQuizMaxAttemptsInput}
+                        quizRetryAfterInput={quizRetryAfterInput}
+                        setQuizRetryAfterInput={setQuizRetryAfterInput}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        onInventory={inventoryReporters[tab.id]}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : tab.id === "classic" ? (
+                      <AdminClassicControls
+                        pending={pending}
+                        classicCooldownSecInput={classicCooldownSecInput}
+                        setClassicCooldownSecInput={setClassicCooldownSecInput}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        onInventory={inventoryReporters[tab.id]}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : tab.id === "ai" ? (
+                      <AdminAiControls
+                        pending={pending}
+                        aiCooldownSecInput={aiCooldownSecInput}
+                        setAiCooldownSecInput={setAiCooldownSecInput}
+                        commitNumber={commitNumber}
+                        statusOf={statusOf}
+                        onInventory={inventoryReporters[tab.id]}
+                        moduleSettings={moduleSettings}
+                      />
+                    ) : (
+                      <>
+                        <AdminSettingsCard identity={moduleSettings.identity} onHints={moduleSettings.onHints} />
+                        <p className="text-sm text-muted">No settings for this module yet.</p>
+                      </>
+                    )
+                  }
+                </AdminModulePanel>
               )}
-            </section>
-          )}
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
 
-      {settings.updatedBy && settings.updatedAt && (
-        <p className="text-xs text-muted">
+      {/* The settings audit line. Not under Activity or Insights: neither
+          changes a setting, so "last changed by" under a table of solves reads
+          as a claim about the table (admin-redesign.md § Activity, Insights). */}
+      {settings.updatedBy && settings.updatedAt && active !== ACTIVITY_TAB && active !== INSIGHTS_TAB && (
+        <p className="text-sm text-muted">
           last changed by {settings.updatedBy} <ChangedAt iso={settings.updatedAt} />
         </p>
       )}
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
 
       {confirm && (
         <ConfirmModal

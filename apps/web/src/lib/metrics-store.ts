@@ -1,9 +1,9 @@
 import "server-only";
 import { upstashPipeline } from "@/lib/upstash";
 import { userKey, userHintTimesKey, HINTS_SPENT_KEY } from "@/lib/team-keys";
-import { QUIZ_POINTS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
-import { CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
-import { AI_POINTS_KEY, aiAttemptsKey, aiSolvesKey } from "@/lib/ai-keys";
+import { QUIZ_POINTS_KEY, QUIZ_QUESTIONS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
+import { CLASSIC_CHALLENGES_KEY, CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
+import { AI_CHALLENGES_KEY, AI_POINTS_KEY, aiAttemptsKey, aiSolvesKey } from "@/lib/ai-keys";
 import { listTeams } from "@/lib/team-store";
 import { parseAttemptRow } from "@/lib/attempt-row";
 
@@ -48,6 +48,11 @@ const BATCH = 200;
 export type ChallengeStat = {
   module: "quiz" | "classic" | "ai";
   id: string;
+  /** What the organizer called it — a challenge's title, a question's prompt.
+   *  `null` when the catalogue no longer holds it (a challenge deleted after
+   *  it was solved still has metrics) or when the catalogue read failed; the
+   *  id is always there to fall back on. See `readTitles` (audit F7). */
+  title: string | null;
   /** Distinct contestants who earned it. */
   solves: number;
   /** Total submissions against it, successful or not. */
@@ -170,6 +175,55 @@ async function readSecureDevSolves(): Promise<Map<string, string>> {
       const sep = field.indexOf(":");
       if (sep <= 0) continue;
       out.set(`${target}/${field.slice(0, sep).toLowerCase()}/${field.slice(sep + 1)}`, String(at));
+    }
+  });
+  return out;
+}
+
+/**
+ * `<module>:<id>` -> the name an organizer would recognise, read from the
+ * three catalogue hashes (audit F7).
+ *
+ * The metrics fold works entirely in ids, because ids are what contestant
+ * progress is recorded against. That is right for the arithmetic and wrong for
+ * the reader: `case-probe-control-xf1ob0` means nothing said out loud at a
+ * closing ceremony, while the quiz and challenge lists two tabs away have
+ * shown titles all along.
+ *
+ * Quiz questions carry a `prompt` rather than a `title`; classic and ai carry
+ * `title`. Both are read here so the caller never has to know which.
+ *
+ * Deliberately best-effort, and that has to be enforced here rather than
+ * assumed: `upstashPipeline` THROWS on a timeout, a missing URL/token or a
+ * non-2xx response (it is only per-command errors it returns as values), so an
+ * uncaught call would reject `computeEventMetrics` and a failure to fetch
+ * LABELS would cost the organizer every NUMBER on the tab. The whole request
+ * is therefore caught and degrades to an empty map: rows keep their ids, which
+ * is the same thing that happens for a challenge deleted after it was solved.
+ */
+async function readTitles(): Promise<Map<string, string>> {
+  let replies: { result?: unknown }[];
+  try {
+    replies = await upstashPipeline([
+      ["HGETALL", QUIZ_QUESTIONS_KEY],
+      ["HGETALL", CLASSIC_CHALLENGES_KEY],
+      ["HGETALL", AI_CHALLENGES_KEY],
+    ]);
+  } catch {
+    return new Map();
+  }
+  const out = new Map<string, string>();
+  (["quiz", "classic", "ai"] as const).forEach((module, i) => {
+    for (const [id, raw] of hashEntries(replies[i]?.result)) {
+      try {
+        const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (!parsed || typeof parsed !== "object") continue;
+        const record = parsed as { title?: unknown; prompt?: unknown };
+        const name = typeof record.title === "string" ? record.title : record.prompt;
+        if (typeof name === "string" && name.trim()) out.set(`${module}:${id}`, name.trim());
+      } catch {
+        // One unparseable row costs that row its title, never the others'.
+      }
     }
   });
   return out;
@@ -385,6 +439,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     }
   });
 
+  const titles = await readTitles();
   const challenges: ChallengeStat[] = [...new Set([...solvesById.keys(), ...attemptsById.keys()])]
     .map((key) => {
       const solved = solvesById.get(key);
@@ -404,6 +459,7 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
       return {
         module: mod as "quiz" | "classic" | "ai",
         id: rest.join(":"),
+        title: titles.get(key) ?? null,
         solves,
         attempts: tried?.attempts ?? 0,
         solveRate: triers > 0 ? solves / triers : null,
@@ -478,10 +534,14 @@ export function challengesToCsv(metrics: EventMetrics): string {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const rows = [
-    ["module", "id", "solves", "attempts", "solve_rate", "avg_attempts_to_solve", "median_seconds_to_solve"],
+    // `title` sits beside `id`, never instead of it: the id is what a support
+    // question or a store key names, and a title can be blank for a challenge
+    // deleted since it was solved (audit F7).
+    ["module", "id", "title", "solves", "attempts", "solve_rate", "avg_attempts_to_solve", "median_seconds_to_solve"],
     ...metrics.challenges.map((c) => [
       c.module,
       c.id,
+      c.title,
       c.solves,
       c.attempts,
       c.solveRate === null ? null : c.solveRate.toFixed(4),

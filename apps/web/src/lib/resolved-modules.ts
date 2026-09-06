@@ -12,6 +12,7 @@ import {
   type ModuleHome,
   type ModuleId,
   type ModuleRules,
+  type ModuleSetup,
   type ModuleTerms,
   type ResolvedModule,
   type RulesContext,
@@ -123,6 +124,14 @@ export function getModuleFaq(id: ModuleId): ModuleFaq | undefined {
 
 export function getModuleTerms(id: ModuleId): ModuleTerms | undefined {
   return moduleDefById(id)?.terms;
+}
+
+/** A module's organizer-facing setup checklist, for the top of its admin tab.
+ *  A function of `OrgContext` — it names the event's targets and org — so the
+ *  same server-only contract holds: `/admin`'s page calls it and hands the
+ *  resulting `ModuleSetupContent` (plain data) to the client shell. */
+export function getModuleSetup(id: ModuleId): ModuleSetup | undefined {
+  return moduleDefById(id)?.setup;
 }
 
 /** The line under a module's card in the 404's route directory. A function of

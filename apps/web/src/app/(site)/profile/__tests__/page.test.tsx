@@ -383,11 +383,15 @@ describe("profile per-module block content", () => {
 
     const html = renderToStaticMarkup(await ProfilePage());
 
-    expect(html).toContain("challenges");
+    // "cleared" since the shared vocabulary landed — ai's own word, where it
+    // used to borrow classic's "challenges".
+    expect(html).toContain("cleared");
     expect(html).not.toContain("patched");
-    expect(html).toMatch(/>2<\/span><span[^>]*> \/ 3 challenges<\/span>/);
-    // moduleItems' Show-N list, driven off the same clamped catalogue.
-    expect(html).toContain("Show 3 challenges");
+    expect(html).toMatch(/>2<\/span><span[^>]*> \/ 3 cleared<\/span>/);
+    // The module row IS the disclosure now, so its items sit in the markup
+    // rather than behind a second "Show N" toggle of their own.
+    expect(html).toContain("Prompt Leak");
+    expect(html).toContain("Jailbreak");
   });
 });
 
@@ -428,7 +432,9 @@ describe("profile header stats", () => {
 
     const html = renderToStaticMarkup(await ProfilePage());
 
-    expect(html).toContain("challenges");
+    // Its own vocabulary is "cleared" now that every surface reads the same
+    // map; "challenges" was classic's word borrowed.
+    expect(html).toContain("cleared");
     expect(html).toMatch(/2<span[^>]*> \/ 3<\/span>/);
   });
 });
