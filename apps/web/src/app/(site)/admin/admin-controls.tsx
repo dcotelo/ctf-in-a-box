@@ -38,12 +38,11 @@ import {
   ALL_MODULE_IDS,
   bakedModuleIds,
   moduleDefById,
-  type ModuleId,
   type ModuleSetupContent,
   type ResolvedModule,
 } from "@/lib/modules";
 import ConfirmModal from "@/components/confirm-modal";
-import AdminModuleSetup, { type ModuleInventory } from "@/components/admin-module-setup";
+import type { ModuleInventory } from "@/components/admin-module-setup";
 import { describeFieldError, parseNumberCommit, type FieldStatus } from "@/components/admin-number-field";
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
@@ -58,7 +57,7 @@ import AdminSupportTab from "./admin-support-tab";
 import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
 import AdminHintsTab from "./admin-hints-tab";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
-import AdminModuleIdentity from "./admin-module-identity";
+import AdminModulePanel from "./admin-module-panel";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // Registry defaults (displayName/description) keyed by id, for the identity
@@ -500,6 +499,13 @@ export default function AdminControls({
   // starts and stops with the phase without a page reload.
   const eventLive = phaseFromSettings(settings, settingsAt).phase === "live";
 
+  // The enabled set as the module switches see it (Event's rows and each
+  // module panel's header): the runtime set, or the baked one when no
+  // override is stored. `liveModuleCount` is counted over every registry
+  // module, toggleable or not — see module-toggle.ts.
+  const liveModuleIds = settings.enabledModuleIds ?? bakedModuleIds;
+  const liveModuleCount = MODULE_CHOICES.filter((m) => liveModuleIds.includes(m.id)).length;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -538,7 +544,7 @@ export default function AdminControls({
                   setTeamMaxMembersInput={setTeamMaxMembersInput}
                   commitNumber={commitNumber}
                   moduleChoices={MODULE_CHOICES}
-                  liveModuleIds={settings.enabledModuleIds ?? bakedModuleIds}
+                  liveModuleIds={liveModuleIds}
                   nowMs={settingsAt}
                 />
               ) : tab.id === HINTS_TAB ? (
@@ -564,25 +570,26 @@ export default function AdminControls({
               ) : tab.id === INSIGHTS_TAB ? (
                 <AdminInsightsTab visible={active === INSIGHTS_TAB} live={eventLive} />
               ) : (
-                <section className="flex flex-col gap-4">
-                  {/* Setup instructions FIRST, then the identity editor, then the
-                      module's own knobs. An organizer who has never seen this tab
-                      needs "what is this and what do I do" before "what do I call
-                      it": the checklist is the orientation, the rename is a
-                      refinement of something already working, and the knobs below
-                      are what the checklist points at. Driven by the `setups` map,
-                      like identity is driven by the modules list — no per-module
-                      branch, so a fifth module gets its panel for free. */}
-                  {setups?.[tab.id] && (
-                    <AdminModuleSetup title={tab.label} setup={setups[tab.id]!} inventory={inventory[tab.id]} />
-                  )}
-                  <AdminModuleIdentity
-                    moduleId={tab.id}
-                    defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
-                    override={settings.moduleOverrides[tab.id as ModuleId]}
-                    pending={pending}
-                    apply={apply}
-                  />
+                // The module's Content screen: header + switch, setup status,
+                // identity, then the module's own knobs and lists (below). The
+                // panel is driven by the `setups` map and the modules list —
+                // no per-module branch, so a fifth module gets its screen for
+                // free; only the controls inside it are module-specific.
+                <AdminModulePanel
+                  mod={modules.find((m) => m.id === tab.id)!}
+                  choice={MODULE_CHOICES.find((c) => c.id === tab.id) ?? { id: tab.id, label: tab.label, toggleable: true }}
+                  liveModuleIds={liveModuleIds}
+                  liveCount={liveModuleCount}
+                  setup={setups?.[tab.id]}
+                  inventory={inventory[tab.id]}
+                  defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}
+                  settings={settings}
+                  pending={pending}
+                  apply={apply}
+                  applyField={applyField}
+                  statusOf={statusOf}
+                  setConfirm={setConfirm}
+                >
                   {tab.id === "secure-development" ? (
                     <AdminSecureDevTab
                       settings={settings}
@@ -625,7 +632,7 @@ export default function AdminControls({
                   ) : (
                     <p className="text-xs text-muted">No settings for this module yet.</p>
                   )}
-                </section>
+                </AdminModulePanel>
               )}
             </div>
           ))}

@@ -24,6 +24,7 @@ import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import AdminSwitch from "@/components/admin-switch";
+import { moduleToggleConfirm, moduleToggleState, type ModuleToggleChoice } from "./module-toggle";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
@@ -141,14 +142,9 @@ export type AdminEventTabProps = {
   nowMs: number;
 };
 
-export type ModuleChoice = {
-  id: string;
-  label: string;
-  /** False for secure-development, which is provisioning rather than a flag.
-   *  `reason` says so on the row instead of leaving a dead control. */
-  toggleable: boolean;
-  reason?: string;
-};
+/** The registry row a module switch renders from — see module-toggle.ts,
+ *  which the module panels' own header switches share with this tab. */
+export type ModuleChoice = ModuleToggleChoice;
 
 export default function AdminEventTab({
   settings,
@@ -168,18 +164,9 @@ export default function AdminEventTab({
   nowMs,
 }: AdminEventTabProps) {
   const live = new Set(liveModuleIds);
-  // The last LIVE module cannot be switched off — the server refuses a set that
-  // would end up empty (ADR 24's runtime analogue), and a control that always
-  // errors is worse than one that explains itself.
-  //
-  // Counted over every live module, INCLUDING the ones that cannot be toggled.
-  // Counting only the toggleable ones was wrong: on an event running
-  // secure-development plus quiz, it locked quiz on the grounds that quiz was
-  // the last *switchable* module — while secure-development sat right above it,
-  // enabled and serving. The event would have been left with content, the
-  // server would have accepted the change, and the UI refused it anyway. What
-  // makes a set legal is that SOMETHING is live, not that something switchable
-  // is live.
+  // The lock rule and the confirmation copy live in module-toggle.ts, shared
+  // with each module panel's header switch. The count is over every live
+  // module, toggleable or not — that file says why.
   const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
   // Effective state for the schedule section's readout — the same
   // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
@@ -209,38 +196,27 @@ export default function AdminEventTab({
           </p>
         </div>
         {moduleChoices.map((mod) => {
-          const on = live.has(mod.id);
-          const isLastOn = on && mod.toggleable && liveCount === 1;
-          const disabled = pending || !mod.toggleable || isLastOn;
+          const toggle = moduleToggleState(mod, live, liveCount);
           // One status key per module row, not one for the whole
           // `enabledModules` write: "Saved" belongs beside the switch that
-          // was flipped, not beside every module at once.
+          // was flipped, not beside every module at once. The same key the
+          // module's own panel header reports under.
           return (
             <AdminSwitch
               key={mod.id}
               id={`module-${mod.id}`}
               label={mod.label}
-              help={
-                !mod.toggleable && mod.reason
-                  ? mod.reason
-                  : isLastOn
-                    ? "The only module left — an event has to serve something."
-                    : undefined
-              }
-              checked={on}
-              disabled={disabled}
+              help={toggle.help}
+              checked={toggle.on}
+              disabled={pending || toggle.disabled}
               status={statusOf(`module:${mod.id}`)}
               onChange={(next) => {
-                const ids = next
-                  ? [...live, mod.id]
-                  : [...live].filter((id) => id !== mod.id);
+                const c = moduleToggleConfirm(mod, next, live);
                 setConfirm({
-                  title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
-                  body: next
-                    ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
-                    : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
-                  confirmLabel: next ? "Enable" : "Disable",
-                  onConfirm: () => applyField(`module:${mod.id}`, { enabledModules: ids }, mod.label),
+                  title: c.title,
+                  body: c.body,
+                  confirmLabel: c.confirmLabel,
+                  onConfirm: () => applyField(`module:${mod.id}`, { enabledModules: c.ids }, mod.label),
                 });
               }}
             />

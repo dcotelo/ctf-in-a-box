@@ -24,7 +24,7 @@ import { formatRelativeTime } from "@/lib/relative-time";
 import { getRemaining, formatCompact } from "@/lib/countdown";
 import type { ModuleSetupContent, ResolvedModule } from "@/lib/modules";
 import { phaseBoundaryLabel, phaseFromSettings, PHASE_COLOR } from "@/components/phase";
-import { setupCountLabel, setupStepStatus, type ModuleInventory } from "@/components/admin-module-setup";
+import { moduleSummary, type ModuleInventory } from "@/components/admin-module-setup";
 import AdminSwitch from "@/components/admin-switch";
 import type { FieldStatus } from "@/components/admin-number-field";
 import { formatWhen, TYPE_LABELS, type ActivityEntry } from "./admin-activity-tab";
@@ -45,30 +45,11 @@ function Figure({ label, value, warn }: { label: string; value: number; warn?: b
   );
 }
 
-/** "Classic · setup complete · 4 categories · 12 challenges" — reusing the
- *  same step-status/count logic the full checklist panel renders with
- *  (admin-module-setup.tsx), so the two never disagree about what "done"
- *  means. A module the registry gave no setup block just says "enabled". */
-export function moduleSummary(setup: ModuleSetupContent | undefined, inventory: ModuleInventory | undefined): string {
-  if (!setup) return "enabled";
-  const checkable = setup.steps.filter((s) => s.check);
-  // Nothing countable (secure-development: every step is provisioning done
-  // outside the panel) — there is no verdict to give, so none is given.
-  if (checkable.length === 0) return "enabled";
-  const statuses = checkable.map((s) => setupStepStatus(s, inventory));
-  // The counts arrive from each module's own panel after ITS mount-time
-  // fetch settles (see `inventory` in admin-controls.tsx). Until then the
-  // honest word is "checking" — the same rule the checklist itself follows —
-  // never "incomplete", which would accuse a fully set-up module on every
-  // first paint.
-  if (statuses.some((s) => s === "unknown")) return "checking…";
-  const allDone = checkable.length > 0 && statuses.every((s) => s === "done");
-  const counts = checkable
-    .map((s) => setupCountLabel(s, inventory))
-    .filter((label): label is string => label !== null && label !== "None yet");
-  const parts = [allDone ? "setup complete" : "setup incomplete", ...counts];
-  return parts.join(" · ");
-}
+// "Classic · setup complete · 4 categories · 12 challenges" — the per-module
+// line uses the SAME `moduleSummary` the module panel's own status line
+// renders from (admin-module-setup.tsx), so the two never disagree about
+// what "done" means. Re-exported so the existing tests keep their import.
+export { moduleSummary } from "@/components/admin-module-setup";
 
 export default function AdminOverviewTab({
   settings,
