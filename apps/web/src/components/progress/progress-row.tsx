@@ -51,8 +51,9 @@ export type ProgressRowProps = {
   /** The module's own word for a completed item — see MODULE_UNIT. */
   unit: string;
   earned: number;
-  /** Points available. Zero means "this source has no point data", and the
-   *  points pair is then hidden entirely rather than rendered as "8 / 0". */
+  /** Points available. Zero means "this source has no ceiling to divide by":
+   *  the row then shows the earned figure alone rather than "8 / 0 pts", and
+   *  shows nothing at all when there is no score either. */
   max: number;
   /** Points already spent on hints, shown after the points in the hint
    *  colour. Omitted on the leaderboard: another team's hint spend is theirs. */
@@ -84,7 +85,10 @@ function Chevron() {
 }
 
 function RowBody({ label, accent, done, total, unit, earned, max, hints, totalLabel, level }: ProgressRowProps) {
-  const showPoints = max > 0;
+  // A team's quiz/classic/ai contribution arrives with points but no ceiling
+  // (the board carries per-module totals, not per-module maxima), so "no max"
+  // has to mean "show what they scored", not "show nothing".
+  const showPoints = max > 0 || earned > 0;
   return (
     <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
       <span
@@ -113,7 +117,9 @@ function RowBody({ label, accent, done, total, unit, earned, max, hints, totalLa
           </span>
           <span className="whitespace-nowrap font-mono text-sm tabular-nums md:w-40 md:text-right">
             <span className="text-white">{earned.toLocaleString("en-US")}</span>
-            <span className="text-muted"> / {max.toLocaleString("en-US")} pts</span>
+            <span className="text-muted">
+              {max > 0 ? ` / ${max.toLocaleString("en-US")} pts` : " pts"}
+            </span>
             {totalLabel && <span className="ml-1 text-muted">{totalLabel}</span>}
             {hints != null && hints > 0 && <span className="ml-2 text-[#d4a017]">−{hints} hints</span>}
           </span>

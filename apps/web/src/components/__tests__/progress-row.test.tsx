@@ -34,14 +34,26 @@ describe("ProgressRow", () => {
     expect(html).toContain("141 pts");
   });
 
-  it("hides the points pair entirely when the source has no point data — never '8 / 0 pts'", () => {
+  it("shows a score with no ceiling as the earned figure alone — never '8 / 0 pts'", () => {
+    // A team's quiz/classic/ai block carries points but no maximum, and the
+    // profile's secure-development header used to arrive this way too.
     const html = renderToStaticMarkup(
       <ProgressRow label="Secure Development" done={6} total={321} unit="patched" earned={8} max={0} />,
     );
     expect(html).toContain("321 patched");
-    expect(html).not.toContain("pts");
+    expect(html).toContain("8");
+    expect(html).toContain("pts");
+    expect(html).not.toContain("/ 0 pts");
     // The bar still renders, falling back to the count.
     expect(html).toContain('aria-valuemax="321"');
+  });
+
+  it("says nothing about points when there is neither a score nor a ceiling", () => {
+    const html = renderToStaticMarkup(
+      <ProgressRow label="Security Shepherd" done={0} total={40} unit="patched" earned={0} max={0} />,
+    );
+    expect(html).toContain("40 patched");
+    expect(html).not.toContain("pts");
   });
 
   it("separates the two fractions on the narrow layout, where they share a line", () => {

@@ -275,12 +275,14 @@ describe("per-challenge catalog", () => {
     });
     const html = renderToStaticMarkup(<TeamRow team={withFlags} topPoints={150} isOpen onToggle={() => {}} />);
     expect(html).toContain(">Target breakdown<");
-    // Reuses the same collapsible AppChallengeList as the individual view, so
-    // the per-target expand trigger renders under the target name (collapsed) —
-    // and the count covers pending flags too (2 of 3, one still open).
+    // Reuses the same ProgressRow tree as the individual view, so each target
+    // is a collapsed disclosure under its own name — and the count covers
+    // pending flags too (2 of 3, one still open). The fraction is split
+    // across spans (green numerator, muted denominator), so it is matched
+    // through the markup rather than as one string.
     expect(html).toContain("Juice Shop");
-    expect(html).toMatch(/2 \/ 3 patched/);
-    expect(html).toMatch(/Show 3 challenges/);
+    expect(html).toMatch(/>2<\/span><span[^>]*> \/ 3 patched<\/span>/);
+    expect(html).toContain("<details");
     // Members still render alongside the flags.
     expect(html).toContain("alice");
   });
@@ -311,11 +313,16 @@ describe("per-challenge catalog", () => {
       <TeamRow team={withModules} topPoints={278} isOpen onToggle={() => {}} modules={MODULES} />,
     );
     expect(html).toContain("Quiz");
-    expect(html).toMatch(/200 pts/);
+    // The team board carries a module's points but no ceiling for it, so the
+    // row shows the score alone — "200 pts", never "200 / 0 pts". Split
+    // across spans like every other figure in the row.
+    expect(html).toMatch(/>200<\/span><span[^>]*> pts<\/span>/);
+    expect(html).not.toContain("/ 0 pts");
     // Module vocabulary survives: questions are answered, challenges are
-    // patched — each module's own noun, never a shared "solved".
-    expect(html).toMatch(/3 answered/);
-    expect(html).toMatch(/6 patched/);
+    // patched — each module's own noun, never a shared "solved". The row
+    // carries the denominator the chips never had.
+    expect(html).toMatch(/>3<\/span><span[^>]*> \/ 5 answered<\/span>/);
+    expect(html).toMatch(/>6<\/span><span[^>]*> \/ 6 patched<\/span>/);
   });
 
   it("renders no module blocks on a single-module event — the total needs no split", () => {
