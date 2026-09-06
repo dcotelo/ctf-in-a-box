@@ -11,14 +11,14 @@
 // calling it, and the dialog is tested by rendering it directly.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { editorIsDirty } from "@/components/admin/use-admin-resource";
+import { editorIsDirty, snapshotEditor } from "@/components/admin/use-admin-resource";
 import DiscardDraftConfirm from "@/components/admin/discard-draft-confirm";
 
 const noop = () => {};
 
 /** An editor shaped like the real ones: identity plus a nested draft. */
 const editor = { mode: "edit", id: "q1", order: 1, draft: { prompt: "Which header?", choices: [{ id: "a", label: "X" }] } };
-const snapshot = JSON.stringify(editor);
+const snapshot = snapshotEditor(editor);
 
 describe("editorIsDirty", () => {
   it("is false for an untouched editor, however often it re-rendered", () => {
@@ -38,19 +38,33 @@ describe("editorIsDirty", () => {
   });
 
   it("is false when no editor is open — Add on an empty panel asks nothing", () => {
-    expect(editorIsDirty(null, null)).toBe(false);
+    expect(editorIsDirty(null, { kind: "none" })).toBe(false);
     expect(editorIsDirty(null, snapshot)).toBe(false);
   });
 
-  it("is false when there is no baseline to compare against", () => {
-    // An editor set outside `openEditor` has no snapshot. Treating that as
+  it("is false when no editor is open at all", () => {
+    // `kind: "none"` is the no-editor state, not a failure. Treating it as
     // dirty would put a dialog in front of a draft nobody typed into.
-    expect(editorIsDirty(editor, null)).toBe(false);
+    expect(editorIsDirty(editor, { kind: "none" })).toBe(false);
   });
 
-  it("calls an unserializable editor dirty — the safe direction", () => {
-    // No draft type has a cycle. If one ever does, the cost of being wrong
-    // here is a confirmation nobody needed, not work thrown away.
+  it("calls an editor dirty when its baseline could not be recorded", () => {
+    // The case that makes the three-state snapshot necessary. Folding
+    // "could not serialize" into "no editor open" made this exact draft — the
+    // one the fallback exists for — skip its confirmation and be replaced
+    // silently, which is the failure the guard is for.
+    expect(editorIsDirty(editor, { kind: "unserializable" })).toBe(true);
+  });
+
+  it("records an unserializable editor as such rather than as absent", () => {
+    const cyclic: Record<string, unknown> = { mode: "new" };
+    cyclic.self = cyclic;
+    expect(snapshotEditor(cyclic)).toEqual({ kind: "unserializable" });
+    // End to end: opened unserializable, therefore dirty.
+    expect(editorIsDirty(cyclic, snapshotEditor(cyclic))).toBe(true);
+  });
+
+  it("calls an editor dirty when IT stops serializing after opening cleanly", () => {
     const cyclic: Record<string, unknown> = { mode: "new" };
     cyclic.self = cyclic;
     expect(editorIsDirty(cyclic, snapshot)).toBe(true);

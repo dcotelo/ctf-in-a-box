@@ -35,33 +35,41 @@ import {
   upsertRow,
 } from "@/components/admin/ordered-rows";
 
-/** Whether the open editor has been touched since it was opened.
+/** The baseline an open editor is compared against.
  *
- *  Compared by serialized value, not by reference: the panels replace the
- *  whole editor object on every keystroke (`setEditing({...editing, draft})`),
- *  so identity always differs and only the content answers the question. An
- *  editor that will not serialize (a cycle, which no draft type has) counts as
- *  dirty — the safe direction, since the cost of being wrong is a confirmation
- *  nobody needed rather than work silently thrown away.
- *
- *  Exported for direct testing: this repo's tests render to static markup and
- *  cannot type into a form. */
-export function editorIsDirty<Editor>(current: Editor | null, openedAs: string | null): boolean {
-  if (current === null || openedAs === null) return false;
+ *  Three cases, kept apart deliberately. `none` is "no editor is open", which
+ *  is clean. `unserializable` is "an editor is open and we could not record
+ *  what it looked like" — which must count as DIRTY: collapsing it into `none`
+ *  made the one case the fallback exists for skip its own confirmation and
+ *  replace the draft silently, the exact failure being guarded against. */
+export type EditorSnapshot = { kind: "none" } | { kind: "value"; json: string } | { kind: "unserializable" };
+
+/** Records what an editor looks like at the moment it opens. */
+export function snapshotEditor<Editor>(editor: Editor): EditorSnapshot {
   try {
-    return JSON.stringify(current) !== openedAs;
+    return { kind: "value", json: JSON.stringify(editor) };
   } catch {
-    return true;
+    // No draft type has a cycle. If one ever does, the cost of being wrong is
+    // a confirmation nobody needed, not work thrown away.
+    return { kind: "unserializable" };
   }
 }
 
-/** The baseline `editorIsDirty` compares against. `null` for an editor that
- *  will not serialize, which `editorIsDirty` then reads as dirty. */
-function safeSnapshot<Editor>(editor: Editor): string | null {
+/** Whether the open editor has been touched since it opened.
+ *
+ *  Compared by serialized value, not by reference: the panels replace the
+ *  whole editor object on every keystroke (`setEditing({...editing, draft})`),
+ *  so identity always differs and only the content answers the question.
+ *
+ *  Exported for direct testing: this repo's tests render to static markup and
+ *  cannot type into a form. */
+export function editorIsDirty<Editor>(current: Editor | null, snapshot: EditorSnapshot): boolean {
+  if (current === null || snapshot.kind === "none") return false;
+  if (snapshot.kind === "unserializable") return true;
   try {
-    return JSON.stringify(editor);
+    return JSON.stringify(current) !== snapshot.json;
   } catch {
-    return null;
+    return true;
   }
 }
 
@@ -218,7 +226,7 @@ export function useAdminResource<Row, Item, Editor, Payload>(
   // What the open editor looked like when it opened, serialized — the baseline
   // `editorIsDirty` compares against. Held as state rather than a ref so a
   // render that reads it is never a render behind.
-  const [openedAs, setOpenedAs] = useState<string | null>(null);
+  const [openedAs, setOpenedAs] = useState<EditorSnapshot>({ kind: "none" });
   const [pendingEditor, setPendingEditor] = useState<Editor | null>(null);
   const [formPending, setFormPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -276,7 +284,7 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     setRows((prev) => upsertRow(prev, result.row, accessors));
     onWrite?.();
     setEditing(null);
-    setOpenedAs(null);
+    setOpenedAs({ kind: "none" });
   }
 
   /** The one place an editor is opened. A half-written question used to
@@ -298,7 +306,7 @@ export function useAdminResource<Row, Item, Editor, Payload>(
     setPendingEditor(null);
     setFormError(null);
     setEditing(next);
-    setOpenedAs(safeSnapshot(next));
+    setOpenedAs(snapshotEditor(next));
   }
 
   function confirmDraftSwitch() {
@@ -312,7 +320,7 @@ export function useAdminResource<Row, Item, Editor, Payload>(
   function cancelEditor() {
     if (formPending) return;
     setEditing(null);
-    setOpenedAs(null);
+    setOpenedAs({ kind: "none" });
     setPendingEditor(null);
     setFormError(null);
   }
