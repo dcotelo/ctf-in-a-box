@@ -122,10 +122,16 @@ export default function CategoryEditor({
                 >
                   <span aria-hidden="true">▸</span>
                 </button>
+                {/* Held while ANOTHER chip is mid-rename: `startRename`
+                    replaces the draft outright, so a second Rename click would
+                    discard whatever was typed into the first with nothing
+                    said. Only the competing Rename buttons are disabled — Move
+                    and Remove are keyed by name and leave the open draft
+                    alone, and the chip being renamed renders neither. */}
                 <button
                   type="button"
                   aria-label={`Rename "${name}"`}
-                  disabled={pending}
+                  disabled={pending || renaming !== null}
                   onClick={() => onStartRename?.(name)}
                   className={CHIP_BUTTON}
                 >

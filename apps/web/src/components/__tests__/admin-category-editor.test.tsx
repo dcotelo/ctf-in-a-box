@@ -215,6 +215,22 @@ describe("CategoryEditor — the rename affordance", () => {
     expect(html).not.toMatch(/Web<\/span>/);
   });
 
+  it("holds the other chips' Rename while one is open, so a draft is not lost", () => {
+    // `startRename` replaces the draft outright, so a second Rename click
+    // would discard whatever was typed into the first with nothing said —
+    // the same failure the unsaved-draft guard exists for on the module forms.
+    const html = renderToStaticMarkup(<CategoryEditor {...props} renaming="Web" renameInput="Webb" />);
+    expect(html).toMatch(/<button[^>]*aria-label="Rename &quot;Crypto&quot;"[^>]*disabled=""/);
+  });
+
+  it("leaves Move and Remove alone on the other chips", () => {
+    // They are keyed by name and do not touch the open draft, so disabling
+    // them would cost an organizer a legitimate action for no gain.
+    const html = renderToStaticMarkup(<CategoryEditor {...props} renaming="Web" renameInput="Webb" />);
+    expect(html).not.toMatch(/<button[^>]*aria-label="Remove &quot;Crypto&quot;"[^>]*disabled=""/);
+    expect(html).not.toMatch(/<button[^>]*aria-label="Move &quot;Crypto&quot; left"[^>]*disabled=""/);
+  });
+
   it("says that renaming carries the challenges across", () => {
     // The one thing an organizer cannot see for themselves before clicking.
     expect(renderToStaticMarkup(<CategoryEditor {...props} />)).toContain("carries its challenges across");
