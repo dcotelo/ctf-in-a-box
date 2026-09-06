@@ -193,7 +193,12 @@ export function isDraftValid(d: QuestionDraft): boolean {
     ids.add(id);
   }
 
-  const correct = d.correct.filter((id) => ids.has(id));
+  // Trimmed on both sides, exactly as `payloadFromEditor` does: `ids` already
+  // holds trimmed choice ids, so comparing a raw `correct` entry against them
+  // made " a " count as no selection here while the payload sent "a". The gate
+  // and the body have to agree about what a selection is, or one of them is
+  // lying to the organizer.
+  const correct = d.correct.map((id) => id.trim()).filter((id) => ids.has(id));
   if (d.type === "single" && correct.length !== 1) return false;
   if (d.type === "multi" && correct.length < 1) return false;
 

@@ -226,6 +226,10 @@ export default function AdminEventControls({ initialImportText = "", showHeading
       // The caller `void`s this promise, so an uncaught rejection is silent:
       // the organizer is left looking at an unchanged textarea with no sign
       // the file never landed (#284 — the same fix as `useBundleImport`).
+      // The stale success goes with it, or an unreadable file chosen after a
+      // successful import would sit under that import's summary.
+      setImportResult(null);
+      setImportSkipped(null);
       setImportErrors([FILE_READ_ERROR]);
       return;
     }

@@ -136,6 +136,13 @@ export function useBundleImport<Summary>({
     try {
       raw = await file.text();
     } catch {
+      // The failure retires the previous summary with it (#127's rule: a
+      // summary of a write does not outlive the next attempt). Otherwise
+      // choosing an unreadable file straight after a successful import shows
+      // "Imported 4 questions" directly above the failure. `text` is left
+      // alone — whatever is in the textarea is still the organizer's, and
+      // nothing replaced it.
+      setResult(null);
       setImportErrors([FILE_READ_ERROR]);
       return;
     }

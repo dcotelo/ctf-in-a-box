@@ -248,6 +248,11 @@ describe("payloadFromEditor — an edit can never change a question's id", () =>
       correct: [" a "],
     };
 
+    // The gate and the body have to agree about what counts as selected:
+    // `isDraftValid` compares against trimmed choice ids, so leaving `correct`
+    // untrimmed there made this draft "no answer chosen" while the payload
+    // sent one.
+    expect(isDraftValid(draft)).toBe(true);
     expect(payloadFromEditor({ ...editor, draft }).correct).toEqual(["a"]);
   });
 
