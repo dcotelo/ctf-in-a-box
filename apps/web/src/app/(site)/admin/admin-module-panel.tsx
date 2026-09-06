@@ -99,11 +99,14 @@ export default function AdminModulePanel({
           (globals.css --background) so rows never show through the text. */}
       <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 bg-[#1a1a2e]/95 px-1 py-2 backdrop-blur">
         <h2 className="text-base font-semibold text-white">{mod.title}</h2>
-        <div className="w-56 max-w-full">
+        {/* The lock reason (a non-toggleable module, or the last live one) is
+            rendered under the header as its own line rather than as the
+            switch's help: in this narrow column it wrapped into four lines
+            and made the sticky header a third of the screen. */}
+        <div className="w-40">
           <AdminSwitch
             id={`module-panel-${mod.id}`}
             label="Enabled"
-            help={toggle.help}
             checked={toggle.on}
             disabled={pending || toggle.disabled}
             status={statusOf(`module:${mod.id}`)}
@@ -119,6 +122,8 @@ export default function AdminModulePanel({
           />
         </div>
       </div>
+
+      {toggle.help && <p className="-mt-2 text-sm text-muted">{toggle.help}</p>}
 
       {setup && <AdminModuleSetup title={mod.title} setup={setup} inventory={inventory} />}
 
