@@ -504,7 +504,7 @@ export default function AdminControls({
   // module panel's header): the runtime set, or the baked one when no
   // override is stored. `liveModuleCount` is counted over every registry
   // module, toggleable or not — see module-toggle.ts.
-  const liveModuleIds = settings.enabledModuleIds ?? bakedModuleIds;
+  const liveModuleIds: readonly string[] = settings.enabledModuleIds ?? bakedModuleIds;
   const liveModuleCount = MODULE_CHOICES.filter((m) => liveModuleIds.includes(m.id)).length;
 
   return (
