@@ -103,21 +103,40 @@ export default function AdminOverviewTab({
 
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
+  // A failed read says so, in place. Swallowing it would leave "Loading…"
+  // standing forever and a missing figures row with no explanation — a
+  // screen that lies to the organizer about what it knows.
+  const [metricsFailed, setMetricsFailed] = useState(false);
+  const [activityFailed, setActivityFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
     fetch("/api/admin/metrics")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`metrics ${res.status}`);
+        return res.json();
+      })
       .then((data: MetricsResponse) => {
-        if (live && !data.error) setMetrics(data);
+        if (!live) return;
+        if (data.error) setMetricsFailed(true);
+        else setMetrics(data);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (live) setMetricsFailed(true);
+      });
     fetch("/api/admin/activity?offset=0&limit=5")
-      .then((res) => res.json())
-      .then((data: ActivityResponse) => {
-        if (live && Array.isArray(data.entries)) setActivity(data.entries);
+      .then((res) => {
+        if (!res.ok) throw new Error(`activity ${res.status}`);
+        return res.json();
       })
-      .catch(() => {});
+      .then((data: ActivityResponse) => {
+        if (!live) return;
+        if (Array.isArray(data.entries)) setActivity(data.entries);
+        else setActivityFailed(true);
+      })
+      .catch(() => {
+        if (live) setActivityFailed(true);
+      });
     return () => {
       live = false;
     };
@@ -211,6 +230,11 @@ export default function AdminOverviewTab({
           ))}
         </section>
       )}
+      {metricsFailed && (
+        <p role="alert" className="text-xs text-[#e53e3e]">
+          Couldn&rsquo;t load the team and submission figures — the Insights tab&rsquo;s Compute metrics will say why.
+        </p>
+      )}
 
       <section className="flex flex-col gap-1.5">
         <h3 className="text-sm font-semibold text-white">Sync</h3>
@@ -289,6 +313,10 @@ export default function AdminOverviewTab({
               </li>
             ))}
           </ul>
+        ) : activityFailed ? (
+          <p role="alert" className="text-xs text-[#e53e3e]">
+            Couldn&rsquo;t load the activity log — open Activity and try Load activity.
+          </p>
         ) : (
           <p className="text-xs text-muted">{activity ? "Nothing recorded yet." : "Loading…"}</p>
         )}

@@ -141,10 +141,15 @@ enabled — unless the URL names another destination (see the deep links
 below). It answers "is scoring on, how many teams, is anything stuck" in one
 screen: the phase and time remaining, **Scoring** and **Registration** as
 switches you can flip from there, the team / player / submitted / stuck
-figures (stuck leads when it is non-zero), the poller's sync health line,
-the five most recent activity rows, and a setup-status line per module.
-Every figure on it is a snapshot as of when you opened it; a later change
-will add a 15-second refresh.
+figures (stuck leads when it is non-zero), the poller's sync health line
+(one line — last poll, ingested, dropped, running/paused — that opens into
+the full breakdown, repos polled, last drop and last error, the old Status
+card), the five most recent activity rows, and a setup-status line per
+module ("checking…" until that module's own panel has reported its counts;
+"enabled" for a module with nothing countable). Every figure on it is a
+snapshot as of when you opened it; a later change will add a 15-second
+refresh. A read that fails says so in place rather than sitting on
+"Loading…".
 
 The hint policy has its own **Hints** destination because it is event-wide:
 Secure Development, Classic and AI all sell their hints through the same

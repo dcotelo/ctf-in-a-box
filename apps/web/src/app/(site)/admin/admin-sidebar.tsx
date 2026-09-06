@@ -68,6 +68,10 @@ export default function AdminSidebar({
                       href={`?tab=${item.id}`}
                       aria-current={isActive ? "page" : undefined}
                       onClick={(e) => {
+                        // A modified click (Cmd/Ctrl/Shift/Alt, or a non-primary
+                        // button) is "open elsewhere" — the browser's job, and
+                        // the reason these are real links.
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                         e.preventDefault();
                         onSelect(item.id);
                         setOpen(false);

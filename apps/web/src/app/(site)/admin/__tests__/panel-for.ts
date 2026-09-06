@@ -5,7 +5,7 @@
 // ones with the `hidden` attribute, so `renderToStaticMarkup` output contains
 // all of them at once. An assertion like `expect(html).toContain("Hint cost")`
 // therefore proves nothing about WHICH panel the control landed in. `panelFor`
-// narrows the markup to one panel — from its own `role="tabpanel"` marker up
+// narrows the markup to one panel — from its own `role="region"` marker up
 // to the next one — so a control that drifts into the wrong tab fails.
 
 /**
@@ -20,10 +20,10 @@ export function panelFor(html: string, id: string): string {
   if (anchor === -1) {
     throw new Error(`panelFor: no tab panel with id="panel-${id}" in the rendered markup`);
   }
-  // The opening tag is `<div role="tabpanel" id="panel-…" …>`, so the panel
+  // The opening tag is `<div role="region" id="panel-…" …>`, so the panel
   // starts at the marker preceding its id and ends at the next marker (or at
   // the end of the markup, for the last panel).
-  const start = html.lastIndexOf('role="tabpanel"', anchor);
-  const end = html.indexOf('role="tabpanel"', anchor);
+  const start = html.lastIndexOf('role="region"', anchor);
+  const end = html.indexOf('role="region"', anchor);
   return html.slice(start === -1 ? anchor : start, end === -1 ? html.length : end);
 }

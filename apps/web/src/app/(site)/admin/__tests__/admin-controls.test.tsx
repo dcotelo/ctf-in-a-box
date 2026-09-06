@@ -181,7 +181,7 @@ describe("AdminControls tab shell", () => {
   it("renders every tab panel so only visibility is conditional", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     // Overview + Event + Hints + Admins + Support + Activity + Insights + the two modules.
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(9);
+    expect(html.match(/role="region"/g)?.length).toBe(9);
     // Exactly the eight non-selected panels carry `hidden`.
     expect(html.match(/hidden=""/g)?.length).toBe(8);
   });
@@ -315,7 +315,7 @@ describe("AdminControls panel contents", () => {
     // Overview + Event + Hints + Admins + Support + Activity + Insights +
     // quiz. The control-plane destinations survive a module being disabled,
     // because none of them is a module tab.
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(8);
+    expect(html.match(/role="region"/g)?.length).toBe(8);
     // The hint policy stays reachable: quiz has no hints, but classic and ai
     // do, and this event can switch either on at runtime.
     expect(panelFor(html, "hints")).toContain("Hint cost");
@@ -481,7 +481,7 @@ describe("AdminControls ai panel", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
     expect(html).toContain("AI Challenges");
     expect(html.match(/href="\?tab=/g)?.length).toBe(10);
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(10);
+    expect(html.match(/role="region"/g)?.length).toBe(10);
   });
 
   it("renders AdminAiControls in the ai panel, not the fallback placeholder", () => {

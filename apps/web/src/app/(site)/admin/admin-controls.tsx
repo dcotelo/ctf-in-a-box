@@ -500,7 +500,7 @@ export default function AdminControls({
 
         <div className="min-w-0 flex-1">
           {tabs.map((tab) => (
-            <div key={tab.id} role="tabpanel" id={`panel-${tab.id}`} aria-label={tab.label} hidden={active !== tab.id}>
+            <div key={tab.id} role="region" id={`panel-${tab.id}`} aria-label={tab.label} hidden={active !== tab.id}>
               {tab.id === OVERVIEW_TAB ? (
                 <AdminOverviewTab
                   settings={settings}
