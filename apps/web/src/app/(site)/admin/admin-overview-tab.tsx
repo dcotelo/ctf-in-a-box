@@ -7,8 +7,10 @@
 // settings.
 //
 // Read-only except the Scoring and Registration switches, which dispatch
-// through the exact same `apply`/`setConfirm` flow admin-event-tab.tsx's
-// checkboxes already use — same confirmation copy, same settings write.
+// through the exact same `setConfirm` flow admin-event-tab.tsx's rows use —
+// same confirmation copy, same settings write — and report the outcome
+// beside the row through `applyField`/`statusOf`, under the same status key
+// as Event's row for the same setting, so the two screens never disagree.
 //
 // The team/player/submitted/stuck figures and the activity preview are each
 // ONE fetch on mount, not a poll: PR 2 adds the 15s refresh this screen will
@@ -22,6 +24,8 @@ import { getRemaining, formatCompact } from "@/lib/countdown";
 import type { ModuleSetupContent, ResolvedModule } from "@/lib/modules";
 import { phaseBoundaryLabel, phaseFromSettings, PHASE_COLOR } from "@/components/phase";
 import { setupCountLabel, setupStepStatus, type ModuleInventory } from "@/components/admin-module-setup";
+import AdminSwitch from "@/components/admin-switch";
+import type { FieldStatus } from "@/components/admin-number-field";
 import { formatWhen, TYPE_LABELS, type ActivityEntry } from "./admin-activity-tab";
 import type { ConfirmState } from "./types";
 
@@ -66,7 +70,8 @@ export function moduleSummary(setup: ModuleSetupContent | undefined, inventory: 
 export default function AdminOverviewTab({
   settings,
   pending,
-  apply,
+  applyField,
+  statusOf,
   setConfirm,
   nowMs,
   sync,
@@ -77,7 +82,10 @@ export default function AdminOverviewTab({
 }: {
   settings: AdminSettings;
   pending: boolean;
-  apply: (patch: Record<string, unknown>) => Promise<boolean>;
+  /** A write that belongs to one row, reported into that row's status
+   *  (Saving… / Saved / the refusal) rather than the panel-wide error line. */
+  applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
+  statusOf: (key: string) => FieldStatus;
   setConfirm: (c: ConfirmState) => void;
   /** Same "as of" stamp the Event tab's schedule readout uses — see
    *  `settingsAt` in admin-controls.tsx. */
@@ -172,55 +180,45 @@ export default function AdminOverviewTab({
           {remaining && <span className="text-xs text-muted">({formatCompact(remaining)} left)</span>}
         </div>
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Scoring</span>
-            <span className="block text-xs text-muted">Pause new submissions from being scored.</span>
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={!settings.paused}
-            checked={!settings.paused}
-            disabled={pending}
-            onChange={(e) => {
-              const next = !e.target.checked;
-              setConfirm({
-                title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-                body: next ? "New submissions will stop being scored for everyone." : "Scoring resumes for everyone.",
-                confirmLabel: next ? "Freeze" : "Unfreeze",
-                onConfirm: () => apply({ paused: next }),
-              });
-            }}
-            className="h-5 w-5 flex-none accent-[#2563eb]"
-          />
-        </label>
+        {/* Status keys are the stored setting keys (`paused`,
+            `teamRegistrationOpen`) — the same ones Event's rows report under —
+            so a flip made here shows "Saved" on both screens. */}
+        <AdminSwitch
+          id="overview-scoring"
+          label="Scoring"
+          help="Pause new submissions from being scored."
+          checked={!settings.paused}
+          disabled={pending}
+          status={statusOf("paused")}
+          onChange={(on) => {
+            const next = !on;
+            setConfirm({
+              title: next ? "Freeze scoring?" : "Unfreeze scoring?",
+              body: next ? "New submissions will stop being scored for everyone." : "Scoring resumes for everyone.",
+              confirmLabel: next ? "Freeze" : "Unfreeze",
+              onConfirm: () => applyField("paused", { paused: next }, "Scoring"),
+            });
+          }}
+        />
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Registration</span>
-            <span className="block text-xs text-muted">Allow players to create or join teams.</span>
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={settings.teamRegistrationOpen}
-            checked={settings.teamRegistrationOpen}
-            disabled={pending}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setConfirm({
-                title: next ? "Open team registration?" : "Close team registration?",
-                body: next
-                  ? "Players will be able to create and join teams."
-                  : "Players will no longer be able to create or join teams.",
-                confirmLabel: next ? "Open" : "Close",
-                onConfirm: () => apply({ teamRegistrationOpen: next }),
-              });
-            }}
-            className="h-5 w-5 flex-none accent-[#2563eb]"
-          />
-        </label>
+        <AdminSwitch
+          id="overview-registration"
+          label="Registration"
+          help="Allow players to create or join teams."
+          checked={settings.teamRegistrationOpen}
+          disabled={pending}
+          status={statusOf("teamRegistrationOpen")}
+          onChange={(next) => {
+            setConfirm({
+              title: next ? "Open team registration?" : "Close team registration?",
+              body: next
+                ? "Players will be able to create and join teams."
+                : "Players will no longer be able to create or join teams.",
+              confirmLabel: next ? "Open" : "Close",
+              onConfirm: () => applyField("teamRegistrationOpen", { teamRegistrationOpen: next }, "Registration"),
+            });
+          }}
+        />
       </section>
 
       {metrics && (

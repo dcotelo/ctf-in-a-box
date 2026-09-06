@@ -505,7 +505,8 @@ export default function AdminControls({
                 <AdminOverviewTab
                   settings={settings}
                   pending={pending}
-                  apply={apply}
+                  applyField={applyField}
+                  statusOf={statusOf}
                   setConfirm={setConfirm}
                   nowMs={settingsAt}
                   sync={sync}
@@ -520,7 +521,6 @@ export default function AdminControls({
                   pending={pending}
                   demoMode={demoMode}
                   resetInfo={resetInfo}
-                  apply={apply}
                   applyField={applyField}
                   statusOf={statusOf}
                   setConfirm={setConfirm}
@@ -537,7 +537,7 @@ export default function AdminControls({
                 <AdminHintsTab
                   settings={settings}
                   pending={pending}
-                  apply={apply}
+                  applyField={applyField}
                   statusOf={statusOf}
                   commitNumber={commitNumber}
                   hintCostInput={hintCostInput}

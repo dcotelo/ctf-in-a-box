@@ -16,12 +16,15 @@
 import type { AdminSettings } from "@/lib/admin-store";
 import { HINT_COST, HINT_DEFAULT_ENABLED, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "@/lib/hint-defaults";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSwitch from "@/components/admin-switch";
 import type { CommitNumber } from "./types";
 
 export type AdminHintsTabProps = {
   settings: AdminSettings;
   pending: boolean;
-  apply: (patch: Record<string, unknown>) => Promise<boolean>;
+  /** A write that belongs to one row, reported beside it (Saving… / Saved /
+   *  the refusal) rather than on the panel-wide error line. */
+  applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
   statusOf: (key: string) => FieldStatus;
   commitNumber: CommitNumber;
   hintCostInput: string;
@@ -35,7 +38,7 @@ export type AdminHintsTabProps = {
 export default function AdminHintsTab({
   settings,
   pending,
-  apply,
+  applyField,
   statusOf,
   commitNumber,
   hintCostInput,
@@ -55,22 +58,20 @@ export default function AdminHintsTab({
         </p>
       </div>
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Hints enabled</span>
-          <span className="block text-xs text-muted">
-            Hints are on unless you turn them off. Off hides the hint button and the leaderboard&rsquo;s
-            hint-penalty column; points already spent stay recorded.
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.hintsEnabled ?? HINT_DEFAULT_ENABLED}
-          disabled={pending}
-          onChange={(e) => void apply({ hintsEnabled: e.target.checked })}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
-        />
-      </label>
+      <AdminSwitch
+        id="hints-enabled"
+        label="Hints enabled"
+        help={
+          <>
+            Hints are on unless you turn them off. Off hides the hint button and the leaderboard&rsquo;s hint-penalty
+            column; points already spent stay recorded.
+          </>
+        }
+        checked={settings.hintsEnabled ?? HINT_DEFAULT_ENABLED}
+        disabled={pending}
+        status={statusOf("hintsEnabled")}
+        onChange={(next) => void applyField("hintsEnabled", { hintsEnabled: next }, "Hints enabled")}
+      />
 
       <AdminNumberField
         id="hint-cost"

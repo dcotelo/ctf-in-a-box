@@ -9,9 +9,12 @@
 // module's.
 //
 // Presentational: every piece of state it reads (`settings`, `pending`,
-// `resetInfo`) and every mutation it triggers (`apply`, `setConfirm`,
+// `resetInfo`) and every mutation it triggers (`applyField`, `setConfirm`,
 // `doReset`, `doSeed`) is owned by `admin-controls.tsx` and passed in, so the
-// shell stays the single writer of settings state across all tabs.
+// shell stays the single writer of settings state across all tabs. Every
+// write here belongs to one row — a switch or a field — so all of them go
+// through `applyField` and report beside that row (admin-redesign.md
+// § Controls); there is no panel-wide `apply` left on this tab.
 
 import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
@@ -20,6 +23,7 @@ import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { eventConfig } from "@/lib/event-config";
 import AdminEventControls from "@/components/admin-event-controls";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminSwitch from "@/components/admin-switch";
 import type { CommitNumber, ConfirmState } from "./types";
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
@@ -113,9 +117,8 @@ export type AdminEventTabProps = {
   pending: boolean;
   demoMode: boolean;
   resetInfo: string | null;
-  apply: (patch: Record<string, unknown>) => Promise<boolean>;
-  /** A write that belongs to one field: reported into that field's status
-   *  rather than the panel-wide error line (UX audit F2). */
+  /** A write that belongs to one field or switch: reported into that row's
+   *  status rather than the panel-wide error line (UX audit F2). */
   applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
   statusOf: (key: string) => FieldStatus;
   setConfirm: (c: ConfirmState) => void;
@@ -152,7 +155,6 @@ export default function AdminEventTab({
   pending,
   demoMode,
   resetInfo,
-  apply,
   applyField,
   statusOf,
   setConfirm,
@@ -210,89 +212,82 @@ export default function AdminEventTab({
           const on = live.has(mod.id);
           const isLastOn = on && mod.toggleable && liveCount === 1;
           const disabled = pending || !mod.toggleable || isLastOn;
+          // One status key per module row, not one for the whole
+          // `enabledModules` write: "Saved" belongs beside the switch that
+          // was flipped, not beside every module at once.
           return (
-            <label key={mod.id} className="flex items-center justify-between gap-3">
-              <span>
-                <span className={mod.toggleable ? "text-white" : "text-zinc-400"}>{mod.label}</span>
-                {!mod.toggleable && mod.reason && <span className="block text-xs text-muted">{mod.reason}</span>}
-                {isLastOn && (
-                  <span className="block text-xs text-muted">
-                    The only module left — an event has to serve something.
-                  </span>
-                )}
-              </span>
-              <input
-                type="checkbox"
-                checked={on}
-                disabled={disabled}
-                onChange={(e) => {
-                  const next = e.target.checked;
-                  const ids = next
-                    ? [...live, mod.id]
-                    : [...live].filter((id) => id !== mod.id);
-                  setConfirm({
-                    title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
-                    body: next
-                      ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
-                      : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
-                    confirmLabel: next ? "Enable" : "Disable",
-                    onConfirm: () => apply({ enabledModules: ids }),
-                  });
-                }}
-                className="h-5 w-5 flex-none accent-[#2563eb] disabled:opacity-40"
-              />
-            </label>
+            <AdminSwitch
+              key={mod.id}
+              id={`module-${mod.id}`}
+              label={mod.label}
+              help={
+                !mod.toggleable && mod.reason
+                  ? mod.reason
+                  : isLastOn
+                    ? "The only module left — an event has to serve something."
+                    : undefined
+              }
+              checked={on}
+              disabled={disabled}
+              status={statusOf(`module:${mod.id}`)}
+              onChange={(next) => {
+                const ids = next
+                  ? [...live, mod.id]
+                  : [...live].filter((id) => id !== mod.id);
+                setConfirm({
+                  title: next ? `Enable ${mod.label}?` : `Disable ${mod.label}?`,
+                  body: next
+                    ? `${mod.label} appears in the nav and its board opens, for everyone, on their next page load.`
+                    : `${mod.label} disappears from the nav and its board stops resolving, for everyone, on their next page load. Nothing is deleted — enabling it again brings the same board back.`,
+                  confirmLabel: next ? "Enable" : "Disable",
+                  onConfirm: () => applyField(`module:${mod.id}`, { enabledModules: ids }, mod.label),
+                });
+              }}
+            />
           );
         })}
       </section>
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Freeze scoring</span>
-          <span className="block text-xs text-muted">Pause new submissions from being scored.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.paused}
-          disabled={pending}
-          onChange={(e) => {
-            const next = e.target.checked;
-            setConfirm({
-              title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-              body: next
-                ? "New submissions will stop being scored for everyone."
-                : "Scoring resumes for everyone.",
-              confirmLabel: next ? "Freeze" : "Unfreeze",
-              onConfirm: () => apply({ paused: next }),
-            });
-          }}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
-        />
-      </label>
+      {/* Status keys are the stored setting keys, shared with Overview's
+          Scoring and Registration switches (admin-overview-tab.tsx), so a
+          flip made on either screen reports on both. */}
+      <AdminSwitch
+        id="event-paused"
+        label="Freeze scoring"
+        help="Pause new submissions from being scored."
+        checked={settings.paused}
+        disabled={pending}
+        status={statusOf("paused")}
+        onChange={(next) => {
+          setConfirm({
+            title: next ? "Freeze scoring?" : "Unfreeze scoring?",
+            body: next
+              ? "New submissions will stop being scored for everyone."
+              : "Scoring resumes for everyone.",
+            confirmLabel: next ? "Freeze" : "Unfreeze",
+            onConfirm: () => applyField("paused", { paused: next }, "Freeze scoring"),
+          });
+        }}
+      />
 
-      <label className="flex items-center justify-between gap-3">
-        <span>
-          <span className="text-white">Team registration open</span>
-          <span className="block text-xs text-muted">Allow players to create or join teams.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.teamRegistrationOpen}
-          disabled={pending}
-          onChange={(e) => {
-            const next = e.target.checked;
-            setConfirm({
-              title: next ? "Open team registration?" : "Close team registration?",
-              body: next
-                ? "Players will be able to create and join teams."
-                : "Players will no longer be able to create or join teams.",
-              confirmLabel: next ? "Open" : "Close",
-              onConfirm: () => apply({ teamRegistrationOpen: next }),
-            });
-          }}
-          className="h-5 w-5 flex-none accent-[#2563eb]"
-        />
-      </label>
+      <AdminSwitch
+        id="event-registration"
+        label="Team registration open"
+        help="Allow players to create or join teams."
+        checked={settings.teamRegistrationOpen}
+        disabled={pending}
+        status={statusOf("teamRegistrationOpen")}
+        onChange={(next) => {
+          setConfirm({
+            title: next ? "Open team registration?" : "Close team registration?",
+            body: next
+              ? "Players will be able to create and join teams."
+              : "Players will no longer be able to create or join teams.",
+            confirmLabel: next ? "Open" : "Close",
+            onConfirm: () => applyField("teamRegistrationOpen", { teamRegistrationOpen: next }, "Team registration"),
+          });
+        }}
+      />
 
       <AdminNumberField
         id="team-max-members"

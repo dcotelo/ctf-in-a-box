@@ -74,6 +74,22 @@ const STATUS_CLASS: Record<Exclude<FieldStatus["state"], "idle">, string> = {
   rejected: "text-[#e53e3e]",
 };
 
+/** The three visible states, as one line under a field — "Saving…", "Saved",
+ *  or the refusal — and nothing at all while idle. Shared with AdminSwitch
+ *  (components/admin-switch.tsx) so a boolean row and a numeric knob report a
+ *  save in exactly the same words, colour and place. A refusal is announced
+ *  (`role="alert"`); the owning input points at `id` via `aria-describedby`. */
+export function FieldStatusLine({ id, status }: { id: string; status: FieldStatus }) {
+  const line =
+    status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
+  if (!line) return null;
+  return (
+    <p id={id} role={status.state === "rejected" ? "alert" : undefined} className={`text-right text-xs ${STATUS_CLASS[status.state as Exclude<FieldStatus["state"], "idle">]}`}>
+      {line}
+    </p>
+  );
+}
+
 export default function AdminNumberField({
   id,
   label,
@@ -102,8 +118,7 @@ export default function AdminNumberField({
 }) {
   const statusId = `${id}-status`;
   const rejected = status.state === "rejected";
-  const line =
-    status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
+  const hasLine = status.state !== "idle";
   return (
     <div className="flex flex-col gap-1">
       <label className="flex items-center justify-between gap-3">
@@ -120,17 +135,13 @@ export default function AdminNumberField({
           placeholder={placeholder}
           disabled={disabled}
           aria-invalid={rejected ? true : undefined}
-          aria-describedby={line ? statusId : undefined}
+          aria-describedby={hasLine ? statusId : undefined}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           className={INPUT_CLASS}
         />
       </label>
-      {line && (
-        <p id={statusId} role={rejected ? "alert" : undefined} className={`text-right text-xs ${STATUS_CLASS[status.state as Exclude<FieldStatus["state"], "idle">]}`}>
-          {line}
-        </p>
-      )}
+      <FieldStatusLine id={statusId} status={status} />
     </div>
   );
 }
