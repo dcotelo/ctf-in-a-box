@@ -247,10 +247,12 @@ describe("per-challenge catalog", () => {
     const html = renderToStaticMarkup(
       <EntryRow entry={withChallenges} topPoints={100} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
     );
-    // The per-target challenge list is collapsible (collapsed by default —
-    // some targets have 100+ challenges), so the expand trigger is what renders
-    // in static markup, under the target's name.
-    expect(html).toMatch(/Show 2 challenges/);
+    // The per-target challenge list is still collapsed by default (some
+    // targets have 100+ challenges), but the target's own ProgressRow is the
+    // disclosure now, so what renders in static markup is that <details>
+    // rather than a separate "Show N challenges" trigger under the name.
+    expect(html).toContain("<details");
+    expect(html).toContain("Juice Shop");
     expect(html).toContain("Juice Shop");
   });
 

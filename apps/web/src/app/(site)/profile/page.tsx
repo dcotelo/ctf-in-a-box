@@ -9,9 +9,10 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
-import ModuleDetail from "@/components/module-detail";
-import ModuleItemList, { type ModuleItem } from "@/components/module-item-list";
-import ProgressSummary from "@/components/progress-summary";
+import AppBreakdown from "@/components/app-breakdown";
+import ProgressRow, { moduleUnit } from "@/components/progress/progress-row";
+import ChallengeList, { type ProgressItem } from "@/components/progress/challenge-list";
+import RemainingLine from "@/components/progress/remaining-line";
 import TeamCard from "@/components/team-card";
 import TeamProgress from "@/components/team-progress";
 import type { AppId } from "@/lib/apps";
@@ -318,16 +319,27 @@ export default async function ProfilePage() {
     apps: appsRecord,
     updatedAt: profile?.updatedAt ?? null,
   };
-  // A single-module event has nothing to disambiguate — see the identical
-  // note in leaderboard.tsx's EntryRow, which this mirrors.
-  const multiModule = resolvedModules.length > 1;
   const moduleBlocks = resolvedModules.filter((m) => moduleProgress[m.id]);
+
+  // What is still winnable, per ENABLED module rather than per module with a
+  // block: a contestant who has not opened Classic yet is exactly the one who
+  // needs to be told that most of the board's points are sitting in it. Each
+  // pair is the same earned/max the module's own row shows.
+  const moduleMaxPoints: Partial<Record<ModuleId, { earned: number; max: number }>> = {
+    "secure-development": secureDevEnabled ? { earned: profile?.points ?? 0, max: profile?.maxPoints ?? 0 } : undefined,
+    quiz: quizEnabled ? { earned: quizPoints, max: quizMaxPoints } : undefined,
+    classic: classicEnabled ? { earned: classicPoints, max: classicMaxPoints } : undefined,
+    ai: aiEnabled ? { earned: aiPoints, max: aiMaxPoints } : undefined,
+  };
+  const remainingModules = resolvedModules
+    .map((m) => ({ title: m.title, ...moduleMaxPoints[m.id] }))
+    .filter((m): m is { title: string; earned: number; max: number } => m.earned != null && m.max != null);
 
   // The shared progress shape's numbers, per module — each module's own noun,
   // its done/total pair, and its earned/available points. Denominators reuse
   // the same clamped figures computed above, so a block can never read
   // "6 / 5" or claim a ceiling the header bar doesn't.
-  const moduleSummary = (id: ModuleId): { done: number; total: number; noun: string; earned: number; available: number } => {
+  const moduleSummary = (id: ModuleId): { done: number; total: number; unit: string; earned: number; max: number } => {
     const progress = moduleProgress[id]!;
     const detail = progress.detail;
     // Exhaustive switch, closed with a `never` guard below — this used to be
@@ -337,13 +349,16 @@ export default async function ProfilePage() {
     // check here instead of shipping with the wrong noun.
     switch (detail.kind) {
       case "quiz":
-        return { done: detail.answered, total: detail.total, noun: "answered", earned: progress.points, available: quizMaxPoints };
+        return { done: detail.answered, total: detail.total, unit: moduleUnit("quiz"), earned: progress.points, max: quizMaxPoints };
       case "classic":
-        return { done: detail.solved, total: detail.total, noun: "solved", earned: progress.points, available: classicMaxPoints };
+        return { done: detail.solved, total: detail.total, unit: moduleUnit("classic"), earned: progress.points, max: classicMaxPoints };
       case "ai":
-        return { done: detail.solved, total: detail.total, noun: "challenges", earned: progress.points, available: aiMaxPoints };
+        return { done: detail.solved, total: detail.total, unit: moduleUnit("ai"), earned: progress.points, max: aiMaxPoints };
       case "secure-development":
-        return { done: progress.completed, total: challengeCount, noun: "patched", earned: progress.points, available: profile?.maxPoints ?? 0 };
+        // `profile.maxPoints` is the sum of the targets' own ceilings (see
+        // lambda/mock getUser) — it used to arrive as 0 from the live source,
+        // which is what rendered "8 / 0 pts" here.
+        return { done: progress.completed, total: challengeCount, unit: moduleUnit("secure-development"), earned: progress.points, max: profile?.maxPoints ?? 0 };
       default: {
         const unhandled: never = detail;
         return unhandled;
@@ -357,44 +372,56 @@ export default async function ProfilePage() {
   // siblings include the flag; a quiz record's, the answer key). The
   // secure-development block already has its own per-target lists via
   // AppBreakdown.
-  const moduleItems = (id: ModuleId): { items: ModuleItem[]; noun: string; doneLabel: string } | null => {
+  const moduleItems = (id: ModuleId): { items: ProgressItem[]; doneWord: string } | null => {
+    // Classic groups by the category an organizer authored (Web, Crypto…);
+    // quiz and ai have no grouping of their own and render one flat bucket.
     if (id === "quiz" && quizQuestions.length > 0) {
       return {
-        noun: quizQuestions.length === 1 ? "question" : "questions",
-        doneLabel: "Answered",
-        items: quizQuestions.map((qn) => ({
-          id: qn.id,
-          label: qn.prompt,
-          points: qn.points,
-          done: Boolean(viewerQuiz.answered[qn.id]),
-          earnedPoints: viewerQuiz.answered[qn.id]?.points,
-        })),
+        doneWord: "answered",
+        items: quizQuestions.map((qn) => {
+          const done = Boolean(viewerQuiz.answered[qn.id]);
+          return {
+            key: qn.id,
+            name: qn.prompt,
+            points: viewerQuiz.answered[qn.id]?.points ?? qn.points,
+            done,
+            status: done ? "Answered" : "Open",
+            tone: done ? "done" : "open",
+          };
+        }),
       };
     }
     if (id === "classic" && classicChallenges.length > 0) {
       return {
-        noun: classicChallenges.length === 1 ? "flag" : "flags",
-        doneLabel: "Solved",
-        items: classicChallenges.map((c) => ({
-          id: c.id,
-          label: c.title,
-          points: c.points,
-          done: Boolean(viewerClassic.solved[c.id]),
-          earnedPoints: viewerClassic.solved[c.id]?.points,
-        })),
+        doneWord: "solved",
+        items: classicChallenges.map((c) => {
+          const done = Boolean(viewerClassic.solved[c.id]);
+          return {
+            key: c.id,
+            name: c.title,
+            points: viewerClassic.solved[c.id]?.points ?? c.points,
+            group: c.category,
+            done,
+            status: done ? "Solved" : "Open",
+            tone: done ? "done" : "open",
+          };
+        }),
       };
     }
     if (id === "ai" && aiChallenges.length > 0) {
       return {
-        noun: aiChallenges.length === 1 ? "challenge" : "challenges",
-        doneLabel: "Solved",
-        items: aiChallenges.map((c) => ({
-          id: c.id,
-          label: c.title,
-          points: c.points,
-          done: Boolean(viewerAi.solved[c.id]),
-          earnedPoints: viewerAi.solved[c.id]?.points,
-        })),
+        doneWord: "cleared",
+        items: aiChallenges.map((c) => {
+          const done = Boolean(viewerAi.solved[c.id]);
+          return {
+            key: c.id,
+            name: c.title,
+            points: viewerAi.solved[c.id]?.points ?? c.points,
+            done,
+            status: done ? "Cleared" : "Open",
+            tone: done ? "done" : "open",
+          };
+        }),
       };
     }
     return null;
@@ -487,7 +514,7 @@ export default async function ProfilePage() {
                 {classicTotal?.solved ?? 0}
                 <span className="text-sm text-muted"> / {Math.max(classicChallenges.length, classicTotal?.solved ?? 0)}</span>
               </p>
-              <p className="text-[11px] uppercase tracking-wide text-muted">solved</p>
+              <p className="text-[11px] uppercase tracking-wide text-muted">{moduleUnit("classic")}</p>
             </div>
           )}
           {aiEnabled && aiChallenges.length > 0 && (
@@ -496,7 +523,10 @@ export default async function ProfilePage() {
                 {aiTotal?.solved ?? 0}
                 <span className="text-sm text-muted"> / {Math.max(aiChallenges.length, aiTotal?.solved ?? 0)}</span>
               </p>
-              <p className="text-[11px] uppercase tracking-wide text-muted">challenges</p>
+              {/* "challenges" until now, which is what classic's flags are
+                  called too — every header stat takes its module's own word
+                  from the shared map. */}
+              <p className="text-[11px] uppercase tracking-wide text-muted">{moduleUnit("ai")}</p>
             </div>
           )}
         </div>
@@ -544,34 +574,32 @@ export default async function ProfilePage() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {moduleBlocks.map((m) => (
-            <div key={m.id} data-testid="module-block" className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
-              {/* Every block opens with the shared progress shape
-                  (progress-summary.tsx) — the same line the boards themselves
-                  show, so a module's block here and its own page agree on
-                  what "how far along" looks like. Shown on single-module
-                  events too: the title is redundant there, the totals and
-                  the bar are not. */}
-              <ProgressSummary
-                label={multiModule ? m.title : undefined}
-                {...moduleSummary(m.id)}
-              />
-              {/* The quiz/classic ModuleDetail branches render exactly the
-                  done/total line the summary above now carries — only
-                  secure-development still has more to say (the per-target
-                  breakdown). showPoints restores the per-app "30 / 60 pts"
-                  figure the pre-module custom grid used to show. */}
-              {moduleProgress[m.id]!.detail.kind === "secure-development" && (
-                <ModuleDetail moduleId={m.id} progress={moduleProgress[m.id]!} entry={moduleEntry} showPoints />
-              )}
-              {/* Quiz/classic get the same Show-N item list the target cards
-                  have — which questions are answered, which flags solved. */}
-              {(() => {
-                const list = moduleItems(m.id);
-                return list ? <ModuleItemList items={list.items} noun={list.noun} doneLabel={list.doneLabel} /> : null;
-              })()}
-            </div>
-          ))}
+          {moduleBlocks.map((m) => {
+            const summary = moduleSummary(m.id);
+            const list = moduleItems(m.id);
+            const isSecureDev = moduleProgress[m.id]!.detail.kind === "secure-development";
+            // One row shape at every level: the module row opens into its
+            // targets (secure-development) or straight into its own grouped
+            // list. The title is redundant on a single-module event, but the
+            // row still needs a label for its bar, so the module's own name
+            // stands in rather than the row losing its accessible name.
+            return (
+              <div key={m.id} data-testid="module-block" className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
+                <ProgressRow label={m.title} level="module" {...summary}>
+                  {isSecureDev ? (
+                    <AppBreakdown entry={moduleEntry} showPoints />
+                  ) : list ? (
+                    <ChallengeList items={list.items} unit={summary.unit} doneWord={list.doneWord} />
+                  ) : undefined}
+                </ProgressRow>
+              </div>
+            );
+          })}
+          {/* The one line here that is not a restatement: what is still
+              winnable, and where most of it is. Everything above answers
+              "how am I doing"; a contestant mid-event is asking "where do I
+              go next". */}
+          <RemainingLine modules={remainingModules} />
         </div>
       )}
     </div>
