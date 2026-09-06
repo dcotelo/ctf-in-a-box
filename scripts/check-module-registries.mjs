@@ -140,8 +140,17 @@ function parseExampleModules() {
     }
   }
   const keys = [];
-  for (const line of lines.slice(start + 1, end)) {
-    const m = line.match(/^ {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9-]+)):/);
+  for (let i = start + 1; i < end; i++) {
+    const line = lines[i];
+    const m = line.match(/^ {2}(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+)):/);
+    // Any other module-level (2-space) line that is not a comment is a key the
+    // parser can't read — refuse it rather than skip it, or an entry such as
+    // `secure_development:` passes the known-module check by being invisible.
+    // Report the line NUMBER, not the line: this runs in CI logs, and the
+    // repo's rule is that diagnostics never echo config content (see #244).
+    if (!m && /^ {2}\S/.test(line) && !/^ {2}#/.test(line)) {
+      fail(`event.yaml.example: unparseable module entry at line ${i + 1}`);
+    }
     if (m) keys.push(m[1] ?? m[2] ?? m[3]);
   }
   return keys;
