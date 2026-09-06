@@ -111,6 +111,11 @@ describe("moduleSummary", () => {
     expect(moduleSummary(setup, { items: 0 })).toBe("setup incomplete");
   });
 
+  it("says checking… — not incomplete — before the module's panel has reported its counts", () => {
+    expect(moduleSummary(setup, undefined)).toBe("checking…");
+    expect(moduleSummary(setup, {})).toBe("checking…");
+  });
+
   it("says setup complete with the live count once something exists", () => {
     expect(moduleSummary(setup, { items: 12 })).toBe("setup complete · 12 questions");
   });

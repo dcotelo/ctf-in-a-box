@@ -45,10 +45,17 @@ function Figure({ label, value, warn }: { label: string; value: number; warn?: b
 export function moduleSummary(setup: ModuleSetupContent | undefined, inventory: ModuleInventory | undefined): string {
   if (!setup) return "enabled";
   const checkable = setup.steps.filter((s) => s.check);
-  const allDone = checkable.length > 0 && checkable.every((s) => setupStepStatus(s, inventory) === "done");
+  const statuses = checkable.map((s) => setupStepStatus(s, inventory));
+  // The counts arrive from each module's own panel after ITS mount-time
+  // fetch settles (see `inventory` in admin-controls.tsx). Until then the
+  // honest word is "checking" — the same rule the checklist itself follows —
+  // never "incomplete", which would accuse a fully set-up module on every
+  // first paint.
+  if (statuses.some((s) => s === "unknown")) return "checking…";
+  const allDone = checkable.length > 0 && statuses.every((s) => s === "done");
   const counts = checkable
     .map((s) => setupCountLabel(s, inventory))
-    .filter((label): label is string => label !== null && label !== "Checking…" && label !== "None yet");
+    .filter((label): label is string => label !== null && label !== "None yet");
   const parts = [allDone ? "setup complete" : "setup incomplete", ...counts];
   return parts.join(" · ");
 }
