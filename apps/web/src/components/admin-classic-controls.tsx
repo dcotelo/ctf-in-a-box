@@ -328,7 +328,7 @@ export default function AdminClassicControls({
         text={bundleImport.text}
         pending={bundleImport.pending}
         clientErrors={bundleImport.clientErrors}
-        serverErrors={bundleImport.serverErrors}
+        importErrors={bundleImport.importErrors}
         summary={bundleImport.result ? formatImportSummary(bundleImport.result) : null}
         canImport={bundleImport.canImport}
         onText={bundleImport.setText}

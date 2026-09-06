@@ -7,7 +7,7 @@
 // id or position; see admin-quiz-controls.tsx's header for why that matters.
 
 import type { QuestionType } from "@/lib/quiz-store";
-import EditorFrame, { IdBlock, editorHeading } from "@/components/admin/editor-frame";
+import EditorFrame, { EDITOR_FOCUS_ATTR, IdBlock, editorHeading } from "@/components/admin/editor-frame";
 import { INPUT_CLASS, NumberField, PositionReadout } from "@/components/admin/editor-fields";
 import {
   type ChoiceDraft,
@@ -89,7 +89,12 @@ export default function QuestionForm({
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted">Prompt</span>
+        {/* Claims the open-focus explicitly: this is the form's first real
+            field but it is a textarea, and EditorFrame's fallback selector
+            sees only text inputs — of which the first one here is a choice
+            id. */}
         <textarea
+          {...{ [EDITOR_FOCUS_ATTR]: "" }}
           value={draft.prompt}
           disabled={pending}
           onChange={(e) => set({ prompt: e.target.value })}

@@ -53,6 +53,7 @@ import { useState, type ChangeEvent } from "react";
 import { parseEventBundle, serializeEventBundle, type EventBundle, type EventImportError } from "@/lib/event-io";
 import type { EventImportSummary } from "@/lib/event-store";
 import ConfirmModal from "@/components/confirm-modal";
+import { FILE_READ_ERROR } from "@/components/admin/use-bundle-import";
 
 export type AdminEventControlsProps = {
   /** Test/first-paint seed only — lets a static-render test observe the
@@ -218,7 +219,16 @@ export default function AdminEventControls({ initialImportText = "", showHeading
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const text = await file.text();
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      // The caller `void`s this promise, so an uncaught rejection is silent:
+      // the organizer is left looking at an unchanged textarea with no sign
+      // the file never landed (#284 — the same fix as `useBundleImport`).
+      setImportErrors([FILE_READ_ERROR]);
+      return;
+    }
     setImportText(text);
     setImportResult(null);
     setImportSkipped(null);

@@ -29,12 +29,24 @@ type ValueField = {
   onChange: (value: string) => void;
 };
 
-/** A plain single-line text input — the title. */
+/** A plain single-line text input — the title.
+ *
+ *  `type="text"` is stated rather than left to the default. It renders
+ *  identically either way, but `EditorFrame` finds the field to focus on open
+ *  with an `input[type='text']` selector, and an attribute-less input does not
+ *  match it — so the classic and ai forms opened with the cursor nowhere
+ *  (#282). */
 export function TextField({ label, value, disabled, onChange }: ValueField & { label: string }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-sm text-muted">{label}</span>
-      <input value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={INPUT_CLASS} />
+      <input
+        type="text"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className={INPUT_CLASS}
+      />
     </label>
   );
 }

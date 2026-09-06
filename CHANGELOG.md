@@ -8,6 +8,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Four admin editor bugs that each cost an organizer a save.** Renaming a
+  quiz choice's id left the old id in the answer key: the panel said the
+  question was saveable and the store answered 400 (#280). A title or prompt
+  whose first word ran past the 48-character confirmation cut could end in
+  half an emoji — a phrase no keyboard can type, so that item could not be
+  deleted at all (#281). The classic and ai forms opened with the cursor
+  nowhere and the quiz form opened it in a choice-id box rather than the
+  prompt (#282). And a file the browser could not read was dropped in
+  silence, leaving the textarea unchanged with no explanation — on the
+  quiz/classic importers and on the event archive alike (#284).
 - **Every admin destination has its own URL.** `/admin/overview`,
   `/admin/activity`, `/admin/insights`, `/admin/support`, `/admin/event`,
   `/admin/hints`, `/admin/admins`, and one per enabled module

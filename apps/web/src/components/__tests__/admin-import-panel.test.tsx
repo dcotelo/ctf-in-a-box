@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import ImportPanel from "@/components/admin/import-panel";
-import { type BundleParse, clientValidation } from "@/components/admin/use-bundle-import";
+import { type BundleParse, FILE_READ_ERROR, clientValidation } from "@/components/admin/use-bundle-import";
 
 const noop = () => {};
 
@@ -40,7 +40,7 @@ describe("ImportPanel", () => {
         text=""
         pending={false}
         clientErrors={null}
-        serverErrors={null}
+        importErrors={null}
         summary={null}
         canImport={false}
         onText={noop}
@@ -81,14 +81,22 @@ describe("ImportPanel", () => {
     expect(render({ canImport: true, pending: true })).toMatch(/<button[^>]*disabled=""[^>]*>Importing…</);
   });
 
-  it("lists client and server errors as where: message, and the summary line", () => {
+  it("lists client and import errors as where: message, and the summary line", () => {
     const html = render({
       clientErrors: [{ where: "questions[0].id", message: "must match" }],
-      serverErrors: [{ where: "(request)", message: "Store unavailable — try again shortly." }],
+      importErrors: [{ where: "(request)", message: "Store unavailable — try again shortly." }],
       summary: "Imported 1 question: 1 created, 0 updated.",
     });
     expect(html).toContain("<li>questions[0].id: must match</li>");
     expect(html).toContain("<li>(request): Store unavailable — try again shortly.</li>");
     expect(html).toContain('<p class="text-sm text-white">Imported 1 question: 1 created, 0 updated.</p>');
+  });
+
+  it("shows a file the browser could not read, which reaches no server at all", () => {
+    // #284: `handleFile` awaited `file.text()` with no catch and both panels
+    // `void` that promise, so a rejected read changed nothing on screen. The
+    // panel needs somewhere to put it, and this is that slot.
+    const html = render({ importErrors: [FILE_READ_ERROR] });
+    expect(html).toContain("<li>(file): Couldn’t read that file — try choosing it again.</li>");
   });
 });

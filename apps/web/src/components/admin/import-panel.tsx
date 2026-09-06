@@ -37,7 +37,7 @@ export default function ImportPanel({
   text,
   pending,
   clientErrors,
-  serverErrors,
+  importErrors,
   summary,
   canImport,
   onText,
@@ -54,7 +54,9 @@ export default function ImportPanel({
   text: string;
   pending: boolean;
   clientErrors: ImportError[] | null;
-  serverErrors: ImportError[] | null;
+  /** Everything that failed outside client-side validation — the import POST,
+   *  or a file the browser could not read. */
+  importErrors: ImportError[] | null;
   /** The formatted after-import line, or null. */
   summary: string | null;
   canImport: boolean;
@@ -96,7 +98,7 @@ export default function ImportPanel({
 
           {clientErrors && clientErrors.length > 0 && <ErrorList errors={clientErrors} />}
 
-          {serverErrors && serverErrors.length > 0 && <ErrorList errors={serverErrors} />}
+          {importErrors && importErrors.length > 0 && <ErrorList errors={importErrors} />}
 
           {summary && <p className="text-sm text-white">{summary}</p>}
 

@@ -29,6 +29,27 @@ describe("confirmPhrase", () => {
     expect(confirmPhrase(oneWord)).toBe("a".repeat(DELETE_CONFIRM_PHRASE_MAX));
   });
 
+  it("never leaves half a character behind when cutting mid-word (#281)", () => {
+    // A first word longer than the cap takes the no-space branch, straight
+    // into the limit. With a `slice` on UTF-16 indices, an emoji straddling
+    // index 47 left a lone high surrogate in the phrase — unreachable from any
+    // keyboard, so the confirmation could never be satisfied and that item
+    // could not be deleted from the panel at all.
+    const straddling = `${"a".repeat(DELETE_CONFIRM_PHRASE_MAX - 1)}🚩tail`;
+    const phrase = confirmPhrase(straddling);
+
+    expect(Array.from(phrase)).toHaveLength(DELETE_CONFIRM_PHRASE_MAX);
+    expect(phrase.endsWith("🚩")).toBe(true);
+    expect(straddling.startsWith(phrase)).toBe(true);
+    // Every code unit belongs to a whole character the organizer can type back.
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(phrase)).toBe(false);
+  });
+
+  it("counts the cap in code points, so 48 emoji are kept whole", () => {
+    const emoji = "🚩".repeat(DELETE_CONFIRM_PHRASE_MAX);
+    expect(confirmPhrase(emoji)).toBe(emoji);
+  });
+
   it("falls back to the given id for a blank or whitespace-only text", () => {
     expect(confirmPhrase("   ", "xss-basics-zz9kq2")).toBe("xss-basics-zz9kq2");
   });

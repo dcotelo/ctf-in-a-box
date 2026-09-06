@@ -208,6 +208,13 @@ export function isDraftValid(d: QuestionDraft): boolean {
  *  an id would orphan every answer already recorded against the old one. On
  *  `mode: "new"` it is minted from the prompt.
  *
+ *  `correct` is trimmed and filtered against the choices actually being sent,
+ *  because the draft's copy outlives a rename: an organizer who retitles
+ *  choice `a` to `option-a` leaves `"a"` in `draft.correct`, and the route
+ *  400s on a `correct` entry naming no choice. `isDraftValid` has always
+ *  applied this same filter before counting, so without it here the panel
+ *  could enable Save on a draft whose payload the route then refused (#280).
+ *
  *  `newId` is injectable so a test can pin the generated value; production
  *  always uses `generateQuestionId`, whose output is checked against the
  *  store's own `QUIZ_ID_RE` before it is returned. Exported for direct
@@ -218,14 +225,16 @@ export function payloadFromEditor(
 ): QuestionPayload {
   const d = editor.draft;
   const prompt = d.prompt.trim();
+  const choices = d.choices.map((c) => ({ id: c.id.trim(), label: c.label.trim() }));
+  const choiceIds = new Set(choices.map((c) => c.id));
   return {
     id: editor.mode === "edit" ? editor.id : newId(prompt),
     prompt,
     type: d.type,
-    choices: d.choices.map((c) => ({ id: c.id.trim(), label: c.label.trim() })),
+    choices,
     points: Number(d.points),
     order: editor.order,
-    correct: d.correct,
+    correct: d.correct.map((id) => id.trim()).filter((id) => choiceIds.has(id)),
   };
 }
 
