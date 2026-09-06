@@ -258,7 +258,14 @@ export default async function ProfilePage() {
   // own numerator for the same reason every other one on this page is: a
   // deleted item leaves banked points and the count behind it.
   const statTiles: StatTile[] = [
-    secureDevEnabled && { unit: moduleUnit("secure-development"), done: patchedCount, total: challengeCount, accent: "#22c55e" },
+    // Clamped for the same reason the module row's denominator is: a removed
+    // target leaves the banked patch count above a shrunken catalogue.
+    secureDevEnabled && {
+      unit: moduleUnit("secure-development"),
+      done: patchedCount,
+      total: Math.max(challengeCount, patchedCount),
+      accent: "#22c55e",
+    },
     quizEnabled && quizQuestions.length > 0 && {
       unit: moduleUnit("quiz"),
       done: quizTotal?.answered ?? 0,

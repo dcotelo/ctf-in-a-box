@@ -64,6 +64,16 @@ describe("ProgressBar", () => {
     expect(html).not.toContain(`min-width:${MIN_FILL_PX}px`);
   });
 
+  it("never announces more than the ceiling, however the numbers arrive", () => {
+    // A deleted or re-priced item leaves banked points above a shrunken
+    // ceiling. The fill was already clamped; a screen reader hearing
+    // "300 of 200" would have been told something the bar never showed.
+    const html = renderToStaticMarkup(<ProgressBar {...props} earned={300} max={200} />);
+    expect(html).toContain('aria-valuenow="200"');
+    expect(html).toContain('aria-valuemax="200"');
+    expect(html).toContain("width:100%");
+  });
+
   it("reports the count when the source has no points, never a 0 ceiling", () => {
     const html = renderToStaticMarkup(<ProgressBar {...props} earned={0} max={0} done={6} total={321} />);
     expect(html).toContain('aria-valuenow="6"');

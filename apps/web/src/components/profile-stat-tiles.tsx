@@ -30,7 +30,10 @@ export default function ProfileStatTiles({
   tiles: StatTile[];
 }) {
   return (
-    <div className="flex flex-none gap-6 text-right">
+    // Wraps: four modules plus the hint tile overflow the card's width on a
+    // narrow screen, and a header that scrolls sideways is worse than one
+    // that takes a second line.
+    <div className="flex flex-none flex-wrap gap-x-6 gap-y-4 text-right">
       <div>
         <p className="font-mono text-xl font-bold tabular-nums text-white">{netPoints}</p>
         <p className="text-[11px] uppercase tracking-wide text-muted">points</p>

@@ -63,12 +63,18 @@ export default function ProgressBar({
 }) {
   const { value, ceiling } = barReading(earned, max, done, total);
   const pct = fillPercent(value, ceiling);
+  // The ARIA pair is clamped the same way the fill is. Banked points survive a
+  // deleted or re-priced item, so `value` can legitimately exceed `ceiling` —
+  // and a bar that renders full while announcing "300 of 200" is a bar that
+  // lies to exactly the readers who cannot see it.
+  const ariaCeiling = Math.max(0, ceiling);
+  const ariaValue = Math.min(ariaCeiling, Math.max(0, value));
   return (
     <div
       role="progressbar"
       aria-valuemin={0}
-      aria-valuemax={ceiling}
-      aria-valuenow={value}
+      aria-valuemax={ariaCeiling}
+      aria-valuenow={ariaValue}
       // The bar's own numbers are points; the count is the thing a contestant
       // actually says out loud, so it rides in the label rather than being
       // dropped for screen-reader users.

@@ -316,7 +316,7 @@ expanded leaderboard row renders each enabled
 module's own detail block (`components/module-detail.tsx`) instead of one
 hardcoded shape — `secure-development`'s branch shows the existing
 patched/target breakdown, `quiz`'s shows an answered/total count, `classic`'s
-a solved/total count, and `ai`'s a solved/total count of its own — with the
+a solved/total count, and `ai`'s a cleared/total count of its own — with the
 per-module heading suppressed while only one module is enabled, so a
 single-module event's row reads exactly as it did before; `/profile` renders
 the same per-module blocks for the signed-in contestant's own progress,

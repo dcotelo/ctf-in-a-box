@@ -181,8 +181,11 @@ state; everything else that touches scores goes through it.
    `apps.<target>`. The app joins the two to show *which* flags are solved —
    the collapsible per-target list under a contestant's breakdown, and a
    team's per-target flags (solved by its members' union, plus the ones still
-   open), both drawn by the same `components/progress/` row the profile uses
-   and grouped by each challenge's `owasp` code. Both fields are
+   open), both drawn by the same `components/progress/` row the profile uses.
+   Where a challenge carries an `owasp` code the list groups by it, most
+   winnable group first; a target whose catalogue reports `owasp: null`
+   throughout (a declarative YAML target — see above) has nothing to group by
+   and renders one unheaded, unbadged list instead. Both fields are
    additive; an older scorer that omits them simply falls back to the
    solved/total counts.
 9. Before rendering, the app composes the fetched `LeaderboardData` through a

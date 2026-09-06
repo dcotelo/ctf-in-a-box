@@ -123,7 +123,10 @@ export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): 
       // live source, which is what rendered "8 / 0 pts" here.
       return {
         done: progress.completed,
-        total: input.challengeCount,
+        // Clamped like every other denominator here: a target removed from
+        // the event shrinks the catalogue while the banked patch count stays,
+        // and "8 / 0 patched" is the same nonsense this PR set out to end.
+        total: Math.max(input.challengeCount, progress.completed),
         unit: moduleUnit("secure-development"),
         earned: progress.points,
         max: input.profile?.maxPoints ?? 0,
