@@ -1139,6 +1139,7 @@ git push -u origin fix/<short-description>`,
       scoring: [
         "Each flag is worth a fixed point value, set by whoever wrote it, and that value doesn't change as more people solve it.",
         "Points post the instant a correct flag is submitted. There's no cap on attempts, though a short cooldown between submissions on the same flag may apply.",
+        "Revealing a hint deducts points from your total, and hint purchases are final.",
       ],
     }),
     faq: () => ({
@@ -1200,6 +1201,7 @@ git push -u origin fix/<short-description>`,
       scoring: [
         "Each flag is worth a fixed point value, set by whoever wrote it, awarded automatically the instant a correct submission is graded. That value doesn't change as more people solve it.",
         "There is no cap on attempts. A short cooldown between submissions on the same flag may apply, and organizers may adjust it during the event.",
+        "Revealing a hint deducts points from your leaderboard total. Hint purchases are final. There is no refund.",
       ],
     }),
     routeCard: () => "Every flag the organizers have published.",
@@ -1403,6 +1405,7 @@ git push -u origin fix/<short-description>`,
       scoring: [
         "Each challenge is worth a fixed point value, set by whoever wrote it. Points post the moment your solve is recorded, whether the external site reported it or you submitted a matching flag.",
         "The box's own clock decides when a solve happened, not the external site's.",
+        "Revealing a hint deducts points from your total, and hint purchases are final.",
       ],
     }),
     faq: () => ({
@@ -1464,6 +1467,7 @@ git push -u origin fix/<short-description>`,
       scoring: [
         "Each challenge is worth a fixed point value, set by whoever wrote it, awarded automatically when your solve is recorded — whether the external site reported it or you submitted a matching flag. Your best-ever result per challenge counts.",
         "There is no cap on attempts. A short, fixed cooldown applies between wrong submissions on the same challenge.",
+        "Revealing a hint deducts points from your leaderboard total. Hint purchases are final. There is no refund.",
       ],
     }),
     routeCard: () => "Every AI challenge the organizers have published.",

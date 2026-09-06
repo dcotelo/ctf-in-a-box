@@ -8,6 +8,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Classic and AI now tell contestants that a hint costs points.** Secure
+  Development's rules and terms have always said "Revealing a hint deducts
+  points from your total"; classic's and ai's never did, though all three sell
+  hints through the same gate and the same four settings. On a classic-only or
+  ai-only event the price of a hint reached a contestant only from the reveal
+  button itself. Both modules' `rules` and `terms` scoring copy now carry the
+  sentence, mirroring secure-development's two variants. Quiz is deliberately
+  untouched — it sells no hints, so the sentence would be a lie there — and a
+  registry-level test now asserts exactly that split.
+
 - **The number beside a challenge is where it actually sits, and a team's
   slug is never retyped.** Each module list printed the row's stored `order`
   field, which is not a position in anything on screen: on a board seeded per
