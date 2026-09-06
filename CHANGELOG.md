@@ -8,6 +8,21 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The number beside a challenge is where it actually sits, and a team's
+  slug is never retyped.** Each module list printed the row's stored `order`
+  field, which is not a position in anything on screen: on a board seeded per
+  category it repeats — four rows read `#1`, four read `#2` — under a sentence
+  promising contestants see them in that order. The list now numbers rows
+  itself, from where they sit in the group being displayed, so the numbering
+  restarts per category exactly as the reader's eye does; the stored field is
+  untouched and still drives the real ordering. On **Support**, the contestant
+  card knew the team's slug and the team actions below still made you type it,
+  which is how the commonest ticket on that tab started; the card now offers a
+  control that fills the field and puts the cursor in it. Disband and Transfer
+  keep their confirmations where they are — a card whose subject is a person
+  is not the place for a second trigger on a team-wide action. That card's
+  `joined` timestamp also now says **UTC**, which the line directly beneath it
+  had been saying all along.
 - **Nothing in the admin panel destroys work without asking.** Opening a
   different question or challenge — or clicking Add — replaced a half-written
   draft in silence: the module forms sit *below* the list, so every list

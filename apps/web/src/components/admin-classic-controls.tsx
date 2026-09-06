@@ -298,7 +298,7 @@ export default function AdminClassicControls({
           groups={categories}
           meta={(row) => (
             <>
-              #{row.challenge.order} · {row.challenge.points} pt
+              {row.challenge.points} pt
               {row.challenge.points === 1 ? "" : "s"}
             </>
           )}

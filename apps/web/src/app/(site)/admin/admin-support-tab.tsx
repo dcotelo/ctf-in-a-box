@@ -15,7 +15,7 @@
 // own endpoints with their own shapes, and folding it into the shell's shared
 // settings `apply` would make that helper mean two different things.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ConfirmState } from "./types";
 
 /** The shape `GET /api/admin/ops/user` answers with — mirrors `UserDetail` in
@@ -79,6 +79,26 @@ export function resetProgressConfirm(detail: UserDetail): {
   };
 }
 
+/** The two things the contestant card says about their team, built purely so
+ *  they are provable: the card itself sits behind a lookup and never appears
+ *  in a static render (see this file's test header).
+ *
+ *  `joined` states UTC. Every other timestamp on this tab does — the line
+ *  directly beneath this one says so — and a bare "2026-09-03 01:45" beside it
+ *  invites the reader to assume local (audit F21).
+ *
+ *  `actionSlug` is the slug the card already holds. The team actions further
+ *  down took it hand-typed, so the commonest ticket on this tab ("the captain
+ *  vanished") began by retyping a slug from the line above. Null for a
+ *  contestant on no team, which is what hides the control. Exported for direct
+ *  testing. */
+export function teamCardSummary(detail: UserDetail): { joined: string | null; actionSlug: string | null } {
+  return {
+    joined: detail.team?.joinedAt ? `joined ${detail.team.joinedAt.slice(0, 16).replace("T", " ")} UTC` : null,
+    actionSlug: detail.team?.slug ?? null,
+  };
+}
+
 const FIELD =
   "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-muted focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 // Both action styles carry a DESIGNED disabled state, not an opacity fade.
@@ -116,6 +136,9 @@ export default function AdminSupportTab({
   const [notice, setNotice] = useState<string | null>(null);
 
   const [teamSlug, setTeamSlug] = useState("");
+  /** The team-actions slug field, so the contestant card can hand it the
+   *  slug it already knows and put the cursor there (audit F21). */
+  const teamSlugRef = useRef<HTMLInputElement>(null);
   const [teamLogin, setTeamLogin] = useState("");
 
   /** Runs a request and folds the outcome into the shared notice/error state.
@@ -228,10 +251,35 @@ export default function AdminSupportTab({
             ) : (
               "On no team."
             )}
-            {detail.team?.joinedAt && (
-              <span className="text-muted"> — joined {detail.team.joinedAt.slice(0, 16).replace("T", " ")}</span>
+            {teamCardSummary(detail).joined && (
+              <span className="text-muted"> — {teamCardSummary(detail).joined}</span>
             )}
           </p>
+
+          {/* The card already holds the slug; the team actions below took it
+              hand-typed. The common ticket ("the captain vanished") started
+              with retyping a slug from the line directly above (audit F21).
+              This fills that field and puts the cursor in it, and deliberately
+              stops there: Disband and Transfer keep their confirmations where
+              they are rather than gaining a second trigger on a card whose
+              subject is a person, not a team. */}
+          {detail.team && (
+            <p>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  const slug = teamCardSummary(detail).actionSlug;
+                  if (!slug) return;
+                  setTeamSlug(slug);
+                  teamSlugRef.current?.focus();
+                }}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-sm text-zinc-300 transition-colors hover:border-[#2563eb]/60 hover:text-white disabled:opacity-40"
+              >
+                Team actions for {detail.team.slug}
+              </button>
+            </p>
+          )}
 
           {detail.firstTeamAt && (
             <p className="text-sm text-muted">
@@ -374,6 +422,7 @@ export default function AdminSupportTab({
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             id="support-team-slug"
+            ref={teamSlugRef}
             value={teamSlug}
             onChange={(e) => setTeamSlug(e.target.value)}
             placeholder="team-slug"

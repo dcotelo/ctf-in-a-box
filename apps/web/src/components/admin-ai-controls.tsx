@@ -344,7 +344,7 @@ export default function AdminAiControls({
           groups={categories}
           meta={(row) => (
             <>
-              #{row.challenge.order} · {row.challenge.points} pt
+              {row.challenge.points} pt
               {row.challenge.points === 1 ? "" : "s"} · {AI_MODE_LABELS[row.challenge.mode]}
             </>
           )}
