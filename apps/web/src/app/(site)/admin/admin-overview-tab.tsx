@@ -29,6 +29,7 @@ import AdminSwitch from "@/components/admin-switch";
 import type { FieldStatus } from "@/components/admin-number-field";
 import { formatWhen, TYPE_LABELS, type ActivityEntry } from "./admin-activity-tab";
 import AdminLiveStamp from "./admin-live-stamp";
+import { FREEZE_HELP, freezeConfirm } from "./freeze-copy";
 import { LIVE_POLL_MS, useLivePoll } from "./use-live-poll";
 import type { ConfirmState } from "./types";
 
@@ -191,16 +192,14 @@ export default function AdminOverviewTab({
         <AdminSwitch
           id="overview-scoring"
           label="Scoring"
-          help="Pause new submissions from being scored."
+          help={FREEZE_HELP}
           checked={!settings.paused}
           disabled={pending}
           status={statusOf("paused")}
           onChange={(on) => {
             const next = !on;
             setConfirm({
-              title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-              body: next ? "New submissions will stop being scored for everyone." : "Scoring resumes for everyone.",
-              confirmLabel: next ? "Freeze" : "Unfreeze",
+              ...freezeConfirm(next),
               onConfirm: () => applyField("paused", { paused: next }, "Scoring"),
             });
           }}

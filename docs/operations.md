@@ -533,10 +533,14 @@ The panel offers:
   after an event, not during it. The destructive ones require type-to-confirm
   against the specific login or slug, not a generic word.
 
-- **Master reset** (danger zone) — wipes **all** event data so a test run or a
-  botched setup can be cleared before the real event. It deletes every solve,
-  team, per-player record, join code, and hint purchase; it **keeps** your admin
-  settings and appends the reset to the audit log. It is server-side and
+- **Master reset** (danger zone) — wipes **all** contestant progress so a test
+  run or a botched setup can be cleared before the real event. It deletes every
+  solve, team, per-player record, join code, and hint purchase; it **keeps**
+  everything you authored — quiz questions and their answer key, classic and AI
+  challenges with their flags, hints and categories — along with your admin
+  settings, and appends the reset to the audit log. It does rotate the AI
+  module's launch keypair (see [below](#ai)), so an external challenge site
+  re-fetches the public key on its next verification. It is server-side and
   admin-gated, and requires **typing the event name** to proceed (a single click
   can't fire it).
 
@@ -705,7 +709,9 @@ Redis at all — which is exactly when you most need the panel.
 
 ## Archiving and replaying an event
 
-The **Event** tab carries an **Event archive** section (an **Export** button
+The **Event** tab carries an **Event archive** section — its own collapsed
+block, above the danger zone rather than inside it, because **Export changes
+nothing** and is the thing to run *before* anything risky (an **Export** button
 and an **Import a bundle (replaces everything)** box, backed by `GET`/`POST
 /api/admin/event`) for exporting
 the whole event as one JSON file, or replacing it wholesale from a

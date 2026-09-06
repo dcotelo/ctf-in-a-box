@@ -8,6 +8,24 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The Event tab stops understating what its three biggest controls do.**
+  **Freeze scoring** said only "Pause new submissions from being scored", so
+  the one thing an organizer has to relay to a room — *your PR score is real,
+  the board is on hold* — was nowhere on the switch. It now says which
+  submissions are refused, that fork Actions keep judging and commenting and
+  that those scores land on unfreeze, and it quotes the sentence contestants
+  actually read ("Scoring is paused right now. Try again later.") so a help
+  desk recognises it. Overview's **Scoring** switch is the same setting and now
+  shares that copy from one module instead of a drifting duplicate.
+  **Master reset** listed what it destroys and never what it keeps, which is
+  most of an organizer's evening: it now says authored questions, challenges,
+  flags, hints, categories and every setting survive, that the AI launch key is
+  rotated, and it explains the poll-mode caveat instead of assuming the reader
+  knows their `SCORE_INGEST`. The **Event archive** moves out of the red Danger
+  zone into its own section with a visible disclosure arrow — Export writes
+  nothing and is what you run *before* something risky, and painting it like a
+  wipe taught the opposite — and its description says "Classic, Quiz and AI",
+  which is what the bundle has always carried.
 - **Four admin editor bugs that each cost an organizer a save.** Renaming a
   quiz choice's id left the old id in the answer key: the panel said the
   question was saveable and the store answered 400 (#280). A title or prompt
