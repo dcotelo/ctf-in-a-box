@@ -61,6 +61,25 @@ function duration(seconds: number | null): string {
   return `${(seconds / 3600).toFixed(1)}h`;
 }
 
+/** The sparkline's time axis: first, middle and last bucket, as "HH:MM" UTC —
+ *  prefixed with "MM-DD" when the buckets span more than one calendar day,
+ *  because "22:50 … 01:10" on its own reads backwards. Sliced from the stored
+ *  ISO strings, never a clock read, so the server render and hydration agree.
+ *  `null` for fewer than two buckets: one tick is not an axis. Exported for
+ *  direct testing — the section only renders after a fetch. */
+export function axisLabels(timeline: readonly { at: string }[]): { start: string; mid: string; end: string } | null {
+  if (timeline.length < 2) return null;
+  const first = timeline[0].at;
+  const last = timeline[timeline.length - 1].at;
+  const spansDays = first.slice(0, 10) !== last.slice(0, 10);
+  const label = (iso: string) => (spansDays ? `${iso.slice(5, 10)} ${iso.slice(11, 16)}` : iso.slice(11, 16));
+  return {
+    start: label(first),
+    mid: label(timeline[Math.floor((timeline.length - 1) / 2)].at),
+    end: label(last),
+  };
+}
+
 export default function AdminInsightsTab({
   visible = false,
   live = false,
@@ -98,6 +117,7 @@ export default function AdminInsightsTab({
   // counts with no reference is unreadable; relative height is the whole
   // signal here ("did the room go quiet, and when").
   const peak = metrics?.timeline.reduce((max, b) => Math.max(max, b.solves), 0) ?? 0;
+  const axis = metrics ? axisLabels(metrics.timeline) : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -166,7 +186,11 @@ export default function AdminInsightsTab({
           {metrics.timeline.length > 0 && (
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-white">Solves over time</h3>
-              <div className="flex h-16 items-end gap-px overflow-x-auto" role="img" aria-label="Solves per ten minutes">
+              <div
+                className="flex h-16 items-end gap-px overflow-x-auto"
+                role="img"
+                aria-label={axis ? `Solves per ten minutes, ${axis.start} to ${axis.end} UTC` : "Solves per ten minutes"}
+              >
                 {metrics.timeline.map((b) => (
                   <div
                     key={b.at}
@@ -176,6 +200,15 @@ export default function AdminInsightsTab({
                   />
                 ))}
               </div>
+              {/* The axis. Without it the bars say "when did the room go
+                  quiet" only relative to each other; with it, at what time. */}
+              {axis && (
+                <div aria-hidden="true" className="flex justify-between border-t border-white/[0.06] pt-1 font-mono text-[10px] tabular-nums text-muted">
+                  <span>{axis.start}</span>
+                  <span>{axis.mid}</span>
+                  <span>{axis.end} UTC</span>
+                </div>
+              )}
               <p className="text-[10px] text-muted">
                 Ten-minute buckets, quiz, classic and AI. Attempt rows carry a first and a last time but not
                 one per try, so this is solves, not submissions.
