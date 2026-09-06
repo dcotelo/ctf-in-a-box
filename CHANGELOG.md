@@ -8,6 +8,26 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The admin panel calls things by the names an organizer uses.** Insights'
+  Hardest-first table and its CSV named every challenge by generated id
+  (`case-probe-control-xf1ob0`), never by title — unreadable out loud at a
+  closing ceremony, and the quiz and challenge lists two tabs away had shown
+  titles all along. Both now carry the **title** (a quiz question's prompt, a
+  challenge's title) with the id kept beside it, since the id is what a support
+  question and a store key name; a challenge deleted since it was solved keeps
+  its metrics and falls back to its id, and a catalogue read that fails costs
+  the labels, never the numbers. Elsewhere in the panel one thing had four
+  names: a classic solve was a "flag solve" in Activity under a tab called
+  Classic CTF, an ai solve was "ai solve", and Insights said "Sec-dev" and
+  printed raw module ids in a column headed Module — all of them now use the
+  module's own name, pinned to the registry by a test. The AI **Send test**
+  verdicts (`no-team`, `wrong-mode`, `paused`, …) were raw strings whose
+  decoder ring lived only in `docs/operations.md`; each now carries a sentence
+  saying what it means, and the three that are *not* integration faults say so
+  first. And an event with no Secure Development no longer opens its admin page
+  with "Sync not running." forever — there are no forks to poll, so the section
+  is simply absent, while an event that does serve the module still gets the
+  warning, now saying what it costs.
 - **The Event tab stops understating what its three biggest controls do.**
   **Freeze scoring** said only "Pause new submissions from being scored", so
   the one thing an organizer has to relay to a room — *your PR score is real,

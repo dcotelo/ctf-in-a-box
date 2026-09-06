@@ -103,6 +103,39 @@ export function testOutcomeTone(outcome: AiTestOutcome): "good" | "bad" {
   return outcome.label === "solved" || outcome.label === "would-award" ? "good" : "bad";
 }
 
+/** What a relayed verdict MEANS, in one sentence (audit F22).
+ *
+ *  The raw name stays on screen — `docs/operations.md` indexes these strings,
+ *  and so does anyone searching an issue tracker — but the name alone sends an
+ *  organizer to the docs mid-event to learn that `no-team` is not an
+ *  integration fault at all: it means they personally are not on a team. The
+ *  three that read like breakage and are not (`paused`, `solved`, `no-team`)
+ *  are the whole reason this exists.
+ *
+ *  Deliberately silent for an unknown label. The route relays the event
+ *  handler's verdict verbatim, so a newer handler can hand back a string this
+ *  build has never seen; inventing an explanation for it would be worse than
+ *  showing the name on its own. Exported for direct testing — `renderToStaticMarkup`
+ *  cannot click Send test. */
+export function testOutcomeHelp(label: string): string | null {
+  switch (label) {
+    case "paused":
+      return "Not a fault: scoring is frozen, or the event is outside its scheduled window. The dry run honours the schedule exactly as a real submission would.";
+    case "solved":
+      return "Not a fault: the signature and token were accepted, and your own login already holds this challenge.";
+    case "no-team":
+      return "Not a fault: the signature and token were accepted, but you are not on a team — the event route refuses a teamless login before awarding, organizers included.";
+    case "unavailable":
+      return "Redis could not be read, or the request itself failed. Try again.";
+    case "wrong-mode":
+      return "This challenge is flag-only, so it has no external event to report. Its mode changed after this panel loaded — refresh and re-check.";
+    case "no-signing-key":
+      return "This challenge has never had a signing key minted — a row from before signing keys existed. Click Rotate once to mint one.";
+    default:
+      return null;
+  }
+}
+
 /** "Rotate" opens the confirm. It must never call `onRotate` directly — the
  *  confirm is the only gate between a click and a live integration breaking. */
 export function requestRotate(setOpen: (v: boolean) => void): void {
@@ -311,9 +344,16 @@ export function AiIntegrationPanel({
               (testOutcome.kind === "award" ? (
                 <p className="text-sm text-[#22c55e]">Would award — the dry run verified end to end.</p>
               ) : (
-                <p className={`text-sm ${testOutcomeTone(testOutcome) === "good" ? "text-[#22c55e]" : "text-[#e53e3e]"}`}>
-                  Test result: {testOutcome.label}
-                </p>
+                <>
+                  <p className={`text-sm ${testOutcomeTone(testOutcome) === "good" ? "text-[#22c55e]" : "text-[#e53e3e]"}`}>
+                    Test result: {testOutcome.label}
+                  </p>
+                  {/* The name is what the docs and any issue thread call it;
+                      the sentence is what it means here, now. */}
+                  {testOutcomeHelp(testOutcome.label) && (
+                    <p className="text-sm text-muted">{testOutcomeHelp(testOutcome.label)}</p>
+                  )}
+                </>
               ))}
           </div>
 

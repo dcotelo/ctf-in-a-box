@@ -23,6 +23,7 @@ import AdminAiIntegration, {
   confirmRotate,
   fetchAiTest,
   requestRotate,
+  testOutcomeHelp,
   testOutcomeTone,
   type AiIntegrationPanelProps,
 } from "@/components/admin-ai-integration";
@@ -457,6 +458,37 @@ describe("AiIntegrationPanel — Send test rendering", () => {
     expect(testOutcomeTone({ kind: "named", label: "unavailable" })).toBe("bad");
     expect(renderPanel({ testOutcome: { kind: "named", label: "solved" } })).toMatch(/text-\[#22c55e\][^>]*>Test result: solved/);
     expect(renderPanel({ testOutcome: { kind: "named", label: "would-refuse" } })).toMatch(/text-\[#e53e3e\][^>]*>Test result: would-refuse/);
+  });
+
+  // Audit F22: the decoder ring for these verdicts lived in
+  // docs/operations.md and nowhere on the panel, so a dry run answering
+  // `no-team` looked like an integration fault when it means the organizer is
+  // simply not on a team.
+  it("explains the three refusals that are not faults", () => {
+    for (const label of ["paused", "solved", "no-team"]) {
+      expect(testOutcomeHelp(label)).toMatch(/^Not a fault/);
+    }
+  });
+
+  it("explains the three that ARE something to fix", () => {
+    expect(testOutcomeHelp("unavailable")).toMatch(/Try again/);
+    expect(testOutcomeHelp("wrong-mode")).toMatch(/flag-only/);
+    expect(testOutcomeHelp("no-signing-key")).toMatch(/Rotate/);
+  });
+
+  it("says nothing at all for a verdict this build has never seen", () => {
+    // The route relays the event handler's verdict verbatim, so a newer
+    // handler can hand back a string this build does not know. Inventing an
+    // explanation for it would be worse than showing the bare name.
+    expect(testOutcomeHelp("some-future-verdict")).toBeNull();
+  });
+
+  it("renders the sentence under the raw name, keeping both", () => {
+    // The name is what the docs and any issue thread index; the sentence is
+    // what it means here, now.
+    const html = renderPanel({ testOutcome: { kind: "named", label: "no-team" } });
+    expect(html).toContain("Test result: no-team");
+    expect(html).toContain("you are not on a team");
   });
 
   it("styles Rotate amber, not red, and its confirm without the danger accent — rotating is recoverable", () => {
