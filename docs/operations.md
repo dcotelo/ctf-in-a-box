@@ -1233,10 +1233,14 @@ site** drawer says the same next to the values you paste, and
    literal `{token}` placeholder; the box substitutes a freshly minted token
    there and sends the contestant to the result. No cookie crosses the
    boundary — that token is the whole identity.
-2. **Verify it against the published public key.** `GET /api/ai/launch-key`
-   once, cache it, verify with **hard-coded** Ed25519, and pin `aud` to the
-   challenge id you expect. Never let the token's own `alg` or `kid` choose
-   the algorithm or the key.
+2. **Verify it against the published public key.** `GET /api/ai/launch-key`,
+   verify with **hard-coded** Ed25519, and pin `aud` to the challenge id you
+   expect. Never let the token's own `alg` or `kid` choose the algorithm or
+   the key. Cache the key for about five minutes (it is served
+   `Cache-Control: public, max-age=300`), but **re-fetch on any verification
+   failure and after an event reset** — a master reset rotates the keypair,
+   and a site caching the old key indefinitely rejects every launch token
+   issued afterwards.
 3. **Report the solve, signed.** For an `event` or `both` challenge, POST
    `/api/ai/event` with `X-CTF-Signature: sha256=<hex>` over the exact bytes
    `"<unix-timestamp>.<raw request body>"`, using **that challenge's own**
@@ -1246,7 +1250,7 @@ site** drawer says the same next to the values you paste, and
 4. **Expect one award per token.** The token's `jti` is a one-shot nonce; a
    replay answers `409`, not a second award.
 
-<img src="assets/diagrams/ai-launch-token-flow.svg" alt="Animated diagram: the box mints an Ed25519 launch token scoped to one player and one challenge, with a 24-hour expiry and a jti that doubles as a one-shot replay nonce, and substitutes it into the challenge's launch URL wherever the operator wrote the {token} placeholder. The contestant opens that link on the external site, which fetches the module-wide public key once from /api/ai/launch-key, caches it, and verifies the token with hard-coded Ed25519 — never trusting the token's own alg or kid — pinning aud to the challenge it expects. The contestant plays, and the site re-reads GET /api/ai/state rather than trusting the token's mint-time progress snapshot. On a solve the site POSTs /api/ai/event with the token and challenge id, signed with that challenge's own secret HMAC key over the exact string timestamp-dot-raw-body, with a matching X-CTF-Timestamp inside 300 seconds of the box's clock. The box checks the signature, then the token, then claims the jti exactly once — a replay gets 409 — and the shared atomic award script banks the points. The launch key is public, one per event, and fetched; the signing key is secret, one per challenge, and pasted in from the admin panel.">
+<img src="assets/diagrams/ai-launch-token-flow.svg" alt="Animated diagram: the box mints an Ed25519 launch token scoped to one player and one challenge, with a 24-hour expiry and a jti that doubles as a one-shot replay nonce, and substitutes it into the challenge's launch URL wherever the operator wrote the {token} placeholder. The contestant opens that link on the external site, which fetches the module-wide public key from /api/ai/launch-key and caches it for about five minutes — re-fetching on any verification failure and after an event reset, since a master reset rotates the keypair — then verifies the token with hard-coded Ed25519 — never trusting the token's own alg or kid — pinning aud to the challenge it expects. The contestant plays, and the site re-reads GET /api/ai/state rather than trusting the token's mint-time progress snapshot. On a solve the site POSTs /api/ai/event with the token and challenge id, signed with that challenge's own secret HMAC key over the exact string timestamp-dot-raw-body, with a matching X-CTF-Timestamp inside 300 seconds of the box's clock. The box checks the signature, then the token, then claims the jti exactly once — a replay gets 409 — and the shared atomic award script banks the points. The launch key is public, one per event, and fetched; the signing key is secret, one per challenge, and pasted in from the admin panel.">
 
 <sup>The two keys are not interchangeable, and conflating them is the usual
 wiring failure. The <strong>launch key</strong> is public, one per event, and

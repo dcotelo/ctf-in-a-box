@@ -42,6 +42,15 @@ describe("EXTERNAL_STEPS", () => {
     expect(verify).toMatch(/never let the token's own alg or kid/);
   });
 
+  it("says when a cached launch key stops being valid", () => {
+    // A master reset rotates the keypair. "Fetch once and cache" on its own
+    // is an outage: the site keeps the old key and rejects every launch link
+    // issued after the reset.
+    const verify = EXTERNAL_STEPS.find((s) => s.title === "Verify it with the launch key")!.body;
+    expect(verify).toContain("re-fetch on any verification failure and after an event reset");
+    expect(verify).toContain("master reset rotates this keypair");
+  });
+
   it("names the replay rule in the terms the box answers in", () => {
     const replay = EXTERNAL_STEPS.find((s) => s.title === "Expect one award per token")!.body;
     expect(replay).toContain("jti");

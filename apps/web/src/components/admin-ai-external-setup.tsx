@@ -32,7 +32,7 @@ export const EXTERNAL_STEPS: { title: string; body: string }[] = [
   {
     title: "Verify it with the launch key",
     body:
-      "Fetch the public key once from the launch-key endpoint below and cache it. Verify with hard-coded Ed25519, and pin the audience to the challenge id you expect — never let the token's own alg or kid choose the algorithm or the key.",
+      "Fetch the public key from the launch-key endpoint below. Verify with hard-coded Ed25519, and pin the audience to the challenge id you expect — never let the token's own alg or kid choose the algorithm or the key. Cache it for about five minutes, but re-fetch on any verification failure and after an event reset: a master reset rotates this keypair, and a site holding the old key rejects every launch link issued afterwards.",
   },
   {
     title: "Read live progress, if you show any",
