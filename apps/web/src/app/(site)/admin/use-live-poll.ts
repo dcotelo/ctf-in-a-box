@@ -47,10 +47,13 @@ export function useLivePoll({
   intervalMs: number;
   /** The panel's own fetch. Resolves to whether it REPLACED the panel's data
    *  — a loader that caught a failed read and kept what it had resolves
-   *  false, so the stamp below never calls retained data "updated". May
-   *  change identity every render (it usually closes over the panel's
-   *  state); the latest one is what each tick calls. */
-  load: () => Promise<boolean>;
+   *  false, so the stamp below never calls retained data "updated". Must
+   *  hand `signal` to its fetches and touch no state once it is aborted: the
+   *  loop aborts the in-flight request when the panel leaves view or the
+   *  phase leaves `live`, so a read that started under the old rule cannot
+   *  land under the new one. May change identity every render (it usually
+   *  closes over the panel's state); the latest one is what each tick calls. */
+  load: (signal: AbortSignal) => Promise<boolean>;
 }): {
   /** Epoch ms of the last SUCCESSFUL load — the stamp's input. `null` until
    *  the first one lands; unchanged by a failed refresh, so the age shown is
@@ -69,22 +72,28 @@ export function useLivePoll({
     loadRef.current = load;
   }, [load]);
 
-  const inFlight = useRef(false);
+  // The request in flight, if any — one at a time, and abortable by the loop
+  // below when the rule it was issued under stops applying.
+  const inFlight = useRef<AbortController | null>(null);
+  // Whether this panel has loaded under the current rule. Outside `live`,
+  // the loop is off and only this first load happens; inside it, every tick
+  // loads. Reset when a load is aborted, so an aborted first load is retried.
+  const loadedOnce = useRef(false);
+
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
-    inFlight.current = true;
+    const controller = new AbortController();
+    inFlight.current = controller;
     let replaced = false;
     try {
-      replaced = await loadRef.current();
+      replaced = await loadRef.current(controller.signal);
     } finally {
-      inFlight.current = false;
-      if (replaced) setUpdatedAt(Date.now());
+      if (inFlight.current === controller) inFlight.current = null;
+      if (controller.signal.aborted) loadedOnce.current = false;
+      else if (replaced) setUpdatedAt(Date.now());
     }
   }, []);
 
-  // Whether this panel has ever loaded. Outside `live`, the loop is off and
-  // only this first load happens; inside it, every tick loads.
-  const loadedOnce = useRef(false);
   useEffect(() => {
     if (!visible) return;
     const tick = () => {
@@ -101,6 +110,10 @@ export function useLivePoll({
     return () => {
       document.removeEventListener("visibilitychange", tick);
       if (id !== null) clearInterval(id);
+      // A read issued under this rule must not land under the next one: a
+      // poll that started just before the freeze would otherwise replace the
+      // "last read while live" the screen is meant to keep.
+      inFlight.current?.abort();
     };
   }, [visible, live, intervalMs, refresh]);
 

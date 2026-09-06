@@ -97,12 +97,15 @@ export default function AdminInsightsTab({
   // Resolves to whether the metrics on screen were replaced: a failed read
   // keeps the previous figures AND leaves the stamp's age alone, so the
   // screen never calls stale numbers freshly updated.
-  const load = useCallback(async (): Promise<boolean> => {
+  // An aborted request (the loop withdrew it — see use-live-poll.ts) touches
+  // nothing but `pending`.
+  const load = useCallback(async (signal: AbortSignal): Promise<boolean> => {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/metrics");
+      const res = await fetch("/api/admin/metrics", { signal });
       const data = (await res.json().catch(() => ({}))) as EventMetrics & { error?: string };
+      if (signal.aborted) return false;
       if (!res.ok) {
         setError(data.error ?? "Could not compute metrics");
         return false;
@@ -110,7 +113,7 @@ export default function AdminInsightsTab({
       setMetrics(data);
       return true;
     } catch {
-      setError("Could not compute metrics");
+      if (!signal.aborted) setError("Could not compute metrics");
       return false;
     } finally {
       setPending(false);

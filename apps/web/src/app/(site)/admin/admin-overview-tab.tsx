@@ -129,36 +129,40 @@ export default function AdminOverviewTab({
   // clears the flag again, so a blip is not a permanent red line. Resolves
   // true only when BOTH replaced their data — the stamp says "updated" about
   // the whole screen, so half a refresh does not count.
-  const load = useCallback(async (): Promise<boolean> => {
+  // An aborted request (the loop withdrew it — see use-live-poll.ts) touches
+  // nothing: not the data, not the failure flag.
+  const load = useCallback(async (signal: AbortSignal): Promise<boolean> => {
     const [metricsOk, activityOk] = await Promise.all([
-      fetch("/api/admin/metrics")
+      fetch("/api/admin/metrics", { signal })
         .then((res) => {
           if (!res.ok) throw new Error(`metrics ${res.status}`);
           return res.json();
         })
         .then((data: MetricsResponse) => {
+          if (signal.aborted) return false;
           if (data.error) throw new Error(data.error);
           setMetrics(data);
           setMetricsFailed(false);
           return true;
         })
         .catch(() => {
-          setMetricsFailed(true);
+          if (!signal.aborted) setMetricsFailed(true);
           return false;
         }),
-      fetch("/api/admin/activity?offset=0&limit=5")
+      fetch("/api/admin/activity?offset=0&limit=5", { signal })
         .then((res) => {
           if (!res.ok) throw new Error(`activity ${res.status}`);
           return res.json();
         })
         .then((data: ActivityResponse) => {
+          if (signal.aborted) return false;
           if (!Array.isArray(data.entries)) throw new Error("no entries");
           setActivity(data.entries);
           setActivityFailed(false);
           return true;
         })
         .catch(() => {
-          setActivityFailed(true);
+          if (!signal.aborted) setActivityFailed(true);
           return false;
         }),
     ]);
