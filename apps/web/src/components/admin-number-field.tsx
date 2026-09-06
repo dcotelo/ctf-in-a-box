@@ -63,8 +63,13 @@ export function describeFieldError(label: string, serverMessage: string): string
   return `${label} could not be saved: ${serverMessage}`;
 }
 
+// No native spinner (admin-redesign.md § Controls): at this width the
+// WebKit stepper sat over the last digit of a five-figure value, and a
+// stepper that changes a stored setting by one on a stray scroll is the
+// wrong control for numbers that are typed once. `type="number"` stays for
+// the numeric keyboard and the min/max semantics.
 const INPUT_CLASS =
-  "w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] aria-[invalid=true]:border-[#e53e3e]/70";
+  "w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] aria-[invalid=true]:border-[#e53e3e]/70";
 
 /** The status line's colour per state. Rejected uses the panel's existing
  *  error red; saved the schedule readout's green. */

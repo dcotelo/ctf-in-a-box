@@ -59,6 +59,15 @@ describe("AdminNumberField", () => {
     const html = renderToStaticMarkup(<AdminNumberField {...base} status={{ state: "saved" }} />);
     expect(html).not.toContain("aria-invalid");
   });
+
+  it("hides the native spinner but stays a number input", () => {
+    // The WebKit stepper clipped five-figure values at this width and moved a
+    // stored setting on a stray scroll (admin-redesign.md § Controls).
+    const html = renderToStaticMarkup(<AdminNumberField {...base} value="10000" status={{ state: "idle" }} />);
+    expect(html).toContain('type="number"');
+    expect(html).toContain("[appearance:textfield]");
+    expect(html).toContain("[&amp;::-webkit-inner-spin-button]:appearance-none");
+  });
 });
 
 // The server's validation strings are keyed by the stored field
