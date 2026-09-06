@@ -8,6 +8,26 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The AI panel says what the external site has to do, and the token
+  handshake has a diagram.** The panel handed an organizer the endpoint URLs,
+  a per-challenge signing key and a Send test button, then told them to
+  "stand up the external challenge site against the integration contract" —
+  fine for whoever writes that site, no help to the organizer standing
+  between them and it. A new **Wiring the external site** drawer, collapsed
+  above the challenge list, gives the handshake in five steps (take the token
+  from `{token}`, verify it with the public launch key, re-read State for
+  live progress, report the solve signed over
+  `"<timestamp>.<raw body>"` within ±300s, expect one award per `jti`) and
+  sets the two keys side by side — the **launch key** is public, one per
+  event, and fetched; the **signing key** is secret, one per challenge, and
+  pasted — because conflating them produces a signature failure that looks
+  exactly like a wrong key. The AI module's setup checklist now names those
+  four external-side requirements instead of deferring all of them to a link.
+  `docs/ai-module.md` opens with a new animated diagram of the whole
+  handshake, and the operations guide's AI section carries it too, above a
+  checklist of what an operator configures on the far end. No store, key or
+  API change; no secret is rendered by the new drawer.
+
 - **Module screens are content screens (admin redesign, PR 3 of 3).** Each
   module's admin screen opens with a sticky header — its name and an
   **Enabled** switch, the same control as Event's Modules row — and a setup
