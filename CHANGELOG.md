@@ -8,6 +8,25 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The admin's live views refresh themselves, and every switch says whether
+  it saved (admin redesign, PR 2 of 3).** Overview, Activity and Insights
+  load when opened — never on page load, so reaching Support still costs no
+  Redis read for the O(contestants) metrics fold — and, while the event
+  phase is live, refresh every 15 s (Insights every 30 s), each with an
+  "updated Ns ago · refreshes every 15 s" stamp that turns into
+  "auto-refresh paused while the event is not live" before scoring opens or
+  after a freeze; a hidden browser tab never polls, and Activity's timed
+  refresh re-reads as many rows as were paged in rather than snapping back
+  to page one. The Refresh buttons become secondary and share the timer's
+  code path. A new `AdminSwitch` replaces every native checkbox in the panel
+  (module switches, Freeze scoring, Team registration, Overview's Scoring and
+  Registration, Hints enabled) with a real `role="switch"` that reports
+  "Saving… / Saved / <the refusal>" beside the row, through the same status
+  line the numeric fields use — the numeric fields, in turn, lose the native
+  spinner that clipped five-figure values. The settings audit line ("last
+  changed by …") no longer appears under Activity or Insights, and the
+  Insights sparkline gets a time axis. Stored keys, API routes and validation
+  are unchanged.
 - **The admin panel has a sidebar, an Overview, and a compact header (admin
   redesign, PR 1 of 3).** The nine flat tabs are now a left sidebar in three
   groups — Run (Overview, Activity, Insights, Support), Content (one per
