@@ -8,6 +8,23 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Module screens are content screens (admin redesign, PR 3 of 3).** Each
+  module's admin screen opens with a sticky header — its name and an
+  **Enabled** switch, the same control as Event's Modules row — and a setup
+  status line ("Setup complete · 4 categories · 12 challenges") that opens
+  into the checklist only while a verifiable step is still to do; steps done
+  outside the panel are no longer repeated, and the safe / not-safe mid-event
+  lists move into their own drawer. One compact **Settings** card holds the
+  title, blurb, the module's knobs and a link to Hints. Categories are a row
+  of inline chips (move left/right, remove on hover or focus). Challenge lists
+  are grouped by category with a count per heading, and each row keeps Edit
+  on the row with Move up / Move down / Delete in a **⋯** menu; the AI board
+  renders through the same list with its integration disclosure under each
+  row. Danger red is reserved for what cannot be undone: Delete and Remove
+  are neutral until their confirmation, Rotate is amber, and a **solved** or
+  **would-award** Send test is green. The admin's type floor rises: nothing
+  under 12 px, explanatory text at 14 px, dense tables and eyebrows keep
+  12 px. Stored keys, API routes and validation are unchanged.
 - **The admin's live views refresh themselves, and every switch says whether
   it saved (admin redesign, PR 2 of 3).** Overview, Activity and Insights
   load when opened — never on page load, so reaching Support still costs no
