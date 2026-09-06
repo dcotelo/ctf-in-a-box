@@ -11,6 +11,7 @@ vi.mock("@/lib/event-config", () => ({
 }));
 
 import { ALL_MODULE_ROUTES, enabledModules, isModuleEnabled, moduleDefById } from "@/lib/modules";
+import type { OrgContext, RulesContext } from "@/lib/modules";
 
 describe("module registry", () => {
   it("derives the enabled modules from config, in registry order", () => {
@@ -67,9 +68,13 @@ describe("hint cost is stated wherever hints are sold", () => {
   // copy should fail here rather than ship silently.
   const SELL_HINTS = ["secure-development", "classic", "ai"] as const;
 
-  /** The registry hands its copy builders a live-facts context; these strings
-   *  read only the target count. */
-  const RULES_CTX = { appCount: 1, appNames: ["DVWA"] } as never;
+  // Real contexts, not a cast. `rules` takes a `RulesContext` and `terms` an
+  // `OrgContext` (the same plus `githubOrg`) — an `as never` fixture with the
+  // wrong field names type-checks and then runs every builder with
+  // `ctx.appList` undefined, which is exactly the sort of hidden hole these
+  // copy tests exist to catch.
+  const RULES_CTX: RulesContext = { appCount: 1, appList: "DVWA" };
+  const ORG_CTX: OrgContext = { ...RULES_CTX, githubOrg: "example-org" };
 
   it.each(SELL_HINTS)("%s tells contestants that a hint deducts points, in both rules and terms", (id) => {
     const mod = moduleDefById(id)!;
@@ -77,7 +82,7 @@ describe("hint cost is stated wherever hints are sold", () => {
     // what is being asserted: a module that sells hints and ships no scoring
     // copy at all fails here rather than passing on an empty string.
     const rulesScoring = mod.rules!(RULES_CTX).scoring;
-    const termsScoring = mod.terms!(RULES_CTX).scoring;
+    const termsScoring = mod.terms!(ORG_CTX).scoring;
     expect(rulesScoring).toBeDefined();
     expect(termsScoring).toBeDefined();
     const rules = rulesScoring!.join(" ");
@@ -93,6 +98,6 @@ describe("hint cost is stated wherever hints are sold", () => {
     // sentence would be a lie there.
     const mod = moduleDefById("quiz")!;
     expect((mod.rules!(RULES_CTX).scoring ?? []).join(" ")).not.toMatch(/hint/i);
-    expect((mod.terms!(RULES_CTX).scoring ?? []).join(" ")).not.toMatch(/hint/i);
+    expect((mod.terms!(ORG_CTX).scoring ?? []).join(" ")).not.toMatch(/hint/i);
   });
 });
