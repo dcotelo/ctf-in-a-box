@@ -331,6 +331,25 @@ describe("AdminControls panel contents", () => {
   });
 });
 
+describe("AdminControls settings audit line", () => {
+  const changed = { ...settings, updatedBy: "alice", updatedAt: "2026-08-24T18:00:00.000Z" };
+  const render = (initialTab: string) =>
+    renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={changed} modules={twoModules} initialTab={initialTab} />);
+
+  it("shows who last changed the settings under the screens that change them", () => {
+    expect(render("overview")).toContain("last changed by alice");
+    expect(render("event")).toContain("last changed by alice");
+    expect(render("hints")).toContain("last changed by alice");
+  });
+
+  it("drops it under Activity and Insights, which change nothing", () => {
+    // A settings audit line under a table of solves reads as a claim about
+    // the table (admin-redesign.md § Activity, Insights).
+    expect(render("activity")).not.toContain("last changed by");
+    expect(render("insights")).not.toContain("last changed by");
+  });
+});
+
 describe("AdminControls module identity fields", () => {
   it("renders a title and blurb field in each module panel", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);

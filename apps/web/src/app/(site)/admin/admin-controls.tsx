@@ -632,7 +632,10 @@ export default function AdminControls({
         </div>
       </div>
 
-      {settings.updatedBy && settings.updatedAt && (
+      {/* The settings audit line. Not under Activity or Insights: neither
+          changes a setting, so "last changed by" under a table of solves reads
+          as a claim about the table (admin-redesign.md § Activity, Insights). */}
+      {settings.updatedBy && settings.updatedAt && active !== ACTIVITY_TAB && active !== INSIGHTS_TAB && (
         <p className="text-xs text-muted">
           last changed by {settings.updatedBy} <ChangedAt iso={settings.updatedAt} />
         </p>
