@@ -164,8 +164,9 @@ describe("AdminAiControls", () => {
       expect(html).toContain("AI");
       expect(html).toContain("Prompting");
       expect(html).toContain("Add category");
-      expect(html).toMatch(/Move up/);
-      expect(html).toMatch(/Move down/);
+      // Inline chips: move left/right.
+      expect(html).toContain('aria-label="Move &quot;AI&quot; left"');
+      expect(html).toContain('aria-label="Move &quot;Prompting&quot; right"');
       expect(html).toContain("Remove");
     });
 
