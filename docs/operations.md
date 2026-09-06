@@ -578,12 +578,22 @@ The panel offers:
   absent in a normal event build, so a real leaderboard can't be polluted by
   accident. Clear the seeded data with the master reset.
 
-Tabs are deep-linkable: `/admin?tab=quiz` (or `?tab=classic`, `?tab=ai`,
-`?tab=secure-development`) opens straight into that module's panel. This is
+**Every destination has its own URL.** `/admin/overview`, `/admin/activity`,
+`/admin/insights`, `/admin/support`, `/admin/event`, `/admin/hints`,
+`/admin/admins`, and one per enabled module — `/admin/quiz`,
+`/admin/classic`, `/admin/ai`, `/admin/secure-development`. That is what the
+sidebar links to, so a link is safe to bookmark, paste into a runbook, or
+read out over a call. Switching tabs updates the address bar without a page
+load, and Back walks the destinations you visited, so the URL always names
+the screen in front of you.
+
+The older `/admin?tab=<id>` form still works and still means the same thing —
+docs, bookmarks and cross-links written before this keep resolving. This is
 what `/quiz`, `/flags` and `/ai` link an organizer to when the module has no
 content yet — an empty board shows them **Author questions** / **Author
-challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
-name falls back to **Overview**.
+challenges** instead of the contestant's "check back soon". An unknown or
+not-enabled tab name, in either form, falls back to **Overview** rather than
+404ing.
 
 **Every setting says whether it saved.** The number knobs (hint cost and
 gating, players per team, the retry gate, the cooldowns) and the four

@@ -95,6 +95,23 @@ const MODULE_CHOICES: readonly ModuleChoice[] = ALL_MODULE_IDS.map((id) => ({
   reason: id === "secure-development" ? "Configured at setup — it needs its scorer, its sync poller and its provisioned forks." : undefined,
 }));
 
+/** The canonical URL for a tab. One builder, used by the sidebar's `href`,
+ *  by the pushState that follows a click, and by the tests — so the link an
+ *  organizer copies and the panel they are looking at cannot disagree. */
+export function adminTabHref(id: string): string {
+  return `/admin/${id}`;
+}
+
+/** Which tab a URL names, in either shape: the path segment of
+ *  `/admin/<tab>`, or the `?tab=` of the older form that still works. Returns
+ *  "" for bare `/admin`, which the caller reads as Overview. */
+export function tabFromLocation(pathname: string, search: string): string {
+  const fromQuery = new URLSearchParams(search).get("tab");
+  if (fromQuery) return fromQuery;
+  const match = /^\/admin\/([^/?#]+)/.exec(pathname);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 // The landing destination (admin-redesign.md PR 1): "is scoring on, how many
 // teams, is anything stuck" answered in one screen rather than three tabs.
 // Also the fallback for a deep link this shell doesn't recognise — a stale
@@ -288,6 +305,27 @@ export default function AdminControls({
   const [active, setActive] = useState<string>(
     tabs.some((t) => t.id === initialTab) ? (initialTab as string) : OVERVIEW_TAB,
   );
+
+  // Switching tabs is client-side state (instant, no server round-trip), so
+  // the address bar has to be told about it — otherwise the panel shows
+  // Activity while the URL still reads /admin/overview, and an organizer
+  // pasting "the link I'm looking at" sends the wrong screen. pushState keeps
+  // the two in step and leaves a real history entry, so Back walks the tabs.
+  const selectTab = useCallback((id: string) => {
+    setActive(id);
+    window.history.pushState(null, "", adminTabHref(id));
+  }, []);
+
+  // …and Back/Forward has to move the panel, not just the URL.
+  const tabIds = tabs.map((t) => t.id).join(",");
+  useEffect(() => {
+    const onPop = () => {
+      const id = tabFromLocation(window.location.pathname, window.location.search);
+      setActive(tabIds.split(",").includes(id) ? id : OVERVIEW_TAB);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [tabIds]);
 
   // The sidebar's three groups (admin-redesign.md). CONTENT is every enabled
   // module, in the order `modules` lists them — the same order the flat tab
@@ -510,7 +548,7 @@ export default function AdminControls({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-6 lg:flex-row">
-        <AdminSidebar groups={sidebarGroups} active={active} onSelect={setActive} />
+        <AdminSidebar groups={sidebarGroups} active={active} onSelect={selectTab} />
 
         <div className="min-w-0 flex-1">
           {tabs.map((tab) => (

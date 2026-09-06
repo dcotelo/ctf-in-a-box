@@ -19,6 +19,7 @@
 // so switching one in is a state change, not a page load.
 
 import { useState } from "react";
+import { adminTabHref } from "@/app/(site)/admin/admin-controls";
 
 export type SidebarItem = { id: string; label: string };
 export type SidebarGroup = { heading: string; items: readonly SidebarItem[] };
@@ -65,7 +66,7 @@ export default function AdminSidebar({
                 return (
                   <li key={item.id}>
                     <a
-                      href={`?tab=${item.id}`}
+                      href={adminTabHref(item.id)}
                       aria-current={isActive ? "page" : undefined}
                       onClick={(e) => {
                         // A modified click (Cmd/Ctrl/Shift/Alt, or a non-primary

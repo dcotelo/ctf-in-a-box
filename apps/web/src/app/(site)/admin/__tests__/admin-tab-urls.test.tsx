@@ -1,0 +1,46 @@
+// The admin panel's two URL shapes. `/admin/<tab>` is what the sidebar links
+// to and what an organizer bookmarks or pastes into a runbook; `/admin?tab=`
+// is the original form, still honoured because docs, older bookmarks and
+// cross-links carry it.
+//
+// Both hand the same string to the same shell, so what is pinned here is the
+// pair of pure helpers that decide it — no DOM required, which matters
+// because this repo's tests run in vitest's `node` environment.
+import { describe, expect, it } from "vitest";
+import { adminTabHref, tabFromLocation } from "@/app/(site)/admin/admin-controls";
+
+describe("adminTabHref", () => {
+  it("builds the canonical path for a tab", () => {
+    expect(adminTabHref("overview")).toBe("/admin/overview");
+    expect(adminTabHref("activity")).toBe("/admin/activity");
+    expect(adminTabHref("secure-development")).toBe("/admin/secure-development");
+  });
+});
+
+describe("tabFromLocation", () => {
+  it("reads the path segment of the canonical form", () => {
+    expect(tabFromLocation("/admin/insights", "")).toBe("insights");
+    expect(tabFromLocation("/admin/secure-development", "")).toBe("secure-development");
+  });
+
+  it("still reads the older query form", () => {
+    expect(tabFromLocation("/admin", "?tab=hints")).toBe("hints");
+  });
+
+  it("prefers an explicit ?tab= over the path — a deep link means what it says", () => {
+    expect(tabFromLocation("/admin/overview", "?tab=admins")).toBe("admins");
+  });
+
+  it("is empty for the bare panel, which the caller reads as Overview", () => {
+    expect(tabFromLocation("/admin", "")).toBe("");
+    expect(tabFromLocation("/admin/", "")).toBe("");
+  });
+
+  it("ignores anything below the tab segment rather than mangling it", () => {
+    expect(tabFromLocation("/admin/quiz/extra", "")).toBe("quiz");
+  });
+
+  it("decodes a percent-encoded segment", () => {
+    expect(tabFromLocation("/admin/secure%2Ddevelopment", "")).toBe("secure-development");
+  });
+});

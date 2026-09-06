@@ -197,8 +197,10 @@ describe("?tab= deep link", () => {
   /** Which sidebar destination the shell reports as current — the only
    *  assertion that survives every panel being mounted at once (they are,
    *  deliberately, so a half-typed form isn't lost on a tab switch). */
+  // The sidebar links to `/admin/<tab>` now; `?tab=` remains a working deep
+  // link into the same shell, which is what these cases still exercise.
   function selectedTab(html: string): string | null {
-    const match = html.match(/href="\?tab=([a-z-]+)"[^>]*aria-current="page"/);
+    const match = html.match(/href="\/admin\/([a-z-]+)"[^>]*aria-current="page"/);
     return match ? match[1] : null;
   }
 

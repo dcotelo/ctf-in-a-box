@@ -123,7 +123,7 @@ describe("AdminControls tab shell", () => {
     // Overview + Event + Hints + Admins + Support + Activity + Insights + the
     // two modules. The seven control-plane destinations are not modules, so
     // all seven are present regardless of what the event enables.
-    expect(html.match(/href="\?tab=/g)?.length).toBe(9);
+    expect(html.match(/href="\/admin\//g)?.length).toBe(9);
   });
 
   // Setup instructions are a registry contract (`ModuleDef.setup`), resolved
@@ -200,7 +200,7 @@ describe("AdminControls tab shell", () => {
       ["quiz", "Quiz"],
     ]) {
       expect(html).toContain(`id="panel-${id}" aria-label="${label}"`);
-      expect(html).toContain(`href="?tab=${id}"`);
+      expect(html).toContain(`href="/admin/${id}"`);
     }
   });
 
@@ -210,7 +210,7 @@ describe("AdminControls tab shell", () => {
     // Which one matters: an organizer opening /admin with no deep link lands
     // on the state-at-a-glance screen, not on whichever module happens to be
     // first — and not on the settings form either.
-    expect(html).toContain('href="?tab=overview" aria-current="page"');
+    expect(html).toContain('href="/admin/overview" aria-current="page"');
     // …and it is the Overview panel that is visible, not a hidden one.
     expect(panelFor(html, "overview")).not.toContain('hidden=""');
   });
@@ -511,7 +511,7 @@ describe("AdminControls ai panel", () => {
   it("renders the ai module's tab with a tenth destination and panel", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
     expect(html).toContain("AI Challenges");
-    expect(html.match(/href="\?tab=/g)?.length).toBe(10);
+    expect(html.match(/href="\/admin\//g)?.length).toBe(10);
     expect(html.match(/role="region"/g)?.length).toBe(10);
   });
 
