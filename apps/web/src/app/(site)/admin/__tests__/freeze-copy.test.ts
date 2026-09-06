@@ -37,6 +37,15 @@ describe("FREEZE_HELP", () => {
     expect(FREEZE_HELP).toMatch(/fork Actions keep judging/i);
     expect(FREEZE_HELP).toMatch(/unfreeze/i);
   });
+
+  it("separates the comment (immediate) from the points (held)", () => {
+    // The distinction an organizer relays at a help desk. Saying the Actions
+    // keep posting and that "those" are held reads as though the comment
+    // itself is withheld — so a contestant checking their PR and finding a
+    // score comment would look like a contradiction.
+    expect(FREEZE_HELP).toMatch(/score comments still appear/i);
+    expect(FREEZE_HELP).toMatch(/points reach the board only once you unfreeze/i);
+  });
 });
 
 describe("freezeConfirm", () => {
@@ -45,7 +54,11 @@ describe("freezeConfirm", () => {
     expect(title).toBe("Freeze scoring?");
     expect(confirmLabel).toBe("Freeze");
     expect(body).toContain(PAUSED_CONTESTANT_MESSAGE);
-    expect(body).toMatch(/held, not dropped/i);
+    // Same distinction as the help line: the comment lands on the PR now, the
+    // ingestion of its points is what waits.
+    expect(body).toMatch(/score comment still appears on its PR straight away/i);
+    expect(body).toMatch(/what is held is the ingestion/i);
+    expect(body).toMatch(/Nothing is dropped/i);
   });
 
   it("promises the deferred scores land, in the unfreeze direction", () => {

@@ -30,7 +30,7 @@ export const PAUSED_CONTESTANT_MESSAGE = "Scoring is paused right now. Try again
 
 /** The line under the switch, on both screens. */
 export const FREEZE_HELP =
-  "Holds scoring for everyone. Quiz, classic and AI submissions are refused; fork Actions keep judging PRs and posting scores, which land when you unfreeze.";
+  "Holds scoring for everyone. Quiz, classic and AI submissions are refused; fork Actions keep judging PRs and their score comments still appear, but those points reach the board only once you unfreeze.";
 
 /** The confirmation for flipping `paused`. `next` is the value being written,
  *  so `true` is the freeze direction. */
@@ -40,8 +40,9 @@ export function freezeConfirm(next: boolean): { title: string; body: string; con
         title: "Freeze scoring?",
         body:
           `Contestants get "${PAUSED_CONTESTANT_MESSAGE}" on every quiz answer, flag and AI solve. ` +
-          "Fork Actions keep judging pull requests and posting their score comments — those are held, not dropped, " +
-          "and are ingested when you unfreeze.",
+          "Fork Actions keep judging pull requests, and each score comment still appears on its PR straight away — " +
+          "what is held is the ingestion of those points onto the board, which happens when you unfreeze. " +
+          "Nothing is dropped.",
         confirmLabel: "Freeze",
       }
     : {
