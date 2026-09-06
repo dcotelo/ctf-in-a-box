@@ -686,11 +686,26 @@ describe("AdminAiControls — density", () => {
     const html = renderToStaticMarkup(
       <Controls pending={false} aiCooldownSecInput="" setAiCooldownSecInput={noop} commitNumber={noop} initialChallenges={[row1, row2]} initialCategories={["AI"]} />,
     );
-    expect(html.match(/\/api\/ai\/submit/g)?.length).toBe(1);
+    // The endpoints block is rendered ONCE for the board, so its content must
+    // not scale with the number of challenge rows. Asserting a fixed count
+    // would only pin today's block; asserting that one row and two rows print
+    // the same number pins the invariant the block exists for. (Each URL
+    // appears twice within the block itself: the copyable row, and again
+    // inside that endpoint's own demo request.)
+    const oneRow = renderToStaticMarkup(
+      <Controls pending={false} aiCooldownSecInput="" setAiCooldownSecInput={noop} commitNumber={noop} initialChallenges={[row1]} initialCategories={["AI"]} />,
+    );
+    const count = (s: string) => s.match(/\/api\/ai\/submit/g)?.length ?? 0;
+    expect(count(html)).toBe(count(oneRow));
+    expect(count(html)).toBeGreaterThan(0);
     // Two rows: one integration disclosure and one ⋯ actions menu each, plus
     // the board-level "Wiring the external site" drawer — all closed.
-    expect(html.match(/<details/g)?.length).toBe(5);
+    // Two rows: one integration disclosure and one ⋯ actions menu each, plus
+    // the board-level drawers — "Wiring the external site" and one demo per
+    // endpoint — all closed.
+    expect(html.match(/<details/g)?.length).toBe(8);
     expect(html.match(/Wiring the external site/g)?.length).toBe(1);
+    expect(html.match(/what to send and what comes back/g)?.length).toBe(3);
     expect(html.match(/Integration —/g)?.length).toBe(2);
     expect(html).not.toContain("<details open");
   });

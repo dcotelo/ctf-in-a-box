@@ -1330,7 +1330,17 @@ another field the form edits directly.
 against. It comes in two parts. The **Endpoints** block sits once, above the
 challenge list — **three endpoint URLs**, Submit (`/api/ai/submit`), Event
 (`/api/ai/event`), and State (`/api/ai/state`), each with its own copy
-button so an integrator never has to hand-assemble the full origin; they are
+button so an integrator never has to hand-assemble the full origin, and each
+with a collapsed **demo** under it answering send / receive / expect: a
+runnable request (the Event one computes its own signature at run time, for
+the same reason the per-challenge curl does), the 200 it returns, and the
+handful of refusals worth designing for — a wrong flag, a cooldown, a
+`replay`, an `invalid-signature`. State is marked **read-only**, because it
+is the one route of the three that writes nothing and can be tried against a
+live event with no consequence. Every value in those demos is a placeholder
+(`aik_…`, `eyJ…`); the real signing key and the one-click dry run stay on
+the per-challenge row below. The full contract, including the complete error
+table, is [docs/ai-module.md](ai-module.md). The three URLs are
 the same for every challenge, which is why they are not repeated per row. The
 rest is **per challenge**, collapsed under each row's summary line (open it
 with the "Integration — signing key, test curl, Send test" disclosure; a

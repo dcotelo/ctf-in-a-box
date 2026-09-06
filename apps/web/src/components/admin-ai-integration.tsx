@@ -33,6 +33,7 @@
 import { useState, useSyncExternalStore } from "react";
 import ConfirmModal from "@/components/confirm-modal";
 import CopyButton from "@/components/copy-button";
+import AiEndpointDemo, { ENDPOINT_DEMOS } from "@/components/admin-ai-endpoint-demos";
 import type { AiChallenge } from "@/lib/ai-store";
 
 export type AdminAiIntegrationProps = {
@@ -50,12 +51,6 @@ const TOKEN_CAPTION =
   "Use Send test below for a server-minted token, or copy a token from your own launcher link.";
 
 const MASKED_KEY = "aik_…";
-
-const ENDPOINTS: { label: string; path: string }[] = [
-  { label: "Submit", path: "/api/ai/submit" },
-  { label: "Event", path: "/api/ai/event" },
-  { label: "State", path: "/api/ai/state" },
-];
 
 export type AiTestOutcome = { kind: "award" } | { kind: "named"; label: string };
 
@@ -177,15 +172,20 @@ export function AiEndpointsBlock({ origin }: { origin: string }) {
     <div className="flex flex-col gap-1 rounded-md border border-white/[0.06] bg-white/[0.015] px-3 py-3">
       <span className="text-sm text-white">Endpoints</span>
       <span className="text-sm text-muted">The same for every challenge — what the external site posts to and reads from.</span>
-      <ul className="mt-1 flex flex-col gap-1">
-        {ENDPOINTS.map(({ label, path }) => {
-          const url = `${origin}${path}`;
+      <ul className="mt-1 flex flex-col gap-2">
+        {ENDPOINT_DEMOS.map((demo) => {
+          const url = `${origin}${demo.path}`;
           return (
-            <li key={path} className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
-                {url}
-              </code>
-              <CopyButton value={url} label={`Copy ${label} URL`} />
+            <li key={demo.path} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
+                  {url}
+                </code>
+                <CopyButton value={url} label={`Copy ${demo.label} URL`} />
+              </div>
+              {/* What to send, what comes back, what else to expect — the
+                  per-row panel only ever demonstrated Event. */}
+              <AiEndpointDemo demo={demo} origin={origin} />
             </li>
           );
         })}
