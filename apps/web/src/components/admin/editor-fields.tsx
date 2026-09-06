@@ -33,7 +33,7 @@ type ValueField = {
 export function TextField({ label, value, disabled, onChange }: ValueField & { label: string }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted">{label}</span>
+      <span className="text-sm text-muted">{label}</span>
       <input value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={INPUT_CLASS} />
     </label>
   );
@@ -44,7 +44,7 @@ export function TextField({ label, value, disabled, onChange }: ValueField & { l
 export function NumberField({ label, value, max, disabled, onChange }: ValueField & { label: string; max?: number }) {
   return (
     <label className="flex flex-1 flex-col gap-1">
-      <span className="text-xs text-muted">{label}</span>
+      <span className="text-sm text-muted">{label}</span>
       <input
         type="number"
         min={0}
@@ -70,7 +70,7 @@ export function CategorySelect({
 }: ValueField & { categories: readonly string[] }) {
   return (
     <label className="flex flex-1 flex-col gap-1">
-      <span className="text-xs text-muted">Category</span>
+      <span className="text-sm text-muted">Category</span>
       <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={INPUT_CLASS}>
         {!categories.includes(value) && (
           <option value={value} disabled>
@@ -92,7 +92,7 @@ export function CategorySelect({
 export function PositionReadout({ order, isNew }: { order: number; isNew: boolean }) {
   return (
     <div className="flex flex-1 flex-col gap-1">
-      <span className="text-xs text-muted">Position</span>
+      <span className="text-sm text-muted">Position</span>
       <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-sm text-zinc-300">
         {isNew ? `#${order} (last)` : `#${order}`}
       </span>
@@ -112,7 +112,7 @@ export function FlagField({
 }: ValueField & { revealed: boolean; onToggle: () => void }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted">
+      <span className="text-sm text-muted">
         Flag
         <button type="button" onClick={onToggle} className="ml-2 text-white hover:underline">
           {revealed ? "Hide" : "Reveal"}
@@ -153,7 +153,7 @@ export function CaseSensitiveField({
         onChange={(e) => onChange(e.target.checked)}
         className="mt-0.5 h-4 w-4 flex-none accent-[#2563eb]"
       />
-      <span className="text-xs text-muted">
+      <span className="text-sm text-muted">
         <span className="text-white">Case-sensitive flag</span>
         <span className="block">{help}</span>
       </span>
@@ -166,7 +166,7 @@ export function CaseSensitiveField({
 export function HintField({ value, disabled, onChange }: ValueField) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted">
+      <span className="text-sm text-muted">
         Hint (optional). Contestants pay the configured hint cost to reveal it — leave empty for no
         hint. Secret until purchased, like the flag.
       </span>
@@ -182,7 +182,7 @@ export function DescriptionField({ value, disabled, onChange }: ValueField) {
   return (
     <>
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Description (Markdown, max {MARKDOWN_MAX} characters)</span>
+        <span className="text-sm text-muted">Description (Markdown, max {MARKDOWN_MAX} characters)</span>
         <textarea
           value={value}
           disabled={disabled}
@@ -194,7 +194,7 @@ export function DescriptionField({ value, disabled, onChange }: ValueField) {
       </label>
 
       <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted">Preview</span>
+        <span className="text-sm text-muted">Preview</span>
         <div className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-2">
           <Markdown source={value} />
         </div>

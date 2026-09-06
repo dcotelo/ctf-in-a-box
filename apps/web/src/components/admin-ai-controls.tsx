@@ -309,7 +309,7 @@ export default function AdminAiControls({
         <AiEndpointsBlock origin={origin} />
 
         {listError && (
-          <p className="text-xs text-[#e53e3e]">
+          <p className="text-sm text-[#e53e3e]">
             {listError}{" "}
             <button type="button" onClick={() => void resource.reload()} className="text-white hover:underline">
               Retry
@@ -320,7 +320,7 @@ export default function AdminAiControls({
         {/* Rotate errors are global rather than per-row, same as every other
             write in this component (listError, categoryError, deleteError) —
             an organizer only ever has one rotate in flight at a time. */}
-        {rotateError && <p className="text-xs text-[#e53e3e]">{rotateError}</p>}
+        {rotateError && <p className="text-sm text-[#e53e3e]">{rotateError}</p>}
 
         {/* The shared list, grouped by category like classic's — with no
             `onMove` (this board has no reorder) and each row's integration

@@ -49,7 +49,7 @@ export default function CategoryEditor({
         <span className="text-white">Categories</span>
         <span className="text-sm text-muted">In the order contestants see them. Hover a chip for its controls.</span>
       </div>
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
       {categories.length === 0 ? (
         <p className="text-sm text-muted">No categories yet — add one before authoring a challenge.</p>
       ) : (

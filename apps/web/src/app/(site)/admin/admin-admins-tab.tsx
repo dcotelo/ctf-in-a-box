@@ -121,7 +121,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             <li key={row.login} className="flex items-center justify-between gap-3 py-1">
               <span className="font-mono text-sm text-zinc-200">
                 {row.login}
-                <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs uppercase text-zinc-400">
                   event.yaml
                 </span>
               </span>

@@ -51,9 +51,9 @@ describe("EditorFrame", () => {
 
   it("renders the error line only when there is one", () => {
     expect(renderFrame({ error: "Store unavailable — try again shortly." })).toContain(
-      '<p class="text-xs text-[#e53e3e]">Store unavailable — try again shortly.</p>',
+      '<p class="text-sm text-[#e53e3e]">Store unavailable — try again shortly.</p>',
     );
-    expect(renderFrame()).not.toContain('<p class="text-xs text-[#e53e3e]">');
+    expect(renderFrame()).not.toContain('<p class="text-sm text-[#e53e3e]">');
   });
 });
 

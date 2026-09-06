@@ -89,6 +89,6 @@ describe("ImportPanel", () => {
     });
     expect(html).toContain("<li>questions[0].id: must match</li>");
     expect(html).toContain("<li>(request): Store unavailable — try again shortly.</li>");
-    expect(html).toContain('<p class="text-xs text-white">Imported 1 question: 1 created, 0 updated.</p>');
+    expect(html).toContain('<p class="text-sm text-white">Imported 1 question: 1 created, 0 updated.</p>');
   });
 });

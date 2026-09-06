@@ -18,7 +18,7 @@ import type { ImportError } from "@/components/admin/use-bundle-import";
 
 function ErrorList({ errors }: { errors: ImportError[] }) {
   return (
-    <ul className="flex flex-col gap-1 text-xs text-[#e53e3e]">
+    <ul className="flex flex-col gap-1 text-sm text-[#e53e3e]">
       {errors.map((err, i) => (
         <li key={i}>
           {err.where}: {err.message}
@@ -68,7 +68,7 @@ export default function ImportPanel({
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted">{exportDescription}</span>
+          <span className="text-sm text-muted">{exportDescription}</span>
           <button
             type="button"
             disabled={exportDisabled}
@@ -81,7 +81,7 @@ export default function ImportPanel({
 
         <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-3">
           <span className="text-sm text-white">Import a bundle</span>
-          <p className="text-xs text-muted">{notice}</p>
+          <p className="text-sm text-muted">{notice}</p>
 
           <textarea
             value={text}
@@ -92,13 +92,13 @@ export default function ImportPanel({
             className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-xs text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
           />
 
-          <input type="file" accept=".json" disabled={pending} onChange={onFile} className="text-xs text-zinc-300" />
+          <input type="file" accept=".json" disabled={pending} onChange={onFile} className="text-sm text-zinc-300" />
 
           {clientErrors && clientErrors.length > 0 && <ErrorList errors={clientErrors} />}
 
           {serverErrors && serverErrors.length > 0 && <ErrorList errors={serverErrors} />}
 
-          {summary && <p className="text-xs text-white">{summary}</p>}
+          {summary && <p className="text-sm text-white">{summary}</p>}
 
           <button
             type="button"

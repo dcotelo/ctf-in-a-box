@@ -243,7 +243,7 @@ export default function AdminQuizControls({
           </button>
         </div>
 
-        {listError && <p className="text-xs text-[#e53e3e]">{listError}</p>}
+        {listError && <p className="text-sm text-[#e53e3e]">{listError}</p>}
 
         {/* The collapsed list shows the public half only — which choice is
             correct appears when the organizer opens the edit form, not on a

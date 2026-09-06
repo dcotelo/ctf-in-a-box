@@ -101,7 +101,7 @@ export function FieldStatusLine({ id, status }: { id: string; status: FieldStatu
     status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
   if (!line) return null;
   return (
-    <p id={id} role={status.state === "rejected" ? "alert" : undefined} className={`text-right text-xs ${STATUS_CLASS[status.state as Exclude<FieldStatus["state"], "idle">]}`}>
+    <p id={id} role={status.state === "rejected" ? "alert" : undefined} className={`text-right text-sm ${STATUS_CLASS[status.state as Exclude<FieldStatus["state"], "idle">]}`}>
       {line}
     </p>
   );
@@ -141,7 +141,7 @@ export default function AdminNumberField({
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className="text-white">{label}</span>
-          {help && <span className="block text-xs text-muted">{help}</span>}
+          {help && <span className="block text-sm text-muted">{help}</span>}
         </span>
         <input
           id={id}

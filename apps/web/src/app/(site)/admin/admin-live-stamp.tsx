@@ -57,7 +57,7 @@ export default function AdminLiveStamp({
 
   if (updatedAt === null || age === null) return null;
   return (
-    <span className="text-[10px] text-muted">
+    <span className="text-sm text-muted">
       <time dateTime={new Date(updatedAt).toISOString()}>updated {age}</time> · {describeCadence(live, intervalMs)}
     </span>
   );

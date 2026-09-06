@@ -40,7 +40,7 @@ function Figure({ label, value, warn }: { label: string; value: number; warn?: b
   return (
     <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
       <p className={`font-mono text-xl tabular-nums ${warn ? "text-[#d4a017]" : "text-white"}`}>{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
     </div>
   );
 }
@@ -169,7 +169,7 @@ export default function AdminOverviewTab({
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span
-            className="rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider"
+            className="rounded-sm border px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider"
             style={{
               color: PHASE_COLOR[resolution.phase],
               borderColor: `${PHASE_COLOR[resolution.phase]}80`,
@@ -178,8 +178,8 @@ export default function AdminOverviewTab({
           >
             {resolution.phase}
           </span>
-          {boundary && <span className="text-xs text-muted">{boundary}</span>}
-          {remaining && <span className="text-xs text-muted">({formatCompact(remaining)} left)</span>}
+          {boundary && <span className="text-sm text-muted">{boundary}</span>}
+          {remaining && <span className="text-sm text-muted">({formatCompact(remaining)} left)</span>}
           <span className="ml-auto">
             <AdminLiveStamp updatedAt={updatedAt} live={eventLive} intervalMs={LIVE_POLL_MS} />
           </span>
@@ -234,7 +234,7 @@ export default function AdminOverviewTab({
         </section>
       )}
       {metricsFailed && (
-        <p role="alert" className="text-xs text-[#e53e3e]">
+        <p role="alert" className="text-sm text-[#e53e3e]">
           Couldn&rsquo;t load the team and submission figures — the Insights tab&rsquo;s Compute metrics will say why.
         </p>
       )}
@@ -245,7 +245,7 @@ export default function AdminOverviewTab({
           <details>
             {/* The one-line health check; the full breakdown — the whole old
                 Status card — sits behind the disclosure. */}
-            <summary className="cursor-pointer text-xs text-muted">
+            <summary className="cursor-pointer text-sm text-muted">
               last poll {sync.lastPollAt ? formatRelativeTime(sync.lastPollAt) : "never"} · ingested {sync.ingested} ·{" "}
               <span className={sync.dropped > 0 ? "text-[#d4a017]" : undefined}>dropped {sync.dropped}</span> ·{" "}
               {sync.paused ? "paused" : "running"}
@@ -291,7 +291,7 @@ export default function AdminOverviewTab({
             </dl>
           </details>
         ) : (
-          <p className="text-xs text-muted">Sync not running.</p>
+          <p className="text-sm text-muted">Sync not running.</p>
         )}
       </section>
 
@@ -301,13 +301,13 @@ export default function AdminOverviewTab({
           <button
             type="button"
             onClick={() => onNavigate("activity")}
-            className="text-xs text-zinc-400 transition-colors hover:text-white"
+            className="text-sm text-zinc-400 transition-colors hover:text-white"
           >
             View all
           </button>
         </div>
         {activity && activity.length > 0 ? (
-          <ul className="flex flex-col gap-1 text-xs text-zinc-300">
+          <ul className="flex flex-col gap-1 text-sm text-zinc-300">
             {activity.map((e, i) => (
               <li key={`${e.at}-${e.type}-${e.login}-${i}`} className="flex gap-2">
                 <span className="font-mono tabular-nums text-muted">{formatWhen(e.at)}</span>
@@ -317,11 +317,11 @@ export default function AdminOverviewTab({
             ))}
           </ul>
         ) : activityFailed ? (
-          <p role="alert" className="text-xs text-[#e53e3e]">
+          <p role="alert" className="text-sm text-[#e53e3e]">
             Couldn&rsquo;t load the activity log — open Activity and try Load activity.
           </p>
         ) : (
-          <p className="text-xs text-muted">{activity ? "Nothing recorded yet." : "Loading…"}</p>
+          <p className="text-sm text-muted">{activity ? "Nothing recorded yet." : "Loading…"}</p>
         )}
       </section>
 
@@ -333,7 +333,7 @@ export default function AdminOverviewTab({
               <button
                 type="button"
                 onClick={() => onNavigate(mod.id)}
-                className="text-xs text-zinc-300 transition-colors hover:text-white"
+                className="text-sm text-zinc-300 transition-colors hover:text-white"
               >
                 {mod.title} · {moduleSummary(setups?.[mod.id], inventory[mod.id])}
               </button>

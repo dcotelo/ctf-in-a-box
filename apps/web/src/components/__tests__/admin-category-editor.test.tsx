@@ -129,7 +129,7 @@ describe("CategoryEditor", () => {
 
   it("renders the error line when there is one", () => {
     expect(render({ error: '"Web" is already a category.' })).toContain(
-      '<p class="text-xs text-[#e53e3e]">&quot;Web&quot; is already a category.</p>',
+      '<p class="text-sm text-[#e53e3e]">&quot;Web&quot; is already a category.</p>',
     );
   });
 });

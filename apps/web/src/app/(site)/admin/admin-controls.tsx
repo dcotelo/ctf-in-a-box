@@ -655,11 +655,11 @@ export default function AdminControls({
           changes a setting, so "last changed by" under a table of solves reads
           as a claim about the table (admin-redesign.md § Activity, Insights). */}
       {settings.updatedBy && settings.updatedAt && active !== ACTIVITY_TAB && active !== INSIGHTS_TAB && (
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           last changed by {settings.updatedBy} <ChangedAt iso={settings.updatedAt} />
         </p>
       )}
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
 
       {confirm && (
         <ConfirmModal

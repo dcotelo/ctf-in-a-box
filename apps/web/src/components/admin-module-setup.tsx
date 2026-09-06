@@ -120,7 +120,7 @@ export default function AdminModuleSetup({
   const tone = complete === false ? "text-[#d4a017]" : complete === true && summary !== "enabled" ? "text-[#22c55e]" : "text-muted";
 
   return (
-    <div className="flex flex-col gap-1 border-b border-white/[0.06] pb-3 text-xs">
+    <div className="flex flex-col gap-1 border-b border-white/[0.06] pb-3 text-sm">
       {/* Open while anything checkable is still to do; collapsed to the line
           once it is done (or while the counts are still unknown — never
           accuse on first paint). Native <details>: the whole checklist stays

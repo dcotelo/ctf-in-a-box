@@ -58,7 +58,7 @@ export default function AdminSidebar({
       >
         {groups.map((group) => (
           <div key={group.heading}>
-            <h3 className="px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{group.heading}</h3>
+            <h3 className="px-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{group.heading}</h3>
             <ul className="mt-1 flex flex-col gap-0.5">
               {group.items.map((item) => {
                 const isActive = active === item.id;

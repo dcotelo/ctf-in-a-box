@@ -89,16 +89,16 @@ const FIELD =
 // live next to a faded "Disband team" that looked dead (issue #200, 3.2).
 // Same treatment as team-card.tsx's PAIRED_ACTION_CLASS, the #195 fix.
 const BTN =
-  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1d4ed8] " +
+  "flex-none rounded-md bg-[#2563eb] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] " +
   "disabled:cursor-not-allowed disabled:border disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 const DANGER =
-  "flex-none rounded-md border border-[#e53e3e]/50 px-3 py-1.5 text-xs text-[#e53e3e] transition-colors hover:bg-[#e53e3e]/10 " +
+  "flex-none rounded-md border border-[#e53e3e]/50 px-3 py-1.5 text-sm text-[#e53e3e] transition-colors hover:bg-[#e53e3e]/10 " +
   "disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-transparent disabled:text-zinc-500";
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
       <p className="font-mono text-sm tabular-nums text-white">{value}</p>
     </div>
   );
@@ -185,7 +185,7 @@ export default function AdminSupportTab({
       <section className="flex flex-col gap-3">
         <div>
           <h3 className="text-sm font-semibold text-white">Find a contestant</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             Look them up before acting. Every control below stays disabled until a lookup returns.
           </p>
         </div>
@@ -212,13 +212,13 @@ export default function AdminSupportTab({
           <div className="flex items-center justify-between gap-2">
             <p className="font-mono text-white">{detail.login}</p>
             {!detail.known && (
-              <span className="rounded border border-[#d4a017]/40 bg-[#d4a017]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[#d4a017]">
+              <span className="rounded border border-[#d4a017]/40 bg-[#d4a017]/10 px-1.5 py-0.5 text-xs uppercase tracking-wide text-[#d4a017]">
                 no data — check the spelling
               </span>
             )}
           </div>
 
-          <p className="text-xs text-zinc-400">
+          <p className="text-sm text-zinc-400">
             {detail.team ? (
               <>
                 Team <span className="font-mono text-white">{detail.team.name}</span>
@@ -234,7 +234,7 @@ export default function AdminSupportTab({
           </p>
 
           {detail.firstTeamAt && (
-            <p className="text-[11px] text-muted">
+            <p className="text-sm text-muted">
               First on a team {detail.firstTeamAt.slice(0, 16).replace("T", " ")} UTC
               {detail.team?.joinedAt && detail.firstTeamAt !== detail.team.joinedAt && " (has switched teams since)"}
             </p>
@@ -365,7 +365,7 @@ export default function AdminSupportTab({
       <section className="flex flex-col gap-3 border-t border-white/[0.06] pt-5">
         <div>
           <h3 className="text-sm font-semibold text-white">Team actions</h3>
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             The captain-only controls, for when the captain is unreachable — a captainless team
             cannot rename, remove anyone, regenerate its code, or disband on its own.
           </p>
@@ -457,8 +457,8 @@ export default function AdminSupportTab({
         </div>
       </section>
 
-      {error && <p className="text-xs text-[#e53e3e]">{error}</p>}
-      {notice && <p className="text-xs text-[#22c55e]">{notice}</p>}
+      {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
+      {notice && <p className="text-sm text-[#22c55e]">{notice}</p>}
     </div>
   );
 }
