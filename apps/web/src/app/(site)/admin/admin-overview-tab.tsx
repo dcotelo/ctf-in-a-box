@@ -7,22 +7,29 @@
 // settings.
 //
 // Read-only except the Scoring and Registration switches, which dispatch
-// through the exact same `apply`/`setConfirm` flow admin-event-tab.tsx's
-// checkboxes already use — same confirmation copy, same settings write.
+// through the exact same `setConfirm` flow admin-event-tab.tsx's rows use —
+// same confirmation copy, same settings write — and report the outcome
+// beside the row through `applyField`/`statusOf`, under the same status key
+// as Event's row for the same setting, so the two screens never disagree.
 //
-// The team/player/submitted/stuck figures and the activity preview are each
-// ONE fetch on mount, not a poll: PR 2 adds the 15s refresh this screen will
-// eventually keep itself current with. Until then this is a snapshot as of
-// when the organizer opened the tab, same as Insights already is.
+// The team/player/submitted/stuck figures and the activity preview load when
+// this becomes the active destination and, while the event phase is live,
+// every 15 s after that (use-live-poll.ts — the one loop Activity and
+// Insights share), with the stamp on the phase row saying how old the read
+// is and whether the loop is running.
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { AdminSettings, SyncStatus } from "@/lib/admin-store";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { getRemaining, formatCompact } from "@/lib/countdown";
 import type { ModuleSetupContent, ResolvedModule } from "@/lib/modules";
 import { phaseBoundaryLabel, phaseFromSettings, PHASE_COLOR } from "@/components/phase";
 import { setupCountLabel, setupStepStatus, type ModuleInventory } from "@/components/admin-module-setup";
+import AdminSwitch from "@/components/admin-switch";
+import type { FieldStatus } from "@/components/admin-number-field";
 import { formatWhen, TYPE_LABELS, type ActivityEntry } from "./admin-activity-tab";
+import AdminLiveStamp from "./admin-live-stamp";
+import { LIVE_POLL_MS, useLivePoll } from "./use-live-poll";
 import type { ConfirmState } from "./types";
 
 type Funnel = { onATeam: number; attempted: number; stuck: number };
@@ -66,7 +73,8 @@ export function moduleSummary(setup: ModuleSetupContent | undefined, inventory: 
 export default function AdminOverviewTab({
   settings,
   pending,
-  apply,
+  applyField,
+  statusOf,
   setConfirm,
   nowMs,
   sync,
@@ -74,10 +82,14 @@ export default function AdminOverviewTab({
   setups,
   inventory,
   onNavigate,
+  visible = false,
 }: {
   settings: AdminSettings;
   pending: boolean;
-  apply: (patch: Record<string, unknown>) => Promise<boolean>;
+  /** A write that belongs to one row, reported into that row's status
+   *  (Saving… / Saved / the refusal) rather than the panel-wide error line. */
+  applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
+  statusOf: (key: string) => FieldStatus;
   setConfirm: (c: ConfirmState) => void;
   /** Same "as of" stamp the Event tab's schedule readout uses — see
    *  `settingsAt` in admin-controls.tsx. */
@@ -90,6 +102,9 @@ export default function AdminOverviewTab({
    *  `onSelect`, threaded down so "linking to Activity" etc. is a real state
    *  change, not a second navigation mechanism. */
   onNavigate: (id: string) => void;
+  /** This is the active destination. Gates the fetches — see use-live-poll.ts.
+   *  Optional so a static render (the tests) fetches nothing. */
+  visible?: boolean;
 }) {
   const resolution = phaseFromSettings(settings, nowMs);
   const boundary = phaseBoundaryLabel(resolution.phase, resolution.startsAt, resolution.endsAt);
@@ -109,38 +124,52 @@ export default function AdminOverviewTab({
   const [metricsFailed, setMetricsFailed] = useState(false);
   const [activityFailed, setActivityFailed] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    fetch("/api/admin/metrics")
-      .then((res) => {
-        if (!res.ok) throw new Error(`metrics ${res.status}`);
-        return res.json();
-      })
-      .then((data: MetricsResponse) => {
-        if (!live) return;
-        if (data.error) setMetricsFailed(true);
-        else setMetrics(data);
-      })
-      .catch(() => {
-        if (live) setMetricsFailed(true);
-      });
-    fetch("/api/admin/activity?offset=0&limit=5")
-      .then((res) => {
-        if (!res.ok) throw new Error(`activity ${res.status}`);
-        return res.json();
-      })
-      .then((data: ActivityResponse) => {
-        if (!live) return;
-        if (Array.isArray(data.entries)) setActivity(data.entries);
-        else setActivityFailed(true);
-      })
-      .catch(() => {
-        if (live) setActivityFailed(true);
-      });
-    return () => {
-      live = false;
-    };
+  // Both reads, as one load for the poll loop. A read that fails flips its
+  // own flag and leaves the other's result standing; a later successful poll
+  // clears the flag again, so a blip is not a permanent red line. Resolves
+  // true only when BOTH replaced their data — the stamp says "updated" about
+  // the whole screen, so half a refresh does not count.
+  // An aborted request (the loop withdrew it — see use-live-poll.ts) touches
+  // nothing: not the data, not the failure flag.
+  const load = useCallback(async (signal: AbortSignal): Promise<boolean> => {
+    const [metricsOk, activityOk] = await Promise.all([
+      fetch("/api/admin/metrics", { signal })
+        .then((res) => {
+          if (!res.ok) throw new Error(`metrics ${res.status}`);
+          return res.json();
+        })
+        .then((data: MetricsResponse) => {
+          if (signal.aborted) return false;
+          if (data.error) throw new Error(data.error);
+          setMetrics(data);
+          setMetricsFailed(false);
+          return true;
+        })
+        .catch(() => {
+          if (!signal.aborted) setMetricsFailed(true);
+          return false;
+        }),
+      fetch("/api/admin/activity?offset=0&limit=5", { signal })
+        .then((res) => {
+          if (!res.ok) throw new Error(`activity ${res.status}`);
+          return res.json();
+        })
+        .then((data: ActivityResponse) => {
+          if (signal.aborted) return false;
+          if (!Array.isArray(data.entries)) throw new Error("no entries");
+          setActivity(data.entries);
+          setActivityFailed(false);
+          return true;
+        })
+        .catch(() => {
+          if (!signal.aborted) setActivityFailed(true);
+          return false;
+        }),
+    ]);
+    return metricsOk && activityOk;
   }, []);
+  const eventLive = resolution.phase === "live";
+  const { updatedAt } = useLivePoll({ visible, live: eventLive, intervalMs: LIVE_POLL_MS, load });
 
   const figures = metrics
     ? [
@@ -170,57 +199,50 @@ export default function AdminOverviewTab({
           </span>
           {boundary && <span className="text-xs text-muted">{boundary}</span>}
           {remaining && <span className="text-xs text-muted">({formatCompact(remaining)} left)</span>}
+          <span className="ml-auto">
+            <AdminLiveStamp updatedAt={updatedAt} live={eventLive} intervalMs={LIVE_POLL_MS} />
+          </span>
         </div>
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Scoring</span>
-            <span className="block text-xs text-muted">Pause new submissions from being scored.</span>
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={!settings.paused}
-            checked={!settings.paused}
-            disabled={pending}
-            onChange={(e) => {
-              const next = !e.target.checked;
-              setConfirm({
-                title: next ? "Freeze scoring?" : "Unfreeze scoring?",
-                body: next ? "New submissions will stop being scored for everyone." : "Scoring resumes for everyone.",
-                confirmLabel: next ? "Freeze" : "Unfreeze",
-                onConfirm: () => apply({ paused: next }),
-              });
-            }}
-            className="h-5 w-5 flex-none accent-[#2563eb]"
-          />
-        </label>
+        {/* Status keys are the stored setting keys (`paused`,
+            `teamRegistrationOpen`) — the same ones Event's rows report under —
+            so a flip made here shows "Saved" on both screens. */}
+        <AdminSwitch
+          id="overview-scoring"
+          label="Scoring"
+          help="Pause new submissions from being scored."
+          checked={!settings.paused}
+          disabled={pending}
+          status={statusOf("paused")}
+          onChange={(on) => {
+            const next = !on;
+            setConfirm({
+              title: next ? "Freeze scoring?" : "Unfreeze scoring?",
+              body: next ? "New submissions will stop being scored for everyone." : "Scoring resumes for everyone.",
+              confirmLabel: next ? "Freeze" : "Unfreeze",
+              onConfirm: () => applyField("paused", { paused: next }, "Scoring"),
+            });
+          }}
+        />
 
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="text-white">Registration</span>
-            <span className="block text-xs text-muted">Allow players to create or join teams.</span>
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={settings.teamRegistrationOpen}
-            checked={settings.teamRegistrationOpen}
-            disabled={pending}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setConfirm({
-                title: next ? "Open team registration?" : "Close team registration?",
-                body: next
-                  ? "Players will be able to create and join teams."
-                  : "Players will no longer be able to create or join teams.",
-                confirmLabel: next ? "Open" : "Close",
-                onConfirm: () => apply({ teamRegistrationOpen: next }),
-              });
-            }}
-            className="h-5 w-5 flex-none accent-[#2563eb]"
-          />
-        </label>
+        <AdminSwitch
+          id="overview-registration"
+          label="Registration"
+          help="Allow players to create or join teams."
+          checked={settings.teamRegistrationOpen}
+          disabled={pending}
+          status={statusOf("teamRegistrationOpen")}
+          onChange={(next) => {
+            setConfirm({
+              title: next ? "Open team registration?" : "Close team registration?",
+              body: next
+                ? "Players will be able to create and join teams."
+                : "Players will no longer be able to create or join teams.",
+              confirmLabel: next ? "Open" : "Close",
+              onConfirm: () => applyField("teamRegistrationOpen", { teamRegistrationOpen: next }, "Registration"),
+            });
+          }}
+        />
       </section>
 
       {metrics && (

@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { nextScheduleBoundary } from "@/lib/schedule-window";
+import { phaseFromSettings } from "@/components/phase";
 import {
   ALL_MODULE_IDS,
   bakedModuleIds,
@@ -493,6 +494,12 @@ export default function AdminControls({
   };
   const statusOf = (key: string): FieldStatus => fieldStatus[key] ?? { state: "idle" };
 
+  // Whether the live views (Overview, Activity, Insights) keep polling — see
+  // use-live-poll.ts. Evaluated at `settingsAt`, which the boundary timer
+  // above re-stamps when a scheduled window opens or closes, so the loop
+  // starts and stops with the phase without a page reload.
+  const eventLive = phaseFromSettings(settings, settingsAt).phase === "live";
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -505,7 +512,8 @@ export default function AdminControls({
                 <AdminOverviewTab
                   settings={settings}
                   pending={pending}
-                  apply={apply}
+                  applyField={applyField}
+                  statusOf={statusOf}
                   setConfirm={setConfirm}
                   nowMs={settingsAt}
                   sync={sync}
@@ -513,6 +521,7 @@ export default function AdminControls({
                   setups={setups}
                   inventory={inventory}
                   onNavigate={setActive}
+                  visible={active === OVERVIEW_TAB}
                 />
               ) : tab.id === EVENT_TAB ? (
                 <AdminEventTab
@@ -520,7 +529,6 @@ export default function AdminControls({
                   pending={pending}
                   demoMode={demoMode}
                   resetInfo={resetInfo}
-                  apply={apply}
                   applyField={applyField}
                   statusOf={statusOf}
                   setConfirm={setConfirm}
@@ -537,7 +545,7 @@ export default function AdminControls({
                 <AdminHintsTab
                   settings={settings}
                   pending={pending}
-                  apply={apply}
+                  applyField={applyField}
                   statusOf={statusOf}
                   commitNumber={commitNumber}
                   hintCostInput={hintCostInput}
@@ -552,9 +560,9 @@ export default function AdminControls({
               ) : tab.id === SUPPORT_TAB ? (
                 <AdminSupportTab setConfirm={setConfirm} />
               ) : tab.id === ACTIVITY_TAB ? (
-                <AdminActivityTab />
+                <AdminActivityTab visible={active === ACTIVITY_TAB} live={eventLive} />
               ) : tab.id === INSIGHTS_TAB ? (
-                <AdminInsightsTab />
+                <AdminInsightsTab visible={active === INSIGHTS_TAB} live={eventLive} />
               ) : (
                 <section className="flex flex-col gap-4">
                   {/* Setup instructions FIRST, then the identity editor, then the
@@ -624,7 +632,10 @@ export default function AdminControls({
         </div>
       </div>
 
-      {settings.updatedBy && settings.updatedAt && (
+      {/* The settings audit line. Not under Activity or Insights: neither
+          changes a setting, so "last changed by" under a table of solves reads
+          as a claim about the table (admin-redesign.md § Activity, Insights). */}
+      {settings.updatedBy && settings.updatedAt && active !== ACTIVITY_TAB && active !== INSIGHTS_TAB && (
         <p className="text-xs text-muted">
           last changed by {settings.updatedBy} <ChangedAt iso={settings.updatedAt} />
         </p>

@@ -41,7 +41,8 @@ function render(overrides: Partial<Parameters<typeof AdminOverviewTab>[0]> = {})
     <AdminOverviewTab
       settings={settings}
       pending={false}
-      apply={async () => true}
+      applyField={async () => true}
+      statusOf={() => ({ state: "idle" })}
       setConfirm={() => {}}
       nowMs={Date.now()}
       sync={null}

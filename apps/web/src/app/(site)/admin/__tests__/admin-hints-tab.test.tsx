@@ -36,7 +36,7 @@ function render(overrides: Partial<AdminSettings> = {}, inputs = { cost: "", min
     <AdminHintsTab
       settings={{ ...settings, ...overrides }}
       pending={false}
-      apply={async () => true}
+      applyField={async () => true}
       statusOf={() => ({ state: "idle" })}
       commitNumber={() => {}}
       hintCostInput={inputs.cost}

@@ -7,7 +7,7 @@
 // the module panels prove their form logic.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import AdminNumberField, { describeFieldError, parseNumberCommit } from "@/components/admin-number-field";
+import AdminNumberField, { blurOnWheel, describeFieldError, parseNumberCommit } from "@/components/admin-number-field";
 
 const noop = () => {};
 const base = {
@@ -58,6 +58,27 @@ describe("AdminNumberField", () => {
   it("does not mark the input invalid when nothing is wrong", () => {
     const html = renderToStaticMarkup(<AdminNumberField {...base} status={{ state: "saved" }} />);
     expect(html).not.toContain("aria-invalid");
+  });
+
+  it("hides the native spinner but stays a number input", () => {
+    // The WebKit stepper clipped five-figure values at this width and moved a
+    // stored setting on a stray scroll (admin-redesign.md § Controls).
+    const html = renderToStaticMarkup(<AdminNumberField {...base} value="10000" status={{ state: "idle" }} />);
+    expect(html).toContain('type="number"');
+    expect(html).toContain("[appearance:textfield]");
+    expect(html).toContain("[&amp;::-webkit-inner-spin-button]:appearance-none");
+  });
+});
+
+// The CSS hides the stepper buttons only; a focused number input still steps
+// on a mouse wheel, and the blur after it would save a value nobody typed.
+// The wheel handler drops focus, which is what stops the step. No browser
+// harness here (by choice), so the handler is exercised directly.
+describe("blurOnWheel", () => {
+  it("drops focus from the wheeled input", () => {
+    let blurred = 0;
+    blurOnWheel({ currentTarget: { blur: () => void blurred++ } });
+    expect(blurred).toBe(1);
   });
 });
 

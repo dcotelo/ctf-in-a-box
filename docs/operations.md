@@ -146,10 +146,26 @@ figures (stuck leads when it is non-zero), the poller's sync health line
 the full breakdown, repos polled, last drop and last error, the old Status
 card), the five most recent activity rows, and a setup-status line per
 module ("checking…" until that module's own panel has reported its counts;
-"enabled" for a module with nothing countable). Every figure on it is a
-snapshot as of when you opened it; a later change will add a 15-second
-refresh. A read that fails says so in place rather than sitting on
-"Loading…".
+"enabled" for a module with nothing countable). The figures and the activity
+rows load when you open Overview and, **while the event phase is live,
+refresh every 15 seconds**; the stamp on the phase row ("updated 12s ago ·
+refreshes every 15 s") says how old the read is, and reads "auto-refresh
+paused while the event is not live" before scoring opens or once it is
+frozen or over — the panel still loads once when you open it, but the
+numbers do not move in those phases, so nothing is re-polled. While live, a
+hidden browser tab never polls, and switching back to it refreshes at once.
+A read that fails says so in place rather than sitting on "Loading…", keeps
+the previous figures and the stamp's age (so retained data is never called
+"updated"), and clears itself when a later refresh succeeds.
+
+Every on/off control in the panel — the module switches, Freeze scoring and
+Team registration on Event, Scoring and Registration on Overview, Hints
+enabled — is a switch that reports its own save beside the row: "Saving…",
+then "Saved" for a moment, or the reason the server refused it (with the
+switch snapped back to the stored state). Overview's Scoring switch and
+Event's Freeze scoring row write the same setting, so a flip on either
+screen shows "Saved" on both. The numeric fields do the same and no longer
+show a browser spinner: type the value, tab out, read the line under it.
 
 The hint policy has its own **Hints** destination because it is event-wide:
 Secure Development, Classic and AI all sell their hints through the same
@@ -389,8 +405,12 @@ The panel offers:
   but never fail the sign-in or solve it describes. Entries carry the
   challenge/question id or team slug — **never a flag, an answer, or hint
   text** — and no IP or device data, which is what keeps the tab safe to
-  screen-share mid-event. Loaded on demand; the button doubles as refresh.
-  The master reset wipes it with the rest of the event's progress.
+  screen-share mid-event. It loads when you open the tab and, while the
+  event phase is live, refreshes every 15 seconds — re-reading as many rows
+  as you have paged in, so the log never jumps back to its first page under
+  you — with an "updated Ns ago" stamp beside the count; **Refresh** is the
+  same read for when you won't wait. The master reset wipes it with the rest
+  of the event's progress.
 
 - **Insights** (its own tab) — engagement metrics for the event, computed
   **entirely from data the box already stores**. Nothing is collected from
@@ -399,8 +419,11 @@ The panel offers:
   solves are timestamped as they are ingested, attempts are counted per login,
   and `firstTeamAt` supplies the funnel's conversion moment.
 
-  It is loaded on demand rather than on arrival — the fold is O(contestants),
-  so the button doubles as the refresh. You get:
+  It computes when you open the tab, not when the admin page loads — the fold
+  is O(contestants) — and, while the event phase is live, recomputes every
+  30 seconds (half Overview's cadence, for the same reason) with an "updated
+  Ns ago" stamp beside the "as of" time; **Refresh** is the same read for when
+  you won't wait. You get:
 
   ![The Insights tab: the five participation figures, a ten-minute-bucket solve timeline, and the hardest-first challenge table with solves, attempts, solve rate, average tries and median time to solve per challenge](assets/admin-insights.jpg)
 
@@ -408,8 +431,9 @@ The panel offers:
   - **Participation** — on a team / ever on a team / submitted / scored /
     **stuck** (submitted and never scored). The gap between the last two is the
     number worth watching during an event.
-  - **Solves over time**, in ten-minute buckets, so a room going quiet is
-    visible and datable.
+  - **Solves over time**, in ten-minute buckets with a time axis (first,
+    middle and last bucket, UTC; dated once the buckets cross midnight), so
+    a room going quiet is visible and datable.
   - **Hardest first** — every challenge by solves, attempts, solve rate,
     *average tries taken by the people who did solve it*, and the *median time
     from their first attempt to their solve*. Those last two are the difficulty
@@ -552,17 +576,19 @@ content yet — an empty board shows them **Author questions** / **Author
 challenges** instead of the contestant's "check back soon". An unknown or not-enabled tab
 name falls back to **Overview**.
 
-**Every numeric setting says whether it saved.** The number knobs (hint cost
-and gating, players per team, the retry gate, the cooldowns) and the four
+**Every setting says whether it saved.** The number knobs (hint cost and
+gating, players per team, the retry gate, the cooldowns) and the four
 schedule fields commit when you leave the field, and report beside it:
 **Saving…** while the write is in flight, **Saved** for a moment after, or the
 reason it was refused. Junk, a fraction, a negative, or a blanked field snaps
 back to the stored value with that reason ("Whole numbers only — kept 10.");
 a value the server refuses is rewritten through the field's own label ("Hint
 cost must be a whole number between 0 and 100,000.") and the field snaps back
-too, so what you see is always what is stored. The toggles and the module
-switches have no field to report into and still use the error line under the
-panel.
+too, so what you see is always what is stored. The switches — module on/off,
+Freeze scoring, Team registration, Hints enabled, and Overview's Scoring and
+Registration — report the same three states beside their own row, so
+nothing in the panel writes into the error line under it any more except the
+demo seed and the master reset.
 
 Every settings change is recorded in an audit log (who, when, what changed)
 alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest

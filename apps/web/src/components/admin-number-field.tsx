@@ -63,8 +63,25 @@ export function describeFieldError(label: string, serverMessage: string): string
   return `${label} could not be saved: ${serverMessage}`;
 }
 
+// No native spinner (admin-redesign.md § Controls): at this width the
+// WebKit stepper sat over the last digit of a five-figure value, and a
+// stepper that changes a stored setting by one on a stray scroll is the
+// wrong control for numbers that are typed once. `type="number"` stays for
+// the numeric keyboard and the min/max semantics. The CSS removes only the
+// visible buttons — see `blurOnWheel` for the scroll half.
 const INPUT_CLASS =
-  "w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] aria-[invalid=true]:border-[#e53e3e]/70";
+  "w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] aria-[invalid=true]:border-[#e53e3e]/70";
+
+/** A focused `type="number"` input still steps its value on a mouse wheel
+ *  with the buttons hidden, and the blur that follows would then SAVE the
+ *  value the organizer never typed. Dropping focus inside the wheel handler
+ *  is the one thing that stops the step (React registers wheel as passive,
+ *  so `preventDefault` is not available); the blur commits whatever was
+ *  actually typed, exactly as tabbing away does. Exported for direct
+ *  testing — there is no browser harness in this repo, by choice. */
+export function blurOnWheel(e: { currentTarget: { blur: () => void } }): void {
+  e.currentTarget.blur();
+}
 
 /** The status line's colour per state. Rejected uses the panel's existing
  *  error red; saved the schedule readout's green. */
@@ -73,6 +90,22 @@ const STATUS_CLASS: Record<Exclude<FieldStatus["state"], "idle">, string> = {
   saved: "text-[#22c55e]",
   rejected: "text-[#e53e3e]",
 };
+
+/** The three visible states, as one line under a field — "Saving…", "Saved",
+ *  or the refusal — and nothing at all while idle. Shared with AdminSwitch
+ *  (components/admin-switch.tsx) so a boolean row and a numeric knob report a
+ *  save in exactly the same words, colour and place. A refusal is announced
+ *  (`role="alert"`); the owning input points at `id` via `aria-describedby`. */
+export function FieldStatusLine({ id, status }: { id: string; status: FieldStatus }) {
+  const line =
+    status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
+  if (!line) return null;
+  return (
+    <p id={id} role={status.state === "rejected" ? "alert" : undefined} className={`text-right text-xs ${STATUS_CLASS[status.state as Exclude<FieldStatus["state"], "idle">]}`}>
+      {line}
+    </p>
+  );
+}
 
 export default function AdminNumberField({
   id,
@@ -102,8 +135,7 @@ export default function AdminNumberField({
 }) {
   const statusId = `${id}-status`;
   const rejected = status.state === "rejected";
-  const line =
-    status.state === "pending" ? "Saving…" : status.state === "saved" ? "Saved" : status.state === "rejected" ? status.message : null;
+  const hasLine = status.state !== "idle";
   return (
     <div className="flex flex-col gap-1">
       <label className="flex items-center justify-between gap-3">
@@ -120,17 +152,14 @@ export default function AdminNumberField({
           placeholder={placeholder}
           disabled={disabled}
           aria-invalid={rejected ? true : undefined}
-          aria-describedby={line ? statusId : undefined}
+          aria-describedby={hasLine ? statusId : undefined}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
+          onWheel={blurOnWheel}
           className={INPUT_CLASS}
         />
       </label>
-      {line && (
-        <p id={statusId} role={rejected ? "alert" : undefined} className={`text-right text-xs ${STATUS_CLASS[status.state as Exclude<FieldStatus["state"], "idle">]}`}>
-          {line}
-        </p>
-      )}
+      <FieldStatusLine id={statusId} status={status} />
     </div>
   );
 }
