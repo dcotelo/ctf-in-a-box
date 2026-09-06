@@ -76,6 +76,16 @@ describe("mergeRefresh", () => {
     expect(new Set(merged.map((e) => e.login)).size).toBe(601);
   });
 
+  it("keeps the row a new event pushed out of a same-sized page — same length is not 'nothing to keep'", () => {
+    // Exactly the cap loaded, one new event since: the fresh 500 are new +
+    // old 0..498, and old 499 would otherwise vanish from the screen.
+    const prev = rows(0, 500);
+    const fresh = [{ at: "2026-08-24T19:00:00.000Z", type: "login", login: "new" }, ...rows(0, 499)];
+    const merged = mergeRefresh(fresh, prev, 501);
+    expect(merged).toHaveLength(501);
+    expect(merged[500]).toEqual(row(499));
+  });
+
   it("replaces everything when the fresh page covers the loaded rows", () => {
     expect(mergeRefresh(rows(0, 20), rows(0, 19), 20)).toEqual(rows(0, 20));
     expect(mergeRefresh(rows(0, 5), null, 5)).toEqual(rows(0, 5));
