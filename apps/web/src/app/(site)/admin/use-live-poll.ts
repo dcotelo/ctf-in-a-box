@@ -45,12 +45,16 @@ export function useLivePoll({
    *  the freeze, so it is never blank. */
   live: boolean;
   intervalMs: number;
-  /** The panel's own fetch. May change identity every render (it usually
-   *  closes over the panel's state); the latest one is what each tick calls. */
-  load: () => Promise<unknown>;
+  /** The panel's own fetch. Resolves to whether it REPLACED the panel's data
+   *  — a loader that caught a failed read and kept what it had resolves
+   *  false, so the stamp below never calls retained data "updated". May
+   *  change identity every render (it usually closes over the panel's
+   *  state); the latest one is what each tick calls. */
+  load: () => Promise<boolean>;
 }): {
-  /** Epoch ms of the last completed load, success or failure — the stamp's
-   *  input. `null` until the first one lands. */
+  /** Epoch ms of the last SUCCESSFUL load — the stamp's input. `null` until
+   *  the first one lands; unchanged by a failed refresh, so the age shown is
+   *  the age of the data on screen. */
   updatedAt: number | null;
   /** Load now, stamping the clock when done. No-op while a load is in flight. */
   refresh: () => Promise<void>;
@@ -69,11 +73,12 @@ export function useLivePoll({
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    let replaced = false;
     try {
-      await loadRef.current();
+      replaced = await loadRef.current();
     } finally {
       inFlight.current = false;
-      setUpdatedAt(Date.now());
+      if (replaced) setUpdatedAt(Date.now());
     }
   }, []);
 

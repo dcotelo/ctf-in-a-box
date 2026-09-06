@@ -67,9 +67,21 @@ export function describeFieldError(label: string, serverMessage: string): string
 // WebKit stepper sat over the last digit of a five-figure value, and a
 // stepper that changes a stored setting by one on a stray scroll is the
 // wrong control for numbers that are typed once. `type="number"` stays for
-// the numeric keyboard and the min/max semantics.
+// the numeric keyboard and the min/max semantics. The CSS removes only the
+// visible buttons — see `blurOnWheel` for the scroll half.
 const INPUT_CLASS =
   "w-28 flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-right text-sm text-white [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] aria-[invalid=true]:border-[#e53e3e]/70";
+
+/** A focused `type="number"` input still steps its value on a mouse wheel
+ *  with the buttons hidden, and the blur that follows would then SAVE the
+ *  value the organizer never typed. Dropping focus inside the wheel handler
+ *  is the one thing that stops the step (React registers wheel as passive,
+ *  so `preventDefault` is not available); the blur commits whatever was
+ *  actually typed, exactly as tabbing away does. Exported for direct
+ *  testing — there is no browser harness in this repo, by choice. */
+export function blurOnWheel(e: { currentTarget: { blur: () => void } }): void {
+  e.currentTarget.blur();
+}
 
 /** The status line's colour per state. Rejected uses the panel's existing
  *  error red; saved the schedule readout's green. */
@@ -143,6 +155,7 @@ export default function AdminNumberField({
           aria-describedby={hasLine ? statusId : undefined}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
+          onWheel={blurOnWheel}
           className={INPUT_CLASS}
         />
       </label>

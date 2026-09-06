@@ -151,10 +151,12 @@ rows load when you open Overview and, **while the event phase is live,
 refresh every 15 seconds**; the stamp on the phase row ("updated 12s ago ·
 refreshes every 15 s") says how old the read is, and reads "auto-refresh
 paused while the event is not live" before scoring opens or once it is
-frozen or over — the numbers do not move then, so nothing is polled. A
+frozen or over — the panel still loads once when you open it, but the
+numbers do not move in those phases, so nothing is re-polled. While live, a
 hidden browser tab never polls, and switching back to it refreshes at once.
-A read that fails says so in place rather than sitting on "Loading…", and
-clears itself when a later refresh succeeds.
+A read that fails says so in place rather than sitting on "Loading…", keeps
+the previous figures and the stamp's age (so retained data is never called
+"updated"), and clears itself when a later refresh succeeds.
 
 Every on/off control in the panel — the module switches, Freeze scoring and
 Team registration on Event, Scoring and Registration on Overview, Hints

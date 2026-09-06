@@ -126,9 +126,11 @@ export default function AdminOverviewTab({
 
   // Both reads, as one load for the poll loop. A read that fails flips its
   // own flag and leaves the other's result standing; a later successful poll
-  // clears the flag again, so a blip is not a permanent red line.
-  const load = useCallback(async () => {
-    await Promise.all([
+  // clears the flag again, so a blip is not a permanent red line. Resolves
+  // true only when BOTH replaced their data — the stamp says "updated" about
+  // the whole screen, so half a refresh does not count.
+  const load = useCallback(async (): Promise<boolean> => {
+    const [metricsOk, activityOk] = await Promise.all([
       fetch("/api/admin/metrics")
         .then((res) => {
           if (!res.ok) throw new Error(`metrics ${res.status}`);
@@ -138,8 +140,12 @@ export default function AdminOverviewTab({
           if (data.error) throw new Error(data.error);
           setMetrics(data);
           setMetricsFailed(false);
+          return true;
         })
-        .catch(() => setMetricsFailed(true)),
+        .catch(() => {
+          setMetricsFailed(true);
+          return false;
+        }),
       fetch("/api/admin/activity?offset=0&limit=5")
         .then((res) => {
           if (!res.ok) throw new Error(`activity ${res.status}`);
@@ -149,9 +155,14 @@ export default function AdminOverviewTab({
           if (!Array.isArray(data.entries)) throw new Error("no entries");
           setActivity(data.entries);
           setActivityFailed(false);
+          return true;
         })
-        .catch(() => setActivityFailed(true)),
+        .catch(() => {
+          setActivityFailed(true);
+          return false;
+        }),
     ]);
+    return metricsOk && activityOk;
   }, []);
   const eventLive = resolution.phase === "live";
   const { updatedAt } = useLivePoll({ visible, live: eventLive, intervalMs: LIVE_POLL_MS, load });

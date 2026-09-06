@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import AdminActivityTab, {
   filterEntries,
   formatWhen,
+  mergeRefresh,
   refreshLimit,
   type ActivityEntry,
 } from "@/app/(site)/admin/admin-activity-tab";
@@ -45,6 +46,44 @@ describe("refreshLimit", () => {
 
   it("stops at the route's cap", () => {
     expect(refreshLimit(900)).toBe(500);
+  });
+});
+
+// Past the route's cap a refresh cannot re-read everything in one request,
+// so the rows the fresh page did not reach are kept rather than dropped.
+describe("mergeRefresh", () => {
+  const row = (i: number): ActivityEntry => ({
+    at: `2026-08-24T18:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`,
+    type: "login",
+    login: `u${i}`,
+  });
+  const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => row(from + k));
+
+  it("keeps rows paged in beyond what the fresh page covers", () => {
+    const prev = rows(0, 600);
+    const fresh = rows(0, 500);
+    const merged = mergeRefresh(fresh, prev, 600);
+    expect(merged).toHaveLength(600);
+    expect(merged.slice(500)).toEqual(prev.slice(500));
+  });
+
+  it("does not duplicate a row the fresh page already holds after new events shift everything down", () => {
+    const prev = rows(0, 600);
+    // One new event at the top: the fresh 500 are new + the old 0..498.
+    const fresh = [{ at: "2026-08-24T19:00:00.000Z", type: "login", login: "new" }, ...rows(0, 499)];
+    const merged = mergeRefresh(fresh, prev, 601);
+    expect(merged).toHaveLength(601);
+    expect(new Set(merged.map((e) => e.login)).size).toBe(601);
+  });
+
+  it("replaces everything when the fresh page covers the loaded rows", () => {
+    expect(mergeRefresh(rows(0, 20), rows(0, 19), 20)).toEqual(rows(0, 20));
+    expect(mergeRefresh(rows(0, 5), null, 5)).toEqual(rows(0, 5));
+  });
+
+  it("replaces everything when the server says the whole log fits the page — a reset is not padded with ghosts", () => {
+    expect(mergeRefresh([], rows(0, 600), 0)).toEqual([]);
+    expect(mergeRefresh(rows(0, 3), rows(0, 600), 3)).toEqual(rows(0, 3));
   });
 });
 

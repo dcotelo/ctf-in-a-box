@@ -94,7 +94,10 @@ export default function AdminInsightsTab({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  // Resolves to whether the metrics on screen were replaced: a failed read
+  // keeps the previous figures AND leaves the stamp's age alone, so the
+  // screen never calls stale numbers freshly updated.
+  const load = useCallback(async (): Promise<boolean> => {
     setPending(true);
     setError(null);
     try {
@@ -102,11 +105,13 @@ export default function AdminInsightsTab({
       const data = (await res.json().catch(() => ({}))) as EventMetrics & { error?: string };
       if (!res.ok) {
         setError(data.error ?? "Could not compute metrics");
-        return;
+        return false;
       }
       setMetrics(data);
+      return true;
     } catch {
       setError("Could not compute metrics");
+      return false;
     } finally {
       setPending(false);
     }
