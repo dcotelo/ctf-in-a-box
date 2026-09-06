@@ -165,9 +165,11 @@ const targets = [
 ];
 compareAll("targets", targets);
 
-const exampleModules = parseExampleModules();
+// Same fail-closed guard as the registries above: a modules: block the parser
+// can't read (renamed, re-indented) must not pass as "nothing invented".
+const exampleModules = extractOrFail("event.yaml.example modules block", parseExampleModules());
 const knownModules = modules[0].set;
-const invented = exampleModules.filter((k) => !knownModules.has(k));
+const invented = [...exampleModules].filter((k) => !knownModules.has(k));
 if (invented.length) {
   fail(
     `event.yaml.example: modules block names ${fmtSet(new Set(invented))}, not in the registry ` +
