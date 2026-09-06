@@ -8,6 +8,21 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Every AI endpoint now demonstrates itself.** The panel shipped a
+  ready-to-run curl for one route — `/api/ai/event`, on each challenge's own
+  row — and left the other two as a URL and nothing else: an organizer could
+  copy `/api/ai/submit` and still not know whether it wanted a header, what
+  came back, or what a wrong flag looks like next to a refusal. Each of the
+  three endpoint URLs now carries a collapsed demo answering **send /
+  receive / expect**: a runnable request, the `200` it returns, and the
+  refusals worth designing for (a wrong flag and a cooldown for Submit;
+  `invalid-signature`, `stale-request` and `replay` for Event; an expired
+  token and the 120/min budget for State). **State** is marked *read-only* —
+  the one route of the three that writes nothing, so it can be tried against
+  a live event with no consequence. Every value is a placeholder; the real
+  signing key and the one-click dry run stay on the per-challenge row, and a
+  test asserts no key- or token-shaped string reaches the demos.
+
 - **The AI panel says what the external site has to do, and the token
   handshake has a diagram.** The panel handed an organizer the endpoint URLs,
   a per-challenge signing key and a Send test button, then told them to
