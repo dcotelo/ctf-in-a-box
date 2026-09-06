@@ -36,6 +36,7 @@ import {
   listCategories,
   listChallenges,
   listChallengesForAdmin,
+  renameCategory,
   setCategories,
   upsertChallenge,
   type AdminChallenge,
@@ -787,5 +788,107 @@ describe("exportBundle", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Web"]) }]);
     const bundle = await exportBundle();
     expect(bundle.challenges[0].hint).toBe("Look closer.");
+  });
+});
+
+// #304. `setCategories` replaces the whole array, so a renamed entry is
+// indistinguishable from "one removed, one added" — which is how challenges
+// lost their association with it, and why `removeCategory` refuses while any
+// challenge still uses a name. A typo in a category ten challenges carried
+// meant editing all ten.
+describe("renameCategory", () => {
+  const CATEGORIES_KEY = "ctf:classic:categories";
+  const CHALLENGES_KEY = "ctf:classic:challenges";
+
+  const challenge = (id: string, category: string) => ({
+    id,
+    title: `T ${id}`,
+    category,
+    description: "",
+    points: 100,
+    order: 1,
+  });
+
+  /** Drives the read order: categories GET, then the challenges HGETALL, then
+   *  the writes. */
+  function mockStore(categories: string[], challenges: ReturnType<typeof challenge>[]) {
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: JSON.stringify(categories) }])
+      .mockResolvedValueOnce([{ result: challenges.flatMap((c) => [c.id, JSON.stringify(c)]) }])
+      .mockResolvedValue([{ result: "OK" }, { result: "OK" }, { result: "OK" }]);
+  }
+
+  it("moves every challenge in the category and rewrites the list", async () => {
+    mockStore(["Webb", "Crypto"], [challenge("a", "Webb"), challenge("b", "Crypto"), challenge("c", "Webb")]);
+    const result = await renameCategory("Webb", "Web");
+
+    expect(result).toEqual({ categories: ["Web", "Crypto"], moved: 2 });
+
+    const calls = mocks.upstashPipeline.mock.calls.map((c) => c[0]);
+    // Challenges FIRST, list LAST — the order that makes a half-applied
+    // rename finishable by simply running it again.
+    const writes = calls[2];
+    expect(writes.map((cmd: string[]) => cmd[0])).toEqual(["HSET", "HSET"]);
+    expect(writes.every((cmd: string[]) => cmd[1] === CHALLENGES_KEY)).toBe(true);
+    expect(writes.map((cmd: string[]) => JSON.parse(cmd[3]).category)).toEqual(["Web", "Web"]);
+    // The untouched challenge is not rewritten at all.
+    expect(writes.map((cmd: string[]) => cmd[2])).toEqual(["a", "c"]);
+
+    const listWrite = calls[3];
+    expect(listWrite).toEqual([["SET", CATEGORIES_KEY, JSON.stringify(["Web", "Crypto"])]]);
+  });
+
+  it("rewrites the list even when no challenge uses the category", async () => {
+    mockStore(["Webb", "Crypto"], [challenge("b", "Crypto")]);
+    expect(await renameCategory("Webb", "Web")).toEqual({ categories: ["Web", "Crypto"], moved: 0 });
+    const calls = mocks.upstashPipeline.mock.calls.map((c) => c[0]);
+    // No empty HSET batch is sent — the list write follows the two reads.
+    expect(calls[2]).toEqual([["SET", CATEGORIES_KEY, JSON.stringify(["Web", "Crypto"])]]);
+  });
+
+  it("keeps the category's position in the display order", async () => {
+    mockStore(["Alpha", "Webb", "Zeta"], []);
+    expect((await renameCategory("Webb", "Web")).categories).toEqual(["Alpha", "Web", "Zeta"]);
+  });
+
+  it("refuses a name another category already holds, rather than merging", async () => {
+    // Merging two categories is a different, lossier operation. It should be
+    // asked for, not arrived at by typing an existing name into a rename box.
+    mockStore(["Web", "Crypto"], []);
+    await expect(renameCategory("Crypto", "web")).rejects.toBeInstanceOf(ClassicValidationError);
+  });
+
+  it("allows a change of spelling on the SAME entry", async () => {
+    // "web" -> "Web" collides only with the entry being renamed, which is not
+    // a collision at all.
+    mockStore(["web", "Crypto"], [challenge("a", "web")]);
+    expect(await renameCategory("web", "Web")).toEqual({ categories: ["Web", "Crypto"], moved: 1 });
+  });
+
+  it("refuses an unknown source, an empty target and an over-long one", async () => {
+    mockStore(["Web"], []);
+    await expect(renameCategory("Nope", "Other")).rejects.toBeInstanceOf(ClassicValidationError);
+    await expect(renameCategory("Web", "   ")).rejects.toBeInstanceOf(ClassicValidationError);
+    await expect(renameCategory("Web", "x".repeat(CLASSIC_CATEGORY_MAX_LEN + 1))).rejects.toBeInstanceOf(
+      ClassicValidationError,
+    );
+  });
+
+  it("does NOT rewrite the list when a challenge write failed", async () => {
+    // `upstashPipeline` reports a per-command failure as a value, not a throw
+    // (AGENTS.md). Reading `.result` blindly would report a partial move as a
+    // complete one and then rewrite the list on top of it — landing in the
+    // state the write order exists to avoid, and which a retry could not
+    // finish from.
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: JSON.stringify(["Webb"]) }])
+      .mockResolvedValueOnce([{ result: [ "a", JSON.stringify(challenge("a", "Webb")) ] }])
+      .mockResolvedValueOnce([{ error: "WRONGTYPE" }]);
+
+    await expect(renameCategory("Webb", "Web")).rejects.toThrow(/HSET failed/);
+    // Three pipelines: two reads and the failed write. No list SET followed.
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(3);
   });
 });

@@ -8,6 +8,7 @@ import {
   importBundle,
   listCategories,
   listChallengesForAdmin,
+  renameCategory,
   setCategories,
   upsertChallenge,
   type AdminChallenge,
@@ -40,11 +41,14 @@ import {
  * guard: unknown keys, wrong types, or a missing field all fail closed with a
  * 400, never a partially-trusted write.
  *
- * POST carries THREE distinct payload shapes on the SAME route rather than a
+ * POST carries FOUR distinct payload shapes on the SAME route rather than a
  * separate endpoint per resource: a body with exactly one key, `categories`
- * (an array), replaces the category list; a body with exactly one key,
- * `import` (a string), bulk-imports a challenge bundle; anything else is
- * parsed as a challenge-plus-flag upsert. The three key sets never overlap,
+ * (an array), replaces the category list; one with exactly `renameCategory`
+ * ({from, to}) renames a single category and carries its challenges across
+ * (#304 — the array shape cannot express that, since a renamed entry is
+ * indistinguishable from one removed plus one added); one with exactly
+ * `import` (a string) bulk-imports a challenge bundle; anything else is
+ * parsed as a challenge-plus-flag upsert. The four key sets never overlap,
  * so the shape alone is enough to dispatch — no extra discriminator field for
  * a caller to get wrong. See the exported `*_KEYS` constants below and the
  * route test's "keeps every payload key set pairwise disjoint" case, which
@@ -84,6 +88,9 @@ export const CHALLENGE_KEYS = new Set([
   "hint",
 ]);
 export const CATEGORIES_KEYS = new Set(["categories"]);
+/** The rename shape's outer and inner key sets (#304). */
+export const RENAME_CATEGORY_KEYS = new Set(["renameCategory"]);
+export const RENAME_FIELD_KEYS = new Set(["from", "to"]);
 export const IMPORT_KEYS = new Set(["import"]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -144,6 +151,23 @@ function parseCategoriesPayload(body: unknown): string[] | null {
   if (!Array.isArray(body.categories)) return null;
   if (!body.categories.every((c) => typeof c === "string")) return null;
   return body.categories as string[];
+}
+
+/** Recognizes the FOURTH POST shape: a body carrying exactly one key,
+ *  `renameCategory`, itself an object of exactly `from` and `to` (#304).
+ *
+ *  A rename needs its own shape because the `categories` array CANNOT express
+ *  one: replacing the whole list makes a renamed entry indistinguishable from
+ *  "one removed, one added", which is precisely how the challenges lose their
+ *  association with it. Same exactness discipline as the shapes above — the
+ *  nested object is `hasOnlyKeys`-checked too, so a body smuggling extra
+ *  fields falls through to the 400 rather than being partly honoured. */
+function parseRenameCategoryPayload(body: unknown): { from: string; to: string } | null {
+  if (!isPlainObject(body) || !hasOnlyKeys(body, RENAME_CATEGORY_KEYS)) return null;
+  const rename = body.renameCategory;
+  if (!isPlainObject(rename) || !hasOnlyKeys(rename, RENAME_FIELD_KEYS)) return null;
+  if (typeof rename.from !== "string" || typeof rename.to !== "string") return null;
+  return { from: rename.from, to: rename.to };
 }
 
 /** Recognizes the THIRD POST shape: a body carrying exactly one key,
@@ -209,6 +233,22 @@ export async function POST(request: Request) {
     }
     await writeAdminAudit(gate.login, "classic-categories", { count: categories.length });
     return NextResponse.json({ categories });
+  }
+
+  const renamePayload = parseRenameCategoryPayload(body);
+  if (renamePayload) {
+    let result;
+    try {
+      result = await renameCategory(renamePayload.from, renamePayload.to);
+    } catch (err) {
+      return errorResponse(err);
+    }
+    await writeAdminAudit(gate.login, "classic-category-rename", {
+      from: renamePayload.from,
+      to: renamePayload.to,
+      moved: result.moved,
+    });
+    return NextResponse.json(result);
   }
 
   const importPayload = parseImportPayload(body);

@@ -1035,10 +1035,20 @@ grading answers the instant you submit.</sup>
 **Authoring** happens in `/admin`, under the Classic module's tab (see
 "Classic controls" above). Before adding a challenge you need at least one
 **category** — categories are a row of chips in the order contestants see
-them (add; move a chip left or right, or remove it, with the controls that
-appear when you hover or focus it), and a category can only be removed
-while no challenge still files under it; the panel tells you exactly how
-many challenges are blocking a removal. The challenge list is grouped under
+them (add; move a chip left or right, rename it, or remove it, with the
+controls that appear when you hover or focus it), and a category can only be
+removed while no challenge still files under it; the panel tells you exactly
+how many challenges are blocking a removal.
+
+**Renaming carries the challenges across.** A typo in a category ten
+challenges already use is one edit, not eleven: the rename rewrites every
+challenge filed under it as part of the same operation. Renaming to a name
+another category already holds is refused rather than merged — merging two
+categories is a different and lossier thing to ask for. Changing only the
+capitalisation of the same category ("web" to "Web") is a rename, not a
+clash. If a rename is interrupted part-way, run the same rename again: it
+picks up from wherever it stopped, and no challenge vanishes from the panel
+in the meantime. The challenge list is grouped under
 those categories, each heading carrying its count. A challenge itself has a title, a
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
@@ -1291,8 +1301,9 @@ verdict is read in the Send test list further down this section.
 
 **Authoring** happens in `/admin`, under the AI module's tab. Before adding
 a challenge you need at least one **category** — same chip row as classic's
-(add, move left or right, remove only while no challenge still files under
-it, the panel naming exactly how many are blocking a removal), capped at
+(add, move left or right, rename — carrying that category's challenges across
+— and remove only while no challenge still files under it, the panel naming
+exactly how many are blocking a removal), capped at
 **50 categories** with names of at most **64
 characters** each (`AI_CATEGORIES_MAX`/`AI_CATEGORY_MAX_LEN`, enforced in
 `setAiCategories`).

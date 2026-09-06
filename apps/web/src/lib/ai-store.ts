@@ -521,6 +521,62 @@ export async function setAiCategories(names: string[]): Promise<string[]> {
   return cleaned;
 }
 
+/** What a rename did. Mirrors classic-store's `CategoryRename` rather than
+ *  importing it: the two module stores are deliberately independent, and the
+ *  rest of this file mirrors classic's contracts the same way. */
+export type CategoryRename = { categories: string[]; moved: number };
+
+/**
+ * Renames one category and carries every challenge in it across (#304).
+ *
+ * Mirrors `renameCategory` in classic-store.ts — read that one's comment for
+ * why the challenges are written BEFORE the list (the resulting partial state
+ * is the one a retry can finish from) and why an existing name is refused
+ * rather than merged.
+ *
+ * One deliberate difference: the collision check is case-SENSITIVE here,
+ * because `setAiCategories` dedupes case-sensitively (`cleaned.includes`)
+ * while classic's folds. Each rename has to refuse exactly what its own list
+ * would refuse to hold — anything else lets a rename produce a pair the module
+ * itself considers distinct.
+ */
+export async function renameAiCategory(from: string, to: string): Promise<CategoryRename> {
+  const target = to.trim();
+  if (!target) throw new AiValidationError("categories", "A category name cannot be empty");
+  if (target.length > AI_CATEGORY_MAX_LEN) {
+    throw new AiValidationError("categories", `Category names must be at most ${AI_CATEGORY_MAX_LEN} characters`);
+  }
+
+  const categories = await listAiCategories();
+  const source = from.trim();
+  const index = categories.indexOf(source);
+  if (index === -1) throw new AiValidationError("categories", `No category named "${from}"`);
+  if (categories.some((name, i) => i !== index && name === target)) {
+    throw new AiValidationError(
+      "categories",
+      `"${target}" already exists. Rename it to something else, or move these challenges one at a time.`,
+    );
+  }
+
+  const moving = (await listAiChallenges()).filter((c) => c.category === source);
+  if (moving.length > 0) {
+    const writes = await upstashPipeline(
+      moving.map((c) => ["HSET", CHALLENGES_KEY, c.id, JSON.stringify({ ...c, category: target })]),
+    );
+    // Per-command errors are values, not throws (AGENTS.md) — an unchecked
+    // `.result` would report a partial move as a complete one.
+    const failed = writes.find((w) => w.error);
+    if (failed) throw new Error(`Upstash HSET failed: ${failed.error}`);
+  }
+
+  const next = [...categories];
+  next[index] = target;
+  const [res] = await upstashPipeline([["SET", CATEGORIES_KEY, JSON.stringify(next)]]);
+  if (res.error) throw new Error(`Upstash SET failed: ${res.error}`);
+
+  return { categories: next, moved: moving.length };
+}
+
 export type AiUpsertSecrets = { flag?: string; hint?: string | null };
 
 /** Creates or updates one challenge, and guarantees it has a signing key.

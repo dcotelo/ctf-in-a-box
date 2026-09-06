@@ -21,6 +21,7 @@ const {
   upsertChallenge,
   deleteChallenge,
   importBundle,
+  renameCategory,
   writeAdminAudit,
   ClassicValidationError,
 } = vi.hoisted(() => {
@@ -44,6 +45,7 @@ const {
     upsertChallenge: vi.fn(),
     deleteChallenge: vi.fn(),
     importBundle: vi.fn(),
+    renameCategory: vi.fn(),
     writeAdminAudit: vi.fn(),
     ClassicValidationError,
   };
@@ -58,6 +60,7 @@ vi.mock("@/lib/classic-store", () => ({
   upsertChallenge,
   deleteChallenge,
   importBundle,
+  renameCategory,
   ClassicValidationError,
 }));
 // `adminErrorLabel` is the real (name+message, capped) implementation, not a
@@ -73,7 +76,15 @@ vi.mock("@/lib/admin-store", () => ({
 // import route is that it re-validates the raw text server-side with the
 // REAL parser, so a test that mocked parseBundle away could not tell a route
 // that actually re-validates from one that just trusts the client.
-import { GET, POST, DELETE, CHALLENGE_KEYS, CATEGORIES_KEYS, IMPORT_KEYS } from "@/app/api/admin/classic/route";
+import {
+  GET,
+  POST,
+  DELETE,
+  CHALLENGE_KEYS,
+  CATEGORIES_KEYS,
+  IMPORT_KEYS,
+  RENAME_CATEGORY_KEYS,
+} from "@/app/api/admin/classic/route";
 
 const adminReq = (method: "GET" | "POST" | "DELETE", body?: unknown) =>
   new Request("http://x/api/admin/classic", {
@@ -114,6 +125,7 @@ beforeEach(() => {
   upsertChallenge.mockReset();
   deleteChallenge.mockReset();
   importBundle.mockReset();
+  renameCategory.mockReset();
   writeAdminAudit.mockReset();
   allowAdmin();
   listChallengesForAdmin.mockResolvedValue([ADMIN_ROW]);
@@ -197,16 +209,21 @@ describe("GET /api/admin/classic", () => {
 // EVERY PAIR of the route's shapes' allowed key sets is disjoint — not just
 // one hand-picked pair. This test derives all three sets from the actual
 // exported constants the route's parsers use (`CHALLENGE_KEYS` /
-// `CATEGORIES_KEYS` / `IMPORT_KEYS`) and checks every pair among them, so a
-// FOURTH shape added later is covered by adding one line to the `sets` list
-// below, rather than a second bespoke assertion — a hardcoded pairwise copy
-// would silently miss it.
+// `CATEGORIES_KEYS` / `IMPORT_KEYS` / `RENAME_CATEGORY_KEYS`) and checks every
+// pair among them, so a shape added later is covered by adding one line to the
+// `sets` list below, rather than a second bespoke assertion — a hardcoded
+// pairwise copy would silently miss it. The fourth shape arrived with #304 and
+// did exactly that.
 describe("POST /api/admin/classic — dispatch key sets", () => {
   it("keeps every payload key set pairwise disjoint", () => {
     const sets = [
       ["CHALLENGE_KEYS", CHALLENGE_KEYS],
       ["CATEGORIES_KEYS", CATEGORIES_KEYS],
       ["IMPORT_KEYS", IMPORT_KEYS],
+      // The fourth shape (#304). This is the "one line" the note above
+      // promised; RENAME_FIELD_KEYS is deliberately absent because it names
+      // the INNER object's keys, which never take part in outer dispatch.
+      ["RENAME_CATEGORY_KEYS", RENAME_CATEGORY_KEYS],
     ] as const;
     for (const [aName, a] of sets) {
       for (const [bName, b] of sets) {
@@ -460,5 +477,57 @@ describe("DELETE /api/admin/classic", () => {
     deleteChallenge.mockRejectedValue(new Error("Upstash HDEL failed: timeout"));
     const res = await DELETE(adminReq("DELETE", { id: "c-1" }));
     expect(res.status).toBe(503);
+  });
+});
+
+// #304: renaming a category is its own POST shape, because the `categories`
+// array cannot express one — a renamed entry is indistinguishable from "one
+// removed, one added", which is exactly how the challenges lost their
+// association with it.
+describe("POST /api/admin/classic — rename a category", () => {
+  it("dispatches the rename shape to the store and reports what moved", async () => {
+    renameCategory.mockResolvedValue({ categories: ["Web", "Crypto"], moved: 3 });
+    const res = await POST(adminReq("POST", { renameCategory: { from: "Webb", to: "Web" } }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ categories: ["Web", "Crypto"], moved: 3 });
+    expect(renameCategory).toHaveBeenCalledWith("Webb", "Web");
+    // The rename must never be mistaken for a whole-list replace.
+    expect(setCategories).not.toHaveBeenCalled();
+    expect(upsertChallenge).not.toHaveBeenCalled();
+  });
+
+  it("audits the rename with both names and the count carried across", async () => {
+    renameCategory.mockResolvedValue({ categories: ["Web"], moved: 2 });
+    await POST(adminReq("POST", { renameCategory: { from: "Webb", to: "Web" } }));
+    expect(writeAdminAudit).toHaveBeenCalledWith("alice", "classic-category-rename", {
+      from: "Webb",
+      to: "Web",
+      moved: 2,
+    });
+  });
+
+  it("400s a rename body carrying anything extra, inside or out", async () => {
+    // The nested object is key-checked too: a body smuggling a field past the
+    // outer check must not be partly honoured.
+    for (const body of [
+      { renameCategory: { from: "a", to: "b" }, categories: ["x"] },
+      { renameCategory: { from: "a", to: "b", extra: 1 } },
+      { renameCategory: { from: "a" } },
+      { renameCategory: { from: 1, to: "b" } },
+      { renameCategory: "Web" },
+    ]) {
+      const res = await POST(adminReq("POST", body));
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(renameCategory).not.toHaveBeenCalled();
+  });
+
+  it("passes a store refusal through as a 400, not a 503", async () => {
+    // A collision is the organizer's to fix, so it must not read as the store
+    // being down.
+    renameCategory.mockRejectedValue(new ClassicValidationError("categories", '"Web" already exists.'));
+    const res = await POST(adminReq("POST", { renameCategory: { from: "Crypto", to: "Web" } }));
+    expect(res.status).toBe(400);
   });
 });

@@ -7,6 +7,7 @@ import {
   listAiCategories,
   listAiChallengesForAdmin,
   rotateAiSigningKey,
+  renameAiCategory,
   setAiCategories,
   upsertAiChallenge,
   type AdminAiChallenge,
@@ -71,6 +72,11 @@ export const CHALLENGE_KEYS = new Set([
 ]);
 export const CATEGORIES_KEYS = new Set(["categories"]);
 export const ROTATE_KEYS = new Set(["rotate"]);
+/** The rename shape's outer and inner key sets (#304) — see the classic
+ *  route's parser comment for why a rename cannot ride the `categories`
+ *  array. */
+export const RENAME_CATEGORY_KEYS = new Set(["renameCategory"]);
+export const RENAME_FIELD_KEYS = new Set(["from", "to"]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -126,6 +132,17 @@ function parseChallengePayload(body: unknown): ChallengePayload | null {
  *  requiring the key to actually be present and well-typed) rather than
  *  merely "has a categories key" — that is what keeps this shape and the
  *  other two mutually exclusive without a discriminator field. */
+/** The rename shape (#304): exactly `renameCategory`, itself exactly
+ *  `{from, to}`. The nested object is key-checked too, so a body smuggling an
+ *  extra field falls through to the 400 rather than being partly honoured. */
+function parseRenameCategoryPayload(body: unknown): { from: string; to: string } | null {
+  if (!isPlainObject(body) || !hasOnlyKeys(body, RENAME_CATEGORY_KEYS)) return null;
+  const rename = body.renameCategory;
+  if (!isPlainObject(rename) || !hasOnlyKeys(rename, RENAME_FIELD_KEYS)) return null;
+  if (typeof rename.from !== "string" || typeof rename.to !== "string") return null;
+  return { from: rename.from, to: rename.to };
+}
+
 function parseCategoriesPayload(body: unknown): string[] | null {
   if (!isPlainObject(body) || !hasOnlyKeys(body, CATEGORIES_KEYS)) return null;
   if (!Array.isArray(body.categories)) return null;
@@ -195,6 +212,22 @@ export async function POST(request: Request) {
     }
     await writeAdminAudit(gate.login, "ai-categories", { count: categories.length });
     return NextResponse.json({ categories });
+  }
+
+  const renamePayload = parseRenameCategoryPayload(body);
+  if (renamePayload) {
+    let result;
+    try {
+      result = await renameAiCategory(renamePayload.from, renamePayload.to);
+    } catch (err) {
+      return errorResponse(err);
+    }
+    await writeAdminAudit(gate.login, "ai-category-rename", {
+      from: renamePayload.from,
+      to: renamePayload.to,
+      moved: result.moved,
+    });
+    return NextResponse.json(result);
   }
 
   const rotateId = parseRotatePayload(body);

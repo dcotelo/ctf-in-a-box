@@ -11,6 +11,8 @@ import {
   categoriesRequestBody,
   moveInList,
   removeCategoryDecision,
+  renameCategoryDecision,
+  renameCategoryRequestBody,
 } from "@/components/admin/use-category-editor";
 
 const noop = () => {};
@@ -131,5 +133,90 @@ describe("CategoryEditor", () => {
     expect(render({ error: '"Web" is already a category.' })).toContain(
       '<p class="text-sm text-[#e53e3e]">&quot;Web&quot; is already a category.</p>',
     );
+  });
+});
+
+// #304. A category could be added and removed but never renamed, and
+// `removeCategory` refuses while any challenge uses it — so a typo in a
+// category ten challenges carried meant editing all ten.
+describe("renameCategoryRequestBody", () => {
+  it("carries its own shape, never the categories array", () => {
+    // The array shape cannot express a rename: a renamed entry is
+    // indistinguishable from one removed plus one added, which is exactly how
+    // the challenges lose their association with it.
+    const body = renameCategoryRequestBody("Webb", "Web");
+    expect(Object.keys(body)).toEqual(["renameCategory"]);
+    expect(body.renameCategory).toEqual({ from: "Webb", to: "Web" });
+    expect(body).not.toHaveProperty("categories");
+  });
+});
+
+describe("renameCategoryDecision", () => {
+  it("renames to a genuinely new name", () => {
+    expect(renameCategoryDecision("Webb", " Web ", ["Webb", "Crypto"])).toEqual({
+      kind: "rename",
+      from: "Webb",
+      to: "Web",
+    });
+  });
+
+  it("is a no-op for a blank name or an unchanged one", () => {
+    expect(renameCategoryDecision("Web", "   ", ["Web"])).toEqual({ kind: "noop" });
+    expect(renameCategoryDecision("Web", "Web", ["Web"])).toEqual({ kind: "noop" });
+  });
+
+  it("refuses a name another category already holds, case-insensitively", () => {
+    const decision = renameCategoryDecision("Crypto", "web", ["Web", "Crypto"]);
+    expect(decision.kind).toBe("duplicate");
+    expect(decision).toHaveProperty("message", expect.stringContaining("already a category"));
+  });
+
+  it("allows a change of spelling on the entry being renamed", () => {
+    // "web" -> "Web" clashes only with itself, which is the whole point.
+    expect(renameCategoryDecision("web", "Web", ["web", "Crypto"])).toEqual({
+      kind: "rename",
+      from: "web",
+      to: "Web",
+    });
+  });
+});
+
+describe("CategoryEditor — the rename affordance", () => {
+  const props = {
+    categories: ["Web", "Crypto"],
+    input: "",
+    error: null,
+    pending: false,
+    onInput: noop,
+    onAdd: noop,
+    onRemove: noop,
+    onMove: noop,
+  };
+
+  it("offers a named Rename control on every chip", () => {
+    const html = renderToStaticMarkup(<CategoryEditor {...props} />);
+    expect(html).toContain('aria-label="Rename &quot;Web&quot;"');
+    expect(html).toContain('aria-label="Rename &quot;Crypto&quot;"');
+  });
+
+  it("turns the chip being renamed into a labelled input, and only that chip", () => {
+    const html = renderToStaticMarkup(<CategoryEditor {...props} renaming="Web" renameInput="Webb" />);
+    expect(html).toMatch(/<input[^>]*value="Webb"/);
+    expect(html).toContain(">Save<");
+    expect(html).toContain(">Cancel<");
+    // The other chip is untouched — still a plain chip with its controls.
+    expect(html).toContain('aria-label="Rename &quot;Crypto&quot;"');
+    // And the renamed one no longer offers a rename BUTTON. Asserted on the
+    // pencil control rather than on the label: the edit input carries the same
+    // `aria-label` by design, so a bare "does not contain Rename Web" check
+    // passes on markup that is correct and fails on markup that is too — it
+    // proves nothing either way.
+    expect(html.match(/✎/g) ?? []).toHaveLength(1);
+    expect(html).not.toMatch(/Web<\/span>/);
+  });
+
+  it("says that renaming carries the challenges across", () => {
+    // The one thing an organizer cannot see for themselves before clicking.
+    expect(renderToStaticMarkup(<CategoryEditor {...props} />)).toContain("carries its challenges across");
   });
 });
