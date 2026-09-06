@@ -59,6 +59,9 @@ vi.mock("@/lib/modules", () => ({
     })[id],
   MODULE_TITLE_MAX: 60,
   MODULE_BLURB_MAX: 200,
+  // The ai panel's "Wiring the external site" drawer links the integrator
+  // contract with this; a mock missing it fails the whole panel at import.
+  DOCS_URL: "https://docs.example/",
 }));
 
 import AdminControls from "@/app/(site)/admin/admin-controls";

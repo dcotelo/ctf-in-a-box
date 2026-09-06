@@ -1222,6 +1222,49 @@ ways.
 point value, and a 💡 marker where a paid hint is on offer, the same board
 component classic's flag list uses.</sup>
 
+### What the external site has to be configured to do
+
+The box hosts none of the challenge itself. Somebody stands up a site, and
+that site has to do four things — the admin panel's **Wiring the external
+site** drawer says the same next to the values you paste, and
+[docs/ai-module.md](ai-module.md) is the full contract:
+
+1. **Accept the launch token.** A challenge's launch URL must contain the
+   literal `{token}` placeholder; the box substitutes a freshly minted token
+   there and sends the contestant to the result. No cookie crosses the
+   boundary — that token is the whole identity.
+2. **Verify it against the published public key.** `GET /api/ai/launch-key`,
+   verify with **hard-coded** Ed25519, and pin `aud` to the challenge id you
+   expect. Never let the token's own `alg` or `kid` choose the algorithm or
+   the key. Cache the key for about five minutes (it is served
+   `Cache-Control: public, max-age=300`), but **re-fetch on any verification
+   failure and after an event reset** — a master reset rotates the keypair,
+   and a site caching the old key indefinitely rejects every launch token
+   issued afterwards.
+3. **Report the solve, signed.** For an `event` or `both` challenge, POST
+   `/api/ai/event` with `X-CTF-Signature: sha256=<hex>` over the exact bytes
+   `"<unix-timestamp>.<raw request body>"`, using **that challenge's own**
+   signing key, plus a matching `X-CTF-Timestamp` within ±300 seconds of the
+   box's clock. Re-serializing the body before signing is the most expensive
+   mistake available here — it fails exactly like a wrong key would.
+4. **Expect one award per token.** The token's `jti` is a one-shot nonce; a
+   replay answers `409`, not a second award.
+
+<img src="assets/diagrams/ai-launch-token-flow.svg" alt="Animated diagram: the box mints an Ed25519 launch token scoped to one player and one challenge, with a 24-hour expiry and a jti that doubles as a one-shot replay nonce, and substitutes it into the challenge's launch URL wherever the operator wrote the {token} placeholder. The contestant opens that link on the external site, which fetches the module-wide public key from /api/ai/launch-key and caches it for about five minutes — re-fetching on any verification failure and after an event reset, since a master reset rotates the keypair — then verifies the token with hard-coded Ed25519 — never trusting the token's own alg or kid — pinning aud to the challenge it expects. The contestant plays, and the site re-reads GET /api/ai/state rather than trusting the token's mint-time progress snapshot. On a solve the site POSTs /api/ai/event with the token and challenge id, signed with that challenge's own secret HMAC key over the exact string timestamp-dot-raw-body, with a matching X-CTF-Timestamp inside 300 seconds of the box's clock. The box checks the signature, then the token, then claims the jti exactly once — a replay gets 409 — and the shared atomic award script banks the points. The launch key is public, one per event, and fetched; the signing key is secret, one per challenge, and pasted in from the admin panel.">
+
+<sup>The two keys are not interchangeable, and conflating them is the usual
+wiring failure. The <strong>launch key</strong> is public, one per event, and
+you fetch it to <em>verify</em>. The <strong>signing key</strong> is secret,
+one per challenge, and you paste it in to <em>sign</em>. A leaked launch key
+costs nothing — it is public by design; a leaked signing key lets anyone
+assert solves for that one challenge, so rotate it.</sup>
+
+**Nothing is live until you have proved it.** The panel's **Send test**
+signs a demo event with the challenge's real key and runs the whole pipeline
+with `dryRun: true` — writing no solve and claiming no nonce — then relays
+the box's own verdict. **Would award** is the answer you want; every other
+verdict is read in the Send test list further down this section.
+
 **Authoring** happens in `/admin`, under the AI module's tab. Before adding
 a challenge you need at least one **category** — same chip row as classic's
 (add, move left or right, remove only while no challenge still files under

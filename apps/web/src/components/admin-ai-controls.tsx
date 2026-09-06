@@ -95,6 +95,7 @@ import { useAdminResource } from "@/components/admin/use-admin-resource";
 import { sendJson } from "@/components/admin/fetch";
 import SortableList from "@/components/admin/sortable-list";
 import AdminAiIntegration, { AiEndpointsBlock, useBrowserOrigin } from "@/components/admin-ai-integration";
+import AiExternalSetup from "@/components/admin-ai-external-setup";
 import type { ModuleInventory } from "@/components/admin-module-setup";
 import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
 import AdminSettingsCard, { type ModuleSettingsSlot } from "@/components/admin/settings-card";
@@ -307,6 +308,10 @@ export default function AdminAiControls({
         {/* Once, for the whole board (UX audit F5) — every row used to
             repeat these three URLs. */}
         <AiEndpointsBlock origin={origin} />
+
+        {/* …and what the far end does with them. Collapsed: it is read once,
+            while the external site is being wired up, and never again. */}
+        <AiExternalSetup origin={origin} />
 
         {listError && (
           <p className="text-sm text-[#e53e3e]">
