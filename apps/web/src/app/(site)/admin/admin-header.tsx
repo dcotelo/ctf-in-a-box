@@ -10,7 +10,7 @@
 // read (the same "Redis unreachable" case `page.tsx` already degrades for);
 // the header still names the event, just with no phase to report.
 
-import { PHASE_COLOR, phaseBoundaryLabel, type PhaseResolution } from "@/components/phase-line";
+import { PHASE_COLOR, phaseBoundaryLabel, type PhaseResolution } from "@/components/phase";
 
 export default function AdminHeader({
   eventName,

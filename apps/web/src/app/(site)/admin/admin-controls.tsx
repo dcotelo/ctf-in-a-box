@@ -47,7 +47,9 @@ import { describeFieldError, parseNumberCommit, type FieldStatus } from "@/compo
 import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAiControls from "@/components/admin-ai-controls";
+import type { SyncStatus } from "@/lib/admin-store";
 import AdminSidebar, { type SidebarGroup } from "./admin-sidebar";
+import AdminOverviewTab from "./admin-overview-tab";
 import AdminAdminsTab from "./admin-admins-tab";
 import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
@@ -160,6 +162,7 @@ export default function AdminControls({
   setups,
   initialTab,
   viewerLogin,
+  sync = null,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -174,14 +177,20 @@ export default function AdminControls({
   setups?: Partial<Record<string, ModuleSetupContent>>;
   /** Which tab to open on arrival, from `/admin?tab=<module id>`. Anything
    *  this shell doesn't recognise — a typo, or a module this event didn't
-   *  enable — falls back to Event rather than opening nothing. Resolved on
-   *  the server (see page.tsx) so the first render already has the right
+   *  enable — falls back to Overview rather than opening nothing. Resolved
+   *  on the server (see page.tsx) so the first render already has the right
    *  panel open; the organizer never sees it flip. */
   initialTab?: string;
   /** The signed-in organizer's GitHub login, from the same `requireAdmin`
    *  gate that rendered this page. The Admins tab uses it to warn before
    *  someone revokes their own access. */
   viewerLogin: string;
+  /** The poller's own heartbeat — page.tsx already fetches this for the old
+   *  Status card; Overview folds it into its "Sync" line instead. `null`
+   *  when no poller has ever reported in (poll mode not configured, or push
+   *  mode, which has no poller at all) — the default for callers (most
+   *  tests) that don't care about it. */
+  sync?: SyncStatus | null;
 }) {
   const [settings, setSettings] = useState(initial);
   // The "now" the Event tab's schedule readout is evaluated at (epoch ms).
@@ -488,7 +497,18 @@ export default function AdminControls({
           {tabs.map((tab) => (
             <div key={tab.id} role="tabpanel" id={`panel-${tab.id}`} aria-label={tab.label} hidden={active !== tab.id}>
               {tab.id === OVERVIEW_TAB ? (
-                <p className="text-sm text-muted">Overview is coming together — full content lands in the next PR increment.</p>
+                <AdminOverviewTab
+                  settings={settings}
+                  pending={pending}
+                  apply={apply}
+                  setConfirm={setConfirm}
+                  nowMs={settingsAt}
+                  sync={sync}
+                  modules={modules}
+                  setups={setups}
+                  inventory={inventory}
+                  onNavigate={setActive}
+                />
               ) : tab.id === EVENT_TAB ? (
                 <AdminEventTab
                   settings={settings}

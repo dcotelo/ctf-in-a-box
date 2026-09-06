@@ -7,7 +7,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import PageHeader from "@/components/page-header";
-import { phaseFromSettings } from "@/components/phase-line";
+import { phaseFromSettings } from "@/components/phase";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { enabledApps, joinAppNames } from "@/lib/apps";
@@ -161,6 +161,7 @@ export default async function AdminPage({
           setups={setups}
           initialTab={tabParam(params)}
           viewerLogin={gate.login}
+          sync={sync}
         />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
