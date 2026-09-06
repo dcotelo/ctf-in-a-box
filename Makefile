@@ -38,7 +38,7 @@ test-sync:
 	cd sync && npm ci && npm test
 
 test-scorer:
-	(cd scorer && npm ci && npm test) ; (cd scorer && node tools/vacuous-sweep.mjs) ; ./scripts/acceptance-scorer.sh
+	(cd scorer && npm ci && npm test) && (cd scorer && node tools/vacuous-sweep.mjs) && ./scripts/acceptance-scorer.sh
 
 lint-app:
 	cd apps/web && corepack enable && corepack pnpm install --frozen-lockfile && corepack pnpm lint
