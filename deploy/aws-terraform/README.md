@@ -1,73 +1,155 @@
-# Single-shot AWS deploy (Terraform)
+# AWS deploy: ECS Fargate + ElastiCache + ALB (Terraform)
 
-Stand the CTF-in-a-box control plane up on **one x86_64 EC2 instance** for the
+Stand the CTF-in-a-box control plane up as a **managed AWS stack** for the
 duration of an event, then tear it down. `terraform apply` up, `terraform
-destroy` down. This is the runtime box only — see the prerequisites.
+destroy` down.
 
-The box runs the compose stack in **poll mode**, so it needs no inbound network
-for scoring (the `sync` service polls GitHub outbound). Inbound `443`/`80` only
-serve the public leaderboard and GitHub sign-in.
+**This replaced a single EC2 instance running docker-compose.** If you deployed
+an earlier version of this module, read
+[Migrating from the EC2 box](#migrating-from-the-ec2-box) before upgrading — it
+is a breaking change, not an in-place one.
 
 Full walkthrough: [`docs/aws.md`](../../docs/aws.md).
 
-## Prerequisites (done once, OFF the box)
+## What it builds
+
+```
+                  internet
+                     │  443
+              ┌──────▼──────┐
+              │  ALB + ACM  │  TLS terminates here
+              └──────┬──────┘
+                     │  3000
+        ┌────────────▼────────────┐
+        │  app  (Fargate, N=2)    │────┐
+        └─────────────────────────┘    │
+        ┌─────────────────────────┐    │ 80
+        │  scorer / sync          │────┤   (Upstash REST only)
+        │  (secure-development)   │    │
+        └─────────────────────────┘    │
+                            ┌──────────▼──────────┐
+                            │  srh (Fargate)      │  the Upstash-REST shim
+                            └──────────┬──────────┘
+                                       │ 6379, rediss:// + AUTH
+                            ┌──────────▼──────────┐
+                            │  ElastiCache Redis  │  private subnets
+                            └─────────────────────┘
+```
+
+`srh` stays. The app, scorer and sync speak **only** the Upstash REST API and
+never raw Redis, so ElastiCache changed exactly one thing: what `srh` connects
+*to*. Everything upstream of it is the same code as the compose stack.
+
+**The isolation is in the security groups, not the subnets** — ADR 41's rule,
+carried over intact:
+
+| from | to | port |
+|---|---|---|
+| `web_ingress_cidrs` | ALB | 443 (80 redirects) |
+| ALB | app | 3000 |
+| app, scorer, sync | srh | 80 |
+| srh | ElastiCache | 6379 |
+
+The app security group has **no route to ElastiCache**. The bearer token is not
+the only thing standing between a compromised app container and the raw
+keyspace; the network is.
+
+Tasks run in **public subnets with a public IP and no permitted inbound**,
+because they need egress (pull images, read secrets, and for `sync`, reach
+GitHub) and the alternatives cost real money: a NAT gateway is roughly the price
+of the entire EC2 instance this module replaces, per AZ, before a byte moves.
+`network.tf` argues this at length. ElastiCache is the exception and stays
+private — it needs no egress at all.
+
+## What it costs
+
+The honest headline: **this is several times the price of the EC2 box it
+replaces.** Rough `us-east-1` on-demand, per month, at the defaults:
+
+| | ~USD/mo |
+|---|---|
+| ALB | 16 + LCUs |
+| app tasks (2 × 1 vCPU / 2 GB) | 72 |
+| srh task | 9 |
+| ElastiCache `cache.t4g.micro` × 2 (primary + replica) | 24 |
+| CloudWatch Logs, ECR storage | a few |
+| **total** | **~125–140** |
+| *the EC2 box this replaced (t3.medium + EBS)* | *~35* |
+
+Order-of-magnitude only — check the AWS calculator for your region, and note
+these are *monthly* figures for a stack you are expected to `destroy` after a
+weekend event, where the real bill is hours, not months.
+
+Turn the dials if that is too much: `app_desired_count = 1` (loses zero-downtime
+deploys), `cache_replica_count = 0` (loses automatic failover, single-AZ). What
+the money buys is managed durability, no instance to patch, and a load balancer
+that can replace a task without dropping the event.
+
+## Prerequisites (done once, off the stack)
 
 1. **Provision the GitHub org** from your laptop: `./setup/ctf-setup.sh org`
-   (needs your `gh` auth). The AWS box does not provision the org.
-2. **Create the two GitHub apps** with the OAuth callback at your final domain:
+   (needs your `gh` auth). AWS does not provision the org.
+2. **Create the GitHub OAuth app** with the callback at your final domain,
    `https://<domain>/api/auth/callback/github` — so pick the domain first.
-   Use `./setup/ctf-setup.sh app-manifest`/`app-config` (GitHub App) and
-   `oauth-app`/`oauth-config` (OAuth app) locally to get the values.
-3. **Put the SECRETS in SSM Parameter Store** as `SecureString`s under
-   `var.ssm_prefix` — so they never enter Terraform state. Example:
+3. **Put the secrets in SSM Parameter Store** as `SecureString`s under
+   `var.ssm_prefix`. The task execution role may read `<prefix>/*` and nothing
+   else; task definitions reference them by `valueFrom`, so no secret is ever a
+   plaintext env var in a definition:
 
    ```sh
    P=/ctf-in-a-box
-   aws ssm put-parameter --type SecureString --name $P/BETTER_AUTH_SECRET     --value "$(openssl rand -base64 32)"
-   aws ssm put-parameter --type SecureString --name $P/SRH_TOKEN              --value "$(openssl rand -hex 24)"
-   aws ssm put-parameter --type SecureString --name $P/SCORER_TOKEN           --value "$(openssl rand -hex 24)"
-   aws ssm put-parameter --type SecureString --name $P/REDIS_PASSWORD         --value "$(openssl rand -hex 24)"
-   aws ssm put-parameter --type SecureString --name $P/GITHUB_CLIENT_ID       --value "Ov23li..."
-   aws ssm put-parameter --type SecureString --name $P/GITHUB_CLIENT_SECRET   --value "..."
-   aws ssm put-parameter --type SecureString --name $P/GITHUB_APP_ID          --value "123456"
-   aws ssm put-parameter --type SecureString --name $P/GITHUB_APP_PRIVATE_KEY --value "$(base64 < app.private-key.pem | tr -d '\n')"
-   # optional: aws ssm put-parameter --type SecureString --name $P/GITHUB_APP_INSTALLATION_ID --value "..."
+   aws ssm put-parameter --type SecureString --name $P/BETTER_AUTH_SECRET   --value "$(openssl rand -base64 32)"
+   aws ssm put-parameter --type SecureString --name $P/SRH_TOKEN            --value "$(openssl rand -hex 24)"
+   aws ssm put-parameter --type SecureString --name $P/GITHUB_CLIENT_SECRET --value "..."
+   aws ssm put-parameter --type SecureString --name $P/GITHUB_TOKEN         --value "..."   # secure-development only
    ```
+
+   `REDIS_AUTH_TOKEN` is **not** in that list: Terraform generates it and writes
+   it to `<prefix>/REDIS_AUTH_TOKEN` itself, so operators and tasks read it from
+   one place.
 
 ## Deploy
 
+ECR does not exist until the first apply, so the image cannot be named on the
+first pass. Three steps, once:
+
 ```sh
 cd deploy/aws-terraform
-cp terraform.tfvars.example terraform.tfvars   # then edit
+cp terraform.tfvars.example terraform.tfvars    # then edit: domain, event_yaml_b64
 terraform init
-terraform apply
+terraform apply -target=aws_ecr_repository.main # just the registry
+./deploy.sh                                     # build with event.yaml baked in, push
+terraform apply                                 # the rest of the stack
 ```
 
-Then, per the `next_steps` output: point DNS at the EIP (unless you set
-`route53_zone_id`), confirm the OAuth callback matches the domain, and watch
-`/var/log/ctf-bringup.log` via SSM Session Manager.
+Afterwards a redeploy is one command:
+
+```sh
+./deploy.sh --apply
+```
+
+`deploy.sh` owns the **build-time config bake**. The app image bakes
+`event.yaml` via `EVENT_CONFIG_B64`; an image built without it ships an empty
+`admins` list, so `/admin` 403s for everyone and generic branding appears — the
+most expensive mistake this kit has. Terraform cannot build an image, which is
+why this is a script and not an `apply`.
+
+The tag is content-addressed — `<revision>-<config-hash>` — and the ECR
+repository is `IMMUTABLE`. Same code plus same config gives the same tag, so a
+re-run reports "already there" and skips the build rather than failing. Change
+either half and the tag changes with it. `deploy.sh --dry-run` prints every
+command and runs none of them.
 
 ## Variables
 
-Every input in `variables.tf`. Only `event_yaml_b64` has no default and must
-be set; the rest are tuned in `terraform.tfvars`.
+Every input is in `variables.tf` with its own description;
+`terraform.tfvars.example` shows each at its default. Only three have none:
 
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `region` | `string` | `"us-east-1"` | AWS region to deploy the event box into |
-| `instance_type` | `string` | `"t3.medium"` | EC2 instance type. **Must be x86_64 (amd64)** — the scorer image is amd64, and ARM/Graviton would need image rebuilds |
-| `key_name` | `string` | `""` | Name of an existing EC2 key pair for SSH. Leave empty for no SSH key (use SSM Session Manager instead) |
-| `name` | `string` | `"ctf-in-a-box"` | Name prefix for the created resources (instance, SG, role) |
-| `repo_url` | `string` | `"https://github.com/dcotelo/ctf-in-a-box.git"` | Git URL of the kit to clone on the box |
-| `git_ref` | `string` | `"v0.1.0"` | Git ref (tag/branch/sha) to check out. Pin a release tag for a real event |
-| `domain` | `string` | `""` | Public DNS name the box answers on, e.g. `ctf.example.org`. Required for HTTPS (Caddy auto-provisions TLS; the session cookie is only Secure over HTTPS). Empty runs HTTP-on-EIP for **local testing only** |
-| `route53_zone_id` | `string` | `""` | Optional Route53 hosted-zone ID. Set together with `domain` to create the A record for `domain` -> the box's EIP. Empty means you manage DNS yourself |
-| `tags` | `map(string)` | `{}` | Extra tags applied (via the provider's `default_tags`) to every resource, on top of the built-in Project/ManagedBy/Event tags — a cost center, owner, or expiry |
-| `web_ingress_cidrs` | `list(string)` | `["0.0.0.0/0"]` | CIDRs allowed to reach the leaderboard/app on 80/443. Default is the whole internet (public leaderboard); narrow it for an organizer-only board |
-| `ssh_ingress_cidrs` | `list(string)` | `[]` | CIDRs allowed to reach SSH (22). Default is **none** — prefer SSM Session Manager. Set your own IP/32 if you need SSH |
-| `event_yaml_b64` | `string` | — (required) | base64 of your `event.yaml` (NOT a secret — org name, targets, admins, public OAuth client id). Produce with `base64 < event.yaml \| tr -d '\n'` |
-| `ssm_prefix` | `string` | `"/ctf-in-a-box"` | SSM Parameter Store path prefix holding the event **secrets** as SecureStrings, created out of band (see Prerequisites) so they never enter Terraform state. Expected under it: `BETTER_AUTH_SECRET`, `SRH_TOKEN`, `SCORER_TOKEN`, `REDIS_PASSWORD`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (optionally `GITHUB_APP_INSTALLATION_ID`) |
-| `root_volume_gb` | `number` | `30` | Root EBS volume size (GiB). The app + scorer image builds and Docker layers need headroom |
+| Variable | Why it is required |
+|---|---|
+| `domain` | The session cookie is `Secure`. There is no working HTTP mode. |
+| `event_yaml_b64` | Not read by Terraform — required so the module refuses to describe a stack whose image was built without a config. |
+| `app_image` | What ECS runs. `deploy.sh` writes it into `image.auto.tfvars`; the example carries a placeholder for the bootstrap apply. |
 
 ## Tear down
 
@@ -75,32 +157,75 @@ be set; the rest are tuned in `terraform.tfvars`.
 terraform destroy
 ```
 
-## Notes / gotchas
+The ECR repository is `force_delete` — a registry that refused to go because it
+still held images would leave the teardown half-done, and the whole point of
+this module is that `destroy` ends the event.
 
-- **x86_64 only.** The scorer image is amd64; ARM/Graviton would need rebuilds.
-  The scorer is built **on the box**, so no GHCR credentials are needed.
-- **Terraform state holds no secrets** by design — they live in SSM and are
-  fetched by the instance role at boot. Do **not** move them into `.tfvars`
-  (that would put them in state). Still use an encrypted remote backend for a
-  real event.
-- **HTTPS is required for a real event.** Set `domain`; Caddy provisions TLS and
-  the session cookie is only `Secure` over HTTPS. An empty `domain` runs HTTP on
-  the EIP — local testing only.
+## Notes and gotchas
+
+- **Terraform state now contains a secret.** The EC2 module could honestly say
+  it did not; this one generates the ElastiCache AUTH token, and a generated
+  password is in state by construction. Use an encrypted remote backend with
+  restricted access for anything real.
+- **Durability is snapshots, not AOF.** The EC2 box ran Redis with AOF on an
+  EBS volume; ElastiCache gives daily snapshots
+  (`cache_snapshot_retention_days`, default 5) plus in-memory replication. A
+  restore is therefore **coarser-grained** than the old fsync-per-write story:
+  you lose up to a day, not up to a second. For event content — questions,
+  challenges, flags — use the app's own archive export (Admin → Event → Event
+  archive), which is finer-grained, portable, and the backup that actually
+  matters for re-running an event.
+- **srh does not trust the OS certificate store.** It verifies TLS against
+  **CAStore**, an Elixir library whose Mozilla bundle is embedded in the srh
+  release, not `/etc/ssl/certs`. Two consequences: ElastiCache verifies fine
+  (that bundle carries Amazon Root CA 1–4), and mounting your own CA into the
+  container does nothing. If a handshake to the cache ever fails with
+  `Unknown CA`, the fix is a newer `srh_image`, not an OS trust store change —
+  the trust anchors are frozen at the digest you pinned.
+- **`srh_image` is digest-pinned and the module refuses a floating tag.** That
+  container sits between the app and every byte of event data; `:latest` there
+  is a supply-chain decision, so it has to be made deliberately.
+- **State is reconstructible in poll mode.** `sync` re-reads scores from the
+  GitHub PR comments, so a replaced task repopulates the leaderboard. The
+  poller's cursor lives in Redis, not on disk, so Fargate's ephemeral storage
+  costs nothing here — at worst a restarted task re-polls.
+- **DNS in another account?** Leave `route53_zone_id` empty, set
+  `acm_certificate_arn` to a certificate in this region, and point your own
+  record at the `alb_dns_name` output. Terraform manages the record only when
+  the zone is in the same account.
 - **Everything is tagged** via the provider's `default_tags`
-  (`Project=ctf-in-a-box`, `ManagedBy=terraform`, `Event=<name>`) so the whole
-  event is easy to filter and clean up. Add your own (owner, cost center,
-  expiry) with `var.tags`.
-- **DNS in another account?** Leave `route53_zone_id` empty and create the A
-  record yourself, in whatever account holds the zone, pointing at the
-  `public_ip` output. Terraform only manages the record when the zone is in the
-  same account (`route53_zone_id` set) — it does not reach across accounts.
-- **Shell without SSH:** `aws ssm start-session --target <instance_id>` (the
-  instance has the SSM core policy). Set `ssh_ingress_cidrs` only if you must.
-- **State is reconstructible:** poll mode re-reads scores from the GitHub PR
-  comments, so a replaced box repopulates its leaderboard from GitHub.
-- **CI-validated:** `.github/workflows/terraform.yml` runs `fmt -check`,
-  `validate` and `test` on any change here (never `apply`). `userdata.tftest.hcl`
-  renders `user-data.sh.tftpl` at plan time and asserts on the result —
-  `validate` alone never inspects rendered template output, which is how a
-  fundamentally broken bring-up script survived in this module unnoticed.
+  (`Project`/`ManagedBy`/`Event`), so one filter finds the whole event. Add
+  owner/cost-centre/expiry with `var.tags`.
+- **CI-validated, never applied.** `.github/workflows/terraform.yml` runs
+  `fmt -check`, `validate` and `test`; `stack.tftest.hcl` renders the container
+  definitions at plan time with `mock_provider` and asserts on them, because
+  `validate` never inspects rendered output — which is how a fundamentally
+  broken bring-up script survived in the EC2 version of this module unnoticed.
+  `test/aws.bats` covers `deploy.sh`, the part Terraform cannot see. No AWS
+  credentials, no network and no apply, in either.
 
+## Migrating from the EC2 box
+
+Breaking. The old module produced one EC2 instance with an Elastic IP and a
+Redis AOF volume; this one produces an ECS stack behind an ALB. There is no
+in-place upgrade path — an `apply` over the old state would destroy the instance
+and build the new stack around a database that never existed.
+
+Do it as a move, not an upgrade:
+
+1. **Export the event** from the running box: Admin → Event → *Event archive →
+   Export*. That file carries the authored content — quiz questions and their
+   answer key, classic and AI challenges with flags, hints, categories — which
+   is what you cannot recreate.
+2. **Note what the archive does not carry**: contestant progress and teams. If
+   the event is mid-flight, finish it on the old box. This migration is for
+   between events.
+3. **Stand the new stack up** in a fresh state file, following Deploy above.
+   Keep the old one running until the new one answers on a test domain.
+4. **Import the archive**: Admin → Event → *Event archive → Import*.
+5. **Move DNS** to the ALB, and update the OAuth callback if the domain changed.
+6. **`terraform destroy` the old stack** from its own state directory.
+
+Secrets carry over unchanged if you keep the same `ssm_prefix` — except
+`REDIS_PASSWORD` and `SCORER_TOKEN`, which this module does not use, and
+`REDIS_AUTH_TOKEN`, which it creates for you.
