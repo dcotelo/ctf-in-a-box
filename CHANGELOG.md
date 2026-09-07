@@ -119,6 +119,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   content it touches instead of only "contestants, teams, and solves". The
   seed remains `DEMO_MODE`-only and cannot be reached in a real event.
 
+- **`demo.gif` shows the leaderboard as it is now (#321).** The walkthrough on
+  the README and the docs home still showed the pre-#294 team row — a `PTS`
+  header over flat module chips above a flat target list — which is the shape
+  #348 and #350 have since changed twice more. It is re-recorded against the
+  running app: the score-over-time sweep reading each team's total at that
+  instant, then the leading team opening into its members, one progress row per
+  module, its per-target breakdown, and a target's own flags with their OWASP
+  category badges and open/patched status. Nine frames at the original's
+  pacing, 1456x821 to match the stills beside it.
+
 - **The admin screenshots in the docs show the admin panel that exists
   (#321).** Four of them predated the redesign entirely: an outer `CONTROLS`
   frame with seven flat horizontal tabs, no AI tab at all, module toggles as
