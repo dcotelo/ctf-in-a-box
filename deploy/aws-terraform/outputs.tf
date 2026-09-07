@@ -38,12 +38,28 @@ output "services_running" {
   ])
 }
 
+output "secrets_kms_key_arn" {
+  description = "The KMS key every SecureString under ssm_prefix must use. The execution role's kms:Decrypt names this key and nothing else, so a parameter encrypted under a different key cannot be read by the tasks."
+  value       = aws_kms_key.secrets.arn
+}
+
 output "next_steps" {
   description = "What to do after apply."
   value       = <<-EOT
-    1. Put the event secrets in SSM as SecureStrings under ${var.ssm_prefix}:
-         BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET, GITHUB_TOKEN, SRH_TOKEN
-       (REDIS_AUTH_TOKEN is written there by Terraform.)
+    1. Put the event secrets in SSM as SecureStrings under ${var.ssm_prefix},
+       ENCRYPTED WITH THIS EVENT'S KEY. --key-id is not optional: the tasks'
+       decrypt grant names only this key, so a parameter stored under any
+       other one fails at task start with an AccessDeniedException on KMS.
+
+         for s in BETTER_AUTH_SECRET GITHUB_CLIENT_SECRET GITHUB_TOKEN SRH_TOKEN; do
+           aws ssm put-parameter --region ${var.region} \
+             --name "${var.ssm_prefix}/$s" --type SecureString \
+             --key-id ${aws_kms_alias.secrets.name} \
+             --value "..." --overwrite
+         done
+
+       (REDIS_AUTH_TOKEN and SRH_CONNECTION_STRING are written there by
+       Terraform, already under that key.)
     2. Build and push the app image with event.yaml baked in:  ./deploy.sh
     3. If you did not set route53_zone_id, point ${var.domain} at ${aws_lb.main.dns_name}
     4. Set the OAuth app callback to ${local.event_url}/api/auth/callback/github

@@ -42,6 +42,15 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   so a restore loses up to a day rather than up to a second — which is why the
   event archive export remains the backup that matters for authored content.
 
+  **Every event secret is encrypted with a KMS key the stack creates**, and
+  `aws ssm put-parameter --key-id` is required rather than optional: the task
+  execution role's `kms:Decrypt` names that one key, where it previously held
+  `"*"` narrowed only by a `kms:ViaService` condition — enough to reach any
+  SecureString in the account that delegates to IAM. The bootstrap apply now
+  targets the key alongside ECR, so the secrets step lands between the two
+  applies rather than before them, and a parameter stored under a different key
+  fails at task start with an `AccessDeniedException`. About a dollar a month.
+
   The image bake moved off the instance into `deploy/aws-terraform/deploy.sh`,
   because Terraform cannot build an image and `event.yaml` is baked at build
   time — an image built without `EVENT_CONFIG_B64` ships an empty `admins` list

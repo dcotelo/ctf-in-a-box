@@ -66,6 +66,40 @@ resource "aws_ssm_parameter" "cache_auth" {
   description = "ElastiCache AUTH token for ${var.name}"
   type        = "SecureString"
   value       = random_password.cache_auth.result
+
+  // The event's own key, not the account default — see kms.tf for why the
+  // execution role's grant cannot be scoped otherwise.
+  key_id = aws_kms_key.secrets.arn
+}
+
+locals {
+  // `rediss://` is load-bearing: srh turns TLS on by detecting this scheme
+  // (see the file header). The PRIMARY ENDPOINT HOSTNAME is equally so —
+  // hostname verification is enabled, and a certificate does not match an
+  // address.
+  redis_url = "rediss://:${random_password.cache_auth.result}@${aws_elasticache_replication_group.main.primary_endpoint_address}:6379"
+}
+
+// The assembled connection string, stored so srh receives it BY REFERENCE.
+//
+// It embeds the AUTH token, so putting it in a task definition's `environment`
+// publishes that token to anyone holding `ecs:DescribeTaskDefinition` — which
+// is what this module did until CodeRabbit caught it on PR #354, in direct
+// contradiction of the invariant ecs.tf's own comment claims. srh reads the
+// connection string only from its environment, with no file-based
+// indirection, so `secrets[].valueFrom` is the mechanism: the ECS agent
+// resolves this parameter and sets the variable inside the task, leaving the
+// task definition holding nothing but an ARN.
+//
+// The token still lands in Terraform state (see above) — a separate cost, and
+// one ADR 54 accepts on the record rather than papering over. What this
+// removes is the second copy, in the place with the broadest read access.
+resource "aws_ssm_parameter" "redis_url" {
+  name        = "${var.ssm_prefix}/SRH_CONNECTION_STRING"
+  description = "rediss:// URL with AUTH for srh (${var.name}). Read by reference, never inlined into a task definition."
+  type        = "SecureString"
+  value       = local.redis_url
+  key_id      = aws_kms_key.secrets.arn
 }
 
 resource "aws_elasticache_replication_group" "main" {

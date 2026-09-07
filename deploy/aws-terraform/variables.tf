@@ -13,9 +13,14 @@ variable "name" {
   type        = string
   default     = "ctf-in-a-box"
 
+  // 28, not 32. AWS caps both an ALB name and a target group name at 32
+  // characters, and this value reaches them as `${var.name}-alb` and
+  // `${var.name}-app` (alb.tf) — four characters each. A 29-to-32 character
+  // name passed this check and then failed mid-apply, which is precisely what
+  // the file header says these blocks exist to prevent.
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$", var.name))
-    error_message = "name must be 3-32 lowercase alphanumerics or hyphens, not starting or ending with a hyphen (it prefixes ALB and ElastiCache names, which are strict)."
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,26}[a-z0-9]$", var.name))
+    error_message = "name must be 3-28 lowercase alphanumerics or hyphens, not starting or ending with a hyphen. The cap is 28 rather than 32 because this prefixes the ALB (`-alb`) and target group (`-app`) names, which AWS limits to 32."
   }
 }
 
@@ -74,6 +79,19 @@ variable "acm_certificate_arn" {
     condition     = var.acm_certificate_arn == "" || can(regex("^arn:aws[a-z-]*:acm:", var.acm_certificate_arn))
     error_message = "acm_certificate_arn must be an ACM certificate ARN."
   }
+
+  // The TLS requirement, ENFORCED rather than warned about.
+  //
+  // alb.tf's `check` block reports the same condition, but a failed `check` is
+  // a warning: the apply proceeds, `local.certificate_arn` resolves to "", and
+  // `aws_lb_listener.https` is handed an empty `certificate_arn` to fail on —
+  // an AWS API error in place of the sentence the check wrote. The check stays
+  // (it re-reports the same requirement on later plans, including ones where
+  // the certificate has gone away), but the input is now refused up front.
+  validation {
+    condition     = var.acm_certificate_arn != "" || var.route53_zone_id != ""
+    error_message = "Set route53_zone_id (Terraform issues the certificate) or acm_certificate_arn (you already have one). The session cookie is Secure, so there is no HTTP-only mode to fall back to."
+  }
 }
 
 // --- what this event runs --------------------------------------------------
@@ -113,15 +131,34 @@ variable "app_image" {
 }
 
 variable "scorer_image" {
-  description = "Fully qualified scorer image. Ignored unless enable_secure_development."
+  description = "Fully qualified scorer image. Ignored unless enable_secure_development, and REQUIRED when it is on."
   type        = string
   default     = ""
+
+  // The empty default is only legal while the module builds no scorer task.
+  // With secure-development enabled it is passed straight through as a
+  // container image, and ECS rejects a task definition with an empty one — so
+  // the default turns into a mid-apply API error rather than a plan-time
+  // sentence. Cross-variable validation needs Terraform 1.9; versions.tf
+  // already requires 1.10.
+  validation {
+    condition     = !var.enable_secure_development || var.scorer_image != ""
+    error_message = "scorer_image is required when enable_secure_development is true — the scorer task definition names it as its image."
+  }
 }
 
 variable "sync_image" {
-  description = "Fully qualified sync image. Ignored unless enable_secure_development and score_ingest == \"poll\"."
+  description = "Fully qualified sync image. Ignored unless enable_secure_development and score_ingest == \"poll\", and REQUIRED in that combination."
   type        = string
   default     = ""
+
+  // Narrower than scorer_image's rule on purpose, and for the same reason the
+  // compose profiles differ: push mode has the fork's Action POST to the
+  // scorer directly, so there is no poller to run and no image to demand.
+  validation {
+    condition     = !(var.enable_secure_development && var.score_ingest == "poll") || var.sync_image != ""
+    error_message = "sync_image is required when enable_secure_development is true and score_ingest is \"poll\" — that combination runs the sync task. Push mode needs no poller."
+  }
 }
 
 variable "srh_image" {

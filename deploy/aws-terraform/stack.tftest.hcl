@@ -122,6 +122,82 @@ variables {
   sync_image      = "ghcr.io/example/sync:v1"
 }
 
+// --- the input contracts, each one refused at PLAN time --------------------
+//
+// These four were added with the validations they exercise (PR #354's
+// review). Every one of them was previously a mid-apply AWS API error, which
+// is the failure mode variables.tf's header says these blocks exist to
+// prevent — and the only way to keep that promise honest is to assert the
+// refusal rather than assume it.
+
+run "an_over_long_name_is_refused_before_the_alb_rejects_it" {
+  command = plan
+
+  variables {
+    // 29 characters: legal under the old 3-32 rule, and fatal once alb.tf
+    // appends `-alb` and `-app` against AWS's 32-character cap.
+    name = "abcdefghij-abcdefghij-abcdef1"
+  }
+
+  expect_failures = [var.name]
+}
+
+run "secure_development_without_a_scorer_image_is_refused" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    scorer_image              = ""
+  }
+
+  expect_failures = [var.scorer_image]
+}
+
+run "poll_mode_without_a_sync_image_is_refused" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "poll"
+    sync_image                = ""
+  }
+
+  expect_failures = [var.sync_image]
+}
+
+// The complement of the run above, and the reason sync_image's rule is
+// narrower than scorer_image's: push mode has the fork's Action POST to the
+// scorer directly, so there is no poller and no image to demand. Without this
+// the validation could tighten to "always required" and no test would notice.
+run "push_mode_needs_no_sync_image" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "push"
+    sync_image                = ""
+  }
+
+  assert {
+    condition     = length(aws_ecs_service.sync) == 0
+    error_message = "Push mode runs no poller, so it must not require a sync image."
+  }
+}
+
+run "an_event_with_no_certificate_source_is_refused" {
+  command = plan
+
+  variables {
+    route53_zone_id     = ""
+    acm_certificate_arn = ""
+  }
+
+  // alb.tf's `check` block reports the same condition, but a failed check is
+  // a WARNING: the apply would continue and hand the HTTPS listener an empty
+  // certificate ARN. This asserts the input is refused outright.
+  expect_failures = [var.acm_certificate_arn]
+}
+
 // --- module enablement follows the compose profiles -----------------------
 
 run "secure_development_event_runs_scorer_and_sync" {
@@ -284,15 +360,98 @@ run "no_secret_is_baked_into_a_task_definition" {
 
   assert {
     // The AUTH token is the one secret Terraform generates rather than reads,
-    // which makes it the one most likely to end up somewhere plain. The app
-    // has no business holding it — only srh does.
+    // which makes it the one most likely to end up somewhere plain.
     condition     = !strcontains(aws_ecs_task_definition.app.container_definitions, random_password.cache_auth.result)
     error_message = "The Redis AUTH token must never appear in the app task definition."
   }
 
   assert {
+    // srh TOO, which is the half this suite used to miss. The earlier version
+    // asserted only the app, reasoning that "the app has no business holding
+    // it — only srh does" — and that reasoning is exactly what let the token
+    // sit in srh's `environment` in plaintext until PR #354's review. srh
+    // needing the value does not mean srh's task definition should publish
+    // it: `ecs:DescribeTaskDefinition` reads both alike.
+    condition     = !strcontains(aws_ecs_task_definition.srh.container_definitions, random_password.cache_auth.result)
+    error_message = "The Redis AUTH token must never appear in the srh task definition either — it arrives through secrets[].valueFrom."
+  }
+
+  assert {
+    // The positive half of the assertion above. Absence alone could also mean
+    // the variable was dropped entirely, which would leave srh unable to
+    // connect and this suite still green.
+    //
+    // Decoded rather than string-matched: under `mock_provider` the parameter
+    // ARN is a random placeholder, so asserting the task definition contains
+    // the ARN (or the parameter name) tests the mock, not the wiring. What
+    // matters structurally is that the variable is in `secrets` and NOT in
+    // `environment`.
+    condition = anytrue([
+      for s in jsondecode(aws_ecs_task_definition.srh.container_definitions)[0].secrets :
+      s.name == "SRH_CONNECTION_STRING"
+    ])
+    error_message = "srh must still receive SRH_CONNECTION_STRING, through secrets[].valueFrom."
+  }
+
+  assert {
+    condition = !anytrue([
+      for e in jsondecode(aws_ecs_task_definition.srh.container_definitions)[0].environment :
+      e.name == "SRH_CONNECTION_STRING"
+    ])
+    error_message = "SRH_CONNECTION_STRING must not be an `environment` entry — that publishes the AUTH token to ecs:DescribeTaskDefinition."
+  }
+
+  assert {
     condition     = aws_ssm_parameter.cache_auth.type == "SecureString"
     error_message = "The generated AUTH token must be stored as a SecureString."
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.redis_url.type == "SecureString"
+    error_message = "The assembled connection string embeds the AUTH token, so it must be a SecureString, not a String."
+  }
+
+  assert {
+    // Both generated parameters must use the event's own key, or the scoped
+    // kms:Decrypt grant cannot read them and the tasks fail to start.
+    condition     = aws_ssm_parameter.cache_auth.key_id == aws_kms_key.secrets.arn && aws_ssm_parameter.redis_url.key_id == aws_kms_key.secrets.arn
+    error_message = "Both generated SecureStrings must be encrypted with this event's KMS key."
+  }
+}
+
+// --- the execution role's decrypt grant names one key ----------------------
+
+run "the_secret_grants_name_resources_never_a_wildcard" {
+  command = plan
+
+  assert {
+    // `kms:Decrypt` on "*" with only a `kms:ViaService` condition lets this
+    // role decrypt every SecureString in the account that delegates to IAM —
+    // another event's, another team's. Naming the key is the fix; this is
+    // what stops the wildcard coming back.
+    //
+    // Asserted against the LOCAL, not a data source's rendered json: see the
+    // note in iam.tf. The data source's json is provider-computed, so under
+    // mock_provider its Statement list is empty and this very assertion
+    // passed while proving nothing.
+    condition     = alltrue([for s in local.execution_secrets_policy.Statement : !contains(s.Resource, "*")])
+    error_message = "No statement in the execution role's secret policy may use a \"*\" resource — kms:Decrypt must name this event's key."
+  }
+
+  assert {
+    // Non-vacuity guard for the assertion above: it is an `alltrue` over a
+    // list, so an empty (or renamed) policy would satisfy it trivially. This
+    // pins that the two statements are actually there.
+    condition     = length(local.execution_secrets_policy.Statement) == 2
+    error_message = "Expected exactly two statements (read parameters, decrypt them) — update these assertions deliberately if that changes."
+  }
+
+  assert {
+    condition = anytrue([
+      for s in local.execution_secrets_policy.Statement :
+      contains(s.Action, "kms:Decrypt") && s.Resource == [aws_kms_key.secrets.arn]
+    ])
+    error_message = "The execution role still needs kms:Decrypt, scoped to this event's key — the grant should be narrowed, not removed."
   }
 }
 

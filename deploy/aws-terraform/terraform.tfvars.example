@@ -4,7 +4,11 @@
 # Everything below them is optional and shown at its default.
 
 region = "us-east-1"
-name   = "ctf-in-a-box"
+
+# Prefixes every resource. 3-28 characters: the cap is 28 rather than 32
+# because this reaches the ALB as `<name>-alb` and the target group as
+# `<name>-app`, and AWS limits both of those to 32.
+name = "ctf-in-a-box"
 
 # --- required ----------------------------------------------------------------
 

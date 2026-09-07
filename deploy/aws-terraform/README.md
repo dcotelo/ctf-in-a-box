@@ -72,6 +72,7 @@ replaces.** Rough `us-east-1` on-demand, per month, at the defaults:
 | app tasks (2 × 1 vCPU / 2 GB) | 72 |
 | srh task | 9 |
 | ElastiCache `cache.t4g.micro` × 2 (primary + replica) | 24 |
+| KMS key for the event's secrets | 1 |
 | CloudWatch Logs, ECR storage | a few |
 | **total** | **~125–140** |
 | *the EC2 box this replaced (t3.medium + EBS)* | *~35* |
@@ -94,33 +95,57 @@ that can replace a task without dropping the event.
 3. **Put the secrets in SSM Parameter Store** as `SecureString`s under
    `var.ssm_prefix`. The task execution role may read `<prefix>/*` and nothing
    else; task definitions reference them by `valueFrom`, so no secret is ever a
-   plaintext env var in a definition:
+   plaintext env var in a definition. Note the `--key-id`, and that the key has
+   to exist first — this step therefore lands *inside* the deploy sequence
+   below, not before it:
 
    ```sh
    P=/ctf-in-a-box
-   aws ssm put-parameter --type SecureString --name $P/BETTER_AUTH_SECRET   --value "$(openssl rand -base64 32)"
-   aws ssm put-parameter --type SecureString --name $P/SRH_TOKEN            --value "$(openssl rand -hex 24)"
-   aws ssm put-parameter --type SecureString --name $P/GITHUB_CLIENT_SECRET --value "..."
-   aws ssm put-parameter --type SecureString --name $P/GITHUB_TOKEN         --value "..."   # secure-development only
+   K=alias/ctf-in-a-box-secrets     # alias/<var.name>-secrets
+   aws ssm put-parameter --type SecureString --key-id $K --name $P/BETTER_AUTH_SECRET   --value "$(openssl rand -base64 32)"
+   aws ssm put-parameter --type SecureString --key-id $K --name $P/SRH_TOKEN            --value "$(openssl rand -hex 24)"
+   aws ssm put-parameter --type SecureString --key-id $K --name $P/GITHUB_CLIENT_SECRET --value "..."
+   aws ssm put-parameter --type SecureString --key-id $K --name $P/GITHUB_TOKEN         --value "..."   # secure-development only
    ```
 
-   `REDIS_AUTH_TOKEN` is **not** in that list: Terraform generates it and writes
-   it to `<prefix>/REDIS_AUTH_TOKEN` itself, so operators and tasks read it from
-   one place.
+   **`--key-id` is not optional.** The stack creates one customer-managed KMS
+   key per event (`kms.tf`) and the execution role's `kms:Decrypt` names *only*
+   that key — a grant on `"*"` would let this role decrypt every SecureString
+   in the account that delegates to IAM, including another event's. The cost of
+   that scoping is that a parameter encrypted under any other key (the account
+   default `alias/aws/ssm` included) cannot be read: the task fails to start
+   with an `AccessDeniedException` on KMS, which names the key rather than the
+   mistake. `terraform output secrets_kms_key_arn` prints it, and the
+   post-apply `next_steps` output repeats these commands with it filled in.
+
+   `REDIS_AUTH_TOKEN` and `SRH_CONNECTION_STRING` are **not** in that list:
+   Terraform generates both and writes them under `<prefix>/` itself, already
+   encrypted with that key, so operators and tasks read them from one place.
 
 ## Deploy
 
-ECR does not exist until the first apply, so the image cannot be named on the
-first pass. Three steps, once:
+Two resources have to exist before the rest of the stack can be described:
+**ECR**, because the image cannot be named until the registry exists, and the
+**KMS key**, because the secrets in step 3 above must be encrypted with it.
+Both are created by one targeted apply:
 
 ```sh
 cd deploy/aws-terraform
 cp terraform.tfvars.example terraform.tfvars    # then edit: domain, event_yaml_b64
 terraform init
-terraform apply -target=aws_ecr_repository.main # just the registry
+terraform apply \
+  -target=aws_ecr_repository.main \
+  -target=aws_kms_alias.secrets                 # the registry and the secrets key
+#   ... now run step 3's put-parameter commands, with --key-id ...
 ./deploy.sh                                     # build with event.yaml baked in, push
 terraform apply                                 # the rest of the stack
 ```
+
+Targeting the *alias* pulls in the key it points at, so both arrive in one
+step. The parameters themselves are not a dependency of the apply — task
+definitions reference them by constructed ARN, not by data source — so a
+missing one surfaces when a task starts, not at plan time. That is the one
+sequencing mistake this order exists to prevent.
 
 Afterwards a redeploy is one command:
 

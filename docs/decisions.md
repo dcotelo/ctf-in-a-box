@@ -3055,6 +3055,29 @@ actually rely on between events. And the image bake moved from the instance into
 into an immutable repository, so a redeploy with nothing changed is a no-op
 rather than an error.
 
+**One customer-managed KMS key per event, and the operator has to use it.**
+Review of the module found the execution role holding `kms:Decrypt` on `"*"`,
+narrowed only by a `kms:ViaService` condition — which scopes the grant to calls
+made through Parameter Store but says nothing about *which* parameters, so it
+covered every SecureString in the account that delegates access to IAM,
+including another event's. Naming a single key is the fix, and it forces a
+choice: the AWS-managed `alias/aws/ssm` key cannot be scoped that way, so the
+module creates its own. The consequence is operator-visible rather than
+invisible — a hand-created parameter encrypted under any other key fails at
+task start with an `AccessDeniedException` naming the key — which is why the
+`--key-id` argument is in the `next_steps` output and the bootstrap apply now
+targets that key alongside ECR. A dollar a month, and one more step in a
+sequence that already had one.
+
+The same review found the generated AUTH token itself published in the srh task
+definition, as an `environment` entry holding the assembled `rediss://` URL —
+readable by anyone with `ecs:DescribeTaskDefinition`, and in direct
+contradiction of the comment above it claiming no secret was ever inlined. It is
+now a `SecureString` read through `valueFrom` like every other secret. The
+lesson worth keeping is the test's: the suite asserted the token was absent from
+the *app* task definition and reasoned that srh legitimately holds it, so the
+one place it was actually exposed was the one place nothing checked.
+
 **Verified without an AWS account.** The compatibility question the design hangs
 on — whether `srh` speaks TLS + AUTH to a managed cache, and whether `EVAL`
 survives the hop — was answered against a Redis configured exactly as

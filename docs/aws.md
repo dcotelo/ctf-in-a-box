@@ -61,21 +61,31 @@ that is too much.
    callback at `https://<domain>/api/auth/callback/github` (`ctf-setup.sh
    app-manifest`/`app-config` and `oauth-app`/`oauth-config`).
 3. **Store the secrets in SSM Parameter Store** as `SecureString`s under a path
-   prefix (default `/ctf-in-a-box`). Task definitions reference them by
-   `valueFrom`, so no secret is ever a plaintext environment variable. The
-   `aws ssm put-parameter` list is in the module
+   prefix (default `/ctf-in-a-box`), each encrypted with the event's own KMS
+   key (`--key-id alias/<name>-secrets`). Task definitions reference them by
+   `valueFrom`, so no secret is ever a plaintext environment variable — the
+   generated Redis AUTH token included, which is why the assembled `rediss://`
+   connection string is itself a `SecureString` rather than an environment
+   entry on the srh task. Because the stack creates that key, this step lands
+   between the two applies below rather than before them. The
+   `aws ssm put-parameter` list, and why `--key-id` is not optional, are in the
+   module
    [README](https://github.com/dcotelo/ctf-in-a-box/tree/main/deploy/aws-terraform#prerequisites-done-once-off-the-stack).
 
 ## Deploy
 
-ECR does not exist until the first apply, so the image cannot be named on the
-first pass. Three steps, once:
+Two things must exist before the rest of the stack can be described: **ECR**,
+since the image cannot be named until the registry does, and the **KMS key**
+that step 3's secrets are encrypted with. One targeted apply creates both.
 
 ```sh
 cd deploy/aws-terraform
 cp terraform.tfvars.example terraform.tfvars    # edit: domain, event_yaml_b64
 terraform init
-terraform apply -target=aws_ecr_repository.main # just the registry
+terraform apply \
+  -target=aws_ecr_repository.main \
+  -target=aws_kms_alias.secrets                 # the registry and the secrets key
+#   ... now store the secrets (step 3), with --key-id ...
 ./deploy.sh                                     # build with event.yaml baked in, push
 terraform apply                                 # the rest of the stack
 ```

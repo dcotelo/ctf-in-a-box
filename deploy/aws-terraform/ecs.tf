@@ -64,15 +64,16 @@ locals {
   // meaningful.
   upstash_url = "http://${local.srh_host}"
 
-  // `rediss://` is load-bearing: srh turns TLS on by detecting this scheme
-  // (see elasticache.tf). The PRIMARY ENDPOINT HOSTNAME is equally so —
-  // hostname verification is enabled, and a certificate does not match an
-  // address.
-  redis_url = "rediss://:${random_password.cache_auth.result}@${aws_elasticache_replication_group.main.primary_endpoint_address}:6379"
-
   // Every secret arrives by reference. Nothing here interpolates a secret
   // value into an environment variable, where it would sit in the task
   // definition — readable by anyone holding ecs:DescribeTaskDefinition.
+  //
+  // That claim was FALSE for srh until PR #354's review: the assembled
+  // `rediss://` URL embeds the generated AUTH token, and it was passed as an
+  // `environment` entry. It now lives in SSM as a SecureString
+  // (`aws_ssm_parameter.redis_url`, elasticache.tf) and arrives the way every
+  // other secret does. stack.tftest.hcl asserts the token is absent from BOTH
+  // task definitions, so the invariant is checked rather than merely stated.
   secret_arn_prefix = "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}"
 
   app_secrets = [
@@ -118,11 +119,14 @@ resource "aws_ecs_task_definition" "srh" {
 
     environment = [
       { name = "SRH_MODE", value = "env" },
-      { name = "SRH_CONNECTION_STRING", value = local.redis_url },
     ]
 
     secrets = [
       { name = "SRH_TOKEN", valueFrom = "${local.secret_arn_prefix}/SRH_TOKEN" },
+      // The ARN, not the URL. `aws_ssm_parameter.redis_url` is referenced
+      // directly rather than rebuilt from `local.secret_arn_prefix` so this
+      // cannot drift from the resource that actually holds the value.
+      { name = "SRH_CONNECTION_STRING", valueFrom = aws_ssm_parameter.redis_url.arn },
     ]
 
     // THE health check this stack turns on, and why it is not a liveness
