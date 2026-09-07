@@ -4,7 +4,8 @@
 // which is the question a contestant actually acts on mid-event.
 //
 // Presentational and client-safe: the caller passes one entry per enabled
-// module, already carrying that module's clamped earned/max pair.
+// module, already carrying that module's own earned/max pair on the same
+// denominator its row above uses.
 
 export type RemainingModule = {
   title: string;
