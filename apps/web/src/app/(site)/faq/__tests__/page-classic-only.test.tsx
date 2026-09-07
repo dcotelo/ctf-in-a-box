@@ -71,6 +71,12 @@ describe("/faq in a classic-only event", () => {
     expect(html).not.toMatch(/\battempts? (remaining|left)\b/i);
   });
 
+  /** A statement about case that carries its exception in the same sentence.
+   *  `[^.]*` is the load-bearing part — it cannot span a full stop, so the
+   *  qualifier has to be attached to the claim rather than merely present on
+   *  the page. */
+  const QUALIFIED_CASE_CLAIM = /\bcase\b[^.]*\bcase-sensitive\b/i;
+
   // Asserting the ANSWER, not just that the question rendered. The question
   // alone was all this file checked, and under it sat "No. Matching trims
   // leading and trailing whitespace and ignores case" — flatly wrong for a
@@ -81,10 +87,26 @@ describe("/faq in a classic-only event", () => {
     const answer = "Leading and trailing whitespace never matters";
     expect(html).toContain(answer);
     const body = html.slice(html.indexOf(answer), html.indexOf(answer) + 400);
-    expect(body).toMatch(/case-sensitive/);
-    // The unqualified claim, in the spellings the copy has used for it.
-    expect(html).not.toMatch(/ignores case, so it&#x27;s the exact same flag/);
-    expect(html).not.toMatch(/case doesn&#x27;t matter/i);
+
+    // The claim about case and its exception must sit in the SAME sentence
+    // (`[^.]*` cannot cross a full stop). Merely mentioning "case-sensitive"
+    // somewhere nearby is not enough: a rewrite to "Case is ignored for all
+    // flags." followed by an unrelated sentence about case-sensitive flags
+    // would satisfy that, and would be exactly as wrong as the copy this
+    // test exists to keep out.
+    expect(body).toMatch(QUALIFIED_CASE_CLAIM);
+  });
+
+  // The guard above is only as good as this regex, so prove it discriminates
+  // rather than assuming it: an unqualified claim with the exception stranded
+  // in a neighbouring sentence must fail it.
+  it("the case-qualification pattern rejects an unqualified claim", () => {
+    expect(QUALIFIED_CASE_CLAIM.test("Case is ignored for all flags. Some are case-sensitive.")).toBe(false);
+    expect(QUALIFIED_CASE_CLAIM.test("No. Matching trims whitespace and ignores case.")).toBe(false);
+    expect(
+      QUALIFIED_CASE_CLAIM.test("Case usually doesn't either, but a flag can be marked case-sensitive."),
+    ).toBe(true);
+    expect(QUALIFIED_CASE_CLAIM.test("Case is ignored unless the flag is case-sensitive.")).toBe(true);
   });
 
   it("keeps the module's questions interleaved with the platform's, not bolted on the end", () => {
