@@ -4,7 +4,7 @@
 
 import type { Metadata } from "next";
 import AdminPanel from "@/app/(site)/admin/admin-panel";
-import { resolveAdminTab } from "@/app/(site)/admin/admin-controls";
+import { resolveAdminTab } from "@/app/(site)/admin/tab-url";
 
 export const metadata: Metadata = {
   title: "Admin",

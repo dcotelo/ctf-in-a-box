@@ -8,6 +8,24 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The admin panel loads again.** Every `/admin` URL — the panel, each
+  `/admin/<tab>`, and the older `/admin?tab=` — answered with the "That didn't
+  load" error page instead of the panel, so an organizer could not freeze
+  scoring, edit a question, reset the event or read Activity at all. The two
+  route files are Server Components and *call* `resolveAdminTab`, which #297
+  had moved into `admin-controls.tsx` — a `"use client"` module. A function
+  exported across that boundary is a client reference, not a function, and
+  calling one throws at request time. Nothing caught it: the page tests render
+  with `renderToStaticMarkup(await Page())`, which has no RSC boundary to
+  violate, `next build` compiles it happily because the error is a runtime
+  one, and `acceptance-app.sh` never asked for `/admin`. The three URL helpers
+  now live in `tab-url.ts`, a module with no directive, which both the routes
+  and the client shell import; a source-level test fails if either route
+  imports a `"use client"` module again, and the acceptance script now asserts
+  that an anonymous `/admin` and `/admin/<tab>` reach the "Organizer access
+  only" gate rather than an error digest — the status code cannot tell them
+  apart, because the shell streams a 200 and the failure arrives in the body.
+
 - **Classic and AI now tell contestants that a hint costs points.** Secure
   Development's rules and terms have always said "Revealing a hint deducts
   points from your total"; classic's and ai's never did, though all three sell

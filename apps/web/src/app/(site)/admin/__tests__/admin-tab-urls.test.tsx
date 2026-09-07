@@ -7,7 +7,7 @@
 // pair of pure helpers that decide it — no DOM required, which matters
 // because this repo's tests run in vitest's `node` environment.
 import { describe, expect, it } from "vitest";
-import { adminTabHref, resolveAdminTab, tabFromLocation } from "@/app/(site)/admin/admin-controls";
+import { adminTabHref, resolveAdminTab, tabFromLocation } from "@/app/(site)/admin/tab-url";
 
 describe("adminTabHref", () => {
   it("builds the canonical path for a tab", () => {

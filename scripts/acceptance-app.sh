@@ -69,6 +69,23 @@ if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
   echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
 fi
 
+echo "--- /admin renders its gate, not a server error"
+# The panel's own 500 is invisible to a status-code check: the shell streams
+# with 200 and the failure arrives inside the body, so this asserts on the
+# rendered copy instead. Anonymous is the right probe — the acceptance build
+# has no OAuth, and a visitor who is not an organizer must reach the
+# "Forbidden / Organizer access only" wall (admin-panel.tsx), which only
+# renders if the route resolved its tab at all. #297 broke exactly that by
+# calling a "use client" export from the two Server Components, and every
+# gate here stayed green while /admin, /admin/<tab> and /admin?tab= all 500'd.
+ADMIN_HTML=$(wait_for_html http://localhost:3100/admin)
+ADMIN_TAB_HTML=$(wait_for_html http://localhost:3100/admin/insights)
+expect_in "$ADMIN_HTML" "Organizer access only" "/admin did not render the organizer gate"
+expect_in "$ADMIN_TAB_HTML" "Organizer access only" "/admin/<tab> did not render the organizer gate"
+if grep -qF -- "owasp-ctf render --digest" <<< "$ADMIN_HTML$ADMIN_TAB_HTML"; then
+  echo "FAIL: /admin rendered the server-error page"; exit 1
+fi
+
 echo "--- default build is neutral (no DEF CON, name OWASP CTF)"
 docker build -f apps/web/Dockerfile -t ctf-web:default-check . >/dev/null
 docker run -d --name web-default -p 3101:3000 \

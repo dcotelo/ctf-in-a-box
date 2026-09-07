@@ -48,6 +48,7 @@ import AdminQuizControls from "@/components/admin-quiz-controls";
 import AdminClassicControls from "@/components/admin-classic-controls";
 import AdminAiControls from "@/components/admin-ai-controls";
 import type { SyncStatus } from "@/lib/admin-store";
+import { adminTabHref, tabFromLocation } from "./tab-url";
 import AdminSidebar, { type SidebarGroup } from "./admin-sidebar";
 import AdminOverviewTab from "./admin-overview-tab";
 import AdminAdminsTab from "./admin-admins-tab";
@@ -94,52 +95,6 @@ const MODULE_CHOICES: readonly ModuleChoice[] = ALL_MODULE_IDS.map((id) => ({
   toggleable: id !== "secure-development",
   reason: id === "secure-development" ? "Configured at setup — it needs its scorer, its sync poller and its provisioned forks." : undefined,
 }));
-
-/** The canonical URL for a tab. One builder, used by the sidebar's `href`,
- *  by the pushState that follows a click, and by the tests — so the link an
- *  organizer copies and the panel they are looking at cannot disagree. */
-export function adminTabHref(id: string): string {
-  return `/admin/${id}`;
-}
-
-/** Which tab a URL names, given its two possible sources: the `/admin/<tab>`
- *  path segment and the `?tab=` of the older form. ONE rule, used by both
- *  routes on the server and by the popstate handler on the client — the
- *  alternative is `/admin/overview?tab=admins` opening different panels
- *  depending on whether you loaded it or navigated to it.
- *
- *  An explicit `?tab=` wins: it is the more specific of the two, and it is
- *  what an old bookmark or doc link carries. Repeated `?tab=` values are
- *  treated as absent rather than picking one — a request that says two
- *  different things has said nothing usable, and falling through to the path
- *  (or Overview) beats guessing.
- *
- *  Returns "" when neither names a tab; the caller reads that as Overview. */
-export function resolveAdminTab(pathTab: string | undefined, tabQuery: string | string[] | undefined): string {
-  // Counted BEFORE empties are dropped: `?tab=&tab=admins` supplied the
-  // parameter twice, so it is unusable by the rule above even though only one
-  // half carries a value. Filtering first would have quietly picked `admins`.
-  const values = Array.isArray(tabQuery) ? tabQuery : tabQuery == null ? [] : [tabQuery];
-  if (values.length === 1 && values[0]) return values[0];
-  return pathTab ?? "";
-}
-
-/** `resolveAdminTab` for a browser location — what the popstate handler has.
- *  Decoding is guarded: history can hold `/admin/%`, and a throwing
- *  `decodeURIComponent` there would leave the panel out of step with the URL
- *  instead of falling back to Overview. */
-export function tabFromLocation(pathname: string, search: string): string {
-  const match = /^\/admin\/([^/?#]+)/.exec(pathname);
-  let pathTab: string | undefined;
-  if (match) {
-    try {
-      pathTab = decodeURIComponent(match[1]);
-    } catch {
-      pathTab = undefined;
-    }
-  }
-  return resolveAdminTab(pathTab, new URLSearchParams(search).getAll("tab"));
-}
 
 // The landing destination (admin-redesign.md PR 1): "is scoring on, how many
 // teams, is anything stuck" answered in one screen rather than three tabs.
