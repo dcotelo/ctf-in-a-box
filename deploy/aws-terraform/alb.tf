@@ -75,13 +75,31 @@ resource "aws_lb_target_group" "app" {
   target_type = "ip"
   vpc_id      = aws_vpc.main.id
 
-  // `/` is server-rendered and resolves the module nav through Redis, so this
-  // check exercises the path that actually matters: an app that cannot reach
-  // srh fails it rather than passing while serving errors. Same reasoning as
-  // the srh container's own health check in ecs.tf — see the note there on
-  // what a liveness-only probe would miss.
+  // `/health`, deliberately, and NOT `/` — which this checked first, on the
+  // reasoning that a server-rendered page resolving the module nav through
+  // Redis proves more than a liveness probe. Both halves of that turned out
+  // wrong for this app.
+  //
+  // It proves less, not more. The app streams its shell with HTTP **200** and
+  // delivers a render failure inside the body (issue #312: every /admin URL
+  // returned the error boundary while every status-code probe saw 200). So a
+  // 200 from `/` never established that the page rendered.
+  //
+  // And it is actively harmful. An unhealthy target is deregistered and its
+  // task replaced, so a Redis blip would take out every app task at once —
+  // while replacing them fixes nothing, because Redis is what is unwell. That
+  // inverts the rule the rest of the stack follows: the pause/schedule reads
+  // fail OPEN precisely so a Redis blip cannot drop live submissions, and
+  // /health's own contract says a dependency check "would report the app
+  // unhealthy when the app is fine, which is backwards for something a restart
+  // policy acts on". An ALB health check is exactly that something.
+  //
+  // `/health` is liveness-only by construction: force-dynamic, no Redis, and
+  // `no-store`. Whether the event's data layer is reachable is a question for
+  // the admin Overview, which an organizer reads and acts on, not for a probe
+  // wired to task replacement.
   health_check {
-    path                = "/"
+    path                = "/health"
     matcher             = "200"
     interval            = 15
     timeout             = 5

@@ -316,6 +316,27 @@ run "srh_health_check_issues_a_real_command" {
   }
 }
 
+// --- the app's health check is liveness-only, unlike srh's ----------------
+
+run "the_app_health_check_does_not_depend_on_redis" {
+  command = plan
+
+  assert {
+    // The opposite of the assertion above, on purpose. srh's job IS to reach
+    // Redis, so a probe that proves it did belongs there. The app's job is to
+    // serve an event whose pause/schedule reads deliberately fail OPEN, so a
+    // Redis blip must not cost it anything — and an unhealthy target here is
+    // deregistered and its task replaced, which cannot fix Redis and would
+    // take out every task at once.
+    //
+    // `/` was the original choice and is wrong twice over: the app streams its
+    // shell with HTTP 200 and puts render failures in the BODY (#312), so a 200
+    // from `/` never proved the page rendered either.
+    condition     = aws_lb_target_group.app.health_check[0].path == "/health"
+    error_message = "The ALB must health-check /health, not a page that reads Redis: a blip would deregister every app task, and a 200 from a streamed shell does not prove it rendered anyway (#312)."
+  }
+}
+
 // --- the app reaches Redis only through srh -------------------------------
 
 run "the_app_is_pointed_at_srh_not_at_redis" {
