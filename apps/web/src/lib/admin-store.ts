@@ -1,5 +1,5 @@
 import "server-only";
-import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { assertPipelineOk, parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
 import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
@@ -638,10 +638,21 @@ async function scanDelByPrefix(pattern: string): Promise<number> {
   let total = 0;
   do {
     const [scan] = await upstashPipeline([["SCAN", cursor, "MATCH", pattern, "COUNT", 1000]]);
-    const [next, keys] = Array.isArray(scan.result) ? (scan.result as [string, string[]]) : ["0", []];
-    cursor = String(next);
+    // Throws on a failed page rather than ending the walk (issue #358). This
+    // one is the reset: the old fallback still returned a COUNT — "cleared 412
+    // keys" — for a sweep that had stopped early, so an organizer opening a
+    // "fresh" event would find last event's solves in it with nothing having
+    // reported a problem. Failing loudly is the only honest answer. The
+    // deletions already made stand, and re-running the reset is safe: deleting
+    // an absent key is a no-op.
+    const [next, keys] = parseScanPage(scan, `reset ${pattern}`);
+    cursor = next;
     if (keys.length > 0) {
-      await upstashPipeline([["DEL", ...keys]]);
+      // The DEL is checked too: `total` is incremented from `keys.length`, so
+      // an unchecked failure here reports keys as cleared that are still
+      // there — the same false "done" the SCAN fallback gave, one command
+      // later (issue #358).
+      assertPipelineOk(await upstashPipeline([["DEL", ...keys]]), `reset ${pattern}`);
       total += keys.length;
     }
   } while (cursor !== "0");

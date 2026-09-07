@@ -654,6 +654,15 @@ questions and their answer keys**, the same way it keeps `event.yaml`-derived
 admin settings. A reset event doesn't mean re-building the quiz from scratch.
 See [Quiz](#quiz) below.
 
+**A reset that cannot finish now fails instead of reporting a count.** The
+wipe walks the keyspace in pages, and a page it cannot read used to be treated
+as "that was the last one" — so a sweep that stopped halfway still returned
+`cleared: 412` and an organizer opened a "fresh" event holding the previous
+one's solves, with nothing having reported a problem. The reset now surfaces
+the error. Deletions already made stand, and **re-running it is safe**:
+deleting a key that is already gone does nothing, so the fix for a failed
+reset is to run it again.
+
 `classic` is scoped exactly the same way: the master reset clears every
 contestant's flag solves and attempts (and the three aggregate
 points/solved/solve-count hashes the leaderboard reads) but deliberately

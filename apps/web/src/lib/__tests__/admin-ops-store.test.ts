@@ -9,14 +9,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn<(script: string, keys: string[], args: (string | number)[]) => Promise<unknown>>(),
-  upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown }[]>>(),
+  // `error` is part of the shape: upstashPipeline reports a per-command
+  // failure there, and the tests below drive exactly that (issue #358).
+  upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/upstash", () => ({
-  upstashEval: mocks.upstashEval,
-  upstashPipeline: mocks.upstashPipeline,
-}));
+// `parseScanPage` is the REAL parser (pure: a reply in, a page or a throw
+// out). Stubbing it here would put a local imitation under test instead of
+// the one the store calls.
+vi.mock("@/lib/upstash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/upstash")>();
+  return {
+    assertPipelineOk: actual.assertPipelineOk,
+    parseScanPage: actual.parseScanPage,
+    upstashEval: mocks.upstashEval,
+    upstashPipeline: mocks.upstashPipeline,
+  };
+});
 vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
 
 import {
@@ -190,6 +200,34 @@ describe("lookupUser", () => {
     // The funnel's conversion moment, and it is EARLIER than joinedAt here —
     // this contestant switched teams, and firstTeamAt is what must not move.
     expect(detail.firstTeamAt).toBe("2026-08-20T09:00:00Z");
+  });
+});
+
+// Issue #358. The SCAN walk is only half of it: this function reports how much
+// of a contestant's progress it removed, and that number came from the FIELDS
+// it intended to delete rather than from the delete's own reply. A failed HDEL
+// therefore told the organizer a contestant was cleared while their solves
+// were still there to be scored.
+describe("resetUserProgress: a failed secure-dev delete is not a clear", () => {
+  it("rejects when the HDEL fails, rather than counting those fields as removed", async () => {
+    mocks.upstashPipeline
+      .mockResolvedValueOnce(replies(["0", ["ctf:solves:juice-shop"]])) // SCAN page
+      .mockResolvedValueOnce(replies(["octocat:sqli-1"])) // HKEYS
+      .mockResolvedValueOnce([{ error: "READONLY You can't write against a read only replica." }]); // HDEL
+
+    await expect(resetUserProgress("octocat", "admin")).rejects.toThrow(
+      /command failed \(clear secure-dev solves\)/,
+    );
+  });
+
+  it("rejects when the HKEYS fails, rather than reading it as 'nothing here'", async () => {
+    mocks.upstashPipeline
+      .mockResolvedValueOnce(replies(["0", ["ctf:solves:juice-shop"]])) // SCAN page
+      .mockResolvedValueOnce([{ error: "WRONGTYPE Operation against a key holding the wrong kind of value" }]);
+
+    await expect(resetUserProgress("octocat", "admin")).rejects.toThrow(
+      /command failed \(clear secure-dev solves\)/,
+    );
   });
 });
 

@@ -15,10 +15,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/upstash", () => ({
-  upstashEval: mocks.upstashEval,
-  upstashPipeline: mocks.upstashPipeline,
-}));
+// The two I/O functions are mocked; `parseScanPage` is the REAL one, taken
+// from the original module. It is pure (a reply in, a page or a throw out),
+// and a hand-written stub of it here would be the thing under test in the
+// SCAN cases below — the store would be checked against a local imitation of
+// the parser rather than the parser it actually calls.
+vi.mock("@/lib/upstash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/upstash")>();
+  return {
+    assertPipelineOk: actual.assertPipelineOk,
+    parseScanPage: actual.parseScanPage,
+    upstashEval: mocks.upstashEval,
+    upstashPipeline: mocks.upstashPipeline,
+  };
+});
 // Mocked (not the real fail-open writer) so the pipeline-count pins below
 // keep counting only the store's OWN Redis traffic. The store->log wiring is
 // pinned in the "activity log" describe at the bottom.
@@ -456,6 +466,32 @@ describe("listTeams", () => {
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["0", []] }]);
     expect(await store.listTeams()).toEqual([]);
     expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  // Issue #358. The PARTIAL case is the one that matters: first page succeeds,
+  // second fails. `upstashPipeline` reports that as `{ error }` rather than
+  // throwing, and the old fallback read it as cursor "0" — the value meaning
+  // "iteration complete" — so the walk ended and returned the first page as if
+  // it were the whole keyspace. A team that exists in Redis, and renders on its
+  // own /profile, was simply absent from the leaderboard.
+  //
+  // Asserting only the all-pages-fail case would NOT catch that: a first-page
+  // failure returned [] under the old code too, so such a test passes against
+  // the bug it is meant to prevent.
+  it("rejects when a later SCAN page fails, rather than returning the pages it already has", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: ["7", ["ctf:team:red:members"]] }])
+      .mockResolvedValueOnce([{ error: "ERR max requests limit exceeded" }]);
+    await expect(store.listTeams()).rejects.toThrow(/SCAN failed \(listTeams\)/);
+  });
+
+  it("rejects a malformed SCAN reply rather than treating it as the end of the walk", async () => {
+    const store = await loadStore(true);
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: ["7", ["ctf:team:red:members"]] }])
+      .mockResolvedValueOnce([{ result: "not-a-page" }]);
+    await expect(store.listTeams()).rejects.toThrow(/unexpected shape/);
   });
 });
 

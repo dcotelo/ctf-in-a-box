@@ -87,6 +87,37 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   §5, which is the honest place for it, since demonstrating it needs a second
   system. The seed test now asserts **no** demo challenge is `event`-mode, so
   reintroducing one fails before it reaches a board.
+- **Fixed: a team could vanish from the leaderboard while its own profile page
+  still showed it (#358).** Found on a live board — the Teams view listed four
+  teams holding seven members while Insights, reading the same function,
+  counted eight people on a team. The missing one had created a team minutes
+  earlier and was competing; from the board's perspective they were not there.
+
+  Every SCAN walk in the app read a failed page through a `["0", []]` fallback,
+  and `"0"` is the cursor value meaning ITERATION COMPLETE. `upstashPipeline`
+  reports a per-command failure as `{ error }` rather than throwing, so a
+  failed page did not retry, did not throw and did not return empty — it ended
+  the walk and handed back the pages gathered so far, indistinguishable from a
+  full sweep. Because it depends on which page fails, it is intermittent, and
+  two readers of the same data disagreed.
+
+  **Five walks shared the shape, and the leaderboard was the least severe.**
+  The master reset returned a `cleared` count for a sweep that had stopped
+  early, so an organizer could be told the event was wiped and open a "fresh"
+  one still holding the previous event's solves; clearing one contestant's
+  progress could report success having removed part of it; and two counters
+  (Insights participation, the pre-delete confirmation count) silently
+  undercounted. All five now parse a page through one helper that throws, and
+  each caller applies its own documented fail direction — the leaderboard
+  degrades to the team-less view it already had a `catch` for, Insights records
+  a caveat and keeps the figures it can still stand behind, and the reset and
+  the clear fail loudly rather than claim to have finished. Re-running a failed
+  reset is safe: deleting an absent key is a no-op.
+
+  The regression tests fail the *partial* case specifically — first page good,
+  second page failing. Asserting only that an all-failing walk returns nothing
+  would have passed against the bug, since a first-page failure returned empty
+  under the old code too.
 
 ## v0.5.0 — 2026-09-07
 

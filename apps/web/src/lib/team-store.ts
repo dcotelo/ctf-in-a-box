@@ -1,7 +1,7 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
-import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
 import { logActivity } from "@/lib/activity-log";
 import { TEAM_MAX_MEMBERS } from "@/lib/team-limits";
 import { outsideWindow } from "@/lib/admin-store";
@@ -540,7 +540,12 @@ export async function listTeams(): Promise<TeamInfo[]> {
   let cursor = "0";
   do {
     const [scan] = await upstashPipeline([["SCAN", cursor, "MATCH", `${prefix}*${suffix}`, "COUNT", "1000"]]);
-    const [next, keys] = Array.isArray(scan.result) ? (scan.result as [string, string[]]) : ["0", []];
+    // Throws rather than reading a failed page as "iteration complete" — see
+    // parseScanPage. A partial list is worse here than no list: the caller
+    // (withTeamStandings) degrades a THROW to the team-less view, which is
+    // visibly wrong, but it publishes a short roster as if it were the
+    // standings — a team that is competing simply is not on the board.
+    const [next, keys] = parseScanPage(scan, "listTeams");
     cursor = next;
     for (const key of keys) slugs.push(key.slice(prefix.length, -suffix.length));
   } while (cursor !== "0");

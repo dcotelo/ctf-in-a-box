@@ -1,5 +1,5 @@
 import "server-only";
-import { upstashPipeline } from "@/lib/upstash";
+import { assertPipelineOk, parseScanPage, upstashPipeline, type UpstashResult } from "@/lib/upstash";
 import { userKey, userHintTimesKey, HINTS_SPENT_KEY } from "@/lib/team-keys";
 import { QUIZ_POINTS_KEY, QUIZ_QUESTIONS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
 import { CLASSIC_CHALLENGES_KEY, CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
@@ -140,8 +140,11 @@ function hashEntries(result: unknown): [string, unknown][] {
   return out;
 }
 
-async function batched(commands: (string | number)[][]): Promise<{ result?: unknown }[]> {
-  const out: { result?: unknown }[] = [];
+// Returns UpstashResult, not `{ result?: unknown }`: the narrower type erased
+// the `error` field, so a caller checking it would be reading a property
+// TypeScript believed could never be set (issue #358).
+async function batched(commands: (string | number)[][]): Promise<UpstashResult[]> {
+  const out: UpstashResult[] = [];
   for (let i = 0; i < commands.length; i += BATCH) {
     out.push(...(await upstashPipeline(commands.slice(i, i + BATCH))));
   }
@@ -161,13 +164,22 @@ async function readSecureDevSolves(): Promise<Map<string, string>> {
   const keys: string[] = [];
   do {
     const [scan] = await upstashPipeline([["SCAN", cursor, "MATCH", "ctf:solves:*", "COUNT", 1000]]);
-    const [next, found] = Array.isArray(scan.result) ? (scan.result as [string, string[]]) : ["0", []];
+    // Throws rather than ending the walk on a failed page (issue #358). An
+    // undercount presented as a measurement is worse than a failed one, and
+    // this module already has a way to say so — see the caller's caveats.
+    const [next, found] = parseScanPage(scan, "metrics secure-dev solves");
     cursor = next;
     keys.push(...found);
   } while (cursor !== "0");
   const out = new Map<string, string>();
   if (!keys.length) return out;
-  const replies = await batched(keys.map((k) => ["HGETALL", k]));
+  // Checked, like the SCAN above (issue #358): a failed HGETALL reads as an
+  // empty hash, so the target's solves vanish from every figure computed
+  // from this map — silently, and the caller has a caveat for exactly this.
+  const replies = assertPipelineOk(
+    await batched(keys.map((k) => ["HGETALL", k])),
+    "metrics secure-dev solves",
+  );
   keys.forEach((key, i) => {
     const target = key.slice("ctf:solves:".length);
     for (const [field, at] of hashEntries(replies[i]?.result)) {
@@ -256,7 +268,27 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
   const aiPoints = new Map(hashEntries(aiPointsRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0]));
   const hintsSpent = hashEntries(hintsSpentRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0] as const);
 
-  const sdSolves = await readSecureDevSolves();
+  // A SCAN page that cannot be read now throws (issue #358) instead of
+  // silently truncating the walk. Caught here rather than failing the whole
+  // panel: every other figure on it is still valid, and this module's own
+  // convention is to SAY a number is short rather than quietly present it.
+  // Without the caveat the counts would look authoritative while omitting
+  // however many contestants sat on the unread pages.
+  let sdSolves: Map<string, string>;
+  try {
+    sdSolves = await readSecureDevSolves();
+  } catch (err) {
+    console.error("secure-development solves unavailable for metrics:", err);
+    // Names the hint-order counts too, not just the obvious ones: the
+    // per-slot `solvedAt` lookup below reads this same map, so a Secure
+    // Development hint slot with no solve time contributes to NEITHER
+    // boughtBeforeSolving nor boughtAfterSolving. Those two would otherwise
+    // look complete while quietly omitting a module.
+    caveats.push(
+      "Secure Development solves could not be read — participation, funnel, solve and hint-order counts below are incomplete.",
+    );
+    sdSolves = new Map();
+  }
   const sdLogins = new Set<string>();
   for (const composite of sdSolves.keys()) {
     const parts = composite.split("/");
