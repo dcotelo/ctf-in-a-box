@@ -132,28 +132,42 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   once before, in v0.3.0. The FAQ answer now names the exception and points at
   the card, and the classic-only FAQ test asserts the **answer** rather than
   only that the question rendered — which is how the wrong one survived.
-- **Secure Development's hints reach contestants for the first time.** With
-  hints switched on, no 💡 ever appeared on a target's challenge rows — not on
-  `/challenges`, not on the profile lists — and the banner stated, as fact,
-  that "no challenge is offering one yet". It could not know that.
-  `getHintAvailability` hand-rolled Upstash's path-style `GET /hkeys/<key>` so
-  the read could ride Next's ISR cache, and **srh does not serve that route**:
-  it answers `404 SRH: Endpoint not found`, and srh is what every deployment
-  of this kit runs in front of Redis. The read therefore failed on every
-  render, the `catch` turned it into `{}`, and "the read failed" became "there
-  are no hints" — with the log line the only evidence. Classic's and AI's
-  hints were never affected, because they already went through
-  `upstashPipeline`, which posts to `/pipeline`. Availability now goes the
-  same way: one round trip for all six targets instead of six cached GETs,
-  fewer requests than the caching was aiming for. The rationale for the
-  bespoke call was wrong on its own terms too — `/challenges` renders
-  dynamically regardless, as the page's own comment says where it calls this.
-  A failed command is no longer read as an empty target, either: a per-command
-  error now throws so the fail direction applies, since `upstashPipeline`
-  reports those positionally rather than raising. The test that covered this
-  had asserted the broken shape — six ISR-cached fetches, `upstashPipeline`
-  never called — against a stubbed `fetch` that always answered `ok`, so it
-  proved a request was made and never that the route existed.
+- **Secure Development has no hints, and the app stops implying otherwise.**
+  Two changes in this window, and the second reversed the first's premise, so
+  they are recorded as one arc.
+
+  With hints switched on, no 💡 ever appeared on a target's challenge rows and
+  the banner stated, as fact, that "no challenge is offering one yet". It could
+  not know that: `getHintAvailability` hand-rolled Upstash's path-style
+  `GET /hkeys/<key>` so the read could ride Next's ISR cache, and **srh does
+  not serve that route** — it answers `404 SRH: Endpoint not found`, and srh is
+  what every deployment of this kit runs in front of Redis. The read failed on
+  every render, the `catch` turned it into `{}`, and "the read failed" became
+  "there are no hints". That transport bug was real and is fixed (#313): the
+  read went through `upstashPipeline`, which srh does serve, and a per-command
+  error now throws so the fail direction applies rather than being reported
+  positionally and ignored.
+
+  Fixing it revealed there had never been a **producer**. Nothing in this kit
+  writes a `hints:<app>` field — not the scorer (which has no concept of a
+  hint, despite three comments here calling those hashes "scorer-owned"), not
+  the admin panel (Secure Development's tab has no hint field), not the
+  rubrics. So a working read could only ever come back empty while
+  `/challenges` reported that to contestants as news, and the Hints tab told
+  organizers each module "holds the hint text on its own tab" — true of Classic
+  and AI, false there, sending them to a tab with no such field.
+
+  So Secure Development is out of the availability read (#334):
+  `getHintAvailability` returns `{}` and reads nothing, `/challenges` shows no
+  hint banner and no 💡, and the Hints tab names Secure Development alongside
+  quiz as having none. It is kept as a function returning the same shape, so
+  reviving it is one edit if secure-development hint text ever gains an author
+  — the three candidate designs are recorded in #334.
+
+  **Classic and AI hints are unaffected throughout.** Both are authored through
+  their own admin tabs into `ctf:classic:hints` / `ctf:ai:hints`, both read
+  through `upstashPipeline`, and the four hint settings, the pricing, the
+  gates, the penalty column and the reveal machinery all keep working for them.
 
 - **Classic and AI now tell contestants that a hint costs points.** Secure
   Development's rules and terms have always said "Revealing a hint deducts
