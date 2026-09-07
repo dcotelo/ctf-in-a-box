@@ -662,90 +662,27 @@ describe("getHintPenalties", () => {
 });
 
 describe("getHintAvailability", () => {
-  // These used to assert the opposite: one ISR-cached `fetch` per app and
-  // `upstashPipeline` never called. That pinned Upstash's path-style
-  // `GET /hkeys/<key>`, which srh — what every deployment of this kit runs in
-  // front of Redis — answers with 404 "SRH: Endpoint not found". The test
-  // could not notice, because it stubbed `fetch` to return `ok: true`: it
-  // proved a request was *made*, never that the route existed. Availability
-  // therefore fell into the catch on every real render and no
-  // secure-development hint ever reached a contestant.
-  it("reads every target's hint hash in one pipeline, not per-app REST calls", async () => {
+  // It reads nothing now, and that is the fix (issue #334). `apps` is the
+  // secure-development target list, so this function only ever described that
+  // module — and nothing in the kit writes a `hints:<app>` field: not the
+  // scorer, not the admin panel, not the rubrics. #313 fixed the transport
+  // (an srh 404 on a path-style GET) and the tests here pinned the corrected
+  // pipeline read; what neither caught is that there was never a producer on
+  // the other end, so a working read could only ever come back empty while
+  // /challenges reported that to contestants as news.
+  it("returns {} without touching Redis", async () => {
     const store = await loadStore();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    mocks.upstashPipeline.mockImplementationOnce(async (commands: (string | number)[][]) =>
-      commands.map(([, key]) => ({
-        result: key === "hints:juice-shop" ? ["Challenge-1", "Challenge-2"] : [],
-      })),
-    );
-
-    const availability = await store.getHintAvailability();
-    expect(availability).toEqual({ "juice-shop": ["Challenge-1", "Challenge-2"] });
-
-    // One round trip for all six targets, and no hand-rolled REST call.
-    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+    expect(await store.getHintAvailability()).toEqual({});
+    // The point of the change: no read at all, by either client.
+    expect(mocks.upstashPipeline).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
-    const commands = mocks.upstashPipeline.mock.calls[0][0] as string[][];
-    expect(commands).toHaveLength(6);
-    expect(commands.every(([verb]) => verb === "HKEYS")).toBe(true);
-    expect(commands).toContainEqual(["HKEYS", "hints:juice-shop"]);
   });
 
-  it("degrades to {} when the pipeline throws", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const store = await loadStore();
-    mocks.upstashPipeline.mockRejectedValueOnce(new Error("Upstash pipeline failed: HTTP 500"));
-    expect(await store.getHintAvailability()).toEqual({});
-    consoleError.mockRestore();
-  });
-
-  // `upstashPipeline` reports a per-command failure positionally instead of
-  // throwing (AGENTS.md). Read `.result` without checking `.error` and a
-  // WRONGTYPE/NOAUTH on one target reads as "that target has no hints" —
-  // the board silently drops its 💡 marks and says nothing.
-  it("does not read a failed HKEYS as a target with no hints", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const store = await loadStore();
-    mocks.upstashPipeline.mockResolvedValueOnce([
-      { result: ["Challenge-1"] },
-      { error: "WRONGTYPE Operation against a key holding the wrong kind of value" },
-      { result: [] },
-      { result: [] },
-      { result: [] },
-      { result: [] },
-    ]);
-    expect(await store.getHintAvailability()).toEqual({});
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
-
-  // `[]` is HKEYS's answer for a hash that does not exist, so any other shape
-  // is a reply we cannot read. Coercing it to `[]` would reproduce the
-  // original bug by a different route: a target reported as having no hints
-  // because the read was not understood.
-  it("does not read a non-array HKEYS reply as a target with no hints", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const store = await loadStore();
-    mocks.upstashPipeline.mockResolvedValueOnce([
-      { result: ["Challenge-1"] },
-      { result: null },
-      { result: [] },
-      { result: [] },
-      { result: [] },
-      { result: [] },
-    ]);
-    expect(await store.getHintAvailability()).toEqual({});
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
-
-  it("returns {} without reading Redis when hints are not enabled", async () => {
+  it("returns {} with hints switched off too, still without reading", async () => {
     const store = await loadStore(false);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
     expect(await store.getHintAvailability()).toEqual({});
-    expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 });

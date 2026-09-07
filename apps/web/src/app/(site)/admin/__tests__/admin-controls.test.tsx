@@ -249,7 +249,7 @@ describe("AdminControls panel contents", () => {
   it("says on the Hints panel which modules the hint policy reaches", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const hintsPanel = panelFor(html, "hints");
-    expect(hintsPanel).toMatch(/Secure Development, Classic CTF and AI Challenges/);
+    expect(hintsPanel).toMatch(/Classic CTF and AI Challenges sell their hints/);
   });
 
   // UX audit F6: the unlock-after help used to say "a scoring start below",

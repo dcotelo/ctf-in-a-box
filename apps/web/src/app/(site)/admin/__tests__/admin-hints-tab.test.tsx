@@ -56,7 +56,11 @@ describe("AdminHintsTab", () => {
     expect(html).toContain("Hint cost");
     expect(html).toContain("Hints: solves required");
     expect(html).toContain("Hints: unlock after (min)");
-    expect(html).toMatch(/Secure Development, Classic CTF and AI Challenges/);
+    expect(html).toMatch(/Classic CTF and AI Challenges sell their hints/);
+    // Secure Development is named as having NONE, not as a seller: nothing in
+    // the kit authors hint text for a target (issue #334), and the old copy
+    // sent organizers to a tab with no hint field.
+    expect(html).toMatch(/Secure Development have no hints/);
   });
 
   it("advertises each numeric knob's server-side default as its placeholder", () => {
