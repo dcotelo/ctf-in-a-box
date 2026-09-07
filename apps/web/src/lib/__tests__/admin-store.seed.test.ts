@@ -379,7 +379,18 @@ describe("seedDemoData", () => {
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
     expect(DEMO_AI_CHALLENGES.some((c) => c.mode === "flag")).toBe(true);
-    expect(DEMO_AI_CHALLENGES.some((c) => c.mode === "event")).toBe(true);
+
+    // Issue #355: NO demo challenge may be `event`-mode. Such a challenge can
+    // only be solved by an external arena POSTing a signed event, and the
+    // fixture's launch URLs are a documentation domain that does not resolve —
+    // so seeding one put a 400-point row on the board with no flag form and a
+    // dead Launch button, unclearable by anyone. This is the invariant, not a
+    // description of today's data: reintroducing an event-mode fixture entry
+    // has to fail here first.
+    expect(DEMO_AI_CHALLENGES.filter((c) => c.mode === "event")).toEqual([]);
+    for (const dc of DEMO_AI_CHALLENGES) {
+      expect(dc.flag, `${dc.id} must be flag-gradable so the demo board is clearable`).not.toBe("");
+    }
 
     // one HSET per challenge into the public challenges hash, with NO flag or
     // signing key field anywhere in the stored value
@@ -395,9 +406,13 @@ describe("seedDemoData", () => {
     // the authored flag hash holds the flag verbatim, and ONLY for the
     // graded (mode !== "event") challenges — an event-mode challenge has no
     // flag entries at all, since signed events assert that solve instead
+    // Every fixture challenge is graded now (#355), so this set is all of
+    // them; the `mode === "event"` arms below are kept because the SEED still
+    // has that branch — the fixture no longer exercises it, and a future entry
+    // could. `ai-store.authoring.test.ts` covers the same rule on the
+    // authoring path, where an event-mode challenge can still be created.
     const gradedIds = new Set(DEMO_AI_CHALLENGES.filter((c) => c.mode !== "event").map((c) => c.id));
-    const eventIds = new Set(DEMO_AI_CHALLENGES.filter((c) => c.mode === "event").map((c) => c.id));
-    expect(eventIds.size).toBeGreaterThan(0);
+    expect(gradedIds.size).toBe(DEMO_AI_CHALLENGES.length);
 
     const flagCmds = cmds.filter((c) => c[0] === "HSET" && c[1] === "ctf:ai:flag");
     expect(flagCmds.length).toBe(gradedIds.size);
