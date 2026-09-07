@@ -69,6 +69,32 @@ if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
   echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
 fi
 
+echo "--- /admin renders its shell, on both URL shapes"
+# Issue #312: every /admin URL 500'd in production for a release while this
+# script, `next build`, vitest and CI were all green. The route files called
+# resolveAdminTab(), which lived in a `"use client"` module — a client
+# REFERENCE, not a callable — so the throw happened at REQUEST time, in a
+# place no build step and no unit test can reach.
+#
+# Asserting on rendered COPY, not on a status code: the app streams the shell
+# with HTTP 200 and the failure arrives inside the body, so
+# `curl -o /dev/null -w %{http_code} /admin` returns 200 on a fully dead panel.
+#
+# Signed out is the point. requireAdmin refuses, AdminPanel renders its
+# "Forbidden / Organizer access only" wall, and seeing that wall proves the
+# whole chain ran: the route file executed, the tab helper was callable, and
+# the panel rendered. The bug replaced this wall with the error boundary.
+#
+# Both shapes, because they are different route files with different bugs to
+# hit: /admin is page.tsx, /admin/<tab> is [tab]/page.tsx.
+for admin_path in /admin /admin/overview; do
+  ADMIN_HTML=$(wait_for_html "http://localhost:3100${admin_path}")
+  expect_in "$ADMIN_HTML" "Organizer access only" "${admin_path} did not render the admin shell"
+  if grep -qF "That didn't load" <<< "$ADMIN_HTML"; then
+    echo "FAIL: ${admin_path} rendered the error boundary (see issue #312)"; exit 1
+  fi
+done
+
 echo "--- default build is neutral (no DEF CON, name OWASP CTF)"
 docker build -f apps/web/Dockerfile -t ctf-web:default-check . >/dev/null
 docker run -d --name web-default -p 3101:3000 \

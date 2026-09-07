@@ -6,8 +6,10 @@
 // Both hand the same string to the same shell, so what is pinned here is the
 // pair of pure helpers that decide it — no DOM required, which matters
 // because this repo's tests run in vitest's `node` environment.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { adminTabHref, resolveAdminTab, tabFromLocation } from "@/app/(site)/admin/admin-controls";
+import { adminTabHref, resolveAdminTab, tabFromLocation } from "@/app/(site)/admin/admin-tabs";
 
 describe("adminTabHref", () => {
   it("builds the canonical path for a tab", () => {
@@ -87,4 +89,43 @@ describe("resolveAdminTab", () => {
     expect(resolveAdminTab(undefined, undefined)).toBe("");
     expect(resolveAdminTab(undefined, ["a", "b"])).toBe("");
   });
+});
+
+// The RSC boundary these helpers sit on (issue #312).
+//
+// This is a STATIC check on purpose. The bug it guards — a Server Component
+// calling a function exported from a `"use client"` module — took every
+// `/admin` URL to the error boundary in production while `next build`, vitest
+// and the whole CI matrix stayed green: vitest has no RSC boundary, so
+// `"use client"` is inert here and the call simply succeeds. No behavioural
+// assertion in this suite can fail on it, so the file relationships are what
+// gets pinned instead. The end-to-end proof lives in scripts/acceptance-app.sh,
+// which requests /admin against a real built image and asserts on rendered copy.
+describe("the RSC boundary", () => {
+  const adminDir = join(import.meta.dirname, "..");
+  const read = (f: string) => readFileSync(join(adminDir, f), "utf8");
+
+  it("admin-tabs.ts is not a Client Component", () => {
+    // The moment this file carries the marker, every server caller below breaks
+    // again — and breaks the same silent way.
+    expect(read("admin-tabs.ts")).not.toMatch(/^\s*["']use client["']/m);
+  });
+
+  it("admin-tabs.ts imports nothing that could carry the marker", () => {
+    // A transitive `"use client"` puts it back on the client side of the
+    // boundary just as effectively as its own marker would.
+    const imports = [...read("admin-tabs.ts").matchAll(/^\s*import\s.*?from\s+["']([^"']+)["']/gm)];
+    expect(imports.map((m) => m[1])).toEqual([]);
+  });
+
+  for (const route of ["page.tsx", join("[tab]", "page.tsx")]) {
+    it(`${route} takes resolveAdminTab from admin-tabs, not admin-controls`, () => {
+      const src = read(route);
+      expect(src).toContain('from "@/app/(site)/admin/admin-tabs"');
+      // admin-controls.tsx is `"use client"`; importing a callable from it here
+      // is the exact defect. Rendering <AdminControls/> is fine, so only the
+      // helper import is banned, not the module name appearing at all.
+      expect(src).not.toMatch(/import\s*\{[^}]*\b(resolveAdminTab|adminTabHref|tabFromLocation)\b[^}]*\}\s*from\s*["'][^"']*admin-controls["']/);
+    });
+  }
 });
