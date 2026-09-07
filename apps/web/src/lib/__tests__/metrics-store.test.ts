@@ -17,7 +17,8 @@ vi.mock("server-only", () => ({}));
 // `parseScanPage` is the REAL parser — see the note in team-store.test.ts.
 vi.mock("@/lib/upstash", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/upstash")>();
-  return { parseScanPage: actual.parseScanPage, upstashPipeline: mocks.upstashPipeline };
+  return { assertPipelineOk: actual.assertPipelineOk,
+    parseScanPage: actual.parseScanPage, upstashPipeline: mocks.upstashPipeline };
 });
 vi.mock("@/lib/team-store", () => ({ listTeams: mocks.listTeams }));
 

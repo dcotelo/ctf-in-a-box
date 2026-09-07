@@ -23,6 +23,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/upstash")>();
   return {
+    assertPipelineOk: actual.assertPipelineOk,
     parseScanPage: actual.parseScanPage,
     upstashEval: mocks.upstashEval,
     upstashPipeline: mocks.upstashPipeline,

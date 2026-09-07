@@ -1,5 +1,5 @@
 import "server-only";
-import { parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
+import { assertPipelineOk, parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
 import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
@@ -648,7 +648,11 @@ async function scanDelByPrefix(pattern: string): Promise<number> {
     const [next, keys] = parseScanPage(scan, `reset ${pattern}`);
     cursor = next;
     if (keys.length > 0) {
-      await upstashPipeline([["DEL", ...keys]]);
+      // The DEL is checked too: `total` is incremented from `keys.length`, so
+      // an unchecked failure here reports keys as cleared that are still
+      // there — the same false "done" the SCAN fallback gave, one command
+      // later (issue #358).
+      assertPipelineOk(await upstashPipeline([["DEL", ...keys]]), `reset ${pattern}`);
       total += keys.length;
     }
   } while (cursor !== "0");

@@ -80,6 +80,28 @@ export function parseScanPage(reply: UpstashResult, context: string): [string, s
   return [String(page[0]), page[1]];
 }
 
+/**
+ * Throws if ANY command in a pipeline reply failed (issue #358).
+ *
+ * The companion to `parseScanPage`, for the commands a SCAN walk issues once
+ * it has its keys. Making the walk honest is only half of it: the reset counts
+ * a page as `total += keys.length` immediately after its `DEL`, so an unchecked
+ * failure there still produced "cleared 412" for keys that are demonstrably
+ * still present — the same lie, one command later. The same applies to the
+ * per-contestant `HDEL`, and to the `HKEYS`/`HGETALL` reads whose replies
+ * become counts.
+ *
+ * Deliberately NOT folded into `upstashPipeline`: callers like the Lua evals
+ * and the leaderboard read genuinely want to judge a per-command error
+ * themselves, which is why that function returns them positionally. This is
+ * for the callers whose answer is "then my number is wrong".
+ */
+export function assertPipelineOk(replies: UpstashResult[], context: string): UpstashResult[] {
+  const failed = replies.find((r) => r.error);
+  if (failed) throw new Error(`Upstash command failed (${context}): ${failed.error}`);
+  return replies;
+}
+
 /** Runs a Lua script as a single atomic Redis operation. */
 export async function upstashEval(
   script: string,

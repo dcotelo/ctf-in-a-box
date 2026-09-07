@@ -1,5 +1,5 @@
 import "server-only";
-import { parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
+import { assertPipelineOk, parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
 import { LOGIN_RE } from "@/lib/admin-admins";
 import { sumAttempts } from "@/lib/attempt-row";
@@ -139,7 +139,12 @@ async function countSecureDevSolves(login: string): Promise<number> {
     const [next, keys] = parseScanPage(scan, "count secure-dev solves");
     cursor = next;
     if (keys.length) {
-      const replies = await upstashPipeline(keys.map((k) => ["HKEYS", k]));
+      // The HKEYS replies BECOME the count, so a failed one silently
+      // understates what the organizer is about to delete (issue #358).
+      const replies = assertPipelineOk(
+        await upstashPipeline(keys.map((k) => ["HKEYS", k])),
+        "count secure-dev solves",
+      );
       for (const reply of replies) {
         const fields = Array.isArray(reply.result) ? (reply.result as string[]) : [];
         total += fields.filter((f) => f.startsWith(prefix)).length;
@@ -289,12 +294,23 @@ async function clearSecureDevSolves(login: string): Promise<number> {
     const [next, keys] = parseScanPage(scan, "clear secure-dev solves");
     cursor = next;
     for (const key of keys) {
-      const [reply] = await upstashPipeline([["HKEYS", key]]);
+      // Both commands are checked (issue #358). A failed HKEYS reads as "this
+      // contestant has nothing here" and skips the key; a failed HDEL leaves
+      // the rows in place while `removed` counts them gone. Either way the
+      // organizer is told a contestant's progress was cleared when some of it
+      // is still there to be scored.
+      const [reply] = assertPipelineOk(
+        await upstashPipeline([["HKEYS", key]]),
+        "clear secure-dev solves",
+      );
       const fields = (Array.isArray(reply.result) ? (reply.result as string[]) : []).filter((f) =>
         f.startsWith(prefix),
       );
       if (fields.length) {
-        await upstashPipeline([["HDEL", key, ...fields]]);
+        assertPipelineOk(
+          await upstashPipeline([["HDEL", key, ...fields]]),
+          "clear secure-dev solves",
+        );
         removed += fields.length;
       }
     }

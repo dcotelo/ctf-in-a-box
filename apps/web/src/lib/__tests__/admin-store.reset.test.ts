@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/upstash")>();
   return {
+    assertPipelineOk: actual.assertPipelineOk,
     parseScanPage: actual.parseScanPage,
     upstashEval: mocks.upstashEval,
     upstashPipeline: mocks.upstashPipeline,
@@ -266,6 +267,22 @@ describe("resetEvent", () => {
     });
 
     await expect(resetEvent("alice")).rejects.toThrow(/SCAN failed \(reset /);
+  });
+
+  // The other half of #358, and the one CodeRabbit's review caught: making the
+  // SCAN honest is pointless if the DEL that follows it can fail silently.
+  // `total` is incremented from `keys.length`, not from the DEL's reply, so an
+  // unchecked failure reported keys as cleared that are demonstrably still
+  // there — the same false "done", one command later.
+  it("rejects when a DEL fails, rather than counting those keys as cleared", async () => {
+    mocks.upstashPipeline.mockImplementation(async (cmds: (string | number)[][]) => {
+      const cmd = cmds[0];
+      if (String(cmd[0]) === "SCAN") return [{ result: ["0", ["ctf:solves:juice-shop"]] }];
+      if (String(cmd[0]) === "DEL") return [{ error: "READONLY You can't write against a read only replica." }];
+      return [{ result: null }];
+    });
+
+    await expect(resetEvent("alice")).rejects.toThrow(/command failed \(reset /);
   });
 
   it("skips DEL for an empty prefix and paginates a multi-page prefix", async () => {

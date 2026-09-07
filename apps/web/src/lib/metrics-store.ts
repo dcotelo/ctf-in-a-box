@@ -1,5 +1,5 @@
 import "server-only";
-import { parseScanPage, upstashPipeline } from "@/lib/upstash";
+import { assertPipelineOk, parseScanPage, upstashPipeline, type UpstashResult } from "@/lib/upstash";
 import { userKey, userHintTimesKey, HINTS_SPENT_KEY } from "@/lib/team-keys";
 import { QUIZ_POINTS_KEY, QUIZ_QUESTIONS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
 import { CLASSIC_CHALLENGES_KEY, CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
@@ -140,8 +140,11 @@ function hashEntries(result: unknown): [string, unknown][] {
   return out;
 }
 
-async function batched(commands: (string | number)[][]): Promise<{ result?: unknown }[]> {
-  const out: { result?: unknown }[] = [];
+// Returns UpstashResult, not `{ result?: unknown }`: the narrower type erased
+// the `error` field, so a caller checking it would be reading a property
+// TypeScript believed could never be set (issue #358).
+async function batched(commands: (string | number)[][]): Promise<UpstashResult[]> {
+  const out: UpstashResult[] = [];
   for (let i = 0; i < commands.length; i += BATCH) {
     out.push(...(await upstashPipeline(commands.slice(i, i + BATCH))));
   }
@@ -170,7 +173,13 @@ async function readSecureDevSolves(): Promise<Map<string, string>> {
   } while (cursor !== "0");
   const out = new Map<string, string>();
   if (!keys.length) return out;
-  const replies = await batched(keys.map((k) => ["HGETALL", k]));
+  // Checked, like the SCAN above (issue #358): a failed HGETALL reads as an
+  // empty hash, so the target's solves vanish from every figure computed
+  // from this map — silently, and the caller has a caveat for exactly this.
+  const replies = assertPipelineOk(
+    await batched(keys.map((k) => ["HGETALL", k])),
+    "metrics secure-dev solves",
+  );
   keys.forEach((key, i) => {
     const target = key.slice("ctf:solves:".length);
     for (const [field, at] of hashEntries(replies[i]?.result)) {
