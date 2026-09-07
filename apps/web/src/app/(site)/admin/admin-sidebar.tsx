@@ -19,7 +19,7 @@
 // so switching one in is a state change, not a page load.
 
 import { useState } from "react";
-import { adminTabHref } from "@/app/(site)/admin/admin-controls";
+import { adminTabHref } from "@/app/(site)/admin/admin-tabs";
 
 export type SidebarItem = { id: string; label: string };
 export type SidebarGroup = { heading: string; items: readonly SidebarItem[] };

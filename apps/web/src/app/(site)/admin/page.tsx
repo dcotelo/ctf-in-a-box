@@ -4,7 +4,10 @@
 
 import type { Metadata } from "next";
 import AdminPanel from "@/app/(site)/admin/admin-panel";
-import { resolveAdminTab } from "@/app/(site)/admin/admin-controls";
+// From admin-tabs.ts, NOT admin-controls.tsx: this is a Server Component, and
+// admin-controls is a Client Component whose exports are client references
+// rather than callables (issue #312).
+import { resolveAdminTab } from "@/app/(site)/admin/admin-tabs";
 
 export const metadata: Metadata = {
   title: "Admin",
