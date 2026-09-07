@@ -125,6 +125,8 @@ export type AdminQuizControlsProps = {
   moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialQuestions?: AdminQuestion[];
+  /** Seeds the loaded flag — same test seam as the two above. */
+  initialLoaded?: boolean;
   /** Reports the bank's size to the shell for the setup checklist above this
    *  panel, AFTER the mount-time fetch has settled and again on every change
    *  — never from the pre-hydration seed, which would report an empty bank
@@ -142,6 +144,7 @@ export default function AdminQuizControls({
   statusOf = () => ({ state: "idle" }),
   moduleSettings,
   initialQuestions = [],
+  initialLoaded = false,
   onInventory,
 }: AdminQuizControlsProps) {
   // The bank, the open editor, the delete target and every write over them
@@ -167,6 +170,7 @@ export default function AdminQuizControls({
     toPayload: payloadFromEditor,
     rowPayload: payloadFromRow,
     initialRows: initialQuestions,
+    initialLoaded,
     initialCategories: [],
     // A summary of a write does not outlive the next write (#127).
     onWrite: () => bundleImport.retire(),
@@ -261,6 +265,7 @@ export default function AdminQuizControls({
           )}
           intro="Drag a question to reorder it, or use Move up / Move down from its ⋯ menu. Contestants see them in this order."
           emptyText="No questions yet."
+          loading={!resource.loaded}
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}
           onEdit={(row) => resource.openEditor(editorFromQuestion(row))}

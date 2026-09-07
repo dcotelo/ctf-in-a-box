@@ -70,6 +70,7 @@ export default function SortableList<Row>({
   meta,
   intro,
   emptyText,
+  loading = false,
   reorderPending = false,
   onMove,
   onEdit,
@@ -88,6 +89,12 @@ export default function SortableList<Row>({
   intro?: string;
   /** What an empty list says ("No questions yet."). */
   emptyText: string;
+  /** True while the first read is still in flight. An empty list and an
+   *  unread one are different answers, and only one of them means the
+   *  organizer's content is gone — so the not-yet-known state gets the same
+   *  "Checking…" vocabulary the tab header already uses, and `emptyText` is
+   *  reserved for a COMPLETED read that returned nothing (issue #331). */
+  loading?: boolean;
   /** True while a reorder's writes are in flight — drag and the move items
    *  are held until it settles. */
   reorderPending?: boolean;
@@ -103,7 +110,9 @@ export default function SortableList<Row>({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  if (rows.length === 0) return <p className="text-sm text-muted">{emptyText}</p>;
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted">{loading ? "Checking…" : emptyText}</p>;
+  }
 
   const buckets = bucketRows(rows, groupOf, groups);
   const canMove = onMove !== undefined;

@@ -65,9 +65,10 @@ const c2: Challenge = {
 const row1: AdminChallenge = { challenge: c1, flag: "CTF{real}", hint: null };
 const row2: AdminChallenge = { challenge: c2, flag: "CTF{other}", hint: null };
 
-function renderControls(initialChallenges: AdminChallenge[] = [], initialCategories: string[] = ["Web"]) {
+function renderControls(initialChallenges: AdminChallenge[] = [], initialCategories: string[] = ["Web"], loaded = true) {
   return renderToStaticMarkup(
     <AdminClassicControls
+      initialLoaded={loaded}
       pending={false}
       classicCooldownSecInput="5"
       setClassicCooldownSecInput={noop}
@@ -79,6 +80,16 @@ function renderControls(initialChallenges: AdminChallenge[] = [], initialCategor
 }
 
 describe("AdminClassicControls", () => {
+
+  // Issue #331: an empty list and an unread one are different answers, and only
+  // one of them means the organizer's content is gone. Every module tab used to
+  // open by telling them it had — for 6-10 seconds on a real deployment.
+  it("says Checking… while the first read is in flight, not that the board is empty", () => {
+    const html = renderControls([], ["Web"], false);
+    expect(html).toContain("Checking…");
+    expect(html).not.toContain("No challenges yet.");
+    expect(html).not.toContain("No categories yet");
+  });
   it("renders the cooldown setting input with its current value", () => {
     const html = renderControls();
     expect(html).toContain("Submission cooldown (sec)");

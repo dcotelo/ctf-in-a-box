@@ -39,6 +39,7 @@ export default function CategoryEditor({
   onStartRename,
   onCancelRename,
   onCommitRename,
+  loading = false,
 }: {
   categories: readonly string[];
   input: string;
@@ -55,6 +56,8 @@ export default function CategoryEditor({
   onStartRename?: (name: string) => void;
   onCancelRename?: () => void;
   onCommitRename?: () => void;
+  /** True while the first read is still in flight — see the note below. */
+  loading?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4">
@@ -66,7 +69,12 @@ export default function CategoryEditor({
       </div>
       {error && <p className="text-sm text-[#e53e3e]">{error}</p>}
       {categories.length === 0 ? (
-        <p className="text-sm text-muted">No categories yet — add one before authoring a challenge.</p>
+        // "Checking…" while the first read is in flight: telling an organizer
+        // their categories are gone before we have looked is the same defect
+        // as the hint banner's (issue #331).
+        <p className="text-sm text-muted">
+          {loading ? "Checking…" : "No categories yet — add one before authoring a challenge."}
+        </p>
       ) : (
         <ul className="flex flex-wrap gap-2">
           {categories.map((name, i) => (

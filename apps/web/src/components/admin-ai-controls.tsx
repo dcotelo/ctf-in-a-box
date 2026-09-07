@@ -136,6 +136,8 @@ export type AdminAiControlsProps = {
   moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminAiChallenge[];
+  /** Seeds the loaded flag — same test seam as the two above. */
+  initialLoaded?: boolean;
   initialCategories?: string[];
   /** Reports the board's size to the shell for the setup checklist above this
    *  panel — after the mount-time fetch has settled, never from the seed. */
@@ -151,6 +153,7 @@ export default function AdminAiControls({
   moduleSettings,
   initialChallenges = [],
   initialCategories = [],
+  initialLoaded = false,
   onInventory,
 }: AdminAiControlsProps) {
   // The board, the category list, the open editor, the delete target and
@@ -185,6 +188,7 @@ export default function AdminAiControls({
     },
     toPayload: payloadFromAiEditor,
     initialRows: initialChallenges,
+    initialLoaded,
     initialCategories,
   });
   const { rows: challenges, categories, loaded, listError, editing, formPending, deleteTarget, nextOrder } = resource;
@@ -285,6 +289,7 @@ export default function AdminAiControls({
       )}
 
       <CategoryEditor
+        loading={!resource.loaded}
         categories={categories}
         input={categoryEditor.input}
         error={categoryEditor.error}
@@ -360,6 +365,7 @@ export default function AdminAiControls({
             </>
           )}
           emptyText="No challenges yet."
+          loading={!resource.loaded}
           onEdit={(row) => {
             setFlagRevealed(false);
             resource.openEditor(editorFromAiChallenge(row));
