@@ -446,9 +446,26 @@ fi
 if APP_BUILD_REV="$(git rev-parse --short=12 HEAD 2>/dev/null)"; then
   # A dirty tree would otherwise report a sha that does not describe the image.
   # `status --porcelain`, not `diff HEAD`: the build context is the working
-  # tree (`COPY apps/web/ ./`), so an UNTRACKED file is baked in just as
-  # surely as a modified one, and `diff` cannot see it.
-  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  # tree, so an UNTRACKED file is baked in just as surely as a modified one,
+  # and `diff` cannot see it.
+  #
+  # SCOPED to what actually reaches the image, which is the half this got
+  # wrong first time round. The Dockerfile does `COPY apps/web/ ./`, so a
+  # dirty `docs/`, `scorer/`, `sync/` or a stray `.DS_Store` cannot change the
+  # app build — yet checking the whole repo suppressed the revision on every
+  # machine that had one, which is every machine. `unknown` is
+  # indistinguishable from "this build predates the stamp", so the field
+  # stopped meaning anything at all.
+  #
+  # `$CONFIG` is deliberately NOT in the pathspec. event.yaml is baked in
+  # through EVENT_CONFIG_B64, so in principle a modified one makes the sha a
+  # lie — but it is gitignored (.gitignore:9), so git can never report it
+  # dirty and asking is pure cost. It is also frequently OUTSIDE the repo
+  # (`--config /tmp/event.yaml`, which this repo's own bats suite passes), and
+  # git rejects the entire pathspec on an out-of-repo path — printing nothing,
+  # which this check would have read as "clean". Adding it would have made the
+  # guard fail OPEN on exactly the paths that matter.
+  if [ -n "$(git status --porcelain -- apps/web 2>/dev/null)" ]; then
     echo "   NOTE: working tree is dirty — /health will report revision unknown"
     APP_BUILD_REV=""
   fi

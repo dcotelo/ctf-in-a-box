@@ -385,6 +385,41 @@ ENV
   [ -z "$(echo "$output" | grep -E '^fly ')" ]
 }
 
+@test "the /health revision survives dirt outside apps/web" {
+  need_docker
+  cd "$REPO"
+  # Issue #328. The guard checked `git status --porcelain` over the WHOLE repo,
+  # but the image is `COPY apps/web/ ./` — so a stray docs file or a .DS_Store
+  # blanked the revision on every machine that had one, which is every machine.
+  # An `unknown` revision is indistinguishable from "this build predates the
+  # stamp", so the field stopped meaning anything.
+  probe="docs/__health_scope_probe.md"
+  rm -f "$probe"
+  echo "untracked, and outside the build context" > "$probe"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  rm -f "$probe"
+  [ "$status" -eq 0 ]
+  # A real sha, not <none>. Single-bracket `[` so the assertion actually gates.
+  [ -n "$(echo "$output" | grep -oE 'APP_BUILD_REV=[0-9a-f]{7,40}')" ]
+}
+
+@test "a dirty apps/web still blanks the /health revision" {
+  need_docker
+  cd "$REPO"
+  # The other direction, so the fix above cannot become "never blank it". A
+  # modified app tree means the sha does not describe the image, and reporting
+  # it would be a confident lie — worse than reporting nothing.
+  probe="apps/web/__health_scope_probe.txt"
+  rm -f "$probe"
+  echo "untracked, and INSIDE the build context" > "$probe"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  rm -f "$probe"
+  [ "$status" -eq 0 ]
+  [ -n "$(echo "$output" | grep -F 'APP_BUILD_REV=<none>')" ]
+}
+
 @test "dry-run redacts every secret value it would set" {
   need_docker
   cd "$REPO"
