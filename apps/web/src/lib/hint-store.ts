@@ -357,33 +357,52 @@ export async function getHintPenalties(): Promise<Map<string, number>> {
   return penalties;
 }
 
-// Availability is fetched with Next's ISR cache instead of upstashPipeline —
-// the pipeline client is `cache: "no-store"`, which would flip the statically
-// rendered challenges page to per-request dynamic rendering.
-async function cachedHkeys(key: string): Promise<string[]> {
-  const url = process.env.UPSTASH_REDIS_REST_URL!;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
-  const res = await fetch(`${url.replace(/\/$/, "")}/hkeys/${encodeURIComponent(key)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    next: { revalidate: 300 },
-  });
-  if (!res.ok) throw new Error(`Upstash HKEYS ${key}: HTTP ${res.status}`);
-  const body = (await res.json()) as { result?: unknown; error?: string };
-  if (body.error) throw new Error(`Upstash HKEYS ${key}: ${body.error}`);
-  return Array.isArray(body.result) ? (body.result as string[]) : [];
-}
-
 /** Which challenge ids have a hint, per app — public shape (no hint text),
- *  safe to bake into the static challenges page. Degrades to {} on any
- *  failure so the page renders without the hint layer. */
+ *  for the board's 💡 marks. Degrades to {} on any failure so the page
+ *  renders without the hint layer.
+ *
+ *  One `/pipeline` round trip for all six targets, through the same client as
+ *  every other read here. It used to hand-roll Upstash's path-style
+ *  `GET /hkeys/<key>` so it could ride Next's ISR cache (`revalidate: 300`),
+ *  on the reasoning that `upstashPipeline`'s `cache: "no-store"` would flip a
+ *  statically rendered `/challenges` to dynamic. Two things were wrong with
+ *  that. The page is dynamic regardless — the root layout resolves module
+ *  names per request, so every route under it does, and challenges/page.tsx
+ *  says exactly that where it calls this. And **srh does not serve that
+ *  route**: it answers `404 {"error":"SRH: Endpoint not found. SRH might not
+ *  support this feature yet."}`, and srh is what every deployment of this kit
+ *  runs in front of Redis. So the fetch failed on every render, the catch
+ *  below turned it into `{}`, and no secure-development hint ever reached a
+ *  contestant — while classic's and ai's, which already went through
+ *  `upstashPipeline`, worked fine.
+ *
+ *  Six cached GETs became one uncached POST, so this is fewer round trips
+ *  than the cached version was aiming for, not more.
+ *
+ *  `upstashPipeline` reports a per-command failure positionally rather than
+ *  throwing (AGENTS.md), so each reply's `error` is checked: an unread hash
+ *  must not read as "this target has no hints". */
 export async function getHintAvailability(): Promise<Partial<Record<AppId, string[]>>> {
   if (!HINTS_AVAILABLE) return {};
   if (!(await resolveHintConfig()).enabled) return {};
   try {
-    const ids = await Promise.all(apps.map((app) => cachedHkeys(hintHashKey(app.id))));
+    const replies = await upstashPipeline(apps.map((app) => ["HKEYS", hintHashKey(app.id)]));
     const availability: Partial<Record<AppId, string[]>> = {};
     apps.forEach((app, i) => {
-      if (ids[i].length > 0) availability[app.id] = ids[i];
+      const key = hintHashKey(app.id);
+      const reply = replies[i];
+      if (!reply) throw new Error(`Upstash HKEYS ${key}: no reply at index ${i}`);
+      if (reply.error) throw new Error(`Upstash HKEYS ${key}: ${reply.error}`);
+      // HKEYS answers with an array — `[]` for a hash that does not exist. So
+      // anything else is a reply we do not understand, and coercing it to `[]`
+      // would put us straight back in the bug this whole change is about:
+      // reporting "this target has no hints" on the strength of a read that
+      // did not work.
+      if (!Array.isArray(reply.result)) {
+        throw new Error(`Upstash HKEYS ${key}: expected an array, got ${typeof reply.result}`);
+      }
+      const ids = reply.result as string[];
+      if (ids.length > 0) availability[app.id] = ids;
     });
     return availability;
   } catch (err) {
