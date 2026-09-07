@@ -50,7 +50,7 @@ function Figure({ label, value, hint }: { label: string; value: number; hint?: s
     <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
       <p className="font-mono text-xl tabular-nums text-white">{value}</p>
       <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-      {hint && <p className="mt-1 text-sm leading-tight text-zinc-500">{hint}</p>}
+      {hint && <p className="mt-1 text-sm leading-tight text-muted">{hint}</p>}
     </div>
   );
 }
@@ -299,7 +299,7 @@ export default function AdminInsightsTab({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
               What these numbers do not measure
             </h3>
-            <ul className="flex list-disc flex-col gap-1 pl-4 text-sm leading-relaxed text-zinc-500">
+            <ul className="flex list-disc flex-col gap-1 pl-4 text-sm leading-relaxed text-muted">
               {metrics.caveats.map((c) => (
                 <li key={c}>{c}</li>
               ))}

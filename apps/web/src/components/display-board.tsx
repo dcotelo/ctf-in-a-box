@@ -87,7 +87,9 @@ export default function DisplayBoard({
         ))}
       </ol>
 
-      <p className="mt-[2vh] text-right font-mono text-[1.4vh] text-[#8f8f9b]/60">
+      {/* Not `text-[#8f8f9b]/60` — that composites to 2.86:1 (issue #316), and
+          this is a projector surface read from across a room. */}
+      <p className="mt-[2vh] text-right font-mono text-[1.4vh] text-muted">
         refreshes every 30s
       </p>
     </div>

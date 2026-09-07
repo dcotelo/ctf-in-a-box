@@ -90,7 +90,15 @@ export default async function PhaseLine() {
                   />
                   <span
                     className={`font-mono text-[11px] uppercase tracking-wider ${
-                      isActive ? "font-semibold text-white" : isPast ? "text-[#8f8f9b]" : "text-[#8f8f9b]/60"
+                      // Three tiers, all >= 4.5:1 on the strip's ground. The
+                      // future arm used to be `text-[#8f8f9b]/60`, which
+                      // composites to rgb(93,93,105) — 2.86:1, dimmer than the
+                      // zinc-500 DESIGN_SYSTEM.md bans outright (issue #316).
+                      // Fading the replacement token past the banned one is
+                      // still a ban violation, so the separation comes from the
+                      // token ladder instead: zinc-400 6.7:1 past, muted 5.3:1
+                      // future, white present.
+                      isActive ? "font-semibold text-white" : isPast ? "text-zinc-400" : "text-muted"
                     }`}
                   >
                     {stop.label}

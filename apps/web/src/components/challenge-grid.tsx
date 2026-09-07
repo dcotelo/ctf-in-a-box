@@ -374,7 +374,7 @@ export default function ChallengeGrid({
                   href={app.repo}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="ml-auto hidden flex-none font-mono text-xs text-zinc-500 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:inline"
+                  className="ml-auto hidden flex-none font-mono text-xs text-muted transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:inline"
                 >
                   {app.repo.replace("https://github.com/", "")}
                 </a>
@@ -420,7 +420,7 @@ export default function ChallengeGrid({
                           />
                           <span
                             className={`min-w-0 flex-1 truncate text-sm ${
-                              isSolved ? "text-zinc-500" : "text-zinc-300"
+                              isSolved ? "text-muted" : "text-zinc-300"
                             }`}
                             title={c.description}
                           >

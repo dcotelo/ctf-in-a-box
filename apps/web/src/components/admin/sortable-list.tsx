@@ -148,7 +148,7 @@ export default function SortableList<Row>({
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-2">
                         {canMove && (
-                          <span aria-hidden="true" className="flex-none cursor-grab text-zinc-500">
+                          <span aria-hidden="true" className="flex-none cursor-grab text-muted">
                             ⠿
                           </span>
                         )}

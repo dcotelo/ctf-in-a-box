@@ -100,7 +100,7 @@ export default function SiteHeader({ navLinks }: { navLinks: NavEntry[] }) {
           {navLinks.map((entry) =>
             isNavGroup(entry) ? (
               <li key={entry.label}>
-                <span className="block px-3 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <span className="block px-3 pt-2 text-xs font-medium uppercase tracking-wide text-muted">
                   {entry.label}
                 </span>
                 <ul className="flex flex-col gap-1">
