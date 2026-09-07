@@ -20,27 +20,50 @@ const eslintConfig = defineConfig([
     // contestant and admin surfaces (issue #317). `--text-muted` is the
     // replacement step, 5.3-5.8:1 on the same grounds.
     //
-    // `disabled:text-zinc-500` is allowed through: WCAG 1.4.3 exempts
-    // inactive controls, and dimming a disabled control is how it reads as
-    // disabled. Fading the muted token instead (`text-[#8f8f9b]/60`) is
-    // banned too — that composited to 2.86:1, worse than the token this rule
-    // exists to keep out (issue #316).
+    // Matched as whole CLASS TOKENS, and in template quasis as well as plain
+    // string literals — a class name is as likely to be written inside a
+    // `${...}` template as in a quoted string in this codebase.
+    //
+    // The exemption is the EXACT `disabled:` variant and nothing else: WCAG
+    // 1.4.3 exempts inactive controls, and dimming a disabled control is how it
+    // reads as disabled. A naive `(?<!disabled:)` lookbehind would also exempt
+    // Tailwind v4's `not-disabled:`, which applies to controls that are very
+    // much active — so the variant chain is matched from its start instead.
+    //
+    // Fading the muted token is banned too, in both opacity spellings
+    // (`/60` and `/[60%]`): `text-[#8f8f9b]/60` composited to 2.86:1, worse
+    // than the token this rule exists to keep out (issue #316).
     files: ["**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "Literal[value=/(?<!disabled:)\\btext-zinc-500\\b/]",
-          message:
-            "text-zinc-500 is 3.5-3.8:1 and fails WCAG AA for text (DESIGN_SYSTEM.md). Use text-muted. Only `disabled:text-zinc-500` is allowed.",
-        },
-        {
-          selector: "Literal[value=/text-\\[#8f8f9b\\]\\/[0-9]/]",
-          message:
-            "Fading --text-muted lands under 4.5:1 (issue #316). Use a token from the ladder instead: text-zinc-400 or text-muted.",
-        },
+        ...[
+          {
+            // (?<![\w:-])   token start, and NOT immediately after a variant
+            //               colon — that is what lets `disabled:` through
+            // (?!disabled:) the one exempt variant, checked at the chain start
+            // (?:[\w-]+:)*  any other variant chain, `not-disabled:` included
+            pattern: "(?<![\\w:-])(?!disabled:)(?:[\\w-]+:)*text-zinc-500(?![\\w-])",
+            message:
+              "text-zinc-500 is 3.5-3.8:1 and fails WCAG AA for text (DESIGN_SYSTEM.md). Use text-muted. Only the exact `disabled:text-zinc-500` is allowed.",
+          },
+          {
+            pattern: "(?<![\\w:-])(?:[\\w-]+:)*text-\\[#8f8f9b\\]\\/(?:\\[[^\\]]*\\]|[\\d.]+)",
+            message:
+              "Fading --text-muted lands under 4.5:1 (issue #316). Use a token from the ladder instead: text-zinc-400 or text-muted.",
+          },
+        ].flatMap(({ pattern, message }) => [
+          { selector: `Literal[value=/${pattern}/]`, message },
+          { selector: `TemplateElement[value.raw=/${pattern}/]`, message },
+        ]),
       ],
     },
+  },
+  {
+    // The rule's own fixtures quote the banned tokens as DATA — that is the
+    // point of them. Linting them would make a working rule report itself.
+    files: ["src/__tests__/contrast-lint-rule.test.ts"],
+    rules: { "no-restricted-syntax": "off" },
   },
 ]);
 
