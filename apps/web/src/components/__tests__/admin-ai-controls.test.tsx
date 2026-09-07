@@ -67,9 +67,10 @@ const c2: AiChallenge = {
 const row1: AdminAiChallenge = { challenge: c1, flag: "CTF{real}", hint: null, signingKey: "signkey-abc" };
 const row2: AdminAiChallenge = { challenge: c2, flag: "", hint: null, signingKey: "signkey-xyz" };
 
-function renderControls(initialChallenges: AdminAiChallenge[] = [], initialCategories: string[] = ["AI"]) {
+function renderControls(initialChallenges: AdminAiChallenge[] = [], initialCategories: string[] = ["AI"], loaded = true) {
   return renderToStaticMarkup(
     <AdminAiControls
+      initialLoaded={loaded}
       pending={false}
       aiCooldownSecInput="5"
       setAiCooldownSecInput={noop}
@@ -81,6 +82,16 @@ function renderControls(initialChallenges: AdminAiChallenge[] = [], initialCateg
 }
 
 describe("AdminAiControls", () => {
+
+  // Issue #331: an empty list and an unread one are different answers, and only
+  // one of them means the organizer's content is gone. Every module tab used to
+  // open by telling them it had — for 6-10 seconds on a real deployment.
+  it("says Checking… while the first read is in flight, not that the board is empty", () => {
+    const html = renderControls([], [], false);
+    expect(html).toContain("Checking…");
+    expect(html).not.toContain("No challenges yet.");
+    expect(html).not.toContain("No categories yet");
+  });
   it("renders the cooldown setting input with its current value", () => {
     const html = renderControls();
     expect(html).toContain("Submission cooldown (sec)");

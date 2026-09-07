@@ -98,6 +98,8 @@ export type AdminResourceConfig<Row, Editor, Payload> = {
   rowPayload?: (row: Row) => Payload;
   initialRows: readonly Row[];
   initialCategories: readonly string[];
+  /** Seeds the `loaded` flag. Test seam only — see the note at its useState. */
+  initialLoaded?: boolean;
   /** Called after every successful write to the list (upsert, reorder,
    *  delete) — the quiz and classic panels retire a stale import summary
    *  here (#127). */
@@ -215,12 +217,17 @@ export type AdminResource<Row, Item, Editor> = {
 export function useAdminResource<Row, Item, Editor, Payload>(
   config: AdminResourceConfig<Row, Editor, Payload>,
 ): AdminResource<Row, Item, Editor> {
-  const { rows: accessors, initialRows, initialCategories, onWrite } = config;
+  const { rows: accessors, initialRows, initialCategories, initialLoaded = false, onWrite } = config;
 
   const [rows, setRows] = useState<Row[]>(() => sortByOrder(initialRows, accessors));
   const [categories, setCategories] = useState<string[]>([...initialCategories]);
   const [listError, setListError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  // False until the mount fetch settles. An empty list and an unread one are
+  // different answers (issue #331), so this gates the lists' empty copy.
+  // `initialLoaded` is the same test seam as `initialRows`: renderToStaticMarkup
+  // never runs the mount effect, so a test that wants the SETTLED-empty state
+  // has no other way to reach it.
+  const [loaded, setLoaded] = useState(initialLoaded);
 
   const [editing, setEditing] = useState<Editor | null>(null);
   // What the open editor looked like when it opened, serialized — the baseline

@@ -149,6 +149,8 @@ export type AdminClassicControlsProps = {
   moduleSettings?: ModuleSettingsSlot;
   /** Test/first-paint seed only — see header comment. */
   initialChallenges?: AdminChallenge[];
+  /** Seeds the loaded flag — same test seam as the two above. */
+  initialLoaded?: boolean;
   initialCategories?: string[];
   /** Reports the board's size to the shell for the setup checklist above this
    *  panel — after the mount-time fetch has settled, never from the seed. */
@@ -164,6 +166,7 @@ export default function AdminClassicControls({
   moduleSettings,
   initialChallenges = [],
   initialCategories = [],
+  initialLoaded = false,
   onInventory,
 }: AdminClassicControlsProps) {
   // The board, the category list, the open editor, the delete target and
@@ -193,6 +196,7 @@ export default function AdminClassicControls({
     toPayload: payloadFromEditor,
     rowPayload: payloadFromRow,
     initialRows: initialChallenges,
+    initialLoaded,
     initialCategories,
     // A summary of a write does not outlive the next write (#127).
     onWrite: () => bundleImport.retire(),
@@ -262,6 +266,7 @@ export default function AdminClassicControls({
       )}
 
       <CategoryEditor
+        loading={!resource.loaded}
         categories={categories}
         input={categoryEditor.input}
         error={categoryEditor.error}
@@ -315,6 +320,7 @@ export default function AdminClassicControls({
           )}
           intro="Drag a challenge to reorder it, or use Move up / Move down from its ⋯ menu. Contestants see them in this order within each category."
           emptyText="No challenges yet."
+          loading={!resource.loaded}
           reorderPending={reorderPending}
           onMove={(from, to) => void resource.move(from, to)}
           onEdit={(row) => {

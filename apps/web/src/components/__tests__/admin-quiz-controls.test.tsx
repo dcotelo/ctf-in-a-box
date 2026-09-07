@@ -49,9 +49,10 @@ const question: Question = {
 const CORRECT_CHOICE_ID = "a";
 const row: AdminQuestion = { question, correct: [CORRECT_CHOICE_ID] };
 
-function renderControls(initialQuestions: AdminQuestion[] = []) {
+function renderControls(initialQuestions: AdminQuestion[] = [], loaded = true) {
   return renderToStaticMarkup(
     <AdminQuizControls
+      initialLoaded={loaded}
       pending={false}
       quizMaxAttemptsInput="3"
       setQuizMaxAttemptsInput={noop}
@@ -64,6 +65,15 @@ function renderControls(initialQuestions: AdminQuestion[] = []) {
 }
 
 describe("AdminQuizControls", () => {
+
+  // Issue #331: an empty list and an unread one are different answers, and only
+  // one of them means the organizer's content is gone. Every module tab used to
+  // open by telling them it had — for 6-10 seconds on a real deployment.
+  it("says Checking… while the first read is in flight, not that the board is empty", () => {
+    const html = renderControls([], false);
+    expect(html).toContain("Checking…");
+    expect(html).not.toContain("No questions yet.");
+  });
   it("renders the two retry-gate settings inputs with their current values", () => {
     const html = renderControls();
     expect(html).toContain("Max attempts");
