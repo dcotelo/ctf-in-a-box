@@ -71,6 +71,22 @@ describe("/faq in a classic-only event", () => {
     expect(html).not.toMatch(/\battempts? (remaining|left)\b/i);
   });
 
+  // Asserting the ANSWER, not just that the question rendered. The question
+  // alone was all this file checked, and under it sat "No. Matching trims
+  // leading and trailing whitespace and ignores case" — flatly wrong for a
+  // challenge marked case-sensitive, which `flagComparisonForm`
+  // (classic-keys.ts) compares verbatim and the board badges. Same regression
+  // as #193, in the one place a stuck contestant looks first.
+  it("does not promise case-insensitive matching without the case-sensitive exception", () => {
+    const answer = "Leading and trailing whitespace never matters";
+    expect(html).toContain(answer);
+    const body = html.slice(html.indexOf(answer), html.indexOf(answer) + 400);
+    expect(body).toMatch(/case-sensitive/);
+    // The unqualified claim, in the spellings the copy has used for it.
+    expect(html).not.toMatch(/ignores case, so it&#x27;s the exact same flag/);
+    expect(html).not.toMatch(/case doesn&#x27;t matter/i);
+  });
+
   it("keeps the module's questions interleaved with the platform's, not bolted on the end", () => {
     const order = ["Do I need experience to compete?", "Can I compete solo?", "What do I need to bring?"].map(
       (q) => html.indexOf(q),
