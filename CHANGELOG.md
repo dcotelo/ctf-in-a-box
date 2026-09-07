@@ -8,6 +8,63 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Security: two unauthenticated RCE advisories in Next.js are closed
+  (#238).** `next` moves 16.3.2 → **16.3.4**, which the release notes list as
+  carrying fixes for
+  [GHSA-2xp9-vwfh-vxw4](https://github.com/vercel/next.js/security/advisories/GHSA-2xp9-vwfh-vxw4)
+  — unauthenticated remote code execution in the Image Optimization API when
+  AVIF files are used — and
+  [GHSA-p293-qw3h-jr36](https://github.com/vercel/next.js/security/advisories/GHSA-p293-qw3h-jr36),
+  unauthenticated RCE on Windows-hosted servers. The bump also carries
+  `@img/sharp-libvips` 1.3.2 → 1.3.3 (`sharp` stays 0.35.4).
+
+  **The first one reaches this app.** `apps/web/next.config.ts` allows
+  `avatars.githubusercontent.com` under `images.remotePatterns`, so
+  `/_next/image` is a live, unauthenticated route on every deployment of this
+  kit. The second does not: the app ships from `node:22-alpine`, and the kit
+  has no Windows host anywhere in it — recorded rather than dropped so nobody
+  has to re-derive that it was considered.
+
+  Nothing in the kit's own code changed. It is here because this file is the
+  only place a self-hosting organizer learns that upgrading is
+  security-relevant rather than optional — fixes land on `main` and ride the
+  next tag, and nothing is backported ([SECURITY.md](SECURITY.md)). An event
+  already running should redeploy.
+- **The CI workflow pins every action to a commit SHA, and stops handing the
+  checkout token to build steps (#299).** `ci.yml`'s actions moved from
+  floating tags to 40-character SHAs, and all thirteen of its checkouts now
+  carry `persist-credentials: false`, so a compromised action release cannot
+  become a compromised run of this repo's CI and a build step cannot reach the
+  credential the checkout used. The kit's own CI is in
+  [SECURITY.md](SECURITY.md)'s scope, which is why it is worth an entry.
+
+  Scoped to `ci.yml`. `codeql.yml`, `pages.yml`, `terraform.yml`,
+  `stock-scores-zero.yml` and `patched-scores-right.yml` still use floating
+  `@v` tags and do not set `persist-credentials`; finishing them is tracked
+  separately rather than quietly implied here.
+- **Dependencies, CI and internals, in one place.** These would otherwise be
+  silent — a Dependabot PR prompts nobody to write a changelog entry, which is
+  how the two security-relevant bumps above were nearly missed:
+  - `better-auth` 1.7.1 → 1.7.2 (#273). Sessions are stateless JWE cookies
+    signed by `BETTER_AUTH_SECRET`, and `auth.ts`'s `disabledPaths` denylist
+    is version-sensitive by construction, so auth bumps are treated as
+    security changes and `auth.test.ts` gates them.
+  - A **required CI gate** now fails when the duplicated KNOWN_MODULES and
+    target lists disagree across `sync`, `setup`, the app and the scorer
+    (#286, #288, #289) — the drift ADR 10 accepts by duplicating them.
+  - A root `Makefile` wraps the commands CI runs, so `make help` lists them
+    rather than each contributor rediscovering them in `AGENTS.md` (#287).
+  - The quiz, classic and ai admin panels share one implementation of each
+    flow instead of three copies (#278) — the refactor the module-shaped bugs
+    fixed later in this release all landed once because of.
+  - `architecture.md`'s flow diagrams are animated SVGs (#276).
+  - An ai solve submitted through the in-box form logs its activity row, which
+    only the API path was doing (#255).
+  - Five documentation corrections against the code: the CI job count, the
+    admin panel's real tab shell, ai's archive-bundle status, the srh caveat
+    the live Lua suites closed, the CodeRabbit pre-merge check modes, and the
+    three `event.yaml` keys the example omitted (#307-#311).
+
 - **`GET /health` says which build is running.** "Did my fix reach the box?"
   had no answer from outside the container. `fly status` counts deploys, not
   commits, and needs Fly credentials; the alternative was re-testing the bug
