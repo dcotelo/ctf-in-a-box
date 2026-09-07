@@ -255,15 +255,30 @@ export function moduleItemsFor(id: ModuleId, input: ProfileModuleInput): { items
 
 /** What is still winnable, per ENABLED module rather than per module already
  *  played: the contestant who has not opened Classic yet is exactly the one
- *  who needs telling that most of the board's points are sitting in it. */
+ *  who needs telling that most of the board's points are sitting in it.
+ *
+ *  Ceilings come from the SAME union each row above uses, not the live-only
+ *  `maxPoints` — the footer sits directly under those rows, so a module
+ *  reading "500 / 700 pts" in its row and contributing 500 here made the two
+ *  halves of one page disagree (issue #343: #330 moved `moduleRow` and
+ *  `maxPointsAcrossModules` onto the union and left this reader behind). */
 export function remainingFor(modules: readonly ResolvedModule[], input: ProfileModuleInput): RemainingModule[] {
+  const quiz = unionDenominators(input.quiz?.questions ?? [], input.quiz?.viewer.answered ?? {});
+  const classic = unionDenominators(input.classic?.challenges ?? [], input.classic?.viewer.solved ?? {});
+  const ai = unionDenominators(input.ai?.challenges ?? [], input.ai?.viewer.solved ?? {});
   const pairs: Partial<Record<ModuleId, { earned: number; max: number }>> = {
+    // Clamped rather than unioned, for the reason `atLeast` gives: this
+    // catalogue is baked from the rubrics, so it has no per-item identity to
+    // union over — it can only lose a whole target from under banked points.
     "secure-development": input.secureDev
-      ? { earned: input.profile?.points ?? 0, max: input.profile?.maxPoints ?? 0 }
+      ? {
+          earned: input.profile?.points ?? 0,
+          max: atLeast(input.profile?.maxPoints ?? 0, input.profile?.points ?? 0),
+        }
       : undefined,
-    quiz: input.quiz ? { earned: input.quiz.total?.points ?? 0, max: input.quiz.maxPoints } : undefined,
-    classic: input.classic ? { earned: input.classic.total?.points ?? 0, max: input.classic.maxPoints } : undefined,
-    ai: input.ai ? { earned: input.ai.total?.points ?? 0, max: input.ai.maxPoints } : undefined,
+    quiz: input.quiz ? { earned: input.quiz.total?.points ?? 0, max: quiz.max } : undefined,
+    classic: input.classic ? { earned: input.classic.total?.points ?? 0, max: classic.max } : undefined,
+    ai: input.ai ? { earned: input.ai.total?.points ?? 0, max: ai.max } : undefined,
   };
   return modules
     .map((m) => ({ title: m.title, ...pairs[m.id] }))

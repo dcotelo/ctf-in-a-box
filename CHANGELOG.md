@@ -38,6 +38,30 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
   If you are running an event on a build from that window, redeploy.
 
+- **Deleting a solved challenge no longer tells a contestant they finished
+  the module (#330, #343).** The numerator on `/profile` counts solve records,
+  which survive deletion on purpose — the admin dialog promises it — while the
+  denominator counted the live catalogue. So an organizer who deleted two
+  solved AI challenges mid-event handed every affected contestant
+  "5 / 5 cleared  870 / 850 pts", a bar filled past its own end, above a board
+  showing 3 / 3.
+
+  Both halves now count the **union** by identity: the live catalogue plus any
+  solve whose challenge is gone, valued at what the solve record banked, which
+  is the only figure a deleted challenge still has. Clamping was the first
+  attempt and is not the same thing — `max(live, solved)` stops the ratio
+  exceeding one but reports 5 / 5 where the truth is 5 / 7, calling a module
+  finished with two challenges still open on it. Secure Development keeps a
+  clamp, having no per-item identity to union over: its catalogue is baked
+  from the rubrics, so it can only lose a whole target from under banked
+  points.
+
+  The follow-up is the part worth carrying forward: the first pass moved the
+  module rows and the header ceiling onto the union and **left the footer
+  behind**, so one page read "500 / 700 pts" in a row and "0 pts still on the
+  board" beneath it — the same wrong claim in a second voice. When a
+  denominator changes, every reader of it changes with it.
+
 - **Security: two unauthenticated RCE advisories in Next.js are closed
   (#238).** `next` moves 16.3.2 → **16.3.4**, which the release notes list as
   carrying fixes for

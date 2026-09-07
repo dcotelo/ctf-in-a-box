@@ -17,9 +17,11 @@
 // module finished that still has two challenges waiting. These pin the union,
 // for every module and both halves of the row.
 import { describe, expect, it } from "vitest";
-import { moduleRow } from "@/app/(site)/profile/module-blocks";
+import { moduleRow, remainingFor } from "@/app/(site)/profile/module-blocks";
 import type { ProfileModuleInput } from "@/app/(site)/profile/module-blocks";
 import type { ModuleProgress } from "@/lib/leaderboard/types";
+import type { ResolvedModule } from "@/lib/modules";
+import { remainingSummary } from "@/components/progress/remaining-line";
 
 // Five LIVE items worth 100 each. The viewer solved three of them, and two
 // more that an organizer has since deleted — so two live items are still
@@ -114,3 +116,64 @@ describe("a progress row counts the live-and-historical union", () => {
 function oneSolved(detail: ModuleProgress["detail"]): Record<string, number> {
   return (detail as { kind: string }).kind === "quiz" ? { answered: 1, total: 5 } : { solved: 1, total: 5 };
 }
+
+// The footer sits directly under the rows above, so it has to be counting the
+// same things. #330 moved `moduleRow` and the header ceiling onto the union
+// and left `remainingFor` on the live-only `maxPoints` (issue #343), which
+// showed as one page saying both "500 / 700 pts" and "0 pts still on the
+// board" — a module the contestant had not finished, reported as finished.
+describe("the footer's remaining line counts the same union as the rows", () => {
+  // The same 5-live / 2-deleted shape, with each module's banked total filled
+  // in: 500 of a 700-point union earned, so 200 per module is still winnable.
+  const withTotals = {
+    ...input,
+    quiz: { ...(input.quiz as object), total: { points: BANKED_POINTS } },
+    classic: { ...(input.classic as object), total: { points: BANKED_POINTS } },
+    ai: { ...(input.ai as object), total: { points: BANKED_POINTS } },
+  } as unknown as ProfileModuleInput;
+
+  const modules = [
+    { id: "quiz", title: "Quiz" },
+    { id: "classic", title: "Classic CTF" },
+    { id: "ai", title: "AI Challenges" },
+  ] as unknown as ResolvedModule[];
+
+  it("carries the union ceiling, not the live-only maxPoints", () => {
+    for (const m of remainingFor(modules, withTotals)) {
+      expect(m.max).toBe(UNION_POINTS);
+      expect(m.earned).toBe(BANKED_POINTS);
+    }
+  });
+
+  it("agrees with the row above it, module for module", () => {
+    // The defect made visible: the row's max and the footer's max are two
+    // readings of one number, and they must not differ.
+    for (const [name, detail] of cases) {
+      const row = moduleRow(progressFor(detail), withTotals);
+      const footer = remainingFor(modules, withTotals).find((m) =>
+        m.title.toLowerCase().startsWith(name === "classic" ? "classic" : name),
+      );
+      expect(footer, name).toBeDefined();
+      expect(footer!.max, name).toBe(row.max);
+    }
+  });
+
+  it("still reports the 200 pts per module that are genuinely left", () => {
+    // Pre-fix this summed to 0 and the line hid itself entirely, telling a
+    // contestant with six unsolved items that the board was cleared.
+    const { remaining } = remainingSummary(remainingFor(modules, withTotals));
+    expect(remaining).toBe(3 * (UNION_POINTS - BANKED_POINTS));
+  });
+
+  it("secure-development is clamped, never below its banked points", () => {
+    const rows = remainingFor(
+      [{ id: "secure-development", title: "Secure Development" }] as unknown as ResolvedModule[],
+      { ...input, profile: { points: 800, maxPoints: 500 } } as unknown as ProfileModuleInput,
+    );
+    expect(rows).toHaveLength(1);
+    // A dropped target shrinks the ceiling under banked points; clamping keeps
+    // the remainder at 0 rather than letting −300 eat another module's.
+    expect(rows[0].max).toBe(800);
+    expect(remainingSummary(rows).remaining).toBe(0);
+  });
+});
