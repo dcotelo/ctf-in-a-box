@@ -721,6 +721,38 @@ function demoAttemptRow(tries: number, earnedAt: string, gapMinutes: number, flo
   return JSON.stringify({ attempts: tries, firstAt, lastAt: earnedAt, lastAtMs });
 }
 
+// Per-challenge solver counts are RAISED, never set.
+//
+// Every other figure the seed writes is keyed by LOGIN, and the fixture owns
+// those logins outright — an absolute HSET is what keeps a re-seed idempotent
+// instead of doubling totals. `solvecount` is the exception: it is keyed by
+// CHALLENGE and counts distinct solvers across everyone, so the fixture's
+// number is a floor, not the truth. Writing it absolutely rewrote a real
+// contestant's solve out of the public count on every re-seed — silently, since
+// their own per-login row survived and still said "Solved" (issue #335).
+//
+// One EVAL rather than read-then-write so the raise is atomic: a solve landing
+// mid-seed is counted, not lost to a stale read.
+const RAISE_SOLVECOUNT_SCRIPT = `
+local i = 1
+while i <= #ARGV do
+  local field, floor = ARGV[i], tonumber(ARGV[i + 1])
+  local current = tonumber(redis.call('HGET', KEYS[1], field) or '0') or 0
+  if current < floor then redis.call('HSET', KEYS[1], field, floor) end
+  i = i + 2
+end
+return 1
+`;
+
+/** Queues the raise for one module's solvecount hash, or nothing when the
+ *  fixture seeded no solves for it. */
+function raiseSolveCounts(cmds: (string | number)[][], key: string, counts: Map<string, number>): void {
+  if (counts.size === 0) return;
+  const argv: (string | number)[] = [];
+  for (const [challengeId, count] of counts) argv.push(challengeId, count);
+  cmds.push(["EVAL", RAISE_SOLVECOUNT_SCRIPT, 1, key, ...argv]);
+}
+
 /**
  * Populate a demo leaderboard from the bundled fixture: real challenge-id solves
  * (so the scorer awards points), spread over the last ~6h for a rising
@@ -949,9 +981,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       cmds.push(["HSET", CLASSIC_POINTS_KEY, login, agg.points]);
       cmds.push(["HSET", CLASSIC_SOLVED_KEY, login, agg.solved]);
     }
-    for (const [challengeId, count] of solveCounts) {
-      cmds.push(["HSET", CLASSIC_SOLVECOUNT_KEY, challengeId, count]);
-    }
+    raiseSolveCounts(cmds, CLASSIC_SOLVECOUNT_KEY, solveCounts);
   }
 
   // ai demo data — only when the module is enabled, same gate reasoning as
@@ -1041,9 +1071,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       cmds.push(["HSET", AI_POINTS_KEY, login, agg.points]);
       cmds.push(["HSET", AI_SOLVED_KEY, login, agg.solved]);
     }
-    for (const [challengeId, count] of aiSolveCounts) {
-      cmds.push(["HSET", AI_SOLVECOUNT_KEY, challengeId, count]);
-    }
+    raiseSolveCounts(cmds, AI_SOLVECOUNT_KEY, aiSolveCounts);
   }
 
   const audit = JSON.stringify({
