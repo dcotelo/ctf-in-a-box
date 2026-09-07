@@ -1,7 +1,11 @@
 // /rules on a classic-only event. Same discipline as the quiz-only sibling:
-// "Submit every pull request from the account you signed in with", a scope
-// rule listing patch targets, and a hint-cost rule are secure-development's,
-// not the platform's, and must not leak onto a classic-only page.
+// "Submit every pull request from the account you signed in with" and a scope
+// rule listing patch targets are secure-development's, not the platform's,
+// and must not leak onto a classic-only page.
+//
+// The hint-cost rule used to be on that list and is not any more (#249):
+// classic sells hints through the same gate, so stating their price here is
+// this module's own copy doing its job, not a leak.
 //
 // Own file for the usual `vi.mock` hoisting reason.
 import { describe, expect, it, vi } from "vitest";
@@ -75,9 +79,17 @@ describe("/rules in a classic-only event", () => {
     );
   });
 
-  it("never claims an attempt cap and never mentions a hint", () => {
+  it("never claims an attempt cap", () => {
     expect(html).not.toMatch(/\battempts? (remaining|left)\b/i);
-    expect(normalizeHtml(html)).not.toContain("hint");
+  });
+
+  it("DOES tell contestants a hint costs points — classic sells them (#249)", () => {
+    // This assertion used to be its exact opposite. The hint-cost rule was
+    // read as secure-development's, so on a classic-only event the price of a
+    // hint reached a contestant only from the reveal button itself.
+    const text = normalizeHtml(html);
+    expect(text).toContain("hint");
+    expect(text).toContain("deducts points");
   });
 
   it("still renders all four sections", () => {
