@@ -8,6 +8,29 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Secure Development's hints reach contestants for the first time.** With
+  hints switched on, no 💡 ever appeared on a target's challenge rows — not on
+  `/challenges`, not on the profile lists — and the banner stated, as fact,
+  that "no challenge is offering one yet". It could not know that.
+  `getHintAvailability` hand-rolled Upstash's path-style `GET /hkeys/<key>` so
+  the read could ride Next's ISR cache, and **srh does not serve that route**:
+  it answers `404 SRH: Endpoint not found`, and srh is what every deployment
+  of this kit runs in front of Redis. The read therefore failed on every
+  render, the `catch` turned it into `{}`, and "the read failed" became "there
+  are no hints" — with the log line the only evidence. Classic's and AI's
+  hints were never affected, because they already went through
+  `upstashPipeline`, which posts to `/pipeline`. Availability now goes the
+  same way: one round trip for all six targets instead of six cached GETs,
+  fewer requests than the caching was aiming for. The rationale for the
+  bespoke call was wrong on its own terms too — `/challenges` renders
+  dynamically regardless, as the page's own comment says where it calls this.
+  A failed command is no longer read as an empty target, either: a per-command
+  error now throws so the fail direction applies, since `upstashPipeline`
+  reports those positionally rather than raising. The test that covered this
+  had asserted the broken shape — six ISR-cached fetches, `upstashPipeline`
+  never called — against a stubbed `fetch` that always answered `ok`, so it
+  proved a request was made and never that the route existed.
+
 - **Classic and AI now tell contestants that a hint costs points.** Secure
   Development's rules and terms have always said "Revealing a hint deducts
   points from your total"; classic's and ai's never did, though all three sell

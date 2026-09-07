@@ -132,4 +132,18 @@ describe.skipIf(!liveConfigured)("hint store against a live Redis (throwaway key
     const [spent] = await pipeline([["HGET", "ctf:hints:spent", PLAYER]]);
     expect(Number(spent.result)).toBe(COST);
   });
+
+  // The board's 💡 layer, against the real proxy — the one assertion the
+  // mocked suite structurally cannot make. `getHintAvailability` used to call
+  // Upstash's path-style `GET /hkeys/<key>`, which srh answers with
+  // `404 SRH: Endpoint not found`; the mocked test stubbed `fetch` to return
+  // `ok: true`, so it proved a request was made and never that the route
+  // existed. Every render fell into the catch and reported `{}` — no
+  // secure-development hint has ever been marked on a board. This runs the
+  // read against whatever is actually behind UPSTASH_REDIS_REST_URL, so the
+  // transport has to work, not merely be called.
+  it("marks the seeded hint as available, through the live proxy", async () => {
+    const availability = await store.getHintAvailability();
+    expect(availability[TARGET]).toContain(HINT_ID);
+  });
 });
