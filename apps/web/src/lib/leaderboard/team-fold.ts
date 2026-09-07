@@ -8,7 +8,14 @@
 /** One team's folded total. Callers rename `completed` to their own module's
  *  noun (`answered` for quiz, `solved` for classic) — the SHAPE is shared, the
  *  vocabulary is not. */
-export type FoldedTotal = { points: number; completed: number; lastAt: string | null };
+export type FoldedTotal = {
+  points: number;
+  completed: number;
+  lastAt: string | null;
+  /** The deduped set's item ids — what lets a caller union them with a live
+   *  catalogue instead of guessing a denominator from a count. */
+  itemIds: string[];
+};
 
 /** The earned-item record every module stores as the JSON value of its
  *  per-login hash: `{ points, at }`. Extra fields are ignored, and anything
@@ -55,6 +62,14 @@ function parseEarned(raw: unknown): Earned | null {
  * column) — not the earliest one the dedupe keeps. Rows that fail to parse are
  * skipped, so one corrupt record costs its own item and nothing else.
  *
+ * `itemIds` is that deduped set's KEYS, and it is the reason a team row can
+ * show the same denominator the profile does. A count alone cannot: the
+ * denominator has to be the live catalogue UNIONED with the items a team
+ * solved whose challenge an organizer has since deleted, and that needs
+ * identity, not a total (issues #330, #343, #348). The ids are already in
+ * hand here — the dedupe is built on them — so carrying them out costs
+ * nothing beyond the array.
+ *
  * `memberReplies` is positional: entry `i` is member `i`'s reply, and an
  * `undefined` entry (a login the caller had no reply for) folds as empty.
  */
@@ -86,5 +101,6 @@ export function foldTeamItems(
     points,
     completed: byItem.size,
     lastAt: Number.isFinite(lastAtMs) ? new Date(lastAtMs).toISOString() : null,
+    itemIds: [...byItem.keys()],
   };
 }

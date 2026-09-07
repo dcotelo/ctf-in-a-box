@@ -532,7 +532,7 @@ describe("totals", () => {
   });
 
   it("costs zero round trips for an empty team list", async () => {
-    expect(await getTeamAiTotalsBatch([[]])).toEqual([{ points: 0, solved: 0, lastAt: null }]);
+    expect(await getTeamAiTotalsBatch([[]])).toEqual([{ points: 0, solved: 0, lastAt: null, itemIds: [] }]);
     expect(pipelineCalls()).toHaveLength(0);
   });
 });

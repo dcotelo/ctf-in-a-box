@@ -540,7 +540,7 @@ describe("getTeamQuizTotalsBatch — one team's fold", () => {
     const total = await oneTeam(["ada", "cyd"]);
     // lastAt reflects the KEPT (earliest, points-contributing) record — the
     // team's total didn't change at cyd's later, redundant correct answer.
-    expect(total).toEqual({ points: 20, answered: 1, lastAt: "2026-01-01T00:00:00.000Z" });
+    expect(total).toEqual({ points: 20, answered: 1, lastAt: "2026-01-01T00:00:00.000Z", itemIds: ["q1"] });
     const cmds = mocks.upstashPipeline.mock.calls[0][0] as string[][];
     expect(cmds).toEqual([
       ["HGETALL", "ctf:quiz:answers:ada"],
@@ -566,23 +566,23 @@ describe("getTeamQuizTotalsBatch — one team's fold", () => {
       { result: ["q2", JSON.stringify({ choices: ["b"], points: 15, at: "2026-01-01T00:05:00.000Z" })] },
     ]);
     const total = await oneTeam(["ada", "cyd"]);
-    expect(total).toEqual({ points: 25, answered: 2, lastAt: "2026-01-01T00:05:00.000Z" });
+    expect(total).toEqual({ points: 25, answered: 2, lastAt: "2026-01-01T00:05:00.000Z", itemIds: ["q1", "q2"] });
   });
 
   it("returns zeros without touching Upstash for a team with no members", async () => {
     const total = await oneTeam([]);
-    expect(total).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(total).toEqual({ points: 0, answered: 0, lastAt: null, itemIds: [] });
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 
   it("returns zeros when no member has answered anything", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: [] }, { result: [] }]);
-    expect(await oneTeam(["ada", "cyd"])).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(await oneTeam(["ada", "cyd"])).toEqual({ points: 0, answered: 0, lastAt: null, itemIds: [] });
   });
 
   it("drops unparseable rows instead of throwing", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", "not json"] }]);
-    expect(await oneTeam(["ada"])).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(await oneTeam(["ada"])).toEqual({ points: 0, answered: 0, lastAt: null, itemIds: [] });
   });
 });
 
@@ -612,8 +612,8 @@ describe("getTeamQuizTotalsBatch", () => {
     ]);
     // Replies partitioned back to the right team, in input order.
     expect(totals).toEqual([
-      { points: 25, answered: 2, lastAt: "2026-01-01T01:00:00.000Z" },
-      { points: 20, answered: 1, lastAt: "2026-01-01T02:00:00.000Z" },
+      { points: 25, answered: 2, lastAt: "2026-01-01T01:00:00.000Z", itemIds: ["q1", "q2"] },
+      { points: 20, answered: 1, lastAt: "2026-01-01T02:00:00.000Z", itemIds: ["q3"] },
     ]);
   });
 
@@ -626,7 +626,7 @@ describe("getTeamQuizTotalsBatch", () => {
     ]);
 
     const [red] = await getTeamQuizTotalsBatch([["ada", "cyd"]]);
-    expect(red).toEqual({ points: 10, answered: 1, lastAt: "2026-01-01T00:00:00.000Z" });
+    expect(red).toEqual({ points: 10, answered: 1, lastAt: "2026-01-01T00:00:00.000Z", itemIds: ["q1"] });
   });
 
   it("fetches a member shared by two teams once and credits both teams from that one reply", async () => {
@@ -641,8 +641,8 @@ describe("getTeamQuizTotalsBatch", () => {
 
   it("returns a zero total per team without touching Upstash when no team has members", async () => {
     expect(await getTeamQuizTotalsBatch([[], []])).toEqual([
-      { points: 0, answered: 0, lastAt: null },
-      { points: 0, answered: 0, lastAt: null },
+      { points: 0, answered: 0, lastAt: null, itemIds: [] },
+      { points: 0, answered: 0, lastAt: null, itemIds: [] },
     ]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
@@ -655,7 +655,7 @@ describe("getTeamQuizTotalsBatch", () => {
   it("gives a memberless team a zero total while still reading the teams that do have members", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: ["q1", answer(10, "2026-01-01T00:00:00.000Z")] }]);
     const totals = await getTeamQuizTotalsBatch([[], ["ada"]]);
-    expect(totals[0]).toEqual({ points: 0, answered: 0, lastAt: null });
+    expect(totals[0]).toEqual({ points: 0, answered: 0, lastAt: null, itemIds: [] });
     expect(totals[1].points).toBe(10);
   });
 });

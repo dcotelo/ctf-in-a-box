@@ -808,7 +808,13 @@ export async function getSolveCounts(): Promise<Map<string, number>> {
 
 /** One login's (or one team's) classic aggregate, as consumed by the
  *  leaderboard overlay. */
-export type ClassicTotal = { points: number; solved: number; lastAt: string | null };
+/** `itemIds` is present only on the TEAM path, whose fold already dedupes by
+ *  item id — the aggregate per-login path has running counters with no memory
+ *  of which items produced them. Where it is present a caller can union it
+ *  with the live catalogue for a denominator that survives an organizer
+ *  deleting a solved item (#348); where it is absent the caller clamps, which
+ *  is what every row did before. */
+export type ClassicTotal = { points: number; solved: number; lastAt: string | null; itemIds?: string[] };
 
 /** Per-login classic totals for every login that has solved at least one
  *  challenge — two HGETALLs (`ctf:classic:points`, `ctf:classic:solved`),
@@ -862,7 +868,7 @@ export async function getTeamClassicTotalsBatch(
     }
   }
   const logins = [...indexByLogin.keys()];
-  if (logins.length === 0) return teams.map(() => ({ points: 0, solved: 0, lastAt: null }));
+  if (logins.length === 0) return teams.map(() => ({ points: 0, solved: 0, lastAt: null, itemIds: [] }));
 
   const results = await upstashPipeline(logins.map((login) => ["HGETALL", solvesKey(login)]));
   return teams.map((members) => foldTeamSolves(members.map((login) => results[indexByLogin.get(login) ?? -1])));
@@ -875,8 +881,8 @@ export async function getTeamClassicTotalsBatch(
  *  with quiz-store's team fold — see the note there. All this wrapper does is
  *  rename the shared `completed` to classic's own noun. */
 function foldTeamSolves(memberReplies: ({ result?: unknown; error?: string } | undefined)[]): ClassicTotal {
-  const { points, completed, lastAt } = foldTeamItems(memberReplies);
-  return { points, solved: completed, lastAt };
+  const { points, completed, lastAt, itemIds } = foldTeamItems(memberReplies);
+  return { points, solved: completed, lastAt, itemIds };
 }
 
 type ResolvedAdminSettings = Awaited<ReturnType<typeof getAdminSettings>>;

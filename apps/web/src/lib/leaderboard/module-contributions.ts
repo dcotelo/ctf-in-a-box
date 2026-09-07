@@ -1,5 +1,6 @@
 import "server-only";
 import { getAiTotals, getTeamAiTotalsBatch, listAiChallenges, type AiTotal } from "@/lib/ai-store";
+import { atLeast, unionTotal } from "@/lib/leaderboard/denominators";
 import {
   getClassicTotals,
   getTeamClassicTotalsBatch,
@@ -87,6 +88,9 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
 
   let quizTotals = new Map<string, QuizTotal>();
   let quizTotalQuestions = 0;
+  // Ids, not just the count: the denominator is the live catalogue UNIONED
+  // with the items solved whose challenge is gone, and that needs identity.
+  let quizLiveIds = new Set<string>();
   if (quizReads) {
     // Settled INDEPENDENTLY, not under one shared `try`/`Promise.all`. The
     // two reads carry very different weight: `getQuizTotals` supplies the
@@ -107,6 +111,7 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
     }
     if (questionsResult.status === "fulfilled") {
       quizTotalQuestions = questionsResult.value.length;
+      quizLiveIds = new Set(questionsResult.value.map((q) => q.id));
     } else {
       console.error("quiz question list unavailable for leaderboard denominator:", questionsResult.reason);
     }
@@ -114,6 +119,9 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
 
   let classicTotals = new Map<string, ClassicTotal>();
   let classicTotalChallenges = 0;
+  // Ids, not just the count: the denominator is the live catalogue UNIONED
+  // with the items solved whose challenge is gone, and that needs identity.
+  let classicLiveIds = new Set<string>();
   if (classicReads) {
     // Settled INDEPENDENTLY for exactly the reason spelled out above the quiz
     // pair, which this mirrors: `getClassicTotals` carries the POINTS and the
@@ -129,6 +137,7 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
     }
     if (challengesResult.status === "fulfilled") {
       classicTotalChallenges = challengesResult.value.length;
+      classicLiveIds = new Set(challengesResult.value.map((c) => c.id));
     } else {
       console.error("classic challenge list unavailable for leaderboard denominator:", challengesResult.reason);
     }
@@ -136,6 +145,9 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
 
   let aiTotals = new Map<string, AiTotal>();
   let aiTotalChallenges = 0;
+  // Ids, not just the count: the denominator is the live catalogue UNIONED
+  // with the items solved whose challenge is gone, and that needs identity.
+  let aiLiveIds = new Set<string>();
   if (aiReads) {
     // Settled INDEPENDENTLY for exactly the reason spelled out above the quiz
     // and classic pairs, which this mirrors: `getAiTotals` carries the
@@ -150,6 +162,7 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
     }
     if (challengesResult.status === "fulfilled") {
       aiTotalChallenges = challengesResult.value.length;
+      aiLiveIds = new Set(challengesResult.value.map((c) => c.id));
     } else {
       console.error("ai challenge list unavailable for leaderboard denominator:", challengesResult.reason);
     }
@@ -221,21 +234,21 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   if (data.capabilities.teams && data.teams.length > 0) {
     if (quizEnabled) {
       try {
-        teams = attributeTeams(teams, quizContributions(await teamQuizTotals(teams), quizTotalQuestions));
+        teams = attributeTeams(teams, quizContributions(await teamQuizTotals(teams), quizTotalQuestions, quizLiveIds));
       } catch (err) {
         console.error("quiz team totals unavailable for leaderboard:", err);
       }
     }
     if (classicEnabled) {
       try {
-        teams = attributeTeams(teams, classicContributions(await teamClassicTotals(teams), classicTotalChallenges));
+        teams = attributeTeams(teams, classicContributions(await teamClassicTotals(teams), classicTotalChallenges, classicLiveIds));
       } catch (err) {
         console.error("classic team totals unavailable for leaderboard:", err);
       }
     }
     if (aiEnabled) {
       try {
-        teams = attributeTeams(teams, aiContributions(await teamAiTotals(teams), aiTotalChallenges));
+        teams = attributeTeams(teams, aiContributions(await teamAiTotals(teams), aiTotalChallenges, aiLiveIds));
       } catch (err) {
         console.error("ai team totals unavailable for leaderboard:", err);
       }
@@ -317,7 +330,11 @@ export async function withTeamQuizPoints(teams: TeamStanding[]): Promise<TeamSta
 
   return attributeTeams(
     teams,
-    quizContributions(totalsResult.value, questionsResult.status === "fulfilled" ? questionsResult.value.length : 0),
+    quizContributions(
+      totalsResult.value,
+      questionsResult.status === "fulfilled" ? questionsResult.value.length : 0,
+      questionsResult.status === "fulfilled" ? new Set(questionsResult.value.map((q) => q.id)) : undefined,
+    ),
   );
 }
 
@@ -386,7 +403,11 @@ export async function withTeamAiPoints(teams: TeamStanding[]): Promise<TeamStand
 
   return attributeTeams(
     teams,
-    aiContributions(totalsResult.value, challengesResult.status === "fulfilled" ? challengesResult.value.length : 0),
+    aiContributions(
+      totalsResult.value,
+      challengesResult.status === "fulfilled" ? challengesResult.value.length : 0,
+      challengesResult.status === "fulfilled" ? new Set(challengesResult.value.map((c) => c.id)) : undefined,
+    ),
   );
 }
 
@@ -418,6 +439,29 @@ function secureDevelopmentModule(
   return { points, completed: patched, lastActivityAt, detail: { kind: "secure-development", apps } };
 }
 
+/** The row's denominator: the UNION where this path has per-item identity,
+ *  a clamp where it does not. See `leaderboard/denominators.ts` for why those
+ *  are different answers and not two spellings of one.
+ *
+ *  `itemIds` arrives only on the TEAM path, whose fold already dedupes members'
+ *  solves by id — so the board can show the same figure the profile does
+ *  without a single extra read (#348). The individual path reads running
+ *  aggregate counters with no memory of which items produced them, so it
+ *  clamps, exactly as every row did before.
+ *
+ *  The clamp is still applied over the union: a catalogue read that failed
+ *  leaves `liveIds` empty and the count at 0, and "1 / 0 flags" is the older
+ *  bug this function also has to keep fixed. */
+function denominator(
+  itemIds: readonly string[] | undefined,
+  liveIds: ReadonlySet<string> | undefined,
+  liveCount: number,
+  done: number,
+): number {
+  if (itemIds && liveIds) return atLeast(unionTotal(liveIds, itemIds), done);
+  return atLeast(liveCount, done);
+}
+
 /** `total` is CLAMPED to at least `answered` so the "answered / total"
  *  denominator can never fall below its own numerator. Two real ways it
  *  otherwise does: (1) a deleted question — `deleteQuestion` retires the
@@ -427,7 +471,7 @@ function secureDevelopmentModule(
  *  `listQuestions` above, which degrades the denominator to 0 while the
  *  points and answered counts survive intact. Clamping shows "1 / 1" —
  *  imprecise, but never nonsense. */
-function quizModule(total: QuizTotal, totalQuestions: number): ModuleProgress {
+function quizModule(total: QuizTotal, totalQuestions: number, liveIds?: ReadonlySet<string>): ModuleProgress {
   return {
     points: total.points,
     completed: total.answered,
@@ -435,7 +479,7 @@ function quizModule(total: QuizTotal, totalQuestions: number): ModuleProgress {
     detail: {
       kind: "quiz",
       answered: total.answered,
-      total: Math.max(totalQuestions, total.answered),
+      total: denominator(total.itemIds, liveIds, totalQuestions, total.answered),
       points: total.points,
     },
   };
@@ -448,7 +492,7 @@ function quizModule(total: QuizTotal, totalQuestions: number): ModuleProgress {
  *  flags"; (2) a failed `listChallenges` degrades the denominator to 0 while
  *  the points and solve counts survive intact. Clamping shows "1 / 1" —
  *  imprecise, but never nonsense. */
-function classicModule(total: ClassicTotal, totalChallenges: number): ModuleProgress {
+function classicModule(total: ClassicTotal, totalChallenges: number, liveIds?: ReadonlySet<string>): ModuleProgress {
   return {
     points: total.points,
     completed: total.solved,
@@ -456,7 +500,7 @@ function classicModule(total: ClassicTotal, totalChallenges: number): ModuleProg
     detail: {
       kind: "classic",
       solved: total.solved,
-      total: Math.max(totalChallenges, total.solved),
+      total: denominator(total.itemIds, liveIds, totalChallenges, total.solved),
       points: total.points,
     },
   };
@@ -467,7 +511,7 @@ function classicModule(total: ClassicTotal, totalChallenges: number): ModuleProg
  *  a login's solve count, and a failed `listAiChallenges` degrades the
  *  denominator to 0 while points and solves survive intact. Clamping shows
  *  "1 / 1" — imprecise, but never nonsense. */
-function aiModule(total: AiTotal, totalChallenges: number): ModuleProgress {
+function aiModule(total: AiTotal, totalChallenges: number, liveIds?: ReadonlySet<string>): ModuleProgress {
   return {
     points: total.points,
     completed: total.solved,
@@ -475,7 +519,7 @@ function aiModule(total: AiTotal, totalChallenges: number): ModuleProgress {
     detail: {
       kind: "ai",
       solved: total.solved,
-      total: Math.max(totalChallenges, total.solved),
+      total: denominator(total.itemIds, liveIds, totalChallenges, total.solved),
       points: total.points,
     },
   };
@@ -624,35 +668,47 @@ type TeamContribution = { points: number; completed: number; progress: ModulePro
  *  the builders below construct this, and each hard-codes its own id. */
 type TeamContributions = { moduleId: ModuleId; contributions: readonly TeamContribution[] };
 
-function quizContributions(totals: readonly QuizTotal[], totalQuestions: number): TeamContributions {
+function quizContributions(
+  totals: readonly QuizTotal[],
+  totalQuestions: number,
+  liveIds?: ReadonlySet<string>,
+): TeamContributions {
   return {
     moduleId: "quiz",
     contributions: totals.map((t) => ({
       points: t.points,
       completed: t.answered,
-      progress: quizModule(t, totalQuestions),
+      progress: quizModule(t, totalQuestions, liveIds),
     })),
   };
 }
 
-function classicContributions(totals: readonly ClassicTotal[], totalChallenges: number): TeamContributions {
+function classicContributions(
+  totals: readonly ClassicTotal[],
+  totalChallenges: number,
+  liveIds?: ReadonlySet<string>,
+): TeamContributions {
   return {
     moduleId: "classic",
     contributions: totals.map((t) => ({
       points: t.points,
       completed: t.solved,
-      progress: classicModule(t, totalChallenges),
+      progress: classicModule(t, totalChallenges, liveIds),
     })),
   };
 }
 
-function aiContributions(totals: readonly AiTotal[], totalChallenges: number): TeamContributions {
+function aiContributions(
+  totals: readonly AiTotal[],
+  totalChallenges: number,
+  liveIds?: ReadonlySet<string>,
+): TeamContributions {
   return {
     moduleId: "ai",
     contributions: totals.map((t) => ({
       points: t.points,
       completed: t.solved,
-      progress: aiModule(t, totalChallenges),
+      progress: aiModule(t, totalChallenges, liveIds),
     })),
   };
 }
