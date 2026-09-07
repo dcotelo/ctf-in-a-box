@@ -133,17 +133,35 @@ describe.skipIf(!liveConfigured)("hint store against a live Redis (throwaway key
     expect(Number(spent.result)).toBe(COST);
   });
 
-  // The board's 💡 layer, against the real proxy — the one assertion the
-  // mocked suite structurally cannot make. `getHintAvailability` used to call
-  // Upstash's path-style `GET /hkeys/<key>`, which srh answers with
-  // `404 SRH: Endpoint not found`; the mocked test stubbed `fetch` to return
-  // `ok: true`, so it proved a request was made and never that the route
-  // existed. Every render fell into the catch and reported `{}` — no
-  // secure-development hint has ever been marked on a board. This runs the
-  // read against whatever is actually behind UPSTASH_REDIS_REST_URL, so the
-  // transport has to work, not merely be called.
-  it("marks the seeded hint as available, through the live proxy", async () => {
+  // The board's 💡 layer, against the real proxy.
+  //
+  // This used to assert the opposite: that a seeded `hints:<target>` hash came
+  // back marked. That was the right test for the transport bug it was written
+  // for (#313 — `getHintAvailability` called Upstash's path-style
+  // `GET /hkeys/<key>`, which srh answers `404 SRH: Endpoint not found`, and the
+  // mocked suite stubbed `fetch` to return `ok: true` so it proved a request
+  // was made and never that the route existed).
+  //
+  // Fixing the transport revealed there was never a PRODUCER: nothing in this
+  // kit writes a `hints:<app>` field — not the scorer, not the admin panel, not
+  // the rubrics — so the read could only ever come back empty while
+  // /challenges reported that to contestants as news (#334). Secure
+  // Development is out of the availability read now, and this pins that: even
+  // with a hash seeded by hand, nothing is marked.
+  it("marks nothing for secure-development, even with a hash seeded by hand", async () => {
+    // The seed is real — `revealHint` above charges against this very hash, so
+    // the key exists and carries HINT_ID. Availability is still empty, because
+    // the module has no hints to advertise rather than because the read failed.
+    const [seeded] = await pipeline([["HGET", `hints:${TARGET}`, HINT_ID]]);
+    expect(seeded.result).toBeTruthy();
+
     const availability = await store.getHintAvailability();
-    expect(availability[TARGET]).toContain(HINT_ID);
+    expect(availability).toEqual({});
   });
+
+  // Not asserted here: that classic and ai hint reads still work. Both gate on
+  // `isModuleEnabled`, and this suite runs against the neutral baked config
+  // where neither module is on, so a live assertion would only ever exercise
+  // the module gate — a skip dressed as a check. Their reads are covered by the
+  // mocked suite and by the classic/ai store suites that do enable them.
 });
