@@ -313,14 +313,24 @@ describe("seedDemoData", () => {
     // solvecount per challenge MUST equal the number of DISTINCT logins that
     // solved it (the fixture has no duplicate (login, challengeId) pairs, so
     // this is just a row count per challenge)
-    const solveCountCmds = cmds.filter((c) => c[0] === "HSET" && c[1] === "ctf:classic:solvecount");
+    // Sent as ONE raise-only EVAL rather than per-challenge HSETs: the count is
+    // keyed by challenge and counts distinct solvers across EVERYONE, so the
+    // fixture's number is a floor. An absolute write rewrote a real
+    // contestant's solve out of the public count on every re-seed (issue #335).
+    const raise = cmds.find((c) => c[0] === "EVAL" && c[3] === "ctf:classic:solvecount")!;
+    expect(raise).toBeDefined();
+    expect(String(raise[1])).toContain("if current < floor then");
+    const floors = new Map<string, number>();
+    for (let i = 4; i < raise.length; i += 2) floors.set(String(raise[i]), Number(raise[i + 1]));
+
     const solvedChallengeIds = new Set(DEMO_CLASSIC_SOLVES.map((s) => s.challengeId));
-    expect(solveCountCmds.length).toBe(solvedChallengeIds.size);
+    expect(floors.size).toBe(solvedChallengeIds.size);
     for (const challengeId of solvedChallengeIds) {
       const expectedCount = DEMO_CLASSIC_SOLVES.filter((s) => s.challengeId === challengeId).length;
-      const cmd = solveCountCmds.find((c) => c[2] === challengeId)!;
-      expect(Number(cmd[3])).toBe(expectedCount);
+      expect(floors.get(challengeId)).toBe(expectedCount);
     }
+    // and never as a plain HSET, which is what discarded the real solves
+    expect(cmds.some((c) => c[0] === "HSET" && c[1] === "ctf:classic:solvecount")).toBe(false);
   });
 
   it("writes no ctf:classic:* keys when the classic module is disabled", async () => {
@@ -443,14 +453,24 @@ describe("seedDemoData", () => {
 
     // solvecount per challenge MUST equal the number of DISTINCT logins that
     // solved it (the fixture has no duplicate (login, challengeId) pairs)
-    const solveCountCmds = cmds.filter((c) => c[0] === "HSET" && c[1] === "ctf:ai:solvecount");
+    // Sent as ONE raise-only EVAL rather than per-challenge HSETs: the count is
+    // keyed by challenge and counts distinct solvers across EVERYONE, so the
+    // fixture's number is a floor. An absolute write rewrote a real
+    // contestant's solve out of the public count on every re-seed (issue #335).
+    const raise = cmds.find((c) => c[0] === "EVAL" && c[3] === "ctf:ai:solvecount")!;
+    expect(raise).toBeDefined();
+    expect(String(raise[1])).toContain("if current < floor then");
+    const floors = new Map<string, number>();
+    for (let i = 4; i < raise.length; i += 2) floors.set(String(raise[i]), Number(raise[i + 1]));
+
     const solvedChallengeIds = new Set(DEMO_AI_SOLVES.map((s) => s.challengeId));
-    expect(solveCountCmds.length).toBe(solvedChallengeIds.size);
+    expect(floors.size).toBe(solvedChallengeIds.size);
     for (const challengeId of solvedChallengeIds) {
       const expectedCount = DEMO_AI_SOLVES.filter((s) => s.challengeId === challengeId).length;
-      const cmd = solveCountCmds.find((c) => c[2] === challengeId)!;
-      expect(Number(cmd[3])).toBe(expectedCount);
+      expect(floors.get(challengeId)).toBe(expectedCount);
     }
+    // and never as a plain HSET, which is what discarded the real solves
+    expect(cmds.some((c) => c[0] === "HSET" && c[1] === "ctf:ai:solvecount")).toBe(false);
   });
 
   it("writes no ctf:ai:* keys when the ai module is disabled", async () => {
