@@ -154,10 +154,11 @@ counts **once**, so a team's total can be less than its members' scores added
 up. Organizers open or close registration from the admin panel. See
 [Operations](operations.md#teams).
 
-![An expanded team row on the leaderboard: member chips with each player's own points, one block per module showing what it contributed to the total, then the per-target breakdown](assets/leaderboard-team.jpg)
+![An expanded team row on the leaderboard: member chips with each player's own points, then one progress row per module showing what it contributed to the total, each opening into its own per-item detail](assets/leaderboard-team.jpg)
 
-<sup>A team row, expanded: who's on it, what each module contributed, and the
-per-target detail — the whole total accounted for in one place.</sup>
+<sup>A team row, expanded: who's on it, what each module contributed, and a
+row per module that opens into its own detail — the whole total accounted for
+in one place.</sup>
 
 ## Organizer admin panel
 
