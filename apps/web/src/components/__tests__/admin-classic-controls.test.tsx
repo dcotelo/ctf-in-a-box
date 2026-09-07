@@ -85,7 +85,7 @@ describe("AdminClassicControls", () => {
   // one of them means the organizer's content is gone. Every module tab used to
   // open by telling them it had — for 6-10 seconds on a real deployment.
   it("says Checking… while the first read is in flight, not that the board is empty", () => {
-    const html = renderControls([], ["Web"], false);
+    const html = renderControls([], [], false);
     expect(html).toContain("Checking…");
     expect(html).not.toContain("No challenges yet.");
     expect(html).not.toContain("No categories yet");
