@@ -107,7 +107,7 @@ entrypoints, the gate scripts and `scripts/lib/acceptance-lib.sh`,
 ## What CI runs
 
 `.github/workflows/ci.yml` is a `changes` gate (native `git diff` path
-filtering) plus ten gated jobs — a job for an area your PR doesn't touch is
+filtering) plus eleven gated jobs — a job for an area your PR doesn't touch is
 *skipped*, and a push to `main` runs everything:
 
 | Job | Proves |
@@ -119,6 +119,7 @@ filtering) plus ten gated jobs — a job for an area your PR doesn't touch is
 | `smoke` | The full poll pipeline against fixture services, including the forged-comment drop and the freeze hold |
 | `app` | eslint (`pnpm lint`, zero problems); vitest; the three grading Lua scripts and the admin, hint and team scripts executed against a real Redis behind srh (every `*.upstash.test.ts` suite, run serially; required, not skippable, in CI); the production build; the `/`-never-prerendered assertion; the build-time config acceptance |
 | `quiz-only` / `classic-only` / `ai-only` | A single app-side module runs a whole event alone, with no scorer to pull |
+| `registries` | The KNOWN_MODULES / target lists duplicated across `sync`, `setup`, the app and the scorer still agree |
 | `docs` | The Jekyll site builds; link/meta checks |
 
 Two heavier workflows (`stock-scores-zero`, `patched-scores-right`) run

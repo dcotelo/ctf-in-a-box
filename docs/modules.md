@@ -328,11 +328,11 @@ level, since points are what the board ranks on. A module whose source
 reports no ceiling shows what was earned rather than an `N / 0 pts` fraction — the page's headline total was already net and correct before
 this, what it was missing was the per-module breakdown behind it; the admin
 panel
-(`app/(site)/admin/admin-controls.tsx`) is a tab shell — five control-plane
-tabs that belong to the platform itself (**Event**, **Admins**, **Support**,
-**Activity**, **Insights**), then one tab per
+(`app/(site)/admin/admin-controls.tsx`) is a tab shell — seven control-plane
+tabs that belong to the platform itself (**Overview**, **Event**, **Hints**,
+**Admins**, **Support**, **Activity**, **Insights**), then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
-the four hint controls on the Event tab (they are event policy shared by
+the four hint controls on the Hints tab (they are event policy shared by
 every module that sells hints), Secure Development's re-run cooldown in its
 own tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
@@ -973,9 +973,10 @@ two independent ways to report a solve back:
 | `docs/decisions.md` | [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric) — why the launch token is asymmetric while event signatures stay symmetric |
 | `docs/ai-module.md` + `event.yaml.example` + `README.md` | the external integrator's contract, and documenting the module for organizers |
 
-`ai` has no bulk import/export and its catalogue does not ride the whole-event
-archive bundle, unlike `quiz`'s and `classic`'s shared format (§5) — tracked
-as a follow-up (#155's `ai` half).
+`ai` has no per-tab bulk import/export button of its own, unlike `quiz` and
+`classic` (§5), but its catalogue does ride the whole-event archive bundle,
+in its own bundle format (`ai-io.ts`, exported and imported through
+`event-store.ts` — #155's `ai` half, closed by #250).
 
 Nothing under `scorer/` or `scorer/rubric.owasp/` changes for a module shaped
 this way — there is no target, no rubric, and no catalogue for the scorer to

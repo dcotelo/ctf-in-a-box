@@ -231,10 +231,13 @@ ADR, not the code.
 - `.coderabbit.yaml` — path-scoped instructions carrying the invariants
   above to the file level, and the pre-merge checks (secrecy boundary,
   fail-direction, unpinned dependencies, breaking-change docs, secrets in
-  logs). Three of the five — secrecy boundary, unpinned dependencies,
-  breaking-change docs — run at `mode: error` with the request-changes
-  workflow on, so a violation blocks rather than warns; the other two stay
-  warnings. CodeRabbit review is a required merge gate; the workflow rules —
+  logs). Two of the five — secrecy boundary and unpinned dependencies — run
+  at `mode: error` with the request-changes workflow on, so a violation
+  blocks rather than warns; the other three stay warnings. The dividing line
+  is that a check blocks only when it judges CODE against a mechanical rule:
+  breaking-change docs was demoted after #241, because it scores the PR
+  description from a snapshot taken at review time and blocked a PR whose
+  code was fine. CodeRabbit review is a required merge gate; the workflow rules —
   wait for the re-review after every push, resolve every actionable thread,
   decline on the record — are in `AGENTS.md` and
   [CONTRIBUTING](https://github.com/dcotelo/ctf-in-a-box/blob/main/CONTRIBUTING.md).

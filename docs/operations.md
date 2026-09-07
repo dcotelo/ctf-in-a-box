@@ -1646,5 +1646,9 @@ Known limits, in the open:
   Upstash-compatible REST proxy in front of Redis, implements only a subset
   of Upstash's REST API (no path-style `GET /get/<key>` shortcut, for
   example). The app is wired to it today for real team-membership and
-  hint-purchase data. What remains unverified is whether the app's Redis
-  client stays inside that subset end to end (pipelining, `EVAL`).
+  hint-purchase data. That the app's Redis client stays inside that subset
+  is no longer unverified: `apps/web/src/lib/upstash.ts` exposes exactly two
+  entry points, `upstashPipeline` and `upstashEval`, and the six
+  `*.upstash.test.ts` suites drive both against a real Redis behind `srh` in
+  the `app` CI job — with `CTF_LUA_SUITES_REQUIRED=1` turning a skip into a
+  failure, so pipelining and `EVAL` are exercised end to end on every run.
