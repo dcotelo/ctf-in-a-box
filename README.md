@@ -30,7 +30,7 @@ Commits follow Conventional Commits and carry no AI attribution.
 Small, well-specified work is tagged
 [`good first issue`](https://github.com/dcotelo/ctf-in-a-box/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 New modules start as an issue, not a PR — see
-[`docs/modules.md`](docs/modules.md) section 9.
+[CONTRIBUTING.md](CONTRIBUTING.md#proposing-a-new-module).
 
 ## What this is
 
