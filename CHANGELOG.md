@@ -32,6 +32,19 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   they arrive from a deploy shell and land in a world-readable body — and a
   test pins the response to exactly four fields, since the real risk to a
   public health endpoint is not that it breaks but that it quietly grows.
+- **The FAQ no longer promises that case never matters.** Asked "Does case or
+  extra spacing matter?", it answered "No. Matching trims leading and trailing
+  whitespace and ignores case" — flatly, with no exception. A classic
+  challenge can be marked case-sensitive, in which case `flagComparisonForm`
+  compares the flag verbatim and the board badges the card `CASE-SENSITIVE`,
+  so a contestant who read the FAQ, typed the flag in whatever casing came
+  naturally and was told "Not quite." had been misled by the site itself —
+  and spent the challenge's cooldown finding out. Every other string carrying
+  this claim already qualifies it; the registry comment beside them says the
+  qualifier is mandatory, and notes that stating it unconditionally shipped
+  once before, in v0.3.0. The FAQ answer now names the exception and points at
+  the card, and the classic-only FAQ test asserts the **answer** rather than
+  only that the question rendered — which is how the wrong one survived.
 
 - **Classic and AI now tell contestants that a hint costs points.** Secure
   Development's rules and terms have always said "Revealing a hint deducts
