@@ -235,11 +235,14 @@ Pick the doc for what you're doing right now:
 
 ## Status
 
-The kit is complete and tested offline: the smoke test (`scripts/smoke.sh`)
-exercises the whole poll pipeline end to end, every target's rubric is gated
-against the unpatched app, and the full live-GitHub scoring path ships
-in-kit — what it still awaits is a first real event driving real contestant
-PRs through real GitHub. The known limits, stated in the open, are in
+The kit is complete, tested offline and running live: the smoke test
+(`scripts/smoke.sh`) exercises the whole poll pipeline end to end, every
+target's rubric is gated against the unpatched app, the full live-GitHub
+scoring path ships in-kit, and a hosted instance runs continuously from the
+Compose file this repo ships — an end-to-end pass over it is where a batch of
+real defects were found and fixed. What it still awaits is a first real event:
+a cohort of contestants driving real PRs through real GitHub, at once. The
+known limits, stated in the open, are in
 [Status and upstream dependencies](operations.md#status-and-upstream-dependencies).
 
 ---

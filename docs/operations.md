@@ -1649,9 +1649,11 @@ moment in time, set the scoring window (or keep the event paused) as well as
 
 ## Status and upstream dependencies
 
-The kit is complete and tested offline: `scripts/smoke.sh` exercises the whole
-poll pipeline, `sync` has unit tests for parsing, cursors and idempotency, and
-every target's rubric is gated against its stock image. The full live-GitHub
+The kit is complete, tested offline and running live: `scripts/smoke.sh`
+exercises the whole poll pipeline, `sync` has unit tests for parsing, cursors
+and idempotency, every target's rubric is gated against its stock image, and a
+hosted instance runs continuously from the same Compose file this repo ships,
+with `GET /health` reporting the revision serving it. The full live-GitHub
 scoring path now **ships in-kit** — the two changes this section used to wait
 on from other OWASP-CTF repos landed here instead:
 
@@ -1666,9 +1668,14 @@ on from other OWASP-CTF repos landed here instead:
    only from `CTF_OUT_DIR` and only when the scorer step succeeded, and takes
    the push-mode leaderboard URL and token as org secrets.
 
-What "tested offline" honestly bounds: **no real event has yet driven real
-contestant PRs through real GitHub end to end.** Until one has, treat
-`scripts/smoke.sh` as the source of truth that the kit works.
+What none of that bounds: **no real event has yet driven real contestant PRs
+through real GitHub end to end**, and nothing here has been exercised at the
+concurrency of a full cohort. A live instance catches what mocks cannot — an
+end-to-end pass over one is where a batch of real defects were found, several
+of them invisible to a green CI run — but one operator clicking through a
+deployed box is not forty contestants pushing at once. Until an event has run,
+treat `scripts/smoke.sh` as the source of truth that the pipeline works, and
+the live box as evidence that it works when deployed.
 
 Known limits, in the open:
 
@@ -1688,7 +1695,7 @@ Known limits, in the open:
   example). The app is wired to it today for real team-membership and
   hint-purchase data. That the app's Redis client stays inside that subset
   is no longer unverified: `apps/web/src/lib/upstash.ts` exposes exactly two
-  entry points, `upstashPipeline` and `upstashEval`, and the six
+  entry points, `upstashPipeline` and `upstashEval`, and the seven
   `*.upstash.test.ts` suites drive both against a real Redis behind `srh` in
   the `app` CI job — with `CTF_LUA_SUITES_REQUIRED=1` turning a skip into a
   failure, so pipelining and `EVAL` are exercised end to end on every run.
