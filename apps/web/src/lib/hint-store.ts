@@ -393,7 +393,15 @@ export async function getHintAvailability(): Promise<Partial<Record<AppId, strin
       const reply = replies[i];
       if (!reply) throw new Error(`Upstash HKEYS ${key}: no reply at index ${i}`);
       if (reply.error) throw new Error(`Upstash HKEYS ${key}: ${reply.error}`);
-      const ids = Array.isArray(reply.result) ? (reply.result as string[]) : [];
+      // HKEYS answers with an array — `[]` for a hash that does not exist. So
+      // anything else is a reply we do not understand, and coercing it to `[]`
+      // would put us straight back in the bug this whole change is about:
+      // reporting "this target has no hints" on the strength of a read that
+      // did not work.
+      if (!Array.isArray(reply.result)) {
+        throw new Error(`Upstash HKEYS ${key}: expected an array, got ${typeof reply.result}`);
+      }
+      const ids = reply.result as string[];
       if (ids.length > 0) availability[app.id] = ids;
     });
     return availability;

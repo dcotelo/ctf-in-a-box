@@ -720,6 +720,26 @@ describe("getHintAvailability", () => {
     consoleError.mockRestore();
   });
 
+  // `[]` is HKEYS's answer for a hash that does not exist, so any other shape
+  // is a reply we cannot read. Coercing it to `[]` would reproduce the
+  // original bug by a different route: a target reported as having no hints
+  // because the read was not understood.
+  it("does not read a non-array HKEYS reply as a target with no hints", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = await loadStore();
+    mocks.upstashPipeline.mockResolvedValueOnce([
+      { result: ["Challenge-1"] },
+      { result: null },
+      { result: [] },
+      { result: [] },
+      { result: [] },
+      { result: [] },
+    ]);
+    expect(await store.getHintAvailability()).toEqual({});
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("returns {} without reading Redis when hints are not enabled", async () => {
     const store = await loadStore(false);
     const fetchMock = vi.fn();
