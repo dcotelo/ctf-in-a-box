@@ -47,6 +47,39 @@ export function addCategoryDecision(input: string, categories: readonly string[]
   return { kind: "add", next: [...categories, name] };
 }
 
+/** The exact request body a rename POST sends. Its own shape, not the
+ *  `categories` array: replacing the whole list cannot express a rename —
+ *  the renamed entry is indistinguishable from one removed plus one added,
+ *  which is how the challenges lose their association with it (#304). */
+export function renameCategoryRequestBody(from: string, to: string): { renameCategory: { from: string; to: string } } {
+  return { renameCategory: { from, to } };
+}
+
+export type RenameCategoryDecision =
+  | { kind: "noop" }
+  | { kind: "duplicate"; message: string }
+  | { kind: "rename"; from: string; to: string };
+
+/** What committing a rename does: nothing for a blank or an unchanged name, a
+ *  refusal when another category already holds it, otherwise the rename. The
+ *  store refuses the same cases server-side; this is the sentence an organizer
+ *  reads before a round trip. */
+export function renameCategoryDecision(
+  from: string,
+  input: string,
+  categories: readonly string[],
+): RenameCategoryDecision {
+  const to = input.trim();
+  if (!to || to === from) return { kind: "noop" };
+  // Case-insensitive, like `addCategoryDecision` — except against the entry
+  // being renamed, where a change of spelling is the whole point.
+  const clash = categories.some((c) => c !== from && c.toLowerCase() === to.toLowerCase());
+  if (clash) {
+    return { kind: "duplicate", message: `"${to}" is already a category. Pick another name.` };
+  }
+  return { kind: "rename", from, to };
+}
+
 export type RemoveCategoryDecision = { kind: "refuse"; message: string } | { kind: "remove" };
 
 /** Refuses to remove a category still in use, naming exactly how many
@@ -79,6 +112,13 @@ export type CategoryEditorState = {
   add: () => void;
   remove: (name: string) => void;
   move: (from: number, to: number) => void;
+  /** The category currently open for renaming, or null. */
+  renaming: string | null;
+  renameInput: string;
+  setRenameInput: (value: string) => void;
+  startRename: (name: string) => void;
+  cancelRename: () => void;
+  commitRename: () => void;
 };
 
 export function useCategoryEditor({
@@ -87,6 +127,7 @@ export function useCategoryEditor({
   categories,
   setCategories,
   usageCount,
+  afterRename,
 }: {
   endpoint: string;
   describeError: DescribeError;
@@ -94,10 +135,17 @@ export function useCategoryEditor({
   setCategories: (next: string[]) => void;
   /** How many challenges currently file under a category. */
   usageCount: (name: string) => number;
+  /** Re-reads the panel's own lists after a successful rename. Required in
+   *  practice: the rows on screen still carry the OLD category name, so
+   *  without this the list keeps grouping them under a heading that no longer
+   *  exists until something else reloads. */
+  afterRename?: () => Promise<void>;
 }): CategoryEditorState {
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState("");
 
   async function postCategories(next: string[]): Promise<{ ok: true; categories: string[] } | { ok: false; message: string }> {
     const result = await sendJson<{ error?: string; categories?: string[] }>(
@@ -156,5 +204,81 @@ export function useCategoryEditor({
     void applyCategories(next);
   }
 
-  return { input, setInput, pending, error, add, remove, move };
+  function startRename(name: string) {
+    setError(null);
+    setRenaming(name);
+    // Seeded with the current name: a rename is almost always an edit of what
+    // is there (a typo), not a fresh name typed from nothing.
+    setRenameInput(name);
+  }
+
+  function cancelRename() {
+    setRenaming(null);
+    setRenameInput("");
+  }
+
+  function commitRename() {
+    if (renaming === null) return;
+    const decision = renameCategoryDecision(renaming, renameInput, categories);
+    if (decision.kind === "noop") {
+      cancelRename();
+      return;
+    }
+    if (decision.kind === "duplicate") {
+      setError(decision.message);
+      return;
+    }
+    void applyRename(decision.from, decision.to);
+  }
+
+  /** Not optimistic, unlike `applyCategories`. A rename also rewrites every
+   *  challenge in the category, and this client cannot know how many moved
+   *  until the route says so — showing the new name before the store confirms
+   *  it would claim a move that may not have happened. */
+  async function applyRename(from: string, to: string) {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ error?: string; categories?: string[] }>(
+        endpoint,
+        { method: "POST", body: renameCategoryRequestBody(from, to) },
+        describeError,
+      );
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      if (!Array.isArray(result.data.categories)) {
+        setError(describeError(result.status, result.data.error));
+        return;
+      }
+      setCategories(result.data.categories);
+      cancelRename();
+      // Awaited INSIDE the pending window on purpose. `afterRename` is the
+      // panel's `reload`, which replaces the shared category list; clearing
+      // `pending` first would leave every other category control live during
+      // that read, and a move or remove dispatched against the pre-reload list
+      // would then persist it — writing a stale list back over a fresh one.
+      if (afterRename) await afterRename();
+    } finally {
+      // `finally`, so a rejected reload does not strand the panel disabled.
+      setPending(false);
+    }
+  }
+
+  return {
+    input,
+    setInput,
+    pending,
+    error,
+    add,
+    remove,
+    move,
+    renaming,
+    renameInput,
+    setRenameInput,
+    startRename,
+    cancelRename,
+    commitRename,
+  };
 }

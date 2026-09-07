@@ -8,6 +8,23 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **A category can be renamed, and its challenges come with it.** Categories
+  could be added and removed but never renamed, and removal is refused while
+  any challenge still files under one — so fixing a typo in a category ten
+  challenges already used meant editing all ten and then deleting the old
+  name. Each chip on the Classic and AI tabs now has a **Rename** control that
+  edits the name in place and rewrites every challenge in that category in the
+  same operation. Renaming onto a name another category already holds is
+  refused rather than merged (merging is a different, lossier request);
+  changing only the capitalisation of the same category is a rename, not a
+  clash. The rename travels as its own request shape rather than through the
+  category array — replacing the whole list is precisely what cannot express a
+  rename, since a renamed entry is indistinguishable from one removed plus one
+  added, and that is how the challenges lost their association with it. The
+  challenges are written first and the list last, so an interrupted rename is
+  finished by simply running the same rename again, and no challenge
+  disappears from the panel while one is half-applied.
+
 - **The number beside a challenge is where it actually sits, and a team's
   slug is never retyped.** Each module list printed the row's stored `order`
   field, which is not a position in anything on screen: on a board seeded per

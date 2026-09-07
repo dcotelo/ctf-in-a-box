@@ -13,6 +13,7 @@ import {
   clearAiChallenges,
   deleteAiChallenge,
   rotateAiSigningKey,
+  renameAiCategory,
   setAiCategories,
   upsertAiChallenge,
   type AiChallenge,
@@ -317,5 +318,68 @@ describe("setAiCategories", () => {
   it("rejects an over-long name and an over-long list", async () => {
     await expect(setAiCategories(["x".repeat(65)])).rejects.toThrow(AiValidationError);
     await expect(setAiCategories(Array.from({ length: 51 }, (_, i) => `c${i}`))).rejects.toThrow(AiValidationError);
+  });
+});
+
+// #304, and the two conditions CodeRabbit caught on it: a rename must refuse a
+// case-insensitive clash (the panel forbids one, and two casings would split a
+// category's challenges across two headings), and it must fail closed when the
+// challenge read fails rather than rewriting the list while moving nothing.
+describe("renameAiCategory", () => {
+  const challenge = (id: string, category: string) => ({
+    id,
+    title: `T ${id}`,
+    category,
+    description: "",
+    points: 100,
+    order: 1,
+    mode: "flag",
+    urlTemplate: "https://example.test/{token}",
+  });
+
+  it("moves the category's challenges and rewrites the list", async () => {
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: JSON.stringify(["Jailbreakk", "Injection"]) }])
+      .mockResolvedValueOnce([{ result: ["a", JSON.stringify(challenge("a", "Jailbreakk"))] }])
+      .mockResolvedValue([{ result: "OK" }]);
+
+    expect(await renameAiCategory("Jailbreakk", "Jailbreak")).toEqual({
+      categories: ["Jailbreak", "Injection"],
+      moved: 1,
+    });
+  });
+
+  it("refuses a name another category already holds, ignoring case", async () => {
+    // An earlier draft compared exactly, mirroring setAiCategories' own
+    // case-sensitive dedupe. That let a rename store ["Injection", "injection"]
+    // — which the panel refuses and which would split one category in two.
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: JSON.stringify(["Injection", "Jailbreak"]) }]);
+    await expect(renameAiCategory("Jailbreak", "injection")).rejects.toBeInstanceOf(AiValidationError);
+  });
+
+  it("still allows a change of spelling on the entry being renamed", async () => {
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: JSON.stringify(["injection"]) }])
+      .mockResolvedValueOnce([{ result: [] }])
+      .mockResolvedValue([{ result: "OK" }]);
+
+    expect((await renameAiCategory("injection", "Injection")).categories).toEqual(["Injection"]);
+  });
+
+  it("does NOT rewrite the list when the challenge read failed", async () => {
+    // `listAiChallenges` reads `.result` without checking `.error`, so a failed
+    // HGETALL looks like "nothing uses this category" — and renaming on top of
+    // that orphans every challenge in it onto a name that no longer exists,
+    // with no source left for a retry to find.
+    mocks.upstashPipeline.mockReset();
+    mocks.upstashPipeline
+      .mockResolvedValueOnce([{ result: JSON.stringify(["Jailbreak"]) }])
+      .mockResolvedValueOnce([{ error: "WRONGTYPE" }]);
+
+    await expect(renameAiCategory("Jailbreak", "Jailbreaks")).rejects.toThrow(/HGETALL failed/);
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(2);
   });
 });
