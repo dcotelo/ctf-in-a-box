@@ -13,10 +13,17 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/upstash", () => ({
-  upstashEval: mocks.upstashEval,
-  upstashPipeline: mocks.upstashPipeline,
-}));
+// `parseScanPage` is the REAL parser (pure: a reply in, a page or a throw
+// out). Stubbing it here would put a local imitation under test instead of
+// the one the store calls.
+vi.mock("@/lib/upstash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/upstash")>();
+  return {
+    parseScanPage: actual.parseScanPage,
+    upstashEval: mocks.upstashEval,
+    upstashPipeline: mocks.upstashPipeline,
+  };
+});
 vi.mock("@/lib/admin-store", () => ({ ADMIN_AUDIT_KEY: "ctf:admin:audit", AUDIT_CAP: 500 }));
 
 import {

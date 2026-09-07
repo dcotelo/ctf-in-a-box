@@ -1,5 +1,5 @@
 import "server-only";
-import { upstashPipeline } from "@/lib/upstash";
+import { parseScanPage, upstashPipeline } from "@/lib/upstash";
 import { userKey, userHintTimesKey, HINTS_SPENT_KEY } from "@/lib/team-keys";
 import { QUIZ_POINTS_KEY, QUIZ_QUESTIONS_KEY, quizAnswersKey, quizAttemptsKey } from "@/lib/quiz-keys";
 import { CLASSIC_CHALLENGES_KEY, CLASSIC_POINTS_KEY, classicAttemptsKey, classicSolvesKey } from "@/lib/classic-keys";
@@ -161,7 +161,10 @@ async function readSecureDevSolves(): Promise<Map<string, string>> {
   const keys: string[] = [];
   do {
     const [scan] = await upstashPipeline([["SCAN", cursor, "MATCH", "ctf:solves:*", "COUNT", 1000]]);
-    const [next, found] = Array.isArray(scan.result) ? (scan.result as [string, string[]]) : ["0", []];
+    // Throws rather than ending the walk on a failed page (issue #358). An
+    // undercount presented as a measurement is worse than a failed one, and
+    // this module already has a way to say so — see the caller's caveats.
+    const [next, found] = parseScanPage(scan, "metrics secure-dev solves");
     cursor = next;
     keys.push(...found);
   } while (cursor !== "0");
@@ -256,7 +259,22 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
   const aiPoints = new Map(hashEntries(aiPointsRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0]));
   const hintsSpent = hashEntries(hintsSpentRes.result).map(([k, v]) => [k.toLowerCase(), Number(v) || 0] as const);
 
-  const sdSolves = await readSecureDevSolves();
+  // A SCAN page that cannot be read now throws (issue #358) instead of
+  // silently truncating the walk. Caught here rather than failing the whole
+  // panel: every other figure on it is still valid, and this module's own
+  // convention is to SAY a number is short rather than quietly present it.
+  // Without the caveat the counts would look authoritative while omitting
+  // however many contestants sat on the unread pages.
+  let sdSolves: Map<string, string>;
+  try {
+    sdSolves = await readSecureDevSolves();
+  } catch (err) {
+    console.error("secure-development solves unavailable for metrics:", err);
+    caveats.push(
+      "Secure Development solves could not be read — participation and solve counts below exclude them.",
+    );
+    sdSolves = new Map();
+  }
   const sdLogins = new Set<string>();
   for (const composite of sdSolves.keys()) {
     const parts = composite.split("/");

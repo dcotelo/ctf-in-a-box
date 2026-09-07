@@ -5,7 +5,15 @@ const mocks = vi.hoisted(() => ({
   upstashPipeline: vi.fn<(c: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
 }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
+// `parseScanPage` is the REAL parser — see the note in team-store.test.ts.
+vi.mock("@/lib/upstash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/upstash")>();
+  return {
+    parseScanPage: actual.parseScanPage,
+    upstashEval: mocks.upstashEval,
+    upstashPipeline: mocks.upstashPipeline,
+  };
+});
 
 import { resetEvent } from "@/lib/admin-store";
 
@@ -232,6 +240,32 @@ describe("resetEvent", () => {
     expect(patterns).not.toContain("ctf:ai:hints");
     expect(patterns).not.toContain("ctf:ai:signkey");
     expect(patterns).not.toContain("ctf:ai:categories");
+  });
+
+  // Issue #358, and the most dangerous of the five walks that shared the bug.
+  // A failed SCAN page used to be read as cursor "0" — iteration complete — so
+  // the sweep stopped early and `resetEvent` still returned a cleared COUNT.
+  // An organizer would be told the event was wiped, then open a "fresh" one
+  // still holding last event's solves, with nothing having reported a problem.
+  //
+  // The failure lands on the SECOND page on purpose: a first-page failure
+  // cleared 0 and looked plausible, but the truncation only becomes invisible
+  // once some keys have already been deleted.
+  it("rejects when a SCAN page fails mid-sweep, rather than reporting a partial wipe as done", async () => {
+    let scans = 0;
+    mocks.upstashPipeline.mockImplementation(async (cmds: (string | number)[][]) => {
+      const cmd = cmds[0];
+      if (String(cmd[0]) === "SCAN") {
+        scans += 1;
+        // Page 1 succeeds and reports more to come; page 2 fails.
+        if (scans === 1) return [{ result: ["7", ["ctf:solves:juice-shop"]] }];
+        return [{ error: "ERR max requests limit exceeded" }];
+      }
+      if (String(cmd[0]) === "DEL") return [{ result: cmd.length - 1 }];
+      return [{ result: null }];
+    });
+
+    await expect(resetEvent("alice")).rejects.toThrow(/SCAN failed \(reset /);
   });
 
   it("skips DEL for an empty prefix and paginates a multi-page prefix", async () => {

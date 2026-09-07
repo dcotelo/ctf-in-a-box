@@ -37,6 +37,37 @@ export async function upstashPipeline(
   return (await res.json()) as UpstashResult[];
 }
 
+/**
+ * One page of a SCAN walk, with the two failures that end a walk EARLY turned
+ * into throws (issue #358).
+ *
+ * `upstashPipeline` reports a per-command failure as `{ error }` rather than
+ * throwing, and every SCAN loop in this app used to read `scan.result` through
+ * a `["0", []]` fallback. That fallback is not a harmless default: `"0"` is the
+ * cursor value meaning ITERATION COMPLETE, so a failed page did not retry, did
+ * not throw, and did not return empty — it ended the walk and handed back the
+ * pages gathered so far, indistinguishable from a full sweep. A team went
+ * missing from the leaderboard that way while `/profile` still showed it.
+ *
+ * The same shape sat behind the master reset (a partial wipe reported as a
+ * completed count), the per-contestant solve clear, and two counters. Callers
+ * differ in what they should DO about a failure — that is theirs to decide —
+ * but none of them can decide anything about a failure they were never told
+ * about. So this throws, and each caller applies its own documented fail
+ * direction.
+ */
+export function parseScanPage(reply: UpstashResult, context: string): [string, string[]] {
+  if (reply.error) throw new Error(`Upstash SCAN failed (${context}): ${reply.error}`);
+  const page = reply.result;
+  // A well-formed reply is [cursor, keys]. Anything else means the walk cannot
+  // be trusted to have covered the keyspace, and "cursor 0" would claim it had.
+  if (!Array.isArray(page) || page.length < 2 || !Array.isArray(page[1])) {
+    throw new Error(`Upstash SCAN returned an unexpected shape (${context}): ${JSON.stringify(page)}`);
+  }
+  // Redis answers the cursor as a bulk string; some proxies hand back a number.
+  return [String(page[0]), page[1] as string[]];
+}
+
 /** Runs a Lua script as a single atomic Redis operation. */
 export async function upstashEval(
   script: string,

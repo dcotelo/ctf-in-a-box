@@ -14,7 +14,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/upstash", () => ({ upstashPipeline: mocks.upstashPipeline }));
+// `parseScanPage` is the REAL parser — see the note in team-store.test.ts.
+vi.mock("@/lib/upstash", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/upstash")>();
+  return { parseScanPage: actual.parseScanPage, upstashPipeline: mocks.upstashPipeline };
+});
 vi.mock("@/lib/team-store", () => ({ listTeams: mocks.listTeams }));
 
 import { challengesToCsv, computeEventMetrics, type EventMetrics } from "@/lib/metrics-store";

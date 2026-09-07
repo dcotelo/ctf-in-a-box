@@ -1,5 +1,5 @@
 import "server-only";
-import { upstashEval, upstashPipeline } from "@/lib/upstash";
+import { parseScanPage, upstashEval, upstashPipeline } from "@/lib/upstash";
 import { ADMIN_AUDIT_KEY, AUDIT_CAP } from "@/lib/admin-store";
 import { LOGIN_RE } from "@/lib/admin-admins";
 import { sumAttempts } from "@/lib/attempt-row";
@@ -133,7 +133,10 @@ async function countSecureDevSolves(login: string): Promise<number> {
     const [scan] = await upstashPipeline([
       ["SCAN", cursor, "MATCH", "ctf:solves:*", "COUNT", 1000],
     ]);
-    const [next, keys] = (scan.result as [string, string[]]) ?? ["0", []];
+    // Throws rather than ending the walk on a failed page (issue #358). This
+    // count is shown to an organizer deciding whether to wipe a contestant's
+    // progress, so a truncated walk understates what is about to be deleted.
+    const [next, keys] = parseScanPage(scan, "count secure-dev solves");
     cursor = next;
     if (keys.length) {
       const replies = await upstashPipeline(keys.map((k) => ["HKEYS", k]));
@@ -279,7 +282,11 @@ async function clearSecureDevSolves(login: string): Promise<number> {
     const [scan] = await upstashPipeline([
       ["SCAN", cursor, "MATCH", "ctf:solves:*", "COUNT", 1000],
     ]);
-    const [next, keys] = (scan.result as [string, string[]]) ?? ["0", []];
+    // Throws rather than ending the walk on a failed page (issue #358). A
+    // partial clear reported as a completed one is the worst of the five: the
+    // organizer is told the contestant's progress is gone, and some of it is
+    // still there to be scored.
+    const [next, keys] = parseScanPage(scan, "clear secure-dev solves");
     cursor = next;
     for (const key of keys) {
       const [reply] = await upstashPipeline([["HKEYS", key]]);
