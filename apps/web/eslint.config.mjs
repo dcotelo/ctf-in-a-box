@@ -39,11 +39,16 @@ const eslintConfig = defineConfig([
         "error",
         ...[
           {
-            // (?<![\w:-])   token start, and NOT immediately after a variant
-            //               colon — that is what lets `disabled:` through
-            // (?!disabled:) the one exempt variant, checked at the chain start
-            // (?:[\w-]+:)*  any other variant chain, `not-disabled:` included
-            pattern: "(?<![\\w:-])(?!disabled:)(?:[\\w-]+:)*text-zinc-500(?![\\w-])",
+            // (?<![\w:-])  token start, and NOT immediately after a variant
+            //              colon, so the exempt class can't be re-matched at
+            //              its own `text-` segment
+            // (?!disabled:text-zinc-500…) the ONE exempt class, in full. Not
+            //              `(?!disabled:)`, which would also exempt
+            //              `not-disabled:` (an ACTIVE control) and
+            //              `disabled:hover:` (a chain this contract does not
+            //              cover) — both flagged now
+            // (?:[\w-]+:)* any other variant chain
+            pattern: "(?<![\\w:-])(?!disabled:text-zinc-500(?![\\w-]))(?:[\\w-]+:)*text-zinc-500(?![\\w-])",
             message:
               "text-zinc-500 is 3.5-3.8:1 and fails WCAG AA for text (DESIGN_SYSTEM.md). Use text-muted. Only the exact `disabled:text-zinc-500` is allowed.",
           },

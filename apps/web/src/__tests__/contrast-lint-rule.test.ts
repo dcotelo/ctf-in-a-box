@@ -47,6 +47,13 @@ describe("the banned-contrast-token lint rule", () => {
     expect(errors[0]).toContain("fails WCAG AA");
   });
 
+  it("rejects a compound disabled: chain — the contract allows the exact class only", async () => {
+    // `disabled:hover:text-zinc-500` is not the class the exemption names, and
+    // a rule whose message promises "only the exact `disabled:text-zinc-500`"
+    // has to mean it.
+    expect(await contrastErrors('export const x = "disabled:hover:text-zinc-500";')).toHaveLength(1);
+  });
+
   it("rejects the bare token", async () => {
     expect(await contrastErrors('export const x = "text-zinc-500";')).toHaveLength(1);
   });
