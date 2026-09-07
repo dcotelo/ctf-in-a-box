@@ -1482,6 +1482,43 @@ flag-submission form classic uses, right below the launcher.
 
 ## Verifying it works
 
+### Which build is live: `GET /health`
+
+Public, unauthenticated, and the fastest way to answer "did my fix reach the
+box?":
+
+```console
+$ curl -s https://ctf.example.org/health
+{"status":"ok","version":"0.4.0","revision":"d3399e9abcde","builtAt":"2026-09-07T02:01:49.000Z"}
+```
+
+| Field | Means |
+|---|---|
+| `status` | Always `ok` when the app answers at all. **Liveness only** — it does *not* check Redis, GitHub or the scorer, so a 200 here means the Node process is serving requests and nothing more. Dependency status is on the admin **Overview**, behind the organizer gate. |
+| `version` | The repo tag this build was cut from. Only moves on a release, so it cannot tell you whether a deploy happened. |
+| `revision` | The commit the image was built from. **This is the field that answers whether a deploy landed.** |
+| `builtAt` | When the image was built. Distinguishes two deploys of the same commit — a redeploy after a config or secret change rebuilds the image without moving the sha. |
+
+`revision` and `builtAt` are baked at build time from `APP_BUILD_REV` and
+`APP_BUILT_AT` (Docker build args). `deploy/fly/deploy.sh` and
+`scripts/dev-stack` fill them in; a build that passes neither reports
+`"unknown"` and `null` rather than failing. `deploy.sh` deliberately reports
+`unknown` when the working tree is dirty, because the sha would not describe
+the image it built.
+
+Watching for a deploy to land:
+
+```sh
+until curl -s https://ctf.example.org/health | grep -q '"revision":"abc1234'; do sleep 15; done
+```
+
+The payload is world-readable by design: on an open-source kit the commit sha
+and the release tag are already public. Nothing else belongs in it — see the
+comment at the top of `apps/web/src/app/health/route.ts` for the list of
+things deliberately kept out, and the test that pins the field set.
+
+### The offline gates
+
 No GitHub org, Action runs, or scorer image access needed to check the kit
 itself:
 

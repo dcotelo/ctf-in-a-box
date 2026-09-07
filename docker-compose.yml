@@ -17,6 +17,11 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
+        # Build stamp for GET /health. Both optional: unset reports
+        # "unknown"/null rather than failing, so a plain `docker compose build`
+        # keeps working. `dev-stack` and deploy/fly/deploy.sh fill them in.
+        APP_BUILD_REV: ${APP_BUILD_REV:-}
+        APP_BUILT_AT: ${APP_BUILT_AT:-}
     restart: unless-stopped
     environment:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}

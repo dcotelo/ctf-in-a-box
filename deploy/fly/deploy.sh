@@ -434,6 +434,29 @@ else
   EVENT_CONFIG_B64=""
 fi
 
+# Build stamp baked into the app image, served by GET /health. This is what
+# makes "did my fix reach the box?" answerable without Fly credentials: the
+# machine version `fly status` prints counts deploys, not commits.
+#
+# `git` may be absent, or this may be a tarball with no .git — both are fine.
+# An empty value reports "unknown"/null from /health rather than failing, and
+# `git rev-parse` is allowed to fail without taking the deploy with it, which
+# is why each falls back explicitly instead of relying on `set -e`.
+# cwd is the repo root (line 15), so plain `git` is already scoped correctly.
+if APP_BUILD_REV="$(git rev-parse --short=12 HEAD 2>/dev/null)"; then
+  # A dirty tree would otherwise report a sha that does not describe the image.
+  # `status --porcelain`, not `diff HEAD`: the build context is the working
+  # tree (`COPY apps/web/ ./`), so an UNTRACKED file is baked in just as
+  # surely as a modified one, and `diff` cannot see it.
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    echo "   NOTE: working tree is dirty — /health will report revision unknown"
+    APP_BUILD_REV=""
+  fi
+else
+  APP_BUILD_REV=""
+fi
+APP_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 APP_IMAGE="registry.fly.io/$APP:app"
 SYNC_IMAGE="registry.fly.io/$APP:sync"
 SCORER_IMAGE="registry.fly.io/$APP:scorer"
@@ -516,7 +539,7 @@ fi
 
 if [ -n "$DRY_RUN" ]; then
   echo "DRY-RUN: fly auth docker"
-  echo "DRY-RUN: docker build --platform linux/amd64 -f apps/web/Dockerfile --build-arg EVENT_CONFIG_B64=<redacted> -t $APP_IMAGE ."
+  echo "DRY-RUN: docker build --platform linux/amd64 -f apps/web/Dockerfile --build-arg EVENT_CONFIG_B64=<redacted> --build-arg APP_BUILD_REV=${APP_BUILD_REV:-<none>} --build-arg APP_BUILT_AT=$APP_BUILT_AT -t $APP_IMAGE ."
   echo "DRY-RUN: docker push $APP_IMAGE"
   echo "DRY-RUN: docker build --platform linux/amd64 -t $SYNC_IMAGE ./sync"
   echo "DRY-RUN: docker push $SYNC_IMAGE"
@@ -534,7 +557,9 @@ else
 
   echo "   building app -> $APP_IMAGE"
   docker build --platform linux/amd64 -f apps/web/Dockerfile \
-    --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64" -t "$APP_IMAGE" .
+    --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64" \
+    --build-arg "APP_BUILD_REV=$APP_BUILD_REV" \
+    --build-arg "APP_BUILT_AT=$APP_BUILT_AT" -t "$APP_IMAGE" .
   docker push "$APP_IMAGE"
 
   echo "   building sync -> $SYNC_IMAGE"
