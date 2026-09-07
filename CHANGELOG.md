@@ -8,6 +8,11 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+## v0.5.0 — 2026-09-07
+
+The admin panel every URL of which had stopped loading, a security bump, and
+a long run of numbers that finally agree with each other.
+
 - **Fixed: every `/admin` URL returned the error boundary instead of the panel
   (#312, fixed by #324).** For the whole window between #297 and #324, an
   organizer could not freeze scoring, edit a question or a flag, reset the

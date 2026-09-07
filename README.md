@@ -66,17 +66,23 @@ training day.
 
 ## Status
 
-**Complete and tested offline; not yet validated against a real live event.**
-The full scoring path ships in-kit — the scorer's bearer-authed `POST /score`,
-the self-contained scoring workflow for the forks, poll and push transport —
-and `scripts/smoke.sh` exercises the whole poll pipeline end to end against
-mocks. What has *not* happened yet is a real event driving real contestant
-PRs through real GitHub. One known caveat, in the open: the Security
-Shepherd result matcher has a stated residual limit (an unusually-phrased
-refusal can still read as a solve — it can under-credit a correct patch,
-never award a free point). Detail and
-current state: [Status and upstream
-dependencies](docs/operations.md#status-and-upstream-dependencies).
+**Deployed and exercised end to end; not yet run for a real cohort.** The
+full scoring path ships in-kit — the scorer's bearer-authed `POST /score`, the
+self-contained scoring workflow for the forks, poll and push transport — and
+`scripts/smoke.sh` drives the whole poll pipeline against mocks. Beyond that,
+the kit runs continuously on a hosted box from the same Compose file this
+repo ships, `GET /health` reports the exact revision serving it, and an
+end-to-end pass over that live instance is where a batch of real defects were
+found and fixed — the sort a mocked suite cannot see.
+
+What has *not* happened is a real event: a cohort of contestants opening real
+PRs against real forks, at once, for hours. That is the gap between "the
+pipeline works" and "the pipeline works at 40 people". Two caveats are open
+rather than buried: the Security Shepherd result matcher has a stated
+residual limit (an unusually-phrased refusal can still read as a solve — it
+can under-credit a correct patch, never award a free point), and the load
+profile of a full cohort is untested. Detail and current state: [Status and
+upstream dependencies](docs/operations.md#status-and-upstream-dependencies).
 
 ## What it is not
 
