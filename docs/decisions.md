@@ -2989,3 +2989,78 @@ breaks one integration until it is redeployed. Rotating the launch keypair
 invalidates every live token at once and changes the published public key under
 every deployed verifier. The two are not the same button and must not be offered
 as though they were.
+
+## ADR 54. The AWS module is ECS + managed Redis; the event's data stopped being ours to lose
+
+**Status.** Accepted. Breaking: replaces the EC2 module in place.
+
+**Context.** The first AWS module was one x86_64 EC2 instance running this
+repo's own `docker-compose.yml`, brought up by `user-data`. That was a good
+argument and it is worth restating before dismantling it: the app image bakes
+`event.yaml` at build time and the scorer is built from source, so `docker
+compose up --build` on one host was far less friction than translating build
+steps into task definitions; poll mode needs no inbound for scoring; and a
+replaced box repopulates its leaderboard from the GitHub PR comments, so the
+instance was close to disposable.
+
+One thing in that stack was **not** disposable. Redis was a container writing an
+append-only file to an EBS volume. Durability was ours: our fsync policy, our
+volume, our restore procedure, and no backups unless the operator built them.
+An event is a day people have blocked out — the failure mode is not "the box
+died", which poll mode survives, but "the box died and the quiz answers, the
+classic flags and every team went with it", which nothing in that design
+survived.
+
+**Decision.** Move the data to **ElastiCache for Redis** and let the rest
+follow: **Fargate** services, an **ALB + ACM** for TLS, **ECR** for the image,
+and SSM SecureStrings referenced by `valueFrom`. Replace the module in place
+rather than adding a second AWS path — one AWS deploy, and ECS supersedes the
+box.
+
+**What this is not.** It is not a rewrite of the application. The app, scorer
+and sync speak **only** the Upstash REST API and never raw Redis, so ElastiCache
+changed exactly one thing: what `srh` connects *to*. `srh` stays, its
+`SRH_CONNECTION_STRING` points at the primary endpoint instead of a sibling
+container, and everything above it is byte-for-byte the code compose runs. That
+property is why this was a module change and not a program change.
+
+**The boundary did not move either.** ADR 41 put the app/Redis isolation in
+security groups rather than in network topology, and it stays there: the ALB
+alone reaches the app, the app and workers alone reach `srh`, `srh` alone
+reaches ElastiCache. Tasks therefore sit in **public subnets** with public IPs
+and no permitted inbound — because a NAT gateway costs roughly the entire
+instance this module replaces, per AZ, before a byte moves, and VPC endpoints
+are an hourly charge each for the five you need plus the ones you forget. A
+public subnet with no inbound rule is not reachable; the subnet was never what
+was protecting anything.
+
+**Alternatives.** *EKS* — a control-plane charge and a Kubernetes upgrade
+treadmill for four containers; tracked separately as a Helm chart (issue #54)
+for people who already run clusters. *Keeping EC2 and bolting on backups* —
+possible, and it keeps the price, but it leaves durability hand-rolled, which is
+the one thing this ADR exists to stop. *Adding ECS beside EC2* — two AWS paths
+to test, document and keep in step, for a kit whose whole claim is that one
+command stands an event up.
+
+**The costs, accepted deliberately.** Roughly four times the EC2 bill at the
+defaults, itemised in the module README so the loss of EC2 simplicity is a
+conscious purchase rather than a discovery. **Terraform state now contains a
+secret** — the generated ElastiCache AUTH token — where the EC2 module could
+honestly say it did not, so an encrypted remote backend stops being advice.
+**Durability is snapshots, not AOF**: a restore loses up to a day rather than up
+to a second, which is why the app's own event-archive export (#155) remains the
+finer-grained backup for authored content and is what an organizer should
+actually rely on between events. And the image bake moved from the instance into
+`deploy.sh`, because Terraform cannot build an image — content-addressed tags
+into an immutable repository, so a redeploy with nothing changed is a no-op
+rather than an error.
+
+**Verified without an AWS account.** The compatibility question the design hangs
+on — whether `srh` speaks TLS + AUTH to a managed cache, and whether `EVAL`
+survives the hop — was answered against a Redis configured exactly as
+ElastiCache presents itself (TLS-only, AUTH required, no client certs): `PING`,
+`SET`/`GET`, `EVAL` and `EVALSHA` all pass, with a wrong token rejected as the
+control. `srh` verifies against **CAStore**'s embedded Mozilla bundle rather
+than the OS trust store — which carries Amazon's roots, so ElastiCache
+verifies, but also means the trust anchors are frozen at the pinned image digest
+and mounting a CA into the container does nothing.
