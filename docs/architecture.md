@@ -55,7 +55,7 @@ Everything runs as one `docker-compose.yml` stack (see
 Two independent things happen in parallel: contestants browsing the app, and
 scores flowing in from GitHub.
 
-<img src="assets/diagrams/system-overview.svg" alt="Animated diagram: a contestant's browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive either by a push-mode scoring Action posting to /score through caddy, or by poll-mode sync polling GitHub and posting to scorer directly. (Quiz, classic, and ai score entirely app-side and never touch scorer — see their own diagrams below.)">
+<img src="assets/diagrams/system-overview.svg" alt="Animated diagram. One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive either by a push-mode scoring Action posting to /score, or by poll-mode sync polling GitHub and posting to scorer directly. Quiz, classic and ai score entirely app-side and never touch scorer.">
 
 The plain-text shape, for anything that can't render the animation above:
 
@@ -118,7 +118,7 @@ state; everything else that touches scores goes through it.
 
 ## Data flow for a score
 
-<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram: a contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it either POSTs the score directly to /score (push mode) or posts a PR comment carrying the score marker (poll mode); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh; the app then reads GET /leaderboard and composes the overlay pipeline before rendering.">
+<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram. A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it either POSTs the score directly to /score (push mode) or posts a PR comment carrying the score marker (poll mode); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.">
 
 1. A contestant forks a target repo in the event org, patches a
    vulnerability, and opens a PR back to the org's copy.
@@ -279,7 +279,7 @@ for why the board is built this way.
 
 ## Quiz data flow
 
-<img src="assets/diagrams/quiz-data-flow.svg" alt="Animated diagram: a contestant submits an answer; a cheap JS gate pre-check runs first; the real authority is one atomic Lua script that rechecks the cap and cooldown against current state, compares the answer, and on a match writes the answer row and bumps the aggregates; quiz points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' correct answers, never their sum.">
+<img src="assets/diagrams/quiz-data-flow.svg" alt="Animated diagram. A contestant submits an answer; a cheap JS gate pre-check runs first; the real authority is one atomic Lua script that rechecks the cap and cooldown against current state, compares the answer, and on a match writes the answer row and bumps the aggregates; quiz points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' correct answers, never their sum.">
 
 The `quiz` module never touches `scorer`, `sync`, or GitHub — it's the app's
 own, entirely separate scoring path, running inside `apps/web` against Redis
@@ -409,7 +409,7 @@ authored content, not event-run state a reset should ever destroy.
 
 ## Classic data flow
 
-<img src="assets/diagrams/classic-data-flow.svg" alt="Animated diagram: a contestant submits a flag; a cheap JS pre-check runs first, failing open on a paused/out-of-window read but closed on a cooldown-lookup error; the real authority is one atomic SUBMIT_SCRIPT that rechecks the already-solved guard and cooldown against fresh state, compares the flag's normalized form, and on a match writes the solve row and bumps the aggregates; classic points are ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.">
+<img src="assets/diagrams/classic-data-flow.svg" alt="Animated diagram. A contestant submits a flag; a cheap JS pre-check runs first, failing open on a paused or out-of-window read but closed on a cooldown-lookup error; the real authority is one atomic SUBMIT_SCRIPT that rechecks the already-solved guard and cooldown against fresh state, compares the flag's normalized form, and on a match writes the solve row and bumps the aggregates; classic points are ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.">
 
 The `classic` module is the jeopardy-style flag board: an organizer authors a
 set of challenges, each hiding a flag under a description; a contestant reads
@@ -557,7 +557,7 @@ clears them.
 
 ## AI data flow
 
-<img src="assets/diagrams/ai-data-flow.svg" alt="Animated diagram: the challenge page mints an Ed25519 launch token after four gates and embeds it in the launcher href. A solve can arrive three ways — an in-box Server Action that re-runs the gate order, an external submit endpoint authenticated by the token alone, or an external event endpoint authenticated by an HMAC signature then the token then a replay nonce — and all three funnel into one shared atomic AWARD_SCRIPT. AI points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.">
+<img src="assets/diagrams/ai-data-flow.svg" alt="Animated diagram. The challenge page mints an Ed25519 launch token after four gates and embeds it in the launcher href. A solve can arrive three ways: an in-box Server Action that re-runs the gate order, an external submit endpoint authenticated by the token alone, or an external event endpoint authenticated by an HMAC signature then the token then a replay nonce. All three funnel into one shared atomic AWARD_SCRIPT. AI points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.">
 
 The `ai` module is externally hosted AI/LLM challenges: an organizer authors
 each challenge in `/admin` (mode `flag`/`event`/`both`, a launch URL
@@ -1069,7 +1069,7 @@ which supersedes the v1 limitation recorded in
 
 ## Build-time config flow
 
-<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram: the organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; site modules derive enabledModules and nav links from it; next build statically renders all of it — event identity is baked into the image at build time, not read at request time.">
+<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram. The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the site modules derive enabledModules and nav links from it; next build statically renders all of it. Event identity is baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list.">
 
 Event identity (name, dates, URL, enabled targets, admins) is not runtime
 config — it's baked into the `app` image at build time:

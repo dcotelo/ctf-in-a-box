@@ -269,6 +269,21 @@ suggestions.
   (`module-contributions`, `team-standings`, `hint-penalties`, `admin-auth`).
   Two verbatim joins made one contestant's hints free and showed a scoring
   teammate at 0 pts (#216).
+- **Diagrams are hand-authored animated SVGs sharing one style.** Every one
+  lives in `docs/assets/diagrams/<name>.svg` and is embedded with a plain
+  `<img>` — never a `mermaid` code fence, which cannot animate and cannot be
+  reused between the README and the Pages site. They share a contract: a
+  `:root` custom-property palette with a `@media (prefers-color-scheme: dark)`
+  pair, an opaque `var(--bg)` card painted behind everything, CSS
+  `@keyframes` animation only (`.dgm-flow`/`.dgm-ants` marching ants,
+  `.dgm-gate` staggered pulse), and a `@media (prefers-reduced-motion:
+  reduce)` block that turns all of it off. The palette has to be
+  self-contained: an `<img>`-embedded SVG is isolated from the host page's
+  CSS, so it cannot inherit the site's variables — and `prefers-color-scheme`
+  there follows the OS, not the page, which is why each file paints its own
+  card rather than sitting transparent on someone else's background. Each
+  file's `<desc>` is the source of the embedding page's `alt` text; change
+  one and change the other.
 - **Do not commit `docs/superpowers/`, `docs/REVIEW.md` or
   `docs/hygiene-audit.md`.** They're gitignored planning/spec/plan scratch
   space and local audit reports, not shipped documentation — and `docs/` is
