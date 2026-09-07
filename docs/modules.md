@@ -328,11 +328,11 @@ level, since points are what the board ranks on. A module whose source
 reports no ceiling shows what was earned rather than an `N / 0 pts` fraction — the page's headline total was already net and correct before
 this, what it was missing was the per-module breakdown behind it; the admin
 panel
-(`app/(site)/admin/admin-controls.tsx`) is a tab shell — five control-plane
-tabs that belong to the platform itself (**Event**, **Admins**, **Support**,
-**Activity**, **Insights**), then one tab per
+(`app/(site)/admin/admin-controls.tsx`) is a tab shell — seven control-plane
+tabs that belong to the platform itself (**Overview**, **Event**, **Hints**,
+**Admins**, **Support**, **Activity**, **Insights**), then one tab per
 enabled module, labelled with that module's organizer-resolved `title` — with
-the four hint controls on the Event tab (they are event policy shared by
+the four hint controls on the Hints tab (they are event policy shared by
 every module that sells hints), Secure Development's re-run cooldown in its
 own tab (`app/(site)/admin/admin-secure-dev-tab.tsx`), the quiz's two retry-gate
 knobs plus its full
