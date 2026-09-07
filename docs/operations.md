@@ -580,8 +580,19 @@ The panel offers:
   one module. When the `classic` module is enabled, it seeds a demo flag board
   the same way — categories, challenges (flags included), and a spread of
   solves — so a multi-module event previews as one combined board. See
-  [Classic](#classic) below. The seed also writes **attempt** rows, including
-  some for items that were tried and never earned, so the
+  [Classic](#classic) below. When the `ai` module is enabled, it seeds two
+  demo challenges and a spread of solves for them — one graded by a flag,
+  one `event`-mode — plus the `AI` category to hold them. Their **launch URL
+  templates deliberately point at a placeholder host that does not resolve**,
+  because a demo dataset cannot ship an externally hosted challenge site:
+  the flag-graded one still grades normally in the box, but the `event`-mode
+  one has no in-box form and no reachable backend to assert a solve, so it
+  previews the *shape* of an event-graded challenge rather than a clearable
+  one. See [AI](#ai) below for what the modes mean, and
+  [issue 355](https://github.com/dcotelo/ctf-in-a-box/issues/355) for the
+  open question of which way that should change. The seed also writes
+  **attempt** rows, including some for items that were tried and never
+  earned, so the
   **Insights** tab previews a plausible event rather than one where
   every challenge was solved first try by everyone who looked at it. The
   button and its route only exist when the app is
@@ -1335,7 +1346,23 @@ what a contestant sees and where a solve can come from:
 - **`event`** — launcher-only. No in-box form renders at all; the
   challenge stores no flag (an event-mode upsert deletes both flag hashes
   regardless of what the form last held), and the external site reports the
-  solve itself, signed, to the module's own event endpoint.
+  solve itself, signed, to the module's own event endpoint. **This mode has
+  no in-box fallback**: a signed event is the *only* way it can ever be
+  awarded, `/api/ai/submit` answers `409 wrong-mode` for it, and a
+  contestant has nothing to type. So an event-mode challenge whose external
+  backend is missing, unreachable, or not yet posting events is unsolvable
+  by anyone — which is the intended design (the arena is what judges a
+  "make the model misbehave" objective, and a copyable flag would defeat it
+  the first time one contestant shared the string), but it does mean the
+  external half has to actually exist before the board goes live. Note that
+  the per-challenge **Send test** button does not establish that: it signs
+  the demo event *in-process with the box's own copy of the signing key*, so
+  it proves this side is configured (mode, schedule, key present) and proves
+  nothing about whether the external backend is reachable or holds the same
+  key. The only check that covers the external half is a real signed POST
+  from that backend — have the integrator send one with `dryRun: true`,
+  which returns a verdict without claiming the token's nonce or awarding
+  points.
 - **`both`** — either path works: the in-box form for a typed flag, or the
   external site's signed report.
 
