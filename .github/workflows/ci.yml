@@ -99,7 +99,11 @@ jobs:
             # "hardening" the template must run the suite that guards it.
             # docker-compose.yml is here because fly.bats renders and asserts
             # on the REAL compose file, not a fixture.
-            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^deploy/fly/|^sync/Dockerfile$|^docker-compose\.yml$|^scorer/consumer-workflow\.example\.yml$|^scorer/entrypoint$CI")"
+            # deploy/aws-terraform's SCRIPT and its bats suite are shell, so
+            # they belong here; the .tf files belong to terraform.yml, which
+            # has its own paths filter. Both jobs run when the module changes,
+            # and each checks the half the other cannot see.
+            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^deploy/fly/|^deploy/aws-terraform/deploy\.sh$|^deploy/aws-terraform/test/|^sync/Dockerfile$|^docker-compose\.yml$|^scorer/consumer-workflow\.example\.yml$|^scorer/entrypoint$CI")"
             # `^sync/` is here because smoke runs the REAL sync service —
             # docker-compose.smoke.yml overrides only its env and the mounted
             # event.yaml. It is the one end-to-end proof the poll pipeline
@@ -209,7 +213,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y shellcheck bats
       # scripts/dev-stack is listed by name: it has no .sh suffix, so the glob
       # alone would leave the one developer entry point unlinted.
-      - run: shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh deploy/fly/render-compose.sh
+      - run: shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh deploy/fly/deploy.sh deploy/fly/render-compose.sh deploy/aws-terraform/deploy.sh
       # The per-target bring-ups are POSIX sh FRAGMENTS sourced by entrypoint.sh, so
       # they get -s sh (they never run under bash) and SC2034 is excluded: BOOTED and
       # EXTRA_CONTAINERS look unused inside a fragment because it is the sourcing
@@ -225,6 +229,12 @@ jobs:
       # the runner has), but nothing is deployed and no fly account is used —
       # same posture as the terraform job.
       - run: bats deploy/fly/test/
+      # The AWS module's stack is checked by `terraform test` in its own job.
+      # This covers the one part Terraform cannot see: deploy.sh, which owns
+      # the build-time `event.yaml` bake. Stubs stand in for docker/aws/
+      # terraform, so --dry-run's "makes no real call" is asserted rather than
+      # assumed, and no AWS account is used here either.
+      - run: bats deploy/aws-terraform/test/
 
   smoke:
     needs: changes
