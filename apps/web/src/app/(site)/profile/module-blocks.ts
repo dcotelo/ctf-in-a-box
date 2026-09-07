@@ -108,15 +108,53 @@ export type ModuleRow = { done: number; total: number; unit: string; earned: num
  *  Exhaustive switch, closed with a `never` guard — this was once an
  *  if/if/unconditional-return, which silently rendered any new module's block
  *  with secure-development's numbers and no compiler complaint. */
+/** A denominator that can never be smaller than its own numerator.
+ *
+ *  The two halves of a progress row come from different places: the numerator
+ *  from the contestant's SOLVE RECORDS, which survive a challenge being deleted
+ *  (the delete dialog promises exactly that — "points already banked for it stay
+ *  on the leaderboard"), and the denominator from the LIVE CATALOGUE, which no
+ *  longer contains it. Every deleted-but-solved challenge splits them, and the
+ *  row renders "5 / 5 cleared, 870 / 850 pts" with a bar filled past its own end
+ *  (issue #330).
+ *
+ *  Widening the denominator to the union is the option that keeps a
+ *  contestant's history visible — the points are genuinely banked and the
+ *  leaderboard genuinely counts them — rather than hiding solves that no longer
+ *  have a live challenge behind them. secure-development's `total` has clamped
+ *  this way since the "8 / 0 patched" fix; this is the same rule applied to
+ *  both halves of every module's row. */
+function atLeast(total: number, done: number): number {
+  return Math.max(total, done);
+}
+
 export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): ModuleRow {
   const detail = progress.detail;
   switch (detail.kind) {
     case "quiz":
-      return { done: detail.answered, total: detail.total, unit: moduleUnit("quiz"), earned: progress.points, max: input.quiz?.maxPoints ?? 0 };
+      return {
+        done: detail.answered,
+        total: atLeast(detail.total, detail.answered),
+        unit: moduleUnit("quiz"),
+        earned: progress.points,
+        max: atLeast(input.quiz?.maxPoints ?? 0, progress.points),
+      };
     case "classic":
-      return { done: detail.solved, total: detail.total, unit: moduleUnit("classic"), earned: progress.points, max: input.classic?.maxPoints ?? 0 };
+      return {
+        done: detail.solved,
+        total: atLeast(detail.total, detail.solved),
+        unit: moduleUnit("classic"),
+        earned: progress.points,
+        max: atLeast(input.classic?.maxPoints ?? 0, progress.points),
+      };
     case "ai":
-      return { done: detail.solved, total: detail.total, unit: moduleUnit("ai"), earned: progress.points, max: input.ai?.maxPoints ?? 0 };
+      return {
+        done: detail.solved,
+        total: atLeast(detail.total, detail.solved),
+        unit: moduleUnit("ai"),
+        earned: progress.points,
+        max: atLeast(input.ai?.maxPoints ?? 0, progress.points),
+      };
     case "secure-development":
       // `profile.maxPoints` is the sum of the targets' own ceilings (see
       // lambda/mock getUser) — it used to arrive as a hardcoded 0 from the
@@ -126,10 +164,12 @@ export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): 
         // Clamped like every other denominator here: a target removed from
         // the event shrinks the catalogue while the banked patch count stays,
         // and "8 / 0 patched" is the same nonsense this PR set out to end.
-        total: Math.max(input.challengeCount, progress.completed),
+        total: atLeast(input.challengeCount, progress.completed),
         unit: moduleUnit("secure-development"),
         earned: progress.points,
-        max: input.profile?.maxPoints ?? 0,
+        // Clamped for the same reason as the count above: dropping a target
+        // from the event shrinks the ceiling while its banked points stay.
+        max: atLeast(input.profile?.maxPoints ?? 0, progress.points),
       };
     default: {
       const unhandled: never = detail;

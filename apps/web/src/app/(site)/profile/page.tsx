@@ -204,7 +204,14 @@ export default async function ProfilePage() {
   const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + (Number(q.points) || 0), 0);
   const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
   const aiMaxPoints = aiChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
-  const maxPointsAllModules = (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints + aiMaxPoints;
+  // Clamped to what the contestant has actually banked, for the same reason
+  // every count on this page is: points from a challenge an organizer has since
+  // deleted stay on the leaderboard, so a live-catalogue ceiling alone renders
+  // "870 of 850 pts available" (issue #330).
+  const maxPointsAllModules = Math.max(
+    (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints + aiMaxPoints,
+    netPoints,
+  );
   // Sources without per-challenge point data (lambda/upstash) report
   // maxPoints 0 — fall back to patched/total so the bar still means something.
   const progressPct =
