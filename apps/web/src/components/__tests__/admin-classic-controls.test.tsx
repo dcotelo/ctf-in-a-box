@@ -726,7 +726,25 @@ describe("caseSensitive survives the form round trip", () => {
 describe("classicInventory", () => {
   it("counts challenges and categories separately", async () => {
     const { classicInventory } = await import("@/components/admin-classic-controls");
-    expect(classicInventory([], [])).toEqual({ items: 0, categories: 0 });
-    expect(classicInventory([], ["Web", "Crypto"])).toEqual({ items: 0, categories: 2 });
+    expect(classicInventory([], [])).toEqual({ items: 0, categories: 0, unlisted: 0 });
+    expect(classicInventory([], ["Web", "Crypto"])).toEqual({ items: 0, categories: 2, unlisted: 0 });
+  });
+
+  // `unlisted` is what lets the checklist warn that authored challenges are
+  // off the board — the state issue #344's seed produced, and one an organizer
+  // can still reach by removing a category by hand.
+  it("counts challenges the board will not render", async () => {
+    const { classicInventory } = await import("@/components/admin-classic-controls");
+    // Both rows are in "Web"; a list without it renders neither.
+    expect(classicInventory([row1, row2], ["Crypto"])).toEqual({ items: 2, categories: 1, unlisted: 2 });
+    expect(classicInventory([row1, row2], ["Web"])).toEqual({ items: 2, categories: 1, unlisted: 0 });
+  });
+
+  it("matches the category EXACTLY, because that is what the board filters on", async () => {
+    const { classicInventory } = await import("@/components/admin-classic-controls");
+    // challenge-board.tsx filters with `categories.includes(c.category)`, so a
+    // row spelled "Web" against a stored "web" is invisible there. Counting it
+    // as listed here would leave the organizer with no sign of it at all.
+    expect(classicInventory([row1, row2], ["web"]).unlisted).toBe(2);
   });
 });

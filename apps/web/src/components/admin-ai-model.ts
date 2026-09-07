@@ -10,6 +10,7 @@ import { AI_POINTS_MAX, generateChallengeId, validateUrlTemplate, type AiMode } 
 import type { AdminAiChallenge, AiChallenge } from "@/lib/ai-store";
 import { MARKDOWN_MAX } from "@/lib/markdown";
 import type { ModuleInventory } from "@/components/admin-module-setup";
+import { unlistedCount } from "@/components/admin-classic-model";
 import { describeAdminError } from "@/components/admin/fetch";
 import { confirmPhrase } from "@/components/admin/confirm-phrase";
 import { categoriesRequestBody } from "@/components/admin/use-category-editor";
@@ -18,9 +19,12 @@ import type { RowAccessors } from "@/components/admin/ordered-rows";
 export type NumericSettingKey = "aiCooldownSec";
 
 /** What this panel tells the shell about its content — mirrors
- *  `classicInventory`. Pure; exported for direct testing. */
+ *  `classicInventory`, including the `unlisted` count of challenges the board
+ *  does not render, through that module's shared helper so the two boards
+ *  cannot disagree about what counts as unreachable. Pure; exported for
+ *  direct testing. */
 export function aiInventory(rows: readonly AdminAiChallenge[], categories: readonly string[]): ModuleInventory {
-  return { items: rows.length, categories: categories.length };
+  return { items: rows.length, categories: categories.length, unlisted: unlistedCount(rows, categories) };
 }
 
 /** Maps a `/api/admin/ai` response to a message that tells a validation

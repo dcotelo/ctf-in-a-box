@@ -40,6 +40,7 @@ import {
   CLASSIC_FLAG_KEY,
   CLASSIC_FLAGNORM_KEY,
   CLASSIC_CATEGORIES_KEY,
+  CLASSIC_CATEGORIES_MAX,
   CLASSIC_POINTS_KEY,
   CLASSIC_SOLVED_KEY,
   CLASSIC_SOLVECOUNT_KEY,
@@ -54,6 +55,7 @@ import {
   AI_FLAG_KEY,
   AI_FLAGNORM_KEY,
   AI_CATEGORIES_KEY,
+  AI_CATEGORIES_MAX,
   AI_SIGNKEY_KEY,
   AI_HINTS_KEY,
   AI_POINTS_KEY,
@@ -744,6 +746,82 @@ end
 return 1
 `;
 
+// Category lists are UNIONED, never replaced — for the same reason
+// `solvecount` above is raised rather than set: the fixture's value is a
+// floor, not the truth.
+//
+// The seed used to `SET` both lists to the demo fixture's, which deleted every
+// category an organizer had authored. Their challenges survived (they are
+// written per-field, keyed by id) and the admin panel kept listing them, but
+// the contestant board renders only categories present in the list, so three
+// authored AI challenges and 850 points of content silently left the board
+// while "1 category · 5 challenges" read like a healthy setup (issue #344).
+// Master reset is no way back: it deliberately preserves authored categories,
+// so the list it preserves is the seeded one.
+//
+// Same key and same shape as classic's `importBundle`, which already unions —
+// and as #261, where a failed categories `GET` was read as "none yet" and
+// written back over the box's list. Hence the read below throws.
+
+/** The stored category list for one module, for the union below. THROWS on a
+ *  read error rather than returning `[]`: this value decides what the seed
+ *  writes over the key, so "the read failed" and "there are no categories"
+ *  must not arrive as the same answer (#261). An absent or unparseable value
+ *  is a genuine empty list, matching `listCategories`. */
+async function readCategoriesForSeed(key: string): Promise<string[]> {
+  const [res] = await upstashPipeline([["GET", key]]);
+  if (res.error) throw new Error(`Upstash GET ${key} failed before seeding: ${res.error}`);
+  if (typeof res.result !== "string") return [];
+  try {
+    const parsed = JSON.parse(res.result) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** The union of a stored list and the fixture's: the organizer's order kept
+ *  verbatim, then any demo category not already present appended in the
+ *  fixture's order. Membership is case-INSENSITIVE, mirroring `setCategories`
+ *  and `importBundle` — "AI" and "ai" as two headings is never what anyone
+ *  meant, and the board's filter is exact equality, so two casings would also
+ *  split challenges across them.
+ *
+ *  `canon` maps each surviving spelling's fold back to itself, so a seeded
+ *  challenge can be written under whichever spelling the union KEPT. Without
+ *  it, seeding "AI" onto a board that already spells it "ai" would write the
+ *  demo challenges under a name absent from the stored list — invisible to the
+ *  board, which is the very failure this union exists to end. */
+function unionSeedCategories(
+  existing: readonly string[],
+  fixture: readonly string[],
+  max: number,
+  module: string,
+): { list: string[]; canon: Map<string, string> } {
+  const list = [...existing];
+  const seen = new Set(existing.map((name) => name.toLowerCase()));
+  for (const name of fixture) {
+    const fold = name.toLowerCase();
+    if (seen.has(fold)) continue;
+    seen.add(fold);
+    list.push(name);
+  }
+  // Refuse rather than trim. Dropping the overflow would orphan the demo
+  // challenges that name those categories, which is issue #344 again from the
+  // other side; storing a list over the cap would make `setCategories` reject
+  // every later category edit until the organizer deleted some. Throwing
+  // writes nothing at all and loses nothing — the seed is a demo convenience,
+  // and the board it would have damaged is the one worth keeping.
+  if (list.length > max) {
+    throw new Error(
+      `Seeding ${module} would take its category list to ${list.length}, over the limit of ${max}. ` +
+        `Remove some categories first, or skip the demo seed.`,
+    );
+  }
+  return { list, canon: new Map(list.map((name) => [name.toLowerCase(), name])) };
+}
+
 /** Queues the raise for one module's solvecount hash, or nothing when the
  *  fixture seeded no solves for it. */
 function raiseSolveCounts(cmds: (string | number)[][], key: string, counts: Map<string, number>): void {
@@ -919,11 +997,20 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     // as upsertChallenge does — normalizeFlag is the ONLY thing allowed to
     // produce ctf:classic:flagnorm's value; a hand-rolled lowercase here
     // would silently desync from what submitFlag compares against.
+    const classicCategories = unionSeedCategories(
+      await readCategoriesForSeed(CLASSIC_CATEGORIES_KEY),
+      DEMO_CLASSIC_CATEGORIES,
+      CLASSIC_CATEGORIES_MAX,
+      "Classic CTF",
+    );
     for (const dc of DEMO_CHALLENGES) {
       const challenge = {
         id: dc.id,
         title: dc.title,
-        category: dc.category,
+        // The spelling the union kept, not the fixture's — see
+        // `unionSeedCategories`. Identical for a board that had no such
+        // category; the difference only shows on one that spelled it its way.
+        category: classicCategories.canon.get(dc.category.toLowerCase()) ?? dc.category,
         description: dc.description,
         points: dc.points,
         order: dc.order,
@@ -932,7 +1019,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       cmds.push(["HSET", CLASSIC_FLAG_KEY, dc.id, dc.flag]);
       cmds.push(["HSET", CLASSIC_FLAGNORM_KEY, dc.id, normalizeFlag(dc.flag)]);
     }
-    cmds.push(["SET", CLASSIC_CATEGORIES_KEY, JSON.stringify(DEMO_CLASSIC_CATEGORIES)]);
+    cmds.push(["SET", CLASSIC_CATEGORIES_KEY, JSON.stringify(classicCategories.list)]);
 
     const challengesById = new Map(DEMO_CHALLENGES.map((c) => [c.id, c]));
     const classicAggregates = new Map<string, { points: number; solved: number }>();
@@ -1002,11 +1089,18 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     // ctf:ai:challenges. An event-only challenge (`mode: "event"`) writes
     // NEITHER flag hash, matching how `upsertAiChallenge` treats a non-graded
     // mode: signed events assert that solve, so there is no flag to grade.
+    const aiCategories = unionSeedCategories(
+      await readCategoriesForSeed(AI_CATEGORIES_KEY),
+      DEMO_AI_CATEGORIES,
+      AI_CATEGORIES_MAX,
+      "AI Challenges",
+    );
     for (const dc of DEMO_AI_CHALLENGES) {
       const challenge = {
         id: dc.id,
         title: dc.title,
-        category: dc.category,
+        // The spelling the union kept — same reasoning as classic's above.
+        category: aiCategories.canon.get(dc.category.toLowerCase()) ?? dc.category,
         description: dc.description,
         points: dc.points,
         order: dc.order,
@@ -1024,7 +1118,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       cmds.push(["HSET", AI_SIGNKEY_KEY, dc.id, dc.signingKey]);
       if (dc.hint) cmds.push(["HSET", AI_HINTS_KEY, dc.id, dc.hint]);
     }
-    cmds.push(["SET", AI_CATEGORIES_KEY, JSON.stringify(DEMO_AI_CATEGORIES)]);
+    cmds.push(["SET", AI_CATEGORIES_KEY, JSON.stringify(aiCategories.list)]);
 
     const aiChallengesById = new Map(DEMO_AI_CHALLENGES.map((c) => [c.id, c]));
     const aiAggregates = new Map<string, { points: number; solved: number }>();

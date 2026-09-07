@@ -48,10 +48,19 @@ describe("seedDemoData", () => {
     );
     expect(out).toEqual({ contestants: DEMO_CONTESTANTS.length, teams: DEMO_TEAMS.length, solves: expectedSolves });
 
-    // Two pipeline calls now: the schedule read (for the timestamp clamp),
-    // then every write in ONE batch — the writes stay a single pipeline.
-    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(2);
-    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+    // Reads first — the schedule (for the timestamp clamp) and each enabled
+    // module's category list (for the union) — then EVERY write in one batch.
+    // Asserted as a shape rather than a call count, so enabling another module
+    // adds a read without editing a number here: each earlier call is a single
+    // read command, and the last call is the write batch.
+    const calls = mocks.upstashPipeline.mock.calls.map((c) => c[0]);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const read of calls.slice(0, -1)) {
+      expect(read).toHaveLength(1);
+      expect(["GET", "HGETALL"]).toContain(read[0][0]);
+    }
+    const cmds = calls.at(-1)!;
+    expect(cmds.length).toBeGreaterThan(1);
 
     // one HSET per solve, into ctf:solves:<target>
     const solveCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:"));
@@ -594,5 +603,101 @@ describe("seedDemoData", () => {
     expect(first.length).toBeGreaterThan(0);
     expect(first.every((c) => c[0] === "HSET")).toBe(true);
     expect(first.every((c) => JSON.parse(String(c[3])).attempts >= 1)).toBe(true);
+  });
+});
+
+// The seed used to `SET` both category lists to the fixture's, deleting every
+// category an organizer had authored. Their challenges survived — written
+// per-field and keyed by id — and the admin panel kept listing them, but the
+// contestant board renders only categories present in the list, so authored
+// content silently left the board while "1 category · 5 challenges" read like
+// a healthy setup (issue #344). Master reset is no way back: it preserves
+// authored categories on purpose, so the list it preserves is the seeded one.
+describe("seedDemoData unions the category lists instead of replacing them", () => {
+  /** Answers each pipeline by SHAPE, so the order the seed runs its reads in
+   *  is not baked in here: a lone GET is a category read served from
+   *  `stored`, a lone HGETALL is the settings read, anything longer is the
+   *  write batch. */
+  function serve(stored: Record<string, string[] | { error: string }>) {
+    mocks.upstashPipeline.mockImplementation(async (cmds) => {
+      if (cmds.length === 1 && cmds[0][0] === "GET") {
+        const found = stored[String(cmds[0][1])];
+        if (found && !Array.isArray(found)) return [{ result: undefined, error: found.error }] as never;
+        return [{ result: found ? JSON.stringify(found) : null }];
+      }
+      return cmds.map(() => ({ result: [] }));
+    });
+  }
+
+  /** The write batch, or undefined when the seed never got that far. */
+  function writeBatch() {
+    return mocks.upstashPipeline.mock.calls.map((c) => c[0]).find((cmds) => cmds.length > 1);
+  }
+
+  const storedList = (key: string) => {
+    const cmd = writeBatch()!.find((c) => c[0] === "SET" && c[1] === key)!;
+    return JSON.parse(String(cmd[2])) as string[];
+  };
+
+  beforeEach(() => {
+    mocks.isModuleEnabled.mockImplementation((id) => id === "classic" || id === "ai");
+  });
+
+  it("keeps the organizer's categories, in their order, and appends the demo ones", async () => {
+    serve({ "ctf:classic:categories": ["Pwn", "Misc"], "ctf:ai:categories": ["Prompt Injection", "Guardrails"] });
+    await seedDemoData("alice");
+
+    // Their order verbatim first — it is the order the board renders headings
+    // in, so reordering it is a visible change to a board nobody asked to
+    // touch — then the fixture's own, minus anything already present.
+    expect(storedList("ctf:classic:categories")).toEqual(["Pwn", "Misc", ...DEMO_CLASSIC_CATEGORIES]);
+    expect(storedList("ctf:ai:categories")).toEqual(["Prompt Injection", "Guardrails", ...DEMO_AI_CATEGORIES]);
+  });
+
+  it("does not duplicate a category the organizer already has, whatever its casing", async () => {
+    serve({ "ctf:classic:categories": ["web", "Pwn"], "ctf:ai:categories": ["ai"] });
+    await seedDemoData("alice");
+
+    // "Web" and "web" as two headings side by side is never what anyone
+    // meant, and the board's filter is exact equality, so two casings would
+    // also split challenges across them.
+    expect(storedList("ctf:classic:categories")).toEqual(["web", "Pwn", "Crypto", "Forensics", "Recon"]);
+    expect(storedList("ctf:ai:categories")).toEqual(["ai"]);
+  });
+
+  it("writes seeded challenges under the spelling the union kept", async () => {
+    serve({ "ctf:ai:categories": ["ai"] });
+    await seedDemoData("alice");
+
+    // The half of the fix that is easy to miss: the list survived, but a demo
+    // challenge stored under "AI" against a list holding only "ai" is exactly
+    // as invisible to the board as before. Every seeded row must name a
+    // category that is IN the stored list.
+    const stored = new Set(storedList("ctf:ai:categories"));
+    const rows = writeBatch()!.filter((c) => c[0] === "HSET" && c[1] === "ctf:ai:challenges");
+    expect(rows.length).toBe(DEMO_AI_CHALLENGES.length);
+    for (const row of rows) {
+      const challenge = JSON.parse(String(row[3])) as { category: string };
+      expect(stored.has(challenge.category), challenge.category).toBe(true);
+    }
+  });
+
+  it("writes NOTHING when the category read fails", async () => {
+    // A failed GET read as "none yet" is how #261 wiped the box's list one key
+    // over. The seed's write replaces this key, so the two answers must not
+    // arrive as the same value — it aborts instead, and the route turns the
+    // throw into a 503.
+    serve({ "ctf:classic:categories": { error: "NOAUTH" } });
+    await expect(seedDemoData("alice")).rejects.toThrow(/ctf:classic:categories/);
+    expect(writeBatch()).toBeUndefined();
+  });
+
+  it("refuses, writing nothing, rather than take a list over the cap", async () => {
+    // Trimming the overflow would orphan the demo challenges naming those
+    // categories — #344 from the other side — and storing an over-cap list
+    // would make every later category edit fail validation. Neither, then.
+    serve({ "ctf:classic:categories": Array.from({ length: 48 }, (_, i) => `Cat ${i}`) });
+    await expect(seedDemoData("alice")).rejects.toThrow(/over the limit/);
+    expect(writeBatch()).toBeUndefined();
   });
 });

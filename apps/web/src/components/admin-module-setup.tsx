@@ -34,8 +34,16 @@ import ModuleCopy from "@/components/module-copy";
 
 /** The counts a module's list panel knows about itself. Every key optional:
  *  the quiz has no categories, and a panel that has not loaded yet has
- *  neither. */
-export type ModuleInventory = { items?: number; categories?: number };
+ *  none of them — which is what keeps `unlisted` from accusing a healthy
+ *  board on first paint. */
+export type ModuleInventory = {
+  items?: number;
+  categories?: number;
+  /** Items whose `category` is not in the stored category list, and which the
+   *  contestant board therefore does not render at all. Reported only by the
+   *  boards that have categories; the quiz omits it. */
+  unlisted?: number;
+};
 
 export type SetupStepStatus = "done" | "todo" | "unknown";
 
@@ -94,7 +102,21 @@ export function moduleSummary(setup: ModuleSetupContent | undefined, inventory: 
   const counts = checkable
     .map((s) => setupCountLabel(s, inventory))
     .filter((label): label is string => label !== null && label !== "None yet");
-  return [complete ? "setup complete" : "setup incomplete", ...counts].join(" · ");
+  // Appended to the line rather than folded into the verdict: the setup IS
+  // complete — every step was done — and the problem is that some of the
+  // content it produced is off the board. Saying "setup incomplete" would
+  // point the organizer at the checklist, which has nothing wrong with it.
+  const unlisted = unlistedLabel(inventory);
+  return [complete ? "setup complete" : "setup incomplete", ...counts, ...(unlisted ? [unlisted] : [])].join(" · ");
+}
+
+/** "3 not on the board" — the count of items whose category is missing from
+ *  the stored list, or null when there are none (or when the panel has not
+ *  reported yet). Exported for direct testing. */
+export function unlistedLabel(inventory: ModuleInventory | undefined): string | null {
+  const n = inventory?.unlisted;
+  if (typeof n !== "number" || n <= 0) return null;
+  return `${n} not on the board`;
 }
 
 const STATUS_CLASS: Record<SetupStepStatus, string> = {
@@ -117,15 +139,41 @@ export default function AdminModuleSetup({
   const steps = panelSteps(setup);
   const hiddenOutside = setup.steps.length - steps.length;
   const summary = moduleSummary(setup, inventory);
-  const tone = complete === false ? "text-[#d4a017]" : complete === true && summary !== "enabled" ? "text-[#22c55e]" : "text-muted";
+  const unlisted = inventory?.unlisted ?? 0;
+  // Amber for unreachable challenges too, not just an unfinished checklist:
+  // a green "setup complete" above an amber warning is the same contradiction
+  // #344 shipped, one line further up.
+  const tone =
+    complete === false || unlisted > 0
+      ? "text-[#d4a017]"
+      : complete === true && summary !== "enabled"
+        ? "text-[#22c55e]"
+        : "text-muted";
 
   return (
     <div className="flex flex-col gap-1 border-b border-white/[0.06] pb-3 text-sm">
-      {/* Open while anything checkable is still to do; collapsed to the line
-          once it is done (or while the counts are still unknown — never
-          accuse on first paint). Native <details>: the whole checklist stays
-          in the static markup, and the organizer can reopen it any time. */}
-      <details open={complete === false} className="group">
+      {unlisted > 0 && (
+        // The state this warning names is reachable three ways: the demo seed
+        // used to replace the category list outright (#344), an organizer can
+        // remove a category by hand, and an import can arrive spelling one
+        // differently. However it is reached, the panel keeps listing the
+        // challenges — under headings absent from the list one line above —
+        // while the board renders none of them, which is why "5 challenges"
+        // read like a healthy setup. Say it here, where the fix is.
+        <p role="status" className="rounded-md border border-[#d4a017]/40 bg-[#d4a017]/[0.08] px-3 py-2 text-[#d4a017]">
+          {unlisted === 1 ? "1 challenge is" : `${unlisted} challenges are`} in a category that is not in the list
+          below, so contestants never see {unlisted === 1 ? "it" : "them"}. Add the missing{" "}
+          {unlisted === 1 ? "category" : "categories"}, or move{" "}
+          {unlisted === 1 ? "the challenge" : "the challenges"} into one that is listed.
+        </p>
+      )}
+      {/* Open while anything checkable is still to do — or while challenges
+          are off the board, since the missing category is added from the
+          control the checklist points at; collapsed to the line once both are
+          settled (or while the counts are still unknown — never accuse on
+          first paint). Native <details>: the whole checklist stays in the
+          static markup, and the organizer can reopen it any time. */}
+      <details open={complete === false || unlisted > 0} className="group">
         <summary className="cursor-pointer text-muted">
           <span className={`font-medium ${tone}`}>{summary.charAt(0).toUpperCase() + summary.slice(1)}</span>
           {" · "}
