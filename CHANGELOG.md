@@ -8,6 +8,36 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Fixed: every `/admin` URL returned the error boundary instead of the panel
+  (#312, fixed by #324).** For the whole window between #297 and #324, an
+  organizer could not freeze scoring, edit a question or a flag, reset the
+  event, manage admins, or read Activity or Insights — the entire control plane
+  was unreachable in production, on every URL shape, and a signed-out visitor
+  never even got the "Forbidden — Organizer access only" wall, because the
+  throw happened in the route file before the panel ran.
+
+  `resolveAdminTab`, `adminTabHref` and `tabFromLocation` lived in
+  `admin-controls.tsx`, which is `"use client"`. A function exported from a
+  Client Component is a client *reference*, not a callable, so the two route
+  files that CALL `resolveAdminTab` threw at request time: *"Attempted to call
+  resolveAdminTab() from the server but resolveAdminTab is on the client."*
+  They now live in `admin-tabs.ts`, which carries no marker, and
+  `admin-controls.tsx` re-exports them for its own client callers — the shape
+  `team-limits.ts` and `admin-admins.ts` already use.
+
+  **Nothing in CI could see it**, which is the part worth carrying forward:
+  `"use client"` is inert under vitest, so the call simply succeeds there;
+  `next build` compiles it without complaint because the error is raised per
+  request; and `acceptance-app.sh` never requested `/admin`. Full CI was green
+  on `main` with the panel dead. Two guards were added with the fix — a static
+  check that neither route imports the helpers from the client module, and an
+  `acceptance-app.sh` assertion that requests `/admin` and `/admin/overview`
+  against a real image and asserts the rendered copy. It asserts on **copy, not
+  status**: the shell streams with HTTP 200 and the failure arrives inside the
+  body, so a status check returns 200 on a fully dead panel.
+
+  If you are running an event on a build from that window, redeploy.
+
 - **Security: two unauthenticated RCE advisories in Next.js are closed
   (#238).** `next` moves 16.3.2 → **16.3.4**, which the release notes list as
   carrying fixes for
