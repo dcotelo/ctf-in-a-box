@@ -62,6 +62,26 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   board" beneath it — the same wrong claim in a second voice. When a
   denominator changes, every reader of it changes with it.
 
+- **The admin screenshots in the docs show the admin panel that exists
+  (#321).** Four of them predated the redesign entirely: an outer `CONTROLS`
+  frame with seven flat horizontal tabs, no AI tab at all, module toggles as
+  checkboxes, categories as full-width rows with Move up / Move down / Remove,
+  the Hardest-first table naming every challenge by generated id, and a
+  standalone STATUS card that Overview absorbed. `leaderboard-team.jpg` showed
+  the pre-#294 team row — a `PTS` header over flat module chips above a flat
+  target list — rather than `net pts` over one progress row per module.
+
+  All five are recaptured against the running app, and two alt texts that
+  described replaced controls are corrected with them: the category chips now
+  carry rename (#306) as well as move and remove, and a challenge row's
+  delete lives in its row menu rather than beside Edit. `admin-support.jpg`
+  now shows the state its own alt text has always described — the panel after
+  a contestant lookup, not the empty form above it.
+
+  `demo.gif` is still the pre-#294 row and is not re-recorded here: its value
+  is a rising score-over-time sweep, which needs a demo-seeded event rather
+  than the one this was captured on. Tracked on #321.
+
 - **Security: two unauthenticated RCE advisories in Next.js are closed
   (#238).** `next` moves 16.3.2 → **16.3.4**, which the release notes list as
   carrying fixes for

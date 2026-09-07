@@ -1056,7 +1056,7 @@ those categories, each heading carrying its count. A challenge itself has a titl
 category (picked from that list), a Markdown description (a live preview
 renders alongside the box as you type), a point value, and a flag.
 
-![The Classic module's admin tab: the module's title and blurb, the submission cooldown, the ordered category list with move and remove controls, and the challenge list with drag-to-reorder, edit and delete](assets/admin-classic.jpg)
+![The Classic module's admin tab: the module's title and blurb, the submission cooldown, the ordered categories as chips carrying move, rename and remove controls, and the challenge list grouped by category with drag-to-reorder, Edit, and a per-row menu for the rest](assets/admin-classic.jpg)
 
 <sup>The whole module is authored here — categories, challenges, cooldown,
 even the module's display name — live, with no rebuild.</sup>
