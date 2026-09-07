@@ -386,11 +386,15 @@ run "no_secret_is_baked_into_a_task_definition" {
     // the ARN (or the parameter name) tests the mock, not the wiring. What
     // matters structurally is that the variable is in `secrets` and NOT in
     // `environment`.
+    // `valueFrom` is checked, not just the name: a secret entry with the right
+    // name and an empty reference satisfies "is present" while ECS rejects the
+    // task definition outright, so name-only would be a green test for a
+    // stack that cannot deploy.
     condition = anytrue([
       for s in jsondecode(aws_ecs_task_definition.srh.container_definitions)[0].secrets :
-      s.name == "SRH_CONNECTION_STRING"
+      s.name == "SRH_CONNECTION_STRING" && try(s.valueFrom != null && s.valueFrom != "", false)
     ])
-    error_message = "srh must still receive SRH_CONNECTION_STRING, through secrets[].valueFrom."
+    error_message = "srh must still receive SRH_CONNECTION_STRING, through a non-empty secrets[].valueFrom."
   }
 
   assert {
@@ -452,6 +456,23 @@ run "the_secret_grants_name_resources_never_a_wildcard" {
       contains(s.Action, "kms:Decrypt") && s.Resource == [aws_kms_key.secrets.arn]
     ])
     error_message = "The execution role still needs kms:Decrypt, scoped to this event's key — the grant should be narrowed, not removed."
+  }
+
+  assert {
+    // The parameter-read grant, pinned to the event's own prefix.
+    //
+    // The `contains(s.Resource, "*")` assertion above does NOT cover this: it
+    // matches an element equal to `"*"`, and a wildcard INSIDE an ARN is a
+    // different thing — which this statement legitimately uses, as
+    // `…:parameter/<prefix>/*`. So a resource widened to `…:parameter/*`, or
+    // to another event's prefix, would pass every other check here. Equality
+    // against the intended ARN is what actually pins it.
+    condition = anytrue([
+      for s in local.execution_secrets_policy.Statement :
+      contains(s.Action, "ssm:GetParameters") &&
+      s.Resource == ["arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"]
+    ])
+    error_message = "ssm:GetParameters must be scoped to this event's parameter prefix, not a wider path."
   }
 }
 

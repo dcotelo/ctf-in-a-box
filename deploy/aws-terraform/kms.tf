@@ -20,8 +20,12 @@
 resource "aws_kms_key" "secrets" {
   description = "CTF-in-a-box event secrets for ${var.name} (SSM SecureStrings)"
 
-  // Rotation is free to leave on: SSM re-encrypts transparently, and nothing
-  // here caches a data key across the rotation boundary.
+  // Rotation does NOT re-encrypt the SecureStrings already stored. KMS keeps
+  // the prior key material and picks the right version when decrypting, so a
+  // rotation is invisible to SSM and to the tasks — which is the useful part,
+  // but is not the same as "SSM re-encrypts", which is what an earlier version
+  // of this comment claimed. It is also not free: the first two rotations each
+  // add the monthly key-material fee, and rotations after that do not.
   enable_key_rotation = true
 
   // Long enough to be a real safety net if an event is torn down before its
