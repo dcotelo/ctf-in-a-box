@@ -581,16 +581,16 @@ The panel offers:
   the same way — categories, challenges (flags included), and a spread of
   solves — so a multi-module event previews as one combined board. See
   [Classic](#classic) below. When the `ai` module is enabled, it seeds two
-  demo challenges and a spread of solves for them — one graded by a flag,
-  one `event`-mode — plus the `AI` category to hold them. Their **launch URL
-  templates deliberately point at a placeholder host that does not resolve**,
-  because a demo dataset cannot ship an externally hosted challenge site:
-  the flag-graded one still grades normally in the box, but the `event`-mode
-  one has no in-box form and no reachable backend to assert a solve, so it
-  previews the *shape* of an event-graded challenge rather than a clearable
-  one. See [AI](#ai) below for what the modes mean, and
-  [issue 355](https://github.com/dcotelo/ctf-in-a-box/issues/355) for the
-  open question of which way that should change. The seed also writes
+  demo challenges and a spread of solves for them, plus the `AI` category to
+  hold them. Their **launch URL templates deliberately point at a placeholder
+  host that does not resolve**, because a demo dataset cannot ship an
+  externally hosted challenge site — so **Open challenge** dead-ends on both,
+  and both are gradable by flag in the box instead, which keeps the demo board
+  clearable end to end. Neither is seeded as `event`-mode on purpose: that mode
+  can *only* be solved by an external arena reporting the solve, so seeding one
+  put a challenge on the board that nobody could clear
+  ([#355](https://github.com/dcotelo/ctf-in-a-box/issues/355)). See
+  [AI](#ai) below for what the modes mean. The seed also writes
   **attempt** rows, including some for items that were tried and never
   earned, so the
   **Insights** tab previews a plausible event rather than one where

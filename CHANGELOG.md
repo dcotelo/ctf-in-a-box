@@ -70,6 +70,23 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   hop, with a wrong token rejected as the control. Worth knowing when a
   handshake fails — `srh` verifies against CAStore's embedded bundle, not the
   OS trust store, so the fix is a newer `srh_image` and never a mounted CA.
+- **Fixed: the demo board shipped a challenge nobody could solve (#355).**
+  **Seed demo data** wrote `Jailbreak Arena` as an `event`-mode AI challenge
+  worth 400 points. That mode is graded *only* by an external arena POSTing a
+  signed solve event — it renders no flag form by design — and the fixture's
+  launch URL points at `ai-demo.example.org`, a reserved documentation domain
+  with no DNS record. So the demo showed a challenge whose own description
+  promised the external side would report the solve, with a Launch button that
+  dead-ended and no other way to clear it. The seeded solve rows made the board
+  look like two contestants already had.
+
+  It is now flag-gradable (`mode: "both"` — the panel labels that "Either —
+  flag or external event") with a flag and a rewritten description that says
+  what a real event-graded challenge would do instead. The demo board plays end
+  to end; what event mode looks like stays documented in `docs/ai-module.md`
+  §5, which is the honest place for it, since demonstrating it needs a second
+  system. The seed test now asserts **no** demo challenge is `event`-mode, so
+  reintroducing one fails before it reaches a board.
 
 ## v0.5.0 — 2026-09-07
 

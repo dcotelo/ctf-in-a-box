@@ -17,6 +17,16 @@ export type DemoTeam = { slug: string; name: string; captain: string; members: s
 // the seed makes for classic's flag. `flag` is empty for a `mode: "event"`
 // challenge, matching how an event-only challenge is authored: signed events
 // assert the solve, so there is no flag to grade.
+//
+// NO CHALLENGE HERE IS `mode: "event"`, deliberately (issue #355). An
+// event-graded challenge can only be solved by an external arena POSTing a
+// signed event, and a demo dataset cannot ship one — the launch URLs below
+// point at a reserved documentation domain that does not resolve. Seeding an
+// event-mode challenge therefore put a 400-point row on the board that nobody
+// could clear: no flag form, and a Launch button that dead-ends. Both demo
+// challenges are flag-gradable so the board plays end to end. What event mode
+// looks like is documented in docs/ai-module.md §5, which is the right place
+// for it — an honest demo of that mode needs a second system.
 export type DemoAiChallenge = {
   id: string;
   title: string;
@@ -57,12 +67,15 @@ export const DEMO_AI_CHALLENGES: DemoAiChallenge[] = [
     category: "AI",
     order: 2,
     points: 400,
-    mode: "event",
+    // `both`, not `event` — see the header. The admin panel labels this mode
+    // "Either — flag or external event"; the stored value is `both`.
+    mode: "both",
     urlTemplate: "https://ai-demo.example.org/arena?token={token}",
     description:
-      "This one grades itself: launch it, get the model to break its own safety rules inside the arena, and " +
-      "the external side reports the solve back to the box — there is no flag to submit here.",
-    flag: "",
+      "Talk the model out of its own safety rules. In a **real** event this one grades itself — the arena " +
+      "decides whether you managed it and reports the solve back to the box over a signed API, with no flag " +
+      "to copy. This demo has no arena behind it, so it accepts a flag too and the board stays playable.",
+    flag: "ctfbox{Safety_Rails_Are_Suggestions}",
     signingKey: "aik_demo0000000000000000000000000000000000000000002",
   },
 ];
