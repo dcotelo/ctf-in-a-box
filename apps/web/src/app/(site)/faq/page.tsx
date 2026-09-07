@@ -17,8 +17,9 @@ import PageHeader from "@/components/page-header";
 import ModuleCopy from "@/components/module-copy";
 import FaqAccordion, { type QA } from "@/components/faq-accordion";
 import { enabledApps, joinAppNames } from "@/lib/apps";
-import type { ModuleFaq, OrgContext } from "@/lib/modules";
+import type { FaqContext, ModuleFaq } from "@/lib/modules";
 import { getModuleFaq, getResolvedModules } from "@/lib/resolved-modules";
+import { getHintNotice } from "@/lib/hint-store";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
@@ -36,10 +37,14 @@ export const metadata: Metadata = {
 type FaqItem = NonNullable<ReturnType<ModuleFaq>["gettingStarted"]>[number];
 
 export default async function FaqPage() {
-  const ctx: OrgContext = {
+  // The hint price is an /admin runtime setting, so the answer that quotes it
+  // has to read the live value rather than restate the default (issue #315) —
+  // the same value /challenges and the reveal button already render.
+  const ctx: FaqContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
     githubOrg: eventConfig.githubOrg,
+    hintCost: (await getHintNotice()).cost,
   };
 
   // Registry order, plain data: the `faq` blocks are invoked HERE, on the

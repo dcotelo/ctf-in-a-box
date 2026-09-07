@@ -22,8 +22,6 @@ export type ModuleHome = {
   tagline: string;
   /** The hero paragraph for this module. */
   intro: (ctx: HomeContext) => string;
-  /** "What to expect" heading and lede. */
-  expect: { heading: string; lede: string };
   /** Numbered how-it-works cards. */
   steps: (ctx: HomeContext) => { title: string; body: string }[];
   /** Optional CTA into the module's own route. */
@@ -89,6 +87,21 @@ export type OrgContext = RulesContext & { githubOrg: string };
  *  `@/lib/apps`). */
 export type GuideContext = OrgContext & {
   exampleVariant: "juice-shop" | "generic";
+};
+
+/** Live facts handed to a module's `/faq` copy: the org context plus the
+ *  organizer's CONFIGURED hint price.
+ *
+ *  Passed in rather than read here for the same reason `githubOrg` is — the
+ *  registry's copy stays a pure function of its context — and passed in at all
+ *  because `hintCost` is an /admin runtime setting in `[0, HINT_COST_MAX]`,
+ *  not a constant. The FAQ used to state it as a literal "10 points", so every
+ *  organizer who moved the price shipped a FAQ that misquoted it (issue #315)
+ *  while `/challenges`, the reveal button and the challenge pages all showed
+ *  the real one. */
+export type FaqContext = OrgContext & {
+  /** `hintCost` as resolved for this request — `getHintNotice().cost`. */
+  hintCost: number;
 };
 
 /** One numbered card in a guide's step list or worked example. */
@@ -169,7 +182,7 @@ export type ModuleRules = (ctx: RulesContext) => {
  *  Answers are `Copy`, not JSX, for the same reason every other block here is:
  *  the registry must stay importable either side of the server boundary.
  *  `/faq` renders them through `<ModuleCopy>`. */
-export type ModuleFaq = (ctx: OrgContext) => {
+export type ModuleFaq = (ctx: FaqContext) => {
   /** Opens the page, before the platform's "Can I compete solo?". */
   gettingStarted?: { q: string; a: Copy; id?: string }[];
   /** What a contestant needs on the day, after it. */
@@ -329,10 +342,6 @@ const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
         // community projects, and the hero must not claim otherwise (the
         // targets section makes the same correction).
         `Break real vulnerabilities in ${ctx.appCount} deliberately vulnerable training ${ctx.appCount === 1 ? "app" : "apps"}, patch them for real, and ship the fix as a GitHub pull request. CI validates your patch and scores it automatically. Practice the full secure development lifecycle, not just flag-hunting.`,
-      expect: {
-        heading: "This isn’t flag hunting. It’s the real fix workflow",
-        lede: "Every challenge maps to a real, disclosed vulnerability class from the OWASP Top 10. You find it, patch it, and prove the fix with a passing regression test, the same loop a security engineer runs against a live codebase.",
-      },
       steps: (ctx) => [
         {
           title: "Pick a target",
@@ -641,7 +650,7 @@ git push -u origin fix/<short-description>`,
         },
         {
           q: "Are there hints?",
-          a: "Some challenges offer one on your profile. Revealing a hint costs 10 points off your total, applied as soon as you reveal it, so save them for a challenge you're genuinely stuck on.",
+          a: `Some challenges offer one on your profile. Revealing a hint costs ${ctx.hintCost} points off your total, applied as soon as you reveal it, so save them for a challenge you're genuinely stuck on.`,
         },
         {
           q: "My PR passed but I didn't get points. What happened?",
@@ -806,10 +815,6 @@ git push -u origin fix/<short-description>`,
       tagline: "Quiz",
       intro: () =>
         "Answer security questions for points. Every question carries its own point value, is graded the moment you submit it, and counts toward your place on the leaderboard.",
-      expect: {
-        heading: "Straight questions, scored on submit",
-        lede: "Each question is multiple choice: some have a single right answer, others are select-all-that-apply and only score if your whole selection matches. Grading is automatic, against a stored answer key. Organizers can cap how many times a question may be attempted and make you wait between tries; the question tells you when it is on cooldown and when you have run out of attempts.",
-      },
       steps: () => [
         {
           title: "Sign in with GitHub",
@@ -1058,10 +1063,6 @@ git push -u origin fix/<short-description>`,
       tagline: "Classic CTF",
       intro: () =>
         "Find each flag and submit it for points. Every flag carries its own point value, grading happens the instant you submit, and matching ignores leading or trailing whitespace and — unless a flag is marked case-sensitive on its card — capitalisation too.",
-      expect: {
-        heading: "Find it, submit it, get scored on the spot",
-        lede: "Each flag sits under a category and is worth a fixed number of points, and the board shows how many people have already solved it. There's no cap on attempts, though organizers can set a short cooldown between tries on the same flag. Matching is exact once it's normalized: case doesn't matter, and leading or trailing whitespace is stripped before it's compared.",
-      },
       steps: () => [
         {
           title: "Sign in with GitHub",
@@ -1329,10 +1330,6 @@ git push -u origin fix/<short-description>`,
       tagline: "AI Challenges",
       intro: () =>
         "Each challenge is hosted on an external site. Open it from its page for a personal launch link, play it there, and a correct solve reports back to the leaderboard on its own — or, where a challenge also takes one, grade yourself by typing the flag on the page.",
-      expect: {
-        heading: "Play it externally, get scored automatically",
-        lede: "Each challenge sits under a category and is worth a fixed number of points, and the board shows how many people have already solved it. Opening a challenge mints you a personal link into the external site; some challenges report a solve back the moment you clear them, others also take a typed flag, graded the instant you submit it.",
-      },
       steps: () => [
         {
           title: "Sign in with GitHub",
