@@ -59,15 +59,22 @@ function resolveLocal(specifier: string, importerAbs: string): string | null {
   return null;
 }
 
-/** Does this module open with the "use client" directive? Only a leading
- *  directive counts — the string appears in prose comments all over this
- *  tree, and matching those would fail the test for the wrong reason. */
+/** Does this module open with the "use client" directive?
+ *
+ *  Only a LEADING directive counts — the string appears in prose comments all
+ *  over this tree (including in this file), and matching those would fail the
+ *  test for the wrong reason.
+ *
+ *  So everything that can legally precede a directive is stripped first: a
+ *  BOM, whitespace, `//` lines, and `/* … *\/` blocks. The block form is the
+ *  one that matters here. Almost every module in this tree opens with a
+ *  block-comment header, and a line-comment-only skip would hand back the
+ *  comment as the first statement, fail the match, and call a Client
+ *  Component server-safe — the guard would then wave through exactly the
+ *  import it exists to catch. */
 function isClientModule(source: string): boolean {
-  const firstCode = source
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.length > 0 && !l.startsWith("//"));
-  return firstCode === '"use client";' || firstCode === "'use client';";
+  const code = source.replace(/^﻿/, "").replace(/^(?:\s+|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "");
+  return /^(['"])use client\1\s*;?/.test(code);
 }
 
 describe("the /admin routes stay on the server side of the client boundary", () => {
@@ -91,6 +98,23 @@ describe("the /admin routes stay on the server side of the client boundary", () 
   it("tab-url.ts — which both routes call into — is not a client module", () => {
     const source = readFileSync(join(SRC, "app/(site)/admin/tab-url.ts"), "utf8");
     expect(isClientModule(source)).toBe(false);
+  });
+
+  // The detector itself, because the route assertion is only as good as this:
+  // every false negative here is a boundary violation waved through.
+  it.each([
+    ['bare directive', '"use client";\nexport const a = 1;\n', true],
+    ['single quotes', "'use client';\nexport const a = 1;\n", true],
+    ['no semicolon', '"use client"\nexport const a = 1;\n', true],
+    ['after a line-comment header', '// header\n"use client";\n', true],
+    ['after a BLOCK-comment header', '/* header\n * more\n */\n"use client";\n', true],
+    ['after both comment styles', '// one\n/* two */\n"use client";\n', true],
+    ['after a BOM', '﻿"use client";\n', true],
+    ['plain server module', 'import "server-only";\nexport const a = 1;\n', false],
+    ['directive only mentioned in prose', '// this file is not "use client";\nexport const a = 1;\n', false],
+    ['directive below real code', 'export const a = 1;\n"use client";\n', false],
+  ])("detects %s", (_name, source, expected) => {
+    expect(isClientModule(source as string)).toBe(expected);
   });
 
   it("resolves specifiers for real, so the assertion above cannot pass vacuously", () => {
