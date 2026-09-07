@@ -235,6 +235,15 @@ cmd_up() {
   export EVENT_CONFIG_B64
   EVENT_CONFIG_B64="$(base64 < "$cfg_src" | tr -d '\n')"
 
+  # Build stamp for GET /health, so a local stack reports the same fields
+  # production does. The sha is deliberately left empty rather than faked: a
+  # dev stack is built from a working tree that is almost never clean, and
+  # /health reporting a commit that does not describe the image is worse than
+  # it reporting "unknown".
+  export APP_BUILD_REV APP_BUILT_AT
+  APP_BUILD_REV=""
+  APP_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
   echo "== bringing up redis, srh, scorer, app, caddy"
   # dev-only: expose the /admin "Seed demo data" button (runtime flag).
   export DEMO_MODE=1

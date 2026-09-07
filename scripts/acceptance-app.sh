@@ -37,7 +37,15 @@ wait_for_html() {
 }
 
 B64=$(base64 < "$CFG" | tr -d '\n')
-docker build -f apps/web/Dockerfile -t ctf-web:acceptance --build-arg EVENT_CONFIG_B64="$B64" .
+# A fixed, obviously-synthetic sha, so the /health assertion below is checking
+# that THIS build arg arrived rather than that some sha did. `git rev-parse`
+# would pass even if the arg were dropped and the route fell back to a value it
+# read some other way.
+ACCEPTANCE_REV=abcdef123456
+docker build -f apps/web/Dockerfile -t ctf-web:acceptance \
+  --build-arg EVENT_CONFIG_B64="$B64" \
+  --build-arg APP_BUILD_REV="$ACCEPTANCE_REV" \
+  --build-arg APP_BUILT_AT=2026-01-01T00:00:00Z .
 docker run -d --name web-acceptance -p 3100:3000 \
   -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3100 ctf-web:acceptance
 
@@ -92,6 +100,22 @@ for admin_path in /admin /admin/overview; do
   expect_in "$ADMIN_HTML" "Organizer access only" "${admin_path} did not render the admin shell"
   if grep -qF "That didn't load" <<< "$ADMIN_HTML"; then
     echo "FAIL: ${admin_path} rendered the error boundary (see issue #312)"; exit 1
+  fi
+done
+
+echo "--- /health reports the build stamp the image was built with"
+# Built above with --build-arg APP_BUILD_REV/APP_BUILT_AT, so this proves the
+# whole chain: compose arg -> Dockerfile ARG -> runtime ENV -> the route. Each
+# link is invisible on its own, and a broken one degrades to "unknown" rather
+# than erroring — exactly the silent failure /health exists to rule out.
+HEALTH_JSON=$(wait_for_html http://localhost:3100/health)
+expect_in "$HEALTH_JSON" '"status":"ok"' "/health did not report ok"
+expect_in "$HEALTH_JSON" "\"revision\":\"$ACCEPTANCE_REV\"" "/health did not carry APP_BUILD_REV through the build"
+expect_in "$HEALTH_JSON" '"version":"' "/health did not report a version"
+# The payload is public and unauthenticated: it must stay a build stamp.
+for leak in BETTER_AUTH GITHUB_CLIENT SRH_TOKEN REDIS_PASSWORD UPSTASH; do
+  if grep -qF -- "$leak" <<< "$HEALTH_JSON"; then
+    echo "FAIL: /health leaked $leak"; exit 1
   fi
 done
 

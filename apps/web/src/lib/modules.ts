@@ -1167,7 +1167,7 @@ git push -u origin fix/<short-description>`,
         },
         {
           q: "Does case or extra spacing matter?",
-          a: "No. Matching trims leading and trailing whitespace and ignores case, so it's the exact same flag either way as long as the rest matches precisely.",
+          a: "Leading and trailing whitespace never matters — it's trimmed before the comparison. Case usually doesn't either, but a flag can be marked case-sensitive, and its card tells you when it is; those are compared exactly as written.",
         },
         {
           q: "How is my progress tracked?",
