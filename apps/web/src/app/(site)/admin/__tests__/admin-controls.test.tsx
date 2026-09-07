@@ -249,7 +249,12 @@ describe("AdminControls panel contents", () => {
   it("says on the Hints panel which modules the hint policy reaches", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
     const hintsPanel = panelFor(html, "hints");
-    expect(hintsPanel).toMatch(/Secure Development, Classic CTF and AI Challenges/);
+    expect(hintsPanel).toMatch(/Classic CTF and AI Challenges sell their hints/);
+    // Secure Development is named as having none, and the wording that sent
+    // organizers to a tab with no hint field must not survive (issue #334).
+    expect(hintsPanel).toMatch(/Secure Development have no hints/);
+    expect(hintsPanel).not.toMatch(/Secure Development, Classic CTF and AI Challenges/);
+    expect(hintsPanel).not.toMatch(/Each module.s own tab holds the hint text/);
   });
 
   // UX audit F6: the unlock-after help used to say "a scoring start below",

@@ -6,7 +6,7 @@ export { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "./hint-defaul
 import { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "./hint-defaults";
 import { getAdminSettings } from "@/lib/admin-store";
 import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
-import { apps, appsById, type AppId } from "@/lib/apps";
+import { appsById, type AppId } from "@/lib/apps";
 import { AI_HINTS_KEY, aiSolvesKey } from "@/lib/ai-keys";
 import { CLASSIC_HINTS_KEY, classicSolvesKey } from "@/lib/classic-keys";
 import { isModuleEnabled } from "@/lib/modules";
@@ -14,9 +14,17 @@ import { userHintTimesKey } from "@/lib/team-keys";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 
 /**
- * Paid hints. Hint text lives in the scorer-owned hashes `hints:<app>`
- * (field = challenge catalogue id, value = hint text) — this module only ever
- * READS those. Purchases are recorded under the site's ctf: namespace, which
+ * Paid hints — for `classic` and `ai`. **Secure Development has none**, and
+ * cannot: no code path in this kit writes a `hints:<app>` field. The comment
+ * here used to call those hashes "scorer-owned", but the scorer has no concept
+ * of a hint at all (`grep -rni hint scorer/src/` is empty), so availability for
+ * secure-development targets was always empty and `/challenges` told every
+ * contestant "no challenge is offering one yet" — permanently (issue #334).
+ * Rather than leave the machinery pointed at a producer that does not exist,
+ * secure-development is out of the availability read; if hint text ever gains
+ * an author, that is the decision to revisit, not this comment.
+ *
+ * Purchases are recorded under the site's ctf: namespace, which
  * the scorer never rewrites, so penalties survive re-scores:
  *   SADD ctf:user:<login>:hints "<app>/<challengeId>"   (what the user bought)
  *   HINCRBY ctf:hints:spent <login> HINT_COST           (running penalty total)
@@ -66,10 +74,10 @@ export const HINTS_AVAILABLE = Boolean(
 const SPENT_KEY = "ctf:hints:spent";
 const userHintsKey = (login: string) => `ctf:user:${login}:hints`;
 
-/** Where a target's hint texts live. Secure-development hints sit in the
- *  scorer-owned `hints:<app>` hashes; classic hints in the site-owned
+/** Where a target's hint texts live. Classic hints sit in the site-owned
  *  `ctf:classic:hints` hash, written by classic-store's authoring path
  *  (#190); ai hints in the site-owned `ctf:ai:hints` hash, same reasoning.
+ *  There is no secure-development arm, because nothing writes one (#334).
  *  One reveal/charge/penalty machinery serves all three — the default
  *  `hints:${target}` template is secure-dev's shape only, so classic and ai
  *  each need an explicit arm or a reveal would silently read an empty hash. */
@@ -357,58 +365,23 @@ export async function getHintPenalties(): Promise<Map<string, number>> {
   return penalties;
 }
 
-/** Which challenge ids have a hint, per app — public shape (no hint text),
- *  for the board's 💡 marks. Degrades to {} on any failure so the page
- *  renders without the hint layer.
+/** Which challenge ids have a hint, per secure-development target.
  *
- *  One `/pipeline` round trip for all six targets, through the same client as
- *  every other read here. It used to hand-roll Upstash's path-style
- *  `GET /hkeys/<key>` so it could ride Next's ISR cache (`revalidate: 300`),
- *  on the reasoning that `upstashPipeline`'s `cache: "no-store"` would flip a
- *  statically rendered `/challenges` to dynamic. Two things were wrong with
- *  that. The page is dynamic regardless — the root layout resolves module
- *  names per request, so every route under it does, and challenges/page.tsx
- *  says exactly that where it calls this. And **srh does not serve that
- *  route**: it answers `404 {"error":"SRH: Endpoint not found. SRH might not
- *  support this feature yet."}`, and srh is what every deployment of this kit
- *  runs in front of Redis. So the fetch failed on every render, the catch
- *  below turned it into `{}`, and no secure-development hint ever reached a
- *  contestant — while classic's and ai's, which already went through
- *  `upstashPipeline`, worked fine.
+ *  **Always empty, and reads nothing.** `apps` is the secure-development target
+ *  list, so this function only ever described that module — and no code path in
+ *  this kit writes a `hints:<app>` field. Not the scorer (it has no concept of a
+ *  hint), not the admin panel (`admin-secure-dev-tab.tsx` has no hint field),
+ *  not the rubrics. The transport bug behind it was real and is fixed (#313),
+ *  but there was never a producer on the other end, so the honest answer is
+ *  "this module has no hints" rather than a live read that can only come back
+ *  empty and a banner reporting that as news (#334).
  *
- *  Six cached GETs became one uncached POST, so this is fewer round trips
- *  than the cached version was aiming for, not more.
- *
- *  `upstashPipeline` reports a per-command failure positionally rather than
- *  throwing (AGENTS.md), so each reply's `error` is checked: an unread hash
- *  must not read as "this target has no hints". */
+ *  Kept as a function, returning the same shape, so the decision is one edit
+ *  away if secure-development hints ever gain an author — the three candidate
+ *  designs are in #334. `classic` and `ai` hints are unaffected and are read
+ *  by `getClassicHintIds` / `getAiHintIds` below. */
 export async function getHintAvailability(): Promise<Partial<Record<AppId, string[]>>> {
-  if (!HINTS_AVAILABLE) return {};
-  if (!(await resolveHintConfig()).enabled) return {};
-  try {
-    const replies = await upstashPipeline(apps.map((app) => ["HKEYS", hintHashKey(app.id)]));
-    const availability: Partial<Record<AppId, string[]>> = {};
-    apps.forEach((app, i) => {
-      const key = hintHashKey(app.id);
-      const reply = replies[i];
-      if (!reply) throw new Error(`Upstash HKEYS ${key}: no reply at index ${i}`);
-      if (reply.error) throw new Error(`Upstash HKEYS ${key}: ${reply.error}`);
-      // HKEYS answers with an array — `[]` for a hash that does not exist. So
-      // anything else is a reply we do not understand, and coercing it to `[]`
-      // would put us straight back in the bug this whole change is about:
-      // reporting "this target has no hints" on the strength of a read that
-      // did not work.
-      if (!Array.isArray(reply.result)) {
-        throw new Error(`Upstash HKEYS ${key}: expected an array, got ${typeof reply.result}`);
-      }
-      const ids = reply.result as string[];
-      if (ids.length > 0) availability[app.id] = ids;
-    });
-    return availability;
-  } catch (err) {
-    console.error("Hint availability fetch failed:", err);
-    return {};
-  }
+  return {};
 }
 
 /** Which classic challenge ids have a hint — public shape (no text), for the

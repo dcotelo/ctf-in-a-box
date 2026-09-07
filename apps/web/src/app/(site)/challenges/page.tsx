@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import ChallengeGrid from "@/components/challenge-grid";
-import HintNotice from "@/components/hint-notice";
 import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
-import { getHintAvailability, getHintNotice } from "@/lib/hint-store";
+// No hint imports: Secure Development has no hint text and no producer for
+// it, so this page shows no hint banner and no bulbs (issue #334). Classic and
+// ai keep theirs on their own boards.
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { isModuleLive } from "@/lib/enabled-modules";
@@ -47,26 +48,14 @@ export default async function ChallengesPage() {
   // never reaches the data fetches below.
   if (!(await isModuleLive("secure-development"))) notFound();
 
-  // Both fetches are ISR-cached (revalidate 300); hint availability is public
-  // (ids only, no hint text). The page itself renders dynamically regardless —
-  // the root layout resolves module names per request, so every route under it
-  // does (see resolved-modules.ts) — the caching just keeps these two reads
-  // off Redis/GitHub on each of those renders.
-  const [catalog, hintAvailability, title, hints, session] = await Promise.all([
+  // The page renders dynamically regardless — the root layout resolves module
+  // names per request, so every route under it does (see resolved-modules.ts).
+  const [catalog, title, session] = await Promise.all([
     getChallengeCatalog(),
-    getHintAvailability(),
     pageTitle(),
-    // Must agree with the /admin toggle and show the organizer's configured
-    // price, not the hardcoded default the grid beside it already ignores.
-    getHintNotice(),
-    // For the banner's sign-in clause only — the page renders dynamically
-    // regardless (root layout resolves module names per request), so this
-    // adds no rendering mode change, just one session read.
+    // For the viewer's own solved marks below.
     auth.api.getSession({ headers: await headers() }),
   ]);
-  // Does ANY challenge actually carry a hint? The banner must not promise
-  // 💡 marks on a board that renders none (issue #200, 3.5).
-  const anyHintMarked = Object.values(hintAvailability).some((ids) => (ids?.length ?? 0) > 0);
 
   // The viewer's own patched challenges, for the browser's solved state — the
   // same per-challenge results their profile shows, keyed for the grid. Only
@@ -95,7 +84,6 @@ export default async function ChallengesPage() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader eyebrow="Targets" title={title} description={description} />
-      <HintNotice active={hints.active} cost={hints.cost} signedIn={!!session} anyMarked={anyHintMarked} />
       {/* The scoring cadence, stated instead of silent (DESIGN.MD: "scoring
           latency — the honest version"). The app never sees a contestant's
           PR, so there is no per-run pending state to show — what it CAN say
@@ -109,7 +97,7 @@ export default async function ChallengesPage() {
           to see which test, fix, and push again. Your best result always stands.
         </span>
       </p>
-      <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={hintAvailability} solved={solved} />
+      <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={{}} solved={solved} />
     </div>
   );
 }

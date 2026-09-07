@@ -53,8 +53,10 @@ export default function AdminHintsTab({
       <div>
         <h3 className="text-white">Hints</h3>
         <p className="text-sm text-muted">
-          Event-wide policy. Secure Development, Classic CTF and AI Challenges all sell their hints through
-          these four settings; the quiz has no hints. Each module&rsquo;s own tab holds the hint text.
+          Event-wide policy. Classic CTF and AI Challenges sell their hints through these four settings,
+          and each holds its own hint text on its own tab. Quiz and Secure Development have no hints —
+          nothing authors hint text for a secure-development target, so no challenge on
+          &#8288;/challenges&#8288; offers one (issue #334).
         </p>
       </div>
 

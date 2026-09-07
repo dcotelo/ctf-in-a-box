@@ -59,9 +59,10 @@ import {
  *                                readers outside this file should use `lastAt`.
  *
  * Secrecy boundary — it is a CONTESTANT boundary, not an absolute one:
- * `ctf:quiz:key` mirrors how hint text lives in a scorer-owned hash the app
- * only ever reads, and how the scoring rubric stays private. Two readers,
- * deliberately kept apart:
+ * `ctf:quiz:key` is kept out of every contestant path the same way the scoring
+ * rubric stays private. (This used to cite hint text in "a scorer-owned hash
+ * the app only ever reads" as the parallel; no such producer exists — see
+ * hint-store.ts and issue #334.) Two readers, deliberately kept apart:
  *
  *   - `listQuestions` (the CONTESTANT path — `/quiz`, the leaderboard
  *     overlay) never issues a command against `ctf:quiz:key`, and the

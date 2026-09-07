@@ -389,7 +389,10 @@ The panel offers:
   naming what's missing. The module check is **per target**: a hint on a
   secure-development target requires that module enabled, a classic hint
   requires `classic`, an ai hint requires `ai`, and each refuses outright
-  when its module is off (`hint-store.ts`'s `hintGate`). Classic and ai
+  when its module is off (`hint-store.ts`'s `hintGate`). In practice only
+  classic and ai ever reach it: **Secure Development has no hints**, because
+  nothing in the kit authors hint text for a target, so no challenge on
+  `/challenges` offers one and that page shows no hint banner (issue #334). Classic and ai
   count "solves required" across the whole board rather than per app, the
   same way secure-development counts per target — see [the AI
   section](#ai) for its own hint text/knobs. The quiz has no hints by
