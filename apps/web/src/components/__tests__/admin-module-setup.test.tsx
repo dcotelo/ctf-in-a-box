@@ -7,7 +7,13 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ModuleSetupContent, SetupStep } from "@/lib/modules";
-import AdminModuleSetup, { moduleSummary, panelSteps, setupComplete, setupStepStatus } from "@/components/admin-module-setup";
+import AdminModuleSetup, {
+  moduleSummary,
+  panelSteps,
+  setupComplete,
+  setupStepStatus,
+  unlistedLabel,
+} from "@/components/admin-module-setup";
 
 const setup: ModuleSetupContent = {
   experience: "Contestants answer questions on the quiz page and are graded on submit.",
@@ -142,5 +148,58 @@ describe("AdminModuleSetup", () => {
     expect(html.match(/<details/g)?.length).toBe(2);
     expect(html).toContain("Safe to change mid-event");
     expect(html).toContain("Not safe mid-event");
+  });
+});
+
+// A challenge whose category is not in the stored list is not rendered by the
+// board at all, and this panel used to keep listing it — under a heading
+// absent from the chip list one line above — while the status line read
+// "setup complete · 1 category · 5 challenges". Three of those five were
+// unreachable and nothing said so (issue #344). The seed's own replace-the-
+// list bug is fixed at the store, but an organizer can still reach this state
+// by removing a category by hand, or by importing a bundle that spells one
+// differently, so the panel says it however it arrives.
+describe("challenges the board does not render", () => {
+  it("says nothing until the panel has reported — never accuses on first paint", () => {
+    expect(unlistedLabel(undefined)).toBeNull();
+    // The quiz has no categories and reports no `unlisted` at all.
+    expect(unlistedLabel({ items: 3 })).toBeNull();
+    expect(unlistedLabel({ items: 3, categories: 1, unlisted: 0 })).toBeNull();
+  });
+
+  it("counts them once it knows", () => {
+    expect(unlistedLabel({ unlisted: 1 })).toBe("1 not on the board");
+    expect(unlistedLabel({ unlisted: 3 })).toBe("3 not on the board");
+  });
+
+  it("appends to the status line without calling the setup incomplete", () => {
+    // The checklist IS done — every step was completed — and pointing the
+    // organizer back at it would send them somewhere with nothing wrong.
+    expect(moduleSummary(setup, { items: 5, categories: 1, unlisted: 3 })).toBe(
+      "setup complete · 5 questions · 1 category · 3 not on the board",
+    );
+  });
+
+  it("warns in the panel, in the amber it uses for unfinished work", () => {
+    const html = renderToStaticMarkup(<AdminModuleSetup title="AI Challenges" setup={setup} inventory={{ items: 5, categories: 1, unlisted: 3 }} />);
+    expect(html).toContain("3 challenges are in a category that is not in the list below");
+    expect(html).toContain("contestants never see them");
+    // The STATUS LINE is amber, not green: a green "setup complete" sitting
+    // above an amber warning is the contradiction #344 shipped, one line
+    // further up. (The per-step count labels stay green — those steps really
+    // are done, which is the point.)
+    expect(html).toMatch(/<span class="font-medium text-\[#d4a017\]">Setup complete/);
+    // And the checklist is open: the control that fixes this is in it.
+    expect(html).toMatch(/<details open/);
+  });
+
+  it("uses the singular, and stays silent at zero", () => {
+    const one = renderToStaticMarkup(<AdminModuleSetup title="Classic CTF" setup={setup} inventory={{ items: 5, categories: 1, unlisted: 1 }} />);
+    expect(one).toContain("1 challenge is in a category that is not in the list below");
+    expect(one).toContain("contestants never see it");
+
+    const none = renderToStaticMarkup(<AdminModuleSetup title="Classic CTF" setup={setup} inventory={{ items: 5, categories: 1, unlisted: 0 }} />);
+    expect(none).not.toContain("not in the list below");
+    expect(none).toContain("Setup complete");
   });
 });

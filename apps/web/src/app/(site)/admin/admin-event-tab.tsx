@@ -357,7 +357,17 @@ export default function AdminEventTab({
               setConfirm({
                 title: "Seed demo data?",
                 confirmLabel: "Seed",
-                body: "Adds fake contestants, teams, and solves to the leaderboard. Run a master reset to clear them.",
+                // Names the authored content it touches, not just the
+                // leaderboard rows: the seed also writes demo questions and
+                // challenges and ADDS to the category lists, which the old
+                // copy left unsaid while a replace was quietly deleting them
+                // (#344). "Adds to" is now literally true — the lists are
+                // unioned — and a master reset genuinely cannot undo it,
+                // since it preserves authored categories on purpose.
+                body:
+                  "Adds fake contestants, teams, and solves to the leaderboard, plus demo questions and " +
+                  "challenges in the enabled modules. Demo categories are added to your category lists and " +
+                  "stay there after a master reset — remove those by hand.",
                 onConfirm: doSeed,
               })
             }

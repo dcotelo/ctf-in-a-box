@@ -684,7 +684,21 @@ describe("rotate and delete wire contract, proven against the real route", () =>
 describe("aiInventory", () => {
   it("counts challenges and categories separately", async () => {
     const { aiInventory } = await import("@/components/admin-ai-controls");
-    expect(aiInventory([], ["Prompt Injection"])).toEqual({ items: 0, categories: 1 });
+    expect(aiInventory([], ["Prompt Injection"])).toEqual({ items: 0, categories: 1, unlisted: 0 });
+  });
+
+  // The board this one feeds is the one #344 was reproduced on: three
+  // authored AI challenges left the contestant board when the seed replaced
+  // the category list, and the panel reported "1 category · 5 challenges".
+  it("counts challenges the board will not render, on the same exact match", async () => {
+    const { aiInventory } = await import("@/components/admin-ai-controls");
+    // Both fixture rows are in "AI".
+    expect(aiInventory([row1, row2], ["AI"]).unlisted).toBe(0);
+    expect(aiInventory([row1, row2], ["Guardrails"]).unlisted).toBe(2);
+    // Exact match, like classic's and like the board's own filter: "ai" is
+    // not "AI", and a row under a spelling the list does not hold is one no
+    // contestant can reach.
+    expect(aiInventory([row1, row2], ["ai"]).unlisted).toBe(2);
   });
 });
 

@@ -23,9 +23,27 @@ export { CLASSIC_POINTS_MAX };
 
 /** What this panel tells the shell about its content: challenges AND
  *  categories, because "add a category first" is this board's first setup
- *  step. Pure; exported for direct testing. */
+ *  step — plus how many challenges the board does not render.
+ *
+ *  `unlisted` counts rows whose `category` is absent from the stored list.
+ *  The membership test is EXACT equality because that is what
+ *  `challenge-board.tsx` filters on: a challenge spelled "web" against a
+ *  stored "Web" is invisible there, so it has to be counted here (#344).
+ *  Pure; exported for direct testing. */
 export function classicInventory(rows: readonly AdminChallenge[], categories: readonly string[]): ModuleInventory {
-  return { items: rows.length, categories: categories.length };
+  return { items: rows.length, categories: categories.length, unlisted: unlistedCount(rows, categories) };
+}
+
+/** Rows the board will not render, because their category is not in the list.
+ *  Shared shape with ai's, kept as one implementation here and imported there
+ *  — the two boards filter identically, so one drifting from the other would
+ *  mean one panel warning where the other stays quiet. */
+export function unlistedCount(
+  rows: readonly { challenge: { category: string } }[],
+  categories: readonly string[],
+): number {
+  const listed = new Set(categories);
+  return rows.reduce((n, row) => (listed.has(row.challenge.category) ? n : n + 1), 0);
 }
 
 /** Maps a `/api/admin/classic` response to a message that tells a validation

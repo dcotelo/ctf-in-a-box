@@ -61,6 +61,42 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   behind**, so one page read "500 / 700 pts" in a row and "0 pts still on the
   board" beneath it — the same wrong claim in a second voice. When a
   denominator changes, every reader of it changes with it.
+- **Seeding demo data no longer deletes the categories an organizer
+  authored (#344).** The seed wrote both module category lists with an
+  absolute `SET`, so **Seed demo data** replaced them with the fixture's. The
+  challenges themselves survived — they are written per-field, keyed by id —
+  and the admin panel kept listing them, but the contestant board renders only
+  categories present in the list. Three authored AI challenges and 850 points
+  of content silently left `/ai`, together with the viewer's three solves of
+  them, while the panel two clicks away read "1 category · 5 challenges" like
+  a healthy setup. A master reset is no way back: it preserves authored
+  categories on purpose, so the list it preserves is the seeded one.
+
+  Both lists are now **unioned** — the organizer's order kept verbatim, then
+  any demo category not already present appended, matching case-insensitively
+  the way `setCategories` and classic's `importBundle` already do. Each seeded
+  challenge is written under whichever spelling the union kept, so seeding
+  "AI" onto a board that spells it "ai" no longer stores rows the board's
+  exact-match filter cannot see. A union that would exceed the 50-category cap
+  refuses outright, writing nothing, since trimming it would orphan the demo
+  challenges and storing it would block every later category edit.
+
+  The union and those challenge writes happen in **one Lua script**, not a read
+  followed by a write. Upstash's `/pipeline` is not transactional, so a `GET`
+  and a later `SET` leave a window in which an organizer's own category edit is
+  read, ignored and overwritten — and because the challenge rows have to name a
+  category the list actually holds, a rename landing inside that window would
+  orphan every row the seed just wrote, which is #344 again by another route.
+  Redis runs the script atomically, so the union is computed against the list as
+  it is at that instant.
+
+  Two things say so now, because an organizer can still reach that state by
+  hand or through an import that spells a category differently: each module's
+  admin panel warns, in amber, when challenges sit in a category absent from
+  the list — with the count on the status line, which no longer reads a green
+  "setup complete" above it — and the seed's confirmation names the authored
+  content it touches instead of only "contestants, teams, and solves". The
+  seed remains `DEMO_MODE`-only and cannot be reached in a real event.
 
 - **The admin screenshots in the docs show the admin panel that exists
   (#321).** Four of them predated the redesign entirely: an outer `CONTROLS`
