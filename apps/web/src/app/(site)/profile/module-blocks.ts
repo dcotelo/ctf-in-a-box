@@ -108,22 +108,48 @@ export type ModuleRow = { done: number; total: number; unit: string; earned: num
  *  Exhaustive switch, closed with a `never` guard — this was once an
  *  if/if/unconditional-return, which silently rendered any new module's block
  *  with secure-development's numbers and no compiler complaint. */
-/** A denominator that can never be smaller than its own numerator.
+/** The live-and-historical union for one module's denominators.
  *
- *  The two halves of a progress row come from different places: the numerator
- *  from the contestant's SOLVE RECORDS, which survive a challenge being deleted
- *  (the delete dialog promises exactly that — "points already banked for it stay
- *  on the leaderboard"), and the denominator from the LIVE CATALOGUE, which no
- *  longer contains it. Every deleted-but-solved challenge splits them, and the
- *  row renders "5 / 5 cleared, 870 / 850 pts" with a bar filled past its own end
+ *  A progress row's two halves come from different places. The numerator counts
+ *  SOLVE RECORDS, which survive a challenge being deleted on purpose — the admin
+ *  delete dialog promises it: "Points already banked for it stay on the
+ *  leaderboard." The denominator counts the LIVE CATALOGUE, which no longer has
+ *  that challenge in it. Every deleted-but-solved item splits them, and the row
+ *  renders "5 / 5 cleared, 870 / 850 pts" with a bar filled past its own end
  *  (issue #330).
  *
- *  Widening the denominator to the union is the option that keeps a
- *  contestant's history visible — the points are genuinely banked and the
- *  leaderboard genuinely counts them — rather than hiding solves that no longer
- *  have a live challenge behind them. secure-development's `total` has clamped
- *  this way since the "8 / 0 patched" fix; this is the same rule applied to
- *  both halves of every module's row. */
+ *  Counting by IDENTITY rather than clamping the totals: `max(live, solved)`
+ *  stops the ratio exceeding one, but it is not the union. Five live items with
+ *  three solved, two unsolved, and two solved-then-deleted is `5 / 7` — a clamp
+ *  reports `5 / 5` and tells a contestant they have finished a module that still
+ *  has two challenges waiting on it.
+ *
+ *  Points come from the solve record, not the catalogue: `points` there is what
+ *  the item was worth AT SOLVE TIME, which is the only figure a deleted
+ *  challenge still has, and the one already banked on the leaderboard.
+ *
+ *  The union, rather than live-only, because the solves are real and the
+ *  leaderboard counts them — a row that hid them would be its own small lie. */
+export function unionDenominators(
+  live: readonly { id: string; points?: number }[],
+  solved: Readonly<Record<string, { points?: number }>>,
+): { total: number; max: number } {
+  const liveIds = new Set(live.map((item) => item.id));
+  let total = live.length;
+  let max = live.reduce((sum, item) => sum + (Number(item.points) || 0), 0);
+  for (const [id, solve] of Object.entries(solved)) {
+    if (liveIds.has(id)) continue;
+    total += 1;
+    max += Number(solve?.points) || 0;
+  }
+  return { total, max };
+}
+
+/** A denominator that can never be smaller than its own numerator. Used where
+ *  per-item identity is not available — secure-development's catalogue is baked
+ *  from the rubrics rather than authored, so it cannot gain a deleted-but-solved
+ *  challenge; what it can lose is a whole TARGET dropped from the event, which
+ *  leaves the banked patch count above a shrunken catalogue. */
 function atLeast(total: number, done: number): number {
   return Math.max(total, done);
 }
@@ -131,30 +157,18 @@ function atLeast(total: number, done: number): number {
 export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): ModuleRow {
   const detail = progress.detail;
   switch (detail.kind) {
-    case "quiz":
-      return {
-        done: detail.answered,
-        total: atLeast(detail.total, detail.answered),
-        unit: moduleUnit("quiz"),
-        earned: progress.points,
-        max: atLeast(input.quiz?.maxPoints ?? 0, progress.points),
-      };
-    case "classic":
-      return {
-        done: detail.solved,
-        total: atLeast(detail.total, detail.solved),
-        unit: moduleUnit("classic"),
-        earned: progress.points,
-        max: atLeast(input.classic?.maxPoints ?? 0, progress.points),
-      };
-    case "ai":
-      return {
-        done: detail.solved,
-        total: atLeast(detail.total, detail.solved),
-        unit: moduleUnit("ai"),
-        earned: progress.points,
-        max: atLeast(input.ai?.maxPoints ?? 0, progress.points),
-      };
+    case "quiz": {
+      const d = unionDenominators(input.quiz?.questions ?? [], input.quiz?.viewer.answered ?? {});
+      return { done: detail.answered, total: d.total, unit: moduleUnit("quiz"), earned: progress.points, max: d.max };
+    }
+    case "classic": {
+      const d = unionDenominators(input.classic?.challenges ?? [], input.classic?.viewer.solved ?? {});
+      return { done: detail.solved, total: d.total, unit: moduleUnit("classic"), earned: progress.points, max: d.max };
+    }
+    case "ai": {
+      const d = unionDenominators(input.ai?.challenges ?? [], input.ai?.viewer.solved ?? {});
+      return { done: detail.solved, total: d.total, unit: moduleUnit("ai"), earned: progress.points, max: d.max };
+    }
     case "secure-development":
       // `profile.maxPoints` is the sum of the targets' own ceilings (see
       // lambda/mock getUser) — it used to arrive as a hardcoded 0 from the
@@ -254,4 +268,17 @@ export function remainingFor(modules: readonly ResolvedModule[], input: ProfileM
   return modules
     .map((m) => ({ title: m.title, ...pairs[m.id] }))
     .filter((m): m is RemainingModule => m.earned != null && m.max != null);
+}
+
+/** The all-module points ceiling, on the same union semantics as each row's —
+ *  so the header's "N of M pts available" cannot disagree with the rows under
+ *  it after a solved challenge is deleted (issue #330). secure-development
+ *  contributes its own ceiling clamped to what is banked, since its catalogue
+ *  carries no per-item identity here. */
+export function maxPointsAcrossModules(input: ProfileModuleInput, securePoints: number): number {
+  const quiz = unionDenominators(input.quiz?.questions ?? [], input.quiz?.viewer.answered ?? {});
+  const classic = unionDenominators(input.classic?.challenges ?? [], input.classic?.viewer.solved ?? {});
+  const ai = unionDenominators(input.ai?.challenges ?? [], input.ai?.viewer.solved ?? {});
+  const secure = atLeast(input.profile?.maxPoints ?? 0, securePoints);
+  return secure + quiz.max + classic.max + ai.max;
 }

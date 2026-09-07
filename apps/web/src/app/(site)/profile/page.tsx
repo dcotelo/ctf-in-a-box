@@ -13,6 +13,7 @@ import AppBreakdown from "@/components/app-breakdown";
 import ProgressRow, { moduleUnit } from "@/components/progress/progress-row";
 import ChallengeList from "@/components/progress/challenge-list";
 import RemainingLine from "@/components/progress/remaining-line";
+import { maxPointsAcrossModules } from "@/app/(site)/profile/module-blocks";
 import ProfileStatTiles, { type StatTile } from "@/components/profile-stat-tiles";
 import { loadTeamStanding } from "@/app/(site)/profile/team-standing";
 import {
@@ -204,23 +205,6 @@ export default async function ProfilePage() {
   const quizMaxPoints = quizQuestions.reduce((sum, q) => sum + (Number(q.points) || 0), 0);
   const classicMaxPoints = classicChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
   const aiMaxPoints = aiChallenges.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
-  // Clamped to what the contestant has actually banked, for the same reason
-  // every count on this page is: points from a challenge an organizer has since
-  // deleted stay on the leaderboard, so a live-catalogue ceiling alone renders
-  // "870 of 850 pts available" (issue #330).
-  const maxPointsAllModules = Math.max(
-    (profile?.maxPoints ?? 0) + quizMaxPoints + classicMaxPoints + aiMaxPoints,
-    netPoints,
-  );
-  // Sources without per-challenge point data (lambda/upstash) report
-  // maxPoints 0 — fall back to patched/total so the bar still means something.
-  const progressPct =
-    maxPointsAllModules > 0
-      ? Math.min(100, (netPoints / maxPointsAllModules) * 100)
-      : challengeCount > 0
-        ? (patchedCount / challengeCount) * 100
-        : 0;
-
   // Only the apps the event actually enabled — same filter the per-app grid
   // used before this task, kept so a target an organizer turned off never
   // shows up in the breakdown just because a stale scored row mentions it.
@@ -244,6 +228,21 @@ export default async function ProfilePage() {
       : undefined,
     ai: aiEnabled ? { total: aiTotal, challenges: aiChallenges, maxPoints: aiMaxPoints, viewer: viewerAi } : undefined,
   };
+
+  // The same union the module rows use, so the header cannot disagree with the
+  // rows beneath it: points banked on a challenge an organizer has since
+  // deleted still count, and a live-catalogue ceiling alone renders
+  // "870 of 850 pts available" (issue #330).
+  const maxPointsAllModules = maxPointsAcrossModules(moduleInput, profile?.points ?? 0);
+  // Sources without per-challenge point data (lambda/upstash) report
+  // maxPoints 0 — fall back to patched/total so the bar still means something.
+  const progressPct =
+    maxPointsAllModules > 0
+      ? Math.min(100, (netPoints / maxPointsAllModules) * 100)
+      : challengeCount > 0
+        ? (patchedCount / challengeCount) * 100
+        : 0;
+
   const moduleProgress = buildModuleProgress(moduleInput);
   // `ModuleDetail`/`AppBreakdown` (the same renderers the leaderboard uses)
   // take a `LeaderboardEntry`; this page only ever has a `UserProfile`, which
