@@ -61,11 +61,23 @@ export function parseScanPage(reply: UpstashResult, context: string): [string, s
   const page = reply.result;
   // A well-formed reply is [cursor, keys]. Anything else means the walk cannot
   // be trusted to have covered the keyspace, and "cursor 0" would claim it had.
-  if (!Array.isArray(page) || page.length < 2 || !Array.isArray(page[1])) {
+  //
+  // The ELEMENT types are checked, not just the outer shape: a page of
+  // `[{}, [1]]` passes an Array.isArray-only guard, and then `String(page[0])`
+  // hands the next SCAN the cursor `"[object Object]"` while a numeric key is
+  // returned as `string[]` and interpolated into a key name. Both failures
+  // land far from here, which is the opposite of the point.
+  if (
+    !Array.isArray(page) ||
+    page.length < 2 ||
+    (typeof page[0] !== "string" && typeof page[0] !== "number") ||
+    !Array.isArray(page[1]) ||
+    !page[1].every((key): key is string => typeof key === "string")
+  ) {
     throw new Error(`Upstash SCAN returned an unexpected shape (${context}): ${JSON.stringify(page)}`);
   }
   // Redis answers the cursor as a bulk string; some proxies hand back a number.
-  return [String(page[0]), page[1] as string[]];
+  return [String(page[0]), page[1]];
 }
 
 /** Runs a Lua script as a single atomic Redis operation. */

@@ -72,6 +72,12 @@ describe("parseScanPage", () => {
     ["a truncated page", { result: ["0"] }],
     ["keys that are not a list", { result: ["0", "ctf:team:red:members"] }],
     ["an empty result", { result: undefined }],
+    // Element types, not just the outer shape. Without these two the guard
+    // accepts `[{}, [1]]`: the next SCAN is then issued with the cursor
+    // "[object Object]", and a numeric key is returned as a string and
+    // interpolated into a key name — both failing somewhere else entirely.
+    ["a cursor that is not a string or number", { result: [{}, []] }],
+    ["a key that is not a string", { result: ["0", ["ctf:team:red:members", 1]] }],
   ])("throws on %s", (_label, reply) => {
     expect(() => parseScanPage(reply, "ctx")).toThrow(/unexpected shape \(ctx\)/);
   });

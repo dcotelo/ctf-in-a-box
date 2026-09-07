@@ -270,8 +270,13 @@ export async function computeEventMetrics(): Promise<EventMetrics> {
     sdSolves = await readSecureDevSolves();
   } catch (err) {
     console.error("secure-development solves unavailable for metrics:", err);
+    // Names the hint-order counts too, not just the obvious ones: the
+    // per-slot `solvedAt` lookup below reads this same map, so a Secure
+    // Development hint slot with no solve time contributes to NEITHER
+    // boughtBeforeSolving nor boughtAfterSolving. Those two would otherwise
+    // look complete while quietly omitting a module.
     caveats.push(
-      "Secure Development solves could not be read — participation and solve counts below exclude them.",
+      "Secure Development solves could not be read — participation, funnel, solve and hint-order counts below are incomplete.",
     );
     sdSolves = new Map();
   }
