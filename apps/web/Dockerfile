@@ -26,6 +26,15 @@ WORKDIR /app
 # upstream on every request, and the only evidence read like a Next.js
 # internal rather than a permissions problem.
 COPY --from=build --chown=node:node /app ./
+# Build stamp for GET /health, so "did my fix reach the box?" is answerable
+# from outside the container. Declared HERE, in the runtime stage only, and
+# deliberately not in the build stage above: these change on every commit, and
+# an ARG the build stage consumed would invalidate `pnpm install` and
+# `pnpm build` on each one. Optional — absent reports "unknown"/null rather
+# than failing (see apps/web/src/lib/app-version.ts).
+ARG APP_BUILD_REV=
+ARG APP_BUILT_AT=
+ENV APP_BUILD_REV=$APP_BUILD_REV APP_BUILT_AT=$APP_BUILT_AT
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
 USER node

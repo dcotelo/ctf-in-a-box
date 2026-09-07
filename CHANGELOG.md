@@ -8,6 +8,30 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **`GET /health` says which build is running.** "Did my fix reach the box?"
+  had no answer from outside the container. `fly status` counts deploys, not
+  commits, and needs Fly credentials; the alternative was re-testing the bug
+  and inferring — which is how issue #312 sat fixed on `main` and still broken
+  in production, with nothing to poll that would have said so. The endpoint is
+  public, unauthenticated and liveness-only: `status`, the release `version`,
+  the `revision` the image was built from, and `builtAt`. The last two are the
+  ones that matter — `version` only moves on a release, so it cannot detect a
+  deploy of an unreleased commit, and `builtAt` separates two deploys of the
+  same commit, which a redeploy after a config change produces. Both are baked
+  from build args that `deploy/fly/deploy.sh` and `scripts/dev-stack` fill in;
+  a build that passes neither reports `"unknown"` and `null` rather than
+  failing, because a health endpoint that can 500 is not a health endpoint.
+  `deploy.sh` reports `unknown` from a dirty tree on purpose — including for
+  untracked files, since the build context is the working tree and an
+  untracked file is baked in just as surely as a modified one, so the sha
+  would not describe the image. Nothing here touches Redis: a dependency check
+  would report the app unhealthy when the app is fine, which is backwards for
+  something a restart policy acts on, and that answer already exists on the
+  admin Overview behind the organizer gate. The values are validated rather
+  than echoed — only a hex sha and a parseable instant get through, because
+  they arrive from a deploy shell and land in a world-readable body — and a
+  test pins the response to exactly four fields, since the real risk to a
+  public health endpoint is not that it breaks but that it quietly grows.
 - **The FAQ no longer promises that case never matters.** Asked "Does case or
   extra spacing matter?", it answered "No. Matching trims leading and trailing
   whitespace and ignores case" — flatly, with no exception. A classic
