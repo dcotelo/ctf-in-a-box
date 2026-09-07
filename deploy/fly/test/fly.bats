@@ -3,7 +3,7 @@
 # Checks on the fly.io module. There is no `terraform validate` equivalent for
 # fly.toml, and no account to deploy against in CI, so these assert the
 # invariants a broken port would violate — the same posture as
-# `deploy/aws-terraform/userdata.tftest.hcl`, which exists because `validate`
+# `deploy/aws-terraform/stack.tftest.hcl`, which exists because `validate`
 # never inspects rendered output.
 #
 # The render is exercised FOR REAL (it needs `docker compose`, which the CI

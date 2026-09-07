@@ -450,9 +450,11 @@ export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
 `ctf-setup.sh wizard` prints (and offers to run) the right one for the
 `event.yaml` you configured, so you do not have to pick by hand.
 
-Prefer a cloud VM over your own machine? [Deploy on AWS](aws.md) ships a
-Terraform module for a single-shot EC2 deploy — `terraform apply` up,
-`terraform destroy` down.
+Prefer the cloud over your own machine? [Deploy on AWS](aws.md) ships a
+Terraform module for an ECS Fargate stack behind an ALB, over managed
+ElastiCache — `terraform apply` up, `terraform destroy` down. It replaced a
+single-EC2 deploy, so an existing box upgrades by migration rather than by
+`apply`.
 
 ### Poll auth: GitHub App
 

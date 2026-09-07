@@ -8,6 +8,69 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: the AWS module is now ECS Fargate + ElastiCache + ALB, replacing
+  the single EC2 box.** An existing EC2 deploy does **not** upgrade with an
+  `apply` — that would destroy the instance and build the new stack around a
+  database that never existed. Migrate instead: export the event archive, stand
+  the new stack up beside the old one, import, move DNS, then destroy the old
+  (steps in the module README).
+
+  The driver was durability, not fashion. On the box, Redis was a container
+  writing an append-only file to an EBS volume — our fsync policy, our volume,
+  our restore procedure, and no backups unless the operator built them. Poll
+  mode survives "the box died"; nothing there survived "the box died and the
+  quiz answers, the classic flags and every team went with it". ElastiCache
+  makes that AWS's problem, and once Redis is managed the ALB (health checks, a
+  task swap without dropping the event) and Fargate (no instance to patch)
+  follow nearly for free. ADR 54 records the alternatives, including the two it
+  rejects: EKS, and keeping EC2 with backups bolted on.
+
+  **The app did not change.** It, the scorer and sync speak only the Upstash
+  REST API and never raw Redis, so ElastiCache changed exactly one thing — what
+  `srh` connects *to*. `srh` stays; everything above it is the code compose
+  runs. ADR 41's boundary also stays in the security groups: the ALB alone
+  reaches the app, the app and workers alone reach `srh`, `srh` alone reaches
+  ElastiCache, and the app has no route to Redis at all. Tasks sit in public
+  subnets with no permitted inbound, because a NAT gateway costs about what the
+  whole instance did, per AZ, before a byte moves.
+
+  Three things are worse on purpose and are written down rather than left to be
+  discovered: it costs roughly **four times** the EC2 bill at the defaults
+  (itemised, with the two dials that bring it down); **Terraform state now
+  contains a secret**, the generated ElastiCache AUTH token, so an encrypted
+  remote backend stops being advice; and **durability is snapshots, not AOF**,
+  so a restore loses up to a day rather than up to a second — which is why the
+  event archive export remains the backup that matters for authored content.
+
+  **Every event secret is encrypted with a KMS key the stack creates**, and
+  `aws ssm put-parameter --key-id` is required rather than optional: the task
+  execution role's `kms:Decrypt` names that one key, where it previously held
+  `"*"` narrowed only by a `kms:ViaService` condition — enough to reach any
+  SecureString in the account that delegates to IAM. The bootstrap apply now
+  targets the key alongside ECR, so the secrets step lands between the two
+  applies rather than before them, and a parameter stored under a different key
+  fails at task start with an `AccessDeniedException`. About a dollar a month.
+
+  The image bake moved off the instance into `deploy/aws-terraform/deploy.sh`,
+  because Terraform cannot build an image and `event.yaml` is baked at build
+  time — an image built without `EVENT_CONFIG_B64` ships an empty `admins` list
+  and 403s every organizer. Tags are content-addressed (revision + config hash)
+  into an immutable repository, so a redeploy with nothing changed is a no-op
+  instead of an error, and `--dry-run` prints every command while running none
+  of them, with the config redacted.
+
+  The ALB health-checks `/health`, not `/`. A page that reads Redis is the wrong
+  probe for something wired to task replacement: a blip would deregister every
+  app task, and replacing them cannot fix Redis. It also proved nothing — the
+  app streams its shell with HTTP 200 and puts render failures in the body,
+  which is exactly how #312 stayed invisible to status-code checks.
+
+  Verified with **no AWS account**: `srh` speaks TLS + AUTH to a cache
+  configured as ElastiCache presents itself, and `EVAL`/`EVALSHA` survive the
+  hop, with a wrong token rejected as the control. Worth knowing when a
+  handshake fails — `srh` verifies against CAStore's embedded bundle, not the
+  OS trust store, so the fix is a newer `srh_image` and never a mounted CA.
+
 ## v0.5.0 — 2026-09-07
 
 The admin panel every URL of which had stopped loading, a security bump, and

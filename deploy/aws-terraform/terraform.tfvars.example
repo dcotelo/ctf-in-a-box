@@ -1,44 +1,108 @@
 # Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+#
+# Only three inputs have no default: domain, event_yaml_b64 and app_image.
+# Everything below them is optional and shown at its default.
 
-region        = "us-east-1"
-instance_type = "t3.medium" # must be x86_64
-name          = "ctf-in-a-box"
+region = "us-east-1"
 
-# Root EBS volume (GiB). The app + scorer image builds need headroom; 30 is the default.
-# root_volume_gb = 30
+# Prefixes every resource. 3-28 characters: the cap is 28 rather than 32
+# because this reaches the ALB as `<name>-alb` and the target group as
+# `<name>-app`, and AWS limits both of those to 32.
+name = "ctf-in-a-box"
 
-# Existing EC2 key pair for SSH. Default is none — use SSM Session Manager instead.
-# key_name = "my-keypair"
+# --- required ----------------------------------------------------------------
 
-# Where the box clones the kit from. Point at your fork to run patched kit
-# code — and set git_ref below to the branch/tag/sha that carries the patch;
-# changing repo_url alone still checks out v0.1.0.
-# repo_url = "https://github.com/dcotelo/ctf-in-a-box.git"
+# The event's public hostname. Required, not optional: the session cookie is
+# Secure, so there is no working HTTP mode to fall back to.
+domain = "ctf.example.org"
 
-# Pin a release tag for a real event.
-git_ref = "v0.1.0"
-
-# HTTPS requires a domain (Caddy auto-provisions TLS). Leave domain empty only
-# for local/testing (HTTP on the EIP — session cookie is NOT Secure then).
-domain          = "ctf.example.org"
-# Set route53_zone_id only if the zone is in THIS account and you want Terraform
-# to create the A record. Otherwise leave it empty and point your own A record
-# (in any account) at the `public_ip` output.
-route53_zone_id = ""
-
-# Extra tags on every resource (on top of Project/ManagedBy/Event).
-tags = {
-  # Owner   = "you@example.org"
-  # Expiry  = "2026-09-01"
-}
-
-# Public leaderboard by default; narrow for an organizer-only board.
-web_ingress_cidrs = ["0.0.0.0/0"]
-ssh_ingress_cidrs = [] # prefer SSM Session Manager; set ["1.2.3.4/32"] for SSH
-
-# base64 of your event.yaml (NOT a secret):
-#   event_yaml_b64 = filebase64("../../event.yaml")   # or paste a string
+# base64 of your event.yaml. NOT a secret — it is the public event config.
+#   event_yaml_b64 = filebase64("../../event.yaml")
+#
+# Terraform does not read this to configure anything: the app bakes event.yaml
+# into its IMAGE at build time, which deploy.sh does. It is a required input so
+# the module refuses to describe a stack whose image was built without one —
+# that build produces an empty admins list and /admin 403s for everyone.
 event_yaml_b64 = ""
 
-# SSM path holding the SecureString SECRETS (create them out of band — see README).
-ssm_prefix = "/ctf-in-a-box"
+# The app image ECS runs. deploy.sh writes the real value into
+# image.auto.tfvars (Terraform loads it automatically), so you do not maintain
+# this by hand — but the FIRST apply happens before ECR exists, so there is
+# nothing to name yet. Bootstrap order:
+#
+#   terraform apply -target=aws_ecr_repository.main   # just the registry
+#   ./deploy.sh                                       # build, push, write the tfvars
+#   terraform apply                                   # the rest of the stack
+#
+# Applying everything at once with the placeholder still works; the app tasks
+# simply cannot pull an image until deploy.sh has run, and settle once it has.
+app_image = "PLACEHOLDER-deploy.sh-overwrites-this"
+
+# --- TLS ---------------------------------------------------------------------
+
+# Set route53_zone_id when the zone for `domain` is in THIS account: Terraform
+# then issues the ACM certificate, validates it by DNS and points an alias at
+# the ALB. Otherwise leave it empty, set acm_certificate_arn to a certificate
+# you already have IN THIS REGION, and point your own record at the
+# `alb_dns_name` output.
+route53_zone_id     = ""
+acm_certificate_arn = ""
+
+# --- what this event runs ----------------------------------------------------
+
+# false for a quiz-only or classic-only event: no scorer, no sync, no GitHub.
+# Same rule as the compose profiles.
+# enable_secure_development = true
+
+# "poll" runs sync, which polls GitHub for score comments. "push" has the
+# fork's Action POST to the scorer instead, and runs no poller at all.
+# score_ingest = "poll"
+
+# The kit's own images, for the secure-development services. Ignored when
+# enable_secure_development is false (and sync_image also when push mode).
+# scorer_image = "ghcr.io/dcotelo/ctf-in-a-box-scorer:v0.5.0"
+# sync_image   = "ghcr.io/dcotelo/ctf-in-a-box-sync:v0.5.0"
+
+# --- sizing ------------------------------------------------------------------
+
+# app_cpu           = 1024   # 1 vCPU
+# app_memory        = 2048   # MiB
+# app_desired_count = 2      # 2 keeps the event up through a deployment; 1 is cheaper
+
+# ElastiCache. t4g.micro carries an event of this size comfortably.
+# cache_node_type     = "cache.t4g.micro"
+# cache_replica_count = 1    # 1 gives automatic failover across two AZs; 0 is cheaper
+
+# Daily snapshots kept. This is the module's whole durability story — the EC2
+# box used AOF on a volume, and a restore here is coarser. See the README.
+# cache_snapshot_retention_days = 5
+
+# --- network -----------------------------------------------------------------
+
+# vpc_cidr = "10.42.0.0/16"
+
+# Who may reach the ALB. Public by default; narrow it for a private event.
+# web_ingress_cidrs = ["0.0.0.0/0"]
+
+# --- secrets and logs --------------------------------------------------------
+
+# SSM prefix holding the event's SecureStrings. Create these out of band before
+# the app starts — the README lists them:
+#   BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET, GITHUB_TOKEN, SRH_TOKEN
+# (REDIS_AUTH_TOKEN is generated and written there by Terraform.)
+# ssm_prefix = "/ctf-in-a-box"
+
+# log_retention_days = 30
+
+# The Upstash-REST shim, digest-pinned by default. This third-party image sits
+# between the app and your event's data; a floating tag there is a supply-chain
+# decision, so the module refuses one.
+# srh_image = "hiett/serverless-redis-http@sha256:..."
+
+# --- tags --------------------------------------------------------------------
+
+# Merged into the provider's default_tags (Project/ManagedBy/Event).
+tags = {
+  # Owner  = "you@example.org"
+  # Expiry = "2026-09-30"
+}

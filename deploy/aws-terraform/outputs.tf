@@ -1,24 +1,68 @@
 output "event_url" {
-  description = "Where the leaderboard/app answers. Use this as the OAuth app's base + callback host."
+  description = "Where the leaderboard and sign-in answer. Use this as the OAuth app's base, with its callback at /api/auth/callback/github."
   value       = local.event_url
 }
 
-output "public_ip" {
-  description = "The box's Elastic IP — point your DNS A record here if you did not set route53_zone_id."
-  value       = aws_eip.box.public_ip
+output "alb_dns_name" {
+  description = "The load balancer's hostname. Point your DNS at this if you did not set route53_zone_id."
+  value       = aws_lb.main.dns_name
 }
 
-output "instance_id" {
-  description = "EC2 instance id (for `aws ssm start-session --target <id>`)."
-  value       = aws_instance.box.id
+output "alb_zone_id" {
+  description = "Hosted-zone id of the ALB, for an alias record in a zone this module does not manage."
+  value       = aws_lb.main.zone_id
+}
+
+output "ecr_app_repository_url" {
+  description = "Push the app image here — deploy.sh does. Terraform cannot build images."
+  value       = aws_ecr_repository.main["app"].repository_url
+}
+
+output "cluster_name" {
+  description = "ECS cluster, for `aws ecs execute-command` and the console."
+  value       = aws_ecs_cluster.main.name
+}
+
+output "redis_primary_endpoint" {
+  description = "ElastiCache primary endpoint. srh alone can reach it; nothing else has a route."
+  value       = aws_elasticache_replication_group.main.primary_endpoint_address
+}
+
+output "services_running" {
+  description = "Which services this event actually runs, following the enabled modules."
+  value = compact([
+    "app",
+    "srh",
+    local.run_scorer ? "scorer" : "",
+    local.run_sync ? "sync" : "",
+  ])
+}
+
+output "secrets_kms_key_arn" {
+  description = "The KMS key every SecureString under ssm_prefix must use. The execution role's kms:Decrypt names this key and nothing else, so a parameter encrypted under a different key cannot be read by the tasks."
+  value       = aws_kms_key.secrets.arn
 }
 
 output "next_steps" {
   description = "What to do after apply."
   value       = <<-EOT
-    1. If you did not set route53_zone_id, create a DNS A record: ${var.domain != "" ? var.domain : "<your-domain>"} -> ${aws_eip.box.public_ip}
-    2. Ensure the OAuth app callback is https://${var.domain != "" ? var.domain : "<your-domain>"}/api/auth/callback/github
-    3. Watch bring-up:  aws ssm start-session --target ${aws_instance.box.id}  then  tail -f /var/log/ctf-bringup.log
-    4. Tear down when the event ends:  terraform destroy
+    1. Put the event secrets in SSM as SecureStrings under ${var.ssm_prefix},
+       ENCRYPTED WITH THIS EVENT'S KEY. --key-id is not optional: the tasks'
+       decrypt grant names only this key, so a parameter stored under any
+       other one fails at task start with an AccessDeniedException on KMS.
+
+         for s in BETTER_AUTH_SECRET GITHUB_CLIENT_SECRET GITHUB_TOKEN SRH_TOKEN; do
+           aws ssm put-parameter --region ${var.region} \
+             --name "${var.ssm_prefix}/$s" --type SecureString \
+             --key-id ${aws_kms_alias.secrets.name} \
+             --value "..." --overwrite
+         done
+
+       (REDIS_AUTH_TOKEN and SRH_CONNECTION_STRING are written there by
+       Terraform, already under that key.)
+    2. Build and push the app image with event.yaml baked in:  ./deploy.sh
+    3. If you did not set route53_zone_id, point ${var.domain} at ${aws_lb.main.dns_name}
+    4. Set the OAuth app callback to ${local.event_url}/api/auth/callback/github
+    5. Tear the event down when it ends:  terraform destroy
   EOT
 }

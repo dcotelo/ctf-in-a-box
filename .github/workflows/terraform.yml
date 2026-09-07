@@ -31,9 +31,13 @@ jobs:
         run: terraform init -backend=false -input=false
       - name: validate
         run: terraform validate -no-color
-      # validate never inspects RENDERED template output, so it passed this
-      # module for its entire life while the bring-up script was broken. These
-      # tests render user-data at plan time via mock_provider — no AWS
-      # credentials, no network, no apply.
+      # validate never inspects RENDERED output, so it passed this module for
+      # its entire life while the EC2 bring-up script was broken. Fargate has
+      # no user-data to render; what these tests render at plan time via
+      # mock_provider is the CONTAINER DEFINITIONS — that srh alone may reach
+      # ElastiCache, that the connection is rediss:// and not redis://, that no
+      # secret is baked in as plaintext instead of a valueFrom, and that
+      # scorer/sync appear only for the modules the event actually runs.
+      # No AWS credentials, no network, no apply.
       - name: test
         run: terraform test -no-color
