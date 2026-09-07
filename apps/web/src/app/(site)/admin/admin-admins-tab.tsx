@@ -157,7 +157,7 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
               {/* Deliberately no remove control: this is the lockout recovery
                   path. The API refuses it too, so the missing button is a
                   courtesy, not the enforcement. */}
-              <span className="font-mono text-xs text-zinc-500">rebuild to change</span>
+              <span className="font-mono text-xs text-muted">rebuild to change</span>
             </li>
           ))}
           {granted.map((row) => (
@@ -174,9 +174,9 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
             </li>
           ))}
           {rows !== null && granted.length === 0 && (
-            <li className="py-1 text-sm text-zinc-500">No runtime admins yet.</li>
+            <li className="py-1 text-sm text-muted">No runtime admins yet.</li>
           )}
-          {rows === null && !error && <li className="py-1 text-sm text-zinc-500">Loading…</li>}
+          {rows === null && !error && <li className="py-1 text-sm text-muted">Loading…</li>}
         </ul>
       </div>
 

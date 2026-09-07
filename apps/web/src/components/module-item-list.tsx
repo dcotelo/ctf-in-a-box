@@ -66,7 +66,7 @@ export default function ModuleItemList({
                 }`}
                 aria-hidden="true"
               />
-              <span className={`min-w-0 flex-1 truncate ${item.done ? "text-zinc-500" : "text-zinc-300"}`}>
+              <span className={`min-w-0 flex-1 truncate ${item.done ? "text-muted" : "text-zinc-300"}`}>
                 {item.label}
               </span>
               <span className="flex-none font-mono text-xs text-muted">

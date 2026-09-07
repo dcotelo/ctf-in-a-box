@@ -312,7 +312,7 @@ export function ChallengeCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-white">{challenge.title}</p>
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <p className="mt-0.5 text-xs text-muted">
             {challenge.solveCount} solve{challenge.solveCount === 1 ? "" : "s"}
           </p>
         </div>

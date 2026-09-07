@@ -107,7 +107,7 @@ export function EntryRow({
                 an avatar, a login, a team tag and the points. */}
             <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted sm:hidden">
               {solved}
-              {solvedTotal !== null && <span className="text-zinc-500"> / {solvedTotal}</span>}{" "}
+              {solvedTotal !== null && <span className="text-muted"> / {solvedTotal}</span>}{" "}
               solved
             </p>
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
@@ -145,7 +145,7 @@ export function EntryRow({
               <p className="font-mono text-base tabular-nums text-[#22c55e]">
                 {solved}
                 {solvedTotal !== null && (
-                  <span className="text-zinc-500"> / {solvedTotal}</span>
+                  <span className="text-muted"> / {solvedTotal}</span>
                 )}
               </p>
               <p className="text-[11px] uppercase tracking-wide text-muted">solved</p>
