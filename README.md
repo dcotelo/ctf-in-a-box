@@ -211,17 +211,7 @@ a public URL). Either way the score enters through a single audited writer:
 the scorer's bearer-authed `POST /score`, which validates and writes
 monotonically — solves are never un-solved by a later failing run.
 
-```mermaid
-flowchart LR
-  C[contestant] -->|quiz & classic answers| APP[app]
-  C -->|patch + PR| FORK[fork in the event org]
-  FORK -->|Action runs the rubric| CMT[score comment on the PR]
-  CMT -.->|"poll: sync pulls every ~30 s (no inbound)"| SCORER[scorer]
-  FORK ==>|"push: Action POSTs the score (instant, needs public URL)"| SCORER
-  SCORER --> R[(Redis)]
-  APP --> R
-  APP --> LB[live leaderboard]
-```
+<img src="docs/assets/diagrams/score-ingest-overview.svg" alt="Animated diagram. A contestant answers quiz and classic challenges in the app, and opens a patch PR against a fork in the event org. The fork's Action runs the rubric and posts a score comment on the PR. In poll mode sync pulls that comment about every 30 seconds, needing no inbound network surface; in push mode the Action POSTs the score straight to the scorer, which is near-instant but needs a public URL. Either way the score enters through one audited writer, the scorer's bearer-authed POST /score, which validates and writes monotonically into redis, and the app renders the live leaderboard from it.">
 
 The full picture — components, the nine-step score data flow, the security
 model — is in [docs/architecture.md](docs/architecture.md).

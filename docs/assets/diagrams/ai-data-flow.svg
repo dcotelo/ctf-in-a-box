@@ -1,179 +1,104 @@
-<svg viewBox="0 0 960 760" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+<svg viewBox="0 0 880 486" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
   <title id="ttl">AI data flow</title>
-  <desc id="desc">The challenge page mints an Ed25519 launch token after four gates and embeds it in the launcher href. A solve can arrive three ways — an in-box Server Action that re-runs the gate order, an external submit endpoint authenticated by the token alone, or an external event endpoint authenticated by an HMAC signature then the token then a replay nonce — and all three funnel into one shared atomic AWARD_SCRIPT. AI points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.</desc>
-
+  <desc id="desc">The challenge page mints an Ed25519 launch token after four gates and embeds it in the launcher href. A solve can arrive three ways: an in-box Server Action that re-runs the gate order, an external submit endpoint authenticated by the token alone, or an external event endpoint authenticated by an HMAC signature then the token then a replay nonce. All three funnel into one shared atomic AWARD_SCRIPT. AI points are then ADDED to the leaderboard, never attributed, and a team's total is the union of its members' solved challenges, never their sum.</desc>
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f6f8fa; --surface-2: #eaeef2; --border: #d0d7de;
+      --text-bright: #1f2328; --text: #424a53; --text-muted: #656d76;
+      --accent: #0f7a5a; --accent-2: #0757ba; --accent-3: #8a4b00; --accent-4: #5b32b0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117; --surface: #161b22; --surface-2: #21262d; --border: #30363d;
+        --text-bright: #f0f6fc; --text: #c9d1d9; --text-muted: #8b949e;
+        --accent: #56d4a4; --accent-2: #58a6ff; --accent-3: #ffa657; --accent-4: #d2a8ff;
+      }
+    }
+    .dgm-flow { stroke-dasharray: 5 5; animation: dgm-flowdash 1.1s linear infinite; }
+    .dgm-ants { stroke-dasharray: 5 5; animation: dgm-antsdash 2.2s linear infinite; }
+    .dgm-gate { animation: dgm-lit 4s ease-in-out infinite; }
+    .dgm-g2 { animation-delay: .35s; }
+    .dgm-g3 { animation-delay: .7s; }
+    .dgm-g4 { animation-delay: 1.05s; }
+    .dgm-g5 { animation-delay: 1.4s; }
+    @keyframes dgm-flowdash { to { stroke-dashoffset: -20; } }
+    @keyframes dgm-antsdash { to { stroke-dashoffset: -20; } }
+    @keyframes dgm-lit {
+      0%, 100% { stroke: var(--border); }
+      10%, 22% { stroke: var(--accent); }
+      40% { stroke: var(--border); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .dgm-flow, .dgm-ants, .dgm-gate { animation: none; }
+    }
+  </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" fill="#30363d"/>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--text-muted)"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+    </marker>
+    <marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent-2)"/>
     </marker>
   </defs>
 
-  <style>
-    .bg { fill: #0d1117; }
-    .frame { fill: none; stroke: #30363d; stroke-width: 1; }
-    .node rect { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
-    .node .title { fill: #f0f6fc; font-size: 14px; font-weight: 600; }
-    .node .sub { fill: #8b949e; font-size: 11px; }
-    .glow { fill: none; stroke-width: 2.5; opacity: 0; }
-    .edge { fill: none; stroke: #30363d; stroke-width: 1.5; marker-end: url(#arrow); }
-    .caption { fill: #8b949e; font-size: 14px; }
-    .tick { fill: #21262d; stroke: #30363d; stroke-width: 1; }
-    .kicker { fill: #8b949e; font-size: 10px; letter-spacing: 1px; }
-    .badge rect { fill: #21262d; stroke: #30363d; stroke-width: 1; }
-    .badge text { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
-  </style>
+  <rect width="880" height="486" rx="10" fill="var(--bg)"/>
+  <rect x="0.5" y="0.5" width="879" height="485" rx="10" fill="none" stroke="var(--border)"/>
 
-  <rect class="bg" width="960" height="760" rx="10"/>
-  <rect class="frame" x="0.5" y="0.5" width="959" height="759" rx="10"/>
-  <text x="480" y="14" text-anchor="middle" class="kicker">RUNTIME · 3 ENTRY SURFACES, ONE APP CONTAINER + REDIS FOR THE ATOMIC SCRIPT</text>
+  <text x="440" y="18" text-anchor="middle" font-size="10" fill="var(--text-muted)" letter-spacing="1">RUNTIME &#183; THREE ENTRY SURFACES, ONE GRADER</text>
 
-  <!-- edges -->
-  <path id="eA" class="edge" d="M215,226 C300,250 380,262 430,280"/>
-  <path id="eB" class="edge" d="M480,226 C480,244 480,258 480,280"/>
-  <path id="eC" class="edge" d="M775,226 C680,250 590,262 530,280"/>
-  <path id="eD" class="edge" d="M480,348 C480,364 480,374 480,390"/>
-  <path id="eE" class="edge" d="M430,446 C380,464 340,474 300,490"/>
-  <path id="eF" class="edge" d="M530,446 C580,464 620,474 660,490"/>
+  <rect x="320" y="40" width="240" height="58" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="440" y="64" text-anchor="middle" font-size="13" fill="var(--text-bright)">launch mint</text>
+  <text x="440" y="82" text-anchor="middle" font-size="10" fill="var(--text-muted)">4 gates &#8594; Ed25519 &#8594; launcher href</text>
 
-  <!-- nodes -->
-  <g class="node">
-    <rect x="380" y="24" width="200" height="68" rx="10"/>
-    <text x="480" y="51" text-anchor="middle" class="title">launch mint</text>
-    <text x="480" y="69" text-anchor="middle" class="sub">4 gates → Ed25519 → launcher href</text>
-    <g class="badge"><rect x="534" y="16" width="52" height="16" rx="8"/><text x="560" y="27" text-anchor="middle" fill="#58a6ff">APP</text></g>
-  </g>
+  <path class="dgm-flow" d="M400 100 C 330 118 240 130 165 146" fill="none" stroke="var(--text-muted)" marker-end="url(#ar)"/>
+  <path class="dgm-flow" d="M440 100 L440 148" fill="none" stroke="var(--text-muted)" marker-end="url(#ar)"/>
+  <path class="dgm-flow" d="M480 100 C 550 118 640 130 715 146" fill="none" stroke="var(--text-muted)" marker-end="url(#ar)"/>
 
-  <g class="node">
-    <rect x="60" y="150" width="250" height="76" rx="10"/>
-    <text x="185" y="177" text-anchor="middle" class="title">in-box action</text>
-    <text x="185" y="195" text-anchor="middle" class="sub">re-runs gate order, calls submitAiFlag</text>
-    <g class="badge"><rect x="264" y="142" width="52" height="16" rx="8"/><text x="290" y="153" text-anchor="middle" fill="#58a6ff">APP</text></g>
-  </g>
+  <text x="20" y="136" font-size="10" fill="var(--text-muted)" letter-spacing="1">THREE ENTRY SURFACES</text>
 
-  <g class="node">
-    <rect x="355" y="150" width="250" height="76" rx="10"/>
-    <text x="480" y="177" text-anchor="middle" class="title">external submit</text>
-    <text x="480" y="195" text-anchor="middle" class="sub">{token, flag} — cookie-blind</text>
-    <g class="badge"><rect x="559" y="142" width="52" height="16" rx="8"/><text x="585" y="153" text-anchor="middle" fill="#58a6ff">APP</text></g>
-  </g>
+  <rect x="20" y="142" width="840" height="86" rx="10" fill="none" stroke="var(--border)" stroke-dasharray="4 4"/>
 
-  <g class="node">
-    <rect x="650" y="150" width="250" height="76" rx="10"/>
-    <text x="775" y="177" text-anchor="middle" class="title">external event</text>
-    <text x="775" y="195" text-anchor="middle" class="sub">HMAC → token → replay-nonce</text>
-    <g class="badge"><rect x="854" y="142" width="52" height="16" rx="8"/><text x="880" y="153" text-anchor="middle" fill="#58a6ff">APP</text></g>
-  </g>
+  <rect class="dgm-gate" x="40" y="152" width="250" height="64" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="165" y="180" text-anchor="middle" font-size="13" fill="var(--text-bright)">in-box action</text>
+  <text x="165" y="198" text-anchor="middle" font-size="10" fill="var(--text-muted)">re-runs gate order &#183; submitAiFlag</text>
 
-  <g class="node">
-    <rect x="380" y="280" width="200" height="68" rx="10"/>
-    <text x="480" y="307" text-anchor="middle" class="title">shared AWARD_SCRIPT</text>
-    <text x="480" y="325" text-anchor="middle" class="sub">one atomic script, all 3 surfaces</text>
-    <g class="badge"><rect x="534" y="272" width="52" height="16" rx="8"/><text x="560" y="283" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
-  </g>
+  <rect class="dgm-gate dgm-g2" x="315" y="152" width="250" height="64" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="440" y="180" text-anchor="middle" font-size="13" fill="var(--text-bright)">external submit</text>
+  <text x="440" y="198" text-anchor="middle" font-size="10" fill="var(--text-muted)">{token, flag} &#183; cookie-blind</text>
 
-  <g class="node">
-    <rect x="380" y="390" width="200" height="56" rx="10"/>
-    <text x="480" y="415" text-anchor="middle" class="title">redis</text>
-    <text x="480" y="433" text-anchor="middle" class="sub">solve row + aggregates bumped</text>
-    <g class="badge"><rect x="534" y="382" width="52" height="16" rx="8"/><text x="560" y="393" text-anchor="middle" fill="#56d4a4">REDIS</text></g>
-  </g>
+  <rect class="dgm-gate dgm-g3" x="590" y="152" width="250" height="64" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="715" y="180" text-anchor="middle" font-size="13" fill="var(--text-bright)">external event</text>
+  <text x="715" y="198" text-anchor="middle" font-size="10" fill="var(--text-muted)">HMAC &#8594; token &#8594; replay nonce</text>
 
-  <g class="node">
-    <rect x="170" y="490" width="260" height="68" rx="10"/>
-    <text x="300" y="517" text-anchor="middle" class="title">leaderboard overlay</text>
-    <text x="300" y="535" text-anchor="middle" class="sub">ADDS points, never attributed</text>
-    <g class="badge"><rect x="384" y="482" width="52" height="16" rx="8"/><text x="410" y="493" text-anchor="middle" fill="#58a6ff">APP</text></g>
-  </g>
+  <path class="dgm-ants" d="M165 232 C 230 244 300 248 374 252" fill="none" stroke="var(--accent)" marker-end="url(#arR)"/>
+  <path class="dgm-ants" d="M440 232 L440 250" fill="none" stroke="var(--accent)" marker-end="url(#arR)"/>
+  <path class="dgm-ants" d="M715 232 C 650 244 580 248 506 252" fill="none" stroke="var(--accent)" marker-end="url(#arR)"/>
 
-  <g class="node">
-    <rect x="530" y="490" width="260" height="68" rx="10"/>
-    <text x="660" y="517" text-anchor="middle" class="title">team total</text>
-    <text x="660" y="535" text-anchor="middle" class="sub">union of members, never summed</text>
-    <g class="badge"><rect x="744" y="482" width="52" height="16" rx="8"/><text x="770" y="493" text-anchor="middle" fill="#58a6ff">APP</text></g>
-  </g>
+  <rect x="310" y="254" width="260" height="58" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="440" y="278" text-anchor="middle" font-size="13" fill="var(--text-bright)">shared AWARD_SCRIPT</text>
+  <text x="440" y="296" text-anchor="middle" font-size="10" fill="var(--text-muted)">one atomic script, all three surfaces</text>
 
-  <!-- arrival / self glows -->
-  <rect class="glow" x="376" y="20" width="208" height="76" rx="12" style="stroke:#d2a8ff">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1137;0.1237;1" values="0;0;1;1;0;0"/>
-  </rect>
-  <rect class="glow" x="376" y="276" width="208" height="76" rx="12" style="stroke:#56d4a4">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
-  </rect>
-  <rect class="glow" x="376" y="276" width="208" height="76" rx="12" style="stroke:#58a6ff">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
-  </rect>
-  <rect class="glow" x="376" y="276" width="208" height="76" rx="12" style="stroke:#ffa657">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
-  </rect>
-  <rect class="glow" x="376" y="386" width="208" height="64" rx="12" style="stroke:#ffa657">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
-  </rect>
-  <rect class="glow" x="166" y="486" width="268" height="76" rx="12" style="stroke:#56d4a4">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
-  </rect>
-  <rect class="glow" x="526" y="486" width="268" height="76" rx="12" style="stroke:#d2a8ff">
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
-  </rect>
+  <path class="dgm-flow" d="M556 310 C 630 332 682 342 719 352" fill="none" stroke="var(--text-muted)" marker-end="url(#ar)"/>
 
-  <!-- travelling dots -->
-  <circle r="5" fill="#56d4a4">
-    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.1237;0.2474;1" calcMode="linear"><mpath href="#eA" xlink:href="#eA"/></animateMotion>
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1337;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
-  </circle>
-  <circle r="5" fill="#58a6ff">
-    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.2474;0.3711;1" calcMode="linear"><mpath href="#eB" xlink:href="#eB"/></animateMotion>
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2574;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
-  </circle>
-  <circle r="5" fill="#ffa657">
-    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.3711;0.4948;1" calcMode="linear"><mpath href="#eC" xlink:href="#eC"/></animateMotion>
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3811;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
-  </circle>
-  <circle r="5" fill="#ffa657">
-    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.4948;0.6186;1" calcMode="linear"><mpath href="#eD" xlink:href="#eD"/></animateMotion>
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5048;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
-  </circle>
-  <circle r="5" fill="#56d4a4">
-    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.6186;0.7423;1" calcMode="linear"><mpath href="#eE" xlink:href="#eE"/></animateMotion>
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6286;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
-  </circle>
-  <circle r="5" fill="#d2a8ff">
-    <animateMotion dur="9.7s" begin="0s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;0.7423;0.8660;1" calcMode="linear"><mpath href="#eF" xlink:href="#eF"/></animateMotion>
-    <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7523;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
-  </circle>
+  <rect x="610" y="360" width="230" height="54" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="725" y="384" text-anchor="middle" font-size="13" fill="var(--text-bright)">redis</text>
+  <text x="725" y="402" text-anchor="middle" font-size="10" fill="var(--text-muted)">solve row + aggregates bumped</text>
 
-  <!-- step captions -->
-  <g text-anchor="middle">
-    <text x="480" y="700" class="caption" opacity="0">1 — /ai/[id] mints an Ed25519 token after 4 gates, embeds it in the launcher href
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;0.1137;0.1237;1" values="0;0;1;1;0;0"/>
-    </text>
-    <text x="480" y="700" class="caption" opacity="0">2 — in-box: the Server Action re-runs the gate order, then calls submitAiFlag
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;0.2374;0.2474;1" values="0;0;1;1;0;0"/>
-    </text>
-    <text x="480" y="700" class="caption" opacity="0">3 — external submit: {token, flag} — the token is the whole authentication
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;0.3611;0.3711;1" values="0;0;1;1;0;0"/>
-    </text>
-    <text x="480" y="700" class="caption" opacity="0">4 — external event: HMAC signature, then token, then replay-nonce claimed
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;0.4848;0.4948;1" values="0;0;1;1;0;0"/>
-    </text>
-    <text x="480" y="700" class="caption" opacity="0">5 — one shared atomic script grades all three surfaces the same way
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;0.6086;0.6186;1" values="0;0;1;1;0;0"/>
-    </text>
-    <text x="480" y="700" class="caption" opacity="0">6 — ai points are ADDED to the leaderboard, never attributed
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;0.7323;0.7423;1" values="0;0;1;1;0;0"/>
-    </text>
-    <text x="480" y="700" class="caption" opacity="0">7 — a team's total is the union of members' solved challenges, never summed
-      <animate attributeName="opacity" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;0.8560;0.8660;1" values="0;0;1;1;0;0"/>
-    </text>
-  </g>
+  <line class="dgm-flow" x1="606" y1="387" x2="560" y2="387" stroke="var(--text-muted)" marker-end="url(#ar)"/>
 
-  <!-- progress ticks -->
-  <g>
-    <circle class="tick" cx="360" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0;0.02;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
-    <circle class="tick" cx="400" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.1237;0.1437;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
-    <circle class="tick" cx="440" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.2474;0.2674;1" values="#21262d;#21262d;#58a6ff;#58a6ff"/></circle>
-    <circle class="tick" cx="480" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.3711;0.3911;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
-    <circle class="tick" cx="520" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.4948;0.5148;1" values="#21262d;#21262d;#ffa657;#ffa657"/></circle>
-    <circle class="tick" cx="560" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.6186;0.6386;1" values="#21262d;#21262d;#56d4a4;#56d4a4"/></circle>
-    <circle class="tick" cx="600" cy="732" r="5"><animate attributeName="fill" dur="9.7s" begin="0s" repeatCount="indefinite" keyTimes="0;0.7423;0.7623;1" values="#21262d;#21262d;#d2a8ff;#d2a8ff"/></circle>
-  </g>
+  <rect x="325" y="360" width="230" height="54" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="440" y="384" text-anchor="middle" font-size="13" fill="var(--text-bright)">leaderboard overlay</text>
+  <text x="440" y="402" text-anchor="middle" font-size="10" fill="var(--text-muted)">ADDS points, never attributed</text>
+
+  <line class="dgm-flow" x1="321" y1="387" x2="275" y2="387" stroke="var(--text-muted)" marker-end="url(#ar)"/>
+
+  <rect x="40" y="360" width="230" height="54" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="155" y="384" text-anchor="middle" font-size="13" fill="var(--text-bright)">team total</text>
+  <text x="155" y="402" text-anchor="middle" font-size="10" fill="var(--text-muted)">union of members</text>
+
+  <text x="40" y="446" font-size="10" fill="var(--text-muted)">all three surfaces funnel into the same atomic award script &#8212; no surface has its own grading path</text>
+  <text x="40" y="462" font-size="10" fill="var(--text-muted)">a team's total is the union of its members' solved challenges, never their sum</text>
 </svg>
