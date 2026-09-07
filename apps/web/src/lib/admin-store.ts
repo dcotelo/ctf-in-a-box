@@ -759,67 +759,103 @@ return 1
 // Master reset is no way back: it deliberately preserves authored categories,
 // so the list it preserves is the seeded one.
 //
-// Same key and same shape as classic's `importBundle`, which already unions —
-// and as #261, where a failed categories `GET` was read as "none yet" and
-// written back over the box's list. Hence the read below throws.
+// ONE SCRIPT, not read-then-write. Upstash's `/pipeline` is not transactional,
+// so a GET here and a SET later leaves a window in which an organizer's own
+// category edit is read, ignored and overwritten. Worse, the fixture's
+// challenge rows have to name a category the list actually holds, so a rename
+// landing inside that window would orphan every row this seed just wrote —
+// exactly the failure #344 is about. Both halves therefore happen inside the
+// same EVAL, which Redis runs atomically: the union is computed against the
+// list as it is at that instant, and the challenge records are written under
+// whichever spelling that union kept.
+//
+// Membership is case-INSENSITIVE, mirroring `setCategories` and classic's
+// `importBundle`: "AI" and "ai" as two headings is never what anyone meant,
+// and the board's filter is exact equality, so two casings would also split
+// challenges across them. The stored order is kept verbatim — it is the order
+// the board renders headings in — and unseen fixture names are appended.
+export const SEED_CATEGORIES_SCRIPT = `
+local stored = {}
+local raw = redis.call('GET', KEYS[1])
+if raw then
+  local ok, decoded = pcall(cjson.decode, raw)
+  if ok and type(decoded) == 'table' then
+    for _, name in ipairs(decoded) do
+      if type(name) == 'string' then stored[#stored + 1] = name end
+    end
+  end
+end
 
-/** The stored category list for one module, for the union below. THROWS on a
- *  read error rather than returning `[]`: this value decides what the seed
- *  writes over the key, so "the read failed" and "there are no categories"
- *  must not arrive as the same answer (#261). An absent or unparseable value
- *  is a genuine empty list, matching `listCategories`. */
-async function readCategoriesForSeed(key: string): Promise<string[]> {
-  const [res] = await upstashPipeline([["GET", key]]);
-  if (res.error) throw new Error(`Upstash GET ${key} failed before seeding: ${res.error}`);
-  if (typeof res.result !== "string") return [];
-  try {
-    const parsed = JSON.parse(res.result) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is string => typeof v === "string");
-  } catch {
-    return [];
-  }
-}
+-- The union, and the fold -> surviving-spelling map the rows below are
+-- rewritten through. Existing spellings win: renaming the organizer's "ai" to
+-- the fixture's "AI" would hide THEIR challenges instead of ours.
+local canon = {}
+local union = {}
+for _, name in ipairs(stored) do
+  local fold = string.lower(name)
+  if canon[fold] == nil then
+    canon[fold] = name
+    union[#union + 1] = name
+  end
+end
+for _, name in ipairs(cjson.decode(ARGV[1])) do
+  local fold = string.lower(name)
+  if canon[fold] == nil then
+    canon[fold] = name
+    union[#union + 1] = name
+  end
+end
 
-/** The union of a stored list and the fixture's: the organizer's order kept
- *  verbatim, then any demo category not already present appended in the
- *  fixture's order. Membership is case-INSENSITIVE, mirroring `setCategories`
- *  and `importBundle` — "AI" and "ai" as two headings is never what anyone
- *  meant, and the board's filter is exact equality, so two casings would also
- *  split challenges across them.
- *
- *  `canon` maps each surviving spelling's fold back to itself, so a seeded
- *  challenge can be written under whichever spelling the union KEPT. Without
- *  it, seeding "AI" onto a board that already spells it "ai" would write the
- *  demo challenges under a name absent from the stored list — invisible to the
- *  board, which is the very failure this union exists to end. */
-function unionSeedCategories(
-  existing: readonly string[],
-  fixture: readonly string[],
+-- Refuse rather than trim, BEFORE anything is written. Dropping the overflow
+-- would orphan the fixture rows naming those categories, which is issue #344
+-- from the other side; storing a list over the cap would make every later
+-- category edit fail validation.
+local max = tonumber(ARGV[2])
+if #union > max then
+  return redis.error_reply('seed would take the category list to ' .. #union .. ', over the limit of ' .. max)
+end
+
+-- cjson encodes an empty Lua table as an object, and this value is parsed as
+-- an array everywhere it is read.
+if #union == 0 then
+  redis.call('SET', KEYS[1], '[]')
+else
+  redis.call('SET', KEYS[1], cjson.encode(union))
+end
+
+local written = 0
+for i = 3, #ARGV do
+  local record = cjson.decode(ARGV[i])
+  local kept = canon[string.lower(record['category'])]
+  if kept ~= nil then record['category'] = kept end
+  redis.call('HSET', KEYS[2], record['id'], cjson.encode(record))
+  written = written + 1
+end
+return written
+`;
+
+/** Queues one module's category union and the challenge records that depend on
+ *  it. The records arrive already built FIELD BY FIELD by the caller — never a
+ *  spread of the fixture object, which carries the flag beside them — and the
+ *  script rewrites only their `category`. */
+function seedCategoriesAndChallenges(
+  cmds: (string | number)[][],
+  categoriesKey: string,
+  challengesKey: string,
+  fixtureCategories: readonly string[],
   max: number,
-  module: string,
-): { list: string[]; canon: Map<string, string> } {
-  const list = [...existing];
-  const seen = new Set(existing.map((name) => name.toLowerCase()));
-  for (const name of fixture) {
-    const fold = name.toLowerCase();
-    if (seen.has(fold)) continue;
-    seen.add(fold);
-    list.push(name);
-  }
-  // Refuse rather than trim. Dropping the overflow would orphan the demo
-  // challenges that name those categories, which is issue #344 again from the
-  // other side; storing a list over the cap would make `setCategories` reject
-  // every later category edit until the organizer deleted some. Throwing
-  // writes nothing at all and loses nothing — the seed is a demo convenience,
-  // and the board it would have damaged is the one worth keeping.
-  if (list.length > max) {
-    throw new Error(
-      `Seeding ${module} would take its category list to ${list.length}, over the limit of ${max}. ` +
-        `Remove some categories first, or skip the demo seed.`,
-    );
-  }
-  return { list, canon: new Map(list.map((name) => [name.toLowerCase(), name])) };
+  records: readonly { id: string; category: string }[],
+): void {
+  cmds.push([
+    "EVAL",
+    SEED_CATEGORIES_SCRIPT,
+    2,
+    categoriesKey,
+    challengesKey,
+    JSON.stringify(fixtureCategories),
+    max,
+    ...records.map((record) => JSON.stringify(record)),
+  ]);
 }
 
 /** Queues the raise for one module's solvecount hash, or nothing when the
@@ -997,29 +1033,31 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     // as upsertChallenge does — normalizeFlag is the ONLY thing allowed to
     // produce ctf:classic:flagnorm's value; a hand-rolled lowercase here
     // would silently desync from what submitFlag compares against.
-    const classicCategories = unionSeedCategories(
-      await readCategoriesForSeed(CLASSIC_CATEGORIES_KEY),
+    const classicRecords = DEMO_CHALLENGES.map((dc) => ({
+      id: dc.id,
+      title: dc.title,
+      // The fixture's spelling; the script rewrites it to whichever the union
+      // kept, which is identical on a board that had no such category and
+      // differs only on one that spells it its own way.
+      category: dc.category,
+      description: dc.description,
+      points: dc.points,
+      order: dc.order,
+    }));
+    // The records and the category list they depend on go in together — see
+    // SEED_CATEGORIES_SCRIPT for why they cannot be a read and a later write.
+    seedCategoriesAndChallenges(
+      cmds,
+      CLASSIC_CATEGORIES_KEY,
+      CLASSIC_CHALLENGES_KEY,
       DEMO_CLASSIC_CATEGORIES,
       CLASSIC_CATEGORIES_MAX,
-      "Classic CTF",
+      classicRecords,
     );
     for (const dc of DEMO_CHALLENGES) {
-      const challenge = {
-        id: dc.id,
-        title: dc.title,
-        // The spelling the union kept, not the fixture's — see
-        // `unionSeedCategories`. Identical for a board that had no such
-        // category; the difference only shows on one that spelled it its way.
-        category: classicCategories.canon.get(dc.category.toLowerCase()) ?? dc.category,
-        description: dc.description,
-        points: dc.points,
-        order: dc.order,
-      };
-      cmds.push(["HSET", CLASSIC_CHALLENGES_KEY, dc.id, JSON.stringify(challenge)]);
       cmds.push(["HSET", CLASSIC_FLAG_KEY, dc.id, dc.flag]);
       cmds.push(["HSET", CLASSIC_FLAGNORM_KEY, dc.id, normalizeFlag(dc.flag)]);
     }
-    cmds.push(["SET", CLASSIC_CATEGORIES_KEY, JSON.stringify(classicCategories.list)]);
 
     const challengesById = new Map(DEMO_CHALLENGES.map((c) => [c.id, c]));
     const classicAggregates = new Map<string, { points: number; solved: number }>();
@@ -1089,25 +1127,26 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
     // ctf:ai:challenges. An event-only challenge (`mode: "event"`) writes
     // NEITHER flag hash, matching how `upsertAiChallenge` treats a non-graded
     // mode: signed events assert that solve, so there is no flag to grade.
-    const aiCategories = unionSeedCategories(
-      await readCategoriesForSeed(AI_CATEGORIES_KEY),
+    const aiRecords = DEMO_AI_CHALLENGES.map((dc) => ({
+      id: dc.id,
+      title: dc.title,
+      // The fixture's spelling — the script rewrites it, same as classic's.
+      category: dc.category,
+      description: dc.description,
+      points: dc.points,
+      order: dc.order,
+      mode: dc.mode,
+      urlTemplate: dc.urlTemplate,
+    }));
+    seedCategoriesAndChallenges(
+      cmds,
+      AI_CATEGORIES_KEY,
+      AI_CHALLENGES_KEY,
       DEMO_AI_CATEGORIES,
       AI_CATEGORIES_MAX,
-      "AI Challenges",
+      aiRecords,
     );
     for (const dc of DEMO_AI_CHALLENGES) {
-      const challenge = {
-        id: dc.id,
-        title: dc.title,
-        // The spelling the union kept — same reasoning as classic's above.
-        category: aiCategories.canon.get(dc.category.toLowerCase()) ?? dc.category,
-        description: dc.description,
-        points: dc.points,
-        order: dc.order,
-        mode: dc.mode,
-        urlTemplate: dc.urlTemplate,
-      };
-      cmds.push(["HSET", AI_CHALLENGES_KEY, dc.id, JSON.stringify(challenge)]);
       if (dc.mode !== "event") {
         cmds.push(["HSET", AI_FLAG_KEY, dc.id, dc.flag]);
         cmds.push(["HSET", AI_FLAGNORM_KEY, dc.id, flagComparisonForm(dc.flag, dc.caseSensitive)]);
@@ -1118,7 +1157,6 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
       cmds.push(["HSET", AI_SIGNKEY_KEY, dc.id, dc.signingKey]);
       if (dc.hint) cmds.push(["HSET", AI_HINTS_KEY, dc.id, dc.hint]);
     }
-    cmds.push(["SET", AI_CATEGORIES_KEY, JSON.stringify(aiCategories.list)]);
 
     const aiChallengesById = new Map(DEMO_AI_CHALLENGES.map((c) => [c.id, c]));
     const aiAggregates = new Map<string, { points: number; solved: number }>();
@@ -1184,7 +1222,13 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   cmds.push(["LPUSH", ADMIN_AUDIT_KEY, audit]);
   cmds.push(["LTRIM", ADMIN_AUDIT_KEY, 0, AUDIT_CAP - 1]);
 
-  await upstashPipeline(cmds);
+  // `upstashPipeline` reports a per-command failure in the RESULT, it does not
+  // throw (AGENTS.md). Unchecked, the category script refusing an over-cap
+  // union — or any other command failing — would return a cheerful seed count
+  // for a seed that did not fully happen. The route turns this into a 503.
+  const results = await upstashPipeline(cmds);
+  const failed = results.find((r) => r.error);
+  if (failed) throw new Error(`Seed failed: ${failed.error}`);
   return { contestants: DEMO_CONTESTANTS.length, teams: DEMO_TEAMS.length, solves: total };
 }
 

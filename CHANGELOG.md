@@ -77,12 +77,18 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   the way `setCategories` and classic's `importBundle` already do. Each seeded
   challenge is written under whichever spelling the union kept, so seeding
   "AI" onto a board that spells it "ai" no longer stores rows the board's
-  exact-match filter cannot see. The pre-write read **throws** rather than
-  reading a failure as "no categories yet" — the mistake that wiped the same
-  key through the import path in #261 — and a union that would exceed the
-  50-category cap refuses outright, writing nothing, since trimming it would
-  orphan the demo challenges and storing it would block every later category
-  edit.
+  exact-match filter cannot see. A union that would exceed the 50-category cap
+  refuses outright, writing nothing, since trimming it would orphan the demo
+  challenges and storing it would block every later category edit.
+
+  The union and those challenge writes happen in **one Lua script**, not a read
+  followed by a write. Upstash's `/pipeline` is not transactional, so a `GET`
+  and a later `SET` leave a window in which an organizer's own category edit is
+  read, ignored and overwritten — and because the challenge rows have to name a
+  category the list actually holds, a rename landing inside that window would
+  orphan every row the seed just wrote, which is #344 again by another route.
+  Redis runs the script atomically, so the union is computed against the list as
+  it is at that instant.
 
   Two things say so now, because an organizer can still reach that state by
   hand or through an import that spells a category differently: each module's

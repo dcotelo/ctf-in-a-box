@@ -9,9 +9,10 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
 vi.mock("@/lib/modules", () => ({ isModuleEnabled: mocks.isModuleEnabled }));
 
-import { seedDemoData } from "@/lib/admin-store";
+import { seedDemoData, SEED_CATEGORIES_SCRIPT } from "@/lib/admin-store";
 import { upsertQuestion } from "@/lib/quiz-store";
-import { normalizeFlag, flagComparisonForm } from "@/lib/classic-keys";
+import { normalizeFlag, flagComparisonForm, CLASSIC_CATEGORIES_MAX } from "@/lib/classic-keys";
+import { AI_CATEGORIES_MAX } from "@/lib/ai-keys";
 import {
   DEMO_CONTESTANTS,
   DEMO_TEAMS,
@@ -37,6 +38,28 @@ beforeEach(() => {
   // pre-ai behavior; ai gets its own describe block with its own mock.
   mocks.isModuleEnabled.mockImplementation((id) => id === "quiz" || id === "classic");
 });
+
+
+type Cmd = (string | number)[];
+
+/** The category script's arguments for one module, unpacked from the EVAL the
+ *  seed queued: KEYS are the categories and challenges hashes, ARGV is the
+ *  fixture's category list, the cap, then one JSON record per challenge. */
+function scriptArgs(cmds: Cmd[], challengesKey: string) {
+  const evalCmd = cmds.find((c) => c[0] === "EVAL" && c[4] === challengesKey);
+  expect(evalCmd, `no category script for ${challengesKey}`).toBeTruthy();
+  return {
+    categoriesKey: String(evalCmd![3]),
+    fixtureCategories: JSON.parse(String(evalCmd![5])) as string[],
+    max: Number(evalCmd![6]),
+    records: evalCmd!.slice(7).map((v) => JSON.parse(String(v))) as Record<string, unknown>[],
+  };
+}
+
+/** Just the challenge records the seed queued for one module. */
+function seededRecords(cmds: Cmd[], challengesKey: string): Record<string, unknown>[] {
+  return scriptArgs(cmds, challengesKey).records;
+}
 
 describe("seedDemoData", () => {
   it("writes solves, teams, membership + a seed audit line in one pipeline", async () => {
@@ -246,12 +269,13 @@ describe("seedDemoData", () => {
     expect(DEMO_CHALLENGES.length).toBeGreaterThanOrEqual(8);
     expect(new Set(DEMO_CHALLENGES.map((c) => c.category)).size).toBeGreaterThanOrEqual(3);
 
-    // one HSET per challenge into the public challenges hash, with NO flag
-    // field anywhere in the stored value
-    const challengeCmds = cmds.filter((c) => c[0] === "HSET" && c[1] === "ctf:classic:challenges");
-    expect(challengeCmds.length).toBe(DEMO_CHALLENGES.length);
-    for (const c of challengeCmds) {
-      const stored = JSON.parse(String(c[3]));
+    // one record per challenge for the public challenges hash, with NO flag
+    // field anywhere in the stored value. They ride in the category script's
+    // ARGV rather than their own HSETs — see SEED_CATEGORIES_SCRIPT — but the
+    // secrecy boundary is the same and is asserted the same way.
+    const challengeRecords = seededRecords(cmds, "ctf:classic:challenges");
+    expect(challengeRecords.length).toBe(DEMO_CHALLENGES.length);
+    for (const stored of challengeRecords) {
       expect(stored.flag).toBeUndefined();
       expect(JSON.stringify(stored)).not.toMatch(/ctfbox/i);
     }
@@ -273,10 +297,10 @@ describe("seedDemoData", () => {
       expect(cmd[3]).toBe(normalizeFlag(dc.flag));
     }
 
-    // the categories key is a JSON array, in the fixture's display order
-    const categoriesCmd = cmds.find((c) => c[0] === "SET" && c[1] === "ctf:classic:categories");
-    expect(categoriesCmd).toBeTruthy();
-    expect(JSON.parse(String(categoriesCmd![2]))).toEqual(DEMO_CLASSIC_CATEGORIES);
+    // the fixture's categories are handed to the script in display order, and
+    // NOTHING writes the key with a bare SET any more (issue #344)
+    expect(scriptArgs(cmds, "ctf:classic:challenges").fixtureCategories).toEqual(DEMO_CLASSIC_CATEGORIES);
+    expect(cmds.find((c) => c[0] === "SET" && c[1] === "ctf:classic:categories")).toBeUndefined();
   });
 
   it("seeds classic solves so aggregates agree with the per-login rows and solvecount", async () => {
@@ -359,10 +383,9 @@ describe("seedDemoData", () => {
 
     // one HSET per challenge into the public challenges hash, with NO flag or
     // signing key field anywhere in the stored value
-    const challengeCmds = cmds.filter((c) => c[0] === "HSET" && c[1] === "ctf:ai:challenges");
-    expect(challengeCmds.length).toBe(DEMO_AI_CHALLENGES.length);
-    for (const c of challengeCmds) {
-      const stored = JSON.parse(String(c[3]));
+    const challengeRecords = seededRecords(cmds, "ctf:ai:challenges");
+    expect(challengeRecords.length).toBe(DEMO_AI_CHALLENGES.length);
+    for (const stored of challengeRecords) {
       expect(stored.flag).toBeUndefined();
       expect(stored.signingKey).toBeUndefined();
       expect(JSON.stringify(stored)).not.toMatch(/ctfbox/i);
@@ -407,10 +430,9 @@ describe("seedDemoData", () => {
       expect(cmd[3]).toBe(dc.signingKey);
     }
 
-    // the categories key is a JSON array, in the fixture's display order
-    const categoriesCmd = cmds.find((c) => c[0] === "SET" && c[1] === "ctf:ai:categories");
-    expect(categoriesCmd).toBeTruthy();
-    expect(JSON.parse(String(categoriesCmd![2]))).toEqual(DEMO_AI_CATEGORIES);
+    // handed to the script in display order; no bare SET of the key (#344)
+    expect(scriptArgs(cmds, "ctf:ai:challenges").fixtureCategories).toEqual(DEMO_AI_CATEGORIES);
+    expect(cmds.find((c) => c[0] === "SET" && c[1] === "ctf:ai:categories")).toBeUndefined();
 
     // the launch keypair is never touched by the seed — it is minted lazily on
     // first real use, not fixture data (see ai-store.ts's getAiLaunchKeys)
@@ -611,93 +633,64 @@ describe("seedDemoData", () => {
 // per-field and keyed by id — and the admin panel kept listing them, but the
 // contestant board renders only categories present in the list, so authored
 // content silently left the board while "1 category · 5 challenges" read like
-// a healthy setup (issue #344). Master reset is no way back: it preserves
-// authored categories on purpose, so the list it preserves is the seeded one.
-describe("seedDemoData unions the category lists instead of replacing them", () => {
-  /** Answers each pipeline by SHAPE, so the order the seed runs its reads in
-   *  is not baked in here: a lone GET is a category read served from
-   *  `stored`, a lone HGETALL is the settings read, anything longer is the
-   *  write batch. */
-  function serve(stored: Record<string, string[] | { error: string }>) {
-    mocks.upstashPipeline.mockImplementation(async (cmds) => {
-      if (cmds.length === 1 && cmds[0][0] === "GET") {
-        const found = stored[String(cmds[0][1])];
-        if (found && !Array.isArray(found)) return [{ result: undefined, error: found.error }] as never;
-        return [{ result: found ? JSON.stringify(found) : null }];
-      }
-      return cmds.map(() => ({ result: [] }));
-    });
-  }
-
-  /** The write batch, or undefined when the seed never got that far. */
-  function writeBatch() {
-    return mocks.upstashPipeline.mock.calls.map((c) => c[0]).find((cmds) => cmds.length > 1);
-  }
-
-  const storedList = (key: string) => {
-    const cmd = writeBatch()!.find((c) => c[0] === "SET" && c[1] === key)!;
-    return JSON.parse(String(cmd[2])) as string[];
-  };
-
+// a healthy setup (issue #344).
+//
+// The union itself is Lua now, and Lua is only really pinned by RUNNING it:
+// `admin-store.upstash.test.ts` executes SEED_CATEGORIES_SCRIPT against a real
+// Redis for the order, the case-insensitive dedupe, the canonical rewrite of
+// the challenge rows and the cap refusal. What is left to assert HERE is the
+// contract this file controls — that the seed hands the script the right
+// arguments, and that nothing writes those keys behind its back.
+describe("seedDemoData hands its category work to one atomic script", () => {
   beforeEach(() => {
     mocks.isModuleEnabled.mockImplementation((id) => id === "classic" || id === "ai");
   });
 
-  it("keeps the organizer's categories, in their order, and appends the demo ones", async () => {
-    serve({ "ctf:classic:categories": ["Pwn", "Misc"], "ctf:ai:categories": ["Prompt Injection", "Guardrails"] });
+  it("writes both category keys ONLY through the script, never a bare SET", async () => {
     await seedDemoData("alice");
-
-    // Their order verbatim first — it is the order the board renders headings
-    // in, so reordering it is a visible change to a board nobody asked to
-    // touch — then the fixture's own, minus anything already present.
-    expect(storedList("ctf:classic:categories")).toEqual(["Pwn", "Misc", ...DEMO_CLASSIC_CATEGORIES]);
-    expect(storedList("ctf:ai:categories")).toEqual(["Prompt Injection", "Guardrails", ...DEMO_AI_CATEGORIES]);
-  });
-
-  it("does not duplicate a category the organizer already has, whatever its casing", async () => {
-    serve({ "ctf:classic:categories": ["web", "Pwn"], "ctf:ai:categories": ["ai"] });
-    await seedDemoData("alice");
-
-    // "Web" and "web" as two headings side by side is never what anyone
-    // meant, and the board's filter is exact equality, so two casings would
-    // also split challenges across them.
-    expect(storedList("ctf:classic:categories")).toEqual(["web", "Pwn", "Crypto", "Forensics", "Recon"]);
-    expect(storedList("ctf:ai:categories")).toEqual(["ai"]);
-  });
-
-  it("writes seeded challenges under the spelling the union kept", async () => {
-    serve({ "ctf:ai:categories": ["ai"] });
-    await seedDemoData("alice");
-
-    // The half of the fix that is easy to miss: the list survived, but a demo
-    // challenge stored under "AI" against a list holding only "ai" is exactly
-    // as invisible to the board as before. Every seeded row must name a
-    // category that is IN the stored list.
-    const stored = new Set(storedList("ctf:ai:categories"));
-    const rows = writeBatch()!.filter((c) => c[0] === "HSET" && c[1] === "ctf:ai:challenges");
-    expect(rows.length).toBe(DEMO_AI_CHALLENGES.length);
-    for (const row of rows) {
-      const challenge = JSON.parse(String(row[3])) as { category: string };
-      expect(stored.has(challenge.category), challenge.category).toBe(true);
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+    // The regression guard for #344: an absolute SET of either key is the bug.
+    for (const key of ["ctf:classic:categories", "ctf:ai:categories"]) {
+      expect(cmds.find((c) => c[0] === "SET" && c[1] === key), key).toBeUndefined();
+      expect(cmds.find((c) => c[0] === "EVAL" && c[3] === key), key).toBeTruthy();
     }
   });
 
-  it("writes NOTHING when the category read fails", async () => {
-    // A failed GET read as "none yet" is how #261 wiped the box's list one key
-    // over. The seed's write replaces this key, so the two answers must not
-    // arrive as the same value — it aborts instead, and the route turns the
-    // throw into a 503.
-    serve({ "ctf:classic:categories": { error: "NOAUTH" } });
-    await expect(seedDemoData("alice")).rejects.toThrow(/ctf:classic:categories/);
-    expect(writeBatch()).toBeUndefined();
+  it("reads nothing first — the union happens inside the write", async () => {
+    // A GET here and a SET later is the race the script exists to close: on a
+    // non-transactional pipeline an organizer's edit can land between them.
+    await seedDemoData("alice");
+    const reads = mocks.upstashPipeline.mock.calls.map((c) => c[0]).filter((cs) => cs.some((c) => c[0] === "GET"));
+    expect(reads).toEqual([]);
   });
 
-  it("refuses, writing nothing, rather than take a list over the cap", async () => {
-    // Trimming the overflow would orphan the demo challenges naming those
-    // categories — #344 from the other side — and storing an over-cap list
-    // would make every later category edit fail validation. Neither, then.
-    serve({ "ctf:classic:categories": Array.from({ length: 48 }, (_, i) => `Cat ${i}`) });
-    await expect(seedDemoData("alice")).rejects.toThrow(/over the limit/);
-    expect(writeBatch()).toBeUndefined();
+  it("passes each module its own keys, fixture categories and cap", async () => {
+    await seedDemoData("alice");
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+
+    const classic = scriptArgs(cmds, "ctf:classic:challenges");
+    expect(classic.categoriesKey).toBe("ctf:classic:categories");
+    expect(classic.fixtureCategories).toEqual(DEMO_CLASSIC_CATEGORIES);
+    expect(classic.max).toBe(CLASSIC_CATEGORIES_MAX);
+    expect(classic.records.map((r) => r.id).sort()).toEqual(DEMO_CHALLENGES.map((c) => c.id).sort());
+
+    const ai = scriptArgs(cmds, "ctf:ai:challenges");
+    expect(ai.categoriesKey).toBe("ctf:ai:categories");
+    expect(ai.fixtureCategories).toEqual(DEMO_AI_CATEGORIES);
+    expect(ai.max).toBe(AI_CATEGORIES_MAX);
+    expect(ai.records.map((r) => r.id).sort()).toEqual(DEMO_AI_CHALLENGES.map((c) => c.id).sort());
+
+    // Both scripts are the same source — one implementation, two modules.
+    expect(cmds.filter((c) => c[0] === "EVAL" && c[1] === SEED_CATEGORIES_SCRIPT)).toHaveLength(2);
+  });
+
+  it("throws instead of reporting a seed that partly failed", async () => {
+    // `upstashPipeline` reports a per-command failure in the RESULT and does
+    // not throw (AGENTS.md), so the script refusing an over-cap union would
+    // otherwise return a cheerful count for a seed that did not happen.
+    mocks.upstashPipeline.mockImplementation(async (cmds) =>
+      cmds.map((c) => (c[0] === "EVAL" ? { error: "seed would take the category list to 52, over the limit of 50" } : { result: [] })),
+    );
+    await expect(seedDemoData("alice")).rejects.toThrow(/over the limit of 50/);
   });
 });
