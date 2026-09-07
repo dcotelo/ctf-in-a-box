@@ -204,3 +204,61 @@ describe("withTeamStandings on an ai-only event", () => {
     expect(mocks.getTeamAiTotalsBatch).not.toHaveBeenCalled();
   });
 });
+
+// Issue #348: the same contestant's same module read "5 / 5 cleared" on the
+// board and "5 / 7 cleared" on their profile, because the team row counted
+// against the LIVE catalogue while the profile counted the union. The board's
+// fold already dedupes members' solves by item id, so the ids needed to union
+// were in hand all along — they just weren't carried out of it.
+describe("a team row's denominator counts the union, not the live catalogue", () => {
+  const withIds = (points: number, solved: number, itemIds: string[]) => ({
+    points,
+    solved,
+    lastAt: null,
+    itemIds,
+  });
+
+  /** The ai module block the board built for the one team on it. */
+  async function aiDetail(total: ReturnType<typeof withIds>) {
+    mocks.listTeams.mockResolvedValue([{ slug: "red", name: "Red", members: ["ada"] }]);
+    mocks.getTeamAiTotalsBatch.mockResolvedValue([total]);
+    const out = await pipeline(empty());
+    const detail = out.teams[0].modules?.ai?.detail;
+    if (detail?.kind !== "ai") throw new Error("expected an ai detail block");
+    return detail;
+  }
+
+  it("ADDS challenges the team solved that an organizer has since deleted", async () => {
+    // Catalogue a1..a3; the team solved a1 plus two challenges that are gone.
+    const detail = await aiDetail(withIds(870, 3, ["a1", "deleted-1", "deleted-2"]));
+    expect(detail.solved).toBe(3);
+    // 5, not 3: two live challenges are still open and two banked solves have
+    // no live challenge behind them. Reading "3 / 3" would call the module
+    // finished with two challenges left on it.
+    expect(detail.total).toBe(5);
+    expect(detail.total).toBeGreaterThan(detail.solved);
+  });
+
+  it("leaves an untouched catalogue at its own size", async () => {
+    // The case that hid the bug for three releases: with nothing deleted the
+    // union and the live count are the same number.
+    const detail = await aiDetail(withIds(100, 1, ["a1"]));
+    expect(detail.total).toBe(3);
+  });
+
+  it("never reports a team as having solved more than the board holds", async () => {
+    // Every id live: the union must not inflate past the catalogue.
+    const detail = await aiDetail(withIds(300, 3, ["a1", "a2", "a3"]));
+    expect(detail.total).toBe(3);
+    expect(detail.solved).toBe(3);
+  });
+
+  it("clamps rather than orphaning every solve when the catalogue read fails", async () => {
+    // A failed `listAiChallenges` degrades to a missing denominator on
+    // purpose. Counting all three solves as orphans would read "3 / 3" — the
+    // same false "finished" by a different route.
+    mocks.listAiChallenges.mockRejectedValue(new Error("upstash down"));
+    const detail = await aiDetail(withIds(300, 3, ["a1", "a2", "a3"]));
+    expect(detail.total).toBe(3);
+  });
+});

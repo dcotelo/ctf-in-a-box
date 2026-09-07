@@ -456,7 +456,13 @@ export async function getAiSolveCounts(): Promise<Map<string, number>> {
   return parseCounterHash(res.result);
 }
 
-export type AiTotal = { points: number; solved: number; lastAt: string | null };
+/** `itemIds` is present only on the TEAM path, whose fold already dedupes by
+ *  item id — the aggregate per-login path has running counters with no memory
+ *  of which items produced them. Where it is present a caller can union it
+ *  with the live catalogue for a denominator that survives an organizer
+ *  deleting a solved item (#348); where it is absent the caller clamps, which
+ *  is what every row did before. */
+export type AiTotal = { points: number; solved: number; lastAt: string | null; itemIds?: string[] };
 
 /** Per-login totals off the two aggregate hashes: two round trips regardless
  *  of board size. `lastAt` is always null — neither aggregate carries a
@@ -489,12 +495,14 @@ export async function getTeamAiTotalsBatch(teams: readonly (readonly string[])[]
     }
   }
   const logins = [...indexByLogin.keys()];
-  if (logins.length === 0) return teams.map(() => ({ points: 0, solved: 0, lastAt: null }));
+  if (logins.length === 0) return teams.map(() => ({ points: 0, solved: 0, lastAt: null, itemIds: [] }));
 
   const results = await upstashPipeline(logins.map((login) => ["HGETALL", solvesKey(login)]));
   return teams.map((members) => {
-    const { points, completed, lastAt } = foldTeamItems(members.map((login) => results[indexByLogin.get(login) ?? -1]));
-    return { points, solved: completed, lastAt };
+    const { points, completed, lastAt, itemIds } = foldTeamItems(
+      members.map((login) => results[indexByLogin.get(login) ?? -1]),
+    );
+    return { points, solved: completed, lastAt, itemIds };
   });
 }
 

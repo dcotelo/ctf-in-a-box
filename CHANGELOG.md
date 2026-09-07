@@ -61,6 +61,27 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   behind**, so one page read "500 / 700 pts" in a row and "0 pts still on the
   board" beneath it — the same wrong claim in a second voice. When a
   denominator changes, every reader of it changes with it.
+- **The leaderboard and the profile now agree on how much of a module is
+  left (#348).** Expanding a team on `/leaderboard` read "AI Challenges
+  5 / 5 cleared" while `/profile` read "5 / 7 cleared" for the same contestant
+  in the same minute. The board said the module was finished; the profile said
+  five of seven, and the board's is the more authoritative-looking of the two.
+
+  The denominator has to be the live catalogue **unioned** with items solved
+  whose challenge an organizer has since deleted — solve records survive
+  deletion on purpose, which is what splits the two counts. That rule reached
+  the profile in #330 and #343 but not the board, because it lived inside
+  `profile/module-blocks.ts`, a module the leaderboard cannot import. It now
+  lives in `leaderboard/denominators.ts` and both surfaces draw from it, with
+  a test that computes the same fixture both ways and fails if they diverge.
+
+  No new Redis reads: the team fold already dedupes members' solves by item id
+  (that is how a flag two teammates both solved counts once), so the ids the
+  union needs were in hand and simply were not carried out of it. Rows built
+  from the per-login aggregate counters still clamp, because those counters are
+  running totals with no memory of which items produced them — and clamping is
+  documented as the fallback it is, not a second spelling of the union.
+
 - **Seeding demo data no longer deletes the categories an organizer
   authored (#344).** The seed wrote both module category lists with an
   absolute `SET`, so **Seed demo data** replaced them with the fixture's. The

@@ -545,7 +545,13 @@ function parseJsonValue<T>(raw: unknown, extract: (parsed: Record<string, unknow
 
 /** One login's (or one team's) quiz aggregate, as consumed by the leaderboard
  *  overlay (`leaderboard/module-contributions.ts`). */
-export type QuizTotal = { points: number; answered: number; lastAt: string | null };
+/** `itemIds` is present only on the TEAM path, whose fold already dedupes by
+ *  item id — the aggregate per-login path has running counters with no memory
+ *  of which items produced them. Where it is present a caller can union it
+ *  with the live catalogue for a denominator that survives an organizer
+ *  deleting a solved item (#348); where it is absent the caller clamps, which
+ *  is what every row did before. */
+export type QuizTotal = { points: number; answered: number; lastAt: string | null; itemIds?: string[] };
 
 function parseCounterHash(flat: unknown): Map<string, number> {
   const arr = Array.isArray(flat) ? (flat as string[]) : [];
@@ -615,7 +621,7 @@ export async function getTeamQuizTotalsBatch(teams: readonly (readonly string[])
     }
   }
   const logins = [...indexByLogin.keys()];
-  if (logins.length === 0) return teams.map(() => ({ points: 0, answered: 0, lastAt: null }));
+  if (logins.length === 0) return teams.map(() => ({ points: 0, answered: 0, lastAt: null, itemIds: [] }));
 
   const results = await upstashPipeline(logins.map((login) => ["HGETALL", answersKey(login)]));
   return teams.map((members) => foldTeamAnswers(members.map((login) => results[indexByLogin.get(login) ?? -1])));
@@ -633,8 +639,8 @@ export async function getTeamQuizTotalsBatch(teams: readonly (readonly string[])
  *  failure mode this repo keeps its lockstep rule for. All this wrapper does
  *  is rename the shared `completed` to quiz's own noun. */
 function foldTeamAnswers(memberReplies: ({ result?: unknown; error?: string } | undefined)[]): QuizTotal {
-  const { points, completed, lastAt } = foldTeamItems(memberReplies);
-  return { points, answered: completed, lastAt };
+  const { points, completed, lastAt, itemIds } = foldTeamItems(memberReplies);
+  return { points, answered: completed, lastAt, itemIds };
 }
 
 export type QuizGate =
