@@ -44,6 +44,7 @@ import { requireGatePassed } from "@/lib/gate-request";
 import { getAiHintIds, getHintNotice, getViewerHints } from "@/lib/hint-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
+import TeamlessNotice from "@/components/teamless-notice";
 import { submitAiFlagAction } from "./actions";
 
 const DEFAULT_TITLE = "AI Challenges";
@@ -85,7 +86,9 @@ export default async function AiChallengePage({ params }: { params: Promise<{ id
   // Same order as /ai and /flags/[id]: the team redirect fires before the
   // loads below, so a teamless contestant is never bounced after work that
   // gets thrown away.
-  await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
+  // `true` only for an admin let through without a team (issue #357):
+  // the notice below is the half of that exemption that was missing.
+  const viewerIsTeamless = await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
   const [challenges, solveCounts, viewerAi, modules, hintIds, hintNotice, viewerHints] = await Promise.all([
     listAiChallenges(),
@@ -132,6 +135,7 @@ export default async function AiChallengePage({ params }: { params: Promise<{ id
 
   return (
     <div className="flex flex-col gap-6">
+      {viewerIsTeamless && <TeamlessNotice what="solves" />}
       <div className="flex flex-col gap-3">
         <Link href="/ai" className="ds-link w-fit text-sm">
           ← {moduleTitle}

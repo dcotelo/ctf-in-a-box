@@ -40,12 +40,26 @@ export { TEAM_SETUP_PATH } from "@/lib/post-signin";
  *
  * Inherits `hasTeam`'s fail-open behaviour — a Redis blip leaves contestants
  * on the page rather than herding everyone to /profile mid-event.
+ *
+ * RETURNS whether the viewer is signed in with no team and was let through
+ * anyway (issue #357). Only the admin exemption can produce `true`: a teamless
+ * contestant is redirected, and a signed-out visitor has no team to lack.
+ *
+ * The exemption is right and stays. What was wrong is that it exempted
+ * organizers from the INFORMATION as well as from the redirect: the page
+ * rendered them a submit form, the route refused the submission with
+ * `no-team`, and the first they heard of the rule was a flag that did not
+ * count. The population most likely to be testing a board was the one
+ * guaranteed to discover the rule by losing a submission to it. Callers hand
+ * this to `<TeamlessNotice />` and say so before the form, not after.
  */
 export async function redirectIfTeamless(
   login: string | undefined,
   options: { isAdmin?: boolean } = {},
-): Promise<void> {
-  if (!login || options.isAdmin) return;
-  if (await hasTeam(login)) return;
+): Promise<boolean> {
+  if (!login) return false;
+  if (await hasTeam(login)) return false;
+  // Teamless from here down: an admin is told, anyone else is sent to fix it.
+  if (options.isAdmin) return true;
   redirect(TEAM_SETUP_PATH);
 }

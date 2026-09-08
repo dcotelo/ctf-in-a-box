@@ -144,7 +144,7 @@ function describeRefusal(reason: string): string {
       // Names the fix, not the rule. Someone who reaches this has already
       // answered a question and is being told it didn't count; "you need a
       // team" without saying where to get one is a dead end.
-      return "You need a team before answers count — set one up on your profile.";
+      return "You need a team before answers count — create one on your profile, or hit Play solo there for a team of one.";
     default:
       return "That submission wasn't accepted.";
   }

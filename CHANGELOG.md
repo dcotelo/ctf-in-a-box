@@ -8,6 +8,25 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **A teamless organizer is now told before they submit, not after (#357).**
+  Scoring is per team and every submit route refuses a teamless login, but
+  organizers are exempt from the two redirects that steer contestants to team
+  setup — an organizer opening a module page to check their content renders is
+  not playing. The exemption covered the *information* as well as the
+  redirect: the form rendered, the route refused the submission, and the rule
+  arrived attached to a solve that did not count. The population most likely
+  to be testing a board was the one guaranteed to discover the requirement by
+  losing a submission to it.
+
+  A notice now sits above the form on `/flags/<id>`, `/quiz` and `/ai/<id>`
+  for a signed-in viewer with no team, and it names **Play solo** — the
+  one-click team of one that already existed on the profile and that none of
+  the no-team copy mentioned. The refusal messages name it too, so the
+  cheapest exit is visible at both moments. The exemption itself is unchanged;
+  what changed is that it no longer exempts anyone from knowing. Costs one
+  extra `hasTeam` read per admin module page view, which is what buys the
+  notice.
+
 - **BREAKING: the AWS module is now ECS Fargate + ElastiCache + ALB, replacing
   the single EC2 box.** An existing EC2 deploy does **not** upgrade with an
   `apply` — that would destroy the instance and build the new stack around a

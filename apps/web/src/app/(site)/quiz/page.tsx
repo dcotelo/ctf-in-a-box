@@ -23,6 +23,7 @@ import { getAdminSettings } from "@/lib/admin-store";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
+import TeamlessNotice from "@/components/teamless-notice";
 import { getViewerQuiz, listQuestions, QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN, type ViewerQuiz } from "@/lib/quiz-store";
 
 // `metadata` is a static export and cannot await Redis for the organizer's
@@ -87,7 +88,9 @@ export default async function QuizPage() {
   // teamless login. Sending them to set a team up first means nobody learns
   // that by answering a question and watching it not count. Before the loads
   // below, so a redirect never follows work that was thrown away.
-  await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
+  // `true` only for an admin let through without a team (issue #357):
+  // the notice below is the half of that exemption that was missing.
+  const viewerIsTeamless = await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
   const [questions, viewerQuiz, settings, modules] = await Promise.all([
     listQuestions(),
@@ -136,6 +139,7 @@ export default async function QuizPage() {
           kicker (issue #200, tier 4). Same pattern as /challenges' own
           "Targets" eyebrow, and it stays accurate whatever the organizer
           renames the module to. */}
+      {viewerIsTeamless && <TeamlessNotice what="answers" />}
       <PageHeader eyebrow="Questions" title={moduleTitle} description={blurb} />
       {/* The progress line sits OUTSIDE the empty-state branch on purpose. It
           used to be the header description, which rendered whatever the

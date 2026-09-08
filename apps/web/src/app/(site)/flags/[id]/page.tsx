@@ -35,6 +35,7 @@ import { isModuleLive } from "@/lib/enabled-modules";
 import { getClassicHintIds, getHintNotice, getViewerHints } from "@/lib/hint-store";
 import { getResolvedModules } from "@/lib/resolved-modules";
 import { redirectIfTeamless } from "@/lib/require-team";
+import TeamlessNotice from "@/components/teamless-notice";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   if (!(await isModuleLive("classic"))) return {};
@@ -60,7 +61,9 @@ export default async function ClassicChallengePage({ params }: { params: Promise
 
   // Same order as /flags: the team redirect fires before the loads below, so
   // a teamless contestant is never bounced after work that gets thrown away.
-  await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
+  // `true` only for an admin let through without a team (issue #357):
+  // the notice below is the half of that exemption that was missing.
+  const viewerIsTeamless = await redirectIfTeamless(login, { isAdmin: viewerIsAdmin });
 
   const [challenges, solveCounts, viewerClassic, settings, modules, hintIds, hintNotice, viewerHints] =
     await Promise.all([
@@ -97,6 +100,7 @@ export default async function ClassicChallengePage({ params }: { params: Promise
 
   return (
     <div className="flex flex-col gap-6">
+      {viewerIsTeamless && <TeamlessNotice what="solves" />}
       <div className="flex flex-col gap-3">
         <Link href="/flags" className="ds-link w-fit text-sm">
           ← {moduleTitle}
