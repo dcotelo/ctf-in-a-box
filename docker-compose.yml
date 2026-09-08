@@ -124,13 +124,27 @@ services:
     # `mkdir -p` because `--dir` must already exist — redis-server does not
     # create it and exits with "Can't chdir to ...". It only ever matters when
     # REDIS_DIR is a SUBDIRECTORY of the mount, which is the Fly case below.
+    #
+    # `chown redis` because the mkdir runs as root and the entrypoint will NOT
+    # fix that for us. The image's permission pass only chowns the data dir
+    # when every entry in it is one redis recognises; anything else — and a
+    # fresh Fly volume ships a root-owned `lost+found`, while REDIS_DIR itself
+    # is a subdirectory it does not know — makes it print "Unknown file ...
+    # Permissions will not be modified" and leave ownership alone. Redis then
+    # starts as uid 999 inside a root-owned directory and dies with "Can't
+    # open or create append-only dir appendonlydir: Permission denied". That
+    # is what the first deploy of a renamed Fly app did; the old app only
+    # worked because an earlier image had chowned its volume back when the
+    # pass was unconditional. Reproduced on a docker named volume seeded with
+    # a root-owned lost+found: without the chown, exit 1; with it, ready.
+    #
     # `exec docker-entrypoint.sh redis-server ...`, NOT `exec redis-server ...`.
     #
     # The image's entrypoint does two things that only happen when its first
     # argument is literally `redis-server`:
     #
     #   1. drops privileges — `setpriv --reuid redis --regid redis
-    #      --clear-groups`, after chowning the data dir
+    #      --clear-groups`
     #   2. sets `umask 0077`, so the AOF and RDB are not world-readable
     #
     # Running `sh -c 'exec redis-server ...'` skips BOTH: the entrypoint sees
@@ -145,7 +159,7 @@ services:
     command:
       - sh
       - -c
-      - mkdir -p "$$REDIS_DIR" && exec docker-entrypoint.sh redis-server --appendonly yes --dir "$$REDIS_DIR" --requirepass "$$REDIS_PASSWORD"
+      - mkdir -p "$$REDIS_DIR" && chown redis "$$REDIS_DIR" && exec docker-entrypoint.sh redis-server --appendonly yes --dir "$$REDIS_DIR" --requirepass "$$REDIS_PASSWORD"
     environment:
       # Where the append-only file lives, INSIDE the mounted volume.
       #

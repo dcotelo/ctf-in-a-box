@@ -265,6 +265,22 @@ ENV
   grep -qF 'requirepass "$REDIS_PASSWORD"' "$RENDERED"
 }
 
+@test "render: redis hands its data dir to the redis user before dropping privileges" {
+  need_docker
+  render
+  # The first deploy of a renamed app had a fresh volume, and redis died on it
+  # with "Can't open or create append-only dir appendonlydir: Permission
+  # denied": `mkdir -p "$REDIS_DIR"` runs as root, and the image's entrypoint
+  # refuses to chown a data dir that holds anything it does not recognise —
+  # a fresh Fly volume's root-owned `lost+found` is exactly that. The old app
+  # only worked because an earlier image had chowned its volume when that
+  # pass was still unconditional. So the command chowns the dir itself, and
+  # this pins that it survives the render (the `$$` unescape included).
+  # Drop the chown from docker-compose.yml and this fails; it cannot pass on
+  # a file that was never written, because render() asserts the file exists.
+  grep -qF 'mkdir -p "$REDIS_DIR" && chown redis "$REDIS_DIR" && exec docker-entrypoint.sh redis-server' "$RENDERED"
+}
+
 @test "render: every service resolves to loopback, not a service name" {
   need_docker
   render
