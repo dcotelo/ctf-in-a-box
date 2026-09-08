@@ -205,6 +205,15 @@ Both are knobs in `docker-compose.yml` defaulting to the local layout, with
 `.env.fly` setting the Fly values — so nothing about a compose stack changes,
 and you can see where your data lives rather than having a renderer decide it.
 
+The directories are created by the services themselves, because a fresh Fly
+volume is root-owned and neither redis (uid 999) nor sync (uid 1000) could
+write to it: redis's command `chown`s `REDIS_DIR` before the image's
+entrypoint drops privileges, and sync's entrypoint creates and `chown`s
+`dirname(STATE_PATH)` as root, then drops to `node` before starting the
+poller. An `.env.fly` written before `init` learned to add the two knobs
+still deploys, but `deploy.sh` warns and names the two lines to add — without
+them sync's cursor sits on the machine's ephemeral disk.
+
 Compose's named volumes are **ignored** by Fly in a compose file; the mount is
 declared as `[[mounts]]` in `fly.toml`.
 

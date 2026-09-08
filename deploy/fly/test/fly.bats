@@ -160,6 +160,87 @@ ENV
   grep -qF "STATE_PATH=$mount/" "$FLY/deploy.sh"
 }
 
+@test "sync's entrypoint hands the state dir to node on a root-owned volume" {
+  need_docker
+  cd "$REPO"
+  # Issue #364. sync is `USER node` in spirit — the poller must not run as
+  # root — but a fresh Fly volume is root-owned, so state.js's
+  # mkdirSync(dirname(STATE_PATH)) failed with EACCES before the first poll
+  # whenever STATE_PATH pointed at the volume. The image now starts as root,
+  # creates and chowns the directory, and drops to node before exec. This
+  # builds the real image and runs it against a volume seeded the way Fly
+  # hands one over (root-owned, holding only lost+found), because the
+  # ownership semantics are only real on a Linux volume — a bind mount from a
+  # macOS host relaxes them and made the redis sibling of this bug invisible.
+  img="ctf-sync-entrypoint-test:$$"
+  vol="ctf-sync-entrypoint-test-$$"
+  docker build -q -t "$img" ./sync >/dev/null
+  docker volume create "$vol" >/dev/null
+  docker run --rm --entrypoint sh -v "$vol:/data" "$img" \
+    -c 'mkdir -m 700 /data/lost+found && chown 0:0 /data /data/lost+found && chmod 755 /data'
+  run docker run --rm -v "$vol:/data" -e STATE_PATH=/data/sync/state.json "$img" \
+    sh -c 'id -u; stat -c "%u:%g" /data/sync; touch /data/sync/state.json && echo writable'
+  docker volume rm -f "$vol" >/dev/null 2>&1 || true
+  docker rmi -f "$img" >/dev/null 2>&1 || true
+  [ "$status" -eq 0 ]
+  # The command ran as node, in a node-owned directory it could write to.
+  echo "$output" | grep -qx '1000'
+  echo "$output" | grep -qx '1000:1000'
+  echo "$output" | grep -qx 'writable'
+}
+
+@test "sync's entrypoint never follows a symlink when it chowns" {
+  need_docker
+  cd "$REPO"
+  # CWE-59, found in review. Once the entrypoint has run, everything under
+  # dirname(STATE_PATH) is writable by node — so a compromised poller could
+  # replace the state file, or the directory itself, with a symlink to a
+  # root-owned file and have the NEXT restart chown the target to node. Both
+  # shapes are planted here (as root, the way an attacker's write would land
+  # on the volume) and the entrypoint runs over them; the targets must still
+  # be root's afterwards, and only the link inodes may have changed hands.
+  img="ctf-sync-symlink-test:$$"
+  vol="ctf-sync-symlink-test-$$"
+  docker build -q -t "$img" ./sync >/dev/null
+  docker volume create "$vol" >/dev/null
+  docker run --rm --entrypoint sh -v "$vol:/data" "$img" -c '
+    mkdir -p /data/sync && ln -s /usr/local/bin/docker-entrypoint.sh /data/sync/state.json
+    ln -s /usr/local/bin /data/evil'
+  # 1. state file is a symlink to the entrypoint script
+  run docker run --rm -v "$vol:/data" -e STATE_PATH=/data/sync/state.json "$img" \
+    sh -c 'stat -c "script=%u" /usr/local/bin/docker-entrypoint.sh'
+  s1="$status"; o1="$output"
+  # 2. the state DIRECTORY is a symlink to a root-owned directory
+  run docker run --rm -v "$vol:/data" -e STATE_PATH=/data/evil/state.json "$img" \
+    sh -c 'stat -c "bindir=%u" /usr/local/bin'
+  s2="$status"; o2="$output"
+  docker volume rm -f "$vol" >/dev/null 2>&1 || true
+  docker rmi -f "$img" >/dev/null 2>&1 || true
+  [ "$s1" -eq 0 ]
+  [ "$s2" -eq 0 ]
+  echo "$o1" | grep -qx 'script=0'
+  echo "$o2" | grep -qx 'bindir=0'
+}
+
+@test "deploy.sh warns when the env file predates the single-volume knobs" {
+  need_docker
+  cd "$REPO"
+  # The fixture env deliberately has neither knob, like an env file written
+  # before init learned to add them — which is how a live deployment ran for
+  # weeks with sync's cursor on ephemeral disk (#364). The warning has to name
+  # the exact lines to add, so it is asserted on one of them.
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  echo "$output" | grep -qF 'STATE_PATH=/data/sync/state.json'
+  # And with both present the warning is gone — a warning that always fires
+  # is one nobody reads.
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.knobs"
+  printf 'REDIS_DIR=/data/redis\nSTATE_PATH=/data/sync/state.json\n' >> "$BATS_TEST_TMPDIR/env.knobs"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.knobs" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ -z "$(echo "$output" | grep -F 'predates the single-volume layout')" ]
+}
+
 @test "the local defaults are unchanged by the Fly layout" {
   # The knobs exist for Fly, but a compose stack must keep writing exactly
   # where it always has — otherwise every existing local event silently starts

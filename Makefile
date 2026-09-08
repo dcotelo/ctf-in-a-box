@@ -47,7 +47,7 @@ test-app:
 	cd apps/web && corepack enable && corepack pnpm install --frozen-lockfile && corepack pnpm lint && corepack pnpm test
 
 lint-shell:
-	shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh \
+	shellcheck scripts/*.sh scripts/lib/*.sh scripts/dev-stack setup/*.sh scorer/entrypoint.sh sync/docker-entrypoint.sh \
 	  deploy/fly/deploy.sh deploy/fly/render-compose.sh
 	shellcheck -s sh --exclude=SC2034 scorer/entrypoints/*.sh
 

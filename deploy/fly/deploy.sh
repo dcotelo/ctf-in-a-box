@@ -334,6 +334,28 @@ fi
 echo "== app: $APP (one machine, five containers)"
 
 # ---------------------------------------------------------------------------
+# The single-volume layout has to be IN the env file (init writes it; see the
+# block in init). An env file from before that step still deploys — with redis
+# at the volume root and sync's cursor on the machine's ephemeral disk, lost on
+# every restart. That ran unnoticed for weeks, so it is named here rather than
+# left to the volume listing.
+# ---------------------------------------------------------------------------
+missing_knobs=""
+for key in REDIS_DIR STATE_PATH; do
+  if [ -z "$(env_value "$key")" ]; then missing_knobs="$missing_knobs $key"; fi
+done
+if [ -n "$missing_knobs" ]; then
+  echo "WARNING: not set in $ENV_FILE:$missing_knobs" >&2
+  echo "         This env file predates the single-volume layout. Without them" >&2
+  echo "         sync's poll cursor lives on the machine's ephemeral disk and is" >&2
+  echo "         lost on every restart, so the poller re-reads every fork." >&2
+  echo "         Add to $ENV_FILE:" >&2
+  echo "           REDIS_DIR=/data/redis" >&2
+  echo "           STATE_PATH=/data/sync/state.json" >&2
+  echo >&2
+fi
+
+# ---------------------------------------------------------------------------
 # EVENT_URL must be the fly hostname, and it must be https.
 #
 # The app refuses to serve a production event over plain HTTP to a non-local

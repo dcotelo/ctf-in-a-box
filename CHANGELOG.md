@@ -8,6 +8,17 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **sync's poll cursor now survives a Fly restart (#364).** The
+  single-volume layout puts it at `/data/sync/state.json`, but sync runs as
+  `node` and a fresh Fly volume is root-owned, so pointing `STATE_PATH` there
+  failed with EACCES — and the live `.env.fly`, written before `init` added
+  the knob, never pointed there at all, so the cursor sat on ephemeral disk
+  and every suspend/resume re-read every fork. The sync image now has an
+  entrypoint that creates and `chown`s the state directory as root and drops
+  to `node` (via `su-exec`) before starting the poller, mirroring what redis's
+  command does for its own directory. `deploy.sh` warns when an env file
+  lacks `REDIS_DIR`/`STATE_PATH` and names the two lines to add.
+
 - **BREAKING: the kit is now called OWASP CTF.** Repo at
   `github.com/dcotelo/owasp-ctf`, docs at `dcotelo.github.io/owasp-ctf`, Fly
   app `owasp-ctf`, and the Terraform defaults `name = "owasp-ctf"` /
