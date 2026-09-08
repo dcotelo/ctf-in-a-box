@@ -58,10 +58,16 @@ acm_certificate_arn = ""
 # fork's Action POST to the scorer instead, and runs no poller at all.
 # score_ingest = "poll"
 
-# The kit's own images, for the secure-development services. Ignored when
-# enable_secure_development is false (and sync_image also when push mode).
-# scorer_image = "ghcr.io/dcotelo/owasp-ctf-scorer:v0.5.0"
-# sync_image   = "ghcr.io/dcotelo/owasp-ctf-sync:v0.5.0"
+# Images for the secure-development services. Ignored when
+# enable_secure_development is false (and sync_image also in push mode);
+# REQUIRED otherwise. Neither is published by this repo — deploy.sh builds and
+# pushes only the app image:
+#   scorer_image: the mirror `setup/ctf-setup.sh org` pushes into your event
+#                 org — the same value as SCORE_IMAGE in .env.
+#   sync_image:   build ./sync yourself (linux/amd64) and push it to a registry
+#                 the task execution role can pull from, e.g. a second ECR repo.
+# scorer_image = "ghcr.io/<your-event-org>/score:latest"
+# sync_image   = "<account>.dkr.ecr.<region>.amazonaws.com/<name>-sync:<tag>"
 
 # --- sizing ------------------------------------------------------------------
 
