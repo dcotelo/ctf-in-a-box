@@ -1686,7 +1686,7 @@ cmd_wizard() {
     local ev_name ev_org ev_admins ev_mods ev_reply ev_targets ev_url ev_ingest ev_start ev_end adm_default
     adm_default=""
     [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
-    wiz_ask ev_name    "Event name" "OWASP Chapter CTF"
+    wiz_ask ev_name    "Event name" "OWASP CTF"
     wiz_ask ev_org     "GitHub org (disposable per-event org)" ""
     while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_org" ]; do
       echo "  org is required."
