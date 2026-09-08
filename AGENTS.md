@@ -305,15 +305,19 @@ suggestions.
   the source the script pins by commit; `patches/README.md` is the contract.
 - `test/fixtures/` — `mock-github.mjs` and `mock-scorer.mjs`, the stand-ins
   `docker-compose.smoke.yml` builds for `smoke.sh`. Nothing else reads it.
-- `deploy/` — optional cloud deploy modules: `aws-terraform/` (single-shot
-  EC2 box; `docs/aws.md`) and `fly/` (one Fly machine running the rendered
-  compose file; `docs/fly.md`; its scripts and bats suite run under the
-  `shell` job). `aws-terraform/` is CI-validated by
+- `deploy/` — optional cloud deploy modules: `aws-terraform/` (ECS Fargate +
+  ElastiCache + ALB; `docs/aws.md`) and `fly/` (one Fly machine running the
+  rendered compose file; `docs/fly.md`; its scripts and bats suite run under
+  the `shell` job). `aws-terraform/` is CI-validated by
   `.github/workflows/terraform.yml` (fmt + validate + test, never apply).
-  **`terraform validate` does NOT inspect rendered template output** —
-  `deploy/aws-terraform/userdata.tftest.hcl`
-  is what reads the rendered `user-data.sh.tftpl`, so bring-up script changes
-  need a test there, not just a passing validate.
+  **`terraform validate` does NOT inspect rendered output** — the container
+  definitions are an opaque JSON string to it, so image references, the
+  srh-to-ElastiCache wiring and secret-vs-value all pass validate wrong.
+  `deploy/aws-terraform/stack.tftest.hcl` (`command = plan`, mocked
+  providers) is what reads them; a task-definition change needs an assertion
+  there, not just a passing validate. `deploy/aws-terraform/test/aws.bats`
+  covers the other blind spot, `deploy.sh` and its config bake, with stubbed
+  `docker`/`aws`/`terraform`.
 - `docs/` — documentation site, published via GitHub Pages.
 
 ## Where to look
