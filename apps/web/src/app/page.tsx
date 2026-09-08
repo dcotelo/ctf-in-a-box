@@ -367,14 +367,14 @@ export default async function Home() {
           <div className="max-w-xl">
             <h3 className="text-lg font-semibold text-white">Run this for your own group</h3>
             <p className="mt-1 text-sm leading-relaxed text-zinc-400">
-              This event runs on CTF-in-a-box: one machine, one free GitHub org, no cloud account,
+              This event runs on OWASP CTF: one machine, one free GitHub org, no cloud account,
               scoring rubrics included. A university course, a chapter night or a weekend workshop
               can stand it up in an afternoon.
             </p>
           </div>
           <div className="flex flex-none flex-wrap gap-3">
             <a
-              href="https://github.com/dcotelo/ctf-in-a-box"
+              href="https://github.com/dcotelo/owasp-ctf"
               target="_blank"
               rel="noopener noreferrer"
               className="rounded-md bg-[#2563eb] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"

@@ -15,7 +15,7 @@ day-to-day operation, see [docs/operations.md](operations.md).
 
 ## Platform and modules
 
-CTF-in-a-box is a **control plane** with **modules** plugged into it. The split
+OWASP CTF is a **control plane** with **modules** plugged into it. The split
 is deliberate: the platform never knows what a challenge *is*, only how a score
 arrives and how a leaderboard renders; a module never re-implements org
 provisioning, teams, ingestion, or ranking. `event.yaml`'s `modules:` map

@@ -36,14 +36,14 @@ vi.mock("@/lib/admin-store", () => ({
 
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
-    name: "CTF in a box test",
+    name: "OWASP CTF test",
     theme: "",
     dates: "",
     location: "",
     ctfStartsAt: null,
     url: "http://localhost:3000",
     contactEmail: "",
-    githubOrg: "ctf-in-a-box-test",
+    githubOrg: "owasp-ctf-test",
     discordUrl: "",
     // secure-development owns the hints answer today.
     modules: [{ id: "secure-development", targets: ["juice-shop", "dvwa"], scoreIngest: "poll" }],

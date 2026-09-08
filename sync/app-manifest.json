@@ -1,7 +1,7 @@
 {
-  "name": "CTF-in-a-box sync",
+  "name": "OWASP CTF sync",
   "description": "Read-only poller that ingests CTF score comments from the event org's target repos.",
-  "url": "https://github.com/dcotelo/ctf-in-a-box",
+  "url": "https://github.com/dcotelo/owasp-ctf",
   "public": false,
   "default_permissions": {
     "issues": "read",

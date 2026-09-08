@@ -6,7 +6,7 @@ title: Decisions
 
 # Decisions
 
-Numbered architecture decision records for CTF-in-a-box. Each entry is
+Numbered architecture decision records for OWASP CTF. Each entry is
 Context / Decision / Consequences. For how these decisions fit together as
 a running system, see [docs/architecture.md](architecture.md). For the
 contract a new CTF module must satisfy, see
@@ -178,7 +178,7 @@ failure it un-marks the comment as seen and retries next tick
 (`sync/src/index.js`, `tick()`: `rs.seen = rs.seen.filter((k) => k !==
 seenKey(c.id, c.updated_at));` — the seen list is keyed on comment
 revision, `id@updated_at`, not bare id, since
-[#131](https://github.com/dcotelo/ctf-in-a-box/issues/131)), which means
+[#131](https://github.com/dcotelo/owasp-ctf/issues/131)), which means
 the same comment can be submitted more than once. That's fine because a replay of an already-applied score
 is required to be a no-op on the scorer side, not a double-count. A module
 implementer MUST NOT invent a second write path (`docs/modules.md §2.1`).
@@ -1752,7 +1752,7 @@ report `❌ v1 — stale` in `doctor` and take it with
 all, which is at least loud.
 
 Pinning `actions/checkout` by SHA would have prevented the surprise and is
-worth doing ([#49](https://github.com/dcotelo/ctf-in-a-box/issues/49) covers
+worth doing ([#49](https://github.com/dcotelo/owasp-ctf/issues/49) covers
 digest-pinning first-party images); it would also have meant not receiving the
 guard, so it trades a loud break for a silent divergence from upstream's
 current advice.
@@ -1763,7 +1763,7 @@ current advice.
 
 **Context.** Two scoring bugs were found in one evening by running a single
 real PR end to end — the upserted-comment dedupe collision (ADR-adjacent, see
-[#130](https://github.com/dcotelo/ctf-in-a-box/issues/130)/#131) and the
+[#130](https://github.com/dcotelo/owasp-ctf/issues/130)/#131) and the
 `pull_request_target` checkout guard (ADR 37). They had **nothing in common
 technically and everything in common operationally**: the poller consumed a
 comment, submitted no score, and wrote nothing down. In `tick()`'s ingest
@@ -1874,7 +1874,7 @@ and failing shut on it would take an event down for the wrong reason. The
 check cannot see past its own process — an organizer who fronts the box with a
 plain-HTTP proxy while `EVENT_URL` says `https://` still ships sniffable
 cookies, and nothing in the app can detect that. That case belongs to the
-organizer hardening checklist ([#44](https://github.com/dcotelo/ctf-in-a-box/issues/44)).
+organizer hardening checklist ([#44](https://github.com/dcotelo/owasp-ctf/issues/44)).
 
 ## ADR 40. CSRF assertion in the proxy, rate limits keyed on the login
 
@@ -2595,7 +2595,7 @@ drift apart.
 
 **Status.** Accepted.
 
-**Context.** The engagement funnel ([#169](https://github.com/dcotelo/ctf-in-a-box/issues/169))
+**Context.** The engagement funnel ([#169](https://github.com/dcotelo/owasp-ctf/issues/169))
 is *signed in → got on a team → first solve*. Solves and answers already carry
 timestamps per item per login, so the tail of that funnel was always
 derivable. The middle step was not: `ctf:user:<login>` stored a `team` slug and
@@ -2637,7 +2637,7 @@ path, which is a bigger decision than this one.
 
 **Status.** Accepted.
 
-**Context.** Engagement metrics ([#169](https://github.com/dcotelo/ctf-in-a-box/issues/169))
+**Context.** Engagement metrics ([#169](https://github.com/dcotelo/owasp-ctf/issues/169))
 raised a design question worth settling once: what may a fork tell the box, and
 what may the box tell a fork?
 
@@ -2746,11 +2746,11 @@ a silently truncated metric reads as a complete one.
 
 **Context.** The Dockerfiles and compose services named their bases by mutable
 tag — `node:22-alpine`, `redis:7-alpine` (since bumped to `redis:8-alpine`,
-[#181](https://github.com/dcotelo/ctf-in-a-box/pull/181)), `caddy:2-alpine`. A tag is a pointer
+[#181](https://github.com/dcotelo/owasp-ctf/pull/181)), `caddy:2-alpine`. A tag is a pointer
 the publisher can move, so two builds of the same commit could sit on different
 underlying images and neither would say so. The third-party SRH image was
 digest-pinned in v0.1.0; this finishes the job for the first-party ones
-([#49](https://github.com/dcotelo/ctf-in-a-box/issues/49)).
+([#49](https://github.com/dcotelo/owasp-ctf/issues/49)).
 
 **Decision.** Every base carries `tag@sha256:<digest>`. The tag stays in front
 of the digest: it is inert to the resolver, and it is the only thing that tells
@@ -2797,7 +2797,7 @@ landed, but module *enablement* was baked: `event.yaml`'s `modules:` compiled
 into `event-config.generated.ts` at build time via `EVENT_CONFIG_B64`, and
 roughly twenty consumers read it as a module-load constant. An organizer who
 wanted to add the quiz mid-event needed a rebuild
-([#175](https://github.com/dcotelo/ctf-in-a-box/issues/175)).
+([#175](https://github.com/dcotelo/owasp-ctf/issues/175)).
 
 **Decision.** The live set lives in `ctf:admin:settings`, and **`event.yaml`
 becomes the seed and the outage fallback rather than the truth**. That
@@ -2894,7 +2894,7 @@ an organizer's third-party integration, which is exactly the party the design
 says identity is withheld from. The module's own threat notes claimed a leaked
 key "cannot invent users"; as built, that was backwards.
 
-Found by review on [#241](https://github.com/dcotelo/ctf-in-a-box/pull/241),
+Found by review on [#241](https://github.com/dcotelo/owasp-ctf/pull/241),
 before any route existed to exploit it.
 
 **Decision.** **Split the two by key type, not by key count.**

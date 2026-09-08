@@ -20,7 +20,7 @@ provider "aws" {
   # is easy to find, filter and clean up. Merge in your own via var.tags.
   default_tags {
     tags = merge({
-      Project   = "ctf-in-a-box"
+      Project   = "owasp-ctf"
       ManagedBy = "terraform"
       Event     = var.name
     }, var.tags)

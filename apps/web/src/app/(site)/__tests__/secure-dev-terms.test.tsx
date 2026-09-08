@@ -120,4 +120,19 @@ describe("the secure-development term list", () => {
     expect("Write the commit message like a real security fix.").toMatch(commit);
     expect("What taking part in this competition commits you to.").not.toMatch(commit);
   });
+
+  // The fork-org path shares its slug with the kit's own name, so the two
+  // links every event renders — the docs site and the repo — must not fire,
+  // while the org shape in the guide's commands and prose must. Pin both, and
+  // pin that the exclusion is exactly "preceded by a slash" and no wider: a
+  // link straight to the org still fires when the slug is not a path segment.
+  it("catches the fork org without firing on the kit's own URLs", () => {
+    const [org] = SECURE_DEV_LIVE_PATTERNS.filter((p) => p.source.includes("owasp-ctf"));
+    expect("gh repo fork OWASP-CTF/juice-shop --clone").toMatch(org);
+    expect("The base repo is OWASP-CTF/juice-shop and the base branch is main.").toMatch(org);
+    expect("Fork it under OWASP-CTF/&lt;target&gt; on GitHub.").toMatch(org);
+    expect('<a href="https://dcotelo.github.io/owasp-ctf/">read the docs</a>').not.toMatch(org);
+    expect('<a href="https://github.com/dcotelo/owasp-ctf">get the kit</a>').not.toMatch(org);
+    expect("This event runs on OWASP CTF: one machine, one free GitHub org.").not.toMatch(org);
+  });
 });

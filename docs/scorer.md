@@ -143,7 +143,7 @@ patch under `patches/<target>/` — one challenge each (VAmPI and Security
 Shepherd have two), enough to prove the mechanism and, across each pair, that
 the assertion discriminates.
 That is **not** full per-challenge coverage; see
-[patches/README.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/patches/README.md) for the per-target status table, the
+[patches/README.md](https://github.com/dcotelo/owasp-ctf/blob/main/patches/README.md) for the per-target status table, the
 convention, and the anti-vacuous discipline that keeps a broken-app "pass" from
 counting.
 

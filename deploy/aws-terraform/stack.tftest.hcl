@@ -117,7 +117,7 @@ variables {
   domain          = "ctf.example.org"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
   event_yaml_b64  = "ZXZlbnQ6CiAgbmFtZTogVGVzdAo="
-  app_image       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ctf-in-a-box-app:v1"
+  app_image       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/owasp-ctf-app:v1"
   scorer_image    = "ghcr.io/example/scorer:v1"
   sync_image      = "ghcr.io/example/sync:v1"
 }

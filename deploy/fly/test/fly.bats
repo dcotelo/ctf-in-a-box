@@ -33,7 +33,7 @@ setup() {
   # short or common value (say "secret") would match incidental text and turn
   # a real check into noise.
   cat > "$BATS_TEST_TMPDIR/env" <<'ENV'
-EVENT_URL=https://ctf-in-a-box.fly.dev
+EVENT_URL=https://owasp-ctf.fly.dev
 BETTER_AUTH_SECRET=FIXTUREAUTHSECRETzzzzzzzzzzzz
 GITHUB_CLIENT_ID=fixture-client-id
 GITHUB_CLIENT_SECRET=FIXTURECLIENTSECRETyyyyyyyy

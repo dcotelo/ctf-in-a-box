@@ -115,7 +115,10 @@ export const SECURE_DEV_TERMS = [
   "top 10",
   "secure agent playbook",
   "please use ai",
-  "owasp-ctf/",
+  // The fork-org path (`OWASP-CTF/juice-shop`) was a bare substring here
+  // until the kit itself was renamed owasp-ctf: the landing page's docs link
+  // is now `dcotelo.github.io/owasp-ctf/`, which the substring cannot tell
+  // from the org. It is the `(?<!\/)` pattern in the LIVE list instead.
   "/challenges",
   // Every target this kit ships. A page that names one is describing
   // secure-development's game whatever else it says, and the app names were
@@ -156,6 +159,17 @@ export const SECURE_DEV_LIVE_PATTERNS = [
   // /code-of-conduct, and is the obligation sense, not the git one.
   /\bcommits?\b(?!\s+you\b)/i,
   /\bclon(e|ed|es|ing)\b/i,
+  // The GitHub org the targets are forked into, as it appears in the guide's
+  // shell commands and prose: `gh repo fork OWASP-CTF/juice-shop`, "the base
+  // repo is OWASP-CTF/juice-shop". The kit's own name is the same slug, so
+  // the docs link `https://dcotelo.github.io/owasp-ctf/` and the repo link
+  // `https://github.com/dcotelo/owasp-ctf` render on every event. The
+  // lookbehind drops the one shape that is a URL path segment — preceded by
+  // `/` — and keeps the org shape, which never is. Bounded: a bare
+  // `https://github.com/OWASP-CTF/` link would slip past this pattern, but
+  // every target name is its own term, so the fork of any shipped target is
+  // still caught by that.
+  /(?<!\/)owasp-ctf\//i,
 ];
 
 /** LATENT: the same domain, in words today's copy does not use. Proven

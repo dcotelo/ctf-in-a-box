@@ -42,7 +42,7 @@ export const SECURE_AGENT_PLAYBOOK_URL = "https://github.com/OWASP/secure-agent-
  *  here, for the same reason the playbook URL is: the registry's setup blocks
  *  link into it per module, and `site.ts` already imports this file. Pages
  *  serves `docs/<name>.md` at `<DOCS_URL><name>`, extensionless. */
-export const DOCS_URL = "https://dcotelo.github.io/ctf-in-a-box/";
+export const DOCS_URL = "https://dcotelo.github.io/owasp-ctf/";
 
 /** A run of contestant-facing copy that needs a little inline markup.
  *

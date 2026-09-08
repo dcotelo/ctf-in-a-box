@@ -8,6 +8,20 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: the kit is now called OWASP CTF.** Repo at
+  `github.com/dcotelo/owasp-ctf`, docs at `dcotelo.github.io/owasp-ctf`, Fly
+  app `owasp-ctf`, and the Terraform defaults `name = "owasp-ctf"` /
+  `ssm_prefix = "/owasp-ctf"`. Every resource the AWS module names from those
+  defaults is named differently from here on; there is no migration from the
+  old names. The scorer image path `ghcr.io/owasp-ctf/score` predates the
+  rebrand and is unchanged. The brand and the neutral default event name are
+  now the same string, so a build that lost `EVENT_CONFIG_B64` no longer gives
+  itself away by its name — check for an empty `admins` list and a 403 on
+  `/admin` instead.
+
+  This project remains unaffiliated with, and unendorsed by, the OWASP
+  Foundation; OWASP® is a registered trademark of the OWASP Foundation.
+
 - **A teamless organizer is now told before they submit, not after (#357).**
   Scoring is per team and every submit route refuses a teamless login, but
   organizers are exempt from the two redirects that steer contestants to team

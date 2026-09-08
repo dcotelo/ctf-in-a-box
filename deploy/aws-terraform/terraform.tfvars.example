@@ -8,7 +8,7 @@ region = "us-east-1"
 # Prefixes every resource. 3-28 characters: the cap is 28 rather than 32
 # because this reaches the ALB as `<name>-alb` and the target group as
 # `<name>-app`, and AWS limits both of those to 32.
-name = "ctf-in-a-box"
+name = "owasp-ctf"
 
 # --- required ----------------------------------------------------------------
 
@@ -60,8 +60,8 @@ acm_certificate_arn = ""
 
 # The kit's own images, for the secure-development services. Ignored when
 # enable_secure_development is false (and sync_image also when push mode).
-# scorer_image = "ghcr.io/dcotelo/ctf-in-a-box-scorer:v0.5.0"
-# sync_image   = "ghcr.io/dcotelo/ctf-in-a-box-sync:v0.5.0"
+# scorer_image = "ghcr.io/dcotelo/owasp-ctf-scorer:v0.5.0"
+# sync_image   = "ghcr.io/dcotelo/owasp-ctf-sync:v0.5.0"
 
 # --- sizing ------------------------------------------------------------------
 
@@ -90,7 +90,7 @@ acm_certificate_arn = ""
 # the app starts — the README lists them:
 #   BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET, GITHUB_TOKEN, SRH_TOKEN
 # (REDIS_AUTH_TOKEN is generated and written there by Terraform.)
-# ssm_prefix = "/ctf-in-a-box"
+# ssm_prefix = "/owasp-ctf"
 
 # log_retention_days = 30
 

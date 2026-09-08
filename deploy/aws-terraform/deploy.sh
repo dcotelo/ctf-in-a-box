@@ -169,7 +169,7 @@ TAG="${REV}-${CONFIG_HASH}"
 # — a preview that printed a plausible-looking account id would be worse than
 # one that cannot be mistaken for the real thing.
 if [ -n "$DRY_RUN" ]; then
-  REPO_URL="<account>.dkr.ecr.<region>.amazonaws.com/${TF_NAME:-ctf-in-a-box}-app"
+  REPO_URL="<account>.dkr.ecr.<region>.amazonaws.com/${TF_NAME:-owasp-ctf}-app"
   echo "   (dry run: the real registry comes from terraform output)"
 elif ! REPO_URL="$(terraform -chdir="$HERE" output -raw ecr_app_repository_url 2>/dev/null)" ||
   [ -z "$REPO_URL" ]; then

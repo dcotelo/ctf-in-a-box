@@ -1,4 +1,4 @@
-# Contributing to CTF-in-a-box
+# Contributing to OWASP CTF
 
 Thanks for your interest in contributing. This document covers the dev
 environment, how to build and test each piece, what CI will hold you to, the
