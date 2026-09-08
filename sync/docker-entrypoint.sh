@@ -24,9 +24,16 @@ if [ "$(id -u)" = "0" ]; then
   mkdir -p "$dir"
   # The directory itself, never recursive: a STATE_PATH pointed at the volume
   # root would otherwise re-own redis's data underneath it.
-  chown node:node "$dir"
-  if [ -e "$state_path" ]; then
-    chown node:node "$state_path"
+  #
+  # `-h` on both: never follow a symlink. Everything under $dir is writable by
+  # node once this has run, so a compromised poller could replace the state
+  # file — or, if $dir already existed as a link, the directory — with a
+  # symlink to something root-owned (this very script, say) and have the next
+  # restart hand it over. With -h only the link inode changes owner, which is
+  # harmless. CWE-59.
+  chown -h node:node "$dir"
+  if [ -e "$state_path" ] || [ -L "$state_path" ]; then
+    chown -h node:node "$state_path"
   fi
   exec su-exec node:node "$@"
 fi

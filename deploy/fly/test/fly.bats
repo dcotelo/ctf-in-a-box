@@ -189,6 +189,39 @@ ENV
   echo "$output" | grep -qx 'writable'
 }
 
+@test "sync's entrypoint never follows a symlink when it chowns" {
+  need_docker
+  cd "$REPO"
+  # CWE-59, found in review. Once the entrypoint has run, everything under
+  # dirname(STATE_PATH) is writable by node — so a compromised poller could
+  # replace the state file, or the directory itself, with a symlink to a
+  # root-owned file and have the NEXT restart chown the target to node. Both
+  # shapes are planted here (as root, the way an attacker's write would land
+  # on the volume) and the entrypoint runs over them; the targets must still
+  # be root's afterwards, and only the link inodes may have changed hands.
+  img="ctf-sync-symlink-test:$$"
+  vol="ctf-sync-symlink-test-$$"
+  docker build -q -t "$img" ./sync >/dev/null
+  docker volume create "$vol" >/dev/null
+  docker run --rm --entrypoint sh -v "$vol:/data" "$img" -c '
+    mkdir -p /data/sync && ln -s /usr/local/bin/docker-entrypoint.sh /data/sync/state.json
+    ln -s /usr/local/bin /data/evil'
+  # 1. state file is a symlink to the entrypoint script
+  run docker run --rm -v "$vol:/data" -e STATE_PATH=/data/sync/state.json "$img" \
+    sh -c 'stat -c "script=%u" /usr/local/bin/docker-entrypoint.sh'
+  s1="$status"; o1="$output"
+  # 2. the state DIRECTORY is a symlink to a root-owned directory
+  run docker run --rm -v "$vol:/data" -e STATE_PATH=/data/evil/state.json "$img" \
+    sh -c 'stat -c "bindir=%u" /usr/local/bin'
+  s2="$status"; o2="$output"
+  docker volume rm -f "$vol" >/dev/null 2>&1 || true
+  docker rmi -f "$img" >/dev/null 2>&1 || true
+  [ "$s1" -eq 0 ]
+  [ "$s2" -eq 0 ]
+  echo "$o1" | grep -qx 'script=0'
+  echo "$o2" | grep -qx 'bindir=0'
+}
+
 @test "deploy.sh warns when the env file predates the single-volume knobs" {
   need_docker
   cd "$REPO"
