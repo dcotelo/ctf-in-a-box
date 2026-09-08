@@ -506,7 +506,7 @@ create_app() {
   echo "      Fly app names are globally unique — this one may be taken by an" >&2
   echo "      app you cannot see, or held by an earlier attempt in another org." >&2
   echo "      Rename it to something event-specific:" >&2
-  echo "        sed -i '' 's/^app = \"ctf-in-a-box\"/app = \"my-event\"/' $CONFIG_TOML" >&2
+  echo "        sed -i '' 's/^app = \"owasp-ctf\"/app = \"my-event\"/' $CONFIG_TOML" >&2
   echo "      then set EVENT_URL to match the new app name." >&2
   exit 1
 }

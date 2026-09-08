@@ -10,7 +10,7 @@ One page to walk before an event. Everything here is a **deployment**
 decision — the kit cannot make any of these calls for you, and most of them
 have no visible symptom when they are wrong.
 
-Read it alongside [SECURITY.md](https://github.com/dcotelo/ctf-in-a-box/blob/main/SECURITY.md),
+Read it alongside [SECURITY.md](https://github.com/dcotelo/owasp-ctf/blob/main/SECURITY.md),
 which covers what to report and the one trust boundary that is deliberate:
 the scorer builds and runs contestant-submitted code, because judging
 submitted code is the product.

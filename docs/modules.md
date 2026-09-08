@@ -13,7 +13,7 @@ existing `secure-development` module (the far more common task); read
 example of an app-side module end to end.
 
 A **module** is a CTF vertical — a family of challenges with its own targets,
-scoring logic, and provisioning steps — plugged into the CTF-in-a-box
+scoring logic, and provisioning steps — plugged into the OWASP CTF
 platform (event config, sync/scorer pipeline, `ctf-setup`, leaderboard). v1
 ships four playable registered modules: `secure-development` (the OWASP Secure
 Development CTF patch-the-vulnerability format: fork target app, find + patch

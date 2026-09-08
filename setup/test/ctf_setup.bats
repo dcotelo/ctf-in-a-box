@@ -595,7 +595,7 @@ EOF2
 
 @test "bare invocation runs the wizard (the default), not a usage error" {
   run bash "$SCRIPT"
-  echo "$output" | grep -q "CTF-in-a-box setup wizard"
+  echo "$output" | grep -q "OWASP CTF setup wizard"
   [ -z "$(echo "$output" | grep -F 'usage: ctf-setup.sh')" ]
 }
 

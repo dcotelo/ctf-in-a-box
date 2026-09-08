@@ -11,7 +11,7 @@ variable "region" {
 variable "name" {
   description = "Name prefix for every resource, and the ECS cluster name."
   type        = string
-  default     = "ctf-in-a-box"
+  default     = "owasp-ctf"
 
   // 28, not 32. AWS caps both an ALB name and a target group name at 32
   // characters, and this value reaches them as `${var.name}-alb` and
@@ -236,7 +236,7 @@ variable "log_retention_days" {
 variable "ssm_prefix" {
   description = "SSM Parameter Store prefix holding the event's SecureString secrets. The task execution role is scoped to exactly this prefix."
   type        = string
-  default     = "/ctf-in-a-box"
+  default     = "/owasp-ctf"
 
   validation {
     condition     = can(regex("^/[A-Za-z0-9._/-]*[A-Za-z0-9._-]$", var.ssm_prefix))

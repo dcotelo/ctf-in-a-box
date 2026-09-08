@@ -596,7 +596,7 @@ The panel offers:
   clearable end to end. Neither is seeded as `event`-mode on purpose: that mode
   can *only* be solved by an external arena reporting the solve, so seeding one
   put a challenge on the board that nobody could clear
-  ([#355](https://github.com/dcotelo/ctf-in-a-box/issues/355)). See
+  ([#355](https://github.com/dcotelo/owasp-ctf/issues/355)). See
   [AI](#ai) below for what the modes mean. The seed also writes
   **attempt** rows, including some for items that were tried and never
   earned, so the

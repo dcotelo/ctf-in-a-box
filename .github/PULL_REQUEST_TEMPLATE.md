@@ -1,4 +1,4 @@
-<!-- This template is for contributing to the CTF-in-a-box KIT itself
+<!-- This template is for contributing to the OWASP CTF KIT itself
      (platform code, scorer, sync, setup, docs). If you're a contestant
      submitting a patch to a target app during an event, you want
      setup/PULL_REQUEST_TEMPLATE.md in the event fork instead — this one

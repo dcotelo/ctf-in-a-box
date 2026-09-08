@@ -18,7 +18,7 @@
 // anything that names the real problem. `outputs.tf` prints the `--key-id`
 // argument as part of those instructions for exactly this reason.
 resource "aws_kms_key" "secrets" {
-  description = "CTF-in-a-box event secrets for ${var.name} (SSM SecureStrings)"
+  description = "OWASP CTF event secrets for ${var.name} (SSM SecureStrings)"
 
   // Rotation does NOT re-encrypt the SecureStrings already stored. KMS keeps
   // the prior key material and picks the right version when decrypting, so a

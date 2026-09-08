@@ -36,7 +36,7 @@
 # by deploy/fly/render-compose.sh, so the deployed wiring cannot drift from the
 # local one. Run deploy/fly/deploy.sh; it renders, builds, pushes and deploys.
 
-app = "ctf-in-a-box"
+app = "owasp-ctf"
 primary_region = "iad"
 
 # Generated and gitignored. Written at the REPO ROOT, not next to this file,

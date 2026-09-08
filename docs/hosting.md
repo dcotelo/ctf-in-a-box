@@ -9,7 +9,7 @@ title: Hosting
 Everything you need to stand the kit up: prerequisites, the poll-vs-push
 choice, the GitHub OAuth app contestants sign in with, and how event config
 reaches the app. For the happy-path command sequence see the
-[README Quickstart](https://github.com/dcotelo/ctf-in-a-box#quickstart); for
+[README Quickstart](https://github.com/dcotelo/owasp-ctf#quickstart); for
 running the event once it is up see [docs/operations.md](operations.md).
 
 ## Quickstart: zero to a scored event
@@ -82,7 +82,7 @@ you'd rather drive it yourself or script it. Each step is either a
 ./setup/ctf-setup.sh check
 
 # 1. Clone the repo and work from its root.
-git clone https://github.com/dcotelo/ctf-in-a-box && cd ctf-in-a-box
+git clone https://github.com/dcotelo/owasp-ctf && cd owasp-ctf
 
 # 2. Generate .env — BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN, REDIS_PASSWORD,
 #    EVENT_URL, SCORE_INGEST=poll, and empty App/OAuth/SCORE_IMAGE fields to fill later.
@@ -187,7 +187,7 @@ build that [`stock-scores-zero`](operations.md#verifying-it-works) proves scores
 `0 / N`:
 
 > The per-target upstream repo and pinned ref below are sourced from
-> [`setup/targets.tsv`](https://github.com/dcotelo/ctf-in-a-box/blob/main/setup/targets.tsv),
+> [`setup/targets.tsv`](https://github.com/dcotelo/owasp-ctf/blob/main/setup/targets.tsv),
 > which `ctf-setup org` reads to fork each target. Keep this table in sync with that file.
 
 | Target | Upstream repo | Source ref | Scoring baseline (pinned image) |
@@ -461,7 +461,7 @@ single-EC2 deploy, so an existing box upgrades by migration rather than by
 `sync` needs a token to read the event org's target repos, and a GitHub App
 is the only supported poll auth: org-scoped, auto-expiring, revocable, and not
 tied to a person. Each organizer creates their **own** App from
-[`sync/app-manifest.json`](https://github.com/dcotelo/ctf-in-a-box/blob/main/sync/app-manifest.json)
+[`sync/app-manifest.json`](https://github.com/dcotelo/owasp-ctf/blob/main/sync/app-manifest.json)
 and installs it on their event org — there is no shared, central App, so the
 private key stays yours.
 
@@ -675,7 +675,7 @@ provisioning — is documented in [docs/modules.md](modules.md).
 ### Every key the build reads
 
 This is the complete set of `event.yaml` keys `apps/web/scripts/generate-event-config.mjs`
-reads (verify against the generator itself — see [the source](https://github.com/dcotelo/ctf-in-a-box/blob/main/apps/web/scripts/generate-event-config.mjs)).
+reads (verify against the generator itself — see [the source](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/scripts/generate-event-config.mjs)).
 Anything not listed is ignored, silently except for the two keys named at the
 bottom. Every `event.*` key is optional: the name falls back to `OWASP CTF`,
 and leaving any other one out hides what it drives rather than showing a
@@ -699,7 +699,7 @@ placeholder.
 ### Rebuilding the app after a config change
 
 The contestant app (`apps/web/`, vendored — see
-[`apps/web/VENDORED.md`](https://github.com/dcotelo/ctf-in-a-box/blob/main/apps/web/VENDORED.md))
+[`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
 bakes the keys in the table above — event name, theme, dates, location,
 contact, Discord link, enabled modules and targets, fork org and admins —
 from `event.yaml` at **image-build time**, via the `EVENT_CONFIG_B64` build

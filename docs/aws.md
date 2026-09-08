@@ -13,13 +13,13 @@ destroy` down — still the single-shot lifecycle for an ephemeral event, with n
 instance to patch.
 
 The module lives at
-[`deploy/aws-terraform/`](https://github.com/dcotelo/ctf-in-a-box/tree/main/deploy/aws-terraform);
+[`deploy/aws-terraform/`](https://github.com/dcotelo/owasp-ctf/tree/main/deploy/aws-terraform);
 this page is the walkthrough. It stands up the **runtime** control plane only —
 provisioning the GitHub org is a separate one-time step (below).
 
 **This replaced a single EC2 instance running docker-compose.** If you deployed
 the earlier module, the upgrade is a move rather than an `apply`: see
-[the migration steps](https://github.com/dcotelo/ctf-in-a-box/tree/main/deploy/aws-terraform#migrating-from-the-ec2-box).
+[the migration steps](https://github.com/dcotelo/owasp-ctf/tree/main/deploy/aws-terraform#migrating-from-the-ec2-box).
 
 ## Why ECS now, when one EC2 box was the point
 
@@ -48,7 +48,7 @@ Two things did **not** change:
   ElastiCache. The app has no route to Redis at all.
 
 What it costs is the honest tradeoff, and the module README
-[itemises it](https://github.com/dcotelo/ctf-in-a-box/tree/main/deploy/aws-terraform#what-it-costs):
+[itemises it](https://github.com/dcotelo/owasp-ctf/tree/main/deploy/aws-terraform#what-it-costs):
 roughly four times the EC2 box at the defaults. Two variables bring it down if
 that is too much.
 
@@ -61,7 +61,7 @@ that is too much.
    callback at `https://<domain>/api/auth/callback/github` (`ctf-setup.sh
    app-manifest`/`app-config` and `oauth-app`/`oauth-config`).
 3. **Store the secrets in SSM Parameter Store** as `SecureString`s under a path
-   prefix (default `/ctf-in-a-box`), each encrypted with the event's own KMS
+   prefix (default `/owasp-ctf`), each encrypted with the event's own KMS
    key (`--key-id alias/<name>-secrets`). Task definitions reference them by
    `valueFrom`, so no secret is ever a plaintext environment variable — the
    generated Redis AUTH token included, which is why the assembled `rediss://`
@@ -70,7 +70,7 @@ that is too much.
    between the two applies below rather than before them. The
    `aws ssm put-parameter` list, and why `--key-id` is not optional, are in the
    module
-   [README](https://github.com/dcotelo/ctf-in-a-box/tree/main/deploy/aws-terraform#prerequisites-done-once-off-the-stack).
+   [README](https://github.com/dcotelo/owasp-ctf/tree/main/deploy/aws-terraform#prerequisites-done-once-off-the-stack).
 
 ## Deploy
 
@@ -166,4 +166,4 @@ terraform destroy
   modules the event runs. `deploy.sh` has its own bats suite for the half
   Terraform cannot see.
 - Kubernetes is tracked separately (Helm chart,
-  [issue #54](https://github.com/dcotelo/ctf-in-a-box/issues/54)).
+  [issue #54](https://github.com/dcotelo/owasp-ctf/issues/54)).

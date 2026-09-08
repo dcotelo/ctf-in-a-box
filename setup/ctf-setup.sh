@@ -1265,7 +1265,7 @@ cmd_app_manifest() {
   local manifest="$SCRIPT_DIR/../sync/app-manifest.json"
   [ -f "$manifest" ] || { echo "manifest not found: $manifest" >&2; exit 1; }
 
-  local action="https://github.com/organizations/${org}/settings/apps/new?state=ctf-in-a-box"
+  local action="https://github.com/organizations/${org}/settings/apps/new?state=owasp-ctf"
   # The create-from-manifest flow REQUIRES redirect_url. We don't run a callback
   # server (creds are fetched manually from the app page), so point it at the
   # org's Apps settings — after Create, GitHub lands there (with a ?code it
@@ -1284,7 +1284,7 @@ cmd_app_manifest() {
 
   local html; html="$(mktemp -t ctf-app-manifest).html"
   {
-    echo '<!doctype html><meta charset="utf-8"><title>Create the CTF-in-a-box GitHub App</title>'
+    echo '<!doctype html><meta charset="utf-8"><title>Create the OWASP CTF GitHub App</title>'
     echo "<form action=\"${action}\" method=\"post\">"
     printf '<input type="hidden" name="manifest" value='"'"'%s'"'"'>' "$(printf '%s' "$manifest_json" | sed "s/'/\&#39;/g")"
     echo '</form><p>Submitting to GitHub…</p><script>document.forms[0].submit()</script>'
@@ -1295,8 +1295,8 @@ cmd_app_manifest() {
   cat <<EOF
 == the form is PRE-FILLED from the manifest. If it opened BLANK (auto-submit
    blocked), enter these values by hand — they are the whole manifest:
-     GitHub App name:   CTF-in-a-box sync   (rename if the name is taken)
-     Homepage URL:      https://github.com/dcotelo/ctf-in-a-box
+     GitHub App name:   OWASP CTF sync   (rename if the name is taken)
+     Homepage URL:      https://github.com/dcotelo/owasp-ctf
      Webhook:           UNCHECK "Active"  (no webhook — else GitHub demands a URL)
      Repository permissions:  Issues → Read-only
                               Pull requests → Read-only
@@ -1369,7 +1369,7 @@ cmd_oauth_app() {
   open_url "$url"
   cat <<EOF
 == fill these fields (OAuth App creation is UI-only — copy/paste):
-   Application name:            CTF-in-a-box ($org)
+   Application name:            OWASP CTF ($org)
    Homepage URL:                $(event_url)
    Authorization callback URL:  $callback
    Then: "Register application" -> copy the Client ID -> "Generate a new
@@ -1645,7 +1645,7 @@ cmd_wizard() {
   # written config to read them back from (--dry-run). Empty = never asked.
   WIZ_MODULES=""
   wiz_banner
-  printf '%sCTF-in-a-box setup wizard%s — walks you to a running, scored event. Safe to re-run — it resumes.\n' "$C_BOLD" "$C_RESET"
+  printf '%sOWASP CTF setup wizard%s — walks you to a running, scored event. Safe to re-run — it resumes.\n' "$C_BOLD" "$C_RESET"
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
 
   # 1. Prerequisites (subshelled so cmd_check's exit doesn't kill the wizard).

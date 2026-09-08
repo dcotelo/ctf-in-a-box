@@ -1,4 +1,4 @@
-<h1 align="center">🛡 CTF-in-a-box</h1>
+<h1 align="center">🛡 OWASP CTF</h1>
 
 <p align="center">
   <em>A self-hosted control plane for security-learning events — one box, one free GitHub org.<br>
@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dcotelo/ctf-in-a-box/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/dcotelo/ctf-in-a-box/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://dcotelo.github.io/ctf-in-a-box/"><img alt="docs" src="https://img.shields.io/badge/docs-github%20pages-blue"></a>
+  <a href="https://github.com/dcotelo/owasp-ctf/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/dcotelo/owasp-ctf/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://dcotelo.github.io/owasp-ctf/"><img alt="docs" src="https://img.shields.io/badge/docs-github%20pages-blue"></a>
   <a href="LICENSE"><img alt="license MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
 
@@ -28,7 +28,7 @@ thread on the latest commit is resolved (or declined on the record).
 Commits follow Conventional Commits and carry no AI attribution.
 
 Small, well-specified work is tagged
-[`good first issue`](https://github.com/dcotelo/ctf-in-a-box/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+[`good first issue`](https://github.com/dcotelo/owasp-ctf/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 New modules start as an issue, not a PR — see
 [CONTRIBUTING.md](CONTRIBUTING.md#proposing-a-new-module).
 
@@ -111,8 +111,8 @@ Security Shepherd, VulnerableApp); DVWA and VAmPI are community projects.
 configure. You need **Docker with Compose v2** and **`openssl`**:
 
 ```sh
-git clone https://github.com/dcotelo/ctf-in-a-box
-cd ctf-in-a-box
+git clone https://github.com/dcotelo/owasp-ctf
+cd owasp-ctf
 ./scripts/dev-stack up
 ```
 
@@ -321,7 +321,7 @@ in [docs/decisions.md](docs/decisions.md).
 | Building a new module | [docs/modules.md](docs/modules.md) — the platform/module contract |
 | Asking "why is it like this?" | [docs/decisions.md](docs/decisions.md) — numbered ADRs |
 
-Rendered at **[dcotelo.github.io/ctf-in-a-box](https://dcotelo.github.io/ctf-in-a-box/)**.
+Rendered at **[dcotelo.github.io/owasp-ctf](https://dcotelo.github.io/owasp-ctf/)**.
 
 ## Contributing and security
 

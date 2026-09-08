@@ -1,6 +1,6 @@
 # apps/web — the contestant app
 
-The web app contestants and organizers use during a CTF-in-a-box event: GitHub sign-in, the challenge boards, leaderboard, profile, teams, paid hints and the `/admin` panel. Event name, dates, location and branding come from the kit's `event.yaml`, baked in at build time via `EVENT_CONFIG_B64` (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)) — nothing event-specific is hardcoded here.
+The web app contestants and organizers use during an OWASP CTF event: GitHub sign-in, the challenge boards, leaderboard, profile, teams, paid hints and the `/admin` panel. Event name, dates, location and branding come from the kit's `event.yaml`, baked in at build time via `EVENT_CONFIG_B64` (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)) — nothing event-specific is hardcoded here.
 
 It was vendored from `OWASP-CTF/ctf-owasp-org` on 2026-08-14; `VENDORED.md` records the delta (Vercel bits stripped, DynamoDB retired, the AWS Lambda replaced by the kit's local scorer). `AGENTS.md` next to this file points at the kit's operating manual, and `DESIGN_SYSTEM.md` is the palette and token authority.
 

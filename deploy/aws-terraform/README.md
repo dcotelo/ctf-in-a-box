@@ -1,6 +1,6 @@
 # AWS deploy: ECS Fargate + ElastiCache + ALB (Terraform)
 
-Stand the CTF-in-a-box control plane up as a **managed AWS stack** for the
+Stand the OWASP CTF control plane up as a **managed AWS stack** for the
 duration of an event, then tear it down. `terraform apply` up, `terraform
 destroy` down.
 
@@ -100,8 +100,8 @@ that can replace a task without dropping the event.
    below, not before it:
 
    ```sh
-   P=/ctf-in-a-box
-   K=alias/ctf-in-a-box-secrets     # alias/<var.name>-secrets
+   P=/owasp-ctf
+   K=alias/owasp-ctf-secrets     # alias/<var.name>-secrets
    aws ssm put-parameter --type SecureString --key-id $K --name $P/BETTER_AUTH_SECRET   --value "$(openssl rand -base64 32)"
    aws ssm put-parameter --type SecureString --key-id $K --name $P/SRH_TOKEN            --value "$(openssl rand -hex 24)"
    aws ssm put-parameter --type SecureString --key-id $K --name $P/GITHUB_CLIENT_SECRET --value "..."

@@ -1,8 +1,8 @@
 ---
-title: CTF-in-a-box
+title: OWASP CTF
 ---
 
-# CTF-in-a-box
+# OWASP CTF
 
 **A self-hosted control plane for security-learning events** — run at a
 university, a high school, an OWASP chapter, a meetup, from one box and one
@@ -14,7 +14,7 @@ free GitHub org.
 every team's score at that moment; expand a team for its roster, what each
 module contributed, and its per-target breakdown.</sup>
 
-CTF-in-a-box is a control plane, not a single game. It gives an event its
+OWASP CTF is a control plane, not a single game. It gives an event its
 shared spine — a GitHub org, team registration, a live leaderboard, an
 organizer admin panel, and the scoring pipeline that feeds it — and **modules**
 plug challenge content into that spine. Four modules ship today — **OWASP
@@ -247,6 +247,6 @@ known limits, stated in the open, are in
 
 ---
 
-[Source on GitHub](https://github.com/dcotelo/ctf-in-a-box) ·
+[Source on GitHub](https://github.com/dcotelo/owasp-ctf) ·
 [OWASP-CTF/dc34-owasp-secure-development-ctf](https://github.com/OWASP-CTF/dc34-owasp-secure-development-ctf)
 (underlying spec and target apps)

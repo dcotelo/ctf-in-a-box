@@ -10,7 +10,7 @@ against the latest commit on `main`.
 ## Before you run an event
 
 If you are standing this kit up rather than reporting an issue with it, walk
-the [organizer security checklist](https://dcotelo.github.io/ctf-in-a-box/security-checklist.html)
+the [organizer security checklist](https://dcotelo.github.io/owasp-ctf/security-checklist.html)
 first. Every item on it is a deployment decision the kit cannot make for you,
 and most have no visible symptom when they are wrong.
 
@@ -31,7 +31,7 @@ pull requests.
 
 ## What to report here
 
-**CTF-in-a-box is a deliberately-vulnerable-by-design *training* kit.** The
+**OWASP CTF is a deliberately-vulnerable-by-design *training* kit.** The
 target applications it hosts (Juice Shop, DVWA, WebGoat, Security Shepherd,
 VulnerableApp, VAmPI, and any future module targets) are **intentionally
 vulnerable** — finding and patching their flaws is the point of the exercise.

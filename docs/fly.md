@@ -325,7 +325,7 @@ machine up regardless, so the setting looks applied and does nothing.
 ## Tear down
 
 ```sh
-fly apps destroy ctf-in-a-box
+fly apps destroy owasp-ctf
 ```
 
 That takes the volume with it. Export anything you want to keep first.
