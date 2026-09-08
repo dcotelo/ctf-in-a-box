@@ -38,26 +38,41 @@ describe("redirectIfTeamless", () => {
     expect(TEAM_SETUP_PATH).toContain("#team");
   });
 
-  it("leaves a contestant who has a team alone", async () => {
+  it("leaves a contestant who has a team alone, and reports them as teamed", async () => {
     mocks.hasTeam.mockResolvedValue(true);
-    await expect(redirectIfTeamless("octocat")).resolves.toBeUndefined();
+    await expect(redirectIfTeamless("octocat")).resolves.toBe(false);
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
   it("lets a signed-out visitor browse, without asking the store", async () => {
     // A visitor is not yet a contestant, and bouncing them to a profile page
     // they cannot see is worse than the sign-in prompt the page renders.
-    await expect(redirectIfTeamless(undefined)).resolves.toBeUndefined();
+    // `false`, not `true`: a signed-out visitor has no team to lack, and the
+    // notice would be nonsense above a page whose form is a sign-in prompt.
+    await expect(redirectIfTeamless(undefined)).resolves.toBe(false);
     expect(mocks.hasTeam).not.toHaveBeenCalled();
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
-  it("lets an admin through without a team, and without asking the store", async () => {
+  it("lets a teamless admin through, and REPORTS it so the page can say so", async () => {
     // An organizer opening a module page to check their content renders is not
     // playing. Not a scoring hole: an admin who actually submits still meets
     // the route gate, because an admin's points fold into no team either.
-    await expect(redirectIfTeamless("octocat", { isAdmin: true })).resolves.toBeUndefined();
-    expect(mocks.hasTeam).not.toHaveBeenCalled();
+    //
+    // The store IS consulted now, where it used to be skipped for admins
+    // (issue #357). That is the point: the exemption covered the redirect AND
+    // the information, so the form rendered, the route refused the submission,
+    // and the rule arrived attached to a solve that did not count. One extra
+    // HGET per admin page view buys the notice that prevents it.
+    mocks.hasTeam.mockResolvedValue(false);
+    await expect(redirectIfTeamless("octocat", { isAdmin: true })).resolves.toBe(true);
+    expect(mocks.hasTeam).toHaveBeenCalledWith("octocat");
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("reports an admin WITH a team as teamed, so no notice renders", async () => {
+    mocks.hasTeam.mockResolvedValue(true);
+    await expect(redirectIfTeamless("octocat", { isAdmin: true })).resolves.toBe(false);
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
@@ -66,7 +81,7 @@ describe("redirectIfTeamless", () => {
     // side too: a Redis blip mid-event must not redirect every contestant off
     // the page they are playing on.
     mocks.hasTeam.mockResolvedValue(true);
-    await expect(redirectIfTeamless("octocat")).resolves.toBeUndefined();
+    await expect(redirectIfTeamless("octocat")).resolves.toBe(false);
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 });

@@ -154,7 +154,7 @@ export function describeRefusal(reason: string): string {
       // Names the fix, not the rule. Someone who reaches this has already
       // submitted a flag and is being told it didn't count; "you need a team"
       // without saying where to get one is a dead end.
-      return "You need a team before solves count — set one up on your profile.";
+      return "You need a team before solves count — create one on your profile, or hit Play solo there for a team of one.";
     case "unauthorized":
       // Reachable, unlike `gate` below: a session can expire while this page
       // stays open. The form was rendered for a signed-in viewer, so by the

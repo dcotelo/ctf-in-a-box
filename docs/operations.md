@@ -64,9 +64,16 @@ step discovers the rule by answering a question and watching it not count.
 login outright — the boundary that actually holds. Organizers are exempt
 from both redirects — they sign in to check that their content renders,
 which is not playing — but not from the submission check, since an
-organizer's points would fold into no team either. If registration is
-closed when a teamless contestant reaches the team card, it explains that
-instead of offering forms the routes would refuse.
+organizer's points would fold into no team either. **So a teamless
+organizer gets a notice above the form instead**, naming the same fix and
+the one-click **Play solo**: the exemption is from the redirect, not from
+being told. Without it the rule reached them the expensive way — the form
+rendered, the route refused the submission, and they learned the
+requirement from a solve that did not count, which made the people most
+likely to be testing a board the ones guaranteed to discover it by losing
+something to it. If registration is closed when a teamless contestant
+reaches the team card, it explains that instead of offering forms the
+routes would refuse.
 
 > **Secure Development still has no route to refuse.** Its points arrive
 > from GitHub through the sync poller rather than through an app route, so a
