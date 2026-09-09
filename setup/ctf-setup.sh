@@ -1862,7 +1862,7 @@ cmd_wizard() {
   # authoritative answer, including on a resumed run) and otherwise from what
   # step 3 just collected; with neither — only reachable under --dry-run with
   # no config at all — assume the full poll stack, the historical default.
-  local secdev=1
+  local secdev=1 provisioned=0
   if [ -f "$CONFIG" ]; then
     if ! has_module secure-development; then secdev=0; fi
   elif [ -n "$WIZ_MODULES" ]; then
@@ -1952,7 +1952,15 @@ cmd_wizard() {
   elif [ -z "$(env_val SCORE_IMAGE)" ]; then
     echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
   elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
-    cmd_org
+    # A failed provisioning is a stop, not a shrug: pausing for UI steps on
+    # forks that do not exist, then bringing the stack up against them,
+    # would only move the failure somewhere less legible.
+    if cmd_org; then
+      provisioned=1
+    else
+      echo "  Provisioning failed — fix the error above, then re-run (the wizard resumes)." >&2
+      exit 1
+    fi
   else
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
   fi
@@ -1962,18 +1970,22 @@ cmd_wizard() {
   # table of ⚠️ for steps the organizer had not yet been given the chance to
   # do, and had to re-run doctor by hand to see it clean (issue #370). cmd_org
   # has just printed the checklist; pause on it, bring the stack up, and
-  # verify once at the very end (step 9). Nothing to pause for without
-  # secure-development — there are no forks to detach or package to grant.
-  if [ "$secdev" -eq 1 ]; then
+  # verify once at the very end (step 9).
+  #
+  # Only when the forks were actually provisioned in THIS run: with
+  # SCORE_IMAGE unset or the offer declined there is nothing on GitHub to
+  # detach or grant yet, and a pause would ask the organizer to confirm work
+  # that does not exist. --dry-run never provisions, so it narrates the path a
+  # real run would take when secure-development is on.
+  if [ "$DRY_RUN" -eq 1 ] && [ "$secdev" -eq 1 ]; then
     echo
-    if [ "$DRY_RUN" -eq 1 ]; then
-      echo "  DRY-RUN: would pause for the UI-only steps (fork-network detach, package Read grant)"
-    else
-      echo "  UI-only steps before verification (GitHub settings, no API):"
-      echo "    1. Each fork: Settings -> Leave fork network"
-      echo "    2. ghcr.io/$org/score: keep PRIVATE, grant each fork Read (Manage Actions access)"
-      pause_confirm "  Press Enter when done (or to continue now — step 9 re-checks, and 'ctf-setup.sh doctor' can re-run anytime)…"
-    fi
+    echo "  DRY-RUN: would pause for the UI-only steps (fork-network detach, package Read grant)"
+  elif [ "$provisioned" -eq 1 ]; then
+    echo
+    echo "  UI-only steps before verification (GitHub settings, no API):"
+    echo "    1. Each fork: Settings -> Leave fork network"
+    echo "    2. ghcr.io/$org/score: keep PRIVATE, grant each fork Read (Manage Actions access)"
+    pause_confirm "  Press Enter when done (or to continue now — step 9 re-checks, and 'ctf-setup.sh doctor' can re-run anytime)…"
   fi
 
   # 8. Bring the containers up.
@@ -2011,12 +2023,14 @@ EOF
   # a clean doctor table here means the event is ready, and a ⚠️ names the
   # one thing still to do. --dry-run makes zero gh calls, so it narrates.
   wiz_step "9/9  Verify"
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
-  elif [ "$secdev" -eq 1 ]; then
-    ( cmd_doctor ) || true
-  else
+  # secdev first, then dry-run: a quiz-only dry run must say the same thing
+  # the real run would — nothing to verify — not that it would run doctor.
+  if [ "$secdev" -eq 0 ]; then
     echo "  ⏭  nothing provisioned to verify — no secure-development module"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
+  else
+    ( cmd_doctor ) || true
   fi
 
   echo

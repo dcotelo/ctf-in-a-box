@@ -674,11 +674,16 @@ modules:
   quiz: {}
 YAML
   # No forks, no package — a pause here would be asking the organizer to
-  # confirm work that does not exist. doctor still closes the run.
+  # confirm work that does not exist. The 9/9 banner still closes the run,
+  # but it says there is nothing to verify rather than that it would run
+  # doctor (review finding on #376: the dry-run path must not claim a
+  # verification the real path would skip).
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q '9/9  Verify'
+  echo "$output" | grep -qF 'nothing provisioned to verify'
   [ -z "$(echo "$output" | grep -F 'would pause for the UI-only steps')" ]
+  [ -z "$(echo "$output" | grep -F 'would verify the org')" ]
 }
 
 @test "wizard prints the compose profiles the configured modules actually need" {
