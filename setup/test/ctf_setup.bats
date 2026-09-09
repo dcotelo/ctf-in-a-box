@@ -657,6 +657,146 @@ YAML
   echo "$output" | grep -qF 'docker compose --profile app up -d --build'
 }
 
+@test "wizard --dry-run says it would write the ingest answer to .env, not only event.yaml" {
+  _stub_prereqs
+  rm -f .env event.yaml
+  # Issue #372. The wizard asked "Score ingest (poll | push)" and wrote the
+  # answer to event.yaml only; .env kept the template SCORE_INGEST=poll, and
+  # step 8 read .env to pick profiles — so "push" produced a push label on a
+  # poll deployment with no warning. Under --dry-run every answer is its
+  # default, so the value here is poll; what is pinned is that the write
+  # to .env happens at all, next to the event.yaml write.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'would set SCORE_INGEST=poll in .env'
+}
+
+@test "wizard: a quiz-only event never touches SCORE_INGEST" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+YAML
+  # Nothing to ingest, so the template value in .env is left alone — writing
+  # one would suggest a switch that does nothing for this event.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'SCORE_INGEST=')" ]
+}
+
+@test "wizard warns at bring-up when .env and event.yaml disagree on score ingest" {
+  _stub_prereqs
+  cat > .env <<'ENV'
+REDIS_PASSWORD=fixture
+SCORE_INGEST=poll
+ENV
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+    score_ingest: push
+YAML
+  # The live shape on 2026-09-09: event.yaml push, .env poll, box polling.
+  # The command it prints still follows .env (that IS what compose reads), and
+  # the warning names both values and both files so the fix is one edit.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
+  echo "$output" | grep -qF 'SCORE_INGEST=poll but'
+  echo "$output" | grep -qF 'score_ingest: push'
+}
+
+@test "wizard stays quiet at bring-up when the two ingest switches agree" {
+  _stub_prereqs
+  cat > .env <<'ENV'
+REDIS_PASSWORD=fixture
+SCORE_INGEST=push
+ENV
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+    score_ingest: push
+YAML
+  # A warning that also fires when nothing is wrong is one nobody reads — and
+  # this is the other half that makes the test above mean something.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'docker compose --profile push --profile app up -d --build'
+  [ -z "$(echo "$output" | grep -F 'score ingest disagrees')" ]
+}
+
+@test "doctor warns when .env and event.yaml disagree on score ingest" {
+  _stub_prereqs
+  cat > .env <<'ENV'
+REDIS_PASSWORD=fixture
+SCORE_INGEST=push
+ENV
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+    score_ingest: poll
+YAML
+  # Either direction of drift is named; here .env is the one saying push.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" doctor
+  echo "$output" | grep -qF 'SCORE_INGEST=push but'
+  echo "$output" | grep -qF 'score_ingest: poll'
+}
+
+@test "yaml_ingest reads block and flow style, scoped to secure-development, defaulting to poll" {
+  read_ingest() {
+    bash -c 'CMD=__selftest source "$1"; CONFIG="$2"; yaml_ingest' _ "$SCRIPT" "$1"
+  }
+  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n    score_ingest: push\n' > a.yaml
+  printf 'modules:\n  secure-development: {targets: [dvwa], score_ingest: push}\n' > b.yaml
+  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n' > c.yaml
+  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n    score_ingest: "poll"  # quoted, commented\n' > d.yaml
+  # A score_ingest: under another module must not leak into the answer.
+  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n  quiz:\n    score_ingest: push\n' > e.yaml
+  # Flow style with a QUOTED value — valid YAML the app's parser reads as
+  # push; an unquoted-only regex read it as poll and raised a false mismatch
+  # (review finding on #374).
+  printf 'modules:\n  secure-development: {targets: [dvwa], score_ingest: "push"}\n' > f.yaml
+  # Flow mapping across several lines — the corpus accepts this form, so a
+  # reader that only looks at the opening line reports poll and raises a
+  # false mismatch (review finding on #374). Closing brace on its own line
+  # too, so "}" is not assumed to share a line with the last pair.
+  printf 'modules:\n  secure-development: {targets: [dvwa],\n    score_ingest: push\n  }\n  quiz: {score_ingest: poll}\n' > g.yaml
+  [ "$(read_ingest a.yaml)" = "push" ]
+  [ "$(read_ingest g.yaml)" = "push" ]
+  [ "$(read_ingest b.yaml)" = "push" ]
+  [ "$(read_ingest c.yaml)" = "poll" ]
+  [ "$(read_ingest d.yaml)" = "poll" ]
+  [ "$(read_ingest e.yaml)" = "poll" ]
+  [ "$(read_ingest f.yaml)" = "push" ]
+}
+
+@test "valid_ingest accepts exactly poll or push, so a typo never reaches .env" {
+  # Review finding on #374: wiz_ask accepts any text, and SCORE_INGEST=pussh
+  # would have compose mount caddy/Caddyfile.pussh and fail the bring-up.
+  # The wizard re-asks until this says yes; the helper is what it asks.
+  ok() { bash -c 'CMD=__selftest source "$1"; valid_ingest "$2"' _ "$SCRIPT" "$1"; }
+  ok poll
+  ok push
+  # Rejections spelled with `if … return 1` rather than `! ok …`: a negated
+  # command that is not the test's last statement is errexit-exempt and would
+  # pass silently (AGENTS.md).
+  for bad in pussh Poll "" "poll push" "push;rm -rf /"; do
+    if ok "$bad"; then echo "accepted '$bad'"; return 1; fi
+  done
+  ok poll
+}
+
 @test "wizard prints the poll profiles for a secure-development event" {
   _stub_prereqs
   rm -f .env
