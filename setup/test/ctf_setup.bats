@@ -763,11 +763,32 @@ YAML
   printf 'modules:\n  secure-development:\n    targets: [dvwa]\n    score_ingest: "poll"  # quoted, commented\n' > d.yaml
   # A score_ingest: under another module must not leak into the answer.
   printf 'modules:\n  secure-development:\n    targets: [dvwa]\n  quiz:\n    score_ingest: push\n' > e.yaml
+  # Flow style with a QUOTED value — valid YAML the app's parser reads as
+  # push; an unquoted-only regex read it as poll and raised a false mismatch
+  # (review finding on #374).
+  printf 'modules:\n  secure-development: {targets: [dvwa], score_ingest: "push"}\n' > f.yaml
   [ "$(read_ingest a.yaml)" = "push" ]
   [ "$(read_ingest b.yaml)" = "push" ]
   [ "$(read_ingest c.yaml)" = "poll" ]
   [ "$(read_ingest d.yaml)" = "poll" ]
   [ "$(read_ingest e.yaml)" = "poll" ]
+  [ "$(read_ingest f.yaml)" = "push" ]
+}
+
+@test "valid_ingest accepts exactly poll or push, so a typo never reaches .env" {
+  # Review finding on #374: wiz_ask accepts any text, and SCORE_INGEST=pussh
+  # would have compose mount caddy/Caddyfile.pussh and fail the bring-up.
+  # The wizard re-asks until this says yes; the helper is what it asks.
+  ok() { bash -c 'CMD=__selftest source "$1"; valid_ingest "$2"' _ "$SCRIPT" "$1"; }
+  ok poll
+  ok push
+  # Rejections spelled with `if … return 1` rather than `! ok …`: a negated
+  # command that is not the test's last statement is errexit-exempt and would
+  # pass silently (AGENTS.md).
+  for bad in pussh Poll "" "poll push" "push;rm -rf /"; do
+    if ok "$bad"; then echo "accepted '$bad'"; return 1; fi
+  done
+  ok poll
 }
 
 @test "wizard prints the poll profiles for a secure-development event" {

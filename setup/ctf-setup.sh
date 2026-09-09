@@ -885,7 +885,7 @@ yaml_ingest() {
   v="$(awk '
     function val(s) { sub(/^[^:]*:[ \t]*/, "", s); sub(/[ \t]*#.*$/, "", s); gsub(/["\047 \t]/, "", s); return s }
     /^[ \t]*secure-development[ \t]*:[ \t]*\{/ {
-      if (match($0, /score_ingest[ \t]*:[ \t]*[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
+      if (match($0, /score_ingest[ \t]*:[ \t]*["\047]?[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
       next
     }
     /^[ \t]*secure-development[ \t]*:/ { inblk = 1; ind = match($0, /[^ \t]/); next }
@@ -893,6 +893,16 @@ yaml_ingest() {
     inblk && /^[ \t]*score_ingest[ \t]*:/ { print val($0); exit }
   ' "$CONFIG" 2>/dev/null)"
   case "$v" in push) echo push ;; *) echo poll ;; esac
+}
+
+# Exactly "poll" or "push", nothing else — the wizard re-asks until this says
+# yes. SCORE_INGEST is not just a label: docker-compose.yml expands it into
+# the Caddyfile mount path (caddy/Caddyfile.${SCORE_INGEST}), so a typo such
+# as "pussh" written to .env fails the bring-up looking for a file that does
+# not exist, and step 8's profile choice would quietly fall back to poll
+# meanwhile. Case-sensitive on purpose: those are the two file names.
+valid_ingest() {
+  case "$1" in poll | push) return 0 ;; *) return 1 ;; esac
 }
 
 # The operative switch is SCORE_INGEST in .env — docker-compose.yml and the
@@ -1770,6 +1780,14 @@ cmd_wizard() {
           wiz_ask ev_targets "Targets — subset of: $(all_targets)" "$(all_targets)"
         done
         wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
+        # Re-ask until it is exactly one of the two: the answer becomes a
+        # Caddyfile path in compose, so a typo is a failed bring-up, not a
+        # label. Under --dry-run the default always passes, so this cannot
+        # spin.
+        while [ "$DRY_RUN" -ne 1 ] && ! valid_ingest "$ev_ingest"; do
+          echo "  Score ingest must be exactly 'poll' or 'push'."
+          wiz_ask ev_ingest "Score ingest (poll | push)" "poll"
+        done
         ;;
     esac
     # Written to .env, NOT to event.yaml. The URL is a deployment fact, and
