@@ -885,7 +885,15 @@ yaml_ingest() {
   v="$(awk '
     function val(s) { sub(/^[^:]*:[ \t]*/, "", s); sub(/[ \t]*#.*$/, "", s); gsub(/["\047 \t]/, "", s); return s }
     /^[ \t]*secure-development[ \t]*:[ \t]*\{/ {
+      # Flow mapping. It may run across several lines (the two-reader corpus
+      # has that form), so stay in flow mode until the closing brace.
+      inflow = (index($0, "}") == 0)
       if (match($0, /score_ingest[ \t]*:[ \t]*["\047]?[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
+      next
+    }
+    inflow {
+      if (match($0, /score_ingest[ \t]*:[ \t]*["\047]?[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
+      if (index($0, "}") > 0) inflow = 0
       next
     }
     /^[ \t]*secure-development[ \t]*:/ { inblk = 1; ind = match($0, /[^ \t]/); next }

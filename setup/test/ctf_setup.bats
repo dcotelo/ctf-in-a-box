@@ -767,7 +767,13 @@ YAML
   # push; an unquoted-only regex read it as poll and raised a false mismatch
   # (review finding on #374).
   printf 'modules:\n  secure-development: {targets: [dvwa], score_ingest: "push"}\n' > f.yaml
+  # Flow mapping across several lines — the corpus accepts this form, so a
+  # reader that only looks at the opening line reports poll and raises a
+  # false mismatch (review finding on #374). Closing brace on its own line
+  # too, so "}" is not assumed to share a line with the last pair.
+  printf 'modules:\n  secure-development: {targets: [dvwa],\n    score_ingest: push\n  }\n  quiz: {score_ingest: poll}\n' > g.yaml
   [ "$(read_ingest a.yaml)" = "push" ]
+  [ "$(read_ingest g.yaml)" = "push" ]
   [ "$(read_ingest b.yaml)" = "push" ]
   [ "$(read_ingest c.yaml)" = "poll" ]
   [ "$(read_ingest d.yaml)" = "poll" ]
