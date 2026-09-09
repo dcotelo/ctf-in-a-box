@@ -24,6 +24,13 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   `push` got a push label on a poll deployment with no warning. The wizard now
   writes both from the one answer, and `doctor` and the bring-up step warn,
   naming both files and both values, whenever the two disagree.
+- **The wizard now verifies last, after you have done the UI-only steps
+  (#370).** It used to run `doctor` the instant the org was provisioned and
+  *then* tell you to detach the forks and grant the package — so every first
+  run ended on a table of ⚠️ for steps you had not been given the chance to
+  do. It now prints that checklist, pauses for you (skipped under
+  `--dry-run`), brings the containers up, and runs `doctor` as a closing
+  ninth step, so a clean table on the last screen means the event is ready.
 
 - **sync's poll cursor now survives a Fly restart (#364).** The
   single-volume layout puts it at `/data/sync/state.json`, but sync runs as

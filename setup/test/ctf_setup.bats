@@ -623,7 +623,7 @@ YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   echo "$output" | grep -q "Answer a few questions to write"
   echo "$output" | grep -q "GitHub org (disposable per-event org)"
-  echo "$output" | grep -q "4/8  Scorer image"
+  echo "$output" | grep -q "4/9  Scorer image"
 }
 
 @test "wizard --dry-run walks every step to bring-up without blocking" {
@@ -633,9 +633,52 @@ YAML
   # instead of exiting early to make the operator edit a file and re-run.
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "2/8  Secrets"
-  echo "$output" | grep -q "3/8  Event config"
-  echo "$output" | grep -q "8/8  Bring the containers up"
+  echo "$output" | grep -q "2/9  Secrets"
+  echo "$output" | grep -q "3/9  Event config"
+  echo "$output" | grep -q "8/9  Bring the containers up"
+}
+
+@test "wizard pauses for the UI-only steps and verifies with doctor LAST" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  secure-development:
+    targets: [dvwa]
+YAML
+  # Issue #370. The order is the point: provisioning (7), then the pause for
+  # the fork-detach / package-grant steps, then bring-up (8), and doctor as
+  # the closing step (9) — never before the organizer could have done the UI
+  # steps it checks. Asserted by line position in the dry-run narration, which
+  # names each of the three in turn.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  pause_at="$(echo "$output" | grep -n 'would pause for the UI-only steps' | head -1 | cut -d: -f1)"
+  up_at="$(echo "$output" | grep -n '8/9  Bring the containers up' | head -1 | cut -d: -f1)"
+  doctor_at="$(echo "$output" | grep -n "would verify the org with 'ctf-setup.sh doctor'" | head -1 | cut -d: -f1)"
+  [ -n "$pause_at" ] && [ -n "$up_at" ] && [ -n "$doctor_at" ]
+  [ "$pause_at" -lt "$up_at" ]
+  echo "$output" | grep -q '9/9  Verify'
+  [ "$up_at" -lt "$doctor_at" ]
+}
+
+@test "wizard: a quiz-only event has no UI-only steps to pause for" {
+  _stub_prereqs
+  rm -f .env
+  cat > event.yaml <<'YAML'
+github:
+  org: test-event-org
+modules:
+  quiz: {}
+YAML
+  # No forks, no package — a pause here would be asking the organizer to
+  # confirm work that does not exist. doctor still closes the run.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '9/9  Verify'
+  [ -z "$(echo "$output" | grep -F 'would pause for the UI-only steps')" ]
 }
 
 @test "wizard prints the compose profiles the configured modules actually need" {
@@ -1394,7 +1437,7 @@ EOF
   rm -f .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "7/8  Event org"
+  echo "$output" | grep -q "7/9  Event org"
   # Not even `gh auth status` or `docker compose version`: dry-run narrates
   # the prerequisite step instead of probing. This boundary is one-sided by
   # nature — dry-run writes no store and renders no page, so there is no
