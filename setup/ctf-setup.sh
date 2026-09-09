@@ -1715,7 +1715,7 @@ cmd_wizard() {
   # Under --dry-run this is narrated, not probed: cmd_check runs `gh auth
   # status` and `docker compose version`, and --dry-run makes zero gh/docker
   # calls (AGENTS.md).
-  wiz_step "1/8  Prerequisites"
+  wiz_step "1/9  Prerequisites"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would check for gh, docker, compose, openssl and gh auth"
   elif ( cmd_check ) >/dev/null 2>&1; then
@@ -1727,7 +1727,7 @@ cmd_wizard() {
   fi
 
   # 2. Secrets (.env).
-  wiz_step "2/8  Secrets ($out)"
+  wiz_step "2/9  Secrets ($out)"
   if [ -f "$out" ]; then
     echo "  ✅ $out present"
   elif [ "$DRY_RUN" -eq 1 ]; then
@@ -1741,7 +1741,7 @@ cmd_wizard() {
   fi
 
   # 3. Event config.
-  wiz_step "3/8  Event config ($CONFIG)"
+  wiz_step "3/9  Event config ($CONFIG)"
   if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && wiz_config_complete; then
     echo "  ✅ $CONFIG (org: $(yaml_org))"
   else
@@ -1862,7 +1862,7 @@ cmd_wizard() {
   # authoritative answer, including on a resumed run) and otherwise from what
   # step 3 just collected; with neither — only reachable under --dry-run with
   # no config at all — assume the full poll stack, the historical default.
-  local secdev=1
+  local secdev=1 provisioned=0
   if [ -f "$CONFIG" ]; then
     if ! has_module secure-development; then secdev=0; fi
   elif [ -n "$WIZ_MODULES" ]; then
@@ -1870,7 +1870,7 @@ cmd_wizard() {
   fi
 
   # 4. Scorer image.
-  wiz_step "4/8  Scorer image (SCORE_IMAGE)"
+  wiz_step "4/9  Scorer image (SCORE_IMAGE)"
   if [ "$secdev" -eq 0 ]; then
     echo "  ⏭  not needed — no secure-development module (nothing to score in a fork)"
   elif [ -n "$(env_val SCORE_IMAGE)" ]; then
@@ -1895,7 +1895,7 @@ cmd_wizard() {
   fi
 
   # 5. Sync GitHub App (poll auth).
-  wiz_step "5/8  Sync GitHub App (poll auth)"
+  wiz_step "5/9  Sync GitHub App (poll auth)"
   if [ "$secdev" -eq 0 ]; then
     echo "  ⏭  not needed — no secure-development module (nothing to poll)"
   elif [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
@@ -1916,7 +1916,7 @@ cmd_wizard() {
   fi
 
   # 6. Sign-in OAuth app.
-  wiz_step "6/8  Sign-in OAuth app"
+  wiz_step "6/9  Sign-in OAuth app"
   if [ -n "$(env_val GITHUB_CLIENT_ID)" ] && [ -n "$(env_val GITHUB_CLIENT_SECRET)" ]; then
     echo "  ✅ OAuth app configured"
   elif [ "$DRY_RUN" -eq 1 ]; then
@@ -1932,7 +1932,7 @@ cmd_wizard() {
   fi
 
   # 7. Create + provision the org.
-  wiz_step "7/8  Event org ($org)"
+  wiz_step "7/9  Event org ($org)"
   # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
   # and the closing doctor sweep below are narrated, not run.
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -1952,17 +1952,40 @@ cmd_wizard() {
   elif [ -z "$(env_val SCORE_IMAGE)" ]; then
     echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
   elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
-    cmd_org
+    # A failed provisioning is a stop, not a shrug: pausing for UI steps on
+    # forks that do not exist, then bringing the stack up against them,
+    # would only move the failure somewhere less legible.
+    if cmd_org; then
+      provisioned=1
+    else
+      echo "  Provisioning failed — fix the error above, then re-run (the wizard resumes)." >&2
+      exit 1
+    fi
   else
     echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
   fi
-  echo
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
-  else
-    echo "  Verifying with doctor:"
-    ( cmd_doctor ) || true
-    echo "  Finish any ⚠️ UI-only steps above (fork-network detach, package Read grant)."
+  # The UI-only steps come NOW, before verification, not after it. doctor used
+  # to run right here, the instant provisioning finished, and only then did the
+  # wizard say "finish the UI-only steps" — so every first run ended on a
+  # table of ⚠️ for steps the organizer had not yet been given the chance to
+  # do, and had to re-run doctor by hand to see it clean (issue #370). cmd_org
+  # has just printed the checklist; pause on it, bring the stack up, and
+  # verify once at the very end (step 9).
+  #
+  # Only when the forks were actually provisioned in THIS run: with
+  # SCORE_IMAGE unset or the offer declined there is nothing on GitHub to
+  # detach or grant yet, and a pause would ask the organizer to confirm work
+  # that does not exist. --dry-run never provisions, so it narrates the path a
+  # real run would take when secure-development is on.
+  if [ "$DRY_RUN" -eq 1 ] && [ "$secdev" -eq 1 ]; then
+    echo
+    echo "  DRY-RUN: would pause for the UI-only steps (fork-network detach, package Read grant)"
+  elif [ "$provisioned" -eq 1 ]; then
+    echo
+    echo "  UI-only steps before verification (GitHub settings, no API):"
+    echo "    1. Each fork: Settings -> Leave fork network"
+    echo "    2. ghcr.io/$org/score: keep PRIVATE, grant each fork Read (Manage Actions access)"
+    pause_confirm "  Press Enter when done (or to continue now — step 9 re-checks, and 'ctf-setup.sh doctor' can re-run anytime)…"
   fi
 
   # 8. Bring the containers up.
@@ -1974,7 +1997,7 @@ cmd_wizard() {
   # scorer image to pull, and asking for one would fail the bring-up outright.
   # `secdev` above is that answer, config-derived when a config exists and
   # answer-derived under --dry-run when one was never written.
-  wiz_step "8/8  Bring the containers up"
+  wiz_step "8/9  Bring the containers up"
   local profiles=(--profile app)
   if [ "$secdev" -eq 1 ]; then
     # Say so before printing a command that will run in .env's mode, so an
@@ -1993,6 +2016,21 @@ cmd_wizard() {
 EOF
   if ask_yn "  Bring the containers up now?" Y; then
     EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose "${profiles[@]}" up -d --build
+  fi
+
+  # 9. Verify — last, on purpose (issue #370). This is the wizard's closing
+  # screen: after the UI-only steps have had their pause and the stack is up,
+  # a clean doctor table here means the event is ready, and a ⚠️ names the
+  # one thing still to do. --dry-run makes zero gh calls, so it narrates.
+  wiz_step "9/9  Verify"
+  # secdev first, then dry-run: a quiz-only dry run must say the same thing
+  # the real run would — nothing to verify — not that it would run doctor.
+  if [ "$secdev" -eq 0 ]; then
+    echo "  ⏭  nothing provisioned to verify — no secure-development module"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
+  else
+    ( cmd_doctor ) || true
   fi
 
   echo
