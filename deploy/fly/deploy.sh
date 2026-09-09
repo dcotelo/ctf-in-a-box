@@ -356,6 +356,32 @@ if [ -n "$missing_knobs" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# This module is POLL-ONLY, and says so rather than deploying something that
+# scores nothing. In compose, push mode works because caddy routes POST /score
+# to scorer:4000 (caddy/Caddyfile.push). There is no caddy here: fly.toml's
+# only ingress is [http_service] on the app's port 3000, so a fork's Action
+# POSTing to $EVENT_URL/score gets the app's 404 — and the Action's score step
+# is not what fails the workflow, so nothing anywhere says a score was lost.
+# Probed live on 2026-09-09: `POST https://<event>/score -> 404` (issue #373).
+# Refused in dry-run too, so a review of the plan catches it. Empty means
+# poll, as in docker-compose.yml.
+# ---------------------------------------------------------------------------
+SCORE_INGEST_MODE="$(env_value SCORE_INGEST)"
+case "${SCORE_INGEST_MODE:-poll}" in
+  poll) ;;
+  push)
+    echo "FAIL: SCORE_INGEST=push in $ENV_FILE, but the Fly module is poll-only." >&2
+    echo "      Nothing on a Fly machine routes POST /score to the scorer (no caddy;" >&2
+    echo "      fly.toml exposes only the app on :3000), so every fork's Action would" >&2
+    echo "      POST into a 404 and no score would reach the leaderboard. See #373." >&2
+    echo "      Set SCORE_INGEST=poll in $ENV_FILE and match event.yaml's score_ingest." >&2
+    exit 1 ;;
+  *)
+    echo "FAIL: SCORE_INGEST in $ENV_FILE is '$SCORE_INGEST_MODE' — must be poll (push is not supported on Fly, #373)." >&2
+    exit 1 ;;
+esac
+
+# ---------------------------------------------------------------------------
 # EVENT_URL must be the fly hostname, and it must be https.
 #
 # The app refuses to serve a production event over plain HTTP to a non-local

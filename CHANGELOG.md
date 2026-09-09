@@ -8,6 +8,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **The Fly module now refuses push mode instead of deploying a box that
+  scores nothing (#373).** `docs/fly.md` said push "works"; it never did
+  there. In compose, caddy routes `POST /score` to `scorer:4000`; a Fly
+  machine has no caddy and `fly.toml` exposes only the app on port 3000, so a
+  fork's Action would POST every score into a 404 — silently, since that step
+  does not fail the workflow. `deploy.sh` now exits with the reason and the
+  fix when `.env.fly` says `SCORE_INGEST=push` (dry-run included), and the
+  docs say poll-only. Routing `/score` on Fly, if ever wanted, stays tracked
+  in #373.
+
 - **sync's poll cursor now survives a Fly restart (#364).** The
   single-volume layout puts it at `/data/sync/state.json`, but sync runs as
   `node` and a fresh Fly volume is root-owned, so pointing `STATE_PATH` there

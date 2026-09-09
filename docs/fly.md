@@ -39,9 +39,14 @@ what runs at the event is what you exercised locally.
 | A GitHub OAuth app | Its callback must match the deployed hostname exactly |
 | Access to a `SCORE_IMAGE` | Mirrored into Fly's registry so the forks and the leaderboard judge with the same artifact |
 
-Poll mode is the fit here — outbound only, no inbound scoring surface. Push
-mode works, but it exposes `POST /score` publicly and is not what this module
-is shaped for.
+**Poll mode only.** Outbound polling is the fit for one machine with one
+public port — and it is also the only mode that works here: in compose, push
+mode relies on caddy routing `POST /score` to `scorer:4000`, and there is no
+caddy on a Fly machine. `fly.toml` exposes only the app on port 3000, so a
+fork's Action would POST its score into a 404 and nothing would say so.
+`deploy.sh` therefore refuses an `.env.fly` with `SCORE_INGEST=push` (issue
+#373 tracks routing `/score` if push on Fly is ever wanted). Keep
+`event.yaml`'s `score_ingest` at `poll` to match.
 
 ## Deploy
 
