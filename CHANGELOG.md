@@ -8,6 +8,16 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **README and docs screenshots caught up with the rename.** The wizard and
+  `doctor` terminal shots still showed the CTF-in-a-box banner, the old
+  eight-step numbering and the `ctf-in-a-box-test` org; the challenge browser
+  linked the old org's forks; the admin Event tab named the old test event.
+  All four are recaptured from the current script and the live box. The
+  README's heading now carries the OWASP logo the app itself shows (a
+  light/dark pair, since the mark is black on transparent), and its two
+  references to the AWS module as "one EC2 box" now describe the ECS Fargate
+  stack that replaced it.
+
 - **The Fly module now refuses push mode instead of deploying a box that
   scores nothing (#373).** `docs/fly.md` said push "works"; it never did
   there. In compose, caddy routes `POST /score` to `scorer:4000`; a Fly

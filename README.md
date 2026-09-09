@@ -1,4 +1,11 @@
-<h1 align="center">🛡 OWASP CTF</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/owasp-logo-dark.png">
+    <img alt="OWASP" src="docs/assets/owasp-logo.png" width="260">
+  </picture>
+</p>
+
+<h1 align="center">OWASP CTF</h1>
 
 <p align="center">
   <em>A self-hosted control plane for security-learning events — one box, one free GitHub org.<br>
@@ -136,8 +143,8 @@ every automatable step, guides you through the GitHub-UI ones, and resumes if
 you stop and come back. It asks only what the modules you enabled actually
 need: a quiz-only or classic-only event needs no org, no forks, and no scorer
 image, and is never asked about them. Preview any mutating step with
-`--dry-run`; once provisioned, `./setup/ctf-setup.sh doctor` shows a per-fork
-status matrix.
+`--dry-run`. The wizard closes by running `./setup/ctf-setup.sh doctor` — a
+per-fork status matrix you can re-run at any time.
 
 <p align="center">
   <img alt="The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts" src="docs/assets/wizard.jpg" width="820">
@@ -146,8 +153,9 @@ status matrix.
 **Want the details?** Every discrete subcommand, each UI-only step, and how
 the two GitHub apps differ:
 [docs/hosting.md](docs/hosting.md#quickstart-zero-to-a-scored-event).
-**On a cloud VM instead?** [docs/aws.md](docs/aws.md) (single-shot Terraform,
-`apply` up / `destroy` down) or [docs/fly.md](docs/fly.md) (one Fly machine).
+**In a cloud instead?** [docs/aws.md](docs/aws.md) (Terraform: ECS Fargate,
+ElastiCache and an ALB — `apply` up / `destroy` down) or
+[docs/fly.md](docs/fly.md) (one Fly machine).
 
 ## The modules
 
@@ -313,7 +321,7 @@ in [docs/decisions.md](docs/decisions.md).
 | Read this when you're… | Document |
 |---|---|
 | Standing the kit up | [docs/hosting.md](docs/hosting.md) — prerequisites, the wizard and every discrete step, poll vs push, the GitHub OAuth app, event config |
-| Deploying to a cloud VM | [docs/aws.md](docs/aws.md) (Terraform, one EC2 box) · [docs/fly.md](docs/fly.md) (one Fly machine) |
+| Deploying to a cloud | [docs/aws.md](docs/aws.md) (Terraform: ECS Fargate + ElastiCache + ALB) · [docs/fly.md](docs/fly.md) (one Fly machine) |
 | About to open the doors | [docs/security-checklist.md](docs/security-checklist.md) — the one-page pre-event walk |
 | Running the event | [docs/operations.md](docs/operations.md) — teams, the admin panel, the quiz/classic/ai organizer guides, verifying, teardown |
 | Understanding the system | [docs/architecture.md](docs/architecture.md) — diagram, score data flow, Redis keys, security model, testing strategy |

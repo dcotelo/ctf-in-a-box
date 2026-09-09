@@ -34,10 +34,11 @@ mutating commands instead of running them), `--config <path>` (default
 numbered sequence below names each one where it's used; `teardown` is covered
 in [operations.md](operations.md#running-an-event).
 
-![The guided setup wizard in a terminal: an ASCII banner, then numbered steps prompting for each value inline with the matching GitHub URL shown alongside](assets/wizard.jpg)
+![The guided setup wizard in a terminal: an ASCII banner, then numbered steps — a resumed run, where the secrets, event config and scorer image already in place are ticked off and the wizard continues from the first step still to do](assets/wizard.jpg)
 
-<sup>The wizard, mid-run: every value is asked for inline with the GitHub page
-it comes from, and the run resumes wherever you stopped.</sup>
+<sup>The wizard on a resumed run: every step already done is ticked and
+skipped, and it continues from the first one still to do. On a first run each
+of those values is asked for inline, with the GitHub page it comes from.</sup>
 
 **The modules question drives the rest of the wizard.** It offers the module
 ids this build knows (`secure-development quiz classic ai`) and then asks only
