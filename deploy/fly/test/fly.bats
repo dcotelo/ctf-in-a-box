@@ -557,6 +557,42 @@ ENV
   echo "$output" | grep -qF 'SRH_CONNECTION_STRING=<redacted>'
 }
 
+@test "SCORE_INGEST=push is refused: the Fly module is poll-only" {
+  need_docker
+  cd "$REPO"
+  # Issue #373. Compose routes POST /score to scorer:4000 through caddy; a
+  # Fly machine has no caddy and fly.toml exposes only the app on :3000, so a
+  # push deploy would have every fork's Action POST into a 404 — silently,
+  # since that step does not fail the workflow. Probed live: 404. Refusing
+  # here, in dry-run too, is the one place the mistake is cheap.
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.push"
+  echo "SCORE_INGEST=push" >> "$BATS_TEST_TMPDIR/env.push"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.push" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -ne 0 ]
+  # Names the reason and the fix, and never reaches the deploy plan.
+  echo "$output" | grep -qF 'poll-only'
+  echo "$output" | grep -qF 'SCORE_INGEST=poll'
+  [ -z "$(echo "$output" | grep -F '== 5/5 deploy')" ]
+}
+
+@test "SCORE_INGEST=poll, or unset, deploys as before" {
+  need_docker
+  cd "$REPO"
+  # The fixture env has no SCORE_INGEST at all — the historical default — and
+  # an explicit poll must behave identically. Both reach the deploy plan.
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF '== 5/5 deploy'
+  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.poll"
+  echo "SCORE_INGEST=poll" >> "$BATS_TEST_TMPDIR/env.poll"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.poll" \
+    --config "$BATS_TEST_TMPDIR/event.yaml"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF '== 5/5 deploy'
+}
+
 @test "a non-https EVENT_URL is refused" {
   cd "$REPO"
   sed 's|^EVENT_URL=.*|EVENT_URL=http://localhost|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.http"
