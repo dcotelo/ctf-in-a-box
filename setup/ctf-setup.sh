@@ -375,6 +375,11 @@ cmd_doctor() {
     return 0
   fi
 
+  # The two ingest switches must agree (issue #372). Checked before the fork
+  # table so a config that is about to be judged in the wrong mode says so
+  # at the top, not as a footnote under a green table.
+  ingest_mismatch_warn
+
   # secure-development IS enabled: it must have targets. Without this, an
   # unreadable targets list printed an empty (headers-only) table and exited
   # 0 — doctor reporting "all fine" for a config sync rejects outright
@@ -867,6 +872,46 @@ _yaml_modules() {
 # module IS enabled (mirroring sync's "targets must be a non-empty list").
 yaml_targets() {
   _yaml_modules targets secure-development
+}
+
+# modules.secure-development.score_ingest, normalised: prints "push" or
+# "poll" — anything else, or a missing key, is "poll", the same rule the app's
+# generate-event-config.mjs applies. Block style (what the wizard writes and
+# the example shows) and the one-line flow form are both read; the value is
+# scoped to the secure-development block so a stray `score_ingest:` elsewhere
+# is ignored, as with yaml_targets.
+yaml_ingest() {
+  local v
+  v="$(awk '
+    function val(s) { sub(/^[^:]*:[ \t]*/, "", s); sub(/[ \t]*#.*$/, "", s); gsub(/["\047 \t]/, "", s); return s }
+    /^[ \t]*secure-development[ \t]*:[ \t]*\{/ {
+      if (match($0, /score_ingest[ \t]*:[ \t]*[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
+      next
+    }
+    /^[ \t]*secure-development[ \t]*:/ { inblk = 1; ind = match($0, /[^ \t]/); next }
+    inblk && /^[ \t]*[^ \t#]/ { if (match($0, /[^ \t]/) <= ind) inblk = 0 }
+    inblk && /^[ \t]*score_ingest[ \t]*:/ { print val($0); exit }
+  ' "$CONFIG" 2>/dev/null)"
+  case "$v" in push) echo push ;; *) echo poll ;; esac
+}
+
+# The operative switch is SCORE_INGEST in .env — docker-compose.yml and the
+# Caddy profile read that. event.yaml's score_ingest documents the same choice
+# for the other readers, and nothing reconciles the two by itself: the wizard
+# writes both from one answer, and this names the drift when they disagree.
+# A warning, not a failure — the stack still comes up, in .env's mode, which
+# is the fact the organizer most needs to hear.
+ingest_mismatch_warn() {
+  local env_mode yaml_mode
+  env_mode="$(env_val SCORE_INGEST)"; [ -n "$env_mode" ] || env_mode=poll
+  yaml_mode="$(yaml_ingest)"
+  [ "$env_mode" = "$yaml_mode" ] && return 0
+  printf '%s⚠️  score ingest disagrees: %s has SCORE_INGEST=%s but %s says score_ingest: %s.%s\n' \
+    "$C_YELLOW" "${OUT:-.env}" "$env_mode" "$CONFIG" "$yaml_mode" "$C_RESET"
+  printf '    The stack runs in %s mode — SCORE_INGEST is what compose reads. Make them agree:\n' "$env_mode"
+  printf '      either  SCORE_INGEST=%s in %s\n' "$yaml_mode" "${OUT:-.env}"
+  printf '      or      score_ingest: %s under modules.secure-development in %s (then rebuild the app)\n\n' "$env_mode" "$CONFIG"
+  return 0
 }
 
 # The module keys this build KNOWS how to provision-check for. Mirrors
@@ -1748,6 +1793,22 @@ cmd_wizard() {
       [ -z "$ev_end" ] || ev_dates="$ev_dates  end: $ev_end
 "
     fi
+    # The ingest answer goes to BOTH files. event.yaml's score_ingest is what
+    # the app and sync read; SCORE_INGEST in .env is what docker-compose.yml
+    # and the Caddy profile read, and step 8 below reads it to pick profiles.
+    # Writing only the first — as this wizard did — meant an organizer who
+    # answered "push" got a push label, a poll deployment and no warning
+    # (issue #372). Only when secure-development is on: without it there is
+    # no ingest to configure and .env keeps its template value.
+    case " $ev_mods " in
+      *" secure-development "*)
+        if [ "$DRY_RUN" -eq 1 ]; then
+          echo "  DRY-RUN: would set SCORE_INGEST=$ev_ingest in $out"
+        else
+          set_env_var "$out" SCORE_INGEST "$ev_ingest"
+          echo "  ✅ SCORE_INGEST=$ev_ingest in $out"
+        fi ;;
+    esac
     if [ "$DRY_RUN" -eq 1 ]; then
       echo "  DRY-RUN: would write $CONFIG (org: $ev_org, modules: $ev_mods)"
     else
@@ -1890,6 +1951,10 @@ cmd_wizard() {
   wiz_step "8/8  Bring the containers up"
   local profiles=(--profile app)
   if [ "$secdev" -eq 1 ]; then
+    # Say so before printing a command that will run in .env's mode, so an
+    # organizer resuming with an older .env is not left to find out from the
+    # admin panel's "Sync" line that the box is polling a push event.
+    [ -f "$CONFIG" ] && ingest_mismatch_warn
     if [ "$(env_val SCORE_INGEST)" = "push" ]; then
       profiles=(--profile push "${profiles[@]}")
     else

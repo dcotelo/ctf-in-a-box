@@ -17,6 +17,13 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   fix when `.env.fly` says `SCORE_INGEST=push` (dry-run included), and the
   docs say poll-only. Routing `/score` on Fly, if ever wanted, stays tracked
   in #373.
+- **The wizard's "Score ingest" answer now reaches `.env` (#372).** It was
+  written to `event.yaml` only, while `SCORE_INGEST` in `.env` — the switch
+  `docker-compose.yml`, the Caddy profile and the wizard's own bring-up step
+  actually read — kept its `poll` template value. An organizer who answered
+  `push` got a push label on a poll deployment with no warning. The wizard now
+  writes both from the one answer, and `doctor` and the bring-up step warn,
+  naming both files and both values, whenever the two disagree.
 
 - **sync's poll cursor now survives a Fly restart (#364).** The
   single-volume layout puts it at `/data/sync/state.json`, but sync runs as

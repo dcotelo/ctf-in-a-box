@@ -385,8 +385,11 @@ score comment; the PR is never merged. Detaching the fork network (manual step
 Scores travel from the scoring Action back to your box one of two ways.
 **`SCORE_INGEST` in `.env` is the operative switch** — it is what
 `docker-compose.yml` and the Caddy profile actually read.
-`modules.secure-development.score_ingest` in `event.yaml` documents the same
-choice for readers; nothing syncs the two, so keep them matching.
+`modules.secure-development.score_ingest` in `event.yaml` is the same choice
+as the app and `sync` see it. The wizard writes both from its one "Score
+ingest" answer; if you edit either by hand, keep them matching — `ctf-setup.sh
+doctor` and the wizard's bring-up step warn when they disagree, and the stack
+runs in `.env`'s mode regardless of what `event.yaml` says.
 
 | Mode | How it works | Requirements | Latency |
 |---|---|---|---|
