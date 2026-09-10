@@ -47,8 +47,14 @@ the sections below are the enforceable contract behind it.
 
 ## Section 1. Module identity & config block
 
-1. MUST live under a kebab-case key in `event.yaml`'s top-level `modules:`
-   map — one config block per module. Example, `secure-development`'s block
+1. MUST be registered in the three known-module lists item 3 describes below,
+   the ones `scripts/check-module-registries.mjs` compares — that
+   registration is what makes a module id valid platform-wide, independent of
+   any `event.yaml` content. A module MAY ALSO carry setup-time configuration
+   under a kebab-case key in `event.yaml`'s top-level `modules:` map, but
+   only when it has setup-time configuration to hold: in this release only
+   `secure-development` does (`targets`, `score_ingest`); `quiz`, `classic`
+   and `ai` have none, and so no block. Example, `secure-development`'s block
    (`event.yaml.example`):
 
    ```yaml
@@ -66,9 +72,9 @@ the sections below are the enforceable contract behind it.
    deployment's starting set and its outage fallback are the
    `SCORE_IMAGE`-derived default — secure-development alone when a scorer
    image exists, nothing when it does not — not anything read from
-   `event.yaml`. In this release, `event.yaml`'s `modules:` block configures
-   only `secure-development` (its `targets` and `score_ingest`); it does not
-   enable or disable any module.
+   `event.yaml`. The `modules:` block from item 1, where a module has one,
+   holds setup-time configuration only; it does not enable or disable
+   anything.
 
    A module whose services are **profile-gated** — chosen once, when the
    stack comes up, not when a switch is flipped (`docker-compose.yml`
