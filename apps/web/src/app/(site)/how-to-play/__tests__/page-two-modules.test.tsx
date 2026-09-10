@@ -6,8 +6,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: { quiz: { title: "Round 1" } } }),
+  // See how-to-play/page.test.tsx's copy of this comment: `getResolvedModules`
+  // falls back to the baked shim's ALL-module `defaultModuleIds` unless this
+  // names the fixture's own set.
+  getAdminSettings: async () => ({
+    moduleOverrides: { quiz: { title: "Round 1" } },
+    enabledModuleIds: ["secure-development", "quiz"],
+  }),
 }));
 
 vi.mock("@/lib/event-config", () => ({
@@ -30,9 +37,10 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import HowToPlay, { metadata } from "@/app/(site)/how-to-play/page";
+import HowToPlay, { generateMetadata } from "@/app/(site)/how-to-play/page";
 
 const html = await HowToPlay().then(renderToStaticMarkup);
+const metadata = await generateMetadata();
 
 describe("/how-to-play in a two-module event", () => {
   it("renders both modules' steps", () => {

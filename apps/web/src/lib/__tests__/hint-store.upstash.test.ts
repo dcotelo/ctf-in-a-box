@@ -24,6 +24,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RUN, liveConfigured } from "./live-redis";
 
 vi.mock("server-only", () => ({}));
+// The real `isModuleLive` calls `connection()` to stay out of Next's
+// build-time prerender, which throws outside a request scope — there is none
+// here, this is a direct function call from a test. Stood in for with the
+// neutral baked config this suite has always run against: secure-development
+// live, quiz/classic/ai not — see the note by the availability test below for
+// why their gates are out of scope here.
+vi.mock("@/lib/enabled-modules", () => ({
+  isModuleLive: async (id: string) => id === "secure-development",
+}));
 
 const PLAYER = `vt-${RUN}-hints-p1`;
 const TARGET = "juice-shop";

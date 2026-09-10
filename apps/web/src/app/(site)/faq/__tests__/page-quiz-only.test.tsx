@@ -19,8 +19,11 @@ import {
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // `getResolvedModules` falls back to the baked shim's ALL-module
+  // `defaultModuleIds` unless this names the fixture's own set.
+  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["quiz"] }),
 }));
 
 vi.mock("@/lib/event-config", () => ({

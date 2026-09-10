@@ -14,11 +14,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
-import { isModuleEnabled } from "@/lib/modules";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
-
-const secureDev = isModuleEnabled("secure-development");
 
 export const metadata: Metadata = {
   title: "Code of Conduct",
@@ -37,7 +35,8 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
   </a>
 );
 
-export default function CodeOfConductPage() {
+export default async function CodeOfConductPage() {
+  const secureDev = await isModuleLive("secure-development");
   return (
     <div className="flex flex-col gap-10">
       <PageHeader

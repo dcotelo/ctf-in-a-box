@@ -29,7 +29,8 @@ import { getLeaderboardSource } from "@/lib/leaderboard/source";
 import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
-import { DOCS_URL, isModuleEnabled, type HomeContext } from "@/lib/modules";
+import { DOCS_URL, type HomeContext } from "@/lib/modules";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { hasTeam } from "@/lib/team-store";
 import { event } from "@/lib/site";
@@ -64,7 +65,7 @@ export default async function Home() {
   const topByPoints = [...enabledApps].sort((a, b) => b.maxPoints - a.maxPoints).slice(0, 2);
   const topAppsList = joinAppNames(topByPoints.map((a) => a.name));
 
-  const secureDevelopment = isModuleEnabled("secure-development");
+  const secureDevelopment = await isModuleLive("secure-development");
 
   // Live facts handed to every module's copy, built once so two modules can't
   // disagree about how many targets the event has.
@@ -98,9 +99,10 @@ export default async function Home() {
   // Per-board item counts for the game cards. Quiz and classic are one read
   // each and only when enabled; a failed read drops the count line, never the
   // card.
+  const [quizLive, classicLive] = await Promise.all([isModuleLive("quiz"), isModuleLive("classic")]);
   const [quizCount, classicCount] = await Promise.all([
-    isModuleEnabled("quiz") ? listQuestions().then((q) => q.length).catch(() => null) : Promise.resolve(null),
-    isModuleEnabled("classic") ? listChallenges().then((c) => c.length).catch(() => null) : Promise.resolve(null),
+    quizLive ? listQuestions().then((q) => q.length).catch(() => null) : Promise.resolve(null),
+    classicLive ? listChallenges().then((c) => c.length).catch(() => null) : Promise.resolve(null),
   ]);
   const countFor = (id: string): string | null => {
     if (id === "secure-development")
@@ -136,7 +138,8 @@ export default async function Home() {
   let topRowsAreTeams = false;
   if (phaseInfo && phaseInfo.phase !== "registration") {
     try {
-      const data = await getLeaderboardSource()
+      const source = await getLeaderboardSource();
+      const data = await source
         .getLeaderboard()
         .then(withModuleContributions)
         .then(withTeamStandings)

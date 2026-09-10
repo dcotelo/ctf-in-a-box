@@ -33,17 +33,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
-import { isModuleEnabled } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { event } from "@/lib/site";
-
-// secure-development alone stays a module-scope constant: it is the one
-// module that is NOT runtime-toggleable (its targets are provisioning input,
-// not a flag — see the ADR), so baked and live can never disagree about it.
-// quiz and classic CAN be toggled mid-event, and this page's claims about
-// what is collected have to match what actually is, so they are read
-// per-request inside the component below.
-const secureDev = isModuleEnabled("secure-development");
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -77,50 +68,67 @@ const Bullets = ({ items, accent = "#2563eb" }: { items: React.ReactNode[]; acce
 
 // The strongest thing this page can say is what never happens at all. Every
 // line here is enforced by code, not policy — check before adding to it.
-const NEVER = [
-  "No advertising, no tracking pixels, no third-party analytics, no data broker. Nothing about you is sold or shared.",
-  "No consent banner, because there is nothing to consent to. Every cookie we set is doing a job you asked for.",
-  "Your email address and your real name are never written to our databases and never appear anywhere on this site.",
-  // Same promise either way; it just can't be made concrete with artifacts an
-  // event without secure-development has no notion of.
-  secureDev
-    ? "We never ask GitHub for write access. We cannot push code, open pull requests, change your repositories, or act as you."
-    : "We never ask GitHub for write access. The scopes we ask for are read-only, so we cannot write anything to your GitHub account or act as you.",
-  "We don't keep the GitHub access token issued at sign-in, so there is no key to your GitHub account sitting in our systems.",
-  "We don't build a location history. The only geographic data we hold is a per-country tally with nobody's name on it.",
-];
+//
+// Both this and `cookieRows` below are FUNCTIONS of `secureDev`, not module-
+// scope constants: secure-development is runtime-toggleable now (issue #386),
+// so there is no longer a module-load-time answer for whether it is live —
+// only a per-request one, read inside the page component.
+function neverLines(secureDev: boolean): string[] {
+  return [
+    "No advertising, no tracking pixels, no third-party analytics, no data broker. Nothing about you is sold or shared.",
+    "No consent banner, because there is nothing to consent to. Every cookie we set is doing a job you asked for.",
+    "Your email address and your real name are never written to our databases and never appear anywhere on this site.",
+    // Same promise either way; it just can't be made concrete with artifacts
+    // an event without secure-development has no notion of.
+    secureDev
+      ? "We never ask GitHub for write access. We cannot push code, open pull requests, change your repositories, or act as you."
+      : "We never ask GitHub for write access. The scopes we ask for are read-only, so we cannot write anything to your GitHub account or act as you.",
+    "We don't keep the GitHub access token issued at sign-in, so there is no key to your GitHub account sitting in our systems.",
+    "We don't build a location history. The only geographic data we hold is a per-country tally with nobody's name on it.",
+  ];
+}
 
-const cookies: { name: string; what: string; life: string }[] = [
-  {
-    name: "Sign-in session",
-    what: "Set when you sign in with GitHub, and holds your session. Encrypted, and readable only by the server. Your browser can't read it, and neither can any script on the page.",
-    life: "7 days",
-  },
-  {
-    name: "Sign-in handshake",
-    what: "Protects the GitHub sign-in redirect against tampering. Discarded the moment sign-in finishes.",
-    life: "10 minutes",
-  },
-  {
-    // The literal cookie name, which is what a reader inspecting their browser
-    // will see. It is not renamed per event — an identifier, not copy.
-    name: "ctf-challenges-gate",
-    what: secureDev
-      ? "Remembers that the challenge-board password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you."
-      : "Remembers that the event's access password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you.",
-    life: "30 days",
-  },
-  {
-    name: "ctf-mock-team",
-    what: "Only in the pre-event demo mode, to remember a team choice locally when nothing is being written server-side.",
-    life: "30 days",
-  },
-];
+function cookieRows(secureDev: boolean): { name: string; what: string; life: string }[] {
+  return [
+    {
+      name: "Sign-in session",
+      what: "Set when you sign in with GitHub, and holds your session. Encrypted, and readable only by the server. Your browser can't read it, and neither can any script on the page.",
+      life: "7 days",
+    },
+    {
+      name: "Sign-in handshake",
+      what: "Protects the GitHub sign-in redirect against tampering. Discarded the moment sign-in finishes.",
+      life: "10 minutes",
+    },
+    {
+      // The literal cookie name, which is what a reader inspecting their
+      // browser will see. It is not renamed per event — an identifier, not
+      // copy.
+      name: "ctf-challenges-gate",
+      what: secureDev
+        ? "Remembers that the challenge-board password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you."
+        : "Remembers that the event's access password was entered correctly. Holds an expiry timestamp and a signature. Nothing about you.",
+      life: "30 days",
+    },
+    {
+      name: "ctf-mock-team",
+      what: "Only in the pre-event demo mode, to remember a team choice locally when nothing is being written server-side.",
+      life: "30 days",
+    },
+  ];
+}
 
 export default async function PrivacyPage() {
   const liveModules = await getEnabledModuleIds();
+  // secure-development, quiz and classic are ALL runtime-toggleable now
+  // (issue #386) — this page's claims about what is collected have to match
+  // what actually is, so all three are read off the one live-set read below,
+  // per request.
+  const secureDev = liveModules.has("secure-development");
   const quiz = liveModules.has("quiz");
   const classic = liveModules.has("classic");
+  const NEVER = neverLines(secureDev);
+  const cookies = cookieRows(secureDev);
 
   return (
     <div className="flex flex-col gap-10">

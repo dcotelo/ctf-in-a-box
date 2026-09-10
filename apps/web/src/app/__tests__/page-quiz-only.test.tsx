@@ -44,8 +44,11 @@ vi.mock("@/lib/leaderboard/source", () => ({
   }),
 }));
 vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // `getResolvedModules` falls back to the baked shim's ALL-module
+  // `defaultModuleIds` unless this names the fixture's own set.
+  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["quiz"] }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {
@@ -60,9 +63,10 @@ vi.mock("next/image", () => ({
 }));
 
 import Home from "@/app/page";
-import { metadata } from "@/app/layout";
+import { generateMetadata } from "@/app/layout";
 
 const html = await Home().then(renderToStaticMarkup);
+const metadata = await generateMetadata();
 
 describe("landing page in a quiz-only event", () => {
   it("still renders the platform frame", () => {

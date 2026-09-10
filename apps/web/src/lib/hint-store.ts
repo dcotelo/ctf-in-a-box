@@ -9,7 +9,7 @@ import { HINT_DEFAULT_ENABLED } from "@/lib/hint-defaults";
 import { appsById, type AppId } from "@/lib/apps";
 import { AI_HINTS_KEY, aiSolvesKey } from "@/lib/ai-keys";
 import { CLASSIC_HINTS_KEY, classicSolvesKey } from "@/lib/classic-keys";
-import { isModuleEnabled } from "@/lib/modules";
+import { isModuleLive } from "@/lib/enabled-modules";
 import { userHintTimesKey } from "@/lib/team-keys";
 import { upstashEval, upstashPipeline } from "@/lib/upstash";
 
@@ -204,7 +204,7 @@ export async function hintGate(login: string, target: HintTarget): Promise<HintG
   // nothing to sell. (The quiz has no hints by design — a question's hint is
   // its choices.)
   const targetModule = target === "classic" ? "classic" : target === "ai" ? "ai" : "secure-development";
-  if (!isModuleEnabled(targetModule)) {
+  if (!(await isModuleLive(targetModule))) {
     return { allowed: false, reason: "disabled" };
   }
 
@@ -389,7 +389,7 @@ export async function getHintAvailability(): Promise<Partial<Record<AppId, strin
  *  to [] on any failure so the board renders without the hint layer. */
 export async function getClassicHintIds(): Promise<string[]> {
   if (!HINTS_AVAILABLE) return [];
-  if (!isModuleEnabled("classic")) return [];
+  if (!(await isModuleLive("classic"))) return [];
   try {
     if (!(await resolveHintConfig()).enabled) return [];
     const [res] = await upstashPipeline([["HKEYS", CLASSIC_HINTS_KEY]]);
@@ -410,7 +410,7 @@ export async function getClassicHintIds(): Promise<string[]> {
  *  board renders without the hint layer. */
 export async function getAiHintIds(): Promise<string[]> {
   if (!HINTS_AVAILABLE) return [];
-  if (!isModuleEnabled("ai")) return [];
+  if (!(await isModuleLive("ai"))) return [];
   try {
     if (!(await resolveHintConfig()).enabled) return [];
     const [res] = await upstashPipeline([["HKEYS", AI_HINTS_KEY]]);

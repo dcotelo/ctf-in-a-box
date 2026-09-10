@@ -5,13 +5,18 @@ import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
   bakedModuleIds,
-  isModuleEnabled,
   isModuleId,
   MODULE_TITLE_MAX,
   MODULE_BLURB_MAX,
   type ModuleId,
   type ModuleOverrides,
 } from "@/lib/modules";
+// `defaultEnabledModules`, not `defaultModuleIds` from `@/lib/enabled-modules`:
+// that module imports `getAdminSettings` from this one, so importing it back
+// here would be a cycle. `module-defaults.ts` is the pure, dependency-free
+// source both sides compute the same default from; admin-store is
+// `server-only`, so calling it with `process.env` here is safe.
+import { defaultEnabledModules } from "@/lib/module-defaults";
 import {
   DEMO_CONTESTANTS,
   DEMO_TEAMS,
@@ -906,6 +911,10 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // Best-effort: a settings blip must not fail the seed — it just seeds
   // unclamped, which is yesterday's behavior.
   const settings = await getAdminSettings().catch(() => null);
+  // The live module set, same read: which of quiz/classic/ai to seed demo
+  // data for must follow what this event is actually serving (issue #386),
+  // not what happened to be baked at build time.
+  const live = new Set(settings?.enabledModuleIds ?? defaultEnabledModules(process.env));
   const scoringStartMs = settings?.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
   const scoringEndMs = settings?.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
   let end = Number.isFinite(scoringEndMs) ? Math.min(now, scoringEndMs) : now;
@@ -958,7 +967,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
 
   // Quiz demo data — only when the module is enabled, so a disabled quiz
   // module leaves the seed byte-for-byte identical to pre-quiz behavior.
-  const quizEnabled = isModuleEnabled("quiz");
+  const quizEnabled = live.has("quiz");
   let quizAnswersSeeded = 0;
   if (quizEnabled) {
     // Write the public question + its correct-answer key with the SAME
@@ -1033,7 +1042,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // Classic demo data — only when the module is enabled, so a disabled
   // classic module leaves the seed byte-for-byte identical to pre-classic
   // behavior (same reasoning as the quiz gate above).
-  const classicEnabled = isModuleEnabled("classic");
+  const classicEnabled = live.has("classic");
   let classicSolvesSeeded = 0;
   if (classicEnabled) {
     // Public challenge record ONLY — built field by field from `Challenge`'s
@@ -1128,7 +1137,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // module-wide identity material, minted lazily on first real use
   // (`getAiLaunchKeys` in ai-store.ts), never fixture data. Writing one here
   // would hand every seeded demo event the SAME hardcoded private key.
-  const aiEnabled = isModuleEnabled("ai");
+  const aiEnabled = live.has("ai");
   let aiSolvesSeeded = 0;
   if (aiEnabled) {
     // Public challenge record ONLY, built field by field from `AiChallenge`'s

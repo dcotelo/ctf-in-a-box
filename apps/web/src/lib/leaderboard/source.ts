@@ -1,5 +1,5 @@
 import "server-only";
-import { isModuleEnabled } from "@/lib/modules";
+import { isModuleLive } from "@/lib/enabled-modules";
 import type { LeaderboardData, UserProfile } from "./types";
 import { mockSource } from "./mock";
 import { lambdaSource } from "./lambda";
@@ -40,7 +40,7 @@ function isValidMode(value: string | undefined): value is ConfiguredMode {
  *  request, so the dedup matters — an un-deduped warn would flood logs. */
 const warnedValues = new Set<string>();
 
-export function getLeaderboardSourceMode(): LeaderboardSourceMode {
+export async function getLeaderboardSourceMode(): Promise<LeaderboardSourceMode> {
   // Checked BEFORE the env var, and deliberately not overridable by it: with
   // `secure-development` disabled there is no scorer, no lambda and no Upstash
   // scoring data for this event, so every configured source is wrong rather
@@ -49,7 +49,7 @@ export function getLeaderboardSourceMode(): LeaderboardSourceMode {
   // entirely by the module overlays on top of `emptySource` instead. This also
   // keeps the "mock" mode (and with it /leaderboard's placeholder-data banner)
   // off a board that carries real module points.
-  if (!isModuleEnabled("secure-development")) return "empty";
+  if (!(await isModuleLive("secure-development"))) return "empty";
 
   const mode = process.env.LEADERBOARD_SOURCE;
   if (isValidMode(mode)) return mode;
@@ -66,8 +66,8 @@ export function getLeaderboardSourceMode(): LeaderboardSourceMode {
   return "mock";
 }
 
-export function getLeaderboardSource(): LeaderboardSource {
-  switch (getLeaderboardSourceMode()) {
+export async function getLeaderboardSource(): Promise<LeaderboardSource> {
+  switch (await getLeaderboardSourceMode()) {
     case "lambda":
       return lambdaSource;
     case "upstash":

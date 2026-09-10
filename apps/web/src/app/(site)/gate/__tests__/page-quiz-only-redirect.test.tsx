@@ -20,6 +20,7 @@ vi.hoisted(() => {
 });
 
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
     name: "Quiz Night",

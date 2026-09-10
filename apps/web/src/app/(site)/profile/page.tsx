@@ -127,7 +127,7 @@ export default async function ProfilePage() {
     adminSettings,
   ] =
     await Promise.all([
-      getLeaderboardSource().getUser(login),
+      getLeaderboardSource().then((source) => source.getUser(login)),
       getViewerTeam(login),
       getViewerHints(login),
       quizEnabled ? getQuizTotals() : Promise.resolve(new Map<string, QuizTotal>()),

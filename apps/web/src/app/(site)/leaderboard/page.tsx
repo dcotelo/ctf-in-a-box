@@ -48,7 +48,7 @@ export default async function LeaderboardPage({
   // type, self-refreshing (display-board.tsx). Resolved first so the display
   // render can skip nothing it needs and everything it doesn't.
   const wantsDisplay = (await searchParams)?.display === "1";
-  const source = getLeaderboardSource();
+  const source = await getLeaderboardSource();
   // Penalties fold LAST: withModuleContributions attributes (and, for the
   // app-side modules, adds) each row's gross per-module points, and
   // withTeamStandings folds rows into teams — only then does
@@ -101,6 +101,8 @@ export default async function LeaderboardPage({
     updatedAgo: entry.updatedAt ? formatRelativeTime(entry.updatedAt, generatedAtMs) : undefined,
   }));
 
+  const sourceMode = await getLeaderboardSourceMode();
+
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
@@ -108,7 +110,7 @@ export default async function LeaderboardPage({
         title="Leaderboard"
         description={session ? BASE_DESCRIPTION : BASE_DESCRIPTION + SIGNED_OUT_CLAUSE}
       />
-      {getLeaderboardSourceMode() === "mock" && <MockDataNotice />}
+      {sourceMode === "mock" && <MockDataNotice />}
       {/* data.series/teamSeries pass straight through this spread — the
           chart itself lives inside <Leaderboard> now, so it can switch
           between them as the individual/teams view toggle flips. */}

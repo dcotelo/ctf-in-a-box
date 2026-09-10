@@ -12,6 +12,10 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/leaderboard/mock", () => ({ mockSource: { id: "mock" } }));
 vi.mock("@/lib/leaderboard/lambda", () => ({ lambdaSource: { id: "lambda" } }));
 vi.mock("@/lib/leaderboard/upstash", () => ({ upstashSource: { id: "upstash" } }));
+// This suite is about LEADERBOARD_SOURCE resolution, not module gating — the
+// secure-development gate is exercised separately in source-empty.test.ts.
+// Live to true so every mode below runs the branch that reads the env var.
+vi.mock("@/lib/enabled-modules", () => ({ isModuleLive: async () => true }));
 
 /** Fresh module each time, so the warn-once Set does not leak between tests. */
 async function loadWith(value: string | undefined) {
@@ -37,13 +41,13 @@ afterEach(() => {
 describe("getLeaderboardSourceMode", () => {
   it.each(["mock", "lambda", "upstash"])("passes %s through silently", async (value) => {
     const { getLeaderboardSourceMode } = await loadWith(value);
-    expect(getLeaderboardSourceMode()).toBe(value);
+    expect(await getLeaderboardSourceMode()).toBe(value);
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("defaults to mock when unset, without warning", async () => {
     const { getLeaderboardSourceMode } = await loadWith(undefined);
-    expect(getLeaderboardSourceMode()).toBe("mock");
+    expect(await getLeaderboardSourceMode()).toBe("mock");
     // Unset is the documented default, not a mistake — warning on it would
     // train people to ignore the message that matters.
     expect(warn).not.toHaveBeenCalled();
@@ -51,7 +55,7 @@ describe("getLeaderboardSourceMode", () => {
 
   it("warns and falls back to mock for an unrecognised value", async () => {
     const { getLeaderboardSourceMode } = await loadWith("dynamo");
-    expect(getLeaderboardSourceMode()).toBe("mock");
+    expect(await getLeaderboardSourceMode()).toBe("mock");
     expect(warn).toHaveBeenCalledTimes(1);
 
     const message = String(warn.mock.calls[0][0]);
@@ -66,7 +70,7 @@ describe("getLeaderboardSourceMode", () => {
     "warns for other unrecognised value %s",
     async (value) => {
       const { getLeaderboardSourceMode } = await loadWith(value);
-      expect(getLeaderboardSourceMode()).toBe("mock");
+      expect(await getLeaderboardSourceMode()).toBe("mock");
       expect(warn).toHaveBeenCalledTimes(1);
     },
   );
@@ -74,7 +78,7 @@ describe("getLeaderboardSourceMode", () => {
   it("warns once, not once per request", async () => {
     const { getLeaderboardSourceMode } = await loadWith("dynamodb");
     // Called on every leaderboard render; an un-deduped warn would flood logs.
-    for (let i = 0; i < 25; i++) getLeaderboardSourceMode();
+    for (let i = 0; i < 25; i++) await getLeaderboardSourceMode();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });
@@ -87,6 +91,6 @@ describe("getLeaderboardSource", () => {
     ["dynamo", "mock"],
   ])("resolves %s to the %s source", async (value, expected) => {
     const { getLeaderboardSource } = await loadWith(value);
-    expect((getLeaderboardSource() as unknown as { id: string }).id).toBe(expected);
+    expect(((await getLeaderboardSource()) as unknown as { id: string }).id).toBe(expected);
   });
 });

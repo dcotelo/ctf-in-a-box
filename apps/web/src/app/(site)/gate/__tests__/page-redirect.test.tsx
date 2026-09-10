@@ -12,6 +12,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
     name: "OWASP CTF",

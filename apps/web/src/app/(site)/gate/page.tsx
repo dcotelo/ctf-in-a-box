@@ -4,35 +4,13 @@ import { redirect } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import GateForm from "@/components/gate-form";
 import { GATE_COOKIE, isGateActive, verifyGateCookie } from "@/lib/gate";
-import { enabledModules, isModuleEnabled } from "@/lib/modules";
+import { moduleDefById } from "@/lib/modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 
 export const metadata: Metadata = {
   title: "Access",
   robots: { index: false },
 };
-
-/** The route this gate is standing in front of — the first enabled module's
- *  own route, in registry order.
- *
- *  DERIVED, because it used to be a hardcoded `/challenges`: on an event that
- *  doesn't run secure-development that route does not exist, so the lock
- *  screen's own redirect was a guaranteed 404. Read off the registry rather
- *  than through `getResolvedModules` on purpose — the lock screen is the one
- *  page a pre-event crowd hammers, and it has no business making a settings
- *  read to decide where to send someone. That costs the organizer's rename on
- *  this one screen; every other surface still honours it.
- *
- *  "/" is the floor for an event whose modules have no route at all. */
-const gatedModule = enabledModules.find((m) => m.nav);
-const UNLOCKED_DESTINATION = gatedModule?.nav?.href ?? "/";
-const UNLOCK_LABEL = gatedModule ? `Unlock ${gatedModule.nav!.label.toLowerCase()}` : "Unlock";
-
-// The lock screen speaks in secure-development's noun ("the challenge board")
-// on an event that runs it, and neutrally otherwise. A third module wanting
-// its own wording here should graduate this to a registry block, the way
-// `emptyBoard` did for the leaderboard's empty state; two strings on a lock
-// screen do not earn one yet.
-const secureDev = isModuleEnabled("secure-development");
 
 /** The pre-event lock screen the proxy sends visitors to. Reading cookies()
  *  makes this page dynamic on purpose: the redirect below is the self-heal for
@@ -41,6 +19,29 @@ const secureDev = isModuleEnabled("secure-development");
  *  loop. */
 export default async function GatePage() {
   const store = await cookies();
+
+  const live = await getEnabledModuleIds();
+  // The route this gate is standing in front of — the first live module's
+  // own route, in registry order.
+  //
+  // DERIVED, because it used to be a hardcoded `/challenges`: on an event
+  // that doesn't run secure-development that route does not exist, so the
+  // lock screen's own redirect was a guaranteed 404. The baked set no longer
+  // exists (issue #386) — this read is the request-cached live set, and it
+  // fails open to the default like every other reader of it.
+  //
+  // "/" is the floor for an event whose modules have no route at all.
+  const gatedModule = [...live].map((id) => moduleDefById(id)).find((m) => m?.nav);
+  const UNLOCKED_DESTINATION = gatedModule?.nav?.href ?? "/";
+  const UNLOCK_LABEL = gatedModule ? `Unlock ${gatedModule.nav!.label.toLowerCase()}` : "Unlock";
+
+  // The lock screen speaks in secure-development's noun ("the challenge board")
+  // on an event that runs it, and neutrally otherwise. A third module wanting
+  // its own wording here should graduate this to a registry block, the way
+  // `emptyBoard` did for the leaderboard's empty state; two strings on a lock
+  // screen do not earn one yet.
+  const secureDev = live.has("secure-development");
+
   if (!isGateActive() || verifyGateCookie(store.get(GATE_COOKIE)?.value)) {
     redirect(UNLOCKED_DESTINATION);
   }

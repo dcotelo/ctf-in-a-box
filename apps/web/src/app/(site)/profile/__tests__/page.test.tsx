@@ -51,7 +51,7 @@ vi.mock("next/navigation", async (importOriginal) => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser, getLeaderboard }) }));
+vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: async () => ({ getUser, getLeaderboard }) }));
 vi.mock("@/lib/team-store", () => ({
   getViewerTeam,
   // The page renders the cap through the same resolver joinTeam enforces

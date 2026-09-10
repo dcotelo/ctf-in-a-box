@@ -8,13 +8,20 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // `getResolvedModules` reads `enabledModuleIds` off this settings object
+  // and falls back to the (baked-shim-mocked) `defaultModuleIds`, which is
+  // ALL four registered ids, not the shipped set — so this must name the
+  // shipped config's module list explicitly, or the page composes a guide
+  // for every module the registry knows, not the one this event runs.
+  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["secure-development"] }),
 }));
 
-import HowToPlay, { metadata } from "@/app/(site)/how-to-play/page";
+import HowToPlay, { generateMetadata } from "@/app/(site)/how-to-play/page";
 
 const html = await HowToPlay().then(renderToStaticMarkup);
+const metadata = await generateMetadata();
 
 describe("/how-to-play on a secure-development event", () => {
   it("keeps the module's own lede as the page description", () => {

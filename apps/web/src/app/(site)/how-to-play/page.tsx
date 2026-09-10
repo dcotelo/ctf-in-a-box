@@ -20,23 +20,26 @@ import Link from "next/link";
 import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames, workedExampleVariant } from "@/lib/apps";
-import { enabledModules, type GuideContext } from "@/lib/modules";
+import { moduleDefById, type GuideContext } from "@/lib/modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleGuide, getResolvedModules } from "@/lib/resolved-modules";
 import { event } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
-// What the page is, in the enabled modules' own words. Read off the static
-// registry (guide copy is not organizer-overridable — only title/blurb are),
-// so this stays a static `metadata` export with no request-time read.
-const metaDescription = enabledModules
-  .map((m) => m.guide?.metaDescription)
-  .filter(Boolean)
-  .join(" ");
-
-export const metadata: Metadata = {
-  title: "How to Play",
-  description: metaDescription || `How to play ${event.name}.`,
-};
+// What the page is, in the live modules' own words. Read off the registry
+// (guide copy is not organizer-overridable — only title/blurb are), behind
+// the same cached live-set read the page body makes.
+export async function generateMetadata(): Promise<Metadata> {
+  const live = await getEnabledModuleIds();
+  const metaDescription = [...live]
+    .map((id) => moduleDefById(id)?.guide?.metaDescription)
+    .filter(Boolean)
+    .join(" ");
+  return {
+    title: "How to Play",
+    description: metaDescription || `How to play ${event.name}.`,
+  };
+}
 
 // The page lede when the event runs more than one guided module (or none):
 // each module's own lede describes only its half, so the frame speaks for

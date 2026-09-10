@@ -32,7 +32,7 @@ vi.mock("@/lib/event-config", () => ({
 import { EmptyBoard } from "@/components/leaderboard";
 import { resolveModules } from "@/lib/modules";
 
-const modules = resolveModules({});
+const modules = resolveModules({}, new Set(["secure-development", "quiz"]));
 const only = (id: string) => modules.filter((m) => m.id === id);
 
 describe("the empty leaderboard", () => {

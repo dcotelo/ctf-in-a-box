@@ -23,9 +23,13 @@ vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "fake-token");
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
+  // `getResolvedModules` falls back to the baked shim's ALL-module
+  // `defaultModuleIds` unless this names the fixture's own set.
   getAdminSettings: async () => ({
     moduleOverrides: {},
+    enabledModuleIds: ["secure-development"],
     hintsEnabled: true,
     hintCost: CONFIGURED_HINT_COST,
     hintsMinSolves: null,

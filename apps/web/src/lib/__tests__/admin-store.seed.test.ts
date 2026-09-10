@@ -3,11 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn(),
   upstashPipeline: vi.fn<(c: (string | number)[][]) => Promise<{ result?: unknown }[]>>(),
-  isModuleEnabled: vi.fn<(id: string) => boolean>(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
-vi.mock("@/lib/modules", () => ({ isModuleEnabled: mocks.isModuleEnabled }));
 
 import { seedDemoData, SEED_CATEGORIES_SCRIPT } from "@/lib/admin-store";
 import { upsertQuestion } from "@/lib/quiz-store";
@@ -26,17 +24,27 @@ import {
   DEMO_AI_SOLVES,
 } from "@/lib/demo-fixture";
 
+/** The settings-read shape `getAdminSettings` decodes `enabledModules` from —
+ *  a comma-joined id list on the ONE hash the seed's schedule clamp and its
+ *  module gates now share a single read of (issue #386). Call this before
+ *  `seedDemoData` to control which modules the NEXT read sees; it queues onto
+ *  `upstashPipeline` with `mockResolvedValueOnce`, so it must be the very next
+ *  call — which the settings read always is, since it happens first. */
+function mockEnabledModules(ids: readonly string[]) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["enabledModules", ids.join(",")] }]);
+}
+
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
   // Answers BOTH pipelines the seed now runs: the settings read (HGETALL,
-  // which the clamp consumes — empty hash = no schedule = unclamped) and the
+  // which the clamp consumes — empty hash = no schedule = unclamped — and
+  // which the module gates below now also read `enabledModules` off) and the
   // write batch (whose return is unused).
-  mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
-  mocks.isModuleEnabled.mockReset();
+  //
   // ai is deliberately left OFF by default (only quiz + classic on), so the
   // large existing block of assertions below stays byte-for-byte identical to
   // pre-ai behavior; ai gets its own describe block with its own mock.
-  mocks.isModuleEnabled.mockImplementation((id) => id === "quiz" || id === "classic");
+  mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz,classic"] }]);
 });
 
 
@@ -133,6 +141,12 @@ describe("seedDemoData", () => {
           new Date(startMs).toISOString(),
           "scoringEndsAt",
           new Date(endMs).toISOString(),
+          // Same default as the outer beforeEach — this override replaces the
+          // WHOLE settings read, so it has to restate enabledModules too, or
+          // the fallback default (empty, no SCORE_IMAGE in the test env)
+          // would silently drop quiz out of what this test exercises.
+          "enabledModules",
+          "quiz,classic",
         ],
       },
     ]);
@@ -155,7 +169,14 @@ describe("seedDemoData", () => {
   it("falls back to the unclamped window when the schedule is entirely in the future", async () => {
     const startMs = Date.now() + 60 * 60 * 1000; // opens in an hour
     mocks.upstashPipeline.mockResolvedValueOnce([
-      { result: ["scoringStartsAt", new Date(startMs).toISOString()] },
+      {
+        result: [
+          "scoringStartsAt",
+          new Date(startMs).toISOString(),
+          "enabledModules",
+          "quiz,classic",
+        ],
+      },
     ]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
@@ -255,8 +276,8 @@ describe("seedDemoData", () => {
     }
   });
 
-  it("writes no ctf:quiz:* keys when the quiz module is disabled", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
+  it("does not seed quiz content when quiz is not live", async () => {
+    mockEnabledModules(["classic"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:quiz:"))).toBe(false);
@@ -367,14 +388,14 @@ describe("seedDemoData", () => {
   });
 
   it("writes no ctf:classic:* keys when the classic module is disabled", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "quiz");
+    mockEnabledModules(["quiz"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:classic:"))).toBe(false);
   });
 
   it("seeds ai challenges + flag/flagnorm (flag mode only) + signing keys, with NO flag in the public record", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mockEnabledModules(["ai"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
@@ -455,7 +476,7 @@ describe("seedDemoData", () => {
   });
 
   it("seeds ai solves so aggregates agree with the per-login rows and solvecount", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mockEnabledModules(["ai"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
@@ -658,7 +679,7 @@ describe("seedDemoData", () => {
 // arguments, and that nothing writes those keys behind its back.
 describe("seedDemoData hands its category work to one atomic script", () => {
   beforeEach(() => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "classic" || id === "ai");
+    mockEnabledModules(["classic", "ai"]);
   });
 
   it("writes both category keys ONLY through the script, never a bare SET", async () => {
