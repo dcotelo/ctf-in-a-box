@@ -47,7 +47,13 @@ vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup })
 // chain runs through `connection()`, which throws outside a Next request
 // store (see lib/__tests__/site.test.ts and app/__tests__/page.test.tsx for
 // where that IS exercised).
-vi.mock("@/lib/site", () => ({ getSite: async () => ({ name: "OWASP CTF" }) }));
+//
+// The name is DELIBERATELY distinct from the spec default ("OWASP CTF") and
+// from every settings fixture below: a regression that stops threading this
+// value through to AdminHeader (e.g. reverting to the baked event.yaml name)
+// would make the assertion below fail loudly instead of the test happening
+// to still pass because the mocked and the fallback names coincide.
+vi.mock("@/lib/site", () => ({ getSite: async () => ({ name: "Plumbed CTF" }) }));
 
 import AdminPage from "@/app/(site)/admin/page";
 
@@ -82,6 +88,28 @@ describe("admin page gate", () => {
     const html = renderToStaticMarkup(ui);
     expect(html).toMatch(/freeze|pause/i);
     expect(html).toMatch(/last poll|ingested/i);
+  });
+
+  // Issue #386: the header names the RUNTIME event (getSite()), not the
+  // baked event.yaml name — this is the one place in this file that would
+  // catch admin-panel.tsx reverting `<AdminHeader eventName={...}>` back to
+  // `eventConfig.name`, since the mocked getSite() above returns a name no
+  // fixture or default shares.
+  it("names the event in the header from getSite(), not the baked config", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: null,
+      hintCost: null,
+      updatedBy: null,
+      updatedAt: null,
+      moduleOverrides: {},
+      eventIdentity: {},
+    });
+    getSyncStatus.mockResolvedValue(null);
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(ui);
+    expect(html).toContain("Plumbed CTF");
   });
 
   it("resolves each module's setup block server-side and renders it in that module's panel", async () => {

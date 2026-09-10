@@ -11,6 +11,7 @@
 // these tests vacuous.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
 import type { ResolvedModule } from "@/lib/modules";
 import { panelFor } from "./panel-for";
@@ -18,6 +19,51 @@ import { HINT_COST, HINT_MIN_SOLVES, HINT_UNLOCK_AFTER_MIN } from "@/lib/hint-de
 import { QUIZ_MAX_ATTEMPTS, QUIZ_RETRY_AFTER_MIN } from "@/lib/quiz-defaults";
 import { CLASSIC_COOLDOWN_SEC } from "@/lib/classic-defaults";
 import { AI_COOLDOWN_SEC } from "@/lib/ai-defaults";
+import AdminEventTab, { type AdminEventTabProps } from "@/app/(site)/admin/admin-event-tab";
+
+// A plain, unrendered React element as the object shape both helpers below
+// walk — `{$$typeof, type, props, ...}` — not the DOM; nothing here ever
+// touches ReactDOMServer's output string.
+type ReactEl = { type: unknown; props?: Record<string, unknown> };
+
+/** Depth-first search through a React element tree that was never actually
+ *  rendered/reconciled (see `captureTree` below) for the first element
+ *  matching `predicate`. Needed because `renderToStaticMarkup`'s HTML string
+ *  drops every event handler — a `name="x"` attribute survives serialization,
+ *  an `onClick` closure does not — so proving what an `onClick` actually DOES
+ *  requires holding the real element object, not its markup. */
+function findElement(node: unknown, predicate: (el: ReactEl) => boolean): ReactEl | null {
+  if (node === null || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findElement(child, predicate);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!("type" in node)) return null;
+  const el = node as ReactEl;
+  if (predicate(el)) return el;
+  return findElement(el.props?.children, predicate);
+}
+
+/** Calls a function component directly — same "call it, don't `<JSX/>` it"
+ *  trick `admin-module-identity.binding.test.tsx` uses for `IdentityField` —
+ *  from inside a throwaway `Probe` so its hooks (`AdminControls` has several)
+ *  attach to a real fiber during `renderToStaticMarkup`, without needing
+ *  @testing-library or a DOM. Returns the RAW element tree the component
+ *  returns: nested component elements (e.g. `<AdminEventTab/>`) come back
+ *  with their fully resolved props but are never themselves rendered. */
+function captureTree<P>(Component: (props: P) => ReactElement | null, props: P): ReactElement {
+  let captured: ReactElement | null = null;
+  function Probe() {
+    captured = Component(props);
+    return null;
+  }
+  renderToStaticMarkup(<Probe />);
+  if (!captured) throw new Error("Probe never captured the component's returned element");
+  return captured;
+}
 
 // AdminControls now takes its modules as a prop (already resolved
 // server-side), so it no longer reads the registry itself. The mock stays so
@@ -416,6 +462,82 @@ describe("AdminControls module identity fields", () => {
     const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" eventName="OWASP CTF" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(panelFor(html, "secure-development")).toContain("Hint pricing is on the Hints screen");
     expect(panelFor(html, "quiz")).not.toContain("Hint pricing is on the Hints screen");
+  });
+});
+
+// Issue #386: nothing else in this file proves the Event tab's Identity
+// section is actually mounted — admin-event-identity.test.tsx pins
+// EVENT_IDENTITY_ROWS and probes IdentityField directly, neither of which
+// touches admin-event-tab.tsx's own JSX, so deleting the whole `<section>`
+// there would leave every other suite green (finding from Task 5 review
+// round 1). These two assert on the real rendered panel instead.
+describe("AdminControls event identity section", () => {
+  it("renders one input per identity field, ahead of the module switches", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" eventName="OWASP CTF" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
+    const eventPanel = panelFor(html, "event");
+    for (const name of ["eventName", "eventTheme", "eventLocation", "eventContact", "eventDiscord"]) {
+      expect(eventPanel).toContain(`name="${name}"`);
+    }
+    const identityAt = eventPanel.indexOf(">Identity<");
+    const modulesAt = eventPanel.indexOf(">Modules<");
+    expect(identityAt).toBeGreaterThan(-1);
+    expect(modulesAt).toBeGreaterThan(-1);
+    expect(identityAt).toBeLessThan(modulesAt);
+  });
+
+  it("shows the stored override as the field's value", () => {
+    const s = { ...settings, eventIdentity: { eventName: "Pinned CTF" } };
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" eventName="OWASP CTF" defaultModuleIds={["secure-development"]} secureDevAvailable initial={s} modules={twoModules} />);
+    expect(panelFor(html, "event")).toContain('value="Pinned CTF"');
+  });
+});
+
+// Issue #386, Task 5 review round 1, Important 2: nothing pinned that
+// AdminControls' own `eventName` prop (threaded down from admin-panel.tsx's
+// getSite() — see page.test.tsx/tab-page.test.tsx for the header half of
+// this chain) is what the Event tab's master-reset modal asks the organizer
+// to type. `renderToStaticMarkup` never mounts that modal — it is gated
+// behind `useState` (see this file's header comment) — so there is no
+// rendered string to assert against; a revert to the baked `eventConfig.name`
+// would leave every markup-only assertion in this file exactly as green as
+// it is today. This calls AdminControls, then AdminEventTab, directly
+// (bypassing JSX/reconciliation via `captureTree`/`findElement` above) to
+// reach the real `onClick` closure and read the object it hands `setConfirm`.
+describe("AdminControls reset confirmation — eventName plumbing", () => {
+  it("threads AdminControls' eventName prop into the Event tab's reset confirmation phrase", () => {
+    const tree = captureTree(AdminControls, {
+      viewerLogin: "organizer",
+      eventName: "Plumbed CTF",
+      defaultModuleIds: ["secure-development"],
+      secureDevAvailable: true,
+      initial: settings,
+      modules: twoModules,
+    } as Parameters<typeof AdminControls>[0]);
+
+    const eventTabEl = findElement(tree, (el) => el.type === AdminEventTab);
+    expect(eventTabEl).not.toBeNull();
+    const eventTabProps = eventTabEl!.props as AdminEventTabProps;
+    // Proves admin-controls.tsx actually FORWARDS the prop it was given —
+    // not merely that AdminEventTab would honour it if it arrived.
+    expect(eventTabProps.eventName).toBe("Plumbed CTF");
+
+    const setConfirm = vi.fn();
+    const doReset = vi.fn();
+    const eventTabTree = AdminEventTab({ ...eventTabProps, setConfirm, doReset });
+    const resetButton = findElement(eventTabTree, (el) => {
+      const children = el.props?.children;
+      return el.type === "button" && typeof children === "string" && children.includes("Reset event data");
+    });
+    expect(resetButton).not.toBeNull();
+    (resetButton!.props as { onClick: () => void }).onClick();
+
+    // The confirmation copy an organizer would see: ConfirmModal renders
+    // "Type <requireType> to confirm" and disables Confirm until the typed
+    // text matches it exactly — this IS that surface.
+    expect(setConfirm).toHaveBeenCalledWith(expect.objectContaining({ requireType: "Plumbed CTF" }));
+    const confirmArg = setConfirm.mock.calls[0][0] as { onConfirm: () => void };
+    confirmArg.onConfirm();
+    expect(doReset).toHaveBeenCalledWith("Plumbed CTF");
   });
 });
 

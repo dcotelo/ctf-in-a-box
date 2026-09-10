@@ -25,7 +25,12 @@ vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
 // Same reason as page.test.tsx: admin-panel.tsx now reads getSite() too, and
 // its real chain throws outside a Next request store (connection()).
-vi.mock("@/lib/site", () => ({ getSite: async () => ({ name: "OWASP CTF" }) }));
+//
+// Distinct from the spec default and every fixture below, same reasoning as
+// page.test.tsx — a regression that stops threading this through to
+// AdminHeader would fail the assertion below rather than pass by
+// coincidence.
+vi.mock("@/lib/site", () => ({ getSite: async () => ({ name: "Plumbed CTF" }) }));
 
 import AdminTabPage from "@/app/(site)/admin/[tab]/page";
 
@@ -69,6 +74,16 @@ describe("/admin/<tab>", () => {
     expect(selectedTab(await render("activity"))).toBe("activity");
     expect(selectedTab(await render("insights"))).toBe("insights");
     expect(selectedTab(await render("quiz"))).toBe("quiz");
+  });
+
+  // Issue #386, same pin as page.test.tsx: the header names the RUNTIME
+  // event (getSite()), not the baked event.yaml name — this catches
+  // admin-panel.tsx reverting `<AdminHeader eventName={...}>` back to
+  // `eventConfig.name`, since the mocked getSite() above returns a name no
+  // fixture or default shares.
+  it("names the event in the header from getSite(), not the baked config", async () => {
+    asAdmin();
+    expect(await render("overview")).toContain("Plumbed CTF");
   });
 
   it("falls back to Overview for a segment this event has no tab for", async () => {
