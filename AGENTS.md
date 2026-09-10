@@ -178,14 +178,19 @@ CodeRabbit lands second.
 **Talking to CodeRabbit is a rationed, incremental conversation — one
 `@coderabbitai review` per pushed batch, and let it resolve its own threads.**
 `.coderabbit.yaml` turns on `auto_review` and `auto_incremental_review`, so
-CodeRabbit is *configured* to review every push — but this is a public repo
-under 10 stars on the free OSS plan, where that automatic pass is routinely
-skipped (the check reads `Review skipped: manual review required for this OSS
-repository`) or rate-limited. So after a push, read the CodeRabbit check
-before you say anything to it: if a pass is running or has completed for that
-commit, do not trigger another — a manual `review` on top of an automatic one
-is a duplicate that burns the allowance; if it says skipped, trigger the
-review with exactly one top-level `@coderabbitai review` comment. A review,
+CodeRabbit is *configured* to review every push to an eligible pull request —
+one that is not a draft, targets `main`, and has no ignored title keyword
+(`[WIP]`, `[skip-review]`, `DO NOT REVIEW`, the rest of the list under
+`auto_review.ignore_title_keywords`); a draft or a `[WIP]` title is skipped by
+design and needs no nudge until it is eligible. But this is a public repo
+under 10 stars on the free OSS plan, where even an eligible push's automatic
+pass is routinely skipped (the check reads `Review skipped: manual review
+required for this OSS repository`) or rate-limited. So after a push to an
+eligible PR, read the CodeRabbit check before you say anything to it: if a
+pass is running or has completed for that commit, do not trigger another — a
+manual `review` on top of an automatic one is a duplicate that burns the
+allowance; only when it reads that `Review skipped` status do you trigger the
+review, with exactly one top-level `@coderabbitai review` comment. A review,
 however it started, is *incremental* — it reads only
 the commits pushed since its last pass, re-verifies its open threads, and
 resolves the ones the push addressed; no reply is needed on those. Every
