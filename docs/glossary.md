@@ -101,7 +101,7 @@ Five names orbit "the project"; they are not interchangeable:
 
 | Name | What it is |
 |---|---|
-| **OWASP CTF** | The product / brand (README, `dcotelo.github.io/owasp-ctf`) **and** the default event name a bare build shows. The two are deliberately the same string since the rebrand; real events override it with `event.name`. One consequence to know: a build that lost `EVENT_CONFIG_B64` no longer betrays itself by its name — check for an empty `admins` list and a 403 on `/admin` instead. |
+| **OWASP CTF** | The product / brand (README, `dcotelo.github.io/owasp-ctf`) **and** the default event name every deployment shows until an organizer renames it. The two are deliberately the same string since the rebrand; real events override it from `/admin` → Event → Identity (a runtime setting since #386, not `event.yaml`). One consequence to know: a build that lost `EVENT_CONFIG_B64` no longer betrays itself by its name — the name is unaffected either way — check for an empty `admins` list and a 403 on `/admin` instead. |
 | `owasp-ctf` | The local repo directory and the lowercase image namespace. |
 | `OWASP-CTF` | The GitHub **org** the canonical targets are forked into (`github.org` default). |
 | `ghcr.io/owasp-ctf/score` | The scorer image path. The lowercase `owasp-ctf` here is a registry-namespace convenience, not the `OWASP-CTF` org; override `SCORE_IMAGE` to your own org's GHCR. |

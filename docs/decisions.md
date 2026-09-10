@@ -365,7 +365,7 @@ this is a deliberate, tracked fork, not an untracked copy-paste.
 
 ## ADR 12. Build-time config generation over runtime config
 
-**Status.** Accepted.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event's identity (name, tagline, location, contact e-mail, Discord invite) moved to a runtime `/admin` setting; only dates and the enabled-target subset are still generated at build time.
 
 **Context.** Event identity (name, dates, targets, branding) needs to
 reach the app somehow. A runtime option (read `event.yaml` on every
@@ -378,6 +378,8 @@ build.
 npm hook (`apps/web/scripts/generate-event-config.mjs`), and have the
 app's static `metadata` exports and page content read from it at build
 time.
+
+*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `lib/site.ts`'s `getSite()` reads the event's name, tagline, location, contact e-mail and Discord invite from `ctf:admin:settings` at request time instead, failing open to the spec defaults ("OWASP CTF" / empty) when Redis has none stored. The generated module still carries those same field names (nothing reads them there any more) and still carries dates and the enabled-target subset, which remain build-time as this decision describes.*
 
 **Consequences.** Static generation and `metadata` exports keep working
 exactly as the vendored app already used them — no new runtime
@@ -707,7 +709,7 @@ implied to be complete.
 
 ## ADR 20. Landing-page frame is code; module content is contributed, not organizer-authored
 
-**Status.** Accepted.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event name (and tagline, location, contact e-mail, Discord invite) is a runtime `/admin` setting now, not baked — the frame's dates/countdown, logo, and the module `home` content stay exactly as this decision describes.
 
 **Context.** The landing page hardcoded `secure-development`'s own pitch — a
 tagline, a hero paragraph, four "how it works" steps, a "please use AI"
@@ -731,6 +733,8 @@ for a rebranding need that's already covered — the event name (decisions 12
 and 14) handles what the event is called, and the per-module title/blurb
 override (`docs/modules.md §5.1`) handles what each module is called. There
 was no remaining gap to justify taking on HTML sanitisation for.
+
+*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event name, tagline, location, contact e-mail and Discord invite are runtime `/admin` → Event → Identity settings, not part of this build-time frame — each is validated server-side (length caps, `https://` for Discord) rather than needing HTML sanitisation, the same reasoning this decision already applied to reject a rich-text field.*
 
 **Consequences.** An event's homepage always looks and functions like the
 kit — frame, countdown, nav, CTAs — and only the module-specific pitch

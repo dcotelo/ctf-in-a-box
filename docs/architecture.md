@@ -7,8 +7,8 @@ title: Architecture
 # Architecture
 
 What runs where, how a score gets from a contestant's PR to the leaderboard,
-how an organizer's `event.yaml` becomes the app's branding, and what the
-security model actually rests on. For *why* these choices were made instead
+how an organizer's `event.yaml` and admin-panel settings configure the app,
+and what the security model actually rests on. For *why* these choices were made instead
 of alternatives, see [docs/decisions.md](decisions.md). For the contract a
 new CTF vertical must satisfy, see [docs/modules.md](modules.md). For
 day-to-day operation, see [docs/operations.md](operations.md).
@@ -41,7 +41,7 @@ the registry still fails the build loudly; the boundary is the
 | The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
 | The **admin panel** runtime overrides (freeze, hints, registration, module enablement, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
-| **Event config** schema, top-level (`event`, `github`, `admins`) baked into the app (build-time flow below). | Its `modules.<name>` config block and the loader/validator entry that recognizes it (contract §1). |
+| **Event config** schema, top-level (`event.start`/`end`, `github`, `admins`) baked into the app (build-time flow below); the event's identity (name, tagline, location, contact, Discord) is a runtime `/admin` setting instead (#386). | Its `modules.<name>` config block and the loader/validator entry that recognizes it (contract §1). |
 
 Everything below — the services, the score data flow, the security model — is
 the platform. Where `secure-development` fills a module slot (its targets, its
@@ -110,7 +110,7 @@ state; everything else that touches scores goes through it.
 | Service | Source | Responsibility |
 |---|---|---|
 | `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. |
-| `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. Event name/dates/targets are baked in at build time (see below). |
+| `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. Event dates and targets are baked in at build time (see below); the event's name and other identity fields are a runtime `/admin` setting instead. |
 | `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["poll", "push"]` — both ingest modes need it, unlike `sync`, which is `["poll"]` only — and a single-module event without `secure-development` never brings it up; see [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:8-alpine` (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)), `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
@@ -1070,10 +1070,15 @@ which supersedes the v1 limitation recorded in
 
 ## Build-time config flow
 
-<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram. The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the bake supplies event identity, secure-development's target list, and the admins list, while which modules are enabled is decided at runtime in /admin, not baked; next build statically renders all of it. Event identity is baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list.">
+<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram. The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the bake supplies the event's dates, secure-development's target list, and the admins list, while which modules are enabled is decided at runtime in /admin, not baked; next build statically renders all of it. The event's dates and targets are baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list; the event's identity (name, tagline, location, contact, Discord) is a runtime /admin setting instead (issue #386), never baked.">
 
-Event identity (name, dates, URL, enabled targets, admins) is not runtime
-config — it's baked into the `app` image at build time:
+The event's dates and enabled targets, and the bootstrap admins allowlist,
+are not runtime config — they're baked into the `app` image at build time.
+The event's identity (name, tagline, location, contact e-mail, Discord
+invite) is **not** part of this bake: it is a runtime `/admin` → Event →
+Identity setting (issue #386), read fresh on every request and defaulting
+to "OWASP CTF" / empty when Redis has none stored — see
+[docs/operations.md](operations.md)'s Event tab section.
 
 1. The organizer edits `event.yaml` (see `event.yaml.example`).
 2. `EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n')` is passed as the
@@ -1101,8 +1106,11 @@ config — it's baked into the `app` image at build time:
    including an unregistered module id.
 5. `src/lib/event-config.ts` and `src/lib/apps.ts` import the generated
    module and derive `eventConfig` and the build-time `enabledApps` subset
-   from it — event identity, secure-development's target list, and the
-   admins list are decided here, at build time. Which MODULES are enabled is
+   from it — the event's dates, secure-development's target list, and the
+   admins list are decided here, at build time. `lib/site.ts`'s `getSite()`
+   ignores `eventConfig`'s own `name`/`theme`/`location`/`contactEmail`/
+   `discordUrl` fields entirely: the event's identity is resolved from
+   `ctf:admin:settings` instead, at request time (#386). Which MODULES are enabled is
    not: `src/lib/modules.ts` only holds the module registry (`MODULE_DEFS`,
    `ALL_MODULE_IDS`) and `moduleDefsFor`, which maps the RUNTIME enabled set
    — resolved per request from `ctf:admin:settings` by `lib/enabled-modules.ts`
@@ -1122,9 +1130,10 @@ config — it's baked into the `app` image at build time:
    into a single "Challenges" dropdown (`buildNavGroups`) whose items read
    each module's `title`, not its `nav.label` (see `docs/modules.md`'s
    "Where a rename reaches, honestly" for why the two labels differ).
-6. `next build` statically renders pages against those values — event name,
-   dates, and the enabled-target subset are compiled into the served HTML,
-   not read at request time.
+6. `next build` statically renders pages against those values — the event's
+   dates and the enabled-target subset are compiled into the served HTML,
+   not read at request time. The event's name and other identity fields are
+   NOT among them: every page reads those from `getSite()` at request time.
 
 Changing `event.yaml` after the stack is already running requires an
 explicit rebuild of the `app` image (`docker compose --profile app build
@@ -1253,7 +1262,7 @@ only rebuilds an image when told to
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
 | Two-reader corpus | `setup/test/corpus/` (fixtures), asserted from both sides by `setup/test/module_readers.bats` and `sync/test/module-readers.differential.test.js` | That `ctf-setup.sh` and `sync/src/config.js` — two `modules:` parsers in two languages sharing no code — ACCEPT and REJECT the same `event.yaml` files, and extract the same targets. Each fixture records its verdict in its filename, so agreeing with the corpus is agreeing with each other. Covers block style at 2/4/8 spaces, flow style on one line and across several, quoted keys, interleaved comments, CRLF, block- and flow-sequence targets, a bare `modules:`, an absent one, unknown keys, merge keys, tabs and sequences where a mapping belongs. The bash side additionally asserts the organizer-visible behaviour (flow style really forks and renders; an unparseable block fails CLOSED in `org` and `doctor` rather than printing "nothing to do"). See [ADR 24](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one). |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
-| Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: the custom event name and only the configured targets render, a disabled target never renders, and the default (no-config) build is neutral (no DC34 branding, name "OWASP CTF"). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
+| Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: only the configured targets render, a disabled target never renders, fork links follow the config's `github.org`, and both builds (config'd and default) render the identity default "OWASP CTF" in the page `<title>` — proving identity fails open to the spec default rather than reading a name baked from `event.yaml` (#386). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
 | Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Builds the real app image bound to a `modules: { quiz: {} }` config (no `secure-development` at all), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. Separately brings up `sync` through the real `docker-compose.yml` against the same config and asserts it exits `0`, logs the clean no-op reason, and — sampled over several seconds — stays exited rather than being restarted. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile poll --profile app` must still contain both. |
 | Docker acceptance (classic-only) | `scripts/acceptance-classic-only.sh` | The classic module's sibling of the quiz-only script, following every one of its design decisions: builds the real app image bound to a `modules: { classic: {} }` config, seeds a challenge and a solve straight into Redis, and asserts `/flags` shows the challenge by title, `/challenges` 404s, `/leaderboard` shows the contestant's classic points by login, and the `--profile app` line-up contains no secure-development service. |

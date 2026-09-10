@@ -137,9 +137,9 @@ controls sit behind a **left sidebar** in three groups (it collapses to a
   order, labelled with that module's name as the organizer has set it. A
   module's own knobs live in its own destination, so an event that doesn't
   run a module never sees its settings at all.
-- **Setup** — **Event** (modules, freeze, team registration, team size, the
-  schedule, then demo seed and the master reset at the bottom), **Hints**,
-  **Admins**.
+- **Setup** — **Event** (identity, modules, freeze, team registration, team
+  size, the schedule, then demo seed and the master reset at the bottom),
+  **Hints**, **Admins**.
 
 ![The admin panel's Event tab: the per-module switches, the freeze and team-registration toggles, the players-per-team cap, and the schedule fields with a live "right now: scoring is live" readout](assets/admin-event.jpg)
 
@@ -259,6 +259,20 @@ line on a page.
 
 The panel offers:
 
+- **Identity** (Event tab, top of the page) — how the event names itself, a
+  runtime `/admin` setting (issue #386): `event.yaml`'s
+  `event.name/theme/location/contact/discord` are no longer read. Five
+  fields, each restoring its default when left blank: **Event name** (≤80
+  characters; blank restores "OWASP CTF"; shown in page titles, the header,
+  the leaderboard, and this panel's own master-reset confirmation),
+  **Tagline** (≤160; one line under the event name on the landing page;
+  blank hides it), **Location** (≤160; shown beside the dates on the landing
+  page and in the page description; blank hides it), **Contact e-mail**
+  (≤254; the organizers' own inbox, rendered as a `mailto:` link on the
+  privacy and terms pages; blank hides it), and **Discord invite** (≤200;
+  must be an `https://` URL; the header, hero, rules, how-to-play, FAQ and
+  404 pages link to it; blank hides every Discord mention). Changes are live
+  on the **next page load** — no rebuild, no cache to wait out.
 - **Status** — the sync poller's heartbeat (last poll time, comments
   ingested, comments **dropped**, repos polled, last error) and a
   best-effort leaderboard freshness read.
@@ -554,8 +568,9 @@ The panel offers:
   settings, and appends the reset to the audit log. It does rotate the AI
   module's launch keypair (see [below](#ai)), so an external challenge site
   re-fetches the public key on its next verification. It is server-side and
-  admin-gated, and requires **typing the event name** to proceed (a single click
-  can't fire it).
+  admin-gated, and requires **typing the event name** — the current runtime
+  name from the Identity section above, not a fixed default — to proceed (a
+  single click can't fire it).
 
   The reset also **freezes scoring** and bumps a reset epoch that the sync poller
   honours by dropping its cursor. This is what makes a reset stick in **poll
@@ -828,15 +843,18 @@ against an event you have chosen to overwrite. If an import errors, fix the
 storage problem and simply run it again: it is a full replace-all, so a
 second successful run overwrites whatever the failed one left behind.
 
-**Branding does not travel with the bundle.** Event name, logo, and theme
-are baked into the app image at **build time**, from `event.yaml` via
-`EVENT_CONFIG_B64` (see [docs/hosting.md](hosting.md)) — not stored in
-Redis, so an import cannot repaint them. Import still applies the file's
-module title/blurb overrides, and the response names branding explicitly
-among what it skipped, so "policy applied" is never mistaken for "everything
-applied." The bundle's own event-identity block records the source event's
-name, theme, dates, location and `ctfStartsAt`, so you have those values on
-hand when you rebuild with an updated `event.yaml` to match.
+**Name, tagline and location travel with the bundle; contact and Discord
+never do.** The event's identity is a runtime `/admin` setting now (issue
+#386), so an export's informational identity block (`name`, `theme`,
+`dates`, `location`, `ctfStartsAt`) is applied on import through the same
+validated settings patch as every other policy field, before anything
+destructive runs — a restore or a repeat run of the same CTF renames itself
+without a rebuild. **Contact e-mail and Discord invite are deliberately left
+out of the bundle**, even though both are runtime settings too: they are
+organizer PII (a private inbox, an invite link), not needed to replay the
+event, and not something an organizer should be handing out inside a file
+they might publish or share — re-enter them by hand on the new box's
+Identity section after import.
 
 ## Quiz
 

@@ -8,6 +8,13 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: the event's name, tagline, location, contact e-mail and Discord
+  invite are runtime settings edited on the admin Event tab (Identity
+  section) (#386, part 2).** `event.yaml`'s
+  `event.name/theme/location/contact/discord` are no longer read. Defaults:
+  "OWASP CTF" and empty. Event archives now carry name/theme/location and
+  apply them on import.
+
 - **BREAKING: modules are switched on in `/admin`, not by listing them in `event.yaml` (#386, part 1).**
   Before an organizer touches the panel, Secure Development is the only
   board on — and only when the deployment has a `SCORE_IMAGE`; Quiz, Classic

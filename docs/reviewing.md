@@ -123,10 +123,13 @@ entry point, and its test asserts the link/nav/button exists — not merely
 that the route responds. This repo has shipped invisible-but-working
 features past green tests three times.
 
-**10. The build-time config bake.** The app bakes `event.yaml` at build via
-`EVENT_CONFIG_B64`; building without it silently yields neutral defaults
-(empty `admins`, generic branding). Review anything touching build or
-deploy scripts for a path that could run the app build with the arg unset.
+**10. The build-time config bake.** The app bakes `event.yaml`'s dates,
+targets and `admins` at build via `EVENT_CONFIG_B64`; building without it
+silently yields neutral defaults (an empty `admins` list, so `/admin` 403s
+everyone). The event's name and the rest of its branding are a separate
+runtime `/admin` setting since #386, not part of this bake. Review anything
+touching build or deploy scripts for a path that could run the app build
+with the arg unset.
 
 **11. The public surface is a named list, not a shape.** Exactly five routes
 under `/api` answer without a session or a verified launch token, and each is
