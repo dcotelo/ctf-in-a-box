@@ -501,7 +501,7 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       if (!Array.isArray(v) || v.some((id) => !isModuleId(id))) {
         throw new AdminValidationError(k, "enabledModules must be an array of known module ids");
       }
-      const requested = [...new Set(v as ModuleId[])];
+      let requested = [...new Set(v as ModuleId[])];
 
       // The one refusal left (issue #386): Secure Development needs the scorer
       // and sync containers, which exist only when the stack was brought up
@@ -517,18 +517,32 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       // (module-toggle.ts), so there is no way to drop it either. Read the
       // current hash to tell "already stored" from "new"; a read failure
       // means "cannot confirm it is already stored", so it refuses too.
+      //
+      // Ruling (CodeRabbit round 1, finding B): secure-development is NEVER
+      // WRITTEN when unavailable, carried-forward or not — a stale read
+      // between this check and the write below must never be able to
+      // re-store it. The read here only ever picks refuse-vs-strip: on a
+      // genuinely new enable it refuses (as before); on a carry-forward it
+      // STRIPS the id from what gets written instead of passing it through.
+      // A concurrent SD-disable landing between this read and our write can
+      // therefore at worst turn a strip into a refusal (the stale read still
+      // sees it "stored", so this write silently drops it same as before) —
+      // it can never turn a strip back into a store, because stripping never
+      // depends on the read succeeding: this whole branch only ever removes
+      // the id from `requested`, never adds it back.
       const sdId: ModuleId = "secure-development";
       if (requested.includes(sdId) && !secureDevAvailable(process.env)) {
-        const current = await getAdminSettings()
-          .then((s) => s.enabledModuleIds)
-          .catch(() => null);
-        const alreadyStored = (current ?? []).includes(sdId);
-        if (!alreadyStored) {
+        const stored = await getAdminSettings()
+          .then((s) => s.enabledModuleIds ?? [])
+          .catch((): ModuleId[] => []);
+        const addingSd = !stored.includes(sdId);
+        if (addingSd) {
           throw new AdminValidationError(
             k,
             "secure-development cannot be enabled here — this deployment has no scorer image (SCORE_IMAGE is unset)",
           );
         }
+        requested = requested.filter((id) => id !== sdId);
       }
       fields.push(k, requested.join(","));
       changed[k] = requested.join(",") as unknown as boolean;
@@ -897,8 +911,6 @@ function raiseSolveCounts(cmds: (string | number)[][], key: string, counts: Map<
 export async function seedDemoData(actor: string): Promise<{ contestants: number; teams: number; solves: number }> {
   const now = Date.now();
   const windowMs = 6 * 60 * 60 * 1000;
-  let total = 0;
-  for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
 
   const cmds: (string | number)[][] = [];
   // The seed window: the last ~6h, CLAMPED to the scoring schedule when one
@@ -916,6 +928,16 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // data for must follow what this event is actually serving (issue #386),
   // not what happened to be baked at build time.
   const live = new Set(settings?.enabledModuleIds ?? defaultEnabledModules(process.env));
+  // Secure Development demo data — only when the module is live, same gate
+  // reasoning as quiz/classic/ai below: a deployment with no scorer image
+  // (or one that switched the board off) must get a seed byte-for-byte
+  // identical to having no secure-development data at all, not solve rows
+  // for a board that isn't running.
+  const secureDevLive = live.has("secure-development");
+  let total = 0;
+  if (secureDevLive) {
+    for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
+  }
   const scoringStartMs = settings?.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
   const scoringEndMs = settings?.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
   let end = Number.isFinite(scoringEndMs) ? Math.min(now, scoringEndMs) : now;
@@ -930,18 +952,20 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // block), so every line rises throughout and they interleave. A per-contestant
   // sub-slot phase ((ci+0.5)/n) staggers otherwise-identical tick times so lines
   // don't land exactly on top of each other.
-  DEMO_CONTESTANTS.forEach((c, ci) => {
-    const kc = Object.values(c.solves).reduce((m, ids) => m + ids.length, 0);
-    let j = 0;
-    for (const [target, ids] of Object.entries(c.solves)) {
-      for (const id of ids) {
-        const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
-        const ts = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
-        cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
-        j++;
+  if (secureDevLive) {
+    DEMO_CONTESTANTS.forEach((c, ci) => {
+      const kc = Object.values(c.solves).reduce((m, ids) => m + ids.length, 0);
+      let j = 0;
+      for (const [target, ids] of Object.entries(c.solves)) {
+        for (const id of ids) {
+          const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
+          const ts = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
+          cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
+          j++;
+        }
       }
-    }
-  });
+    });
+  }
   const createdAt = new Date(base).toISOString();
   for (const t of DEMO_TEAMS) {
     cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);

@@ -82,9 +82,23 @@ describe("exportEventBundle", () => {
   });
 
   it("names Secure Development as not archivable when enabled", async () => {
+    process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
     m.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["secure-development", "classic"], paused: true });
     const { warnings } = await exportEventBundle(new Date());
     expect(warnings.some((w) => /secure development/i.test(w))).toBe(true);
+  });
+
+  // CodeRabbit round 1, finding F: a stored secure-development can outlive
+  // its scorer image (admin-store's carry-forward rule) — the export must
+  // not report it as live: no "not archivable" warning, and it must not ride
+  // along in bundle.settings.enabledModuleIds for a later re-import to
+  // reconcile away.
+  it("narrows secure-development out of the export when there is no scorer image, even if stored", async () => {
+    delete process.env.SCORE_IMAGE;
+    m.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["secure-development", "classic"], paused: true });
+    const { bundle, warnings } = await exportEventBundle(new Date());
+    expect(bundle.settings.enabledModuleIds).toEqual(["classic"]);
+    expect(warnings.some((w) => /secure development/i.test(w))).toBe(false);
   });
 
   it("exports the RESOLVED enabledModuleIds, not the raw possibly-undefined settings field (falls back to this deployment's default modules)", async () => {

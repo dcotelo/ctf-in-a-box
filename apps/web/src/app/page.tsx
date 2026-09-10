@@ -30,7 +30,7 @@ import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
 import { DOCS_URL, type HomeContext } from "@/lib/modules";
-import { isModuleLive } from "@/lib/enabled-modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { hasTeam } from "@/lib/team-store";
 import { event } from "@/lib/site";
@@ -65,7 +65,14 @@ export default async function Home() {
   const topByPoints = [...enabledApps].sort((a, b) => b.maxPoints - a.maxPoints).slice(0, 2);
   const topAppsList = joinAppNames(topByPoints.map((a) => a.name));
 
-  const secureDevelopment = await isModuleLive("secure-development");
+  // One snapshot for every live-set question on this page (CodeRabbit round 1
+  // finding A) — `getEnabledModuleIds()` is `cache()`-memoized per request,
+  // so this and the quiz/classic reads below share the same underlying
+  // settings read regardless; reading `.has()` off ONE local instead of
+  // awaiting `isModuleLive` three times just makes that a snapshot in the
+  // code, not only in the cache.
+  const live = await getEnabledModuleIds();
+  const secureDevelopment = live.has("secure-development");
 
   // Live facts handed to every module's copy, built once so two modules can't
   // disagree about how many targets the event has.
@@ -99,7 +106,8 @@ export default async function Home() {
   // Per-board item counts for the game cards. Quiz and classic are one read
   // each and only when enabled; a failed read drops the count line, never the
   // card.
-  const [quizLive, classicLive] = await Promise.all([isModuleLive("quiz"), isModuleLive("classic")]);
+  const quizLive = live.has("quiz");
+  const classicLive = live.has("classic");
   const [quizCount, classicCount] = await Promise.all([
     quizLive ? listQuestions().then((q) => q.length).catch(() => null) : Promise.resolve(null),
     classicLive ? listChallenges().then((c) => c.length).catch(() => null) : Promise.resolve(null),

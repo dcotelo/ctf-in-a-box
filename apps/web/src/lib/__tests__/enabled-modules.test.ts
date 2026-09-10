@@ -91,6 +91,25 @@ describe("getEnabledModuleIds", () => {
     await m.getEnabledModuleIds();
     expect(mocks.getAdminSettings).toHaveBeenCalledTimes(1);
   });
+
+  // CodeRabbit round 1, finding A: `getResolvedModules` (in
+  // `@/lib/resolved-modules`) used to read `getAdminSettings()` on its own,
+  // independently of this module's `getEnabledModuleIds` — two settings
+  // reads per request that could disagree on an unlucky Redis blip. Both now
+  // funnel through `getAdminSettingsSnapshot` here, so a request that calls
+  // both costs exactly the one read this whole file otherwise pins per
+  // function. `@/lib/resolved-modules` is imported for real (not mocked) so
+  // this exercises the actual shared dependency, not a stand-in for it.
+  it("costs ONE getAdminSettings read across getEnabledModuleIds and getResolvedModules in the same request", async () => {
+    mocks.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["quiz"] });
+    const m = await load({ SCORE_IMAGE: undefined });
+    const { getResolvedModules } = await import("@/lib/resolved-modules");
+
+    await m.getEnabledModuleIds();
+    await getResolvedModules();
+
+    expect(mocks.getAdminSettings).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("isModuleLive", () => {

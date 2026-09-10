@@ -15,6 +15,26 @@ export const defaultModuleIds: readonly ModuleId[] = defaultEnabledModules(proce
  *  once at import time so it can never disagree with the default it derived. */
 const secureDevOK = secureDevAvailable(process.env);
 
+/** The settings read every other accessor in this module (and
+ *  `resolved-modules.ts`'s `getResolvedModules`) builds on — ONE snapshot per
+ *  request, fail-open to `null` (CodeRabbit round 1 finding A). Before this
+ *  existed, `getEnabledModuleIds` and `getResolvedModules` each called
+ *  `getAdminSettings()` on their own `cache()`-wrapped function, which
+ *  deduped each one WITHIN itself but not against the other — two settings
+ *  reads per request that could, on an unlucky Redis blip landing between
+ *  them, disagree about the stored set. Funnelling both through this one
+ *  `cache()`-wrapped read closes that: whichever of the two runs first pays
+ *  for `getAdminSettings()`, and the other gets the exact same resolved (or
+ *  exact same failed-to-null) value.
+ *
+ *  `await connection()` here (not repeated by callers) is the same
+ *  build-time-prerender guard as everywhere else in this file — see
+ *  `getEnabledModuleIds`'s comment for why it is load-bearing. */
+export const getAdminSettingsSnapshot = cache(async () => {
+  await connection();
+  return getAdminSettings().catch(() => null);
+});
+
 /** Which modules this event is serving RIGHT NOW.
  *
  *  The stored set from `ctf:admin:settings` wins, including an explicitly
@@ -24,7 +44,8 @@ const secureDevOK = secureDevAvailable(process.env);
  *  this deployment was brought up for, never a surprise. Two load-bearing
  *  details, shared with `getResolvedModules`:
  *
- *  - `await connection()` keeps the read out of the build-time prerender.
+ *  - `await connection()` (inside `getAdminSettingsSnapshot`) keeps the read
+ *    out of the build-time prerender.
  *  - `cache()` dedupes WITHIN a request only; a toggle is live on the next.
  *
  *  Disabling a module writes nothing to its data — the toggle is a switch.
@@ -33,13 +54,15 @@ const secureDevOK = secureDevAvailable(process.env);
  *  `secure-development` is dropped when this deployment has no scorer image.
  *  A stored set can carry it forward from before `SCORE_IMAGE` was unset —
  *  `updateAdminSettings` allows that (issue #386) so switching it back on
- *  needs no re-enable — but an unscoreable board is never SERVED. */
+ *  needs no re-enable — but an unscoreable board is never SERVED. This
+ *  narrowing is the reason `getResolvedModules` gets its live set from THIS
+ *  function rather than reading `enabledModuleIds` off the settings snapshot
+ *  directly: reading it raw would show secure-development's card on the
+ *  landing page while `isModuleLive("secure-development")` answers false for
+ *  the very same request (finding A's bug). */
 export const getEnabledModuleIds = cache(async (): Promise<ReadonlySet<ModuleId>> => {
-  await connection();
-  const ids = await getAdminSettings()
-    .then((s) => s.enabledModuleIds)
-    .catch(() => null);
-  const resolved = new Set(ids ?? defaultModuleIds);
+  const settings = await getAdminSettingsSnapshot();
+  const resolved = new Set(settings?.enabledModuleIds ?? defaultModuleIds);
   if (!secureDevOK) resolved.delete("secure-development");
   return resolved;
 });

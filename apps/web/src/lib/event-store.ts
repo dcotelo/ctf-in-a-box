@@ -34,7 +34,16 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
   const settings = await getAdminSettings();
   const warnings: string[] = [];
 
-  const enabledModuleIds = settings.enabledModuleIds ?? defaultEnabledModules(process.env);
+  // Narrow out secure-development BEFORE `isEnabled`/the bundle write, same
+  // rule as `getEnabledModuleIds` (CodeRabbit round 1 finding F): a stored
+  // set can carry it forward from when this deployment had a scorer image
+  // (admin-store's carry-forward rule), but an unscoreable board is never
+  // reported as live in an export — no "not archivable" warning for it, and
+  // it doesn't ride along in `bundle.settings.enabledModuleIds` for a re-import
+  // to reconcile away later.
+  const enabledModuleIds = (settings.enabledModuleIds ?? defaultEnabledModules(process.env)).filter(
+    (id) => id !== "secure-development" || secureDevAvailable(process.env),
+  );
   const isEnabled = (id: string) => enabledModuleIds.includes(id as (typeof enabledModuleIds)[number]);
 
   if (isEnabled("secure-development")) {

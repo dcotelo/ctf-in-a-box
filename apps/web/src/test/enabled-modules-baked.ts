@@ -72,3 +72,33 @@ export async function getEnabledModuleIds(): Promise<ReadonlySet<ModuleId>> {
 export async function isModuleLive(id: ModuleId): Promise<boolean> {
   return bakedIds().includes(id);
 }
+
+// `getResolvedModules` (in `@/lib/resolved-modules`) reads its settings
+// snapshot through THIS function now, not `@/lib/admin-store` directly
+// (CodeRabbit round 1 finding A) — so a fixture using this double for
+// enablement still needs a working `getAdminSettingsSnapshot` for
+// `moduleOverrides` (organizer renames). Delegating to the real
+// `getAdminSettings` preserves exactly what `getResolvedModules` used to do
+// itself: whatever a consuming test file already mocks (or does not mock,
+// and lets fail open) on `@/lib/admin-store` keeps working unchanged.
+//
+// Imported LAZILY, inside the function body, rather than at the top of this
+// file: `@/lib/admin-store` carries `import "server-only"`, which throws
+// unconditionally outside Next's RSC bundling (the raw npm package has no
+// other guard) unless a test mocks it away — most consumers of this double
+// (gate/code-of-conduct/privacy's quiz-only fixtures among them) mock
+// NEITHER `server-only` nor `@/lib/admin-store`, because they only ever call
+// `isModuleLive`/`getEnabledModuleIds`, never anything that reaches this
+// function. A static top-level import would load (and crash on) `server-only`
+// for every one of those files whether or not they ever call this; the
+// dynamic import here only runs — and only needs a mock — for a fixture that
+// actually calls `getAdminSettingsSnapshot`, i.e. one that also exercises
+// `@/lib/resolved-modules`.
+export async function getAdminSettingsSnapshot() {
+  try {
+    const { getAdminSettings } = await import("@/lib/admin-store");
+    return await getAdminSettings();
+  } catch {
+    return null;
+  }
+}

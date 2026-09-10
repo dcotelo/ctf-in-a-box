@@ -41,10 +41,14 @@ beforeEach(() => {
   // which the module gates below now also read `enabledModules` off) and the
   // write batch (whose return is unused).
   //
-  // ai is deliberately left OFF by default (only quiz + classic on), so the
-  // large existing block of assertions below stays byte-for-byte identical to
-  // pre-ai behavior; ai gets its own describe block with its own mock.
-  mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz,classic"] }]);
+  // ai is deliberately left OFF by default (only secure-development + quiz +
+  // classic on), so the large existing block of assertions below stays
+  // byte-for-byte identical to pre-ai behavior; ai gets its own describe
+  // block with its own mock. secure-development stays on by default too —
+  // most of this file's assertions read `ctf:solves:<target>` rows, which
+  // only exist when it is live (issue #386's carry-forward gate); the one
+  // no-secure-development case gets its own dedicated test below.
+  mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "secure-development,quiz,classic"] }]);
 });
 
 
@@ -109,6 +113,24 @@ describe("seedDemoData", () => {
     expect(JSON.parse(String(lpush![2]))).toMatchObject({ by: "alice", action: "seed" });
   });
 
+  // CodeRabbit round 1, finding E: the ctf:solves:<target> writes (and the
+  // `solves` count derived from them) used to run unconditionally, off the
+  // fixture alone — showing solves for a module this event isn't even
+  // serving. Gated on `live.has("secure-development")`, same as quiz/classic/
+  // ai below.
+  it("skips secure-development's demo solves entirely when it is not live", async () => {
+    mockEnabledModules(["quiz"]);
+    const out = await seedDemoData("alice");
+    expect(out.solves).toBe(0);
+
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+    const solveCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:"));
+    expect(solveCmds.length).toBe(0);
+
+    const lpush = cmds.find((c) => c[0] === "LPUSH");
+    expect(JSON.parse(String(lpush![2]))).toMatchObject({ solves: 0 });
+  });
+
   it("spreads EACH contestant's solves across the window so lines interleave", async () => {
     await seedDemoData("bob");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
@@ -146,7 +168,7 @@ describe("seedDemoData", () => {
           // the fallback default (empty, no SCORE_IMAGE in the test env)
           // would silently drop quiz out of what this test exercises.
           "enabledModules",
-          "quiz,classic",
+          "secure-development,quiz,classic",
         ],
       },
     ]);
@@ -174,7 +196,7 @@ describe("seedDemoData", () => {
           "scoringStartsAt",
           new Date(startMs).toISOString(),
           "enabledModules",
-          "quiz,classic",
+          "secure-development,quiz,classic",
         ],
       },
     ]);

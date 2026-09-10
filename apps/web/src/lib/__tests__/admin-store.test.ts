@@ -178,23 +178,31 @@ describe("updateAdminSettings validation", () => {
       expect(mocks.upstashEval).not.toHaveBeenCalled();
     });
 
-    // Final-review finding #1/#2 (issue #386): a deployment can already have
-    // secure-development STORED (from when it had a scorer image) even after
-    // SCORE_IMAGE is removed. Refusing to carry it forward would deadlock the
-    // Modules section — every write refuses because the write always carries
-    // the stored set forward, and SD's own switch is locked off. Only a NEW
-    // enable is refused; an already-stored one rides along.
-    it("carries a stored secure-development forward when there is no scorer image today", async () => {
+    // CodeRabbit round 1, finding B (ruling): secure-development is NEVER
+    // WRITTEN when unavailable, carried-forward or not. A deployment can
+    // already have it STORED (from when it had a scorer image) even after
+    // SCORE_IMAGE is removed; refusing the whole write would deadlock the
+    // Modules section the same way an unconditional refusal always did — so
+    // this does not refuse, it STRIPS the id from what actually gets
+    // written. The stale-read race this closes: a concurrent SD-disable
+    // landing between the read below and this write can at worst turn a
+    // strip into a refusal (next time), never re-store secure-development as
+    // live — stripping never depends on the read succeeding, it only ever
+    // removes the id.
+    it("strips a stored secure-development from what is written when there is no scorer image today", async () => {
       delete process.env.SCORE_IMAGE;
       mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "secure-development,classic"] }]);
       mocks.upstashEval.mockResolvedValue([
-        "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z", "enabledModules", "secure-development,quiz",
+        "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z", "enabledModules", "quiz",
       ]);
       await expect(
         updateAdminSettings({ enabledModules: ["secure-development", "quiz"] }, "alice"),
       ).resolves.toBeDefined();
-      const args = mocks.upstashEval.mock.calls[0][2];
-      expect(args).toContain("secure-development,quiz");
+      const [, , args] = mocks.upstashEval.mock.calls[0];
+      const strArgs = args.map(String);
+      const idx = strArgs.indexOf("enabledModules");
+      expect(strArgs[idx + 1]).toBe("quiz");
+      expect(args).not.toContain("secure-development,quiz");
     });
 
     it("refuses an unknown module id rather than storing it", async () => {
