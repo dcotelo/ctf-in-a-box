@@ -61,9 +61,14 @@ the sections below are the enforceable contract behind it.
 2. MUST be **runtime-toggleable**, like every other module. Organizers switch
    modules on and off from `/admin` during an event, and the live set lives in
    `ctf:admin:settings`
-   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)),
-   with presence in `event.yaml`'s `modules:` as the deployment's starting set
-   and outage fallback, not the live truth.
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
+   amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386)). The
+   deployment's starting set and its outage fallback are the
+   `SCORE_IMAGE`-derived default — secure-development alone when a scorer
+   image exists, nothing when it does not — not anything read from
+   `event.yaml`. In this release, `event.yaml`'s `modules:` block configures
+   only `secure-development` (its `targets` and `score_ingest`); it does not
+   enable or disable any module.
 
    A module whose services are **profile-gated** — chosen once, when the
    stack comes up, not when a switch is flipped (`docker-compose.yml`

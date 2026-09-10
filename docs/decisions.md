@@ -2799,6 +2799,8 @@ roughly twenty consumers read it as a module-load constant. An organizer who
 wanted to add the quiz mid-event needed a rebuild
 ([#175](https://github.com/dcotelo/owasp-ctf/issues/175)).
 
+*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the fallback is the `SCORE_IMAGE`-derived default now (secure-development alone when a scorer image exists, otherwise nothing), not `event.yaml`.*
+
 **Decision.** The live set lives in `ctf:admin:settings`, and **`event.yaml`
 becomes the seed and the outage fallback rather than the truth**. That
 inversion is the decision; everything else follows from it.
@@ -2824,11 +2826,15 @@ either way, and pre-event the lock screen is what a visitor should see
 regardless. It also stops the gate leaking which modules an event runs before
 it opens.
 
+*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): an empty module set is legal now — an organizer may switch every board off, and nothing refuses that write.*
+
 **Refusing the last module.** ADR 24 already refuses a present-but-empty
 `modules: {}` at build time. The runtime control refuses the equivalent, so
 the same configuration is not legal through one door and illegal through the
 other. An event serving nothing is a contestant-facing site with no content
 and no explanation.
+
+*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): Secure Development now toggles at runtime like every other module, refused only when the deployment has no scorer image (`SCORE_IMAGE` unset) — and disabling it is no longer refused.*
 
 **Secure Development is excluded, in both directions.** It is not a flag:
 

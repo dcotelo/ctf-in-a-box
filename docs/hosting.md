@@ -422,12 +422,18 @@ targets), so it carries both ingest profiles — `["poll", "push"]` — while
 to the scorer directly and needs no poller. A quiz-only event must not be
 asked to pull a scorer image it has no reason to own.
 
-**`SCORE_IMAGE` decides two things at once:** which profiles you need (the
-scorer and sync containers exist only when it is set) and what is enabled
-before an organizer opens `/admin` — Secure Development alone when it is
-set, nothing when it is not. Quiz, Classic and AI are switched on from the
-panel (#386). The app receives `SCORE_IMAGE` as a runtime env var from the
-compose file, so the two can never disagree.
+**Profiles and `SCORE_IMAGE` are two separate choices that have to agree, not
+one setting picking both.** You choose the profile at `up`: `--profile app`
+alone for a quiz/classic/ai-only event, `--profile poll --profile app` when
+you are running Secure Development. The `poll` profile needs an *accessible*
+`SCORE_IMAGE` — the compose fallback image is private, so bringing `poll` up
+without your own `SCORE_IMAGE` set fails the pull. Separately, the app's
+DEFAULT module set (what an organizer sees on first opening `/admin`, and
+the outage fallback) follows `SCORE_IMAGE` on its own: Secure Development
+alone when it is set, nothing when it is not — Quiz, Classic and AI are
+switched on from the panel (#386). Nothing enforces that the two agree, so
+keep them in sync yourself: never bring the `poll` profile up without a
+`SCORE_IMAGE`, or the scorer container has nothing to score against.
 
 **Every one of these is a `--build`, so every one needs `EVENT_CONFIG_B64`.**
 Export it once, in the same shell — without it the build silently bakes
