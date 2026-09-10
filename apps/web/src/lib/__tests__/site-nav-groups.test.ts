@@ -10,6 +10,10 @@ vi.mock("@/lib/event-config", () => ({
     modules: [{ id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" }],
   },
 }));
+// site.ts now also imports @/lib/enabled-modules (for getSite()), which
+// carries `import "server-only"` — a no-op in Next's RSC bundling but a hard
+// throw in plain vitest. Stub it out; none of these tests touch getSite().
+vi.mock("@/lib/enabled-modules", () => ({ getAdminSettingsSnapshot: vi.fn(async () => null) }));
 
 import { buildNavGroups, isNavGroup, type NavEntry } from "@/lib/site";
 
