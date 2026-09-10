@@ -310,6 +310,12 @@ The panel offers:
   event with nothing on shows "No boards are open yet" and points at this
   panel.
 
+  A Secure Development left **on** from before the scorer image was removed
+  is not force-disabled outright — it is hidden from contestants (the module
+  contract's usual "switched off" behaviour) and drops out of the stored
+  enabled set automatically the next time you change any module here, so it
+  never comes back on its own once the deployment has a scorer image again.
+
   **What is on before you touch anything:** Secure Development, and only
   when the deployment has a scorer image; otherwise nothing. Quiz, Classic
   and AI always start off. `event.yaml`'s `modules:` block no longer
