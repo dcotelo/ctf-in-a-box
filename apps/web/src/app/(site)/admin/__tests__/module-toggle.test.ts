@@ -2,40 +2,42 @@
 // module panel's header switch. Pure, so provable by direct call — the two
 // callers can only differ in where they render, never in what they decide.
 import { describe, expect, it } from "vitest";
-import { moduleToggleConfirm, moduleToggleState } from "@/app/(site)/admin/module-toggle";
+import { moduleChoices, moduleToggleConfirm, moduleToggleState } from "@/app/(site)/admin/module-toggle";
 
 const quiz = { id: "quiz", label: "Quiz", toggleable: true };
 const classic = { id: "classic", label: "Classic CTF", toggleable: true };
 const secdev = { id: "secure-development", label: "Secure Development", toggleable: false, reason: "Configured at setup." };
 
+describe("moduleChoices", () => {
+  it("every module is toggleable when a scorer image exists", () => {
+    for (const c of moduleChoices(true)) expect(c.toggleable).toBe(true);
+  });
+  it("only secure-development is locked when there is no scorer image, with the reason", () => {
+    const sd = moduleChoices(false).find((c) => c.id === "secure-development")!;
+    expect(sd.toggleable).toBe(false);
+    expect(sd.reason).toMatch(/no scorer image/);
+    for (const c of moduleChoices(false).filter((c) => c.id !== "secure-development")) expect(c.toggleable).toBe(true);
+  });
+  it("the last live module can be switched off — an empty event is legal", () => {
+    const quiz = moduleChoices(true).find((c) => c.id === "quiz")!;
+    const state = moduleToggleState(quiz, new Set(["quiz"]));
+    expect(state.disabled).toBe(false);
+    expect(state.help).toBeUndefined();
+  });
+});
+
 describe("moduleToggleState", () => {
   it("reads on/off from the live set", () => {
-    expect(moduleToggleState(quiz, new Set(["quiz", "classic"]), 2)).toEqual({ on: true, disabled: false, help: undefined });
-    expect(moduleToggleState(classic, new Set(["quiz"]), 1)).toMatchObject({ on: false, disabled: false });
+    expect(moduleToggleState(quiz, new Set(["quiz", "classic"]))).toEqual({ on: true, disabled: false, help: undefined });
+    expect(moduleToggleState(classic, new Set(["quiz"]))).toMatchObject({ on: false, disabled: false });
   });
 
   it("locks a non-toggleable module and says why", () => {
-    expect(moduleToggleState(secdev, new Set(["secure-development", "quiz"]), 2)).toEqual({
+    expect(moduleToggleState(secdev, new Set(["secure-development", "quiz"]))).toEqual({
       on: true,
       disabled: true,
       help: "Configured at setup.",
     });
-  });
-
-  it("locks the last LIVE module, counting the non-toggleable ones as live", () => {
-    // quiz alone: locked, with the sentence.
-    expect(moduleToggleState(quiz, new Set(["quiz"]), 1)).toEqual({
-      on: true,
-      disabled: true,
-      help: "The only module left — an event has to serve something.",
-    });
-    // quiz + secure-development: quiz is NOT the last one — secure-development
-    // is serving too, so the set stays legal without quiz.
-    expect(moduleToggleState(quiz, new Set(["quiz", "secure-development"]), 2)).toMatchObject({ disabled: false, help: undefined });
-  });
-
-  it("never locks an OFF module for being 'the last one'", () => {
-    expect(moduleToggleState(classic, new Set(["quiz"]), 1)).toMatchObject({ on: false, disabled: false });
   });
 });
 

@@ -45,6 +45,7 @@ describe("a switched-off module's 404", () => {
   for (const [label, Component, name] of [
     ["flags", FlagsNotFound, "Classic CTF"],
     ["quiz", QuizNotFound, "Quiz"],
+    ["challenges", ChallengesNotFound, "Secure Development"],
   ] as const) {
     describe(label, async () => {
       const html = text(renderToStaticMarkup(await Component()));
@@ -71,23 +72,3 @@ describe("a switched-off module's 404", () => {
   }
 });
 
-describe("secure-development's 404", async () => {
-  // Not runtime-toggleable (ADR 52), so this route means "not part of this
-  // event" rather than "switched off". Promising it can come back would leave
-  // contestants waiting for something no organizer can do from the panel.
-  const html = text(renderToStaticMarkup(await ChallengesNotFound()));
-
-  it("says the event does not run it, rather than that it was switched off", () => {
-    expect(html).toMatch(/doesn't run|isn't part of this event/i);
-    expect(html).not.toMatch(/switched off/i);
-  });
-
-  it("does not promise it can come back mid-event", () => {
-    expect(html).not.toMatch(/come back/i);
-  });
-
-  it("still absolves the visitor's link", () => {
-    expect(html).toMatch(/link is fine/i);
-    expect(html).not.toMatch(WRONG_LINK);
-  });
-});

@@ -43,13 +43,12 @@ const { enabledModules } = vi.hoisted(() => ({
 
 // MODULE_TITLE_MAX/MODULE_BLURB_MAX live in @/lib/modules (client-safe — see
 // that file's comment on why they aren't defined in admin-store.ts), so this
-// full-module mock has to supply them too. `ALL_MODULE_IDS`, `moduleDefById`
-// and `bakedModuleIds` came with runtime enablement (issue #175): the panel
-// builds its module toggle rows off the WHOLE registry, not the enabled
-// subset, so it can offer a disabled module's switch at all.
+// full-module mock has to supply them too. `ALL_MODULE_IDS` and
+// `moduleDefById` came with runtime enablement (issue #175): the panel builds
+// its module toggle rows off the WHOLE registry, not the enabled subset, so
+// it can offer a disabled module's switch at all.
 vi.mock("@/lib/modules", () => ({
   enabledModules,
-  bakedModuleIds: enabledModules.map((m) => m.id),
   ALL_MODULE_IDS: ["secure-development", "quiz", "classic"],
   moduleDefById: (id: string) =>
     ({
@@ -110,7 +109,7 @@ const settings: AdminSettings = {
 
 describe("AdminControls tab shell", () => {
   it("renders one sidebar destination per enabled module plus the six control-plane destinations", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(html).toContain('aria-label="Admin sections"');
     expect(html).toContain("Overview");
     expect(html).toContain("Event");
@@ -135,6 +134,8 @@ describe("AdminControls tab shell", () => {
     const html = renderToStaticMarkup(
       <AdminControls
         viewerLogin="organizer"
+        defaultModuleIds={["secure-development"]}
+        secureDevAvailable
         initial={settings}
         modules={twoModules}
         setups={{
@@ -167,7 +168,7 @@ describe("AdminControls tab shell", () => {
   // sentence the field carried about itself was the one false claim on the
   // panel. The help now names the surfaces the docs name.
   it("tells the truth about where the blurb renders", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const quiz = panelFor(html, "quiz");
     expect(quiz).not.toContain("Not shown on any page");
     expect(quiz).toMatch(/lede under the title/);
@@ -176,13 +177,13 @@ describe("AdminControls tab shell", () => {
 
   it("labels a module tab with its resolved title", () => {
     const html = renderToStaticMarkup(
-      <AdminControls viewerLogin="organizer" initial={settings} modules={[{ id: "quiz", title: "Round 1" }] as never} />,
+      <AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={[{ id: "quiz", title: "Round 1" }] as never} />,
     );
     expect(html).toContain("Round 1");
   });
 
   it("renders every tab panel so only visibility is conditional", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     // Overview + Event + Hints + Admins + Support + Activity + Insights + the two modules.
     expect(html.match(/role="region"/g)?.length).toBe(9);
     // Exactly the eight non-selected panels carry `hidden`.
@@ -190,7 +191,7 @@ describe("AdminControls tab shell", () => {
   });
 
   it("names each panel for assistive tech and links the sidebar to it", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     for (const [id, label] of [
       ["event", "Event"],
       ["admins", "Admins"],
@@ -205,7 +206,7 @@ describe("AdminControls tab shell", () => {
   });
 
   it("marks exactly one sidebar destination current, and it is Overview", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(html.match(/aria-current="page"/g)?.length).toBe(1);
     // Which one matters: an organizer opening /admin with no deep link lands
     // on the state-at-a-glance screen, not on whichever module happens to be
@@ -216,7 +217,7 @@ describe("AdminControls tab shell", () => {
   });
 
   it("replaces the old WAI-ARIA tabs widget entirely — every destination is a real, keyboard-reachable link", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(html).not.toContain('role="tab"');
     expect(html).not.toContain('role="tablist"');
     // No roving tabindex trick — a plain `<a>` needs none to be Tab-reachable.
@@ -232,7 +233,7 @@ describe("AdminControls panel contents", () => {
   // module (UX audit F1). Secure Development keeps the one knob that IS its
   // own: the re-run cooldown.
   it("puts the hint controls on their own Hints panel and leaves only the re-run cooldown on Secure Development", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const secureDev = panelFor(html, "secure-development");
     const eventPanel = panelFor(html, "event");
     const hintsPanel = panelFor(html, "hints");
@@ -247,7 +248,7 @@ describe("AdminControls panel contents", () => {
   });
 
   it("says on the Hints panel which modules the hint policy reaches", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const hintsPanel = panelFor(html, "hints");
     expect(hintsPanel).toMatch(/Classic CTF and AI Challenges sell their hints/);
     // Secure Development is named as having none, and the wording that sent
@@ -262,14 +263,14 @@ describe("AdminControls panel contents", () => {
   // (not a section of Event), the field names WHERE to find Scoring opens
   // instead of pointing at a field on the same panel.
   it("points the unlock-after help at the Event tab, not 'below'", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const hintsPanel = panelFor(html, "hints");
     expect(hintsPanel).toContain("on the Event tab");
     expect(hintsPanel).not.toContain("a scoring start below");
   });
 
   it("keeps freeze and registration in the Event panel", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const eventPanel = panelFor(html, "event");
     expect(eventPanel).toContain("Freeze scoring");
     expect(eventPanel).toContain("Team registration open");
@@ -281,7 +282,7 @@ describe("AdminControls panel contents", () => {
   // through the shared outsideWindow — so the organizer never computes it in
   // their head from four datetime fields plus two toggles (issue #200, 3.3).
   it("states whether scoring and registration are live right now", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const eventPanel = panelFor(html, "event");
     // Fixture: not paused, no windows, registration open — both live.
     expect(eventPanel).toContain("Right now:");
@@ -291,13 +292,15 @@ describe("AdminControls panel contents", () => {
 
   it("names WHY scoring is frozen — manual freeze vs a closed window", () => {
     const manuallyFrozen = renderToStaticMarkup(
-      <AdminControls viewerLogin="organizer" initial={{ ...settings, paused: true }} modules={twoModules} />,
+      <AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={{ ...settings, paused: true }} modules={twoModules} />,
     );
     expect(panelFor(manuallyFrozen, "event")).toContain("scoring is frozen (manual)");
 
     const windowClosed = renderToStaticMarkup(
       <AdminControls
         viewerLogin="organizer"
+        defaultModuleIds={["secure-development"]}
+        secureDevAvailable
         // A scoring window that ended long ago — the toggle is on, the
         // window is what froze it, and the readout must say which.
         initial={{ ...settings, scoringEndsAt: "2000-01-01T00:00:00.000Z" }}
@@ -308,7 +311,7 @@ describe("AdminControls panel contents", () => {
   });
 
   it("renders the quiz module's settings and question authoring in its own panel", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");
     expect(quizPanel).toContain("Max attempts");
     expect(quizPanel).toContain("Retry after (min)");
@@ -318,7 +321,7 @@ describe("AdminControls panel contents", () => {
 
   it("drops a module's panel entirely when it is not enabled", () => {
     const html = renderToStaticMarkup(
-      <AdminControls viewerLogin="organizer" initial={settings} modules={twoModules.filter((m) => m.id !== "secure-development")} />,
+      <AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules.filter((m) => m.id !== "secure-development")} />,
     );
     // Overview + Event + Hints + Admins + Support + Activity + Insights +
     // quiz. The control-plane destinations survive a module being disabled,
@@ -331,10 +334,10 @@ describe("AdminControls panel contents", () => {
   });
 
   it("shows the demo seed section only when demoMode is set", () => {
-    const withoutDemo = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const withoutDemo = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(withoutDemo).not.toMatch(/seed demo data/i);
 
-    const withDemo = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} demoMode />);
+    const withDemo = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} demoMode />);
     expect(panelFor(withDemo, "event")).toMatch(/seed demo data/i);
   });
 });
@@ -342,7 +345,7 @@ describe("AdminControls panel contents", () => {
 describe("AdminControls settings audit line", () => {
   const changed = { ...settings, updatedBy: "alice", updatedAt: "2026-08-24T18:00:00.000Z" };
   const render = (initialTab: string) =>
-    renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={changed} modules={twoModules} initialTab={initialTab} />);
+    renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={changed} modules={twoModules} initialTab={initialTab} />);
 
   it("shows who last changed the settings under the screens that change them", () => {
     expect(render("overview")).toContain("last changed by alice");
@@ -360,7 +363,7 @@ describe("AdminControls settings audit line", () => {
 
 describe("AdminControls module identity fields", () => {
   it("renders a title and blurb field in each module panel", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(panelFor(html, "quiz")).toContain('name="moduleTitle:quiz"');
     expect(panelFor(html, "quiz")).toContain('name="moduleBlurb:quiz"');
     expect(panelFor(html, "secure-development")).toContain('name="moduleTitle:secure-development"');
@@ -371,17 +374,17 @@ describe("AdminControls module identity fields", () => {
 
   it("shows the stored override as the field value", () => {
     const s = { ...settings, moduleOverrides: { quiz: { title: "Round 1" } } };
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={s} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={s} modules={twoModules} />);
     expect(panelFor(html, "quiz")).toContain('value="Round 1"');
   });
 
   it("leaves the field blank (not the registry default) when there is no override", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(panelFor(html, "quiz")).toContain('name="moduleTitle:quiz" value=""');
   });
 
   it("shows the registry default as the placeholder, so blank-restores-default is discoverable", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");
     expect(quizPanel).toContain('placeholder="Quiz"');
     expect(quizPanel).toContain('placeholder="Answer security questions for points."');
@@ -389,14 +392,14 @@ describe("AdminControls module identity fields", () => {
   });
 
   it("caps the fields at the stored maxima", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");
     expect(quizPanel).toContain('maxLength="60"');
     expect(quizPanel).toContain('maxLength="200"');
   });
 
   it("renders module identity inside the settings card, above the module's knobs and its list", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     const quizPanel = panelFor(html, "quiz");
     const cardAt = quizPanel.indexOf(">Settings<");
     const identityAt = quizPanel.indexOf('name="moduleTitle:quiz"');
@@ -409,7 +412,7 @@ describe("AdminControls module identity fields", () => {
   });
 
   it("links to the Hints screen from the settings card of every module that sells hints, and not from the quiz", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={twoModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
     expect(panelFor(html, "secure-development")).toContain("Hint pricing is on the Hints screen");
     expect(panelFor(html, "quiz")).not.toContain("Hint pricing is on the Hints screen");
   });
@@ -436,7 +439,7 @@ describe("numeric inputs advertise their default", () => {
   it("renders a placeholder equal to the server-side fallback", () => {
     // `settings` here has no overrides, which is the state every fresh event
     // starts in — and the state in which these boxes rendered blank.
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={allModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={allModules} />);
     for (const def of [
       HINT_COST,
       HINT_MIN_SOLVES,
@@ -451,16 +454,25 @@ describe("numeric inputs advertise their default", () => {
 
   it("still shows the override, not the default, once one is set", () => {
     const overridden = { ...settings, hintCost: 42 } as AdminSettings;
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={overridden} modules={allModules} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={overridden} modules={allModules} />);
     expect(html).toContain('value="42"');
   });
 });
 
-// Runtime module enablement (issue #175) — the panel half.
+// Runtime module enablement (issue #175) — the panel half. Secure Development
+// is a normal switch now (issue #386): it locks only without a scorer image,
+// and — like every other module — the last live one can still be switched
+// off; an empty event is legal (module-toggle.test.ts covers the pure rule).
 describe("module toggles", () => {
-  const render = (overrides: Partial<typeof settings> = {}) =>
+  const render = (overrides: Partial<typeof settings> = {}, secureDevAvailable = true) =>
     renderToStaticMarkup(
-      <AdminControls viewerLogin="organizer" initial={{ ...settings, ...overrides }} modules={twoModules} />,
+      <AdminControls
+        viewerLogin="organizer"
+        initial={{ ...settings, ...overrides }}
+        modules={twoModules}
+        defaultModuleIds={["secure-development"]}
+        secureDevAvailable={secureDevAvailable}
+      />,
     );
 
   it("offers a row for every registry module, including one this event has OFF", () => {
@@ -472,33 +484,23 @@ describe("module toggles", () => {
     expect(html).toContain("Quiz");
   });
 
-  it("shows secure-development as not toggleable, with the reason", () => {
-    // Not merely disabled: a dead control with no explanation reads as a bug.
-    const html = render();
-    expect(html).toMatch(/Configured at setup/);
+  it("shows secure-development as toggleable, with no reason, when a scorer image exists", () => {
+    const html = panelFor(render({}, true), "event");
+    const input = html.match(/<input id="module-secure-development"[^>]*>/)?.[0];
+    expect(input).toBeDefined();
+    expect(input).not.toContain("disabled");
+    expect(html).not.toMatch(/no scorer image/);
+  });
+
+  it("locks secure-development, with the reason, when there is no scorer image", () => {
+    const html = panelFor(render({}, false), "event");
+    const input = html.match(/<input id="module-secure-development"[^>]*>/)?.[0];
+    expect(input).toContain("disabled");
+    expect(html).toMatch(/no scorer image/);
   });
 
   it("says a disabled module's data survives, because that is the question an organizer has", () => {
     expect(render()).toMatch(/deletes nothing|Nothing is deleted/i);
-  });
-
-  it("does NOT lock a toggleable module while a non-toggleable one is still live", () => {
-    // The bug this replaces: counting only TOGGLEABLE live modules locked quiz
-    // on a secure-development + quiz event, on the grounds that quiz was the
-    // last *switchable* module — while secure-development sat above it,
-    // enabled and serving. Disabling quiz there leaves a perfectly legal event,
-    // the server accepts it, and the UI used to refuse anyway.
-    const html = render({ enabledModuleIds: ["secure-development", "quiz"] });
-    expect(html).not.toContain("The only module left");
-  });
-
-  it("locks the last LIVE module instead of letting it be switched off", () => {
-    // Genuinely the last one: nothing else is enabled, so switching it off
-    // would leave the event serving nothing. The server refuses that (ADR 24's
-    // runtime analogue); a control that always errors is worse than one that
-    // explains itself.
-    const html = render({ enabledModuleIds: ["quiz"] });
-    expect(html).toContain("The only module left");
   });
 });
 
@@ -514,14 +516,14 @@ describe("AdminControls ai panel", () => {
   ];
 
   it("renders the ai module's tab with a tenth destination and panel", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={withAi} />);
     expect(html).toContain("AI Challenges");
     expect(html.match(/href="\/admin\//g)?.length).toBe(10);
     expect(html.match(/role="region"/g)?.length).toBe(10);
   });
 
   it("renders AdminAiControls in the ai panel, not the fallback placeholder", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={withAi} />);
     const aiPanel = panelFor(html, "ai");
     expect(aiPanel).toContain("Submission cooldown (sec)");
     expect(aiPanel).toContain("Add challenge");
@@ -529,17 +531,17 @@ describe("AdminControls ai panel", () => {
   });
 
   it("keeps the ai cooldown field out of every other panel", () => {
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={withAi} />);
     expect(panelFor(html, "event")).not.toContain("Submission cooldown (sec)");
     expect(panelFor(html, "quiz")).not.toContain("Submission cooldown (sec)");
   });
 
   it("shows the ai cooldown override, falling back to the module default when unset", () => {
-    const withDefault = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={settings} modules={withAi} />);
+    const withDefault = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={withAi} />);
     expect(panelFor(withDefault, "ai")).toContain(`placeholder="${AI_COOLDOWN_SEC}"`);
 
     const overridden = { ...settings, aiCooldownSec: 42 };
-    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" initial={overridden} modules={withAi} />);
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" defaultModuleIds={["secure-development"]} secureDevAvailable initial={overridden} modules={withAi} />);
     expect(panelFor(html, "ai")).toContain('value="42"');
   });
 });
