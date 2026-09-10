@@ -2790,7 +2790,7 @@ anyone benefits from.
 
 ## ADR 52. Modules are switched at runtime; Secure Development is configured at setup
 
-**Status.** Accepted.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): Secure Development is now switched at runtime like the other modules, refused only when the deployment has no scorer image; the baked set is replaced by a `SCORE_IMAGE`-derived default; an empty set is legal. ADR 55 will record the whole config-v2 decision when `event.yaml` is retired.
 
 **Context.** Module *identity* has been runtime since the title/blurb overrides
 landed, but module *enablement* was baked: `event.yaml`'s `modules:` compiled

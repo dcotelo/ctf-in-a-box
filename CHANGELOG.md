@@ -8,6 +8,15 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: modules are switched on in `/admin`, not by listing them in `event.yaml` (#386, part 1).**
+  Before an organizer touches the panel, Secure Development is the only
+  board on — and only when the deployment has a `SCORE_IMAGE`; Quiz, Classic
+  and AI start off. Secure Development is now a normal switch, refused only
+  when there is no scorer image. Switching the last board off is allowed;
+  the landing page then says "No boards are open yet". `event.yaml`'s
+  `modules:` block still carries Secure Development's `targets` for now.
+  The app container receives `SCORE_IMAGE` from compose, Fly and ECS.
+
 - **README and docs screenshots caught up with the rename.** The wizard and
   `doctor` terminal shots still showed the CTF-in-a-box banner, the old
   eight-step numbering and the `ctf-in-a-box-test` org; the challenge browser

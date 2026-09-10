@@ -297,31 +297,20 @@ The panel offers:
   the toggle is a switch, not a delete. Use it to pull a broken board out of an
   event without losing what contestants have already done.
 
-  Two things it refuses, both on purpose:
+  One thing it refuses, on purpose: **Secure Development on a deployment with
+  no scorer image.** The scorer and sync containers are chosen when the stack
+  comes up (`SCORE_IMAGE` in `.env`), and the app cannot start one, so the
+  switch is greyed out with that reason and the server refuses the write.
+  Everything else — including switching the last board off — is yours. An
+  event with nothing on shows "No boards are open yet" and points at this
+  panel.
 
-  - **The last module.** An event has to serve something; a site with every
-    module off has no content and no explanation for the people looking at it.
-    The panel greys out that last switch rather than letting you find out from
-    an error.
-
-    "Last" counts **every live module, including the ones you cannot switch**.
-    On an event running Secure Development plus Quiz, Quiz is the last
-    *switchable* module but not the last live one — Secure Development is still
-    serving — so Quiz can be switched off and the event is left perfectly
-    legal. What makes a set legal is that something is live, not that something
-    switchable is.
-  - **Secure Development, in either direction.** It is configured at setup and
-    only there — it needs its `scorer` and `sync` services (which are not even
-    running on an event that never enabled it; see the profiles table in
-    [hosting](hosting.md)) and its provisioned forks, which only
-    `ctf-setup.sh` can create. Its row shows the reason instead of a control
-    that would always fail. See [ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
-
-  **`event.yaml`'s `modules:` is now the starting set and the fallback, not the
-  live truth.** Editing it mid-event changes nothing until you rebuild — the
-  same trap `hints:` and `teams:` already have. If Redis is unreachable the app
-  falls back to that baked set rather than to "nothing enabled", so an outage
-  cannot blank the event.
+  **What is on before you touch anything:** Secure Development, and only
+  when the deployment has a scorer image; otherwise nothing. Quiz, Classic
+  and AI always start off. `event.yaml`'s `modules:` block no longer
+  influences enablement (it still carries Secure Development's `targets`
+  until #386 lands fully); if Redis is unreachable the app falls back to that
+  same default rather than to a surprise.
 
   **What a contestant sees.** The module's nav link disappears from the header
   and the footer, and its route stops resolving — with a page that says the
@@ -329,9 +318,8 @@ The panel offers:
   already solved is affected. It is deliberately not the generic "that page
   doesn't exist, your link is wrong or out of date": their link was right, the
   page was there a minute ago, and sending them to hunt for a better URL wastes
-  their time mid-event. `/challenges` says something different again, because
-  Secure Development is never switched off at runtime — there it reports that
-  the event does not run that module, and promises no return.
+  their time mid-event. `/challenges` behaves like the other boards' switched-off
+  pages.
 
   A newly enabled module's own **admin tab** appears on the next page load,
   since the tab strip is rendered server-side.

@@ -1102,8 +1102,9 @@ config — it's baked into the `app` image at build time:
    `src/lib/site.ts` import the generated module and derive `eventConfig`,
    `enabledModules`, `enabledApps`, and the site-wide `event` object from
    it. `modules.ts`'s `enabledModules` maps the generated `modules` array to
-   each id's registry entry (display name, description, nav) — enablement
-   comes from config, display metadata lives in code — and `site.ts`'s
+   each id's registry entry (display name, description, nav) — display
+   metadata lives in code; enablement is decided at runtime in `/admin`, not
+   by this build-time array (#386) — and `site.ts`'s
    `moduleNavLinks`/`buildNavLinks` splice a module's nav entry into the flat
    list iff that module is enabled and defines one (`nav` is optional in the
    registry type, so a module with no contestant route contributes no link —

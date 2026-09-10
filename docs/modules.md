@@ -58,22 +58,21 @@ the sections below are the enforceable contract behind it.
        score_ingest: poll             # poll | push
    ```
 
-2. MUST state whether it can be **enabled at runtime**. Presence in
-   `event.yaml`'s `modules:` is the STARTING set and the outage fallback, not
-   the live truth: organizers switch modules on and off from `/admin` during an
-   event, and the live set lives in `ctf:admin:settings`
-   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
+2. MUST be **runtime-toggleable**, like every other module. Organizers switch
+   modules on and off from `/admin` during an event, and the live set lives in
+   `ctf:admin:settings`
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)),
+   with presence in `event.yaml`'s `modules:` as the deployment's starting set
+   and outage fallback, not the live truth.
 
-   A module is runtime-toggleable only if **everything it needs already
-   exists** when the switch is flipped. Concretely, enabling it must require no
-   more than a route, a nav entry, a tab and data it keeps in Redis. If it
-   needs a **container** (`docker-compose.yml` profiles are chosen at
-   `up` time and the app cannot start one) or **provisioning** (forks, an App
-   installation, per-repo workflows — `ctf-setup.sh`'s work, holding a key the
-   web tier deliberately does not have, ADR 41), it is configured at setup and
-   its toggle must be **refused with the reason**, in both directions.
-   `secure-development` is the worked example of the second kind; `quiz`,
-   `classic` and `ai` are the first.
+   A module whose services are **profile-gated** — chosen once, when the
+   stack comes up, not when a switch is flipped (`docker-compose.yml`
+   profiles; `secure-development`'s `scorer` and `sync`) — MUST expose that
+   availability fact to the app as a runtime env var (`SCORE_IMAGE` is the
+   worked example) and refuse enabling when it is absent, with the reason,
+   in both the panel and the server. `secure-development` is the worked
+   example; `quiz`, `classic` and `ai` need no such env var, since their
+   routes, nav entries and tabs ship in every `app` image regardless.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.
@@ -121,8 +120,8 @@ the sections below are the enforceable contract behind it.
    instead. Registration is deliberate, not dynamic; this is a v1 constraint,
    not a permanent architectural stance.
 
-   A module is enabled by **being present** under `modules:` and disabled by
-   being omitted. There is no `enabled:` key — a module MUST NOT invent one.
+   A module's presence under `modules:` configures it; it does not enable it
+   (#386). There is no `enabled:` key — a module MUST NOT invent one.
 
 4. A module's config block is free to define its own shape beyond
    `targets`. Note that in v1 `score_ingest` is documentation-of-intent

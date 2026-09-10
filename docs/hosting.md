@@ -422,19 +422,12 @@ targets), so it carries both ingest profiles — `["poll", "push"]` — while
 to the scorer directly and needs no poller. A quiz-only event must not be
 asked to pull a scorer image it has no reason to own.
 
-**This is why `secure-development` is the one module you cannot switch on from
-`/admin`.** Quiz, Classic and AI can be toggled during an event without a
-rebuild, because enabling one needs a route, a nav link and a tab — all of
-which already exist. Secure Development needs the containers in this table, and the profile
-list is fixed when you run `up`: the app cannot start a `scorer` that was never
-brought up, so a runtime toggle would enable a module whose services are not
-there. Its forks are the other half of the same problem — only `ctf-setup.sh`
-can create those. See
-[ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
-
-So the `modules:` block below decides the profiles you need **and** decides
-Secure Development permanently; for Quiz, Classic and AI it only decides what
-the event starts with.
+**`SCORE_IMAGE` decides two things at once:** which profiles you need (the
+scorer and sync containers exist only when it is set) and what is enabled
+before an organizer opens `/admin` — Secure Development alone when it is
+set, nothing when it is not. Quiz, Classic and AI are switched on from the
+panel (#386). The app receives `SCORE_IMAGE` as a runtime env var from the
+compose file, so the two can never disagree.
 
 **Every one of these is a `--build`, so every one needs `EVENT_CONFIG_B64`.**
 Export it once, in the same shell — without it the build silently bakes
@@ -583,12 +576,9 @@ Module authors and anything that switches exhaustively over the module id —
 `apps/web/src/lib/modules.ts`'s `ModuleId`, `event-config.ts`, the three
 `KNOWN_MODULES` readers — must now handle `"ai"`.
 
-**A module is enabled by being present.** There is no `enabled:` key: a
-module is live because its key appears under `modules:`, and disabled because
-its block is omitted entirely — which is what keeps its nav entry,
-leaderboard columns, and admin section from appearing at all. Writing
-`quiz: { enabled: false }` would *enable* `quiz`; the `enabled:` field is not
-read by anything.
+`modules:` no longer enables anything. Secure Development's block still
+carries its `targets` for `ctf-setup.sh` and sync; the other three ids are
+accepted and ignored. Enablement lives in `/admin` → Event → Modules.
 
 Enabling a module changes the **landing page**, not just the nav: the
 platform frame (event name, dates, countdown, CTAs, Discord link, progress
