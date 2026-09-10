@@ -508,11 +508,27 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       // with a SCORE_IMAGE. Enabling it here would show a board no run can
       // ever score. Fail closed; the panel disables the switch for the same
       // reason, this is the server's copy of that rule.
-      if (requested.includes("secure-development") && !secureDevAvailable(process.env)) {
-        throw new AdminValidationError(
-          k,
-          "secure-development cannot be enabled here — this deployment has no scorer image (SCORE_IMAGE is unset)",
-        );
+      //
+      // But refuse only a NEW enable. A deployment that had a scorer image
+      // when SD was switched on can still have it stored after SCORE_IMAGE is
+      // removed — every write here replaces the whole set, so if a carried-
+      // forward SD were refused too, the Modules section would deadlock: any
+      // write short of dropping SD fails, and SD's own switch is locked off
+      // (module-toggle.ts), so there is no way to drop it either. Read the
+      // current hash to tell "already stored" from "new"; a read failure
+      // means "cannot confirm it is already stored", so it refuses too.
+      const sdId: ModuleId = "secure-development";
+      if (requested.includes(sdId) && !secureDevAvailable(process.env)) {
+        const current = await getAdminSettings()
+          .then((s) => s.enabledModuleIds)
+          .catch(() => null);
+        const alreadyStored = (current ?? []).includes(sdId);
+        if (!alreadyStored) {
+          throw new AdminValidationError(
+            k,
+            "secure-development cannot be enabled here — this deployment has no scorer image (SCORE_IMAGE is unset)",
+          );
+        }
       }
       fields.push(k, requested.join(","));
       changed[k] = requested.join(",") as unknown as boolean;

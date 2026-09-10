@@ -39,12 +39,22 @@ export function moduleChoices(secureDevAvailable: boolean): readonly ModuleToggl
 }
 
 /** What the switch for one module shows: on or off, whether it can be
- *  flipped, and the one sentence that explains a locked switch. */
+ *  flipped, and the one sentence that explains a locked switch.
+ *
+ *  A non-toggleable module that is already ON is not locked (issue #386): a
+ *  stored secure-development can outlive its scorer image (admin-store's
+ *  carry-forward rule), and locking the switch then would leave the
+ *  organizer no way to turn it back off. It stays switchable off, with the
+ *  reason plus a nudge; only a non-toggleable module that is OFF stays
+ *  locked, since turning it ON is the one write the server still refuses. */
 export function moduleToggleState(
   mod: ModuleToggleChoice,
   live: ReadonlySet<string>,
 ): { on: boolean; disabled: boolean; help: string | undefined } {
-  return { on: live.has(mod.id), disabled: !mod.toggleable, help: mod.toggleable ? undefined : mod.reason };
+  const on = live.has(mod.id);
+  if (mod.toggleable) return { on, disabled: false, help: undefined };
+  if (on) return { on, disabled: false, help: `${mod.reason} Switch it off.` };
+  return { on, disabled: true, help: mod.reason };
 }
 
 /** The confirmation for flipping one module, and the enabled set it writes.

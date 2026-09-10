@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { getAdminSettings } from "@/lib/admin-store";
-import { defaultEnabledModules } from "@/lib/module-defaults";
+import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
 import type { ModuleId } from "@/lib/modules";
 
 /** The module set this deployment starts with, and falls back to: computed
@@ -10,6 +10,10 @@ import type { ModuleId } from "@/lib/modules";
  *  image exists, otherwise nothing — quiz, classic and ai are switched on from
  *  /admin. Server-only on purpose: SCORE_IMAGE is not in the client bundle. */
 export const defaultModuleIds: readonly ModuleId[] = defaultEnabledModules(process.env);
+
+/** Same one-time read as `defaultModuleIds`, for the narrowing below — computed
+ *  once at import time so it can never disagree with the default it derived. */
+const secureDevOK = secureDevAvailable(process.env);
 
 /** Which modules this event is serving RIGHT NOW.
  *
@@ -23,13 +27,21 @@ export const defaultModuleIds: readonly ModuleId[] = defaultEnabledModules(proce
  *  - `await connection()` keeps the read out of the build-time prerender.
  *  - `cache()` dedupes WITHIN a request only; a toggle is live on the next.
  *
- *  Disabling a module writes nothing to its data — the toggle is a switch. */
+ *  Disabling a module writes nothing to its data — the toggle is a switch.
+ *
+ *  One narrowing happens after the stored-vs-default resolution either way:
+ *  `secure-development` is dropped when this deployment has no scorer image.
+ *  A stored set can carry it forward from before `SCORE_IMAGE` was unset —
+ *  `updateAdminSettings` allows that (issue #386) so switching it back on
+ *  needs no re-enable — but an unscoreable board is never SERVED. */
 export const getEnabledModuleIds = cache(async (): Promise<ReadonlySet<ModuleId>> => {
   await connection();
   const ids = await getAdminSettings()
     .then((s) => s.enabledModuleIds)
     .catch(() => null);
-  return new Set(ids ?? defaultModuleIds);
+  const resolved = new Set(ids ?? defaultModuleIds);
+  if (!secureDevOK) resolved.delete("secure-development");
+  return resolved;
 });
 
 export async function isModuleLive(id: ModuleId): Promise<boolean> {

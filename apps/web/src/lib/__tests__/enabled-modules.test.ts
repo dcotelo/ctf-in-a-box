@@ -12,6 +12,23 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings: mocks.getAdminSettings }));
+// `react`'s real `cache()` only memoizes inside an actual RSC render; outside
+// one (here) it would call straight through and the "one read per request"
+// claim would go untested. Stand in a memoizer keyed on the wrapped function,
+// the same shim `resolved-modules.test.ts` uses.
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  const memos = new WeakMap<(...args: never[]) => unknown, unknown>();
+  return {
+    ...actual,
+    cache:
+      <Fn extends (...args: never[]) => unknown>(fn: Fn): Fn =>
+        ((...args: never[]) => {
+          if (!memos.has(fn)) memos.set(fn, fn(...args));
+          return memos.get(fn);
+        }) as Fn,
+  };
+});
 
 beforeEach(() => {
   mocks.getAdminSettings.mockReset();
@@ -55,6 +72,24 @@ describe("getEnabledModuleIds", () => {
     mocks.getAdminSettings.mockRejectedValue(new Error("NOAUTH"));
     const m = await load({ SCORE_IMAGE: "ghcr.io/x/score:latest" });
     expect([...(await m.getEnabledModuleIds())]).toEqual(["secure-development"]);
+  });
+
+  // Final-review finding #1, part 1: a deployment can have secure-development
+  // in its STORED set (carried over from when a scorer image existed) while
+  // SCORE_IMAGE is unset today. Serving it would show a board no run can ever
+  // score — narrow it out on the read side, unconditionally.
+  it("narrows secure-development out of a stored set when there is no scorer image", async () => {
+    mocks.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["secure-development", "quiz"] });
+    const m = await load({ SCORE_IMAGE: undefined });
+    expect([...(await m.getEnabledModuleIds())]).toEqual(["quiz"]);
+  });
+
+  it("calls getAdminSettings once per request, however many times the module set is awaited", async () => {
+    mocks.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["quiz"] });
+    const m = await load({ SCORE_IMAGE: undefined });
+    await m.getEnabledModuleIds();
+    await m.getEnabledModuleIds();
+    expect(mocks.getAdminSettings).toHaveBeenCalledTimes(1);
   });
 });
 

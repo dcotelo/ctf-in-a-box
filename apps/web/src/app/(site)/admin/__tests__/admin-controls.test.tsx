@@ -492,8 +492,21 @@ describe("module toggles", () => {
     expect(html).not.toMatch(/no scorer image/);
   });
 
-  it("locks secure-development, with the reason, when there is no scorer image", () => {
-    const html = panelFor(render({}, false), "event");
+  // Final-review finding #1, part 3 (issue #386): a deployment can have
+  // secure-development STORED as on while SCORE_IMAGE is unset (carried
+  // forward from when it had one — admin-store's rule). Locking that switch
+  // would leave the organizer no way to turn it back off.
+  it("does not lock secure-development when it is already ON, even with no scorer image — it can be switched off", () => {
+    const html = panelFor(render({ enabledModuleIds: ["secure-development"] }, false), "event");
+    const input = html.match(/<input id="module-secure-development"[^>]*>/)?.[0];
+    expect(input).toBeDefined();
+    expect(input).not.toContain("disabled");
+    expect(html).toMatch(/no scorer image/);
+    expect(html).toMatch(/[Ss]witch it off/);
+  });
+
+  it("locks secure-development, with the reason, when it is OFF and there is no scorer image", () => {
+    const html = panelFor(render({ enabledModuleIds: ["quiz"] }, false), "event");
     const input = html.match(/<input id="module-secure-development"[^>]*>/)?.[0];
     expect(input).toContain("disabled");
     expect(html).toMatch(/no scorer image/);

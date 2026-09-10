@@ -160,12 +160,41 @@ describe("updateAdminSettings validation", () => {
       ).resolves.toBeDefined();
     });
 
-    it("refuses enabling secure-development when there is no scorer image (fail closed)", async () => {
+    it("refuses enabling secure-development when it is not already stored and there is no scorer image", async () => {
       delete process.env.SCORE_IMAGE;
+      mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "quiz"] }]);
       await expect(
         updateAdminSettings({ enabledModules: ["secure-development"] }, "alice"),
       ).rejects.toBeInstanceOf(AdminValidationError);
       expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    it("refuses enabling secure-development when the current-settings read itself fails (fail closed)", async () => {
+      delete process.env.SCORE_IMAGE;
+      mocks.upstashPipeline.mockResolvedValue([{ error: "NOAUTH Authentication required." }]);
+      await expect(
+        updateAdminSettings({ enabledModules: ["secure-development"] }, "alice"),
+      ).rejects.toBeInstanceOf(AdminValidationError);
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    });
+
+    // Final-review finding #1/#2 (issue #386): a deployment can already have
+    // secure-development STORED (from when it had a scorer image) even after
+    // SCORE_IMAGE is removed. Refusing to carry it forward would deadlock the
+    // Modules section — every write refuses because the write always carries
+    // the stored set forward, and SD's own switch is locked off. Only a NEW
+    // enable is refused; an already-stored one rides along.
+    it("carries a stored secure-development forward when there is no scorer image today", async () => {
+      delete process.env.SCORE_IMAGE;
+      mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "secure-development,classic"] }]);
+      mocks.upstashEval.mockResolvedValue([
+        "updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z", "enabledModules", "secure-development,quiz",
+      ]);
+      await expect(
+        updateAdminSettings({ enabledModules: ["secure-development", "quiz"] }, "alice"),
+      ).resolves.toBeDefined();
+      const args = mocks.upstashEval.mock.calls[0][2];
+      expect(args).toContain("secure-development,quiz");
     });
 
     it("refuses an unknown module id rather than storing it", async () => {
