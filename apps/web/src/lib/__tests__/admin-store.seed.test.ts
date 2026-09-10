@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn(),
-  upstashPipeline: vi.fn<(c: (string | number)[][]) => Promise<{ result?: unknown }[]>>(),
+  upstashPipeline: vi.fn<(c: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
@@ -111,6 +111,18 @@ describe("seedDemoData", () => {
     const lpush = cmds.find((c) => c[0] === "LPUSH");
     expect(lpush).toBeTruthy();
     expect(JSON.parse(String(lpush![2]))).toMatchObject({ by: "alice", action: "seed" });
+  });
+
+  // CodeRabbit round 2, finding F1: the settings read now also decides WHICH
+  // modules get demo rows, so it gates a write — it must fail closed. A
+  // transient read error used to be swallowed (`.catch(() => null)`) and
+  // seed the deployment-default module set regardless of what the organizer
+  // actually enabled; it must instead abort the seed with no write issued.
+  it("aborts the seed when the settings read fails, instead of seeding the default module set", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "NOAUTH Authentication required." }]);
+
+    await expect(seedDemoData("alice")).rejects.toThrow("NOAUTH Authentication required.");
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
   });
 
   // CodeRabbit round 1, finding E: the ctf:solves:<target> writes (and the

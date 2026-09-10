@@ -921,13 +921,15 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // open. A schedule entirely in the future has no valid past instant to
   // clamp to, so it falls back to the unclamped window — future-dated solves
   // would be a worse lie than a mistimed one.
-  // Best-effort: a settings blip must not fail the seed — it just seeds
-  // unclamped, which is yesterday's behavior.
-  const settings = await getAdminSettings().catch(() => null);
+  // Fail closed: this read now also decides WHICH modules get demo rows
+  // (issue #386), so it gates a write. A settings blip must abort the seed,
+  // not fall back to seeding every module's data regardless of what the
+  // organizer actually enabled — let getAdminSettings() throw and propagate.
+  const settings = await getAdminSettings();
   // The live module set, same read: which of quiz/classic/ai to seed demo
   // data for must follow what this event is actually serving (issue #386),
   // not what happened to be baked at build time.
-  const live = new Set(settings?.enabledModuleIds ?? defaultEnabledModules(process.env));
+  const live = new Set(settings.enabledModuleIds ?? defaultEnabledModules(process.env));
   // Secure Development demo data — only when the module is live, same gate
   // reasoning as quiz/classic/ai below: a deployment with no scorer image
   // (or one that switched the board off) must get a seed byte-for-byte
@@ -938,8 +940,8 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   if (secureDevLive) {
     for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
   }
-  const scoringStartMs = settings?.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
-  const scoringEndMs = settings?.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
+  const scoringStartMs = settings.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
+  const scoringEndMs = settings.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
   let end = Number.isFinite(scoringEndMs) ? Math.min(now, scoringEndMs) : now;
   let base = Math.max(end - windowMs, Number.isFinite(scoringStartMs) ? scoringStartMs : end - windowMs);
   if (!(base < end)) {
