@@ -334,6 +334,29 @@ describe("hintGate", () => {
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 
+  // The module read fails OPEN to the deployment default inside
+  // enabled-modules.ts on a settings-read failure — but that fallback lives
+  // INSIDE isModuleLive. An unexpected throw escaping that wrapper (a bug, an
+  // infra error) is a different case, and must not be swallowed into "live":
+  // no charge may run and no hint may be revealed off the back of it.
+  it("propagates a rejected live-module lookup instead of treating it as live", async () => {
+    const store = await loadStore();
+    mocks.isModuleLive.mockRejectedValueOnce(new Error("settings unreachable"));
+    await expect(store.hintGate("alice", "classic")).rejects.toThrow("settings unreachable");
+    // Bails before the config read — the gate never reaches resolveHintConfig.
+    expect(mocks.getAdminSettings).not.toHaveBeenCalled();
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("charges nothing when the live-module lookup rejects", async () => {
+    const store = await loadStore();
+    mocks.isModuleLive.mockRejectedValueOnce(new Error("settings unreachable"));
+    await expect(store.revealHint("alice", "classic", "web-robots-only")).rejects.toThrow(
+      "settings unreachable",
+    );
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
   it("gates the ai target on the AI module directly, not secure-development", async () => {
     const store = await loadStore();
     mocks.isModuleLive.mockImplementation(async (id) => id === "secure-development");
