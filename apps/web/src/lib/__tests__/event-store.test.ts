@@ -26,6 +26,17 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
 vi.mock("@/lib/modules", () => ({
   isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "ai", "secure-development"].includes(v),
 }));
+vi.mock("@/lib/site", () => ({
+  getSite: vi.fn(async () => ({
+    name: "Runtime CTF",
+    theme: "Ship",
+    dates: "2026",
+    location: "Online",
+    ctfStartsAt: null,
+    discordUrl: "https://discord.gg/x",
+    contactEmail: "org@example.org",
+  })),
+}));
 
 import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
 
@@ -54,7 +65,7 @@ describe("exportEventBundle", () => {
     expect("scoringStartsAt" in bundle.settings).toBe(false);
     expect("paused" in bundle.settings).toBe(false);
     expect("updatedBy" in bundle.settings).toBe(false);
-    expect(bundle.event.name).toBe("Demo CTF");
+    expect(bundle.event.name).toBe("Runtime CTF");
     const s = JSON.stringify(bundle);
     expect(s).not.toContain("org@example.com");
     expect(s).not.toContain('"admins"');
@@ -334,11 +345,6 @@ describe("importEventBundle", () => {
     expect(quizStore.importBundle).not.toHaveBeenCalled();
   });
 
-  it("names build-time branding in skipped", async () => {
-    const { skipped } = await importEventBundle(bundleFixture(), "alice");
-    expect(skipped.some((s) => /baked at build time|rebuild/i.test(s))).toBe(true);
-  });
-
   it("drops a null scalar policy field instead of forwarding it (a fresh export round-trip carries these)", async () => {
     await importEventBundle(
       { ...bundleFixture(), settings: { ...bundleFixture().settings, hintCost: null, teamMaxMembers: 6 } },
@@ -392,5 +398,50 @@ describe("importEventBundle", () => {
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
     expect(patch.enabledModules).toEqual([]);
     expect(skipped.some((s) => /secure.development/i.test(s))).toBe(false);
+  });
+});
+
+// `bundleFixture()` above is the "paused event" fixture the rest of this
+// suite already uses for importEventBundle — reused here rather than a new
+// one, per the same pattern.
+describe("event identity in the archive (issue #386)", () => {
+  it("exports name/theme/location from the runtime identity, never contact or Discord", async () => {
+    const { bundle } = await exportEventBundle();
+    expect(bundle.event).toEqual({ name: "Runtime CTF", theme: "Ship", dates: "2026", location: "Online", ctfStartsAt: null });
+    expect(JSON.stringify(bundle)).not.toContain("discord.gg");
+    expect(JSON.stringify(bundle)).not.toContain("org@example.org");
+  });
+
+  describe("import", () => {
+    beforeEach(() => {
+      m.getAdminSettings.mockResolvedValue({ paused: true });
+      m.effectivePaused.mockReturnValue(true);
+      vi.mocked(classicStore.importBundle).mockResolvedValue({ created: 0, updated: 0, categories: 1 });
+      vi.mocked(quizStore.importBundle).mockResolvedValue({ created: 0, updated: 0 });
+      vi.mocked(adminStore.resetEvent).mockResolvedValue({ cleared: {}, resetAt: "x" });
+      vi.mocked(adminStore.updateAdminSettings).mockResolvedValue({} as Awaited<ReturnType<typeof adminStore.updateAdminSettings>>);
+    });
+
+    it("applies the bundle's name/theme/location through the settings patch, before anything destructive", async () => {
+      await importEventBundle({ ...bundleFixture(), event: { name: "Imported CTF", theme: "Again", location: "Montevideo" } }, "alice");
+      const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+      expect(patch).toMatchObject({ eventName: "Imported CTF", eventTheme: "Again", eventLocation: "Montevideo" });
+      expect(vi.mocked(adminStore.updateAdminSettings).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(adminStore.resetEvent).mock.invocationCallOrder[0],
+      );
+    });
+
+    it("leaves theme/location untouched when the bundle omits them", async () => {
+      await importEventBundle({ ...bundleFixture(), event: { name: "Only Name" } }, "alice");
+      const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+      expect(patch).toMatchObject({ eventName: "Only Name" });
+      expect(patch).not.toHaveProperty("eventTheme");
+      expect(patch).not.toHaveProperty("eventLocation");
+    });
+
+    it("no longer reports branding as skipped", async () => {
+      const { skipped } = await importEventBundle(bundleFixture(), "alice");
+      expect(skipped.join(" ")).not.toMatch(/baked at build time/);
+    });
   });
 });
