@@ -4,7 +4,6 @@ import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
-  bakedModuleIds,
   isModuleId,
   MODULE_TITLE_MAX,
   MODULE_BLURB_MAX,
@@ -16,7 +15,7 @@ import {
 // here would be a cycle. `module-defaults.ts` is the pure, dependency-free
 // source both sides compute the same default from; admin-store is
 // `server-only`, so calling it with `process.env` here is safe.
-import { defaultEnabledModules } from "@/lib/module-defaults";
+import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
 import {
   DEMO_CONTESTANTS,
   DEMO_TEAMS,
@@ -195,14 +194,14 @@ export type AdminSettings = {
   /** Organizer-authored title/blurb overrides, keyed by module id. Unknown or
    *  disabled module ids are dropped on read (see decodeSettings). */
   moduleOverrides: ModuleOverrides;
-  /** The modules this event actually serves, overriding `event.yaml`'s baked
-   *  set (issue #175). **Null means "no override" — use the baked set**, which
-   *  is what makes `event.yaml` the seed and the outage fallback rather than
-   *  the live truth.
-   *
-   *  Read here but not yet written by anything: the admin control that sets it
-   *  is the second half of #175. Unknown ids are dropped on read, so a module
-   *  removed from the registry cannot re-enable itself from stale state. */
+  /** The modules this event actually serves (issue #386). Three states:
+   *  - absent (`null`) — nothing stored, the deployment default applies
+   *    (`defaultEnabledModules`: secure-development alone when a scorer
+   *    image is configured, otherwise nothing).
+   *  - `[]` — the organizer explicitly switched every module off.
+   *  - a list — those ids, with any the registry no longer knows dropped;
+   *    if that drop empties the list, it decodes back to `null` (a stale
+   *    field is not a decision to show nothing). */
   enabledModuleIds: ModuleId[] | null;
 };
 
@@ -336,16 +335,15 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
   };
 }
 
-/** Decodes the runtime enablement set: a comma-separated id list, or absent.
+/** Decodes the runtime enablement set.
  *
- *  Returns null — "no override, use the baked set" — for absent, empty, and
- *  for a value that survives filtering with nothing left. That last case is
- *  the one worth stating: a stored set naming only ids the registry no longer
- *  knows would otherwise decode to "enable nothing", turning a stale field
- *  into a site with no content. Falling back to baked is the same fail-open
- *  rule the rest of this resolution follows. */
+ *  - absent            → null: nothing stored, the deployment default applies
+ *  - ""                → []:   the organizer switched every module off (#386)
+ *  - "quiz, classic"   → ["quiz","classic"], unknown ids dropped
+ *  - only unknown ids  → null: a stale field is not a decision to show nothing */
 function decodeEnabledModuleIds(raw: string | undefined): ModuleId[] | null {
-  if (typeof raw !== "string" || raw.trim() === "") return null;
+  if (typeof raw !== "string") return null;
+  if (raw.trim() === "") return [];
   const ids = raw
     .split(",")
     .map((s) => s.trim())
@@ -505,30 +503,17 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       }
       const requested = [...new Set(v as ModuleId[])];
 
-      // Refusal 1: the last module. ADR 24 already refuses a present-but-empty
-      // `modules: {}` at build time, and the runtime analogue has to agree —
-      // otherwise the same configuration is legal through one door and illegal
-      // through the other. An event with nothing enabled is a contestant-facing
-      // site with no content and no explanation.
-      if (requested.length === 0) {
-        throw new AdminValidationError(k, "at least one module must stay enabled");
-      }
-
-      // Refusal 2: secure-development, in either direction. It is not a flag —
-      // it is compose profiles (`scorer` and `sync` are not running on an event
-      // that never enabled it, and the app cannot start containers) plus fork
-      // provisioning that only `ctf-setup.sh` can do, holding a GitHub App key
-      // the web tier deliberately does not have (ADR 41). Disabling is refused
-      // too: the scorer would keep ingesting scores for a module contestants
-      // can no longer see, which is a worse state than either end.
-      const sdId: ModuleId = "secure-development";
-      if (requested.includes(sdId) !== bakedModuleIds.includes(sdId)) {
+      // The one refusal left (issue #386): Secure Development needs the scorer
+      // and sync containers, which exist only when the stack was brought up
+      // with a SCORE_IMAGE. Enabling it here would show a board no run can
+      // ever score. Fail closed; the panel disables the switch for the same
+      // reason, this is the server's copy of that rule.
+      if (requested.includes("secure-development") && !secureDevAvailable(process.env)) {
         throw new AdminValidationError(
           k,
-          "secure-development is configured at setup, not at runtime — it needs its scorer and sync services and its provisioned forks",
+          "secure-development cannot be enabled here — this deployment has no scorer image (SCORE_IMAGE is unset)",
         );
       }
-
       fields.push(k, requested.join(","));
       changed[k] = requested.join(",") as unknown as boolean;
     } else if (MODULE_FIELD_RE.test(k)) {

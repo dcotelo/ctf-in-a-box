@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn<(s: string, k: string[], a: (string | number)[]) => Promise<unknown>>(),
@@ -78,9 +78,15 @@ describe("getAdminSettings", () => {
     expect((await getAdminSettings()).enabledModuleIds).toEqual(["quiz", "classic"]);
   });
 
-  it("reads an empty string as no override", async () => {
-    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "  "] }]);
-    expect((await getAdminSettings()).enabledModuleIds).toBeNull();
+  it("reads an empty string as an EXPLICITLY empty set, not as no override", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", ""] }]);
+    const s = await getAdminSettings();
+    expect(s.enabledModuleIds).toEqual([]);
+  });
+  it("reads an absent field as null — nothing stored, the default applies", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
+    const s = await getAdminSettings();
+    expect(s.enabledModuleIds).toBeNull();
   });
 
   it("decodes a populated hash, treating overrides as present", async () => {
@@ -114,34 +120,51 @@ describe("updateAdminSettings validation", () => {
     await expect(updateAdminSettings({ hintCost: 999999 }, "alice")).rejects.toBeInstanceOf(AdminValidationError);
   });
 
-  // Runtime module enablement (issue #175). This repo's baked event enables
-  // secure-development ONLY, which makes it the right fixture for both
-  // refusals: quiz/classic are the runtime additions, and SD is the module
-  // that must not move in either direction.
+  // Runtime module enablement (issue #386). Every module but
+  // secure-development toggles freely, including down to an explicit empty
+  // set; secure-development is the one id gated on SCORE_IMAGE, since it
+  // needs the scorer and sync containers that only exist when one is set.
   describe("enabledModules", () => {
+    afterEach(() => {
+      delete process.env.SCORE_IMAGE;
+    });
+
     it("accepts adding a module the baked config never mentioned", async () => {
+      process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
       mocks.upstashEval.mockResolvedValue([]);
       await updateAdminSettings({ enabledModules: ["secure-development", "quiz"] }, "alice");
       const args = mocks.upstashEval.mock.calls[0][2];
       expect(args).toContain("secure-development,quiz");
     });
 
-    it("refuses an empty set — an event has to serve something", async () => {
-      // ADR 24's runtime analogue. Build time already refuses `modules: {}`;
-      // if runtime did not, the same configuration would be legal through one
-      // door and illegal through the other.
-      await expect(updateAdminSettings({ enabledModules: [] }, "alice")).rejects.toBeInstanceOf(
-        AdminValidationError,
-      );
-      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    it("accepts an empty set — an organizer may switch every board off", async () => {
+      mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z", "enabledModules", ""]);
+      const s = await updateAdminSettings({ enabledModules: [] }, "alice");
+      const [, , args] = mocks.upstashEval.mock.calls[0];
+      const strArgs = args.map(String);
+      const idx = strArgs.indexOf("enabledModules");
+      expect(strArgs[idx + 1]).toBe(""); // stored as "", which decodes to []
+      expect(s.enabledModuleIds).toEqual([]);
     });
 
-    it("refuses to DISABLE secure-development", async () => {
-      // Its scorer would keep ingesting scores for a module contestants can no
-      // longer see — a worse state than either end.
-      await expect(updateAdminSettings({ enabledModules: ["quiz"] }, "alice")).rejects.toBeInstanceOf(
-        AdminValidationError,
-      );
+    it("accepts disabling secure-development", async () => {
+      mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+      await expect(updateAdminSettings({ enabledModules: ["quiz"] }, "alice")).resolves.toBeDefined();
+    });
+
+    it("accepts enabling secure-development when a scorer image exists", async () => {
+      process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
+      mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-08-14T00:00:00Z"]);
+      await expect(
+        updateAdminSettings({ enabledModules: ["secure-development", "quiz"] }, "alice"),
+      ).resolves.toBeDefined();
+    });
+
+    it("refuses enabling secure-development when there is no scorer image (fail closed)", async () => {
+      delete process.env.SCORE_IMAGE;
+      await expect(
+        updateAdminSettings({ enabledModules: ["secure-development"] }, "alice"),
+      ).rejects.toBeInstanceOf(AdminValidationError);
       expect(mocks.upstashEval).not.toHaveBeenCalled();
     });
 
@@ -159,6 +182,7 @@ describe("updateAdminSettings validation", () => {
     });
 
     it("dedupes before storing", async () => {
+      process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
       mocks.upstashEval.mockResolvedValue([]);
       await updateAdminSettings({ enabledModules: ["secure-development", "quiz", "quiz"] }, "alice");
       expect(mocks.upstashEval.mock.calls[0][2]).toContain("secure-development,quiz");
@@ -167,6 +191,7 @@ describe("updateAdminSettings validation", () => {
     it("never deletes a module's data — the patch writes one field", async () => {
       // The toggle is a switch, not a delete: re-enabling must restore the
       // same board. Nothing in this path may touch ctf:quiz:* or ctf:classic:*.
+      process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
       mocks.upstashEval.mockResolvedValue([]);
       await updateAdminSettings({ enabledModules: ["secure-development"] }, "alice");
       const [script, keys] = mocks.upstashEval.mock.calls[0];
