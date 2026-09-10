@@ -328,7 +328,8 @@ describe("hintGate", () => {
     mocks.isModuleLive.mockImplementation(async (id) => id !== "secure-development");
     mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0, hintsEnabled: true }));
     expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: false, reason: "disabled" });
-    // Fails closed before any settings or Redis read.
+    // Refuses on the module answer alone — makes no second read (settings or
+    // Redis) once that answer is known.
     expect(mocks.getAdminSettings).not.toHaveBeenCalled();
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
@@ -338,7 +339,8 @@ describe("hintGate", () => {
     mocks.isModuleLive.mockImplementation(async (id) => id === "secure-development");
     mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0, hintsEnabled: true }));
     expect(await store.hintGate("octocat", "ai")).toEqual({ allowed: false, reason: "disabled" });
-    // Fails closed before any settings or Redis read.
+    // Refuses on the module answer alone — makes no second read (settings or
+    // Redis) once that answer is known.
     expect(mocks.getAdminSettings).not.toHaveBeenCalled();
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
 

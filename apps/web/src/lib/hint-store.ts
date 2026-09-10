@@ -200,9 +200,13 @@ export type HintGate =
  *  evaluated at READ time (no scheduler on the box), matching how the freeze
  *  and registration windows work. */
 export async function hintGate(login: string, target: HintTarget): Promise<HintGate> {
-  // Per-target module gate, failing closed: a target whose module is off has
-  // nothing to sell. (The quiz has no hints by design — a question's hint is
-  // its choices.)
+  // Per-target module gate: a target whose module is off has nothing to
+  // sell, so the gate refuses. The module READ itself is not the closed
+  // side of that — `isModuleLive`/`getEnabledModuleIds` fail OPEN to this
+  // deployment's default set on a settings-read failure, same as every
+  // other module consumer; only a module that answers "off" is refused
+  // here. (The quiz has no hints by design — a question's hint is its
+  // choices.)
   const targetModule = target === "classic" ? "classic" : target === "ai" ? "ai" : "secure-development";
   if (!(await isModuleLive(targetModule))) {
     return { allowed: false, reason: "disabled" };

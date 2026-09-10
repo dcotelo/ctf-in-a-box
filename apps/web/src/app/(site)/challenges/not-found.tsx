@@ -26,7 +26,7 @@ export default async function ChallengesNotFound() {
   return (
     <NotFoundBody
       routes={routes}
-      eyebrow="Switched off"
+      eyebrow="Not running"
       title={`${name} is switched off`}
       description={`This event isn't running ${name} at the moment. Your link is fine and nothing you have already solved is affected — an organizer turned the module off, and it can come back just as quickly. Here is what this event does have open.`}
     />
