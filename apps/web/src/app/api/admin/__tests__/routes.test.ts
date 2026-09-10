@@ -58,7 +58,7 @@ beforeEach(() => {
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
   getAdminSettings.mockResolvedValue(SETTINGS);
   getSyncStatus.mockResolvedValue(null);
-  getLeaderboardSource.mockReturnValue({
+  getLeaderboardSource.mockResolvedValue({
     getLeaderboard: vi.fn().mockResolvedValue({
       entries: [],
       teams: [],
@@ -89,7 +89,7 @@ describe("GET /api/admin/status", () => {
   });
 
   it("includes leaderboard freshness computed from entries", async () => {
-    getLeaderboardSource.mockReturnValue({
+    getLeaderboardSource.mockResolvedValue({
       getLeaderboard: vi.fn().mockResolvedValue({
         entries: [
           { rank: 1, login: "a", team: null, points: 10, patched: 1, failed: 0, total: 1, apps: {}, updatedAt: "2026-08-14T10:00:00.000Z" },
@@ -107,7 +107,7 @@ describe("GET /api/admin/status", () => {
   });
 
   it("degrades leaderboard to null on a read failure instead of failing the route", async () => {
-    getLeaderboardSource.mockReturnValue({
+    getLeaderboardSource.mockResolvedValue({
       getLeaderboard: vi.fn().mockRejectedValue(new Error("source down")),
     });
     const res = await GET(new Request("http://x/api/admin/status"));

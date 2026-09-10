@@ -33,7 +33,7 @@ vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
 vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: async () => null }));
 vi.mock("@/lib/leaderboard/source", () => ({
-  getLeaderboardSource: () => ({
+  getLeaderboardSource: async () => ({
     getLeaderboard: async () => {
       throw new Error("no leaderboard in this fixture");
     },

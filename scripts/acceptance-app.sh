@@ -79,7 +79,12 @@ if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
 fi
 
 echo "--- with a scorer image, secure-development is the only default board"
-expect_in "$HOME_HTML" "The game" "landing page does not present exactly one board"
+# "The game" alone is a substring of "The games" and would pass with 0 or
+# many boards on the page too — pin the exact singular heading instead.
+expect_in "$HOME_HTML" "The game</h2>" "landing page does not present exactly one board"
+if grep -qF "No boards are open yet." <<< "$HOME_HTML"; then
+  echo "FAIL: landing page shows the no-boards state although a scorer image is set"; exit 1
+fi
 for route in /quiz /flags /ai; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3100$route")
   if [ "$code" != "404" ]; then echo "FAIL: $route returned $code, want 404 — a content module is on by default"; exit 1; fi

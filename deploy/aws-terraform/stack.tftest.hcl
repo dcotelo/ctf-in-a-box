@@ -227,6 +227,31 @@ run "secure_development_event_runs_scorer_and_sync" {
   }
 }
 
+// Final-review finding #3 (issue #386): the app must never receive a
+// SCORE_IMAGE for a board it did not stand a scorer up for, even when a
+// scorer_image happens to be configured — enable_secure_development is what
+// decides, not whether the variable is set. ecs.tf's ternary is the only
+// thing standing between this and the app defaulting secure-development on
+// with nothing to score it.
+run "app_gets_no_score_image_when_secure_development_is_off" {
+  command = plan
+
+  variables {
+    enable_secure_development = false
+    // Deliberately non-empty, to prove SCORE_IMAGE follows
+    // enable_secure_development and not merely "is scorer_image set".
+    scorer_image = "ghcr.io/example/scorer:v1"
+  }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "SCORE_IMAGE" && e.value == ""
+    ])
+    error_message = "app container must receive an empty SCORE_IMAGE when secure-development is off, so the deployment default module set never includes a board with no running scorer"
+  }
+}
+
 run "push_mode_runs_no_poller" {
   command = plan
 

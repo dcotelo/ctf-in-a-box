@@ -33,7 +33,7 @@ vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: 
 // synthetic board for one render.
 const board = vi.hoisted(() => ({ data: null as unknown }));
 vi.mock("@/lib/leaderboard/source", () => ({
-  getLeaderboardSource: () => ({
+  getLeaderboardSource: async () => ({
     getLeaderboard: async () => {
       if (board.data) return board.data;
       throw new Error("no leaderboard in this fixture");
@@ -48,7 +48,7 @@ vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["secure-development"] }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
-// layout.tsx is imported for its `metadata` export; its font loaders are
+// layout.tsx is imported for its `generateMetadata` export; its font loaders are
 // build-time Next magic with no runtime implementation under Vitest.
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "" });
