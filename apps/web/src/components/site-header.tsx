@@ -7,17 +7,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import type { NavEntry, NavGroup } from "@/lib/site";
+// `isNavGroup` as a VALUE, from `@/lib/site-nav` specifically, not
+// `@/lib/site`: a Client Component may only import TYPES from `@/lib/site`
+// — it transitively pulls in `enabled-modules.ts`'s `server-only`.
+// `site-nav.ts` holds the nav shapes and this helper with no such import, so
+// this is the real function, not a copy of it.
+import { isNavGroup, type NavEntry } from "@/lib/site-nav";
 import AuthNav from "@/components/auth-nav";
 import NavDropdown from "@/components/nav-dropdown";
-
-// A local copy of `@/lib/site`'s `isNavGroup`, not an import of it: a Client
-// Component may only import TYPES from `@/lib/site` — it transitively pulls
-// in `enabled-modules.ts`'s `server-only`. Same structural check, same
-// doc — see `isNavGroup` in site.ts.
-function isNavGroup(entry: NavEntry): entry is NavGroup {
-  return "items" in entry;
-}
 
 export default function SiteHeader({
   navLinks,

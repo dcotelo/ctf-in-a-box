@@ -71,14 +71,24 @@ vi.mock("next/image", () => ({
 
 import Home from "@/app/page";
 import { generateMetadata } from "@/app/layout";
-import { eventConfig } from "@/lib/event-config";
+import { DEFAULT_EVENT_IDENTITY } from "@/lib/event-identity";
 
 const html = await Home().then(renderToStaticMarkup);
 const metadata = await generateMetadata();
 
 describe("landing page frame", () => {
-  it("renders the event name as the headline", () => {
-    expect(html).toContain(eventConfig.name);
+  // This fixture's `@/lib/admin-store` mock stores no `eventIdentity`, so
+  // `getSite()` falls back to the spec default — NOT to this file's mocked
+  // `@/lib/event-config` (`getSite()` no longer reads `eventConfig.name` at
+  // all; config v2, issue #386). Asserting `eventConfig.name` here used to
+  // pass only because the generated event-config's default happens to equal
+  // `DEFAULT_EVENT_IDENTITY.eventName` — a deployment with `EVENT_NAME` set
+  // would have turned this red for the wrong reason. Anchored to the <h1>
+  // rather than a bare `toContain`, same reason as the "Renamed CTF" test
+  // below: the evaluator-pitch card's own copy also says "OWASP CTF".
+  it("renders the default event name in the headline when no identity is stored", () => {
+    const headline = html.match(/<h1[^>]*>([^<]*)<\/h1>/)?.[1];
+    expect(headline).toBe(DEFAULT_EVENT_IDENTITY.eventName);
   });
 
   // The redesigned frame: one primary action (state-aware — this fixture is

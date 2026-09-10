@@ -6,6 +6,14 @@ import { eventConfig } from "@/lib/event-config";
 import { getAdminSettingsSnapshot } from "@/lib/enabled-modules";
 import { DEFAULT_EVENT_IDENTITY, type EventIdentityOverrides } from "@/lib/event-identity";
 import { SECURE_AGENT_PLAYBOOK_URL } from "@/lib/modules";
+import type { NavEntry, NavGroup, NavLink } from "@/lib/site-nav";
+
+// Re-exported verbatim so every existing consumer of these off `@/lib/site`
+// keeps working unchanged — see `site-nav.ts` for why they live there now
+// (a Client Component needs `isNavGroup` as a value without pulling in this
+// file's `enabled-modules`/`server-only` chain).
+export { isNavGroup } from "@/lib/site-nav";
+export type { NavLink, NavGroup, NavEntry } from "@/lib/site-nav";
 
 export type Site = {
   name: string;
@@ -74,22 +82,6 @@ export const getSite = cache(async (): Promise<Site> => {
   const settings = await getAdminSettingsSnapshot();
   return resolveSite(settings?.eventIdentity ?? null);
 });
-
-export type NavLink = { href: string; label: string };
-
-/** A grouped nav entry: one dropdown parent label with its own child links.
- *  See `buildNavGroups` for when this appears instead of a flat `NavLink`. */
-export type NavGroup = { label: string; items: NavLink[] };
-
-/** One header nav slot: either a plain link or a dropdown group of them. */
-export type NavEntry = NavLink | NavGroup;
-
-/** True iff `entry` is a `NavGroup` rather than a plain `NavLink`. The two
- *  shapes don't overlap on any field, so this is a plain structural check —
- *  no discriminant tag needed. */
-export function isNavGroup(entry: NavEntry): entry is NavGroup {
-  return "items" in entry;
-}
 
 // Platform-level pages that exist regardless of which modules are enabled.
 // Module-owned entries (e.g. Challenges) are NOT listed here — they're
