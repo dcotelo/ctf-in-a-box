@@ -791,7 +791,7 @@ without a rebuild:
   | `teamMaxMembers` | players per team (ADR 45) |
   | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
   | `registrationStartsAt` / `registrationEndsAt` | the team-registration window |
-  | `enabledModules` | the live module set (ADR 52) — absent means "use `event.yaml`'s baked set" |
+  | `enabledModules` | the live module set (ADR 52, amended by #386) — absent means "use the `SCORE_IMAGE`-derived default" |
 
   plus `updatedBy`/`updatedAt` and `resetAt` (the master-reset epoch `sync`
   honours — see below). Every reader applies **override-else-default**
@@ -828,11 +828,12 @@ without a rebuild:
   request-scoped reader is `lib/resolved-modules.ts`'s `getResolvedModules()`,
   which **fails open** (a settings-read error resolves to registry defaults,
   because a wrong display name is cosmetic where a wrong gate decision awards
-  points). Since ADR 52, **which modules are enabled is runtime too**: the
-  Event tab's per-module switches write `enabledModules` on this same hash,
-  `event.yaml`'s `modules:` is the starting set and the outage fallback
-  (`apps/web/src/lib/enabled-modules.ts`'s `getEnabledModuleIds()`), and the
-  title/blurb validation above is checked against the *live* set.
+  points). Since ADR 52 (amended by #386), **which modules are enabled is
+  runtime too**: the Event tab's per-module switches write `enabledModules`
+  on this same hash, the `SCORE_IMAGE`-derived default is the starting set
+  and the outage fallback (`apps/web/src/lib/enabled-modules.ts`'s
+  `getEnabledModuleIds()`), and the title/blurb validation above is checked
+  against the *live* set.
 - **`ctf:admin:admins`** (Redis SET, ADR 44) — logins granted admin at
   runtime, on top of the ones baked into the image from `event.yaml`. A set
   rather than a settings field because membership *is* the whole value.

@@ -829,10 +829,10 @@ hand when you rebuild with an updated `event.yaml` to match.
 
 ## Quiz
 
-When `event.yaml`'s `modules:` map includes `quiz: {}` (see
-`event.yaml.example`), contestants get a second, self-paced way to earn
-points: single- and multiple-choice questions, answered directly in the app
-alongside Secure Development's patch challenges. It doesn't touch GitHub,
+Switch Quiz on from `/admin` → Event → Modules and contestants get a second,
+self-paced way to earn points: single- and multiple-choice questions,
+answered directly in the app alongside Secure Development's patch
+challenges. It doesn't touch GitHub,
 the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#quiz-data-flow) for how it scores
 entirely inside the app.
@@ -1036,11 +1036,10 @@ retry knobs are global settings, not per-question ones.
 
 ## Classic
 
-When `event.yaml`'s `modules:` map includes `classic: {}` (see
-`event.yaml.example`), contestants get a jeopardy-style flag board: a set of
-organizer-authored challenges, each hiding a flag, graded the instant a
-contestant submits a matching string. Like the quiz, it doesn't touch
-GitHub, the scorer, or `sync` at all — see
+Switch Classic on from `/admin` → Event → Modules and contestants get a
+jeopardy-style flag board: a set of organizer-authored challenges, each
+hiding a flag, graded the instant a contestant submits a matching string.
+Like the quiz, it doesn't touch GitHub, the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#classic-data-flow) for how it scores
 entirely inside the app.
 
@@ -1259,11 +1258,10 @@ or a binary for contestants to download.
 
 ## AI
 
-When `event.yaml`'s `modules:` map includes `ai: {}` (see
-`event.yaml.example`), contestants get a third way to earn points:
-prompt-injection and guardrail challenges hosted on an **external** site,
-graded **inside** the box. Like the quiz and classic, it doesn't touch
-GitHub, the scorer, or `sync` at all — see
+Switch AI on from `/admin` → Event → Modules and contestants get a third way
+to earn points: prompt-injection and guardrail challenges hosted on an
+**external** site, graded **inside** the box. Like the quiz and classic, it
+doesn't touch GitHub, the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#ai-data-flow) for how it scores
 entirely inside the app, and how a solve can arrive back three different
 ways.

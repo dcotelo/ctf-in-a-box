@@ -253,14 +253,15 @@ the sections below are the enforceable contract behind it.
 ## Section 5. UI / presentation contract
 
 **Honesty constraint up front:** the vendored contestant app (`apps/web/`,
-see `apps/web/VENDORED.md`) now derives its module registry from `event.yaml`
-rather than hardcoding a single module. `src/lib/modules.ts`'s
-`enabledModules` maps every id under `event.yaml`'s `modules:` block (surfaced
-through the generator, `apps/web/scripts/generate-event-config.mjs`, which
-emits a structured `modules` array plus a derived back-compat `targets` array)
-to a `ModuleDef` — display name, description, and nav entry are code-side
-registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
-entirely config-driven. Four ids are registered today, all four
+see `apps/web/VENDORED.md`) now derives its module registry from a runtime
+set rather than hardcoding a single module. `src/lib/modules.ts`'s
+`moduleDefsFor` maps every enabled id to a `ModuleDef` — display name,
+description, and nav entry are code-side registry data (`REGISTRY` in
+`modules.ts`); whether a module is *live* is decided at runtime, from the
+`ctf:admin:settings` set that defaults to Secure Development alone when the
+deployment has a `SCORE_IMAGE`, otherwise nothing
+([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
+amended by #386). Four ids are registered today, all four
 **real, working modules** rather than registry-proving placeholders:
 `secure-development` (targets, catalogue,
 GitHub-mediated scoring — the worked example throughout this document),
@@ -526,12 +527,16 @@ of one module's shape.
    patched/total shape.
 
 4. **Enablement rule.** A module's UI surfaces (nav entry, challenge list,
-   leaderboard columns) MUST appear if and only if the module's key is
-   present under `event.yaml`'s `modules:` map — the same map the config
-   loader validates (section 1). Nothing about a module absent from
-   `modules:` may leak into nav, leaderboard, or challenge listings; an
-   organizer who omits a module from their event config gets an app with no
-   trace of it, not a greyed-out or hidden-but-present surface. This reaches
+   leaderboard columns) MUST appear if and only if the module's id is in the
+   runtime live set — `getEnabledModuleIds()` / `isModuleLive()` in
+   `apps/web/src/lib/enabled-modules.ts`, backed by `ctf:admin:settings`'s
+   `enabledModules`, which defaults to Secure Development alone when the
+   deployment has a `SCORE_IMAGE` and to nothing otherwise
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
+   amended by #386). Nothing about a module outside that set may leak into
+   nav, leaderboard, or challenge listings; a contestant on an event that
+   hasn't switched a module on gets an app with no trace of it, not a
+   greyed-out or hidden-but-present surface. This reaches
    the module's own dedicated route, not just its nav entry: a disabled
    module's page MUST 404, not merely disappear from the header — worked
    example, `/challenges` (`app/(site)/challenges/page.tsx`) calls
