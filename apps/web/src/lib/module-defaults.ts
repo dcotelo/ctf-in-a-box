@@ -8,12 +8,16 @@
 // code. A client bundle has no SCORE_IMAGE and would compute the wrong answer.
 import type { ModuleId } from "@/lib/modules";
 
-export function secureDevAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
+export function secureDevAvailable(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
   return typeof env.SCORE_IMAGE === "string" && env.SCORE_IMAGE.trim() !== "";
 }
 
 /** The module set when nothing is stored in ctf:admin:settings, and the
  *  fail-open answer when that read fails. */
-export function defaultEnabledModules(env: NodeJS.ProcessEnv = process.env): readonly ModuleId[] {
+export function defaultEnabledModules(
+  env: Record<string, string | undefined> = process.env,
+): readonly ModuleId[] {
   return secureDevAvailable(env) ? ["secure-development"] : [];
 }
