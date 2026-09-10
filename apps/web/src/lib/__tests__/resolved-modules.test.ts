@@ -44,6 +44,15 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
+// The default set this getResolvedModules falls back to whenever the settings
+// read fails or names no live set (issue #386 removed the baked set that used
+// to stand in). Mocked directly rather than derived from SCORE_IMAGE so this
+// file's fallback tests stay independent of process.env — and matches the
+// same two-module fixture the rest of this file assumes.
+vi.mock("@/lib/enabled-modules", () => ({
+  defaultModuleIds: ["secure-development", "quiz"],
+}));
+
 const getAdminSettings = vi.fn();
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 

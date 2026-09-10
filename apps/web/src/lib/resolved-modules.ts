@@ -3,7 +3,7 @@ import { cache } from "react";
 import { connection } from "next/server";
 import { getAdminSettings } from "@/lib/admin-store";
 import { buildNavLinks, buildNavGroups, type NavEntry, type NavLink } from "@/lib/site";
-import { bakedModuleIds } from "@/lib/enabled-modules";
+import { defaultModuleIds } from "@/lib/enabled-modules";
 import {
   moduleDefById,
   resolveModules,
@@ -49,9 +49,9 @@ export const getResolvedModules = cache(async (): Promise<readonly ResolvedModul
   // ONE read for both halves — the names and the live set come out of the same
   // settings hash, so asking twice would double the cost of every render for
   // nothing. Both halves fail open, and independently: a read failure gives
-  // registry names AND the baked module set.
+  // registry names AND the default module set.
   const settings = await getAdminSettings().catch(() => null);
-  return resolveModules(settings?.moduleOverrides ?? {}, new Set(settings?.enabledModuleIds ?? bakedModuleIds));
+  return resolveModules(settings?.moduleOverrides ?? {}, new Set(settings?.enabledModuleIds ?? defaultModuleIds));
 });
 
 /** The site nav, with organizer renames applied — the ONE accessor every

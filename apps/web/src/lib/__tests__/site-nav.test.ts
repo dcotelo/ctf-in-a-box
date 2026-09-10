@@ -12,25 +12,7 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import { buildNavLinks, navLinks } from "@/lib/site";
-
-describe("navLinks", () => {
-  it("renders a nav entry for each enabled module that has one", () => {
-    expect(navLinks).toContainEqual({ href: "/challenges", label: "Challenges" });
-    expect(navLinks).toContainEqual({ href: "/quiz", label: "Quiz" });
-  });
-
-  it("keeps the non-module links and today's order with both modules' nav entries spliced in", () => {
-    expect(navLinks).toEqual([
-      { href: "/how-to-play", label: "How to Play" },
-      { href: "/challenges", label: "Challenges" },
-      { href: "/quiz", label: "Quiz" },
-      { href: "/rules", label: "Rules" },
-      { href: "/leaderboard", label: "Leaderboard" },
-      { href: "/faq", label: "FAQ" },
-    ]);
-  });
-});
+import { buildNavLinks } from "@/lib/site";
 
 describe("buildNavLinks", () => {
   // The regression gate for the rename-by-accident bug. `resolveModules`

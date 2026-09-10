@@ -770,7 +770,7 @@ git push -u origin fix/<short-description>`,
         ],
         unsafe: [
           "The target list or anything else in event.yaml. It is build-time config: a rebuild, and re-provisioning the org for any new target.",
-          "Switching this module off or on. The panel refuses it — the scorer, the poller and the forks are configured at setup.",
+          "Switching this module off or on: a normal toggle now (issue #386), refused only when this deployment has no scorer image (SCORE_IMAGE unset) — the scorer and sync containers are chosen when the stack comes up, not from here.",
           "A master reset while PRs still carry score comments. The poller re-ingests them once you unfreeze unless the comments are removed too.",
         ],
       },
@@ -1569,19 +1569,9 @@ git push -u origin fix/<short-description>`,
   },
 };
 
-/** A full `ModuleDef` for EVERY registered module, whether or not this event's
- *  `event.yaml` names it.
- *
- *  Exists for runtime enablement (issue #175): a module switched on from
- *  /admin was, by definition, not in the baked config, so there is no
- *  `eventConfig.modules` entry to build its def from. Its registry entry plus
- *  an empty target list is that def.
- *
- *  `targets` still comes from `event.yaml` where the organizer supplied it,
- *  and only secure-development has any — which is the same reason that module
- *  is NOT runtime-toggleable: a target list is provisioning input for
- *  `ctf-setup.sh` (forks, the App install, per-fork workflows), not a flag the
- *  web tier can conjure. See the ADR. */
+/** A full `ModuleDef` for EVERY registered module. `targets` still comes from
+ *  `event.yaml` for secure-development in this release (PR 2 of #386 moves it
+ *  to the admin panel); every other module has none. */
 const MODULE_DEFS: Record<ModuleId, ModuleDef> = Object.fromEntries(
   (Object.keys(REGISTRY) as ModuleId[]).map((id) => [
     id,
@@ -1591,12 +1581,6 @@ const MODULE_DEFS: Record<ModuleId, ModuleDef> = Object.fromEntries(
     },
   ]),
 ) as Record<ModuleId, ModuleDef>;
-
-export const enabledModules: readonly ModuleDef[] = eventConfig.modules.map((cfg) => MODULE_DEFS[cfg.id]);
-
-export function isModuleEnabled(id: ModuleId): boolean {
-  return enabledModules.some((m) => m.id === id);
-}
 
 // There is deliberately no "enabled modules' routes" list here. One existed
 // (`enabledModuleRoutes`) for the pre-event gate, but the gate stopped using
@@ -1628,8 +1612,8 @@ export const ALL_MODULE_IDS: readonly ModuleId[] = Object.keys(REGISTRY) as Modu
 /** A registered module's def by id, enabled or not.
  *
  *  The registry accessors in `resolved-modules.ts` (`getModuleHome` and
- *  friends) go through this rather than searching `enabledModules`. Searching
- *  the BAKED list meant a module enabled at runtime resolved to `undefined`
+ *  friends) go through this rather than searching the resolved/live list.
+ *  Searching a filtered list meant a module enabled at runtime resolved to `undefined`
  *  for every one of them — it would get a route, a nav link and a tab, and
  *  then render with no landing section, no how-to-play steps, no rules, no FAQ
  *  and no terms. Enablement is the caller's question (they already iterate the
@@ -1644,12 +1628,6 @@ export function moduleDefById(id: ModuleId): ModuleDef | undefined {
 export function isModuleId(value: unknown): value is ModuleId {
   return typeof value === "string" && (ALL_MODULE_IDS as readonly string[]).includes(value);
 }
-
-/** The ids `event.yaml` baked in — the fallback whenever the runtime set is
- *  absent or unreadable. Deliberately NOT the source of truth once #175's
- *  admin control exists: `event.yaml` seeds an event and catches a Redis
- *  outage, and the live set is what the box actually serves. */
-export const bakedModuleIds: readonly ModuleId[] = enabledModules.map((m) => m.id);
 
 /** Organizer-authored, runtime overrides keyed by module id. Both fields are
  *  optional and an empty string means "no override" — see resolveModules. */
@@ -1716,21 +1694,12 @@ export type ResolvedModule = Omit<
   titleOverride?: string;
 };
 
-/** The module defs this event is serving, in the order they should render.
- *
- *  Ordering rule, and it is deliberate: **the baked order first**, filtered to
- *  what is live, then anything enabled at runtime that `event.yaml` never
- *  mentioned, in registry order. An organizer who listed their modules in a
- *  particular order in `event.yaml` gets that order in the nav, exactly as
- *  before — toggling a module off and back on must not silently reshuffle the
- *  header. A runtime set has no order of its own, so newly-enabled modules
- *  have to fall back to the registry's, and appending them keeps the change
- *  additive rather than a reshuffle. */
+/** The module defs this event is serving, in registry order. There is no
+ *  baked order any more (issue #386): the registry's order is the one
+ *  organizers and tests can predict, and toggling a module off and on lands
+ *  it back in the same slot. */
 function moduleDefsFor(enabled: ReadonlySet<ModuleId>): readonly ModuleDef[] {
-  const baked = enabledModules.filter((m) => enabled.has(m.id));
-  const bakedIds = new Set(baked.map((m) => m.id));
-  const added = ALL_MODULE_IDS.filter((id) => enabled.has(id) && !bakedIds.has(id)).map((id) => MODULE_DEFS[id]);
-  return [...baked, ...added];
+  return ALL_MODULE_IDS.filter((id) => enabled.has(id)).map((id) => MODULE_DEFS[id]);
 }
 
 /** Merge registry defaults with organizer overrides. Pure — no I/O — so it is
@@ -1739,14 +1708,13 @@ function moduleDefsFor(enabled: ReadonlySet<ModuleId>): readonly ModuleDef[] {
  *  simply absent from the result; an empty string is treated as unset so
  *  clearing a field in the admin UI restores the registry default.
  *
- *  `enabled` is the LIVE module set (issue #175). Omitting it means "use the
- *  baked set", which is what every pure/client-side caller and every test
- *  written before runtime enablement does — so this stays a drop-in. */
+ *  `enabled` is the LIVE module set (issue #175) and is now required — there
+ *  is no baked set left to fall back to (issue #386). */
 export function resolveModules(
   overrides: ModuleOverrides,
-  enabled?: ReadonlySet<ModuleId>,
+  enabled: ReadonlySet<ModuleId>,
 ): readonly ResolvedModule[] {
-  const defs = enabled ? moduleDefsFor(enabled) : enabledModules;
+  const defs = moduleDefsFor(enabled);
   // Destructure the defaults OUT rather than spreading them through, so a
   // resolved module genuinely has no `displayName` to read by mistake — the
   // type and the runtime object agree. Every copy block — `home`, `guide`,
