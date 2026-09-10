@@ -5,7 +5,8 @@ import { exportBundle as exportAi, clearAiChallenges, importBundle as importAi }
 import { effectivePaused, getAdminSettings, resetEvent, updateAdminSettings, type SettingsPatch } from "@/lib/admin-store";
 import { eventConfig } from "@/lib/event-config";
 import { EVENT_BUNDLE_VERSION, EVENT_POLICY_FIELDS, type EventBundle, type EventPolicySettings } from "@/lib/event-io";
-import { bakedModuleIds, isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
+import { isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
+import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
 
 const SD_WARNING =
   "Secure Development is enabled — its content (target repos, forks, rubrics) is not in the box and is NOT included in this bundle.";
@@ -33,7 +34,7 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
   const settings = await getAdminSettings();
   const warnings: string[] = [];
 
-  const enabledModuleIds = settings.enabledModuleIds ?? eventConfig.modules.map((m) => m.id);
+  const enabledModuleIds = settings.enabledModuleIds ?? defaultEnabledModules(process.env);
   const isEnabled = (id: string) => enabledModuleIds.includes(id as (typeof enabledModuleIds)[number]);
 
   if (isEnabled("secure-development")) {
@@ -131,8 +132,10 @@ export type EventImportSummary = {
  *  Fail-fast ordering: the settings patch is built and applied FIRST, right
  *  after the live-guard and before anything destructive. `updateAdminSettings`
  *  VALIDATES the patch and throws `AdminValidationError` on a bad one (e.g. an
- *  `enabledModuleIds` naming a module the box wasn't built with, or any
- *  invalid module id) — applying it before `resetEvent`/clear/import means a
+ *  out-of-range `hintCost`/`teamMaxMembers`, or any other malformed scalar
+ *  field — `enabledModuleIds` itself is already reconciled against this
+ *  deployment's availability below, so it can't trigger that particular
+ *  refusal) — applying it before `resetEvent`/clear/import means a
  *  malformed bundle is rejected with NOTHING destructive done yet, instead of
  *  failing after the board has already been wiped and half-replaced.
  *  `resetEvent` is safe to run after: it keeps `ctf:admin:settings` (see its
@@ -198,46 +201,42 @@ export async function importEventBundle(
   return { summary, skipped };
 }
 
-const SD_ID: ModuleId = "secure-development";
-
-/** Reconciles a bundle's `enabledModuleIds` against the BOX's own baked
- *  module set (`bakedModuleIds`, from `event.yaml`'s `modules:` at build
- *  time) before it ever reaches `updateAdminSettings`. `updateAdminSettings`
- *  throws `AdminValidationError` on any set whose `secure-development`
- *  membership differs from `bakedModuleIds` in either direction
- *  (admin-store.ts's "Refusal 2") — importing an SD-enabled event's archive
- *  into a non-SD box, or a non-SD archive into an SD box, must not 500. It
- *  should apply everything the box can actually serve and report the rest,
+/** Reconciles a bundle's `enabledModuleIds` against what THIS deployment can
+ *  actually run before it ever reaches `updateAdminSettings`. Every module
+ *  besides `secure-development` is a plain runtime toggle now (issue #386) —
+ *  there is no build-time set to match against any more. The only remaining
+ *  availability constraint is `secureDevAvailable`: a deployment with no
+ *  scorer image has no scorer/sync containers to score Secure Development's
+ *  board, so `updateAdminSettings` refuses to enable it there
+ *  (admin-store.ts's "one refusal left"). Importing an SD-enabled event's
+ *  archive into a deployment that can't run it must not 500 — it should
+ *  apply everything this deployment can actually serve and report the rest,
  *  never throw.
  *
- *  - Drops any id the box was not built with — a module that cannot run
- *    without its build-time config/services. `secure-development` is the
- *    only module id that currently carries such a requirement (its own
- *    scorer/sync services and provisioned forks), so in practice this only
- *    ever drops that one id.
- *  - If the box WAS built with `secure-development` but the reconciled set
- *    doesn't carry it, `secure-development` is added back — admin-store
- *    refuses to let an SD box ever end up with SD disabled at runtime (the
- *    other direction of Refusal 2).
+ *  - Drops any id this deployment doesn't recognize as a module at all
+ *    (`isModuleId`) — a typo, or an id from a newer build this deployment
+ *    doesn't know.
+ *  - Drops `secure-development` when `secureDevAvailable(process.env)` is
+ *    false — the one case a valid, known id still can't be applied here.
  *
- *  Either adjustment is reported back via `skipped` so the caller can
- *  surface it; a set that already matches the box produces no messages. */
-function reconcileEnabledModuleIds(incoming: ModuleId[]): { ids: ModuleId[]; skipped: string[] } {
+ *  Either drop is reported back via `skipped` so the caller can surface it;
+ *  a set this deployment can run in full produces no messages. */
+function reconcileEnabledModuleIds(incoming: readonly string[]): { ids: ModuleId[]; skipped: string[] } {
   const skipped: string[] = [];
-  const kept = incoming.filter((id) => {
-    if (bakedModuleIds.includes(id)) return true;
-    skipped.push(`Module "${id}" cannot be imported — this box was not built with it, so it was dropped from enabled modules.`);
-    return false;
-  });
+  const unknown = incoming.filter((id) => !isModuleId(id));
+  for (const id of unknown) {
+    skipped.push(`Module "${id}" is not a recognized module id and was dropped from enabled modules.`);
+  }
+  const known = incoming.filter(isModuleId);
 
-  if (bakedModuleIds.includes(SD_ID) && !kept.includes(SD_ID)) {
+  if (known.includes("secure-development") && !secureDevAvailable(process.env)) {
     skipped.push(
-      "This box was built with Secure Development, which cannot be disabled at runtime — it was kept enabled even though the bundle's enabled modules did not include it.",
+      "Skipped enabling secure-development: this deployment has no scorer image (SCORE_IMAGE is unset), so its board could never be scored here.",
     );
-    return { ids: [...kept, SD_ID], skipped };
+    return { ids: known.filter((id) => id !== "secure-development"), skipped };
   }
 
-  return { ids: kept, skipped };
+  return { ids: known, skipped };
 }
 
 /** Translates the bundle's `EVENT_POLICY_FIELDS` allowlist into the shape
@@ -247,16 +246,19 @@ function reconcileEnabledModuleIds(incoming: ModuleId[]): { ids: ModuleId[]; ski
  *  keys `updateAdminSettings` recognizes, and `enabledModuleIds` (the
  *  read-side name) writes under `enabledModules` (the write-side name).
  *  Copying either field's name straight through would make
- *  `updateAdminSettings` reject it as an unknown setting. A `null`/empty
- *  value for either is treated as "nothing to apply" rather than forwarded —
- *  `enabledModules` in particular refuses an empty array (ADR 24's runtime
- *  analogue: an event can never end up with zero enabled modules).
+ *  `updateAdminSettings` reject it as an unknown setting. A `null` value for
+ *  either (settings' "no override" shape) is treated as "nothing to apply"
+ *  rather than forwarded. An explicitly empty `enabledModuleIds` array IS
+ *  forwarded, though — `[]` is a meaningful "no modules enabled" and every
+ *  module besides secure-development is a plain runtime toggle now (issue
+ *  #386), so there is no longer a build-time floor that makes an empty set
+ *  invalid.
  *
- *  `enabledModuleIds` is additionally reconciled against this box's baked
- *  module set via `reconcileEnabledModuleIds` before landing in the patch —
- *  see that function's doc comment. The reconciliation's own messages are
- *  returned alongside the patch so `importEventBundle` can fold them into
- *  its `skipped` array instead of letting a mismatch throw. */
+ *  `enabledModuleIds` is additionally reconciled against this deployment's
+ *  actual availability via `reconcileEnabledModuleIds` before landing in the
+ *  patch — see that function's doc comment. The reconciliation's own
+ *  messages are returned alongside the patch so `importEventBundle` can fold
+ *  them into its `skipped` array instead of letting a mismatch throw. */
 function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch; skipped: string[] } {
   const patch: SettingsPatch = {};
   const skipped: string[] = [];
@@ -273,10 +275,13 @@ function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch
       }
     } else if (field === "enabledModuleIds") {
       const ids = value as ModuleId[] | null | undefined;
-      if (Array.isArray(ids) && ids.length > 0) {
+      // Array.isArray, not a truthiness/length check: `[]` is a meaningful
+      // "no modules enabled" and must round-trip, not be treated the same as
+      // the field being absent/null (see the doc comment above).
+      if (Array.isArray(ids)) {
         const reconciled = reconcileEnabledModuleIds(ids);
         skipped.push(...reconciled.skipped);
-        if (reconciled.ids.length > 0) patch.enabledModules = reconciled.ids;
+        patch.enabledModules = reconciled.ids;
       }
     } else {
       // The 10 scalar policy fields are `X | null` on AdminSettings/the
