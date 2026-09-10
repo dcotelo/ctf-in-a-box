@@ -56,6 +56,21 @@ EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
 (Quiz/classic-only events: `--profile app` alone.) `scripts/dev-stack` and
 the wizard both do this for you; a bare `docker compose build app` does not.
 
+## A board that was on before the upgrade is gone
+
+**Symptom.** After upgrading, Quiz, Classic, or AI no longer appears in the
+nav or on the landing page, even though nothing about that module changed.
+
+**Diagnosis.** Not a bug and nothing was deleted. Since #386, module
+enablement is decided at runtime in `/admin`, not baked into the image —
+and on a fresh deployment (or one whose stored settings have never named
+this module) only Secure Development starts on, and only when the stack has
+a scorer image; Quiz, Classic and AI always start **off**.
+
+**Fix.** `/admin` → Event tab → Modules, and switch it on. The board's
+data was never touched — solves, attempts and points come back exactly as
+they were.
+
 ## A scored PR isn't landing on the leaderboard (poll mode)
 
 Work down this list — each item is a different subsystem:

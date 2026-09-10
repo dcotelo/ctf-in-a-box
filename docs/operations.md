@@ -297,6 +297,11 @@ The panel offers:
   the toggle is a switch, not a delete. Use it to pull a broken board out of an
   event without losing what contestants have already done.
 
+  For Secure Development specifically: switching it off does not stop the
+  poller or the scorer — ingestion keeps running underneath, and any points
+  it records while the board is off show up on the board again the moment
+  you switch it back on.
+
   One thing it refuses, on purpose: **Secure Development on a deployment with
   no scorer image.** The scorer and sync containers are chosen when the stack
   comes up (`SCORE_IMAGE` in `.env`), and the app cannot start one, so the
