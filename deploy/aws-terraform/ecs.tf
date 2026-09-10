@@ -210,6 +210,11 @@ resource "aws_ecs_task_definition" "app" {
       { name = "BETTER_AUTH_URL", value = local.event_url },
       { name = "UPSTASH_REDIS_REST_URL", value = local.upstash_url },
       { name = "SCORE_INGEST", value = var.score_ingest },
+      // Same contract as docker-compose.yml's SCORE_IMAGE: non-empty means
+      // this deployment runs Secure Development (the scorer task exists),
+      // and that is the ONLY module enabled before an organizer switches
+      // others on in /admin (issue #386).
+      { name = "SCORE_IMAGE", value = var.enable_secure_development ? var.scorer_image : "" },
     ]
 
     secrets = local.app_secrets

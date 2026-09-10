@@ -217,6 +217,14 @@ run "secure_development_event_runs_scorer_and_sync" {
     condition     = aws_ecs_service.app.desired_count >= 1
     error_message = "The app runs on every event."
   }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "SCORE_IMAGE" && e.value == var.scorer_image
+    ])
+    error_message = "app container must receive SCORE_IMAGE so the default module set matches the deployment"
+  }
 }
 
 run "push_mode_runs_no_poller" {
@@ -252,6 +260,14 @@ run "quiz_only_event_runs_neither" {
   assert {
     condition     = length(aws_ecs_service.scorer) == 0 && length(aws_ecs_service.sync) == 0
     error_message = "An event without secure-development must bring up neither service — it has no forks, and no scorer image to pull."
+  }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "SCORE_IMAGE" && e.value == ""
+    ])
+    error_message = "A quiz-only event must hand the app an empty SCORE_IMAGE — the SD toggle must be refused by default."
   }
 }
 
