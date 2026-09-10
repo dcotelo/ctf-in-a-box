@@ -210,6 +210,10 @@ docker exec qo-redis redis-cli HSET "ctf:quiz:answers:$CONTESTANT_LOGIN" "$QUEST
 docker exec qo-redis redis-cli HSET ctf:quiz:points "$CONTESTANT_LOGIN" "$CONTESTANT_POINTS" >/dev/null
 docker exec qo-redis redis-cli HSET ctf:quiz:answered "$CONTESTANT_LOGIN" 1 >/dev/null
 
+# Config v2 (#386): modules are switched on in ctf:admin:settings, not by
+# being present in event.yaml. Without this the board is OFF and /quiz 404s.
+docker exec qo-redis redis-cli HSET ctf:admin:settings enabledModules quiz >/dev/null
+
 # ---------------------------------------------------------------------------
 # Build + boot the app bound to the quiz-only config. EVENT_CONFIG_B64 is a
 # BUILD-time arg (apps/web/Dockerfile) — always pass it, never fall through

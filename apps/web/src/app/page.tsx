@@ -247,28 +247,38 @@ export default async function Home() {
           <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             {sections.length === 1 ? "The game" : "The games"}
           </h2>
-          <div className={`grid grid-cols-1 gap-4 ${gamesGrid}`}>
-            {sections.map((section) => (
-              <article
-                key={section.id}
-                className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
-              >
-                <h3 className="text-lg font-bold text-white">{section.title}</h3>
-                <p className="flex-1 text-sm leading-relaxed text-zinc-400">{section.intro}</p>
-                {countFor(section.id) && (
-                  <p className="font-mono text-xs tabular-nums text-[#8f8f9b]">{countFor(section.id)}</p>
-                )}
-                {section.cta && (
-                  <Link
-                    href={section.cta.href}
-                    className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#2563eb]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-                  >
-                    {section.cta.label}
-                  </Link>
-                )}
-              </article>
-            ))}
-          </div>
+          {sections.length === 0 ? (
+            // Zero modules is a legal state now (issue #386): a fresh
+            // deployment with no scorer image, or an organizer who switched
+            // everything off. Say so — an empty grid reads as a broken page.
+            <div className="rounded-lg border border-white/[0.06] bg-[#16162a] px-6 py-10 text-center">
+              <p className="text-lg font-semibold text-white">No boards are open yet.</p>
+              <p className="mt-2 text-sm text-muted">An organizer switches them on in the admin panel.</p>
+            </div>
+          ) : (
+            <div className={`grid grid-cols-1 gap-4 ${gamesGrid}`}>
+              {sections.map((section) => (
+                <article
+                  key={section.id}
+                  className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
+                >
+                  <h3 className="text-lg font-bold text-white">{section.title}</h3>
+                  <p className="flex-1 text-sm leading-relaxed text-zinc-400">{section.intro}</p>
+                  {countFor(section.id) && (
+                    <p className="font-mono text-xs tabular-nums text-[#8f8f9b]">{countFor(section.id)}</p>
+                  )}
+                  {section.cta && (
+                    <Link
+                      href={section.cta.href}
+                      className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#2563eb]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+                    >
+                      {section.cta.label}
+                    </Link>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* A module's optional thesis section. For secure-development this is
