@@ -292,9 +292,10 @@ registry still fails the build loudly (`generate-event-config.mjs`'s
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
-`src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
-header iff that module is enabled *and* defines a `nav` — all three app-side
-modules do now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`,
+`resolved-modules.ts`'s `getNavLinks`/`getNavGroups`, running `site.ts`'s
+`buildNavLinks`/`buildNavGroups` over the LIVE resolved-module list, splice a
+module's nav entry into the header iff that module is enabled *and* defines a
+`nav` — all three app-side modules do now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`,
 rendering `components/quiz-board.tsx`), `classic`'s at `/flags`
 (`apps/web/src/app/(site)/flags/`, rendering `components/challenge-board.tsx`)
 and `ai`'s at `/ai` (`apps/web/src/app/(site)/ai/`, rendering that same
