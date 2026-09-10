@@ -18,7 +18,8 @@ const LIVE_WARNING = "This event is live — do not publish this bundle while co
  *  modules' own `exportBundle()` (which themselves only read their own
  *  challenge/question definitions, never solves/attempts), the
  *  `EVENT_POLICY_FIELDS`-picked subset of `getAdminSettings()`, and the
- *  handful of `eventConfig` fields picked below. No `ctf:user:*`/
+ *  runtime identity fields (`name`, `theme`, `dates`, `location`,
+ *  `ctfStartsAt`) picked off `getSite()` below. No `ctf:user:*`/
  *  `ctf:team:*`/solve/attempt/hint/audit key is ever touched here.
  *
  *  `bundle.event` deliberately omits `contactEmail` and `discordUrl` even

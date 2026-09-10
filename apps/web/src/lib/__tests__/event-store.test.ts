@@ -196,7 +196,7 @@ describe("exportEventBundle", () => {
     //
     // "ctf:admin:audit" and "solvedAt" are dropped from the original token
     // list: neither is introducible through anything exportEventBundle
-    // actually reads (getAdminSettings(), eventConfig, or the content
+    // actually reads (getAdminSettings(), getSite(), or the content
     // modules' own exportBundle()). The audit log lives under a wholly
     // separate Redis key (`ctf:admin:audit`) this function's call graph never
     // touches, and solve timestamps are guarded by classic-store's/
