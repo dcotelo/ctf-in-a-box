@@ -35,11 +35,12 @@ modules:
   # `quiz: {}` / `classic: {}` / `ai: {}` block here if an older event.yaml
   # has one — it is inert, not wrong.
 # Don't want to write this file by hand? `./setup/ctf-setup.sh` (the wizard)
-# still writes this file and still asks which modules to enable — but that
-# answer only decides whether a `secure-development` block (`targets` +
-# `score_ingest`) is written here. It no longer enables anything: Quiz,
-# Classic, AI and Secure Development are all switched on from /admin after
-# the box is up. PR 3 of #386 removes the wizard's module question.
+# still writes this file and still asks which modules to enable — that answer
+# writes one block per module named: `secure-development` with its `targets`
+# + `score_ingest`, and an empty `quiz: {}` / `classic: {}` / `ai: {}` for the
+# others. None of those blocks enables anything any more: Quiz, Classic, AI
+# and Secure Development are all switched on from /admin after the box is up.
+# PR 3 of #386 removes the wizard's module question.
 #
 # Enablement lives in /admin now, not this file — see the comment above
 # `modules:`. A quiz-only or classic-only event needs none of this file's
