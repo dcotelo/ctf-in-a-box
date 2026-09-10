@@ -23,7 +23,7 @@ import { enabledApps, joinAppNames, workedExampleVariant } from "@/lib/apps";
 import { moduleDefById, type GuideContext } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleGuide, getResolvedModules } from "@/lib/resolved-modules";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
 // What the page is, in the live modules' own words. Read off the registry
@@ -31,6 +31,7 @@ import { eventConfig } from "@/lib/event-config";
 // the same cached live-set read the page body makes.
 export async function generateMetadata(): Promise<Metadata> {
   const live = await getEnabledModuleIds();
+  const event = await getSite();
   const metaDescription = [...live]
     .map((id) => moduleDefById(id)?.guide?.metaDescription)
     .filter(Boolean)
@@ -56,6 +57,7 @@ function CodeBlock({ code }: { code: string }) {
 }
 
 export default async function HowToPlayPage() {
+  const event = await getSite();
   // Live facts handed to every module's copy, built once so two modules can't
   // disagree about how many targets the event has.
   const ctx: GuideContext = {

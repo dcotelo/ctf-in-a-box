@@ -89,7 +89,7 @@ vi.mock("@/lib/quiz-store", () => ({
 }));
 vi.mock("@/lib/upstash", () => ({ upstashPipeline: vi.fn() }));
 
-import ProfilePage, { metadata } from "@/app/(site)/profile/page";
+import ProfilePage, { generateMetadata } from "@/app/(site)/profile/page";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -133,7 +133,8 @@ describe("/profile on a quiz-only event", () => {
     expect(findSecureDevLeaks(html)).toEqual([]);
   });
 
-  it("keeps the page metadata module-agnostic too", () => {
+  it("keeps the page metadata module-agnostic too", async () => {
+    const metadata = await generateMetadata();
     expect(findSecureDevLeaks(metadata.description as string)).toEqual([]);
   });
 });

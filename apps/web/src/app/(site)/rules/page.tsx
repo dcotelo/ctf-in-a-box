@@ -17,12 +17,15 @@ import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames } from "@/lib/apps";
 import type { RulesContext } from "@/lib/modules";
 import { getModuleRules, getResolvedModules } from "@/lib/resolved-modules";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Rules",
-  description: `Competition rules for ${event.name}.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "Rules",
+    description: `Competition rules for ${event.name}.`,
+  };
+}
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a
@@ -36,6 +39,7 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
 );
 
 export default async function RulesPage() {
+  const event = await getSite();
   const ctx: RulesContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),

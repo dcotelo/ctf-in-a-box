@@ -47,7 +47,13 @@ vi.mock("@/lib/admin-store", () => ({
   // Empty set on both sides: `getResolvedModules` (via this mock) and
   // `isModuleLive` (via the baked shim, which reads the empty `modules` list
   // above) must agree that nothing is enabled.
-  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: [] }),
+  // `eventIdentity` is config v2's source for the event name (issue #386,
+  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  getAdminSettings: async () => ({
+    moduleOverrides: {},
+    enabledModuleIds: [],
+    eventIdentity: { eventName: "Quiet CTF" },
+  }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {

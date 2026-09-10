@@ -42,10 +42,18 @@ vi.mock("@/lib/leaderboard/source", () => ({
 }));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
+// Mutable so the event-identity test below can swap in an organizer-named
+// override for one render and put the default back — same pattern as
+// `board` above.
+const adminSettings = vi.hoisted(() => ({
+  moduleOverrides: {} as Record<string, unknown>,
+  enabledModuleIds: ["secure-development"] as string[],
+  eventIdentity: undefined as { eventName?: string } | undefined,
+}));
 vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the shipped config's own set.
-  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["secure-development"] }),
+  getAdminSettings: async () => ({ ...adminSettings }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 // layout.tsx is imported for its `generateMetadata` export; its font loaders are
@@ -172,6 +180,27 @@ describe("the hero standings strip", () => {
   it("hides itself when the board read fails", () => {
     expect(html).not.toContain("right now");
     expect(html).not.toContain("Full standings");
+  });
+});
+
+describe("event identity reaches the landing page", () => {
+  // Presence in Redis is not discoverability (config v2, issue #386): an
+  // organizer's stored name must actually reach the rendered HTML, not just
+  // round-trip through `getAdminSettings`.
+  it("renders the organizer's configured name in the headline, not the default", async () => {
+    adminSettings.eventIdentity = { eventName: "Renamed CTF" };
+    try {
+      const renamed = await Home().then(renderToStaticMarkup);
+      // Anchored to the <h1> specifically, not a bare `toContain`: the
+      // evaluator pitch card's own copy names the kit ("This event runs on
+      // OWASP CTF: one machine, …") regardless of the organizer's identity,
+      // so a page-wide check for "OWASP CTF" would fail even on a correctly
+      // renamed event.
+      const headline = renamed.match(/<h1[^>]*>([^<]*)<\/h1>/)?.[1];
+      expect(headline).toBe("Renamed CTF");
+    } finally {
+      adminSettings.eventIdentity = undefined;
+    }
   });
 });
 

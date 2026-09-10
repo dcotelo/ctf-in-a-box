@@ -75,9 +75,6 @@ export const getSite = cache(async (): Promise<Site> => {
   return resolveSite(settings?.eventIdentity ?? null);
 });
 
-// Transitional: Task 4 of PR 1b deletes this and migrates every consumer to getSite().
-export const event = resolveSite(null);
-
 export type NavLink = { href: string; label: string };
 
 /** A grouped nav entry: one dropdown parent label with its own child links.

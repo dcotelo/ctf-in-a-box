@@ -16,13 +16,16 @@ import { auth } from "@/lib/auth";
 import DisplayBoard from "@/components/display-board";
 import { resolvePhase } from "@/components/phase-line";
 import { completedCount } from "@/lib/leaderboard/rank";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 import { getResolvedModules } from "@/lib/resolved-modules";
 
-export const metadata: Metadata = {
-  title: "Leaderboard",
-  description: `Live contestant standings for ${event.name}.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "Leaderboard",
+    description: `Live contestant standings for ${event.name}.`,
+  };
+}
 
 // One lede for every event shape. The old secure-development branch said
 // "rankings from patched PRs", which was false the moment a second module
@@ -48,6 +51,7 @@ export default async function LeaderboardPage({
   // type, self-refreshing (display-board.tsx). Resolved first so the display
   // render can skip nothing it needs and everything it doesn't.
   const wantsDisplay = (await searchParams)?.display === "1";
+  const event = await getSite();
   const source = await getLeaderboardSource();
   // Penalties fold LAST: withModuleContributions attributes (and, for the
   // app-side modules, adds) each row's gross per-module points, and

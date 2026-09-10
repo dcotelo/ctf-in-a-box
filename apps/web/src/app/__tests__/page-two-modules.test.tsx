@@ -46,9 +46,12 @@ vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the fixture's own set.
+  // `eventIdentity` is config v2's source for the event name (issue #386,
+  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
   getAdminSettings: async () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
+    eventIdentity: { eventName: "Two-Track CTF" },
   }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));

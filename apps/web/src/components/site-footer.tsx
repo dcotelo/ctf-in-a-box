@@ -8,9 +8,10 @@
 // reach for the static list here.
 
 import Link from "next/link";
-import { event, legalLinks, type NavLink } from "@/lib/site";
+import { getSite, legalLinks, type NavLink } from "@/lib/site";
 
-export default function SiteFooter({ navLinks }: { navLinks: NavLink[] }) {
+export default async function SiteFooter({ navLinks }: { navLinks: NavLink[] }) {
+  const event = await getSite();
   return (
     <footer className="relative mt-auto border-t border-white/[0.06]">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#2563eb]/20 to-transparent" />

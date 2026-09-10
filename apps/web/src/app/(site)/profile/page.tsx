@@ -55,7 +55,7 @@ import { getViewerTeam, resolveTeamMaxMembers, TEAM_WRITES_ENABLED } from "@/lib
 import { teamKey } from "@/lib/team-keys";
 import { getAdminSettings, effectiveRegistrationOpen } from "@/lib/admin-store";
 import { upstashPipeline } from "@/lib/upstash";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 
 // TeamCard needs the captain login (to gate captain-only controls) and the
 // current join code (to display it), neither of which `TeamInfo` carries, so
@@ -80,13 +80,16 @@ async function getTeamMeta(slug: string): Promise<{ captain: string | null; join
   }
 }
 
-export const metadata: Metadata = {
-  title: "Profile",
-  // Generic on purpose — "challenges" is secure-development's own noun, and
-  // this page must read cleanly on a quiz-only event too. Mirrors
-  // leaderboard/page.tsx's equally module-agnostic description.
-  description: `Your personal progress in ${event.name}.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "Profile",
+    // Generic on purpose — "challenges" is secure-development's own noun, and
+    // this page must read cleanly on a quiz-only event too. Mirrors
+    // leaderboard/page.tsx's equally module-agnostic description.
+    description: `Your personal progress in ${event.name}.`,
+  };
+}
 
 export default async function ProfilePage() {
   const session = await auth.api.getSession({ headers: await headers() });

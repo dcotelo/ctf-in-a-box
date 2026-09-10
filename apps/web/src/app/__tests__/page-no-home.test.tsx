@@ -53,7 +53,13 @@ vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the fixture's own set.
-  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["quiz"] }),
+  // `eventIdentity` is config v2's source for the event name (issue #386,
+  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  getAdminSettings: async () => ({
+    moduleOverrides: {},
+    enabledModuleIds: ["quiz"],
+    eventIdentity: { eventName: "Bare CTF" },
+  }),
 }));
 // Real getResolvedModules (the module is genuinely enabled and resolvable);
 // only the home lookup is emptied.

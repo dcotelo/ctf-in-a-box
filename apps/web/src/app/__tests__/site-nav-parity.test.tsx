@@ -179,7 +179,13 @@ describe("every SiteFooter render site resolves its nav links", () => {
   const files = readdirSync(appDir, { recursive: true, encoding: "utf8" })
     .filter((f) => f.endsWith(".tsx") && !f.includes("__tests__"))
     .map((f) => [f, readFileSync(join(appDir, f), "utf8")] as const)
-    .filter(([, src]) => src.includes("<SiteFooter"));
+    // `SiteFooter` is called and awaited as a plain function, not mounted as
+    // `<SiteFooter .../>` JSX: since it became an async Server Component
+    // (config v2, PR 1b), a nested `<SiteFooter>` element suspends under
+    // `renderToStaticMarkup` (the same trap `(site)/layout.tsx` documents for
+    // `PhaseLine`). `\bSiteFooter\(` catches the call without matching the
+    // bare `import SiteFooter from ...` line.
+    .filter(([, src]) => /\bSiteFooter\(/.test(src));
 
   it("finds every known render site", () => {
     // Guards the guard: if this drops to zero (a rename, a moved directory),
@@ -196,8 +202,8 @@ describe("every SiteFooter render site resolves its nav links", () => {
   // footer fed from the static list, which is the failure that matters.
   it.each(files.map(([f]) => f))("%s passes resolved links", (file) => {
     const src = files.find(([f]) => f === file)![1];
-    const rendered = src.match(/<SiteFooter/g)?.length ?? 0;
-    const passed = src.match(/<SiteFooter\s+navLinks=/g)?.length ?? 0;
+    const rendered = src.match(/\bSiteFooter\(/g)?.length ?? 0;
+    const passed = src.match(/SiteFooter\(\s*\{\s*navLinks\b/g)?.length ?? 0;
     expect(passed, `${file} renders ${rendered} footer(s), ${passed} given navLinks`).toBe(rendered);
     expect(src, `${file} must resolve its nav links`).toContain("getNavLinks");
     expect(src, `${file} must not read site.ts's unresolved navLinks`).not.toMatch(

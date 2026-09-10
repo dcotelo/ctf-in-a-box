@@ -33,6 +33,17 @@ vi.mock("@/lib/event-config", () => ({
     admins: [],
   },
 }));
+// `eventContact` is config v2's source for the organizer contact address
+// (issue #386, PR 1b) — `@/lib/event-config`'s `contactEmail` above no
+// longer feeds it. The baked `@/lib/enabled-modules` shim's
+// `getAdminSettingsSnapshot` lazily reads this mock's `getAdminSettings`.
+vi.mock("@/lib/admin-store", () => ({
+  getAdminSettings: async () => ({
+    moduleOverrides: {},
+    enabledModuleIds: ["quiz"],
+    eventIdentity: { eventContact: "organizers@example.com" },
+  }),
+}));
 
 import CodeOfConduct from "@/app/(site)/code-of-conduct/page";
 

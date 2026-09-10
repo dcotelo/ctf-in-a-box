@@ -34,13 +34,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 
-export const metadata: Metadata = {
-  title: "Privacy",
-  description:
-    `What the ${event.name} site collects, where it's stored, who can see it, and how to ask for it to be deleted.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "Privacy",
+    description:
+      `What the ${event.name} site collects, where it's stored, who can see it, and how to ask for it to be deleted.`,
+  };
+}
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a href={href} target="_blank" rel="noopener noreferrer" className="ds-link">
@@ -119,6 +122,7 @@ function cookieRows(secureDev: boolean): { name: string; what: string; life: str
 }
 
 export default async function PrivacyPage() {
+  const event = await getSite();
   const liveModules = await getEnabledModuleIds();
   // secure-development, quiz and classic are ALL runtime-toggleable now
   // (issue #386) — this page's claims about what is collected have to match

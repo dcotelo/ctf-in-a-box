@@ -25,17 +25,20 @@ import PageHeader from "@/components/page-header";
 import { enabledApps, joinAppNames } from "@/lib/apps";
 import type { Copy, OrgContext } from "@/lib/modules";
 import { getModuleTerms, getResolvedModules } from "@/lib/resolved-modules";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
-export const metadata: Metadata = {
-  title: "Terms",
-  // Module-agnostic, same reason as /faq's: the clauses below come from
-  // whichever modules the event enables, so the description cannot name one
-  // (it used to say "secure development CTF" on every event).
-  description:
-    `Participation terms for ${event.name}: eligibility, testing scope, submissions, scoring, and prizes.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "Terms",
+    // Module-agnostic, same reason as /faq's: the clauses below come from
+    // whichever modules the event enables, so the description cannot name one
+    // (it used to say "secure development CTF" on every event).
+    description:
+      `Participation terms for ${event.name}: eligibility, testing scope, submissions, scoring, and prizes.`,
+  };
+}
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a
@@ -70,6 +73,7 @@ const FALLBACK: Record<"eligibility" | "scope" | "submissions", Copy[]> = {
 };
 
 export default async function TermsPage() {
+  const event = await getSite();
   const ctx: OrgContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
