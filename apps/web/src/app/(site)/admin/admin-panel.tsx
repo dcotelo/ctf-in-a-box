@@ -15,6 +15,7 @@ import { eventConfig } from "@/lib/event-config";
 import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
 import { secureDevAvailable } from "@/lib/module-defaults";
 import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
+import { getSite } from "@/lib/site";
 import AdminControls from "@/app/(site)/admin/admin-controls";
 import AdminHeader from "@/app/(site)/admin/admin-header";
 
@@ -45,10 +46,11 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
   // fails open to the registry defaults internally (see
   // src/lib/resolved-modules.ts), and it is `cache()`d per request, so this
   // call rides along with whatever the root layout's nav already paid for.
-  const [settings, sync, modules] = await Promise.all([
+  const [settings, sync, modules, site] = await Promise.all([
     getAdminSettings().catch(() => null),
     getSyncStatus().catch(() => null),
     getResolvedModules(),
+    getSite(),
   ]);
 
   // Each module's setup checklist, resolved HERE. The registry block is a
@@ -73,7 +75,7 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
 
   return (
     <div className="flex flex-col gap-8">
-      <AdminHeader eventName={eventConfig.name} resolution={resolution} />
+      <AdminHeader eventName={site.name} resolution={resolution} />
 
       {/* The sync heartbeat is no longer its own card: Overview renders it as
           a one-line health readout with the full breakdown behind a
@@ -90,6 +92,7 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
           initialTab={tab}
           viewerLogin={gate.login}
           sync={sync}
+          eventName={site.name}
         />
       ) : (
         <div className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-5">

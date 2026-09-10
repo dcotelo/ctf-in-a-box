@@ -160,6 +160,7 @@ export default function AdminControls({
   initialTab,
   viewerLogin,
   sync = null,
+  eventName,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -196,6 +197,10 @@ export default function AdminControls({
    *  mode, which has no poller at all) — the default for callers (most
    *  tests) that don't care about it. */
   sync?: SyncStatus | null;
+  /** The resolved runtime event name (issue #386): resolved server-side by
+   *  getSite(); a client bundle cannot read settings. Threaded through to the
+   *  Event tab, which uses it for the master-reset confirmation phrase. */
+  eventName: string;
 }) {
   const [settings, setSettings] = useState(initial);
   // The "now" the Event tab's schedule readout is evaluated at (epoch ms).
@@ -561,6 +566,7 @@ export default function AdminControls({
                   pending={pending}
                   demoMode={demoMode}
                   resetInfo={resetInfo}
+                  eventName={eventName}
                   applyField={applyField}
                   statusOf={statusOf}
                   setConfirm={setConfirm}

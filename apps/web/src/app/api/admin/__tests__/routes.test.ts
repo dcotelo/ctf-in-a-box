@@ -35,6 +35,9 @@ vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
 // graph that reaches apps.ts, which is a trap for the next unrelated import
 // rather than a property of this suite.
 vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event", modules: [], targets: [] } }));
+// The reset route confirms against the RUNTIME name (issue #386), not the
+// baked event.yaml name above — see the "runtime event name" cases below.
+vi.mock("@/lib/site", () => ({ getSite: vi.fn(async () => ({ name: "Runtime CTF" })) }));
 
 import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";
@@ -159,13 +162,13 @@ describe("POST /api/admin/reset", () => {
 
   it("401 for no session, without wiping anything", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 401 });
-    expect((await resetPOST(rreq({ confirm: "Test Event" }))).status).toBe(401);
+    expect((await resetPOST(rreq({ confirm: "Runtime CTF" }))).status).toBe(401);
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
   it("403 for a non-admin, without wiping anything", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 403 });
-    expect((await resetPOST(rreq({ confirm: "Test Event" }))).status).toBe(403);
+    expect((await resetPOST(rreq({ confirm: "Runtime CTF" }))).status).toBe(403);
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
@@ -175,9 +178,9 @@ describe("POST /api/admin/reset", () => {
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
-  it("wipes and returns counts when the event name matches", async () => {
+  it("wipes and returns counts when the runtime event name matches", async () => {
     resetEvent.mockResolvedValue({ cleared: { solves: 3, teams: 1 }, resetAt: "123" });
-    const res = await resetPOST(rreq({ confirm: "Test Event" }));
+    const res = await resetPOST(rreq({ confirm: "Runtime CTF" }));
     expect(res.status).toBe(200);
     expect(resetEvent).toHaveBeenCalledWith("alice");
     expect(await res.json()).toMatchObject({ cleared: { solves: 3 }, resetAt: "123" });
@@ -192,6 +195,20 @@ describe("POST /api/admin/reset", () => {
   it("503 on a reset failure", async () => {
     resetEvent.mockRejectedValue(new Error("upstash down"));
     expect((await resetPOST(rreq({ confirm: "RESET" }))).status).toBe(503);
+  });
+
+  it("accepts the runtime event name as the reset confirmation", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    resetEvent.mockResolvedValue({ deleted: 1 });
+    const res = await resetPOST(rreq({ confirm: "Runtime CTF" }));
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects the baked event.yaml name once the organizer renamed the event", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    const res = await resetPOST(rreq({ confirm: "Test Event" }));
+    expect(res.status).toBe(400);
+    expect(resetEvent).not.toHaveBeenCalled();
   });
 });
 

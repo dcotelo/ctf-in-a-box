@@ -23,6 +23,9 @@ vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
+// Same reason as page.test.tsx: admin-panel.tsx now reads getSite() too, and
+// its real chain throws outside a Next request store (connection()).
+vi.mock("@/lib/site", () => ({ getSite: async () => ({ name: "OWASP CTF" }) }));
 
 import AdminTabPage from "@/app/(site)/admin/[tab]/page";
 
@@ -35,6 +38,7 @@ const SETTINGS = {
   updatedBy: null,
   updatedAt: null,
   moduleOverrides: {},
+  eventIdentity: {},
 };
 
 async function render(tab: string, query: Record<string, string | string[] | undefined> = {}): Promise<string> {
