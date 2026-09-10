@@ -177,10 +177,16 @@ CodeRabbit lands second.
 
 **Talking to CodeRabbit is a rationed, incremental conversation — one
 `@coderabbitai review` per pushed batch, and let it resolve its own threads.**
-This is a public repo under 10 stars, so CodeRabbit never reviews on its own:
-every push lands the check `Review skipped: manual review required for this
-OSS repository`, and you trigger the review with exactly one top-level
-`@coderabbitai review` comment. That review is *incremental* — it reads only
+`.coderabbit.yaml` turns on `auto_review` and `auto_incremental_review`, so
+CodeRabbit is *configured* to review every push — but this is a public repo
+under 10 stars on the free OSS plan, where that automatic pass is routinely
+skipped (the check reads `Review skipped: manual review required for this OSS
+repository`) or rate-limited. So after a push, read the CodeRabbit check
+before you say anything to it: if a pass is running or has completed for that
+commit, do not trigger another — a manual `review` on top of an automatic one
+is a duplicate that burns the allowance; if it says skipped, trigger the
+review with exactly one top-level `@coderabbitai review` comment. A review,
+however it started, is *incremental* — it reads only
 the commits pushed since its last pass, re-verifies its open threads, and
 resolves the ones the push addressed; no reply is needed on those. Every
 push and every `review`/`full review` command consumes one review from an
@@ -197,9 +203,11 @@ approve` submits its approval past its own pre-merge checks, and
 anything changed — the latter is at most a final sweep *after* its re-review
 left nothing substantive. For a rapid multi-push session, `@coderabbitai
 pause` first, then `resume` plus one `review` at the end. Use `@coderabbitai
-full review` only when a rebase or squash rewrote commits it had already
-reviewed. Reference: docs.coderabbit.ai/reference/review-commands and
-/management/plans.
+full review` instead of `review` when a rebase or squash rewrote commits it
+had already reviewed, or when a push reshaped the PR's overall logic enough
+that a commit-by-commit pass would miss the whole — it costs the same one
+review from the allowance but re-reads the entire PR. Reference:
+docs.coderabbit.ai/reference/review-commands and /management/plans.
 
 ## Conventions & gotchas
 
