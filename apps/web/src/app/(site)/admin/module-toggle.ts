@@ -33,7 +33,7 @@ export function moduleChoices(secureDevAvailable: boolean): readonly ModuleToggl
     toggleable: id !== "secure-development" || secureDevAvailable,
     reason:
       id === "secure-development" && !secureDevAvailable
-        ? "This deployment has no scorer image (SCORE_IMAGE is unset), so Secure Development cannot run here. Set it in .env and bring the stack up with the poll profile."
+        ? "This deployment has no scorer image (SCORE_IMAGE is unset), so Secure Development cannot run here. Configure SCORE_IMAGE for this deployment and redeploy."
         : undefined,
   }));
 }
@@ -42,18 +42,20 @@ export function moduleChoices(secureDevAvailable: boolean): readonly ModuleToggl
  *  flipped, and the one sentence that explains a locked switch.
  *
  *  A non-toggleable module that is already ON is not locked (issue #386): a
- *  stored secure-development can outlive its scorer image (admin-store's
- *  carry-forward rule), and locking the switch then would leave the
- *  organizer no way to turn it back off. It stays switchable off, with the
- *  reason plus a nudge; only a non-toggleable module that is OFF stays
- *  locked, since turning it ON is the one write the server still refuses. */
+ *  stored secure-development can outlive its scorer image. It stays
+ *  switchable off directly (`disabled: false`) — but the server now strips
+ *  it from what gets stored on ANY module write, not just a direct toggle
+ *  (admin-store's carry-forward rule, CodeRabbit round 1 finding B), so the
+ *  help text says so rather than implying the switch is the only way off.
+ *  Only a non-toggleable module that is OFF stays locked, since turning it
+ *  ON is the one write the server still refuses. */
 export function moduleToggleState(
   mod: ModuleToggleChoice,
   live: ReadonlySet<string>,
 ): { on: boolean; disabled: boolean; help: string | undefined } {
   const on = live.has(mod.id);
   if (mod.toggleable) return { on, disabled: false, help: undefined };
-  if (on) return { on, disabled: false, help: `${mod.reason} Switch it off.` };
+  if (on) return { on, disabled: false, help: `${mod.reason} It is switched off on your next change to any module.` };
   return { on, disabled: true, help: mod.reason };
 }
 

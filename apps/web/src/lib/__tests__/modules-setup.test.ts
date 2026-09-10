@@ -63,10 +63,16 @@ describe("module setup blocks", () => {
     for (const step of s.steps) {
       expect(["panel", "outside"], `${id}: ${step.title}`).toContain(step.where);
     }
-    // Every module has at least one step outside the panel (enabling it is
-    // an event.yaml matter) and at least one inside it.
-    expect(s.steps.some((x) => x.where === "outside"), id).toBe(true);
+    // Every module has at least one step inside the panel. Enabling a module
+    // is no longer one of the reasons a module needs an OUTSIDE step (#386
+    // moved that entirely onto the Event tab, for every module including
+    // secure-development) — only a module with a genuine dependency the
+    // panel cannot see still has one: secure-development's forks/App/scorer
+    // image, and ai's external challenge site.
     expect(s.steps.some((x) => x.where === "panel"), id).toBe(true);
+    if (id === "secure-development" || id === "ai") {
+      expect(s.steps.some((x) => x.where === "outside"), id).toBe(true);
+    }
     expect(s.midEvent.safe.length).toBeGreaterThan(0);
     expect(s.midEvent.unsafe.length).toBeGreaterThan(0);
     expect(s.docs.href.startsWith(`${DOCS_URL}operations`), s.docs.href).toBe(true);

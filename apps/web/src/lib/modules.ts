@@ -969,13 +969,11 @@ git push -u origin fix/<short-description>`,
       steps: [
         {
           title: "Enable the module",
-          where: "outside",
+          where: "panel",
           body: [
-            "Add ",
-            { code: "quiz: {}" },
-            " under ",
-            { code: "modules" },
-            " in event.yaml before the build, or switch it on from the Event tab at runtime — the switch needs no rebuild.",
+            "Switch it on from the Event tab — modules are enabled at runtime (issue #386); ",
+            { code: "event.yaml" },
+            " no longer enables them.",
           ],
         },
         {
@@ -1218,13 +1216,11 @@ git push -u origin fix/<short-description>`,
       steps: [
         {
           title: "Enable the module",
-          where: "outside",
+          where: "panel",
           body: [
-            "Add ",
-            { code: "classic: {}" },
-            " under ",
-            { code: "modules" },
-            " in event.yaml before the build, or switch it on from the Event tab at runtime — the switch needs no rebuild.",
+            "Switch it on from the Event tab — modules are enabled at runtime (issue #386); ",
+            { code: "event.yaml" },
+            " no longer enables them.",
           ],
         },
         {
@@ -1479,13 +1475,11 @@ git push -u origin fix/<short-description>`,
       steps: [
         {
           title: "Enable the module",
-          where: "outside",
+          where: "panel",
           body: [
-            "Add ",
-            { code: "ai: {}" },
-            " under ",
-            { code: "modules" },
-            " in event.yaml before the build, or switch it on from the Event tab at runtime — the switch needs no rebuild.",
+            "Switch it on from the Event tab — modules are enabled at runtime (issue #386); ",
+            { code: "event.yaml" },
+            " no longer enables them.",
           ],
         },
         {

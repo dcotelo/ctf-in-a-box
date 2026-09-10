@@ -45,16 +45,19 @@ describe("moduleToggleState", () => {
     });
   });
 
-  // Final-review finding #1, part 3 (issue #386): a deployment can have a
-  // stored, already-on secure-development while SCORE_IMAGE is unset (see
+  // Final-review finding #1, part 3 (issue #386); help text updated for
+  // CodeRabbit round 1 finding B: a deployment can have a stored,
+  // already-on secure-development while SCORE_IMAGE is unset (see
   // admin-store's carry-forward rule). Locking the switch there would strand
   // the organizer with no way to turn it back off — so a locked-but-live
-  // module stays switchable off, with the reason plus a nudge to do so.
+  // module stays switchable off directly, AND the server now strips it from
+  // what gets stored on the next write to any module (ruling B), so the
+  // help text says that instead of implying the switch is the only way off.
   it("does NOT lock a non-toggleable module that is already ON — it can be switched off", () => {
     expect(moduleToggleState(secdev, new Set(["secure-development", "quiz"]))).toEqual({
       on: true,
       disabled: false,
-      help: "This deployment has no scorer image. Switch it off.",
+      help: "This deployment has no scorer image. It is switched off on your next change to any module.",
     });
   });
 });
