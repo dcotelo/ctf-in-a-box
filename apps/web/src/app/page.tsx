@@ -59,6 +59,15 @@ function primaryAction(
   return { label: "See the standings", href: "/leaderboard" };
 }
 
+/** Next hands every searchParams value as `string | string[] | undefined` —
+ *  a repeated `?error=x&error=y` arrives as an array, which would reach
+ *  `FRIENDLY_COPY[error]` in `OAuthErrorNotice` as an object rather than a
+ *  matching key (CodeRabbit finding). The first value wins, matching how a
+ *  browser or GitHub would only ever set one in practice. */
+function firstOf(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -66,11 +75,11 @@ export default async function Home({
    *  suspended/deleted OAuth app, a cancelled prompt, or a redirect URI it
    *  doesn't recognize. better-auth's own error redirect (and, for the
    *  suspended-app case, GitHub itself) lands back on `/` with these. */
-  searchParams?: Promise<{ error?: string; error_description?: string }>;
+  searchParams?: Promise<{ error?: string | string[]; error_description?: string | string[] }>;
 } = {}) {
   const event = await getSite();
   const params = await searchParams;
-  const oauthError = params?.error ?? null;
+  const oauthError = firstOf(params?.error) ?? null;
   const catalog = await getChallengeCatalog();
   // The live target list, read once per request (both cache()-wrapped on the
   // same settings snapshot every other live-set question here shares) — see
@@ -230,7 +239,7 @@ export default async function Home({
           )}
 
           {oauthError && (
-            <OAuthErrorNotice error={oauthError} description={params?.error_description} />
+            <OAuthErrorNotice error={oauthError} description={firstOf(params?.error_description)} />
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-5">

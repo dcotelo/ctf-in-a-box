@@ -294,6 +294,19 @@ describe("GitHub OAuth callback error banner", () => {
   });
 });
 
+describe("GitHub OAuth callback: repeated query parameters", () => {
+  // Next hands a repeated `?error=x&error=y` to searchParams as an array —
+  // `FRIENDLY_COPY[error]` would then be indexed by an object, matching
+  // nothing, unless the first value is normalized out first.
+  it("uses the FIRST value when error is duplicated", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: ["access_denied", "redirect_uri_mismatch"] }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain("cancelled"); // access_denied's own copy
+    expect(withError).not.toContain("organizer"); // redirect_uri_mismatch's
+  });
+});
+
 describe("root metadata", () => {
   it("describes the event with the enabled modules' taglines", () => {
     expect(metadata.description).toBe("OWASP CTF — Secure Development CTF.");
