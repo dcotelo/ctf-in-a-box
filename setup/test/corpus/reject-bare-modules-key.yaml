@@ -1,4 +1,0 @@
-github:
-  org: test-event-org
-modules:
-teams: { enabled: true }

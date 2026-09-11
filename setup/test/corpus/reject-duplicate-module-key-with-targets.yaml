@@ -1,7 +1,0 @@
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-  secure-development:
-    targets: [juice-shop]

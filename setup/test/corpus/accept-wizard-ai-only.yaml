@@ -1,8 +1,0 @@
-# targets:
-event:
-  name: "OWASP Chapter AI Night"
-github:
-  org: my-event-org
-modules:
-  ai: {}
-admins: [your-github-login]

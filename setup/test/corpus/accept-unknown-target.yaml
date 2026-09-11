@@ -1,5 +1,0 @@
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [not-a-target]

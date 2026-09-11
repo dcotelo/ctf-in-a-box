@@ -1,8 +1,0 @@
-# targets:
-event:
-  name: "OWASP Chapter Quiz Night"
-github:
-  org: my-event-org
-modules:
-  quiz: {}
-admins: [your-github-login]
