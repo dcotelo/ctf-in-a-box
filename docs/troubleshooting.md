@@ -42,24 +42,30 @@ interpolation failure inside a script that pipes compose's stderr to
 **Symptom.** Nobody — including you — can open `/admin`; every listed admin
 gets the 403 wall.
 
-**Diagnosis.** The app image was built without `EVENT_CONFIG_B64`.
-`event.yaml`'s `admins` list (and dates, fork org) are baked at
-**build** time; building without the arg silently yields neutral defaults,
-including an **empty admins list**. (The event's name and the rest of its
-branding, and which Secure Development targets run, are separate runtime
-`/admin` settings since #386 — they default to "OWASP CTF" / empty / all
-six either way, so a stock-looking name or a full target list is not a
-symptom of this problem on its own.)
+**Diagnosis.** `ADMIN_LOGINS` is empty or unset in `.env`, or it is set but
+the app was not restarted after you changed it. Since #386 part 3 the app no
+longer bakes an admins list at build time — it reads the comma-separated
+`ADMIN_LOGINS` env var at runtime, and an empty set (unset, blank, or every
+entry failing the GitHub-login shape check) refuses every login, including
+one that used to work. (The event's name and the rest of its branding, the
+fork org, and which Secure Development targets run are separate runtime
+settings — the name and targets default to "OWASP CTF" / all six either way,
+so a stock-looking name or a full target list is not a symptom of this
+problem on its own.)
 
-**Fix.** Rebuild with the arg and recreate:
+**Fix.** Set `ADMIN_LOGINS` in `.env` to a comma-separated list of GitHub
+logins (case doesn't matter — logins join case-insensitively everywhere in
+this repo), then restart the app container — no rebuild needed, since this is
+a runtime read, not a build arg:
 
 ```sh
-EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
-  docker compose --profile poll --profile app up -d --build
+docker compose --profile poll --profile app up -d
 ```
 
-(Quiz/classic-only events: `--profile app` alone.) `scripts/dev-stack` and
-the wizard both do this for you; a bare `docker compose build app` does not.
+(Quiz/classic-only events: `--profile app` alone.) Compose must also be
+passing `ADMIN_LOGINS` through to the app service's environment — it is on
+recent `docker-compose.yml`, but a customized override file that dropped it
+would reproduce this exact symptom.
 
 ## A board that was on before the upgrade is gone
 

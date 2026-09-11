@@ -709,10 +709,10 @@ section for the five fields and their limits.
 | `event.contact` | ignored since #386 | Set from `/admin` → Event → Identity → Contact e-mail instead. |
 | `event.discord` | ignored since #386 | Set from `/admin` → Event → Identity → Discord invite instead. |
 | `event.url` | **must be absent** | The build fails and says so — the URL is `EVENT_URL` in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
-| `github.org` | yes | The event org: every "fork this repo" link, and the org `sync` polls (`sync` refuses to start without it; the app alone would default to `OWASP-CTF`). |
+| `github.org` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `GITHUB_ORG` in `.env` instead, read at runtime. An empty/unset value means no fork links on `/challenges` (`sync` still reads its own copy of the org separately; see `sync`'s own config). |
 | `modules` | yes | The enabled-module map described above — at least one known id, `score_ingest` under `secure-development`. |
 | `modules.secure-development.targets` | ignored since #386 | Accepted in any shape (absent, empty, a scalar, an unknown id) and never validated or read. Which targets run is set from `/admin` → Secure Development → Targets instead (default all six); `ctf-setup.sh` forks all six regardless of this key. |
-| `admins` | yes, in practice | Bootstrap allowlist of GitHub logins for `/admin`. An empty list 403s everyone, which is what a build without `EVENT_CONFIG_B64` produces. |
+| `admins` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `ADMIN_LOGINS` in `.env` instead (comma-separated GitHub logins), read at runtime. An empty/unset value 403s everyone at `/admin`. |
 | `hints`, `teams` | ignored | Not read; the build warns and tells you where the setting lives now (`/admin`). |
 
 ### Rebuilding the app after a config change

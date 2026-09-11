@@ -8,6 +8,18 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: the app no longer bakes `event.yaml` at build time at all
+  (#386, part 4).** `ADMIN_LOGINS` and `GITHUB_ORG` are now `.env` keys read
+  at runtime — same as every other setting config v2 moved off the build
+  (parts 1-3 below) — instead of the last two keys the image still baked. An
+  empty or unset `ADMIN_LOGINS` locks everyone out of `/admin`, including
+  organizers who used to be in `event.yaml`'s `admins` list; set it to a
+  comma-separated list of GitHub logins and restart, no rebuild needed. An
+  empty or unset `GITHUB_ORG` means `/challenges` renders bare repo names
+  with no fork link, rather than falling back to a baked org.
+  `EVENT_CONFIG_B64` is now ignored by the app image entirely (`sync` still
+  reads its own copy, unaffected by this change).
+
 - **BREAKING: which Secure Development targets an event runs is chosen in
   `/admin`, not by `event.yaml`'s `targets:` key (#386, part 3).**
   `ctf-setup.sh org` now forks and provisions all six of `setup/targets.tsv`
