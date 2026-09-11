@@ -94,6 +94,15 @@ describe("parseEventBundle", () => {
     expect(res.errors.some((e) => e.where.startsWith("ai.challenges[0].urlTemplate"))).toBe(true);
   });
 
+  // Issue #386, PR 2: secureDevTargets rides EVENT_POLICY_FIELDS alongside
+  // enabledModuleIds — an archive that carries it is not "field not allowed".
+  it("accepts settings carrying secureDevTargets", () => {
+    const withTargets = { ...valid, settings: { ...valid.settings, secureDevTargets: ["dvwa", "vampi"] } };
+    const res = parseEventBundle(JSON.stringify(withTargets));
+    if (!res.ok) throw new Error(JSON.stringify(res.errors));
+    expect(res.bundle.settings.secureDevTargets).toEqual(["dvwa", "vampi"]);
+  });
+
   it("requires at least one module", () => {
     const res = parseEventBundle(JSON.stringify({ version: 1, kind: "archive", event: valid.event, settings: {} }));
     expect(res.ok).toBe(false);

@@ -18,6 +18,7 @@ import {
   type AdminSettings,
 } from "@/lib/admin-store";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
+import { SECURE_DEV_TARGETS_MESSAGE } from "@/lib/secure-dev-targets";
 
 beforeEach(() => {
   mocks.upstashEval.mockReset();
@@ -697,6 +698,34 @@ describe("event identity fields (issue #386)", () => {
       eventContact: "cleared",
       eventDiscord: "cleared",
     });
+  });
+});
+
+describe("secureDevTargets (issue #386, PR 2)", () => {
+  it("writes a deduplicated, catalogue-ordered JSON array as an HSET pair", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-11T00:00:00Z"]);
+    await updateAdminSettings({ secureDevTargets: ["vampi", "dvwa", "dvwa"] }, "alice");
+    const strArgs = mocks.upstashEval.mock.calls[0][2].map(String);
+    const idx = strArgs.indexOf("secureDevTargets");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe('["dvwa","vampi"]');
+  });
+
+  it.each([[[]], [["nope"]], ["dvwa"]] as const)(
+    "rejects %j with the shared message and never reaches upstashEval",
+    async (value) => {
+      await expect(updateAdminSettings({ secureDevTargets: value as never }, "alice")).rejects.toMatchObject({
+        message: SECURE_DEV_TARGETS_MESSAGE,
+      });
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a non-array, non-string value the same way", async () => {
+    await expect(updateAdminSettings({ secureDevTargets: 7 as never }, "alice")).rejects.toBeInstanceOf(
+      AdminValidationError,
+    );
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 });
 

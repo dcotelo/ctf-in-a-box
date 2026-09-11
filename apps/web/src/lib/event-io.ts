@@ -50,6 +50,7 @@ export const EVENT_POLICY_FIELDS = [
   "teamRegistrationOpen",
   "moduleOverrides",
   "enabledModuleIds",
+  "secureDevTargets",
 ] as const;
 
 const EVENT_POLICY_FIELD_SET = new Set<string>(EVENT_POLICY_FIELDS);

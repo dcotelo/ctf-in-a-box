@@ -90,4 +90,18 @@ describe.skipIf(!liveConfigured)("admin-store against a live SRH proxy", () => {
     expect(fields.result).not.toContain("eventTheme");
     expect(fields.result).not.toContain("eventDiscord");
   });
+
+  // Issue #386, PR 2: the write path stores a JSON array under
+  // `secureDevTargets`; the read path (decodeSettings ->
+  // normalizeSecureDevTargets) must decode it back exactly, whole-set
+  // replace each time (not merged with what was there before).
+  it("round-trips the secureDevTargets set through a real write and read", async () => {
+    await updateAdminSettings({ secureDevTargets: ["vampi", "dvwa"] }, "alice");
+    let s = await getAdminSettings();
+    expect(s.secureDevTargets).toEqual(["dvwa", "vampi"]);
+
+    await updateAdminSettings({ secureDevTargets: ["webgoat"] }, "alice");
+    s = await getAdminSettings();
+    expect(s.secureDevTargets).toEqual(["webgoat"]);
+  });
 });

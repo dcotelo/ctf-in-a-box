@@ -3,6 +3,8 @@ import * as classicStore from "@/lib/classic-store";
 import * as quizStore from "@/lib/quiz-store";
 import * as aiStore from "@/lib/ai-store";
 import * as adminStore from "@/lib/admin-store";
+import * as enabledModules from "@/lib/enabled-modules";
+import { DEFAULT_SECURE_DEV_TARGETS } from "@/lib/secure-dev-targets";
 
 const m = vi.hoisted(() => ({
   exportClassic: vi.fn(), exportQuiz: vi.fn(), exportAi: vi.fn(),
@@ -200,6 +202,28 @@ describe("exportEventBundle", () => {
     const s = JSON.stringify(bundle);
     expect(s).not.toContain("aiCooldownSec");
     expect(s).not.toContain("classicCooldownSec");
+  });
+
+  // Issue #386, PR 2: secureDevTargets rides EVENT_POLICY_FIELDS beside
+  // enabledModuleIds, resolved the SAME way (default all six when nothing
+  // stored) rather than a raw possibly-null field, and off the ONE
+  // getAdminSettings() read this function already made — never a second,
+  // independent read through lib/enabled-apps.ts's getSecureDevTargets
+  // (which itself goes through getAdminSettingsSnapshot).
+  it("carries the resolved secureDevTargets — all six when nothing is stored — off the one settings read already in hand", async () => {
+    m.getAdminSettings.mockResolvedValue({ hintCost: 50, paused: true, enabledModuleIds: ["classic"] });
+    const { bundle } = await exportEventBundle(new Date());
+    expect(bundle.settings.secureDevTargets).toEqual(DEFAULT_SECURE_DEV_TARGETS);
+    expect(m.getAdminSettings).toHaveBeenCalledTimes(1);
+    expect(enabledModules.getAdminSettingsSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("carries a stored, narrower secureDevTargets set through export unchanged", async () => {
+    m.getAdminSettings.mockResolvedValue({
+      hintCost: 50, paused: true, enabledModuleIds: ["classic"], secureDevTargets: ["dvwa", "vampi"],
+    });
+    const { bundle } = await exportEventBundle(new Date());
+    expect(bundle.settings.secureDevTargets).toEqual(["dvwa", "vampi"]);
   });
 
   it("THE LEAK TEST: run-state tokens seeded into excluded settings fields never survive the allowlist", async () => {
@@ -425,6 +449,39 @@ describe("importEventBundle", () => {
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
     expect(patch.enabledModules).toEqual([]);
     expect(skipped.some((s) => /secure.development/i.test(s))).toBe(false);
+  });
+
+  // Issue #386, PR 2: buildPolicyPatch's secureDevTargets arm.
+  it("applies a bundle's secureDevTargets to the settings patch, before resetEvent", async () => {
+    await importEventBundle(
+      { ...bundleFixture(), settings: { ...bundleFixture().settings, secureDevTargets: ["dvwa"] } },
+      "alice",
+    );
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect(patch.secureDevTargets).toEqual(["dvwa"]);
+    const settingsOrder = vi.mocked(adminStore.updateAdminSettings).mock.invocationCallOrder[0];
+    const resetOrder = vi.mocked(adminStore.resetEvent).mock.invocationCallOrder[0];
+    expect(settingsOrder).toBeLessThan(resetOrder);
+  });
+
+  // Never a throw: an unrecognized target in an otherwise-good archive is
+  // reported in `skipped` and dropped from the patch so the rest of the
+  // import still applies — the same contract reconcileEnabledModuleIds
+  // follows for enabledModuleIds.
+  it("skips an invalid secureDevTargets set with a named message, and leaves the patch without the field", async () => {
+    const { skipped } = await importEventBundle(
+      { ...bundleFixture(), settings: { ...bundleFixture().settings, secureDevTargets: ["nope"] } },
+      "alice",
+    );
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect("secureDevTargets" in patch).toBe(false);
+    expect(skipped.some((s) => s.startsWith("Skipped secureDevTargets:"))).toBe(true);
+  });
+
+  it("leaves secureDevTargets out of the patch when the bundle carries no such field", async () => {
+    await importEventBundle(bundleFixture(), "alice");
+    const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+    expect("secureDevTargets" in patch).toBe(false);
   });
 });
 

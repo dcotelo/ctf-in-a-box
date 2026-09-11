@@ -7,6 +7,7 @@ import { resolveSite } from "@/lib/site";
 import { EVENT_BUNDLE_VERSION, EVENT_POLICY_FIELDS, type EventBundle, type EventPolicySettings } from "@/lib/event-io";
 import { isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
 import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
+import { checkSecureDevTargets, DEFAULT_SECURE_DEV_TARGETS } from "@/lib/secure-dev-targets";
 
 const SD_WARNING =
   "Secure Development is enabled — its content (target repos, forks, rubrics) is not in the box and is NOT included in this bundle.";
@@ -90,6 +91,14 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
   // Secure-Development module as `skipped` (its reconciliation only fires
   // off a concrete array).
   policySettings.enabledModuleIds = enabledModuleIds;
+  // Same reasoning as `enabledModuleIds` immediately above: the generic loop
+  // would have skipped this field entirely on a fresh box (`null` — nothing
+  // stored), but a re-import of that export should still apply the SAME
+  // resolved list every request reads today (`lib/enabled-apps.ts`'s
+  // `getSecureDevTargets`), not silently omit the field. No second Redis
+  // read — `settings` here is the same `getAdminSettings()` call already in
+  // hand, exactly what `getSecureDevTargets` itself resolves over.
+  policySettings.secureDevTargets = settings.secureDevTargets ?? DEFAULT_SECURE_DEV_TARGETS;
 
   const bundle: EventBundle = {
     version: EVENT_BUNDLE_VERSION,
@@ -284,7 +293,15 @@ function reconcileEnabledModuleIds(incoming: readonly string[]): { ids: ModuleId
  *  actual availability via `reconcileEnabledModuleIds` before landing in the
  *  patch — see that function's doc comment. The reconciliation's own
  *  messages are returned alongside the patch so `importEventBundle` can fold
- *  them into its `skipped` array instead of letting a mismatch throw. */
+ *  them into its `skipped` array instead of letting a mismatch throw.
+ *
+ *  `secureDevTargets` is 1:1 by name but gets the same treat-as-`skipped`
+ *  contract as the reconciliation above, for a different reason: an absent
+ *  or all-unknown target list is a validation error on a direct admin write
+ *  (`checkSecureDevTargets` never returns an empty list — see
+ *  admin-store.ts's write branch), but rejecting the WHOLE import over one
+ *  bad field in an otherwise-good archive would be exactly the throw this
+ *  function exists to avoid. */
 function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch; skipped: string[] } {
   const patch: SettingsPatch = {};
   const skipped: string[] = [];
@@ -308,6 +325,20 @@ function buildPolicyPatch(settings: EventPolicySettings): { patch: SettingsPatch
         const reconciled = reconcileEnabledModuleIds(ids);
         skipped.push(...reconciled.skipped);
         patch.enabledModules = reconciled.ids;
+      }
+    } else if (field === "secureDevTargets") {
+      // Validated the same way updateAdminSettings validates a direct write
+      // — never a throw here, unlike that path: a bad/unknown target list in
+      // an otherwise-good archive must not fail the whole import, it should
+      // just skip this one field and apply everything else (the same
+      // "report, don't throw" contract `reconcileEnabledModuleIds` follows
+      // above). An absent field leaves `patch.secureDevTargets` unset, so
+      // updateAdminSettings never touches the stored value at all.
+      const check = checkSecureDevTargets(value);
+      if (check.ok) {
+        patch.secureDevTargets = check.value;
+      } else {
+        skipped.push(`Skipped secureDevTargets: ${check.message}`);
       }
     } else {
       // The 10 scalar policy fields are `X | null` on AdminSettings/the

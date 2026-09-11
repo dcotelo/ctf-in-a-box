@@ -11,7 +11,7 @@ import {
   type ModuleOverrides,
 } from "@/lib/modules";
 import { EVENT_IDENTITY_KEYS, checkEventIdentityValue, isEventIdentityKey, type EventIdentityOverrides } from "@/lib/event-identity";
-import { normalizeSecureDevTargets } from "@/lib/secure-dev-targets";
+import { checkSecureDevTargets, normalizeSecureDevTargets } from "@/lib/secure-dev-targets";
 import type { AppId } from "@/lib/apps";
 // `defaultEnabledModules`, not `defaultModuleIds` from `@/lib/enabled-modules`:
 // that module imports `getAdminSettings` from this one, so importing it back
@@ -287,6 +287,10 @@ export type SettingsPatch = {
   eventLocation?: string;
   eventContact?: string;
   eventDiscord?: string;
+  /** Which of the six secure-development targets this event runs (issue
+   *  #386, PR 2). Replaces the whole set, like `enabledModules`; never
+   *  clears — see updateAdminSettings for why there is no empty state. */
+  secureDevTargets?: string[];
 } & Partial<Record<ModuleFieldKey, string>>;
 
 const SCHEDULE_FIELDS = ["scoringStartsAt", "scoringEndsAt", "registrationStartsAt", "registrationEndsAt"] as const;
@@ -596,6 +600,20 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
         fields.push(k, check.value);
         changed[k] = "set" as unknown as boolean;
       }
+    } else if (k === "secureDevTargets") {
+      // Which of the six secure-development targets this event runs (issue
+      // #386, PR 2). Replaces the whole set, like `enabledModules` — an
+      // organizer's intent is "these are the targets", not a per-id toggle.
+      // Unlike `enabledModules`/the event identity fields, there is NO
+      // clear/HDEL path: `checkSecureDevTargets` never returns an empty
+      // list (an all-unknown or empty input is itself a validation error),
+      // so every accepted value is stored as a non-empty JSON array
+      // (controller ruling R2 — a stored empty set would leave the
+      // Secure Development board live with nothing to show).
+      const check = checkSecureDevTargets(v);
+      if (!check.ok) throw new AdminValidationError(k, check.message);
+      fields.push(k, JSON.stringify(check.value));
+      changed[k] = JSON.stringify(check.value) as unknown as boolean;
     } else if (MODULE_FIELD_RE.test(k)) {
       const [, which, id] = MODULE_FIELD_RE.exec(k)!;
       // Fail closed: an id the registry does not know is a typo or a probe,
