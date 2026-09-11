@@ -1,19 +1,18 @@
 // withModuleContributions on a QUIZ-ONLY event: no scorer, no scored entries,
 // so every row on the board is one this overlay created from quiz points.
 //
-// The registry is derived from the BAKED event config and the shipped
-// event-config.generated.ts enables only secure-development, so this fixture
-// mocks `@/lib/event-config` — NOT `@/lib/modules`, which the sibling
-// module-contributions.test.ts stubs for its own (secure-development-enabled)
-// fixture. `vi.mock` is hoisted per file, so the two fixtures cannot share a
-// file; see modules-resolve.test.ts for the same split.
+// `vi.mock` is hoisted per file, so this fixture's own module set cannot
+// share a file with the sibling module-contributions.test.ts's
+// (secure-development-enabled) fixture; see modules-resolve.test.ts for the
+// same split.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: { targets: [], modules: [{ id: "quiz" }] },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 
 const mocks = vi.hoisted(() => ({

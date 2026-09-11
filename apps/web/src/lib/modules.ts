@@ -743,9 +743,9 @@ git push -u origin fix/<short-description>`,
           ],
         },
         {
-          title: "Bring the stack up with EVENT_CONFIG_B64 set",
+          title: "Set ADMIN_LOGINS in .env",
           where: "outside",
-          body: "Without it the app bakes neutral defaults: an empty admins list, so this panel answers 403 for everyone.",
+          body: "Without it nobody is an admin, even the deployer — the allowlist is a runtime env var, not build-time config, so no rebuild is needed to change it.",
         },
         {
           title: "Set the re-run cooldown",

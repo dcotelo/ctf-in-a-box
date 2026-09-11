@@ -8,9 +8,9 @@
 // ../../__tests__/secure-dev-terms.ts.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
-// event config (the shipped one enables secure-development only). It mocks
-// `@/lib/event-config` and NOT `@/lib/modules`, which would stub out the
-// registry under test — same split as lib/__tests__/modules-resolve.test.ts.
+// module set. `@/lib/modules` is mocked with `importOriginal` so only
+// `isModuleEnabled` is stubbed — the real registry (the page's own content)
+// stays under test — same split as lib/__tests__/modules-resolve.test.ts.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -29,22 +29,9 @@ vi.mock("@/lib/admin-store", () => ({
   // the fixture's own set.
   getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["quiz"] }),
 }));
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 
 import HowToPlay, { generateMetadata } from "@/app/(site)/how-to-play/page";

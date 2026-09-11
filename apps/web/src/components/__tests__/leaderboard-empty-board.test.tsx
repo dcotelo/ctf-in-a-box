@@ -7,9 +7,6 @@
 // destination now come from the module registry, so this renders the REAL
 // copy rather than a fixture's.
 //
-// `vi.mock` is hoisted per file, so the event-config fixture (a two-module
-// event, giving access to both modules' real registry entries) lives in its
-// own file — see leaderboard-single-module.test.tsx and modules-resolve.test.ts.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -19,16 +16,6 @@ vi.mock("next/image", () => ({
     return <img {...props} alt={(props.alt as string) ?? ""} />;
   },
 }));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: ["dvwa"],
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-  },
-}));
-
 import { EmptyBoard } from "@/components/leaderboard";
 import { resolveModules } from "@/lib/modules";
 

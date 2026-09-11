@@ -28,21 +28,9 @@ vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
 vi.mock("@/lib/quiz-store", () => ({ getQuizTotals, listQuestions, getTeamQuizTotalsBatch: vi.fn() }));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 
 import { GET } from "@/app/api/admin/status/route";

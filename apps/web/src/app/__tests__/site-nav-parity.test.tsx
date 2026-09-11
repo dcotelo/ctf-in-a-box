@@ -21,26 +21,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Two modules with nav entries, so there is something to disagree about.
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Test CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: "",
-    url: "",
-    discordUrl: "",
-    contactEmail: "",
-    admins: [],
-    targets: ["dvwa"],
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-  },
-}));
-
 // One module renamed, one left at its registry default: the pair proves both
 // halves of the contract at once — an override must reach BOTH surfaces, and
 // a module with no override must read identically in both.
@@ -68,6 +48,11 @@ vi.mock("@/lib/admin-store", () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
   }),
+}));
+// Two modules with nav entries, so there is something to disagree about.
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["secure-development", "quiz"].includes(id),
 }));
 
 vi.mock("next/font/google", () => {

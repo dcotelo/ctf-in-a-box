@@ -5,17 +5,18 @@
 // event on a scoreboard where every team was tied at nothing while the
 // individual view showed real points.
 //
-// Own file because the fixture is the BAKED event config (the shipped one
-// enables only secure-development) and `vi.mock` is hoisted per file — see
-// modules-resolve.test.ts. The sibling team-standings.test.ts covers the
-// quiz-disabled behaviour, where this overlay must stay exactly as it was.
+// Own file because this fixture needs its own module set and `vi.mock` is
+// hoisted per file — see modules-resolve.test.ts. The sibling
+// team-standings.test.ts covers the quiz-disabled behaviour, where this
+// overlay must stay exactly as it was.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderboardData } from "../types";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: { targets: [], modules: [{ id: "quiz" }] },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 
 const mocks = vi.hoisted(() => ({

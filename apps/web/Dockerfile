@@ -1,18 +1,11 @@
 # Builds the vendored contestant app from local source (context = repo root).
-# EVENT_CONFIG_B64: optional base64-encoded event.yaml baked into the build;
-# empty means the generator falls back to EVENT_* env vars / neutral defaults.
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
 RUN corepack enable
 WORKDIR /app
 COPY apps/web/ ./
-ARG EVENT_CONFIG_B64=
-RUN if [ -n "$EVENT_CONFIG_B64" ]; then \
-      echo "$EVENT_CONFIG_B64" | base64 -d > /app/event.yaml && \
-      export EVENT_CONFIG=/app/event.yaml; \
-    fi && \
-    CI=true pnpm install --frozen-lockfile && \
+RUN CI=true pnpm install --frozen-lockfile && \
     BETTER_AUTH_SECRET=build-time-dummy BETTER_AUTH_URL=http://localhost:3000 \
-    EVENT_CONFIG=${EVENT_CONFIG_B64:+/app/event.yaml} pnpm build
+    pnpm build
 
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 RUN corepack enable

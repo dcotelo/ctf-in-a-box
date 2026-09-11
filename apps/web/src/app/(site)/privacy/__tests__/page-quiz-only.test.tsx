@@ -19,21 +19,9 @@ import {
 } from "../../__tests__/secure-dev-terms";
 
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 
 import Privacy from "@/app/(site)/privacy/page";

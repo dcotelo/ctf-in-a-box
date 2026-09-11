@@ -13,21 +13,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "OWASP CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "secure-development", targets: ["juice-shop"] }],
-    targets: ["juice-shop"],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "secure-development",
 }));
 
 import Gate from "@/app/(site)/gate/page";

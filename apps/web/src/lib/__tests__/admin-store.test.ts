@@ -520,10 +520,11 @@ describe("scheduled windows", () => {
 
 describe("module identity overrides", () => {
   // This file does not mock @/lib/modules, so decodeSettings/updateAdminSettings
-  // see the REAL registry — derived from the shipped event-config.generated.ts,
-  // which enables only "secure-development". "quiz" and "forensics" are both
-  // unregistered from this suite's point of view; "forensics" is kept as the
-  // reject case so its intent (an unknown id) stays obvious.
+  // see the REAL, static registry (`ALL_MODULE_IDS` via `isModuleId` — see
+  // that comment in admin-store.ts): every registered module id is a valid
+  // override target regardless of whether it is currently enabled. "forensics"
+  // is not in the registry at all, so it is the reject case that keeps the
+  // intent (an unknown id) obvious.
   it("decodes moduleTitle/moduleBlurb fields into moduleOverrides", async () => {
     mocks.upstashPipeline.mockResolvedValue([{
       result: [

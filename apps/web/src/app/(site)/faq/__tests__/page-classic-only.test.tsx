@@ -20,22 +20,9 @@ vi.mock("@/lib/admin-store", () => ({
   // `defaultModuleIds` unless this names the fixture's own set.
   getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["classic"] }),
 }));
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Flag Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "classic" }],
-    targets: [],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "classic",
 }));
 
 import Faq from "@/app/(site)/faq/page";

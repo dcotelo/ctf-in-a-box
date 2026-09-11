@@ -1,14 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: ["dvwa"],
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-  },
-}));
+import { describe, expect, it } from "vitest";
 
 import { ALL_MODULE_ROUTES, resolveModules, moduleDefById, type ModuleId } from "@/lib/modules";
 import type { OrgContext, RulesContext } from "@/lib/modules";

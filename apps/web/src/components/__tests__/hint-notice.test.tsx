@@ -35,7 +35,7 @@ describe("HintNotice", () => {
 
   // The countdown mounts only when the caller has a real schedule bound to
   // hand it — no `startsAt`, no countdown, exactly like the old
-  // `eventConfig.ctfStartsAt &&` guard this prop replaced. HintNotice always
+  // event.yaml-bake-derived guard this prop replaced. HintNotice always
   // renders the COMPACT variant (unit labels, not the hero's "CTF opens").
   it("renders the countdown only when startsAt is set", () => {
     const withoutSchedule = renderToStaticMarkup(<HintNotice active={false} cost={10} startsAt={null} />);

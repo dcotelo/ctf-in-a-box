@@ -13,32 +13,15 @@
 // so a future leak anywhere on this page fails here too.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
-// event config (the shipped one enables secure-development only) — same
-// split as lib/__tests__/modules-resolve.test.ts and
-// app/__tests__/page-quiz-only.test.tsx. Drives the REAL `isModuleEnabled`/
-// `resolveModules`/`getResolvedModules` pipeline off a fake event config
-// rather than mocking `@/lib/modules` — so this is also proof that a
-// quiz-only event needs no per-module branch on this page.
+// module set — same split as lib/__tests__/modules-resolve.test.ts and
+// app/__tests__/page-quiz-only.test.tsx. `@/lib/modules` is mocked with
+// `importOriginal` so only `isModuleEnabled` is stubbed and the real
+// `resolveModules`/`getResolvedModules` pipeline still runs off the real
+// registry — so this is also proof that a quiz-only event needs no
+// per-module branch on this page.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { findSecureDevLeaks } from "../../__tests__/secure-dev-terms";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
-}));
 
 const { getSession, getUser, getViewerTeam, getViewerHints, getQuizTotals, listQuestions } =
   vi.hoisted(() => ({
@@ -65,6 +48,10 @@ vi.mock("@/lib/admin-store", () => ({
   // The page reads the registration window for the team card's
   // closed-state explanation (issue #217).
   effectiveRegistrationOpen: () => true,
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: async () => ({ getUser }) }));

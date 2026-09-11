@@ -1,28 +1,8 @@
 // Composition with more than one module enabled. Own file because `vi.mock`
-// hoists per file and this fixture needs its own event config — see
+// hoists per file and this fixture needs its own module set — see
 // page-quiz-only.test.tsx and lib/__tests__/modules-resolve.test.ts.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Two-Track CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-    targets: ["dvwa"],
-    admins: [],
-  },
-}));
 
 vi.mock("server-only", () => ({}));
 // The redesigned landing reads the session (for the state-aware primary CTA),
@@ -47,16 +27,19 @@ vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the fixture's own set.
   // `eventIdentity` is config v2's source for the event name (issue #386,
-  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  // PR 1b).
   getAdminSettings: async () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
     eventIdentity: { eventName: "Two-Track CTF" },
-    // The live target list now comes from here, not event.yaml's `targets`
-    // (issue #386, PR 2) — one target, matching this fixture's old
-    // `eventConfig.targets` value.
+    // The live target list comes from here, not the (now-dead) event.yaml
+    // bake (issue #386, PR 2) — one target.
     secureDevTargets: ["dvwa"],
   }),
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["secure-development", "quiz"].includes(id),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {

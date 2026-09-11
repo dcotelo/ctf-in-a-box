@@ -1,11 +1,12 @@
-// Landing page, on the SHIPPED event config (event-config.generated.ts, which
-// enables secure-development only). This file deliberately does NOT mock
-// `@/lib/event-config`: it pins the composed page against the configuration
-// every event has shipped so far, so a refactor that quietly drops a module's
-// copy fails here first.
+// Landing page with secure-development as the only enabled module — the
+// shape every event has shipped so far, so a refactor that quietly drops a
+// module's copy fails here first. Pinned explicitly (below) rather than left
+// to a bake default: config v2 (issue #386) has no baked event.yaml any
+// more, so "the shipped configuration" has to be named directly, the same
+// way every other module-set fixture in this suite names its own.
 //
 // The other fixtures — quiz-only, two-module, and a module with no home block —
-// each need their own event config, and `vi.mock` hoists per FILE, so they live
+// each need their own module set, and `vi.mock` hoists per FILE, so they live
 // in sibling files (page-quiz-only, page-two-modules, page-no-home), the same
 // split lib/__tests__/modules-resolve.test.ts uses.
 //
@@ -64,6 +65,10 @@ vi.mock("@/lib/admin-store", () => ({
 // successful catalogue response for one render — same pattern as `board`.
 const catalogFixture = vi.hoisted(() => ({ data: null as unknown }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => catalogFixture.data }));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "secure-development",
+}));
 // layout.tsx is imported for its `generateMetadata` export; its font loaders are
 // build-time Next magic with no runtime implementation under Vitest.
 vi.mock("next/font/google", () => {
@@ -87,14 +92,11 @@ const metadata = await generateMetadata();
 
 describe("landing page frame", () => {
   // This fixture's `@/lib/admin-store` mock stores no `eventIdentity`, so
-  // `getSite()` falls back to the spec default — NOT to this file's mocked
-  // `@/lib/event-config` (`getSite()` no longer reads `eventConfig.name` at
-  // all; config v2, issue #386). Asserting `eventConfig.name` here used to
-  // pass only because the generated event-config's default happens to equal
-  // `DEFAULT_EVENT_IDENTITY.eventName` — a deployment with `EVENT_NAME` set
-  // would have turned this red for the wrong reason. Anchored to the <h1>
-  // rather than a bare `toContain`, same reason as the "Renamed CTF" test
-  // below: the evaluator-pitch card's own copy also says "OWASP CTF".
+  // `getSite()` falls back to the spec default (config v2, issue #386:
+  // `getSite()` has no event.yaml bake to fall back to any more — the
+  // default is the spec constant, full stop). Anchored to the <h1> rather
+  // than a bare `toContain`, same reason as the "Renamed CTF" test below:
+  // the evaluator-pitch card's own copy also says "OWASP CTF".
   it("renders the default event name in the headline when no identity is stored", () => {
     const headline = html.match(/<h1[^>]*>([^<]*)<\/h1>/)?.[1];
     expect(headline).toBe(DEFAULT_EVENT_IDENTITY.eventName);

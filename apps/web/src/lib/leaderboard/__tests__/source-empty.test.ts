@@ -6,17 +6,12 @@
 // lambda/upstash would read a backend that was never deployed. The board is
 // built entirely by the module overlays instead, on top of an empty source.
 //
-// The registry is derived from the BAKED event config and the shipped
-// event-config.generated.ts enables only secure-development, so a quiz-only
-// fixture has to mock `@/lib/event-config`. `vi.mock` is hoisted per file, so
-// the fixture lives in its own file — see modules-resolve.test.ts, and
-// source.test.ts for the secure-development-enabled half of this behaviour.
+// `vi.mock` is hoisted per file, so this fixture lives in its own file — see
+// modules-resolve.test.ts, and source.test.ts for the
+// secure-development-enabled half of this behaviour.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: { targets: [], modules: [{ id: "quiz" }] },
-}));
 // The real source modules reach for network clients at import time; none of
 // them should be selected here, which is most of the point.
 vi.mock("@/lib/leaderboard/mock", () => ({ mockSource: { id: "mock" } }));

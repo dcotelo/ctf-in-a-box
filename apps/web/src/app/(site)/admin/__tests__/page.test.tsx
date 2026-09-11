@@ -110,11 +110,11 @@ describe("admin page gate", () => {
     expect(html).toMatch(/last poll|ingested/i);
   });
 
-  // Issue #386: the header names the RUNTIME event (getSite()), not the
-  // baked event.yaml name — this is the one place in this file that would
-  // catch admin-panel.tsx reverting `<AdminHeader eventName={...}>` back to
-  // `eventConfig.name`, since the mocked getSite() above returns a name no
-  // fixture or default shares.
+  // Issue #386: the header names the RUNTIME event (getSite()), not a
+  // hardcoded default — this is the one place in this file that would catch
+  // admin-panel.tsx reverting `<AdminHeader eventName={...}>` back to a
+  // constant, since the mocked getSite() above returns a name no fixture or
+  // default shares.
   it("names the event in the header from getSite(), not the baked config", async () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     getAdminSettings.mockResolvedValue({

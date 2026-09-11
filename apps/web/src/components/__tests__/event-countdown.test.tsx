@@ -1,7 +1,8 @@
-// EventCountdown's `startsAt` prop replaced a direct `eventConfig.ctfStartsAt`
-// read (config v2, PR 3A) — the component itself now renders nothing for a
-// null or unparseable bound, rather than trusting every caller to pre-guard
-// it. `renderToStaticMarkup` never runs `useEffect`, so every case here
+// EventCountdown's `startsAt` prop replaced a direct read of the (now-dead)
+// event.yaml bake's start date (config v2, PR 3A) — the component itself
+// now renders nothing for a null or unparseable bound, rather than trusting
+// every caller to pre-guard it. `renderToStaticMarkup` never runs
+// `useEffect`, so every case here
 // exercises the "not mounted yet" placeholder render, same as the other
 // components in this directory that mount a client component statically.
 import { describe, expect, it } from "vitest";

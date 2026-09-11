@@ -1,29 +1,10 @@
 // resolveModules regression gate, on a two-module fixture.
-//
-// The registry is derived from the BAKED event config, and the shipped
-// event-config.generated.ts enables only secure-development — so anything
-// asserting on a second module has to mock `@/lib/event-config`. It mocks
-// event-config rather than `@/lib/modules` because resolveModules lives in
-// `@/lib/modules`: stubbing that module would replace the function under test.
-// `vi.mock` is hoisted per file, so the fixture lives in its own file — see
-// leaderboard-single-module.test.tsx for the same split.
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: ["dvwa"],
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-  },
-}));
+import { describe, expect, it } from "vitest";
 
 import { resolveModules, type ModuleId, type ResolvedModule } from "@/lib/modules";
 
-// `resolveModules`'s live set is required (issue #386 removed the baked
-// fallback). This is the fixture's two enabled modules — the same set the
-// old `enabledModules` baked list would have produced.
+// `resolveModules`'s live set is a required, no-fallback argument (issue
+// #386) — this is the fixture's two enabled modules.
 const ENABLED = new Set<ModuleId>(["secure-development", "quiz"]);
 
 describe("resolveModules", () => {

@@ -1,15 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-// buildNavGroups is pure and takes its modules as a plain argument, but
-// site.ts transitively imports modules.ts, which reads `eventConfig.modules`
-// at module-load time (see enabledModules) — so this needs the same stub
-// site-nav.test.ts uses, even though none of these fixtures come from it.
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: ["dvwa"],
-    modules: [{ id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" }],
-  },
-}));
+// buildNavGroups is pure and takes its modules as a plain argument.
 // site.ts now also imports @/lib/enabled-modules (for getSite()), which
 // carries `import "server-only"` — a no-op in Next's RSC bundling but a hard
 // throw in plain vitest. Stub it out; none of these tests touch getSite().

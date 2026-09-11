@@ -1,5 +1,5 @@
-// /how-to-play on the SHIPPED event config (secure-development, all six
-// targets). This is the "nothing moved" suite: every string here was on the
+// /how-to-play on a secure-development-only event (six targets). This is the
+// "nothing moved" suite: every string here was on the
 // page before it was composed from the module registry, and is asserted
 // verbatim so a reword during a future refactor fails loudly rather than
 // quietly changing what contestants are told.
@@ -20,6 +20,10 @@ vi.mock("@/lib/admin-store", () => ({
   // shipped config's module list explicitly, or the page composes a guide
   // for every module the registry knows, not the one this event runs.
   getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["secure-development"] }),
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "secure-development",
 }));
 
 import HowToPlay, { generateMetadata } from "@/app/(site)/how-to-play/page";

@@ -1,16 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-// Both modules enabled: secure-development and quiz now both have a nav
-// entry, spliced in registry order between the platform-level links.
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: ["dvwa"],
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-  },
-}));
+// buildNavLinks is pure and takes its modules as a plain argument.
 // site.ts now also imports @/lib/enabled-modules (for getSite()), which
 // carries `import "server-only"` — a no-op in Next's RSC bundling but a hard
 // throw in plain vitest. Stub it out; none of these tests touch getSite().

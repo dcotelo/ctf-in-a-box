@@ -87,10 +87,9 @@ describe("/admin/<tab>", () => {
   });
 
   // Issue #386, same pin as page.test.tsx: the header names the RUNTIME
-  // event (getSite()), not the baked event.yaml name — this catches
-  // admin-panel.tsx reverting `<AdminHeader eventName={...}>` back to
-  // `eventConfig.name`, since the mocked getSite() above returns a name no
-  // fixture or default shares.
+  // event (getSite()), not a hardcoded default — this catches admin-panel.tsx
+  // reverting `<AdminHeader eventName={...}>` back to a constant, since the
+  // mocked getSite() above returns a name no fixture or default shares.
   it("names the event in the header from getSite(), not the baked config", async () => {
     asAdmin();
     expect(await render("overview")).toContain("Plumbed CTF");

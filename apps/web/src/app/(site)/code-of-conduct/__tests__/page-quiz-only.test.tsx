@@ -22,25 +22,12 @@ import {
 // reason; this file predates the page needing it.
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "organizers@example.com",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 // `eventContact` is config v2's source for the organizer contact address
-// (issue #386, PR 1b) — `@/lib/event-config`'s `contactEmail` above no
-// longer feeds it. The baked `@/lib/enabled-modules` shim's
+// (issue #386, PR 1b). The baked `@/lib/enabled-modules` shim's
 // `getAdminSettingsSnapshot` lazily reads this mock's `getAdminSettings`.
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({

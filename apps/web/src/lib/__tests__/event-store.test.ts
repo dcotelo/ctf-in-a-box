@@ -15,11 +15,6 @@ vi.mock("@/lib/classic-store", () => ({ exportBundle: m.exportClassic, clearChal
 vi.mock("@/lib/quiz-store", () => ({ exportBundle: m.exportQuiz, clearQuestions: vi.fn(), importBundle: vi.fn() }));
 vi.mock("@/lib/ai-store", () => ({ exportBundle: m.exportAi, clearAiChallenges: vi.fn(), importBundle: vi.fn() }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings: m.getAdminSettings, effectivePaused: m.effectivePaused, updateAdminSettings: vi.fn(), resetEvent: vi.fn() }));
-vi.mock("@/lib/event-config", () => ({ eventConfig: {
-  name: "Demo CTF", theme: "web", dates: "2026", location: "online", ctfStartsAt: null,
-  contactEmail: "org@example.com", admins: ["alice"], githubOrg: "org", discordUrl: "d",
-  targets: [], modules: [{ id: "quiz" }],
-} }));
 // event-store.ts's reconciliation (`reconcileEnabledModuleIds`) only needs
 // `isModuleId` from `@/lib/modules` now — module availability is decided by
 // `secureDevAvailable`/`defaultEnabledModules` (from the real, unmocked,

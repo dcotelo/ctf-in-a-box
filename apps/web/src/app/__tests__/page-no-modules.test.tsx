@@ -4,27 +4,10 @@
 // rendering an empty grid that reads as a broken page.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
-// event config and its own empty enabled set — same split as
-// lib/__tests__/modules-resolve.test.ts and the sibling page-*.test.tsx files.
+// empty enabled set — same split as lib/__tests__/modules-resolve.test.ts
+// and the sibling page-*.test.tsx files.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiet CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [],
-    targets: [],
-    admins: [],
-  },
-}));
 
 vi.mock("server-only", () => ({}));
 // The redesigned landing reads the session (for the state-aware primary CTA),
@@ -45,15 +28,19 @@ vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
   // Empty set on both sides: `getResolvedModules` (via this mock) and
-  // `isModuleLive` (via the baked shim, which reads the empty `modules` list
-  // above) must agree that nothing is enabled.
+  // `isModuleLive` (via the baked shim, which reads the empty `isModuleEnabled`
+  // below) must agree that nothing is enabled.
   // `eventIdentity` is config v2's source for the event name (issue #386,
-  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  // PR 1b).
   getAdminSettings: async () => ({
     moduleOverrides: {},
     enabledModuleIds: [],
     eventIdentity: { eventName: "Quiet CTF" },
   }),
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: () => false,
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {

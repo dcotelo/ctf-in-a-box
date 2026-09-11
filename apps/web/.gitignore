@@ -54,5 +54,3 @@ VULN-FINDINGS.md
 TRIAGE.json
 TRIAGE.md
 PATCHES/
-
-src/lib/event-config.generated.ts

@@ -14,8 +14,7 @@
 //
 // The gate must be ACTIVE for any of this to be observable, so the env is
 // stubbed before the module graph loads — `@/lib/gate` reads it once, at
-// import. Own file for the usual `vi.mock` hoisting reason: the event config
-// decides which routes are gated, and it is baked at import.
+// import. Own file for the usual `vi.mock` hoisting reason.
 import { describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { GATE_COOKIE, signGateCookie } from "@/lib/gate";
@@ -28,22 +27,6 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("better-auth/cookies", () => ({ getSessionCookie: mocks.getSessionCookie }));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
-}));
 
 import { proxy } from "@/proxy";
 

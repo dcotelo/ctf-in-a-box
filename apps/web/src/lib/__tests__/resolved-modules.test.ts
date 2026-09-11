@@ -32,18 +32,6 @@ vi.mock("react", async (importOriginal) => {
         }) as Fn,
   };
 });
-// Both modules enabled, same fixture as modules.test.ts / site-nav.test.ts,
-// so `quiz` has a registry default title to fall back to.
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: ["dvwa"],
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-  },
-}));
-
 const getAdminSettings = vi.fn();
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 
@@ -77,6 +65,8 @@ type MockedSettings = { moduleOverrides?: unknown; enabledModuleIds?: string[] }
 // hand instead of getting it from a real `cache()` call.
 async function mockEnabledModules() {
   const { secureDevAvailable } = await vi.importActual<typeof import("@/lib/module-defaults")>("@/lib/module-defaults");
+  // Both modules enabled, same fixture as modules.test.ts / site-nav.test.ts,
+  // so `quiz` has a registry default title to fall back to.
   const defaultModuleIds = ["secure-development", "quiz"];
   let settingsPromise: Promise<MockedSettings> | null = null;
   const getAdminSettingsSnapshot = (): Promise<MockedSettings> =>

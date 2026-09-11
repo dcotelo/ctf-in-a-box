@@ -1,15 +1,14 @@
 // withModuleContributions on an AI-ONLY event: no scorer, no scored entries,
 // so every row on the board is one this overlay created from ai points.
-// Mirrors module-contributions-quiz-only.test.ts's structure — see that
-// file's header for why this fixture mocks `@/lib/event-config` rather than
-// `@/lib/modules`.
+// Mirrors module-contributions-quiz-only.test.ts's structure.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: { targets: [], modules: [{ id: "ai" }] },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "ai",
 }));
 
 const mocks = vi.hoisted(() => ({

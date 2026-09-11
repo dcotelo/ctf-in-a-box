@@ -12,10 +12,10 @@ export { LOGIN_RE };
  *
  * `admin-auth.ts` is on the authorization path for every gated route and Server
  * Component, so what it imports matters. Putting this in `admin-store.ts` made
- * it pull in the whole admin surface — and through it `modules.ts`, the module
- * registry, and `eventConfig.modules` — for a one-line SMEMBERS. That showed up
- * first as a test blowing up on an unrelated mock, which was the cheap warning;
- * the expensive version is an import cycle discovered later.
+ * it pull in the whole admin surface — and through it `modules.ts` and the
+ * module registry — for a one-line SMEMBERS. That showed up first as a test
+ * blowing up on an unrelated mock, which was the cheap warning; the expensive
+ * version is an import cycle discovered later.
  *
  * The WRITE half stays in `admin-store.ts`, where the audit log and
  * `AdminValidationError` already live.

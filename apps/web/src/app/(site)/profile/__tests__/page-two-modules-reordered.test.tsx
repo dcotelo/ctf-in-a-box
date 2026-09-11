@@ -11,35 +11,17 @@
 // What a hard-coded branch pair (in registry-order writing) still gets
 // right is ORDER — issue #386 removed the organizer-declared order entirely:
 // `resolveModules` now always orders its result by the REGISTRY
-// (`ALL_MODULE_IDS`), never by the Set's iteration order or by
-// `event.yaml`'s declaration order (see modules-resolve.test.ts,
-// "orders the result by the registry, regardless of the set's own order").
-// This fixture declares quiz BEFORE secure-development in event.yaml —
-// the reverse of every other fixture in this suite — specifically to prove
-// that declaration order is now IGNORED: the block loop still renders
+// (`ALL_MODULE_IDS`), never by the Set's iteration order or by the order a
+// fixture happens to declare (see modules-resolve.test.ts, "orders the
+// result by the registry, regardless of the set's own order"). This
+// fixture's admin-store mock (below) names quiz BEFORE secure-development —
+// the reverse of page-two-modules.test.tsx — specifically to prove that
+// declaration order is IGNORED: the block loop still renders
 // secure-development first, because that is the registry's order. A block
-// loop keyed off event-config order (the pre-#386 behaviour) would get this
-// backwards.
+// loop keyed off the input's own order (the pre-#386 behaviour) would get
+// this backwards.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Reordered CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    // Quiz declared FIRST — the reverse of page-two-modules.test.tsx.
-    modules: [{ id: "quiz" }, { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" }],
-    targets: ["dvwa"],
-    admins: [],
-  },
-}));
 
 const { getSession, getUser, getViewerTeam, getViewerHints, getQuizTotals, listQuestions } =
   vi.hoisted(() => ({
@@ -66,6 +48,10 @@ vi.mock("@/lib/admin-store", () => ({
   // The page reads the registration window for the team card's
   // closed-state explanation (issue #217).
   effectiveRegistrationOpen: () => true,
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["quiz", "secure-development"].includes(id),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: async () => ({ getUser }) }));

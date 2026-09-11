@@ -6,27 +6,9 @@
 // that matter here are on ABSENCE.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
-// event config (the shipped one enables secure-development only) — same split
-// as lib/__tests__/modules-resolve.test.ts.
+// module set — same split as lib/__tests__/modules-resolve.test.ts.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Quiz Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
-}));
 
 vi.mock("server-only", () => ({}));
 // The redesigned landing reads the session (for the state-aware primary CTA),
@@ -49,12 +31,16 @@ vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the fixture's own set.
   // `eventIdentity` is config v2's source for the event name (issue #386,
-  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  // PR 1b).
   getAdminSettings: async () => ({
     moduleOverrides: {},
     enabledModuleIds: ["quiz"],
     eventIdentity: { eventName: "Quiz Night" },
   }),
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {
