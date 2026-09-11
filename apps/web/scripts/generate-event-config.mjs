@@ -130,8 +130,11 @@ function validateModules(modules) {
     .map((id) => MODULE_VALIDATORS[id](modules[id]));
 }
 
-/** Back-compat: the flat target list every existing `enabledApps` consumer
- *  still reads. Empty when secure-development is not enabled. */
+/** Back-compat: the flat target list, always `[]` now (see the note above on
+ *  `ignoreYamlTargets` — nothing in the app treats this as authoritative).
+ *  Kept only so the generated config's shape (`eventConfig.targets` /
+ *  `ModuleConfig.targets`) still matches its type until PR 3 deletes this
+ *  generator outright; no runtime consumer reads it. */
 function derivedTargets(mods) {
   return mods.find((m) => m.id === "secure-development")?.targets ?? [];
 }

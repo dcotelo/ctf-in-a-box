@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import AppBreakdown from "@/components/app-breakdown";
-import { apps } from "@/lib/apps";
+import { apps, appsById } from "@/lib/apps";
 import type { LeaderboardEntry } from "@/lib/leaderboard/types";
 
 function entry(overrides: Partial<LeaderboardEntry>): LeaderboardEntry {
@@ -77,5 +77,22 @@ describe("AppBreakdown", () => {
     );
     expect(count(html, "DVWA")).toBe(1);
     expect(html).not.toContain("Show ");
+  });
+
+  it("narrows to enabledApps: a target the entry scored but the event since disabled renders nothing", () => {
+    // entry.apps names dvwa only; enabledApps carries just vampi (an
+    // organizer switched dvwa off after this row was scored). The doc
+    // comment on `attempted` says a stale scored row must not surface a
+    // disabled target — this pins that filter, not just its presence.
+    const html = renderToStaticMarkup(
+      <AppBreakdown
+        enabledApps={[appsById.vampi]}
+        entry={entry({
+          apps: { dvwa: { app: "dvwa", points: 0, maxPoints: 0, patched: 1, total: 2 } },
+        })}
+      />,
+    );
+    expect(html).toContain("No app breakdown reported yet.");
+    expect(html).not.toContain("DVWA");
   });
 });

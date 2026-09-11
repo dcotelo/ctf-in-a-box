@@ -24,15 +24,7 @@
  *  `sourceTotal` — whatever the active leaderboard source reported for this
  *  row — is the floor, not the value: a source that knows about more
  *  challenges than the enabled target list (a newer rubric behind an older
- *  app build) is believed rather than clamped, which also keeps
- *  `nonPatchedCount` from having to defend against a negative. */
+ *  app build) is believed rather than clamped. */
 export function challengeTotal(enabledTotal: number, sourceTotal: number): number {
   return Math.max(enabledTotal, sourceTotal);
-}
-
-/** "Non-patched" = everything not yet fixed: failed runs AND challenges the
- *  contestant hasn't touched. Deliberately not called "failed" — someone who
- *  simply hasn't gotten to a challenge yet shouldn't read it as losing. */
-export function nonPatchedCount(enabledTotal: number, patched: number, sourceTotal: number): number {
-  return Math.max(0, challengeTotal(enabledTotal, sourceTotal) - patched);
 }
