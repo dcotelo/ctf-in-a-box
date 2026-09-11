@@ -8,7 +8,6 @@
 // record's the answer key.
 
 import type { AppId } from "@/lib/apps";
-import { enabledTotalMaxPoints } from "@/lib/apps";
 import type { AppProgress, ModuleProgress, UserProfile } from "@/lib/leaderboard/types";
 import type { ModuleId, ResolvedModule } from "@/lib/modules";
 import { moduleUnit } from "@/components/progress/progress-row";
@@ -29,6 +28,12 @@ export type ProfileModuleInput = {
    *  2), resolved through the same `challengeTotal` helper the public board
    *  uses, not a build-time constant. */
   challengeCount: number;
+  /** The live target list's total catalogue points — `lib/enabled-apps.ts`'s
+   *  `getEnabledTotals().maxPoints` (issue #386, PR 2), read once by the
+   *  page and threaded in here so this module stays a pure function with no
+   *  server-only import of its own. Viewer-independent, same as
+   *  `challengeCount` above. */
+  enabledMaxPoints: number;
   secureDev: boolean;
   quiz?: { total?: QuizTotal; questions: Question[]; maxPoints: number; viewer: ViewerQuiz };
   classic?: { total?: ClassicTotal; challenges: Challenge[]; maxPoints: number; viewer: ViewerClassic };
@@ -125,16 +130,17 @@ export { atLeast, unionDenominators } from "@/lib/leaderboard/denominators";
  *  `profile?.maxPoints`), so a profile whose `maxPoints` sat below the
  *  catalogue total showed the header at the catalogue ceiling while the row
  *  and the footer showed the lower, profile-derived number (issue #383
- *  follow-up). Viewer-independent (`enabledTotalMaxPoints`, the same sum of
- *  the enabled targets' catalogue points the Challenges page shows) rather
- *  than `profile?.maxPoints`, which is 0 until the scorer has ingested this
+ *  follow-up). Viewer-independent (`input.enabledMaxPoints`, the same sum of
+ *  the LIVE enabled targets' catalogue points the Challenges page shows —
+ *  `getEnabledTotals().maxPoints`, read once by the page) rather than
+ *  `profile?.maxPoints`, which is 0 until the scorer has ingested this
  *  login's first score; `atLeast(…, securePoints)` still floors it at
  *  whatever is banked, for a target removed from the event after points were
  *  scored on it. Contributes 0 when the module isn't live — the exact gate
  *  every caller already applied around this number, kept here so the three
  *  callers cannot drift onto three different gates either. */
 function secureDevCeiling(input: ProfileModuleInput, securePoints: number): number {
-  return input.secureDev ? atLeast(enabledTotalMaxPoints, securePoints) : 0;
+  return input.secureDev ? atLeast(input.enabledMaxPoints, securePoints) : 0;
 }
 
 export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): ModuleRow {

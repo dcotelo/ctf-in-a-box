@@ -231,6 +231,7 @@ export default async function ProfilePage() {
     profile,
     appsRecord,
     challengeCount,
+    enabledMaxPoints: enabledTotals.maxPoints,
     secureDev: secureDevEnabled,
     quiz: quizEnabled ? { total: quizTotal, questions: quizQuestions, maxPoints: quizMaxPoints, viewer: viewerQuiz } : undefined,
     classic: classicEnabled
