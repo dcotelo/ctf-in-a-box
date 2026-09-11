@@ -624,6 +624,9 @@ YAML
   echo "$output" | grep -q "Answer a few questions to write"
   echo "$output" | grep -q "GitHub org (disposable per-event org)"
   echo "$output" | grep -q "4/9  Scorer image"
+  # The event name answer is bookkeeping only now (issue #386): nothing reads
+  # it from event.yaml, and the wizard says so right after the prompt.
+  echo "$output" | grep -q "the event name is a runtime setting now (/admin"
 }
 
 @test "wizard --dry-run walks every step to bring-up without blocking" {

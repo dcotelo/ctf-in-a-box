@@ -1750,6 +1750,7 @@ cmd_wizard() {
     adm_default=""
     [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
     wiz_ask ev_name    "Event name" "OWASP CTF"
+    echo "  Note: the event name is a runtime setting now (/admin → Event → Identity); this value is written to $CONFIG for the wizard's own bookkeeping and is not read by the app."
     wiz_ask ev_org     "GitHub org (disposable per-event org)" ""
     while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_org" ]; do
       echo "  org is required."
