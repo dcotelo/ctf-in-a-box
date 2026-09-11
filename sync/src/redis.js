@@ -100,11 +100,16 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
     // guessing "all six" on a Redis blip would score targets the organizer
     // deliberately turned off, and guessing "none" would freeze scoring
     // nobody asked to freeze. So this throws on a transport error, a
-    // per-command error reply, or an unparseable value, and `tick()` (the
-    // only caller) treats that as "skip this whole tick, and say so" rather
-    // than picking either wrong default. Known ids are also deduped and
-    // returned in TARGETS' catalogue order, not the stored order, so the
-    // rest of the poller never has to think about admin-supplied ordering.
+    // per-command error reply, an unparseable value, OR a value that parses
+    // fine but normalizes to NO known target id at all (`[]`, `["unknown"]`,
+    // or any other list that shares nothing with TARGETS) — that last case
+    // used to silently fall back to "all six," which is exactly the
+    // silently-wrong-default this whole method exists to refuse. `tick()`
+    // (the only caller) treats every one of these as "skip this whole tick,
+    // and say so" rather than picking either wrong default. Known ids are
+    // also deduped and returned in TARGETS' catalogue order, not the stored
+    // order, so the rest of the poller never has to think about
+    // admin-supplied ordering.
     async getSecureDevTargets() {
       const [raw] = await pipeline([["HGET", ADMIN_SETTINGS_KEY, "secureDevTargets"]]);
       if (raw === null || raw === undefined || raw === "") return TARGETS;
@@ -116,7 +121,10 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
       }
       if (!Array.isArray(parsed)) throw new Error("secureDevTargets: expected a JSON array");
       const known = TARGETS.filter((t) => parsed.includes(t));
-      return known.length ? known : TARGETS;
+      if (known.length === 0) {
+        throw new Error(`secureDevTargets: no known target id in stored list (${JSON.stringify(parsed).slice(0, 100)})`);
+      }
+      return known;
     },
     async writeStatus(s) {
       try {

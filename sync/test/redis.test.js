@@ -171,9 +171,20 @@ test("getSecureDevTargets: unknown ids are dropped, known ones kept", async () =
   assert.deepEqual(await redis.getSecureDevTargets(), ["vampi"]);
 });
 
-test("getSecureDevTargets: every stored id unknown falls back to all six", async () => {
+// CodeRabbit round 1 (issue #386 PR 3): a stored list that normalizes to NO
+// known target id used to fall back to "all six," silently widening scope
+// back open — the same wrong-default this whole method exists to refuse for
+// every other unreadable/invalid case. `[]` and an all-unknown list must
+// both throw instead, so `tick()`'s existing fail-closed path (poll nothing,
+// log why) is what actually runs.
+test("getSecureDevTargets: every stored id unknown throws instead of falling back to all six", async () => {
   const redis = makeRedis(env, hgetFetch(JSON.stringify(["nope", "still-nope"])));
-  assert.deepEqual(await redis.getSecureDevTargets(), TARGETS);
+  await assert.rejects(() => redis.getSecureDevTargets(), /secureDevTargets/);
+});
+
+test("getSecureDevTargets: an empty array (present but nothing selected) throws, distinct from an absent field", async () => {
+  const redis = makeRedis(env, hgetFetch(JSON.stringify([])));
+  await assert.rejects(() => redis.getSecureDevTargets(), /secureDevTargets/);
 });
 
 test("getSecureDevTargets: malformed JSON throws instead of silently defaulting", async () => {
