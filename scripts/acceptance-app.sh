@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Proves what the app reads at BUILD time versus at RUNTIME now that config
-# v2 has deleted the event.yaml bake (issue #386 part 3). The app image no
+# v2 has deleted the event.yaml bake (issue #386 part 4). The app image no
 # longer takes an EVENT_CONFIG_B64 build arg at all — everything that used to
 # be baked (the admin allowlist, the GitHub fork org, the event's name, which
 # Secure Development targets run) is now read at request time, from `.env`
@@ -181,6 +181,12 @@ echo "--- with no GITHUB_ORG, /challenges renders bare repo names and no fork li
 expect_in "$DEFAULT_CHALLENGES_HTML" "DVWA" "default run's /challenges does not render the DVWA repo name"
 if echo "$DEFAULT_CHALLENGES_HTML" | grep -q "acceptance-org"; then
   echo "FAIL: default run's /challenges links acceptance-org even though GITHUB_ORG was not set"; exit 1
+fi
+# "DVWA" above also matches the challenge card's title text, so it passes
+# whether or not a fork link rendered. Assert no fork link at all — for ANY
+# org, not just acceptance-org, so a leftover/mistaken org value still fails.
+if echo "$DEFAULT_CHALLENGES_HTML" | grep -qE 'github\.com/[^"]+/DVWA'; then
+  echo "FAIL: default run's /challenges renders a DVWA fork link even though GITHUB_ORG was not set"; exit 1
 fi
 
 echo "ACCEPTANCE PASS"
