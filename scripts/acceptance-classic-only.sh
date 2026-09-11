@@ -28,9 +28,12 @@
 #     classic totals — this is the one assertion a vacuous "app never came
 #     up" failure cannot fake (see acceptance-quiz-only.sh's identical note,
 #     and AGENTS.md's stock-scores-zero note for the same trap).
-#   - `sync` exits 0 and STAYS exited rather than crash/restart-looping with
-#     nothing to poll (sync/src/config.js + index.js's main(), and
-#     docker-compose.yml's sync `restart: on-failure`)
+#   - `sync` REFUSES to start with no `GITHUB_ORG` — it logs
+#     `ctf-sync: GITHUB_ORG is not set` and exits non-zero, rather than
+#     polling nothing in silence (sync/src/config.js + index.js's main()).
+#     Config v2 (#386) retired the old "nothing to poll, exit 0" path: the
+#     poller reads its whole config from the environment now, so an empty
+#     org is a misconfiguration, not a classic-only event
 #
 # Seeding: no OAuth app exists in CI, and the DEMO_MODE 'Seed demo data'
 # button is admin-session-gated (apps/web/src/app/api/admin/seed/route.ts) —
@@ -65,10 +68,9 @@
 # scorer, so there is nothing compose-shaped to gain by bringing it up too.
 #
 # sync: brought up through the REAL docker-compose.yml via `docker compose`
-# (with only its event.yaml volume mount overridden to this script's scratch
-# config) specifically so the restart-policy assertion below is testing the
-# actual deployed policy, not a policy this script guessed and could drift
-# from.
+# (overriding only `GITHUB_ORG` and the restart policy) specifically so the
+# refusal below is the deployed service definition refusing, not a
+# hand-rolled `docker run` this script could drift from.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/lib/acceptance-lib.sh
@@ -87,11 +89,21 @@ modules:
 YAML
 
 SYNC_OVERRIDE="$TMP/docker-compose.sync-override.yml"
-cat > "$SYNC_OVERRIDE" <<OVERRIDE
+cat > "$SYNC_OVERRIDE" <<'OVERRIDE'
 services:
   sync:
-    volumes:
-      - "$CFG:/config/event.yaml:ro"
+    # `restart: "no"`, against the base file's `on-failure`: the refusal
+    # asserted below is a non-zero exit, and on-failure would keep bringing
+    # the container back underneath the exit-code and log checks — a race,
+    # not a test. The deployed policy is deliberately the other way round
+    # (an organizer wants the missing-key line to repeat until it is fixed).
+    restart: "no"
+    environment:
+      # Pinned empty rather than merely left unset: `${GITHUB_ORG:-}` in the
+      # base file would otherwise pick up a real org from the operator's
+      # shell or from a `.env` beside docker-compose.yml, and the refusal
+      # under test would silently become a live poller.
+      GITHUB_ORG: ""
 OVERRIDE
 
 SYNC_PROJECT=ctf-classic-only-sync-acceptance
@@ -323,52 +335,46 @@ fi
 
 # ---------------------------------------------------------------------------
 # sync: through the real docker-compose.yml (see header comment for why),
-# only overriding its event.yaml mount. Must exit 0 and STAY exited — not
-# merely exit once and then get restarted by a too-eager restart policy.
+# overriding only GITHUB_ORG and the restart policy. With no org it must
+# REFUSE at start-up — naming the key, with a non-zero exit — rather than
+# come up and poll nothing.
 # ---------------------------------------------------------------------------
-echo "--- bringing up sync (poll profile) against the classic-only config"
+echo "--- bringing up sync (poll profile) with no GITHUB_ORG"
 sync_compose --profile poll up -d --build --no-deps sync
-
 
 # `ps -q` (running only) races a fast-exiting container — exactly what this
 # script expects sync to do — and can come back empty even though sync
-# started and already exited cleanly, misreporting a PASS as "never
-# started". `ps -aq` includes exited containers too.
+# started and already refused, misreporting a PASS as "never started".
+# `ps -aq` includes exited containers too.
 SYNC_CID=$(sync_compose ps -aq sync)
 [ -n "$SYNC_CID" ] || { echo "FAIL: sync container never started"; exit 1; }
 
-echo "--- waiting for sync to exit"
+echo "--- waiting for sync to refuse and exit"
 exit_deadline=$((SECONDS + 30))
 until [ "$(docker inspect -f '{{.State.Running}}' "$SYNC_CID")" = "false" ]; do
   [ "$SECONDS" -ge "$exit_deadline" ] && {
-    echo "FAIL: sync never exited (still running with nothing to poll)"
+    echo "FAIL: sync never exited — it is still running with no GITHUB_ORG"
     sync_compose logs sync
     exit 1
   }
   sleep 1
 done
 
+# Non-zero, not pinned to 1 exactly: what this proves is that the refusal is
+# a FAILURE — visible to the restart policy, to CI and to an organizer's
+# `compose ps` — not which number it picked.
 SYNC_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' "$SYNC_CID")
-[ "$SYNC_EXIT_CODE" = "0" ] || {
-  echo "FAIL: sync exited $SYNC_EXIT_CODE, want 0"
+[ "$SYNC_EXIT_CODE" != "0" ] || {
+  echo "FAIL: sync exited 0 with no GITHUB_ORG — a missing org must be a refusal, not a silent no-op"
   sync_compose logs sync
   exit 1
 }
 
-echo "--- sync logged the clean no-op reason (not a swallowed crash)"
-sync_compose logs sync 2>&1 | grep -qF "ctf-sync: no polled module enabled, nothing to do"
-
-echo "--- confirming sync STAYS exited (on-failure, not unless-stopped —"
-echo "    a too-eager restart policy would turn this clean exit into a"
-echo "    silent restart-loop; sampled 4 times over ~9s)"
-i=0
-while [ "$i" -lt 4 ]; do
-  sleep 3
-  running=$(docker inspect -f '{{.State.Running}}' "$SYNC_CID" 2>/dev/null || echo "gone")
-  restarts=$(docker inspect -f '{{.RestartCount}}' "$SYNC_CID" 2>/dev/null || echo "?")
-  [ "$running" = "false" ] || { echo "FAIL: sync is running again (restarted) — RestartCount=$restarts"; exit 1; }
-  [ "$restarts" = "0" ] || { echo "FAIL: sync's RestartCount is $restarts, want 0 (it restarted)"; exit 1; }
-  i=$((i + 1))
-done
+echo "--- sync named the missing key (not a swallowed crash)"
+if ! sync_compose logs sync 2>&1 | grep -qF "ctf-sync: GITHUB_ORG is not set"; then
+  echo "FAIL: sync exited $SYNC_EXIT_CODE but never logged 'ctf-sync: GITHUB_ORG is not set' — the refusal must name the key it wants"
+  sync_compose logs sync
+  exit 1
+fi
 
 echo "ACCEPTANCE PASS (classic-only event)"
