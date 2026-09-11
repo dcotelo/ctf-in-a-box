@@ -1586,6 +1586,25 @@ flag-submission form classic uses, right below the launcher.
 
 ## Verifying it works
 
+### The org and the bootstrap keys: `ctf-setup.sh doctor`
+
+Read-only, no `--dry-run` needed, and the first thing to run when something
+looks wrong. Alongside the per-fork provisioning matrix (see
+[docs/hosting.md](hosting.md#fork-setup-and-the-contest-flow)) it checks
+three facts that have no other alarm:
+
+- **`ADMIN_LOGINS` is non-empty.** Empty means `/admin` forbids every login,
+  which is silent until an organizer tries to open the panel mid-event.
+- **`GITHUB_ORG` is set, and is the org being inspected.** A mismatch fails —
+  it means the box and the provisioning are pointed at different orgs. With
+  Secure Development off (no `SCORE_IMAGE`) an absent value is only a
+  warning: an app-only event has no org.
+- **The `sync` GitHub App is installed on the org.** Without it the poller
+  authenticates against nothing and no score ever reaches the leaderboard.
+  Checked by App id against the org's installations, and it **fails closed**:
+  a `gh` error (a token without `admin:org`, say) reports "not verified" and a
+  non-zero exit, never "installed".
+
 ### Which build is live: `GET /health`
 
 Public, unauthenticated, and the fastest way to answer "did my fix reach the

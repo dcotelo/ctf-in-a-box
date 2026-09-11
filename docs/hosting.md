@@ -42,45 +42,59 @@ sequence below names each one where it's used; `teardown` is covered in
 skipped, and it continues from the first one still to do. On a first run each
 of those values is asked for inline, with the GitHub page it comes from.</sup>
 
-**The modules question drives the rest of the wizard.** It offers the module
-ids this build knows (`secure-development quiz classic ai`) and then asks only
-what the ones you picked actually need:
+**Step 3, "Event basics", is the whole of what the wizard writes.** Three
+keys into `.env`, in this order:
 
-| You enable | The wizard asks | The wizard skips |
-|---|---|---|
-| `secure-development` | `score_ingest` (poll/push) | — |
-| `quiz` only | nothing extra | score ingest, the scorer image, the poll GitHub App, and org fork-provisioning |
-| `classic` only | nothing extra | the same set `quiz` only skips |
-| `ai` only | nothing extra | the same set `quiz` only skips |
-| any combination including `secure-development` | `score_ingest` | — |
+- **`GITHUB_ORG`** — the disposable per-event org. Blank is allowed for an
+  event that runs no forked content.
+- **`ADMIN_LOGINS`** — comma-separated GitHub logins allowed into `/admin`.
+  It defaults to the login running the wizard (`gh api user`), so Enter
+  accepts. **An empty answer is refused**, not written: an empty
+  `ADMIN_LOGINS` makes `/admin` forbid *everyone*, and that failure is silent
+  until somebody tries to open the panel.
+- **`SCORE_IMAGE`**, from one question — *"Run Secure Development (fork the
+  six targets and score patch PRs)?"*. Yes writes the scorer image reference
+  (your existing one, else `ghcr.io/<org>/score:latest`); no writes it empty.
+  **Non-empty is the switch**: it is what says this event runs Secure
+  Development at all. Saying yes with no org is refused, since there would be
+  nothing to fork into.
 
-No module's wizard flow asks which targets to run any more (config v2, #386
-PR 2): `ctf-setup.sh org` forks and provisions all six of `setup/targets.tsv`
-for every event with `secure-development` enabled, whichever modules you
-picked, and which of the six contestants actually see is chosen afterward
-from `/admin` → Secure Development → Targets, live, with no rebuild — see
-[docs/operations.md](operations.md#targets).
+Say yes and it also asks **`SCORE_INGEST` (poll | push)**, re-asking until the
+answer is exactly one of the two — it becomes a Caddyfile path in compose, so
+a typo is a failed bring-up rather than a wrong label. `EVENT_URL` is asked
+once: at step 2 when the wizard creates `.env`, or at step 3 when an existing
+file has no value for it.
 
-A quiz-only event is never asked to pick vulnerable apps it will never fork,
-and the `event.yaml` it writes has **no `secure-development` block at all** —
-because presence is what enables a module. The quiz's own knobs (max attempts,
-retry cooldown) are runtime `/admin` settings stored in Redis, not `event.yaml`
-fields, so the wizard does not ask for them either. Re-running the wizard over
-an existing config defaults the modules question to what that file already
-declares, so a resumed run never silently switches your event to a different
-shape. At least one module must be enabled — an answer naming none (or an id
-this build doesn't know) is re-asked rather than written.
+**Secure Development decides which later steps run.** With `SCORE_IMAGE` set,
+steps 4–7 do the scorer image, the `sync` GitHub App, and the org: forks,
+scoring workflows and the package-grant checklist. With it empty each of
+those prints `⏭  not needed` and the run goes straight to the bring-up — no
+scorer image to build, no App to install, no org to create, and a `docker
+compose --profile app` command with no score-ingest profile. Step 6, the
+sign-in OAuth app, always runs: every event needs sign-in. With no event org
+it points you at GitHub's personal new-OAuth-App page instead of the org's.
 
-**`ai` is offered and playable.** The wizard accepts it and writes `ai: {}`,
-every reader of `event.yaml` recognizes it, and enabling it gives contestants
-a nav entry, an `/ai` board and an `/ai/[id]` challenge page. Unlike
-`secure-development`'s targets, `ai` has no challenges of its own baked into
-the box — an organizer authors each one from `/admin` (mode
-flag/event/both, the external launch URL, categories, an optional paid hint,
-the `aiCooldownSec` submission cooldown), and the challenge itself is hosted
-on a site outside the box that integrates against the published contract in
-[docs/ai-module.md](ai-module.md). Enable it and author at least one
-challenge before the event, or contestants see an empty board.
+The wizard never asks which targets to run: `ctf-setup.sh org` forks and
+provisions all six of `setup/targets.tsv` for every event that runs Secure
+Development, and which of the six contestants actually see is chosen
+afterward from `/admin` → Secure Development → Targets, live, with no
+rebuild — see [docs/operations.md](operations.md#targets).
+
+**Everything else is a runtime setting, so the wizard does not ask for it.**
+Which modules run, the event's name, tagline, location, contact and Discord
+invite, the scoring window and dates, hint policy, team caps, the quiz's
+attempt and cooldown knobs: all of them live in `ctf:admin:settings` and are
+changed from `/admin` while the event is up (config v2, #386). There is no
+config file to write or re-bake, and the only "module" question at setup time
+is the Secure Development one above, because that module is the only one with
+containers and forks to provision.
+
+A resumed run re-reads `.env` and ticks off what is answered rather than
+re-asking it, and says which way the Secure Development switch is set — plus,
+when it is off, that setting `SCORE_IMAGE` is how you turn it on. The one
+exception is a hand-rolled `.env` with no `SCORE_IMAGE` line at all: that
+question has never been put, so the wizard asks step 3 again rather than
+assuming an answer.
 
 The rest of this section is the same sequence as explicit commands, for when
 you'd rather drive it yourself or script it. Each step is either a
@@ -223,6 +237,15 @@ step) so the whole org's provisioning is scannable at a glance, then reports
 each fork's **scoring-workflow version** (see
 [Upgrading the scoring workflow](#upgrading-the-scoring-workflow)) and each
 fork's **package Read grant**, the one step with no API in either direction.
+
+It also checks the three bootstrap facts that have no other alarm:
+**`ADMIN_LOGINS` is non-empty** (empty 403s everyone at `/admin`),
+**`GITHUB_ORG` is set and matches the org being inspected** (a warning
+instead of a failure when Secure Development is off, since an app-only event
+has no org), and **the `sync` GitHub App is installed on the org**, by App
+id — failing closed, so a `gh` error without `admin:org` scope reports "not
+verified" rather than "installed". See
+[docs/operations.md](operations.md#the-org-and-the-bootstrap-keys-ctf-setupsh-doctor).
 
 ![ctf-setup.sh doctor status matrix: one row per fork, one column per step](assets/doctor.jpg)
 
@@ -395,13 +418,12 @@ score comment; the PR is never merged. Detaching the fork network (manual step
 ## Poll vs push
 
 Scores travel from the scoring Action back to your box one of two ways.
-**`SCORE_INGEST` in `.env` is the operative switch** — it is what
-`docker-compose.yml` and the Caddy profile actually read.
-`modules.secure-development.score_ingest` in `event.yaml` is the same choice
-as the app and `sync` see it. The wizard writes both from its one "Score
-ingest" answer; if you edit either by hand, keep them matching — `ctf-setup.sh
-doctor` and the wizard's bring-up step warn when they disagree, and the stack
-runs in `.env`'s mode regardless of what `event.yaml` says.
+**`SCORE_INGEST` in `.env` is the switch, and since #386 it is the only copy
+of it** — it is what `docker-compose.yml` and the Caddy profile read, what
+the wizard's "Score ingest" answer writes, and what the wizard's bring-up
+step reads to choose the compose profile. There is no second declaration
+anywhere to drift out of step with it (there used to be one in the deleted
+event config file, and it did: #372).
 
 | Mode | How it works | Requirements | Latency |
 |---|---|---|---|
