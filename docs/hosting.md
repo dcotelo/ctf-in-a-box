@@ -716,7 +716,7 @@ section for the five fields and their limits.
 | `admins` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `ADMIN_LOGINS` in `.env` instead (comma-separated GitHub logins), read at runtime. An empty/unset value 403s everyone at `/admin`. |
 | `hints`, `teams` | ignored | Not read. Hints are an `/admin` → Hints runtime setting; teams are `/admin` → Event registration/cap runtime settings. The key in `event.yaml` is silently ignored. |
 
-### Rebuilding the app after a config change
+### Changing a setting after the stack is running
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
@@ -730,26 +730,11 @@ runtime (ADR 43). The fork org (`GITHUB_ORG`) also drives every "fork this
 repo" link the app renders, so contestants are pointed at the org
 `ctf-setup org` actually forked into.
 
-Compose only rebuilds an image when told to, so `up -d` alone will not pick up
-an `event.yaml` edit:
-
-```sh
-EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile app build app
-docker compose --profile poll --profile app up -d   # quiz-only: --profile app alone
-```
-
-Building without `EVENT_CONFIG_B64` falls back to the neutral dates/admins
-defaults — the event's name is unaffected either way, since it is a
-runtime `/admin` setting, not part of this bake: an organizer-stored name
-in `ctf:admin:settings` keeps showing regardless of what the image was
-built with, and "OWASP CTF" appears only when no runtime name has ever been
-stored (a fresh event, or a Redis wiped clean). Which Secure Development
-targets run is likewise a runtime `/admin` setting, unaffected by this
-build-arg either way. See
-`apps/web/scripts/generate-event-config.mjs` for the full
-`EVENT_CONFIG` yaml > `EVENT_*` env var > default precedence, and
-[docs/architecture.md](architecture.md#build-time-config-flow) for the whole
-build-time config flow.
+So no image rebuild is ever needed for a config change: edit `.env` and
+restart the `app` service for `ADMIN_LOGINS`, `GITHUB_ORG` or `EVENT_URL`;
+everything else — event identity, schedule, modules and Secure Development
+targets — is a runtime `/admin` setting that takes effect on the next
+request, no restart at all.
 
 ### Environment variables
 

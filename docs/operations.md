@@ -785,8 +785,8 @@ can lock every organizer out of the panel. If you genuinely need to remove
 one, edit `ADMIN_LOGINS` in `.env` and restart — the same cost as adding one
 used to be.
 
-You *can* remove yourself, and the panel asks first. It is safe because a
-bootstrap admin always remains.
+You *can* remove yourself, and the panel asks first. It is safe because, if
+`ADMIN_LOGINS` contains at least one login, a bootstrap admin remains.
 
 Only an admin can create an admin; there is no self-service path in. Every
 grant and revocation is written to the same audit log as the rest of the
@@ -1688,12 +1688,13 @@ Tear down with `./scripts/dev-stack down` (keeps seeded data in the Redis
 volume for next time) or `./scripts/dev-stack down --wipe` (also drops it).
 
 **What this does not do:** sign you in. `/admin` needs a real session whose
-GitHub login is in `.env`'s `ADMIN_LOGINS`, which needs a real GitHub OAuth
-app — there is no local bypass for that boundary, and the script does not add
-one. `dev-stack up` tells you exactly what to add (an OAuth app's client
-id/secret in `.env`, your login in `ADMIN_LOGINS`) to unlock sign-in and
-`/admin` on top of the leaderboard/challenge-browsing experience it gives you
-immediately.
+GitHub login is in `ADMIN_LOGINS`, which needs a real GitHub OAuth app —
+there is no local bypass for that boundary, and the script does not add one.
+`dev-stack up` tells you exactly what to add: an OAuth app's client
+id/secret and your login in `ADMIN_LOGINS`, written to `.env` when you have
+one or to the generated `.env.dev-stack` otherwise. Edit that file, then run
+`./scripts/dev-stack down && ./scripts/dev-stack up` to apply it — a restart,
+not a rebuild, since `ADMIN_LOGINS` and the OAuth settings are read at start.
 
 ## Known limitations
 
