@@ -49,13 +49,21 @@ const adminSettings = vi.hoisted(() => ({
   moduleOverrides: {} as Record<string, unknown>,
   enabledModuleIds: ["secure-development"] as string[],
   eventIdentity: undefined as { eventName?: string } | undefined,
+  // Undefined by default: `getEnabledApps`/`getEnabledTotals` (real modules,
+  // not mocked in this file) fall back to DEFAULT_SECURE_DEV_TARGETS (all
+  // six) the same way a live "nothing stored" settings read does. The
+  // catalogue-vs-enabled-count test below narrows this for one render.
+  secureDevTargets: undefined as string[] | undefined,
 }));
 vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the shipped config's own set.
   getAdminSettings: async () => ({ ...adminSettings }),
 }));
-vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
+// Mutable so the catalogue-vs-enabled-count test below can swap in a
+// successful catalogue response for one render — same pattern as `board`.
+const catalogFixture = vi.hoisted(() => ({ data: null as unknown }));
+vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => catalogFixture.data }));
 // layout.tsx is imported for its `generateMetadata` export; its font loaders are
 // build-time Next magic with no runtime implementation under Vitest.
 vi.mock("next/font/google", () => {
@@ -72,6 +80,7 @@ vi.mock("next/image", () => ({
 import Home from "@/app/page";
 import { generateMetadata } from "@/app/layout";
 import { DEFAULT_EVENT_IDENTITY } from "@/lib/event-identity";
+import { apps } from "@/lib/apps";
 
 const html = await Home().then(renderToStaticMarkup);
 const metadata = await generateMetadata();
@@ -221,5 +230,28 @@ describe("root metadata", () => {
 
   it("no longer hardcodes secure-development copy onto every page", () => {
     expect(metadata.description).not.toContain("patch real vulnerabilities");
+  });
+});
+
+describe("challenge counts follow the enabled targets, not the catalogue total", () => {
+  // CodeRabbit round 1 / issue #391: the scorer's /challenges route returns
+  // every rubric target, not the app's runtime secureDevTargets subset, so a
+  // successful catalogue fetch's `total` (999, deliberately far from any
+  // real app's challengeCount) can overcount once targets are narrowed. Both
+  // aggregate values on this page — the hero copy via `ctx.totalChallenges`
+  // and the targets section's own heading — must follow enabledTotals.challenges
+  // instead.
+  it("uses the enabled-target subset's count, not a larger catalogue total", async () => {
+    adminSettings.secureDevTargets = ["dvwa"];
+    catalogFixture.data = { byApp: {}, total: 999 };
+    try {
+      const narrowed = await Home().then(renderToStaticMarkup);
+      const dvwa = apps.find((a) => a.id === "dvwa")!;
+      expect(narrowed).toContain(`${dvwa.challengeCount} challenges up for grabs`);
+      expect(narrowed).not.toContain("999 challenges");
+    } finally {
+      adminSettings.secureDevTargets = undefined;
+      catalogFixture.data = null;
+    }
   });
 });

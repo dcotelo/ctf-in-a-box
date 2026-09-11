@@ -80,9 +80,14 @@ export default async function ChallengesPage() {
   }
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
+  // The count always follows the runtime enabled-target subset, never the
+  // scorer's catalogue total (CodeRabbit round 1): the scorer's /challenges
+  // route returns every target in its rubric, not the app's runtime
+  // secureDevTargets subset, so catalog.total can overcount when targets
+  // are narrowed.
   const appNoun = enabledApps.length === 1 ? "app" : "apps";
   const description = catalog
-    ? `${catalog.total} challenges across ${enabledApps.length} vulnerable ${appNoun}, each tagged with its OWASP Top 10 category. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`
+    ? `${enabledTotals.challenges} challenges across ${enabledApps.length} vulnerable ${appNoun}, each tagged with its OWASP Top 10 category. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`
     : `${enabledTotals.challenges} challenges across ${enabledApps.length} vulnerable ${appNoun}, worth ${enabledTotals.maxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
 
   return (

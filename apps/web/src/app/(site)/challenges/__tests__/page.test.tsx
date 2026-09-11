@@ -128,4 +128,17 @@ describe("/challenges with a runtime-narrowed target list", () => {
     expect(html).toContain("DVWA");
     expect(html).not.toContain("WebGoat");
   });
+
+  // CodeRabbit round 1: the scorer's /challenges route returns every rubric
+  // target, not the app's runtime secureDevTargets subset, so a successful
+  // catalogue fetch's `total` can overcount once targets are narrowed. The
+  // description must follow enabledTotals.challenges regardless of whether
+  // the catalogue fetch succeeded.
+  it("uses the enabled-target count for the description, not a larger catalogue total", async () => {
+    const dvwa = apps.find((a) => a.id === "dvwa")!;
+    getChallengeCatalog.mockResolvedValue({ byApp: {}, total: 999 });
+    const html = renderToStaticMarkup(await ChallengesPage());
+    expect(html).toContain(`${dvwa.challengeCount} challenges across`);
+    expect(html).not.toContain("999 challenges");
+  });
 });

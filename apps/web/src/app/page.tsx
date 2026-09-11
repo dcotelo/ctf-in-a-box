@@ -86,7 +86,11 @@ export default async function Home() {
     appCount: enabledApps.length,
     appList,
     topAppsList,
-    totalChallenges: catalog?.total ?? enabledTotals.challenges,
+    // The runtime enabled-target subset, never the scorer's catalogue total
+    // (CodeRabbit round 1): getChallengeCatalog() returns every rubric
+    // target, not the app's secureDevTargets subset, so catalog.total can
+    // overcount when targets are narrowed.
+    totalChallenges: enabledTotals.challenges,
   };
 
   // Registry order, organizer-resolved titles, plain strings only — see the
@@ -365,9 +369,7 @@ export default async function Home() {
                 {enabledApps.length} real {enabledApps.length === 1 ? "target" : "targets"}
               </p>
               <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                {catalog
-                  ? `${catalog.total} challenges up for grabs`
-                  : `${enabledTotals.challenges} challenges up for grabs`}
+                {enabledTotals.challenges} challenges up for grabs
               </h2>
               <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
                 Each app is a well-known, deliberately vulnerable open-source project. Points scale with
