@@ -253,13 +253,40 @@ describe("GitHub OAuth callback error banner", () => {
   });
 
   it("falls back to the raw (capped, control-stripped) description for an unrecognized error code", async () => {
-    const raw = `${"x".repeat(400)}\u0007end`;
+    // The control character sits inside the first 300 characters (not past
+    // the cap): if stripping didn't run, it would break up the run of "x"s
+    // this asserts on, so the assertion actually proves stripping happened
+    // rather than the char merely falling outside the truncated window.
+    const raw = `${"x".repeat(10)}\u0007${"x".repeat(400)}`;
     const withError = await Home({
       searchParams: Promise.resolve({ error: "server_error", error_description: raw }),
     }).then(renderToStaticMarkup);
     expect(withError).toContain('role="alert"');
     expect(withError).not.toContain(raw);
     expect(withError).toContain("x".repeat(300));
+  });
+
+  // Review finding: FRIENDLY_COPY is a plain object literal, and `error` is
+  // an attacker-controlled query parameter. `FRIENDLY_COPY[error]` for
+  // `error=constructor` (or `__proto__`, `toString`, `valueOf`,
+  // `hasOwnProperty`) resolves to an inherited Object.prototype member, which
+  // is truthy — so `??` never falls back, and `{message}` becomes a
+  // function/object, which React refuses to render as a child (an
+  // unauthenticated 500 on `/` from a crafted URL). These pin the fallback.
+  it("falls back to the generic message for a prototype-polluting error code, and does not throw", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: "constructor" }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).toContain("GitHub sign-in did not complete.");
+  });
+
+  it("falls back to the sanitized raw description for __proto__, and does not throw", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: "__proto__", error_description: "x" }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).toContain(">x<");
   });
 
   it("renders no alert region when there are no error params", () => {

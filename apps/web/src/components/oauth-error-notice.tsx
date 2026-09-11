@@ -50,7 +50,19 @@ export default function OAuthErrorNotice({
   error: string;
   description?: string;
 }) {
-  const message = FRIENDLY_COPY[error] ?? (description ? sanitizeDescription(description) : "GitHub sign-in did not complete.");
+  // `error` is an attacker-controlled query parameter. FRIENDLY_COPY is a
+  // plain object literal, so `FRIENDLY_COPY[error]` for `error=constructor`
+  // (or `__proto__`, `toString`, `valueOf`, `hasOwnProperty`, …) resolves to
+  // an inherited Object.prototype member instead of `undefined` — truthy, so
+  // `??` never falls back, and `{message}` below would be a function/object,
+  // which React refuses to render as a child (an unauthenticated 500 on `/`
+  // from a crafted URL). `Object.hasOwn` only ever answers from the object's
+  // OWN keys, never the prototype chain.
+  const message = Object.hasOwn(FRIENDLY_COPY, error)
+    ? FRIENDLY_COPY[error]
+    : description
+      ? sanitizeDescription(description)
+      : "GitHub sign-in did not complete.";
   return (
     <div
       role="alert"
