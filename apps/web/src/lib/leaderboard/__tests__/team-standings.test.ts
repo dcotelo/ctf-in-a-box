@@ -15,6 +15,16 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
+// This suite is secure-development-only — quiz/classic/ai are disabled —
+// stated explicitly rather than inherited from the baked double's default,
+// so `withTeamQuizPoints`/`withTeamClassicPoints`/`withTeamAiPoints` take the
+// quiz/classic/ai-disabled early return instead of reaching their real,
+// unmocked stores (which would fail open against no Upstash credentials and
+// pass the `[0, 0]` assertions below for the wrong reason).
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "secure-development",
+}));
 vi.mock("@/lib/team-store", () => ({ listTeams: mocks.listTeams }));
 
 import { withTeamStandings } from "../team-standings";

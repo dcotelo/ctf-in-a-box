@@ -14,8 +14,9 @@
  * `isModuleEnabled` both died with the event.yaml bake, issue #386), so this
  * only ever sees it on a file that mocked `@/lib/modules` itself, typically
  * via `importOriginal` so the rest of the real registry survives. A fixture
- * that mocks NOTHING here gets every known module, which is what
- * `bakedIds`'s own final fallback is — see below.
+ * that mocks NOTHING here gets the SHIPPED single-module set — see
+ * `bakedIds`'s final fallback below for why that, and not "every known
+ * module", is the right default.
  *
  * A test that wants a RUNTIME set DIFFERENT from the baked one must not use
  * this — mock `@/lib/enabled-modules` inline with the set it wants, which is
@@ -30,6 +31,18 @@ import type { ModuleId } from "@/lib/modules";
 // to filter through the fixture's own `isModuleEnabled`. `modules.test.ts`
 // pins the real vocabulary.
 const KNOWN: readonly ModuleId[] = ["secure-development", "quiz", "classic", "ai"];
+
+// The double's own "nothing mocked" default — deliberately NOT the same
+// thing as `enabled-modules.ts`'s real `defaultEnabledModules(process.env)`
+// (secure-development with SCORE_IMAGE set, otherwise nothing). This double
+// exists to stand in for the event.yaml bake this repo used to ship (issue
+// #386's PR 3A deleted the bake itself, not the fixtures written against
+// it): every event this kit had shipped enabled secure-development alone, so
+// a fixture that names no set at all gets exactly that one module — never
+// "every registered module", which no shipped event has ever run and which
+// silently widens a test's live set the moment it stops stubbing
+// `isModuleEnabled` (PR 3A review round 1, finding I1).
+const SHIPPED_DEFAULT: readonly ModuleId[] = ["secure-development"];
 
 /** Reads an export that the file's mock may not define at all.
  *
@@ -47,12 +60,16 @@ function tryRead<T>(source: object, name: string): T | undefined {
 
 function bakedIds(): ModuleId[] {
   // A fixture that stubs `isModuleEnabled` is stating the enablement it wants
-  // tested, and that stub wins; a fixture that mocks nothing here gets every
-  // known module, same as `enabled-modules.ts`'s own "nothing disabled"
-  // default.
+  // tested, and that stub wins; a fixture that mocks nothing here gets the
+  // SHIPPED single-module set (`SHIPPED_DEFAULT`, see its own comment) — NOT
+  // `enabled-modules.ts`'s real "nothing disabled" default, which this double
+  // does not model at all (that default is `defaultEnabledModules(process.env)`,
+  // driven by `SCORE_IMAGE`, and every runtime-enablement test that cares
+  // about it mocks `@/lib/enabled-modules` directly instead of using this
+  // double — see the file header).
   const isEnabled = tryRead<(id: ModuleId) => boolean>(modules, "isModuleEnabled");
   if (typeof isEnabled === "function") return KNOWN.filter((id) => isEnabled(id));
-  return [...KNOWN];
+  return [...SHIPPED_DEFAULT];
 }
 
 export const defaultModuleIds: readonly ModuleId[] = KNOWN;

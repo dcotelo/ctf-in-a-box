@@ -745,7 +745,7 @@ git push -u origin fix/<short-description>`,
         {
           title: "Set ADMIN_LOGINS in .env",
           where: "outside",
-          body: "Without it nobody is an admin, even the deployer — the allowlist is a runtime env var, not build-time config, so no rebuild is needed to change it.",
+          body: "Without it nobody is an admin, even the deployer. It's a runtime env var, not baked into the image, so a change needs a restart, not a rebuild.",
         },
         {
           title: "Set the re-run cooldown",
