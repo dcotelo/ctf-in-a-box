@@ -311,7 +311,7 @@ run "push_mode_runs_no_poller" {
   }
 
   assert {
-    // sync carries the ["poll"] profile alone: in push mode there is nothing
+    // sync carries the ["secdev"] profile alone: in push mode there is nothing
     // to poll, and a running poller would be a second ingest path.
     condition     = length(aws_ecs_service.sync) == 0
     error_message = "Push mode must run no sync: the fork POSTs directly, so there is nothing to poll."

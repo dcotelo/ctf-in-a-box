@@ -6,7 +6,7 @@
 //   sync    when it runs secure-development in POLL mode only
 //
 // That last pair is the compose profiles, ported: `scorer` carries
-// ["poll","push"] and `sync` carries ["poll"], so a quiz-only event brings up
+// ["secdev","push"] and `sync` carries ["secdev"], so a quiz-only event brings up
 // neither and never needs the scorer image at all.
 //
 // Service discovery is AWS Cloud Map, so the app reaches srh at a stable name
