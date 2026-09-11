@@ -176,13 +176,17 @@ export default function ChallengeGrid({
   }, [solved]);
   const anySolvedData = solvedSets.size > 0;
 
-  // Every OWASP code present in the live catalogue, for the category filter.
+  // Every OWASP code present on the ENABLED targets, for the category
+  // filter. Walked through `apps`, not `Object.values(catalog)`: the scorer's
+  // catalogue carries every target in its rubric, so a code that exists only
+  // on a target the organizer unticked on /admin would otherwise be offered
+  // and filter to nothing (#391).
   const categories = useMemo(() => {
     if (!catalog) return [];
     const codes = new Set<string>();
-    for (const list of Object.values(catalog)) for (const c of list ?? []) if (c.owasp) codes.add(c.owasp.code);
+    for (const app of apps) for (const c of catalog[app.id] ?? []) if (c.owasp) codes.add(c.owasp.code);
     return [...codes].sort();
-  }, [catalog]);
+  }, [apps, catalog]);
 
   // ── No live catalogue: summary cards, no filters to offer. ──
   if (!catalog) {
