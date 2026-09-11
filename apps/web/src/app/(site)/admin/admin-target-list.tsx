@@ -67,7 +67,16 @@ export default function AdminTargetList({
         {apps.map((app) => {
           const isChecked = checked.has(app.id);
           const isOnlyChecked = isChecked && onlyTarget === app.id;
-          const describedBy = [isOnlyChecked ? MIN_TARGET_HELP_ID : null, hasLine ? TARGETS_STATUS_ID : null]
+          // Every row is described by the list's lead sentence — the same
+          // always-present help id every row shares, matching the
+          // Identity section's IdentityField rows (admin-event-tab.tsx) —
+          // plus the min-target help only on the disabled row and the
+          // status id only while a status line is actually showing.
+          const describedBy = [
+            TARGETS_HELP_ID,
+            isOnlyChecked ? MIN_TARGET_HELP_ID : null,
+            hasLine ? TARGETS_STATUS_ID : null,
+          ]
             .filter(Boolean)
             .join(" ");
           return (

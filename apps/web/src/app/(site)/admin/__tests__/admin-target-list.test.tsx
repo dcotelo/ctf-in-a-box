@@ -82,6 +82,23 @@ describe("AdminTargetList", () => {
     }
   });
 
+  // Fix round 1 (Task 4 review): the lead sentence ("Which targets this
+  // event runs…") must be a programmatic description of every checkbox, not
+  // just readable prose above them — otherwise a screen-reader user tabbing
+  // through the six boxes never hears it.
+  it("describes every checkbox by the list's lead help sentence", () => {
+    const html = renderToStaticMarkup(
+      <AdminTargetList targets={["dvwa"]} pending={false} statusOf={statusOf} applyField={vi.fn()} />,
+    );
+    for (const id of TARGET_IDS) {
+      const input = html.match(new RegExp(`<input[^>]*id="target-${id}"[^>]*>`))?.[0];
+      expect(input).toBeDefined();
+      const describedBy = input!.match(/aria-describedby="([^"]*)"/)?.[1];
+      expect(describedBy).toBeDefined();
+      expect(describedBy!.split(" ")).toContain("secure-dev-targets-help");
+    }
+  });
+
   it("labels each row with the app's catalogue name", () => {
     const html = renderToStaticMarkup(
       <AdminTargetList targets={["dvwa"]} pending={false} statusOf={statusOf} applyField={vi.fn()} />,
