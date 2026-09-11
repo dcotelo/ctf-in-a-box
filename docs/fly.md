@@ -18,7 +18,7 @@ what runs at the event is what you exercised locally.
 - [Deploy](#deploy)
 - [What actually runs](#what-actually-runs)
 - [Why one machine](#why-one-machine)
-- [The three things that bite](#the-three-things-that-bite)
+- [The two things that bite](#the-two-things-that-bite)
 - [Secrets](#secrets)
 - [The rendered compose file](#the-rendered-compose-file)
 - [Security differences from compose](#security-differences-from-compose)
@@ -34,8 +34,7 @@ what runs at the event is what you exercised locally.
 | --- | --- |
 | A Fly account and `flyctl` | [install](https://fly.io/docs/flyctl/install/), then `fly auth login` |
 | Docker | Images are built here and pushed to Fly's registry; the render shells out to `docker compose` |
-| A finished `event.yaml` | Baked into the app image at build time, and handed to `sync` at start-up |
-| A `.env` from `ctf-setup.sh secrets` | `init` copies it and tops it up |
+| A `.env` from `ctf-setup.sh secrets` | `init` copies it and tops it up — including `GITHUB_ORG` and `ADMIN_LOGINS`, both runtime reads (config v2, #386), not a build-time bake |
 | A GitHub OAuth app | Its callback must match the deployed hostname exactly |
 | Access to a `SCORE_IMAGE` | Mirrored into Fly's registry so the forks and the leaderboard judge with the same artifact |
 
@@ -46,7 +45,7 @@ caddy on a Fly machine. `fly.toml` exposes only the app on port 3000, so a
 fork's Action would POST its score into a 404 and nothing would say so.
 `deploy.sh` therefore refuses an `.env.fly` with `SCORE_INGEST=push` (issue
 #373 tracks routing `/score` if push on Fly is ever wanted). Keep
-`event.yaml`'s `score_ingest` at `poll` to match.
+`SCORE_INGEST` at `poll` (or unset) in `.env`/`.env.fly` to match.
 
 ## Deploy
 
@@ -64,23 +63,36 @@ fork's Action would POST its score into a 404 and nothing would say so.
 
 `init` writes `.env.fly` (mode 600, gitignored) from `.env`, rewrites
 `EVENT_URL` to your app's Fly hostname, and generates `SRH_TOKEN` and
-`REDIS_PASSWORD` if they are absent. It never overwrites an existing file — it
-tops one up, so re-running is safe.
+`REDIS_PASSWORD` if they are absent. Every other key in `.env` — including
+`GITHUB_ORG` and `ADMIN_LOGINS` — comes along on that first copy. It never
+overwrites an existing file — it tops one up, so re-running is safe.
 
-After rotating anything at GitHub, re-sync the external credentials:
+After rotating anything at GitHub, changing the target org, or editing the
+admin roster, re-sync from `.env`:
 
 ```sh
 ./deploy/fly/deploy.sh init --refresh   # then deploy again
 ```
 
-Changed only `event.yaml` or a secret, and want to skip the image rebuild?
+`--refresh` re-copies `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
+`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`,
+`SCORE_IMAGE`, `GITHUB_ORG` and `ADMIN_LOGINS` from `.env`, overwriting what
+is in `.env.fly` — then falls through to the same top-up `init` always does
+(`SRH_TOKEN`, the region, `REDIS_PASSWORD`, the single-volume knobs), so a
+`--refresh` on an old file never leaves it half-prepared (issue #381).
+`EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone —
+they belong to this deployment, not the compose stack `.env` describes.
+
+Changed only a secret or a runtime setting, and want to skip the image
+rebuild?
 
 ```sh
 ./deploy/fly/deploy.sh --skip-build
 ```
 
-The script will remind you that `event.yaml` is baked at build time, so
-`--skip-build` will *not* pick up a config change.
+Nothing is baked into the app image but the `/health` build stamp, so
+`--skip-build` is always safe: `GITHUB_ORG`, `ADMIN_LOGINS` and everything
+else reach the machine through the rendered compose file on every deploy.
 
 ### Every flag
 
@@ -91,11 +103,10 @@ on Fly; without it the script deploys. `-h`/`--help` prints the same list.
 |---|---|---|
 | `--dry-run` | both | Prints every `fly` command it would run and makes **none** of them; secret values are redacted from the output. `init --dry-run` says what it *would* write and ask |
 | `--env-file <path>` | both | The Fly env file — `init` writes it, a deploy reads it. Default `.env.fly` |
-| `--config <path>` | both | The `event.yaml` baked into the app image and handed to `sync`. Default `event.yaml`. A real deploy refuses to start without the file (checked before anything else); only `--dry-run` proceeds, printing the build with an empty config |
 | `--from <path>` | `init` only | The compose `.env` that `init` copies from (and `--refresh` re-copies from). Default `.env` |
 | `--region <code>` | `init` only | Sets `FLY_REGION` in the env file without prompting — for a scripted or CI run with no tty. Must be a three-lowercase-letter Fly code (`gru`, `iad`, …); ignored when the env file already carries one |
-| `--refresh` | `init` only | Re-copies the credentials that must match an **external** system (GitHub OAuth, the sync App, the scorer image) from `--from`, overwriting what is there. `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone — they belong to this deployment |
-| `--skip-build` | deploy only | Reuses the app, sync and scorer images already in Fly's registry instead of building, pushing and mirroring. Turns a multi-minute rebuild into a redeploy when only a secret changed — and, as above, does **not** pick up an `event.yaml` change |
+| `--refresh` | `init` only | Re-copies the values that must match an **external** system (GitHub OAuth, the sync App, the scorer image, the fork org and its admin allowlist — `GITHUB_ORG`, `ADMIN_LOGINS`) from `--from`, overwriting what is there, then falls through to the same top-up a plain `init` does for anything still missing (issue #381). `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone — they belong to this deployment |
+| `--skip-build` | deploy only | Reuses the app, sync and scorer images already in Fly's registry instead of building, pushing and mirroring. Turns a multi-minute rebuild into a redeploy when only a secret or a runtime setting changed — nothing but the `/health` build stamp is baked into the app image, so there is no config to miss |
 
 `--from`, `--region` and `--refresh` are accepted on a deploy for symmetry but
 have no effect there.
@@ -114,9 +125,10 @@ line and recreate the volumes; `fly.toml` on its own is only the default.
 
 1. **OAuth callback** must be exactly `https://<app>.fly.dev/api/auth/callback/github`.
    Sign-in fails with a `redirect_uri` mismatch otherwise.
-2. **Check `/admin` loads** for a login listed in `event.yaml`'s `admins`. A
-   403 there almost always means the app image was built without
-   `EVENT_CONFIG_B64`.
+2. **Check `/admin` loads** for a login listed in `ADMIN_LOGINS` in
+   `.env.fly`. A 403 there almost always means that login is missing (or
+   misspelled — logins join case-insensitively, but the list itself must
+   still contain it): fix `.env.fly` and redeploy.
 
 ## What actually runs
 
@@ -157,27 +169,9 @@ removes the problem instead of routing around it — and it is cheaper.
 Full reasoning, and the alternatives that lost, in
 [ADR 42](decisions.md#adr-42-one-fly-machine-running-the-real-compose-file-not-five-fly-apps).
 
-## The three things that bite
+## The two things that bite
 
-### 1. `event.yaml` is baked at BUILD time
-
-The app reads its config from a bundle generated during `next build`, from the
-`EVENT_CONFIG_B64` build arg. Deploy without it and the build *succeeds*, with
-an empty `admins` list — `/admin` then 403s for everyone, including you, with
-no error anywhere to explain it. (The event's name and branding are a
-separate runtime `/admin` setting since #386, so a missing build arg does not
-touch them — check the admins list and the 403, not the name, when this
-bites.)
-
-`deploy.sh` always passes it. This only bites if you build by hand, or use
-`--skip-build` after editing `event.yaml`.
-
-`sync` takes the same variable at **start-up** rather than build time, which
-is how it gets the config on a machine with no repo checkout to bind-mount
-from. Locally it still reads the mounted `./event.yaml`; the variable wins
-only when it is set and non-empty.
-
-### 2. Images are built here, not by Fly
+### 1. Images are built here, not by Fly
 
 Fly builds nothing. Its compose parser cannot pass build args, and refuses a
 file where more than one service declares `build:` — `docker-compose.yml` does
@@ -195,7 +189,7 @@ into Fly's own registry with `docker buildx imagetools create`, which
 preserves the digest. The scorer serving your leaderboard must be the same
 artifact the forks pull to judge PRs, or the totals disagree.
 
-### 3. One volume, region-pinned, shared by two services
+### 2. One volume, region-pinned, shared by two services
 
 **A Fly machine permits exactly one volume** — `invalid config.mounts, only 1
 volume supported`, reported only when the machine is created, after images are

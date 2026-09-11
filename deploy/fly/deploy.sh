@@ -19,7 +19,6 @@ CONFIG_TOML="$FLY_DIR/fly.toml"
 RENDERED="compose.fly.yml"
 DRY_RUN=""
 ENV_FILE=".env.fly"
-CONFIG="event.yaml"
 FROM_ENV=".env"
 CMD="deploy"
 REGION_ARG=""
@@ -29,15 +28,17 @@ SKIP_BUILD=""
 usage() {
   cat <<'EOF'
 usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
-                            [--config event.yaml] [--from .env] [--region gru]
-                            [--skip-build]
+                            [--from .env] [--region gru] [--skip-build]
 
   init --refresh
-          Re-copy the credentials that must match an EXTERNAL system (GitHub
-          OAuth, the sync App, the scorer image) from --from into the env
-          file, overwriting what is there. Run this after rotating anything.
-          Fly-specific values (EVENT_URL, FLY_REGION, SRH_TOKEN,
-          REDIS_PASSWORD) are left alone — they belong to this deployment.
+          Re-copy the values that must match an EXTERNAL system (GitHub
+          OAuth, the sync App, the scorer image, the fork org and its admin
+          allowlist) from --from into the env file, overwriting what is
+          there, then tops up anything still missing (SRH_TOKEN, the region,
+          REDIS_PASSWORD, the single-volume knobs) exactly as a plain init
+          would. Run this after rotating anything. Fly-specific values
+          (EVENT_URL, FLY_REGION, SRH_TOKEN, REDIS_PASSWORD) are left alone
+          — they belong to this deployment.
 
   init    Prepare an env file for Fly: copies --from (default .env), rewrites
           EVENT_URL to the app's Fly hostname, and fills in SRH_TOKEN and
@@ -52,10 +53,9 @@ usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
           The region comes from FLY_REGION in the env file (init asks), and
           drives both volumes and `fly deploy --primary-region`.
 
---skip-build reuses the images already in Fly's registry. Use it when only
-  event.yaml or a secret changed — it turns a multi-minute rebuild into a
-  redeploy. It does NOT skip the app image when event.yaml changed, because
-  that config is baked at build time; the script refuses the combination.
+--skip-build reuses the images already in Fly's registry. Use it when only a
+  secret or a runtime setting changed — it turns a multi-minute rebuild into
+  a redeploy.
 --dry-run prints every fly command it would run and makes NONE of them.
   Secret VALUES are redacted from that output.
 EOF
@@ -69,7 +69,6 @@ while [ $# -gt 0 ]; do
     --region) REGION_ARG="$2"; shift 2 ;;
     --refresh) REFRESH=1; shift ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
-    --config) CONFIG="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -96,7 +95,7 @@ redact_arg() {
         # CONNECTION_STRING is here because a redis:// URL embeds the
         # password. It was missed on the first pass and caught by reading the
         # dry-run's own output — which is the argument for previewing.
-        *SECRET*|*TOKEN*|*PRIVATE_KEY*|*PASSWORD*|*CONNECTION_STRING*|*AUTH|EVENT_CONFIG_B64)
+        *SECRET*|*TOKEN*|*PRIVATE_KEY*|*PASSWORD*|*CONNECTION_STRING*|*AUTH)
           echo "$name=<redacted>" ;;
         *) echo "$1" ;;
       esac ;;
@@ -184,16 +183,24 @@ if [ "$CMD" = "init" ]; then
   # `?error=invalid_code` — an error that names nothing and points nowhere.
   #
   # The split is by OWNERSHIP, not convenience. These values must match an
-  # external system (GitHub's OAuth app, GitHub's sync App, the registry), so
-  # a stale copy is always wrong and refreshing is always right. EVENT_URL,
-  # FLY_REGION, SRH_TOKEN and REDIS_PASSWORD belong to THIS deployment and
-  # must never be pulled from a compose stack's file — sharing them is how
-  # two environments end up fighting over one datastore.
+  # external system (GitHub's OAuth app, GitHub's sync App, the registry) or
+  # the identity of the event's target org and its admins, so a stale copy is
+  # always wrong and refreshing is always right. EVENT_URL, FLY_REGION,
+  # SRH_TOKEN and REDIS_PASSWORD belong to THIS deployment and must never be
+  # pulled from a compose stack's file — sharing them is how two environments
+  # end up fighting over one datastore.
+  #
+  # Deliberately does NOT exit after the loop (#381): a stale .env.fly is
+  # often ALSO missing keys a plain `init` would have topped up (SRH_TOKEN,
+  # the region, REDIS_PASSWORD, the single-volume knobs) — a live deploy once
+  # ran for weeks on a file that predated those. Falling through to the same
+  # top-up steps below means `--refresh` never leaves a file half-prepared.
   if [ -n "$REFRESH" ]; then
     [ -f "$FROM_ENV" ] || { echo "no $FROM_ENV to refresh from" >&2; exit 1; }
     echo "== refreshing external credentials from $FROM_ENV"
     for key in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID \
-               GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID SCORE_IMAGE; do
+               GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID SCORE_IMAGE \
+               GITHUB_ORG ADMIN_LOGINS; do
       src="$(sed -n "s/^$key=//p" "$FROM_ENV" | tail -1)"
       [ -n "$src" ] || continue
       cur="$(sed -n "s/^$key=//p" "$ENV_FILE" | tail -1)"
@@ -214,9 +221,7 @@ if [ "$CMD" = "init" ]; then
       echo "   $key updated"
     done
     echo
-    echo "  Now redeploy so the machine picks them up:"
-    echo "      ./deploy/fly/deploy.sh --env-file $ENV_FILE"
-    exit 0
+    echo "  Refreshed. Now checking for anything else still missing..."
   fi
 
   # SRH bearer token. Generated here rather than reused from $FROM_ENV so a
@@ -328,16 +333,6 @@ fi
 if [ -z "$DRY_RUN" ]; then
   require_fly
   [ -f "$ENV_FILE" ] || { echo "no $ENV_FILE — run: ./deploy/fly/deploy.sh init" >&2; exit 1; }
-  # Config v2 (#386) deleted this file and its example from the repo; the app
-  # reads GITHUB_ORG and ADMIN_LOGINS from the environment now. This module's
-  # bake is removed in part 6, with its bats suite — until then the path
-  # still needs a config file the operator supplies, so say that rather than
-  # pointing at an example that is gone.
-  [ -f "$CONFIG" ] || {
-    echo "no $CONFIG — this deploy path still expects an event config file until #386 part 6 lands." >&2
-    echo "   Pass --config with your own copy; do not deploy from this branch between parts 5 and 6." >&2
-    exit 1
-  }
 fi
 
 echo "== app: $APP (one machine, five containers)"
@@ -481,16 +476,6 @@ require SCORE_IMAGE "$SCORE_IMAGE"
 # private hostname — is the only address that works here (see fly.toml).
 SRH_CONNECTION_STRING="redis://:$REDIS_PASSWORD@127.0.0.1:6379"
 
-# The event config, baked into the app image at BUILD time and handed to sync
-# at START-UP. Deploy the app without it and the build silently succeeds with
-# an EMPTY admins list — /admin then 403s for everyone, including the
-# organizer — and generic branding. There is no runtime error to notice.
-if [ -f "$CONFIG" ]; then
-  EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')"
-else
-  EVENT_CONFIG_B64=""
-fi
-
 # Build stamp baked into the app image, served by GET /health. This is what
 # makes "did my fix reach the box?" answerable without Fly credentials: the
 # machine version `fly status` prints counts deploys, not commits.
@@ -513,15 +498,6 @@ if APP_BUILD_REV="$(git rev-parse --short=12 HEAD 2>/dev/null)"; then
   # machine that had one, which is every machine. `unknown` is
   # indistinguishable from "this build predates the stamp", so the field
   # stopped meaning anything at all.
-  #
-  # `$CONFIG` is deliberately NOT in the pathspec. event.yaml is baked in
-  # through EVENT_CONFIG_B64, so in principle a modified one makes the sha a
-  # lie — but it is gitignored (.gitignore:9), so git can never report it
-  # dirty and asking is pure cost. It is also frequently OUTSIDE the repo
-  # (`--config /tmp/event.yaml`, which this repo's own bats suite passes), and
-  # git rejects the entire pathspec on an out-of-repo path — printing nothing,
-  # which this check would have read as "clean". Adding it would have made the
-  # guard fail OPEN on exactly the paths that matter.
   if [ -n "$(git status --porcelain -- apps/web 2>/dev/null)" ]; then
     echo "   NOTE: working tree is dirty — /health will report revision unknown"
     APP_BUILD_REV=""
@@ -591,29 +567,26 @@ make_volume ctf_data
 # ---------------------------------------------------------------------------
 # 2/5 Images.
 #
-# Fly builds NOTHING here, and that is deliberate. Its compose parser cannot
-# pass build args (so EVENT_CONFIG_B64 could never be baked) and refuses a file
-# where more than one service declares `build:` — which docker-compose.yml does
-# twice. Building here instead means the machine runs the exact images this
-# checkout produces, which is a stronger parity guarantee than a rebuild.
+# Fly builds NOTHING here, and that is deliberate. Its compose parser refuses
+# a file where more than one service declares `build:` — which
+# docker-compose.yml does twice. Building here instead means the machine runs
+# the exact images this checkout produces, which is a stronger parity
+# guarantee than a rebuild.
 #
 # --platform linux/amd64 is not optional. Fly machines are amd64; an image
 # built on Apple Silicon without it is arm64 and fails at start with an exec
 # format error, after a successful-looking deploy.
+#
+# --skip-build never risks a stale config: the app bakes nothing but the
+# health-check build stamp (config v2, #386) — GITHUB_ORG, ADMIN_LOGINS and
+# everything else are runtime reads that flow through the rendered compose
+# file below, on every deploy, with or without --skip-build.
 # ---------------------------------------------------------------------------
 echo "== 2/5 images"
-if [ -n "$SKIP_BUILD" ] && [ -n "$EVENT_CONFIG_B64" ]; then
-  # The app bakes event.yaml at build time, so "skip the build" and "pick up
-  # the new event.yaml" are contradictory instructions. Refuse rather than
-  # deploy a stale config that looks deployed.
-  echo "NOTE: --skip-build reuses the app image already in Fly's registry."
-  echo "      If you changed $CONFIG, drop --skip-build — that config is baked"
-  echo "      into the app image at build time and will NOT be picked up."
-fi
 
 if [ -n "$DRY_RUN" ]; then
   echo "DRY-RUN: fly auth docker"
-  echo "DRY-RUN: docker build --platform linux/amd64 -f apps/web/Dockerfile --build-arg EVENT_CONFIG_B64=<redacted> --build-arg APP_BUILD_REV=${APP_BUILD_REV:-<none>} --build-arg APP_BUILT_AT=$APP_BUILT_AT -t $APP_IMAGE ."
+  echo "DRY-RUN: docker build --platform linux/amd64 -f apps/web/Dockerfile --build-arg APP_BUILD_REV=${APP_BUILD_REV:-<none>} --build-arg APP_BUILT_AT=$APP_BUILT_AT -t $APP_IMAGE ."
   echo "DRY-RUN: docker push $APP_IMAGE"
   echo "DRY-RUN: docker build --platform linux/amd64 -t $SYNC_IMAGE ./sync"
   echo "DRY-RUN: docker push $SYNC_IMAGE"
@@ -631,7 +604,6 @@ else
 
   echo "   building app -> $APP_IMAGE"
   docker build --platform linux/amd64 -f apps/web/Dockerfile \
-    --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64" \
     --build-arg "APP_BUILD_REV=$APP_BUILD_REV" \
     --build-arg "APP_BUILT_AT=$APP_BUILT_AT" -t "$APP_IMAGE" .
   docker push "$APP_IMAGE"
@@ -745,8 +717,7 @@ if [ -n "$DRY_RUN" ] && [ ! -f "$ENV_FILE" ]; then
   echo "DRY-RUN: would render $RENDERED (no $ENV_FILE to render from)"
 else
   "$FLY_DIR/render-compose.sh" --env-file "$ENV_FILE" --out "$RENDERED" \
-    --app-image "$APP_IMAGE" --sync-image "$SYNC_IMAGE" --scorer-image "$SCORER_IMAGE" \
-    --event-config "$CONFIG"
+    --app-image "$APP_IMAGE" --sync-image "$SYNC_IMAGE" --scorer-image "$SCORER_IMAGE"
 fi
 
 # The rendered file holds every credential the event has, so it does not
@@ -801,8 +772,7 @@ fly_run secrets set --detach --app "$APP" \
   "GITHUB_APP_PRIVATE_KEY=$(env_value GITHUB_APP_PRIVATE_KEY)" \
   "GITHUB_APP_INSTALLATION_ID=$(env_value GITHUB_APP_INSTALLATION_ID)" \
   "REDIS_PASSWORD=$REDIS_PASSWORD" \
-  "REDISCLI_AUTH=$REDIS_PASSWORD" \
-  "EVENT_CONFIG_B64=$EVENT_CONFIG_B64"
+  "REDISCLI_AUTH=$REDIS_PASSWORD"
 
 # ---------------------------------------------------------------------------
 # FLY_AUTO_STOP — let the machine stop when idle. OFF unless asked for.
@@ -871,9 +841,10 @@ echo "== 5/5 deploy"
 # (internal_port 3000), and the compose file assigns every container its own
 # image regardless, so this cannot disagree with what actually runs.
 #
-# The alternative — leaving one service buildable so flyctl builds it — does
-# not work for `app`, whose event.yaml must arrive as a build ARG, and flyctl
-# implements no build args at all.
+# The alternative — leaving one service buildable so flyctl builds it — still
+# does not work: flyctl's compose parser refuses a file where more than one
+# service declares `build:` ("only one service can specify build"), which
+# docker-compose.yml does twice (app and sync).
 fly_run deploy --config "$DEPLOY_TOML" --app "$APP" --image "$APP_IMAGE" --primary-region "$REGION"
 
 echo "== done"
@@ -891,8 +862,9 @@ cat <<EOF
        fly ssh console --app $APP -C "redis-cli PING"
 
   3. Open $EVENT_URL, sign in, and check /admin loads for a login listed in
-     $CONFIG's admins. A 403 there almost always means the app was built
-     without EVENT_CONFIG_B64 — redeploy through this script.
+     ADMIN_LOGINS in $ENV_FILE. A 403 there almost always means that login is
+     missing (or misspelled — logins join case-insensitively, but the list
+     itself must still contain it) — fix $ENV_FILE and redeploy.
 
   Custom domain instead of *.fly.dev:
        fly certs add <domain> --app $APP
