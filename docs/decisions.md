@@ -379,7 +379,7 @@ npm hook (`apps/web/scripts/generate-event-config.mjs`), and have the
 app's static `metadata` exports and page content read from it at build
 time.
 
-*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `lib/site.ts`'s `getSite()` reads the event's name, tagline, location, contact e-mail and Discord invite from `ctf:admin:settings` at request time instead, failing open to the spec defaults ("OWASP CTF" / empty) when Redis has none stored. The generated module still carries those same field names (nothing reads them there any more) and still carries dates and the enabled-target subset, which remain build-time as this decision describes.*
+*Amended 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `lib/site.ts`'s `getSite()` reads the event's name, tagline, location, contact e-mail and Discord invite from `ctf:admin:settings` at request time instead, failing open to the spec defaults ("OWASP CTF" / empty) when Redis has none stored. The generated module still carries those same field names (nothing reads them there any more) and still carries dates and the enabled-target subset, which remain build-time as this decision describes.*
 
 **Consequences.** Static generation and `metadata` exports keep working
 exactly as the vendored app already used them — no new runtime
@@ -734,7 +734,7 @@ and 14) handles what the event is called, and the per-module title/blurb
 override (`docs/modules.md §5.1`) handles what each module is called. There
 was no remaining gap to justify taking on HTML sanitisation for.
 
-*Superseded 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event name, tagline, location, contact e-mail and Discord invite are runtime `/admin` → Event → Identity settings, not part of this build-time frame — each is validated server-side (length caps, `https://` for Discord) rather than needing HTML sanitisation, the same reasoning this decision already applied to reject a rich-text field.*
+*Amended 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event name, tagline, location, contact e-mail and Discord invite are runtime `/admin` → Event → Identity settings, not part of this build-time frame — each is validated server-side (length caps, `https://` for Discord) rather than needing HTML sanitisation, the same reasoning this decision already applied to reject a rich-text field.*
 
 **Consequences.** An event's homepage always looks and functions like the
 kit — frame, countdown, nav, CTAs — and only the module-specific pitch
