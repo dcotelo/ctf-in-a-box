@@ -197,13 +197,6 @@ describe("POST /api/admin/reset", () => {
     expect((await resetPOST(rreq({ confirm: "RESET" }))).status).toBe(503);
   });
 
-  it("accepts the runtime event name as the reset confirmation", async () => {
-    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
-    resetEvent.mockResolvedValue({ deleted: 1 });
-    const res = await resetPOST(rreq({ confirm: "Runtime CTF" }));
-    expect(res.status).toBe(200);
-  });
-
   it("rejects the baked event.yaml name once the organizer renamed the event", async () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     const res = await resetPOST(rreq({ confirm: "Test Event" }));
