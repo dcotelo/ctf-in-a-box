@@ -7,11 +7,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdmin, isBakedAdmin, listBakedAdmins, listStoredAdmins, addStoredAdmin, removeStoredAdmin } = vi.hoisted(
+const { requireAdmin, isEnvAdmin, listEnvAdmins, listStoredAdmins, addStoredAdmin, removeStoredAdmin } = vi.hoisted(
   () => ({
     requireAdmin: vi.fn(),
-    isBakedAdmin: vi.fn(),
-    listBakedAdmins: vi.fn(),
+    isEnvAdmin: vi.fn(),
+    listEnvAdmins: vi.fn(),
     listStoredAdmins: vi.fn(),
     addStoredAdmin: vi.fn(),
     removeStoredAdmin: vi.fn(),
@@ -19,7 +19,7 @@ const { requireAdmin, isBakedAdmin, listBakedAdmins, listStoredAdmins, addStored
 );
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/admin-auth", () => ({ requireAdmin, isBakedAdmin, listBakedAdmins }));
+vi.mock("@/lib/admin-auth", () => ({ requireAdmin, isEnvAdmin, listEnvAdmins }));
 vi.mock("@/lib/admin-store", async (orig) => ({
   ...(await orig<typeof import("@/lib/admin-store")>()),
   listStoredAdmins,
@@ -40,8 +40,8 @@ const req = (body?: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
-  isBakedAdmin.mockReturnValue(false);
-  listBakedAdmins.mockReturnValue(["alice"]);
+  isEnvAdmin.mockReturnValue(false);
+  listEnvAdmins.mockReturnValue(["alice"]);
   listStoredAdmins.mockResolvedValue(["carol"]);
   addStoredAdmin.mockResolvedValue(["carol", "dave"]);
   removeStoredAdmin.mockResolvedValue([]);
@@ -75,7 +75,7 @@ describe("GET", () => {
 
   it("reports a login that is both baked and stored exactly once, as baked", async () => {
     // Happens when someone is granted at runtime and later added to
-    // event.yaml. `baked` is what decides removability, so it must win.
+    // ADMIN_LOGINS. `baked` is what decides removability, so it must win.
     listStoredAdmins.mockResolvedValue(["alice", "carol"]);
     const body = await (await GET(req())).json();
     expect(body.admins.filter((a: { login: string }) => a.login === "alice")).toEqual([
@@ -121,10 +121,10 @@ describe("DELETE", () => {
   // session — could lock every organizer out of /admin with no way back but a
   // rebuild.
   it("refuses to remove a BAKED admin, and does not touch the store", async () => {
-    isBakedAdmin.mockReturnValue(true);
+    isEnvAdmin.mockReturnValue(true);
     const res = await DELETE(req({ login: "alice" }));
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toContain("event.yaml");
+    expect((await res.json()).error).toContain("ADMIN_LOGINS");
     expect(removeStoredAdmin).not.toHaveBeenCalled();
   });
 

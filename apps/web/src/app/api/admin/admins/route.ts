@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin, isBakedAdmin, listBakedAdmins } from "@/lib/admin-auth";
+import { requireAdmin, isEnvAdmin, listEnvAdmins } from "@/lib/admin-auth";
 import { AdminValidationError, addStoredAdmin, listStoredAdmins, removeStoredAdmin } from "@/lib/admin-store";
 
 /**
@@ -7,18 +7,18 @@ import { AdminValidationError, addStoredAdmin, listStoredAdmins, removeStoredAdm
  * revokes. Every method is behind `requireAdmin` — an admin is the only role
  * that can create another one, and there is no self-service path in.
  *
- * BAKED ADMINS ARE NOT REVOCABLE HERE. They come from `event.yaml`, they are
+ * ENV ADMINS ARE NOT REVOCABLE HERE. They come from `ADMIN_LOGINS`, they are
  * the recovery path when a runtime grant goes wrong, and refusing to remove
  * them is what makes the panel safe to hand to a co-organizer: no sequence of
  * clicks, and no compromised admin session, can lock everyone out of /admin.
- * Removing one is a rebuild, deliberately.
+ * Removing one needs an env edit and a restart, deliberately.
  */
 
 function payload(baked: string[], stored: string[]) {
-  // `stored` may contain a login that is ALSO baked (granted at runtime, then
-  // added to event.yaml on the next rebuild). It is reported once, marked
-  // baked, because that is the property that decides whether it can be
-  // removed.
+  // `stored` may contain a login that is ALSO an env admin (granted at
+  // runtime, then added to ADMIN_LOGINS on the next restart). It is reported
+  // once, marked baked, because that is the property that decides whether it
+  // can be removed.
   const bakedSet = new Set(baked);
   const rows = [
     ...baked.map((login) => ({ login, baked: true })),
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const gate = await requireAdmin(request.headers);
   if (!gate.ok) return NextResponse.json({ error: "forbidden" }, { status: gate.status });
   try {
-    return NextResponse.json(payload(listBakedAdmins(), await listStoredAdmins()));
+    return NextResponse.json(payload(listEnvAdmins(), await listStoredAdmins()));
   } catch (err) {
     console.error("[admin/admins] list failed", err);
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
   try {
     const stored = await addStoredAdmin(login, gate.login);
-    return NextResponse.json(payload(listBakedAdmins(), stored));
+    return NextResponse.json(payload(listEnvAdmins(), stored));
   } catch (err) {
     if (err instanceof AdminValidationError) {
       return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
@@ -80,11 +80,11 @@ export async function DELETE(request: Request) {
 
   // THE LOCKOUT GUARD. Checked here rather than in the store so the store
   // stays a plain set operation, and so the refusal can say why.
-  if (isBakedAdmin(login)) {
+  if (isEnvAdmin(login)) {
     return NextResponse.json(
       {
         error:
-          "That admin is set in event.yaml and cannot be removed here — it is the recovery path if a runtime grant goes wrong. Remove it from event.yaml and rebuild.",
+          "That admin is set in ADMIN_LOGINS and cannot be removed here — it is the recovery path if a runtime grant goes wrong. Remove it from ADMIN_LOGINS and restart.",
         field: "login",
       },
       { status: 409 },
@@ -96,7 +96,7 @@ export async function DELETE(request: Request) {
   // out, because a baked admin always remains. The UI warns before doing it.
   try {
     const stored = await removeStoredAdmin(login, gate.login);
-    return NextResponse.json(payload(listBakedAdmins(), stored));
+    return NextResponse.json(payload(listEnvAdmins(), stored));
   } catch (err) {
     if (err instanceof AdminValidationError) {
       return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });

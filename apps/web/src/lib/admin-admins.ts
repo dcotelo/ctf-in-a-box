@@ -15,9 +15,9 @@ import { upstashPipeline } from "@/lib/upstash";
  * `AdminValidationError` already live.
  */
 
-/** Logins granted admin at RUNTIME, on top of the ones baked into the image
- *  from `event.yaml`. A Redis set, not a settings field: it is a collection
- *  with add/remove semantics, and membership is the whole value. */
+/** Logins granted admin at RUNTIME, on top of the ones in `ADMIN_LOGINS`. A
+ *  Redis set, not a settings field: it is a collection with add/remove
+ *  semantics, and membership is the whole value. */
 export const ADMIN_ADMINS_KEY = "ctf:admin:admins";
 
 /** A GitHub login: 1-39 chars, alphanumeric or single hyphens, not leading or

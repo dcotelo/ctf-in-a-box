@@ -2,10 +2,11 @@
 
 // Runtime admin management (issue #147).
 //
-// `event.yaml`'s `admins` are BAKED into the image and are the bootstrap set:
-// they always authorize and cannot be revoked here, because they are the
-// recovery path if a runtime grant goes wrong. Everything added on this tab
-// lives in Redis and takes effect immediately, with no rebuild.
+// `ADMIN_LOGINS` (config v2 — no more baked `event.yaml` `admins:` array) is
+// the bootstrap set: those logins always authorize and cannot be revoked
+// here, because they are the recovery path if a runtime grant goes wrong.
+// Everything added on this tab lives in Redis and takes effect immediately,
+// with no restart.
 //
 // Self-contained on purpose: it owns its own fetch/pending/error state rather
 // than threading through admin-controls' `apply`, because it talks to a
@@ -16,6 +17,30 @@ import { useEffect, useState } from "react";
 import ConfirmModal from "@/components/confirm-modal";
 
 type AdminRow = { login: string; baked: boolean };
+
+/** The badge and its explanatory text for a row backed by `ADMIN_LOGINS`,
+ *  pulled out as named constants (rather than inlined in the JSX below) so
+ *  the config-v2 copy is provable without rendering the loaded state — see
+ *  `admin-admins-tab.test.tsx` for why a static render can't reach it (the
+ *  rows are behind `useState`, same reason `admin-support-tab.test.tsx`
+ *  tests its stateful content through exported pure values instead of
+ *  markup). */
+export const ENV_ADMIN_BADGE = ".env";
+export const ENV_ADMIN_CHANGE_HINT = "restart to change";
+
+/** The fail-closed notice for an EMPTY `ADMIN_LOGINS`: when there is no env
+ *  admin at all, nobody — not even a runtime grant — can reach /admin (see
+ *  `isAdminLogin`'s comment in admin-auth.ts), so the panel says so plainly
+ *  rather than silently showing an admin list with nothing marked baked.
+ *  `null` before `rows` has loaded (nothing is known yet) and once there is
+ *  at least one env admin. */
+export function envAdminsEmptyNotice(rows: AdminRow[] | null): string | null {
+  if (rows === null) return null;
+  const hasEnvAdmin = rows.some((r) => r.baked);
+  return hasEnvAdmin
+    ? null
+    : "ADMIN_LOGINS is empty — nobody can use /admin until it is set and the app restarts.";
+}
 
 /** The confirmation for removing a runtime admin (audit F8).
  *
@@ -30,14 +55,14 @@ type AdminRow = { login: string; baked: boolean };
  *  other admin deserves to have stated too.
  *
  *  No `requireType`: this is recoverable by any admin who still has access,
- *  and the baked `event.yaml` set can never be removed here at all — it is the
+ *  and the `ADMIN_LOGINS` set can never be removed here at all — it is the
  *  lockout recovery path. Exported for direct testing. */
 export function adminRemoveConfirm(login: string, viewerLogin: string): { title: string; body: string; confirmLabel: string } {
   const self = login.toLowerCase() === viewerLogin.toLowerCase();
   return {
     title: self ? "Remove your own admin access?" : `Remove ${login} as an admin?`,
     body: self
-      ? "You will lose this panel immediately. Another admin — or anyone in event.yaml's baked list — can grant it back."
+      ? "You will lose this panel immediately. Another admin — or anyone in ADMIN_LOGINS — can grant it back."
       : `${login} loses access to this panel immediately. Nothing they have done is undone, and you can grant it back at any time.`,
     confirmLabel: "Remove admin",
   };
@@ -100,14 +125,21 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
 
   const granted = rows?.filter((r) => !r.baked) ?? [];
   const baked = rows?.filter((r) => r.baked) ?? [];
+  const envEmptyNotice = envAdminsEmptyNotice(rows);
 
   return (
     <section className="flex flex-col gap-4">
       <div className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-5">
         <h3 className="font-mono text-sm text-white">Admins</h3>
         <p className="mt-1 text-sm text-zinc-400">
-          Grant or revoke organizer access without rebuilding. Changes take effect immediately.
+          Grant or revoke organizer access without restarting. Changes take effect immediately.
         </p>
+
+        {envEmptyNotice && (
+          <p role="alert" className="mt-3 text-sm text-[#e53e3e]">
+            {envEmptyNotice}
+          </p>
+        )}
 
         <form
           className="mt-4 flex flex-wrap items-center gap-2"
@@ -151,13 +183,13 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
               <span className="font-mono text-sm text-zinc-200">
                 {row.login}
                 <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs uppercase text-zinc-400">
-                  event.yaml
+                  {ENV_ADMIN_BADGE}
                 </span>
               </span>
               {/* Deliberately no remove control: this is the lockout recovery
                   path. The API refuses it too, so the missing button is a
                   courtesy, not the enforcement. */}
-              <span className="font-mono text-xs text-muted">rebuild to change</span>
+              <span className="font-mono text-xs text-muted">{ENV_ADMIN_CHANGE_HINT}</span>
             </li>
           ))}
           {granted.map((row) => (
