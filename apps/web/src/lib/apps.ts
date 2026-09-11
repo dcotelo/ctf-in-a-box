@@ -50,6 +50,16 @@ function repoUrl(id: AppId): string {
   return `https://github.com/${eventConfig.githubOrg}/${REPO_NAMES[id]}`;
 }
 
+/**
+ * Fork link for a target under an arbitrary org — the config-v2 replacement
+ * for `repoUrl`, which is pinned to `eventConfig.githubOrg`. `null` for an
+ * empty org rather than a broken `https://github.com//DVWA` link.
+ */
+export function forkUrl(org: string, id: AppId): string | null {
+  if (!org) return null;
+  return `https://github.com/${org}/${REPO_NAMES[id]}`;
+}
+
 export const apps: AppMeta[] = [
   {
     id: "juice-shop",
