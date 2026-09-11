@@ -223,6 +223,50 @@ describe("event identity reaches the landing page", () => {
   });
 });
 
+describe("GitHub OAuth callback error banner", () => {
+  it("shows friendly copy and an alert region for application_suspended", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({
+        error: "application_suspended",
+        error_description: "Your application has been suspended. Please visit https://github.com/contact.",
+      }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).toContain("suspended");
+    expect(withError).toContain("Try again");
+  });
+
+  it("shows friendly copy for access_denied", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: "access_denied" }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).toContain("cancelled");
+  });
+
+  it("shows friendly copy for redirect_uri_mismatch", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: "redirect_uri_mismatch" }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).toContain("organizer");
+  });
+
+  it("falls back to the raw (capped, control-stripped) description for an unrecognized error code", async () => {
+    const raw = `${"x".repeat(400)}\u0007end`;
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: "server_error", error_description: raw }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).not.toContain(raw);
+    expect(withError).toContain("x".repeat(300));
+  });
+
+  it("renders no alert region when there are no error params", () => {
+    expect(html).not.toContain('role="alert"');
+  });
+});
+
 describe("root metadata", () => {
   it("describes the event with the enabled modules' taglines", () => {
     expect(metadata.description).toBe("OWASP CTF — Secure Development CTF.");

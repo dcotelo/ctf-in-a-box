@@ -34,7 +34,15 @@ export default function HeroCta({
         onClick={() => {
           // Surface a failed redirect start instead of leaving the CTA
           // silently idle; the OAuth flow itself navigates away on success.
-          void authClient.signIn.social({ provider: "github", callbackURL: postSigninCallbackURL(callbackURL) })
+          // errorCallbackURL: without it better-auth's own callback failures
+          // (state present, e.g. access_denied) land on its default
+          // `${baseURL}/error` — a route this app has no page for — instead
+          // of the landing page's banner (issue #380).
+          void authClient.signIn.social({
+            provider: "github",
+            callbackURL: postSigninCallbackURL(callbackURL),
+            errorCallbackURL: "/",
+          })
             .then((result) => {
               if (result?.error) {
                 console.error("sign-in failed to start:", result.error);

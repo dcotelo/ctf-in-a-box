@@ -18,6 +18,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import EventCountdown from "@/components/event-countdown";
 import HeroCta from "@/components/hero-cta";
+import OAuthErrorNotice from "@/components/oauth-error-notice";
 import PhaseLine, { resolvePhase, type EventPhase } from "@/components/phase-line";
 import SiteFooter from "@/components/site-footer";
 import { auth } from "@/lib/auth";
@@ -58,8 +59,18 @@ function primaryAction(
   return { label: "See the standings", href: "/leaderboard" };
 }
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  /** GitHub's OAuth callback error, when the authorize step fails — a
+   *  suspended/deleted OAuth app, a cancelled prompt, or a redirect URI it
+   *  doesn't recognize. better-auth's own error redirect (and, for the
+   *  suspended-app case, GitHub itself) lands back on `/` with these. */
+  searchParams?: Promise<{ error?: string; error_description?: string }>;
+} = {}) {
   const event = await getSite();
+  const params = await searchParams;
+  const oauthError = params?.error ?? null;
   const catalog = await getChallengeCatalog();
   // The live target list, read once per request (both cache()-wrapped on the
   // same settings snapshot every other live-set question here shares) — see
@@ -216,6 +227,10 @@ export default async function Home() {
           )}
           {phaseInfo?.phase === "registration" && event.ctfStartsAt && (
             <EventCountdown startsAt={event.ctfStartsAt} />
+          )}
+
+          {oauthError && (
+            <OAuthErrorNotice error={oauthError} description={params?.error_description} />
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-5">

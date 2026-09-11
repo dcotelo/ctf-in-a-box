@@ -149,7 +149,14 @@ export default function AuthNav() {
         onClick={() =>
           // Through the post-signin step (issue #217): a teamless contestant
           // meets the team card first; a teamed one lands on /profile as before.
-          authClient.signIn.social({ provider: "github", callbackURL: postSigninCallbackURL("/profile") })
+          // errorCallbackURL points a failed callback at the landing page's
+          // own error banner rather than better-auth's default `/error`,
+          // which this app has no page for (issue #380).
+          authClient.signIn.social({
+            provider: "github",
+            callbackURL: postSigninCallbackURL("/profile"),
+            errorCallbackURL: "/",
+          })
         }
         className="flex-none rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-xs text-zinc-300 transition-colors hover:border-[#2563eb]/50 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
       >
