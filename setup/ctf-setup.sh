@@ -661,6 +661,17 @@ env_val() {
   printf '%s' "${v%"${v##*[![:space:]]}"}"
 }
 
+# Is the key PRESENT in the env file, whatever its value? Distinct from
+# `env_val` being non-empty, and the difference is load-bearing for
+# SCORE_IMAGE: `SCORE_IMAGE=` is an organizer's decided "no Secure
+# Development", while no such line at all is a file that has not been asked
+# the question yet — one the wizard must ask rather than resume past.
+env_has() {
+  local out="${OUT:-.env}"
+  [ -f "$out" ] || return 1
+  grep -q "^$1=" "$out"
+}
+
 # Refuse to act on an absent env file, for the commands whose whole input it
 # is. Without this, `env_val` reads every key as empty and a missing .env is
 # indistinguishable from an event that runs no Secure Development: `teardown`
@@ -1303,7 +1314,8 @@ require_targets() {
 }
 
 # Step 3 of the wizard: the whole bootstrap plane, asked and written.
-# $1 = the env file. Sets WIZ_SCORE_IMAGE (the SCORE_IMAGE this run settled
+# $1 = the env file; $2 = 1 when step 2 has already asked for EVENT_URL in
+# this run, so it is not asked twice. Sets WIZ_SCORE_IMAGE (the SCORE_IMAGE this run settled
 # on) for the later steps, which must not re-read the file under --dry-run
 # where nothing was written.
 #
@@ -1398,12 +1410,17 @@ wiz_event_basics() {
 
   # A deployment fact, not an event one (ADR 43): one event is served from a
   # box, from AWS and from fly.io on three hostnames. Step 2 asks when it
-  # creates the file; this covers the file that existed without the key.
-  wiz_ask ev_url "Event URL contestants reach" "$(env_url)"
+  # CREATES the file and tells us so ($2); this covers the file that existed
+  # without the key, and never asks the same value twice in one run.
+  ev_url=""
+  if [ "${2:-0}" -ne 1 ]; then
+    wiz_ask ev_url "Event URL contestants reach" "$(env_url)"
+  fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would write GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to $out"
     [ -z "$ev_ingest" ] || echo "  DRY-RUN: would set SCORE_INGEST=$ev_ingest in $out"
+    [ -z "$ev_url" ] || echo "  DRY-RUN: would set EVENT_URL=$ev_url in $out"
   else
     set_env_var "$out" GITHUB_ORG "$ev_org"
     set_env_var "$out" ADMIN_LOGINS "$ev_admins"
@@ -1452,7 +1469,12 @@ cmd_wizard() {
   fi
 
   # 2. Secrets (.env).
+  #
+  # `url_asked` stops step 3 asking for EVENT_URL a second time on a first
+  # run: this step already has the answer, and two prompts for one value read
+  # as a bug in the wizard.
   wiz_step "2/9  Secrets ($out)"
+  local url_asked=0
   if [ -f "$out" ]; then
     echo "  ✅ $out present"
   elif [ "$DRY_RUN" -eq 1 ]; then
@@ -1463,27 +1485,36 @@ cmd_wizard() {
     wiz_ask ev_url "Box URL contestants reach (https:// for a real event)" "$(env_val EVENT_URL)"
     set_env_var "$out" EVENT_URL "$ev_url"
     echo "  ✅ EVENT_URL=$ev_url"
+    url_asked=1
   fi
 
   # 3. Event basics — the whole of what this wizard writes.
   #
   # Already answered when there is an admin (the one key every event needs;
-  # empty makes /admin forbid everyone) AND, if this event runs Secure
-  # Development, an org to fork into. An app-only event legitimately has no
-  # GITHUB_ORG, so demanding one here would re-ask it every single run.
+  # empty makes /admin forbid everyone), the Secure Development question has
+  # been PUT at all (the SCORE_IMAGE line exists, empty or not — `secrets`
+  # writes it empty, so only a hand-rolled file lacks it), and, if that
+  # answer was yes, an org to fork into. An app-only event legitimately has
+  # no GITHUB_ORG, so demanding one here would re-ask it every single run.
   wiz_step "3/9  Event basics ($out)"
   local basics_done=0
-  if [ -n "$(env_val ADMIN_LOGINS)" ]; then
+  if [ -n "$(env_val ADMIN_LOGINS)" ] && env_has SCORE_IMAGE; then
     if ! runs_secdev || [ -n "$(env_val GITHUB_ORG)" ]; then basics_done=1; fi
   fi
   if [ "$basics_done" -eq 1 ]; then
     # Resumed run: the bootstrap plane is already answered. Print what it
     # turns on (none of it is a secret) and move on — re-asking would risk an
-    # Enter-through changing it.
+    # Enter-through changing it. Turning Secure Development ON later is an
+    # edit to this file, not a re-run, so say where the switch is.
     local have_org; have_org="$(env_val GITHUB_ORG)"
     echo "  ✅ $out (org: ${have_org:-<none>}, admins: $(env_val ADMIN_LOGINS))"
+    if runs_secdev; then
+      echo "     Secure Development: on (SCORE_IMAGE=$(env_val SCORE_IMAGE))"
+    else
+      echo "     Secure Development: off — set SCORE_IMAGE in $out (or re-run with SCORE_IMAGE removed) to turn it on"
+    fi
     WIZ_SCORE_IMAGE="$(env_val SCORE_IMAGE)"
-  elif ! wiz_event_basics "$out"; then
+  elif ! wiz_event_basics "$out" "$url_asked"; then
     echo "  Fix that and re-run the wizard — it resumes." >&2
     exit 1
   fi

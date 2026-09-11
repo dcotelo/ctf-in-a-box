@@ -391,7 +391,7 @@ EOF
   [ -z "$(printf '%s' "$output" | grep -F -- 'GITHUB_APP_ID')" ]
 }
 
-@test "doctor check (c) under --dry-run: zero gh calls, narrates instead" {
+@test "doctor check (c) under --dry-run makes no installations call and narrates instead" {
   printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
   mkdir -p "$BATS_TEST_TMPDIR/stubbin"
   printf '#!/usr/bin/env bash\necho "gh $*" >> "%s/gh.calls"\nexit 1\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/gh"
@@ -680,6 +680,27 @@ _stub_prereqs() {
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -F 'Answer a few questions to write')" ]
   echo "$output" | grep -qF "✅ .env (org: <none>, admins: organizer)"
+  # …and it says where the off switch is, since a resumed run does not re-ask.
+  echo "$output" | grep -qF "Secure Development: off — set SCORE_IMAGE in .env"
+}
+
+# `SCORE_IMAGE=` (present, empty) is an answered question — "no Secure
+# Development". NO SUCH LINE is a file that was never asked, and resuming
+# past it would leave an organizer with no way to turn Secure Development on
+# from the wizard at all.
+@test "wizard: an .env with no SCORE_IMAGE line at all is re-asked, not resumed past" {
+  _stub_prereqs
+  printf 'ADMIN_LOGINS=organizer\nGITHUB_ORG=test-event-org\n' > .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  echo "$output" | grep -qF 'Answer a few questions to write'
+  echo "$output" | grep -qF 'Run Secure Development'
+}
+
+@test "wizard: a resumed Secure Development run says the switch is on, and with what" {
+  _stub_prereqs
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF "Secure Development: on (SCORE_IMAGE=ghcr.io/fixture/score:latest)"
 }
 
 # C1: an app-only event used to DEAD-END here. Step 7 asked GitHub about an
@@ -987,14 +1008,36 @@ _basics_dry() {
   [ -z "$(grep -F 'SCORE_INGEST' .env)" ]
 }
 
-@test "wiz_event_basics --dry-run narrates both writes and performs neither" {
+@test "wiz_event_basics --dry-run narrates every write and performs none" {
   _env_fixture
+  printf 'EVENT_URL=https://ctf.example.org\n' >> .env
   run _basics_dry
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF 'DRY-RUN: would write GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to .env'
   echo "$output" | grep -qF 'would set SCORE_INGEST=poll in .env'
+  # EVENT_URL is written by the same step when the answer is non-empty, so it
+  # is narrated by it too — a rehearsal that lists two of three writes is a
+  # rehearsal that hides one.
+  echo "$output" | grep -qF 'would set EVENT_URL=https://ctf.example.org in .env'
   # The rehearsal must not have touched the file it narrated.
   [ -z "$(grep -F 'SCORE_INGEST' .env)" ]
+}
+
+# The same value asked twice in one run reads as a bug in the wizard: step 2
+# collects EVENT_URL the moment it creates the file, so step 3 must not ask
+# again. (A resumed run, where step 2 only ticks "present", still asks — that
+# is the file that exists without the key.)
+@test "wiz_event_basics skips the EVENT_URL question when step 2 already asked" {
+  : > .env
+  mkdir -p "$BATS_TEST_TMPDIR/nogh"
+  printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/nogh/gh"
+  chmod +x "$BATS_TEST_TMPDIR/nogh/gh"
+  # $2=1 is what cmd_wizard passes after its own EVENT_URL prompt.
+  run env PATH="$BATS_TEST_TMPDIR/nogh:$PATH" bash -c \
+    'printf "my-event-org\nalice\nn\n" | { CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_event_basics .env 1; }' _ "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'Event URL contestants reach')" ]
+  grep -qx 'ADMIN_LOGINS=alice' .env
 }
 
 @test "wiz_event_basics defaults the admin list to the login running the wizard" {

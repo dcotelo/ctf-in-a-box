@@ -140,9 +140,14 @@ jobs:
             # change what ships. README.md is in pages.yml's trigger paths but
             # is not part of the site, so it is deliberately absent here.
             echo "docs=$(m "^docs/|^\.github/workflows/pages\.yml$CI")"
-            # The files this check compares, plus the check script itself and
-            # this workflow file (either is a behavior change).
-            echo "registries=$(m "^(sync/src/config\.js|setup/ctf-setup\.sh|apps/web/src/lib/modules\.ts|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
+            # The three independently-maintained TARGET lists this check
+            # compares, plus the check script itself and this workflow file
+            # (either is a behavior change). It no longer compares any
+            # MODULE list: config v2 (#386) deleted the duplicated
+            # KNOWN_MODULES in setup/ctf-setup.sh and left module
+            # registration to apps/web alone, so neither that script nor
+            # apps/web/src/lib/modules.ts is an input here any more.
+            echo "registries=$(m "^(sync/src/config\.js|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
