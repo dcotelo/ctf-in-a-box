@@ -49,7 +49,7 @@ const POLL_INTERVAL_MAX_MS = Math.floor((2 ** 31 - 1) / 1.2);
 
 // config-v2 (#386): sync is configured from `.env` alone — the old
 // bind-mounted YAML config file is gone. Whether sync runs at all is
-// decided by the compose profile (`poll`),
+// decided by the compose profile (`secdev`),
 // not by module presence in a config file: sync no longer decides "am I
 // enabled", so a missing/blank GITHUB_ORG is a genuine misconfiguration, not
 // "nothing to poll" — it throws, naming the key, rather than returning null.
