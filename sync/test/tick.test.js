@@ -1,12 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tick } from "../src/index.js";
+import { tick as rawTick } from "../src/index.js";
 import { seenKey } from "../src/state.js";
 
 const CFG = {
-  org: "evt", targets: ["dvwa"], getToken: async () => "ghp_test", apiUrl: "https://api.example",
+  org: "evt", getToken: async () => "ghp_test", apiUrl: "https://api.example",
   scorerUrl: "http://scorer:4000", scorerToken: "t", commentAuthor: "github-actions[bot]",
 };
+
+// config-v2: which targets get polled comes from redis.getSecureDevTargets(),
+// read fresh every tick — not from cfg. These tests are about poll/parse/
+// submit behavior against a single repo (DVWA); the admin panel's target
+// selection itself is covered separately (tick-redis.test.js, redis.test.js).
+// A fixed single-target stub keeps these tests scoped to DVWA exactly as
+// before, instead of every call now looping the full six-target catalogue.
+const redisStub = { getSecureDevTargets: async () => ["dvwa"], isPaused: async () => false, writeStatus: async () => {} };
+const tick = (cfg, state, deps = {}) => rawTick(cfg, state, { redis: redisStub, ...deps });
 
 const scoreBody = `<!-- ctf-score: {"author":"octocat","target":"dvwa","solved":["sqli-low"],"pr":7,"sha":"abc"} -->`;
 const ghComment = (id, body = scoreBody) => ({ id, body, user: { login: "github-actions[bot]" }, updated_at: "2026-08-13T11:00:00Z" });

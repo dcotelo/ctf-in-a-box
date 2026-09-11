@@ -115,16 +115,18 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
   // quiz-only event run: throwing here crash-looped the poller and froze the
   // leaderboard with no signal beyond a restart count.
   if (!mod) return null;
-  const targets = mod.targets;
-  if (!Array.isArray(targets) || targets.length === 0) throw new Error("event.yaml: targets must be a non-empty list");
-  const bad = targets.filter((t) => !TARGETS.includes(t));
-  if (bad.length) throw new Error(`event.yaml: unknown targets: ${bad.join(", ")}`);
+  // event.yaml no longer says WHICH targets to poll — that now lives in
+  // Redis (`ctf:admin:settings.secureDevTargets`, config-v2) and is read
+  // fresh every tick (see redis.js's getSecureDevTargets / index.js's tick).
+  // A `targets:` key under secure-development is tolerated, not validated or
+  // read: an organizer's stale event.yaml (or one copied from an older
+  // event) must not crash-loop the poller over a key this build simply
+  // stopped consulting.
   if (!env.SCORER_TOKEN) throw new Error("SCORER_TOKEN env var is required");
   const apiUrl = env.GITHUB_API_URL ?? "https://api.github.com";
   const { authMode, getToken } = resolveAuth(env, apiUrl);
   return {
     org,
-    targets,
     getToken,
     authMode,
     apiUrl,

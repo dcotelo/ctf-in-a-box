@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tick } from "../src/index.js";
+import { tick as rawTick } from "../src/index.js";
 import { makeRedis } from "../src/redis.js";
 
 // Both scoring bugs this event hit had the identical shape: the poller
@@ -15,9 +15,15 @@ import { makeRedis } from "../src/redis.js";
 // ingest loop reaches it on each of its silent paths.
 
 const CFG = {
-  org: "evt", targets: ["dvwa"], getToken: async () => "ghp_test", apiUrl: "https://api.example",
+  org: "evt", getToken: async () => "ghp_test", apiUrl: "https://api.example",
   scorerUrl: "http://scorer:4000", scorerToken: "t", commentAuthor: "github-actions[bot]",
 };
+
+// config-v2: targets come from redis.getSecureDevTargets(), not cfg. These
+// drop-visibility tests are about DVWA's comment disposition counters; a
+// fixed single-target stub keeps them scoped to one repo as before.
+const redisStub = { getSecureDevTargets: async () => ["dvwa"], isPaused: async () => false, writeStatus: async () => {} };
+const tick = (cfg, state, deps = {}) => rawTick(cfg, state, { redis: redisStub, ...deps });
 
 const scoreBody = `<!-- ctf-score: {"author":"octocat","target":"dvwa","solved":["sqli-low"],"pr":7,"sha":"abc"} -->`;
 const ghComment = (id, body = scoreBody, updated_at = "2026-08-13T11:00:00Z") => ({

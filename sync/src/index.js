@@ -1,4 +1,4 @@
-import { loadConfig, REPO_NAMES } from "./config.js";
+import { loadConfig, REPO_NAMES, TARGETS } from "./config.js";
 import { fetchNewScoreComments } from "./github.js";
 import { hasScoreMarker, parseScoreComment } from "./parse.js";
 import { submitScore } from "./submit.js";
@@ -69,6 +69,35 @@ export async function tick(cfg, state, deps = {}) {
     log(why);
   };
 
+  // Resolve THIS TICK's target list before anything else touches state or
+  // Redis. With no admin override this is the app's full six-target
+  // catalogue, but a transport error or an unparseable stored value must not
+  // be treated as "poll nothing" (silently going dark) or "poll all six"
+  // (silently widening scope back open) — either is a wrong guess dressed up
+  // as a safe default. So a failure here fails the WHOLE tick closed: no
+  // repo is polled, no cursor moves, and the heartbeat says why. This is
+  // deliberately unlike the isPaused/getResetAt reads below, which fail
+  // open/silent because a miss there already has its own safe direction.
+  let targets;
+  if (redis) {
+    try {
+      targets = await redis.getSecureDevTargets();
+    } catch (err) {
+      await writeStatusSafely(redis, log, {
+        lastPollAt: nowIso(),
+        ingested: state.ingested,
+        dropped: state.dropped,
+        lastDrop: state.lastDrop ?? null,
+        reposPolled: 0,
+        paused: false,
+        lastError: `targets unreadable: ${err.message}`,
+      });
+      return state;
+    }
+  } else {
+    targets = TARGETS;
+  }
+
   // Master-reset epoch, BEFORE the pause check: a reset also freezes scoring,
   // so we must drop the cursor even while paused, or an unfreeze would re-ingest
   // from the cursor's old position. Clearing repos makes the next poll re-read
@@ -96,7 +125,7 @@ export async function tick(cfg, state, deps = {}) {
 
   let reposPolled = 0;
   let lastError = null;
-  for (const target of cfg.targets) {
+  for (const target of targets) {
     reposPolled++;
     const repo = REPO_NAMES[target];
     const rs = repoState(state, repo);
@@ -117,7 +146,7 @@ export async function tick(cfg, state, deps = {}) {
         tally.duplicate++;
         continue;
       }
-      const payload = parseScoreComment(c.body, cfg);
+      const payload = parseScoreComment(c.body, { targets });
       if (!payload) {
         // A marker that is PRESENT and unusable is a real loss — the workflow
         // meant to report a score and the poller cannot read it. A comment
@@ -202,7 +231,14 @@ export async function main(deps = {}) {
   // against (#63).
   const state = readState(cfg.statePath, { log: logErr });
   const redis = makeRedisImpl();
-  logErr(`ctf-sync: polling ${cfg.targets.length} repos in ${cfg.org} every ${cfg.pollIntervalMs}ms`);
+  // No static repo count here any more: which of the six targets get polled
+  // is decided per tick from Redis (config-v2), so a count printed once at
+  // startup would just be stale the moment an organizer changes it in /admin.
+  logErr(`ctf-sync: polling ${cfg.org} every ${cfg.pollIntervalMs}ms`);
+  // With no Redis client there is nothing to read secureDevTargets from, so
+  // tick() falls back to TARGETS (all six) every tick — worth saying once at
+  // boot rather than leaving an organizer to infer it from the poll logs.
+  if (!redis) logErr("ctf-sync: no Redis client — polling all six targets");
   for (;;) {
     await runTick(cfg, state, { redis });
     writeState(cfg.statePath, state);

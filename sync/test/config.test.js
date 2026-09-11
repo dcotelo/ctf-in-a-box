@@ -18,26 +18,31 @@ function writeYaml(text) {
   return p;
 }
 
-test("loads org, targets and defaults", () => {
+test("loads org and defaults", () => {
   const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa, juice-shop]\n`);
   const cfg = loadConfig(p, ENV);
   assert.equal(cfg.org, "my-org");
-  assert.deepEqual(cfg.targets, ["dvwa", "juice-shop"]);
   assert.equal(cfg.apiUrl, "https://api.github.com");
   assert.equal(cfg.scorerUrl, "http://scorer:4000");
   assert.equal(cfg.commentAuthor, "github-actions[bot]");
   assert.equal(cfg.pollIntervalMs, 30000);
 });
 
-test("rejects unknown target", () => {
-  const p = writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa, nope]\n`);
-  assert.throws(() => loadConfig(p, ENV), /unknown targets: nope/);
+// config-v2: which targets get polled now lives in Redis
+// (ctf:admin:settings.secureDevTargets, read fresh every tick — see
+// redis.js's getSecureDevTargets), not event.yaml. A leftover targets: key
+// (an organizer's file from before config-v2, or one carried over from
+// another event) must be tolerated, not validated or surfaced on cfg.
+test("ignores a targets: key under secure-development", () => {
+  const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa, nope, not-even-a-real-shape]\n`);
+  const cfg = loadConfig(p, ENV);
+  assert.equal(cfg.org, "my-org");
+  assert.equal("targets" in cfg, false);
 });
 
-test("rejects missing org, empty targets, missing secrets", () => {
-  assert.throws(() => loadConfig(writeYaml(`modules:\n  secure-development:\n    targets: [dvwa]\n`), ENV), /github.org/);
-  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: []\n`), ENV), /targets/);
-  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`), { SCORER_TOKEN: "t" }), /GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required/);
+test("rejects missing org, missing secrets", () => {
+  assert.throws(() => loadConfig(writeYaml(`modules:\n  secure-development: {}\n`), ENV), /github.org/);
+  assert.throws(() => loadConfig(writeYaml(`github: { org: o }\nmodules:\n  secure-development: {}\n`), { SCORER_TOKEN: "t" }), /GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are required/);
 });
 
 // REPO_NAMES is pinned in repo-names.differential.test.js, against
@@ -57,7 +62,7 @@ test("rejects unknown module key", () => {
 test("tolerates a registered module key it does not score (quiz)", () => {
   const p = writeYaml(`github: { org: my-org }\nmodules:\n  secure-development:\n    targets: [dvwa]\n  quiz: {}\n`);
   const cfg = loadConfig(p, ENV);
-  assert.deepEqual(cfg.targets, ["dvwa"]);
+  assert.equal(cfg.org, "my-org");
 });
 
 test("returns null when no polled module is enabled (quiz-only)", () => {
@@ -122,7 +127,6 @@ test("EVENT_CONFIG_B64 supplies the config with no file on disk at all", () => {
     EVENT_CONFIG_B64: Buffer.from(YAML).toString("base64"),
   });
   assert.equal(cfg.org, "o");
-  assert.deepEqual(cfg.targets, ["dvwa"]);
 });
 
 // The precedence is what makes one variable safe to set everywhere: an
@@ -133,7 +137,6 @@ test("EVENT_CONFIG_B64 wins over the mounted file when both are present", () => 
   const fromEnv = `github: { org: from-env }\nmodules:\n  secure-development:\n    targets: [webgoat]\n`;
   const cfg = loadConfig(p, { ...ENV, EVENT_CONFIG_B64: Buffer.from(fromEnv).toString("base64") });
   assert.equal(cfg.org, "from-env");
-  assert.deepEqual(cfg.targets, ["webgoat"]);
 });
 
 // compose renders an unset `${EVENT_CONFIG_B64:-}` as "". Treating that as a
