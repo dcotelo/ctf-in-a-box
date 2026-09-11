@@ -129,7 +129,10 @@ silently yields neutral defaults (an empty `admins` list, so `/admin` 403s
 everyone). The event's name and the rest of its branding are a separate
 runtime `/admin` setting since #386, not part of this bake. Review anything
 touching build or deploy scripts for a path that could run the app build
-with the arg unset.
+with the arg unset. This stays a reader-only invariant, with no matching
+`.coderabbit.yaml` rule: PR 3 of #386 deletes `EVENT_CONFIG_B64` and its
+bake entirely, so a machine-enforced rule for it would be dead code within
+one more PR of this same issue.
 
 **11. The public surface is a named list, not a shape.** Exactly five routes
 under `/api` answer without a session or a verified launch token, and each is

@@ -845,11 +845,15 @@ second successful run overwrites whatever the failed one left behind.
 
 **Name, tagline and location travel with the bundle; contact and Discord
 never do.** The event's identity is a runtime `/admin` setting now (issue
-#386), so an export's informational identity block (`name`, `theme`,
-`dates`, `location`, `ctfStartsAt`) is applied on import through the same
-validated settings patch as every other policy field, before anything
-destructive runs — a restore or a repeat run of the same CTF renames itself
-without a rebuild. **Contact e-mail and Discord invite are deliberately left
+#386), so on import only the supported identity fields — `name`, `theme`
+and `location` — are applied, through the same validated settings patch as
+every other policy field, before anything destructive runs — a restore or a
+repeat run of the same CTF renames itself without a rebuild. The bundle's
+`dates` and `ctfStartsAt` are informational only (they travel with the
+export for the record — see above) and are **not** reapplied on import:
+both remain baked from `event.yaml` at build time until a later PR of #386,
+so importing a bundle never overwrites them. **Contact e-mail and Discord
+invite are deliberately left
 out of the bundle**, even though both are runtime settings too: they are
 organizer PII (a private inbox, an invite link), not needed to replay the
 event, and not something an organizer should be handing out inside a file

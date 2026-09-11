@@ -721,8 +721,11 @@ docker compose --profile poll --profile app up -d   # quiz-only: --profile app a
 ```
 
 Building without `EVENT_CONFIG_B64` falls back to the neutral dates/targets/
-admins defaults — the site still shows "OWASP CTF" either way, since the
-event's name is a runtime setting, not part of this bake. See
+admins defaults — the event's name is unaffected either way, since it is a
+runtime `/admin` setting, not part of this bake: an organizer-stored name
+in `ctf:admin:settings` keeps showing regardless of what the image was
+built with, and "OWASP CTF" appears only when no runtime name has ever been
+stored (a fresh event, or a Redis wiped clean). See
 `apps/web/scripts/generate-event-config.mjs` for the full
 `EVENT_CONFIG` yaml > `EVENT_*` env var > default precedence, and
 [docs/architecture.md](architecture.md#build-time-config-flow) for the whole

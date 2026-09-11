@@ -92,7 +92,7 @@ scoring code to write.
 <sup>Captured from the contestant app with seeded demo players. The board ranks
 <strong>teams</strong> by default and switches to individual standings; anything
 solved by more than one teammate counts <strong>once</strong>, so a team's total
-can be less than its members' scores added up. Targets and links are
+can be less than its members' scores added up. Targets and fork links are
 event-config driven; the event name and its branding are admin-panel
 settings.</sup>
 
