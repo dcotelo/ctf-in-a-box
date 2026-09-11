@@ -130,21 +130,27 @@ and a score-over-time graph; `./scripts/dev-stack score <login> juice-shop 3`
 lands three more solves live. `./scripts/dev-stack down` tears it down.
 
 **Run a real event** with the guided wizard. Add the **[`gh`
-CLI](https://cli.github.com)** (authenticated) and **one free GitHub org**;
-`./setup/ctf-setup.sh check` verifies the tooling first:
+CLI](https://cli.github.com)** (authenticated), plus **one free GitHub org**
+if the event runs Secure Development; `./setup/ctf-setup.sh check` verifies
+the tooling first:
 
 ```sh
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
 ```
 
-It asks for each value as it goes — your box URL, the event details, which
-modules to run, the GitHub credentials — writes `.env` and `event.yaml`, does
+It asks for each value as it goes — your box URL, the event org, the admin
+logins, whether you run Secure Development, the GitHub credentials — writes
+`.env`, does
 every automatable step, guides you through the GitHub-UI ones, and resumes if
-you stop and come back. It asks only what the modules you enabled actually
-need: a quiz-only or classic-only event needs no org, no forks, and no scorer
-image, and is never asked about them. Preview any mutating step with
-`--dry-run`. The wizard closes by running `./setup/ctf-setup.sh doctor` — a
-per-fork status matrix you can re-run at any time.
+you stop and come back. Everything else (the event's name, which modules run,
+which targets) is a runtime `/admin` setting, so there is no config file to
+edit. It asks only what you actually need: an event without Secure
+Development needs no org, no forks, and no scorer image, and is never asked
+about them. Preview any mutating step with `--dry-run` — it narrates steps
+4–9 from a `.env` that is already complete, and refuses (by design) when
+there is no admin login, or when Secure Development is on with no org. The
+wizard closes by running `./setup/ctf-setup.sh doctor` — a per-fork status
+matrix you can re-run at any time.
 
 <p align="center">
   <img alt="The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts" src="docs/assets/wizard.jpg" width="820">

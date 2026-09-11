@@ -1,6 +1,0 @@
-github:
-  org: test-event-org
-defaults: &defaults
-  quiz: {}
-modules:
-  <<: *defaults

@@ -3,8 +3,9 @@
 #
 # Subcommands (run with NO subcommand, or `wizard`, for the guided setup):
 #   wizard    DEFAULT — step-by-step zero-to-scored: inspects state and only
-#             prompts for what's missing. Asks for each value inline (EVENT_URL,
-#             event.yaml fields, App/OAuth credentials) with instructions + URLs,
+#             prompts for what's missing. Asks for each value inline (the
+#             bootstrap keys GITHUB_ORG / ADMIN_LOGINS / SCORE_IMAGE, EVENT_URL,
+#             App/OAuth credentials) with instructions + URLs,
 #             writing them as you go — no editing files by hand between steps.
 #             Guides + verifies each UI-only step. Resumable (safe to re-run).
 #             Orchestrates the subcommands below.
@@ -34,7 +35,14 @@
 #   oauth-config  write the OAuth client id + secret into .env (--client-id ID;
 #                 the secret is read from a hidden prompt, never on argv)
 #
-# Global flags: --dry-run (print mutating commands), --config <path> (default event.yaml)
+# Every setting this script reads comes from the env file (.env by default,
+# --out elsewhere): GITHUB_ORG names the event org, ADMIN_LOGINS says who may
+# open /admin, and SCORE_IMAGE being NON-EMPTY is how a box says "this event
+# runs Secure Development" — with it empty there are no forks to provision, no
+# scorer to mirror and nothing to poll. Which modules run, and which Secure
+# Development targets, are runtime settings in /admin (config v2, #386).
+#
+# Global flags: --dry-run (print mutating commands), --out <path> (default .env)
 set -euo pipefail
 
 # Resolve repo-relative paths from the script's own location, not the cwd.
@@ -307,7 +315,7 @@ JSON
       ;;
     workflow)
       local base_url lb_url="" tmp
-      base_url="$(yaml_url)"; base_url="${base_url%/}"
+      base_url="$(env_url)"; base_url="${base_url%/}"
       case "$base_url" in http://*|https://*) lb_url="$base_url/leaderboard" ;; esac
       tmp="$(mktemp)"
       render_workflow "$org" "$t" "$(app_url_for "$t")" "$lb_url" > "$tmp"
@@ -341,11 +349,43 @@ do_step() {
 # Read-only per-step status. Non-manual missing steps make it exit non-zero so
 # CI / the future admin wizard can gate on a clean provision.
 cmd_doctor() {
-  require_config
-  check_known_modules || exit 1
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+  require_env_file
+  local org; org="$(env_val GITHUB_ORG)"
   local rc=0 t id cell name want_v have
+
+  # Check (a) — ADMIN_LOGINS (issue #382). Always checked, regardless of
+  # Secure Development: an event with no admins is broken either way, and the
+  # failure (every login 403s on /admin) is otherwise silent until someone
+  # tries the panel.
+  local admins; admins="$(env_val ADMIN_LOGINS)"
+  if [ -n "$admins" ]; then
+    printf '%s✅ ADMIN_LOGINS: %s%s\n' "$C_GREEN" "$admins" "$C_RESET"
+  else
+    printf '%s❌ ADMIN_LOGINS is empty — nobody can open /admin; set it in .env and restart the app%s\n' \
+      "$C_RED" "$C_RESET"
+    rc=1
+  fi
+
+  # Check (b) — GITHUB_ORG. This command takes no --org flag, so "the org
+  # doctor inspects" IS `env_val GITHUB_ORG`, resolved once into $org above —
+  # the two cannot disagree today, only be missing. Whether a missing value
+  # is tolerable depends on whether this event runs Secure Development at
+  # all: an app-only event has no org to fork into and none is required.
+  if [ -n "$org" ]; then
+    printf '%s✅ GITHUB_ORG: %s%s\n' "$C_GREEN" "$org" "$C_RESET"
+  elif runs_secdev; then
+    printf '%s❌ GITHUB_ORG is empty in %s — Secure Development is on (SCORE_IMAGE set) but there is no org to fork into; set it (or run the wizard)%s\n' \
+      "$C_RED" "${OUT:-.env}" "$C_RESET"
+    rc=1
+  else
+    printf '%s⚠️  GITHUB_ORG is empty in %s — fine for now: this event does not run Secure Development%s\n' \
+      "$C_YELLOW" "${OUT:-.env}" "$C_RESET"
+  fi
+  echo
+
+  # Nothing org-scoped left to inspect without an org: SD-on already failed
+  # loudly above; SD-off simply has nothing further to check here.
+  [ -n "$org" ] || return $rc
 
   if gh_ok "orgs/$org"; then
     printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
@@ -366,19 +406,16 @@ cmd_doctor() {
     printf '    Add:  REDIS_PASSWORD=%s\n\n' "$(openssl rand -hex 24)"
   fi
 
-  # No secure-development module: no forks, no scorer image, nothing in the
-  # per-target matrix below to check — an empty table (headers only) would
-  # read as a failure rather than the truth, which is that quiz-only events
-  # have no fork-based content at all. Report that plainly instead and stop.
-  if ! has_module secure-development; then
-    printf '%sℹ️  no secure-development module configured — no provisioned content to check (nothing forked, nothing to inspect here).%s\n' "$C_CYAN" "$C_RESET"
-    return 0
+  # No SCORE_IMAGE: this event does not run Secure Development, so there are
+  # no forks, no scorer image and nothing in the per-target matrix below to
+  # check — an empty table (headers only) would read as a failure rather than
+  # the truth, which is that an app-only event has no fork-based content at
+  # all. Report that plainly instead and stop.
+  if ! runs_secdev; then
+    printf '%sℹ️  SCORE_IMAGE is empty in %s — this event does not run Secure Development: no provisioned content to check (nothing forked, nothing to inspect here).%s\n' \
+      "$C_CYAN" "${OUT:-.env}" "$C_RESET"
+    return $rc
   fi
-
-  # The two ingest switches must agree (issue #372). Checked before the fork
-  # table so a config that is about to be judged in the wrong mode says so
-  # at the top, not as a footnote under a green table.
-  ingest_mismatch_warn
 
   # Fails loudly (naming targets.tsv) if it can't produce a target list —
   # every loop below reads targets.tsv through all_targets(), which itself
@@ -386,9 +423,9 @@ cmd_doctor() {
   # runs once, up front, before any of them.
   require_targets
 
-  # secure-development IS enabled: every event provisions all six targets.tsv
-  # targets, regardless of event.yaml (config v2 PR2, #386) — which ones
-  # actually RUN is chosen at runtime in /admin -> Secure Development.
+  # Secure Development IS on: every event provisions all six targets.tsv
+  # targets (config v2 PR2, #386) — which ones actually RUN is chosen at
+  # runtime in /admin -> Secure Development.
   # One row per target, one column per provisioning step (+ fork-detach). Each
   # cell: ✅ done · ❌ missing (automatable — fails the exit code) · ⚠️ manual
   # step not yet done (advisory) · – not applicable to this target.
@@ -424,6 +461,55 @@ cmd_doctor() {
   else
     printf '%s⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
+
+  # Check (c) — the sync GitHub App (GITHUB_APP_ID) is installed on the org
+  # (issue #382). Only meaningful when Secure Development runs at all: an
+  # app-only event has no poller/pusher that needs a token, so there is
+  # nothing to verify — but we are past the `runs_secdev` early-return above,
+  # so it is always true here.
+  local sync_app_id; sync_app_id="$(env_val GITHUB_APP_ID)"
+  if [ -z "$sync_app_id" ]; then
+    printf '%s❌ GITHUB_APP_ID is empty in %s — sync cannot mint tokens without it%s\n' \
+      "$C_RED" "${OUT:-.env}" "$C_RESET"
+    rc=1
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    printf 'DRY-RUN: would check whether the sync App (GITHUB_APP_ID=%s) is installed on %s\n' \
+      "$sync_app_id" "$org"
+  else
+    # `gh api ... --jq` fails closed two ways we must not conflate with "not
+    # installed": a non-zero exit (missing admin:org scope, network, a
+    # revoked token) and empty output from an otherwise-successful call —
+    # both are treated as UNVERIFIED, never as "installed", so a broken token
+    # never reads as a clean bill of health (R4 / #382).
+    local sync_rows sync_found_id="" sync_found_slug=""
+    if sync_rows="$(gh api "orgs/$org/installations" \
+        --jq '.installations[] | "\(.app_id) \(.app_slug)"' 2>/dev/null)" && [ -n "$sync_rows" ]; then
+      sync_found_id="$(printf '%s\n' "$sync_rows" | awk -v id="$sync_app_id" '$1==id{print $1; exit}')"
+      sync_found_slug="$(printf '%s\n' "$sync_rows" | awk -v id="$sync_app_id" '$1==id{print $2; exit}')"
+      if [ "$sync_found_id" = "$sync_app_id" ]; then
+        printf '%s✅ sync App (GITHUB_APP_ID=%s) installed on %s%s\n' \
+          "$C_GREEN" "$sync_app_id" "$org" "$C_RESET"
+      else
+        # Not among the org's current installations, so its slug cannot be
+        # known from this same response either — fall back to the generic
+        # installations settings page.
+        printf '%s❌ sync App (GITHUB_APP_ID=%s) not installed on %s%s\n' \
+          "$C_RED" "$sync_app_id" "$org" "$C_RESET"
+        if [ -n "$sync_found_slug" ]; then
+          printf '    install it: https://github.com/organizations/%s/settings/apps/%s/installations\n' \
+            "$org" "$sync_found_slug"
+        else
+          printf '    install it: https://github.com/organizations/%s/settings/installations\n' "$org"
+        fi
+        rc=1
+      fi
+    else
+      printf '%s❌ sync App (GITHUB_APP_ID=%s) not verified (gh api orgs/%s/installations failed — the token needs admin:org scope)%s\n' \
+        "$C_RED" "$sync_app_id" "$org" "$C_RESET"
+      rc=1
+    fi
+  fi
+
   # No API exposes the per-fork "Manage Actions access" grants directly, so
   # this is verified by OBSERVATION instead — see `pull_grant_status`. It is
   # the one provisioning step with no API and the one whose failure looks like
@@ -491,7 +577,6 @@ cmd_doctor() {
 }
 
 DRY_RUN=0
-CONFIG=event.yaml
 OUT=.env
 APP_ID=""
 PEM=""
@@ -512,7 +597,6 @@ if [ "$CMD" != "__selftest" ]; then
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry-run) DRY_RUN=1 ;;
-      --config) need_value "$@"; CONFIG="$2"; shift ;;
       --out) need_value "$@"; OUT="$2"; shift ;;
       --app-id) need_value "$@"; APP_ID="$2"; shift ;;
       --pem) need_value "$@"; PEM="$2"; shift ;;
@@ -523,18 +607,6 @@ if [ "$CMD" != "__selftest" ]; then
     shift
   done
 fi
-
-# Verify config file exists (only for subcommands that need it). Module-key
-# validation (check_known_modules) is deliberately NOT run here — it is
-# called explicitly by the module-consuming commands (org/render/doctor)
-# only. Gating every require_config caller on it would also block teardown
-# (the recovery path for a botched event.yaml — an organizer who typo'd a
-# module name must still be able to tear down already-forked repos) and the
-# UI-flow openers app-manifest/oauth-app, which have no functional
-# dependency on module keys at all.
-require_config() {
-  [ -f "$CONFIG" ] || { echo "config not found: $CONFIG" >&2; exit 1; }
-}
 
 # target key -> default APP_URL for the rendered workflow. Targets self-boot as
 # sibling containers on the ctf network, reachable by target name; the ports
@@ -564,397 +636,104 @@ app_url_for() {
   esac
 }
 
-# YAML extraction with comment stripping and flow-style support.
-# org: extracts from both block-style (org: value) and flow-style (github: { org: value })
-# targets: extracts flow-style list scoped to modules.secure-development block
-yaml_org() {
-  # Try block-style: org: value [# comment]
-  local org
-  org=$(sed -n 's/^[[:space:]]*org:[[:space:]]*\([^#]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//')
-  [ -n "$org" ] && { echo "$org"; return; }
-  # Try flow-style: { org: value [, ...] }
-  org=$(sed -n 's/.*{[^}]*org:[[:space:]]*\([^},]*\).*/\1/p' "$CONFIG" | head -1 | sed 's/[[:space:]]*$//')
-  echo "$org"
+# --- the bootstrap plane: everything this script knows comes from $OUT ------
+#
+# Read a single value out of the env file (empty if the file or key is
+# absent). The file-exists test is load-bearing, not defensive noise: this
+# script runs under `set -euo pipefail`, so a `sed` on a missing .env exits 2,
+# pipefail promotes that to the pipeline's status, and the command
+# substitution takes the whole script down — silently, with no output and exit
+# 1. `render` on a machine with no .env did exactly that.
+#
+# A trailing `# comment` and surrounding whitespace are stripped: organizers
+# annotate this file (`GITHUB_ORG=myorg  # the disposable one`), and the value
+# this script forks into, or prints as the org it inspected, must be the org
+# and not the org plus prose. docker compose's own .env reader does the same.
+# A `#` INSIDE the value is only stripped when whitespace precedes it, so a
+# token that legitimately contains one survives.
+env_val() {
+  local out="${OUT:-.env}" v
+  [ -f "$out" ] || return 0
+  v="$(sed -n "s/^$1=//p" "$out" | tail -1)"
+  v="${v%%[[:space:]]#*}"
+  # Trim both ends without a subshell per call: bash 3.2-safe extglob-free.
+  v="${v#"${v%%[![:space:]]*}"}"
+  printf '%s' "${v%"${v##*[![:space:]]}"}"
 }
 
-yaml_url() {
-  # EVENT_URL, out of .env — NOT out of event.yaml.
-  #
-  # It used to read `event.url` from the config, which put a DEPLOYMENT fact in
-  # the EVENT file. One event.yaml is deployed to a box, to AWS and to fly.io
-  # on three different hostnames — that is why .env and .env.fly hold different
-  # EVENT_URLs for one event — so a single `url:` could not be right for all of
-  # them. Worse, it lost silently: EVENT_URL is what BETTER_AUTH_URL, the app's
-  # HTTPS start-up guard and the CSRF origin check read, so a stale `event.url`
-  # left sign-in working perfectly while every fork's score comment pointed
-  # contestants at a dead leaderboard.
-  #
-  # Read here rather than passed in because this is the one value the workflow
-  # renderer needs and `secrets` already owns this file ($OUT, default .env).
-  # The file-exists test is load-bearing, not defensive noise. This script runs
-  # under `set -euo pipefail`, so a `sed` on a missing .env exits 2, pipefail
-  # promotes that to the pipeline's status, and the command substitution takes
-  # the whole script down — silently, with no output and exit 1. `render` on a
-  # machine with no .env did exactly that.
-  local env_file="${OUT:-.env}"
-  [ -f "$env_file" ] || return 0
-  sed -n 's/^EVENT_URL=//p' "$env_file" | tail -1 | sed 's/[[:space:]]*$//'
+# Is the key PRESENT in the env file, whatever its value? Distinct from
+# `env_val` being non-empty, and the difference is load-bearing for
+# SCORE_IMAGE: `SCORE_IMAGE=` is an organizer's decided "no Secure
+# Development", while no such line at all is a file that has not been asked
+# the question yet — one the wizard must ask rather than resume past.
+env_has() {
+  local out="${OUT:-.env}"
+  [ -f "$out" ] || return 1
+  grep -q "^$1=" "$out"
 }
 
-# ---------------------------------------------------------------------------
-# event.yaml's `modules:` block — the only place this script parses structured
-# YAML, and a contract it shares with two other readers written in other
-# languages: sync/src/config.js and the app's
-# apps/web/scripts/generate-event-config.mjs. All three must agree on which
-# MODULE KEYS a file declares that they accept and which they reject:
-# setup/test/corpus/ is the shared fixture set, run against this reader by
-# setup/test/module_readers.bats and against the app's reader by its own
-# corpus differential suite
-# (apps/web/scripts/__tests__/generate-event-config.test.ts). There is no
-# longer a sync-side differential suite over this corpus (config v2 PR2,
-# #386): sync/test/module-readers.differential.test.js was deleted once
-# sync/src/config.js stopped reading targets at all — see below — but
-# sync's module-key accept/reject rules are unchanged and still agree with
-# this reader and the app's.
-#
-# Everything below FAILS CLOSED on the module KEYS it parses. If it cannot
-# confidently parse the block it errors (exit 2) instead of reporting "no
-# modules" — a silently empty result is indistinguishable from a quiz-only
-# event and makes org/render/doctor no-op on a perfectly valid config, which
-# is exactly the bug this parser replaced (the old one hard-coded 2-space
-# block style and returned zero keys for flow style, 4-space indent, quoted
-# keys, tabs, or a bare `modules:`).
-#
-# Understood — every one of these is real YAML the other readers accept:
-#   - block style at ANY indent, ending at the first line indented less than
-#     the module keys
-#   - flow style: `modules: { quiz: {}, secure-development: { targets: [dvwa] } }`,
-#     including a flow mapping spread over several lines
-#   - quoted keys, interleaved comments, blank lines, CRLF, a leading &anchor
-#   - anything at all nested under a module key (this reader only extracts
-#     the KEY — see the "one module key per line" note below)
-# Rejected LOUDLY, never silently: tab indentation, a bare `modules:` with
-# nothing under it, a scalar or sequence value for `modules:`, sequence items
-# or merge keys (`<<:`) where module keys belong, an unterminated flow
-# mapping, an alias (`modules: *base`) this parser cannot resolve, DUPLICATE
-# module keys and a duplicated top-level `modules:` block, and any other shape
-# it does not understand.
-#
-# The duplicates are there for the same reason as everything else on that
-# list: the YAML libraries behind the other two readers reject a repeated
-# mapping key outright ("Map keys must be unique"), so first-wins here meant
-# `ctf-setup.sh org` exiting 0 having provisioned whatever the first copy
-# said, with the same file blowing up much later at app build. Same shape as
-# the flow-style divergence this parser replaced, in miniature.
-#
-# One module key per line — nothing else. This used to also extract
-# modules.secure-development.targets (a second "want" mode of this same
-# scanner); config v2 PR2 (#386) removed target extraction entirely — every
-# event now forks all six targets.tsv targets (see all_targets()), so a
-# `targets:` key under secure-development, in ANY shape (absent, empty,
-# scalar, an unknown id), is tolerated and simply never looked at. Four
-# fixtures in setup/test/corpus/ are named reject-* for exactly the targets:
-# validation this reader no longer does; setup/test/module_readers.bats
-# documents them as known divergences rather than renaming files a second
-# reader (the app's) still keys off of.
-_yaml_modules() {
-  awk '
-    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-    function unquote(s,   c) {
-      c = substr(s, 1, 1)
-      if ((c == "\"" || c == "\047") && length(s) >= 2 && substr(s, length(s), 1) == c)
-        return substr(s, 2, length(s) - 2)
-      return s
-    }
-    # Strip a trailing `# comment`, honouring quotes (a # inside "..." is data).
-    function strip_comment(s,   i, c, p, q, o) {
-      q = ""; o = ""
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (q != "") { o = o c; if (c == q) q = ""; continue }
-        if (c == "\"" || c == "\047") { q = c; o = o c; continue }
-        if (c == "#") {
-          if (i == 1) return o
-          p = substr(s, i - 1, 1)
-          if (p == " " || p == "\t") return o
-        }
-        o = o c
-      }
-      return o
-    }
-    function fail(msg) { printf("event.yaml: %s\n", msg) > "/dev/stderr"; failed = 1; exit 2 }
-    # Duplicate module keys, tracked as a "\nkey\n..." string rather than an
-    # array so a partial flow scan can restore it by assignment (see
-    # flow_scan) without depending on `delete arr`.
-    function seen(key) { return index(seenbuf, "\n" key "\n") > 0 }
-    function see(key) { seenbuf = seenbuf key "\n" }
-    function emit(v) { out = out v "\n" }
-    # Quote-aware scan of a flow mapping. Returns 1 when the mapping closed
-    # (keys emitted), -1 when it needs more lines. Errors are fatal.
-    function flow_scan(s,   i, c, q, depth, tok, st, key, saved, saved_seen) {
-      saved = out                        # a partial scan must emit nothing
-      # ...and must remember no keys either: a multi-line flow mapping is
-      # re-scanned from the start on every added line, so keys carried over
-      # from the previous pass would read as duplicates of themselves.
-      saved_seen = seenbuf
-      q = ""; depth = 0; tok = ""; st = "key"; key = ""
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (q != "") { tok = tok c; if (c == q) q = ""; continue }
-        if (c == "\"" || c == "\047") { q = c; tok = tok c; continue }
-        if (c == "{" || c == "[") { depth++; if (depth == 1) tok = ""; else tok = tok c; continue }
-        if (c == "}" || c == "]") {
-          depth--
-          if (depth == 0) {
-            if (st == "key" && trim(tok) != "") fail("modules: is not a mapping of module keys near: " trim(tok))
-            if (st == "val") emit(key)
-            if (trim(substr(s, i + 1)) != "") fail("unexpected text after the modules: mapping: " trim(substr(s, i + 1)))
-            return 1
-          }
-          tok = tok c
-          continue
-        }
-        if (depth == 1 && c == ":" && st == "key") {
-          key = unquote(trim(tok))
-          if (key == "") fail("modules: has an entry with an empty key")
-          if (seen(key)) fail("modules: has a duplicate key: " key)
-          see(key)
-          tok = ""; st = "val"; continue
-        }
-        if (depth == 1 && c == ",") {
-          if (st == "key") {
-            if (trim(tok) != "") fail("modules: entry is not a key: value pair near: " trim(tok))
-            continue
-          }
-          emit(key); tok = ""; st = "key"; continue
-        }
-        tok = tok c
-      }
-      out = saved
-      seenbuf = saved_seen
-      return -1
-    }
-    # Position of the colon that ends a (possibly quoted) mapping key, or 0.
-    function key_colon(s,   i, c, q) {
-      q = ""
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (q != "") { if (c == q) q = ""; continue }
-        if (c == "\"" || c == "\047") { q = c; continue }
-        if (c == ":") return i
-      }
-      return 0
-    }
-
-    BEGIN { state = "pre"; base = -1; out = ""; found = 0; seenbuf = "\n" }
-
-    {
-      line = $0
-      sub(/\r$/, "", line)
-
-      # A SECOND top-level `modules:` key. YAML calls that a duplicate mapping
-      # key and the other two readers throw on it; reading it as "the block
-      # ended" (which is what an indent-0 line means in state block, and what
-      # state done ignores outright) would provision the first copy and drop
-      # the second in silence. Not checked in state flow: there, an indent-0
-      # line is either inside an unterminated flow mapping — already fatal at
-      # END — or a nested key of it.
-      if ((state == "block" || state == "done") && line ~ /^modules[ \t]*:/)
-        fail("more than one top-level modules: key (line " NR ")")
-
-      if (state == "done") next
-
-      if (state == "pre") {
-        if (line !~ /^modules[ \t]*:/) next
-        found = 1
-        rest = trim(strip_comment(substr(line, index(line, ":") + 1)))
-        sub(/^&[^ \t]+[ \t]*/, "", rest)          # `modules: &anchor {...}`
-        if (rest == "") { state = "block"; next }
-        if (substr(rest, 1, 1) != "{")
-          fail("modules: must be a mapping of module keys, got: " rest)
-        state = "flow"; flowbuf = rest
-        if (flow_scan(flowbuf) == 1) state = "done"
-        next
-      }
-
-      if (state == "flow") {
-        flowbuf = flowbuf " " trim(strip_comment(line))
-        if (flow_scan(flowbuf) == 1) state = "done"
-        next
-      }
-
-      # block style
-      if (line ~ /^[ \t]*$/ || line ~ /^[ \t]*#/) next
-      match(line, /^[ \t]*/); ind = RLENGTH
-      if (substr(line, 1, ind) ~ /\t/)
-        fail("tab indentation under modules: is not valid YAML (line " NR ")")
-      if (base < 0) {
-        if (ind == 0) fail("modules: has no module keys under it — declare at least one module")
-        base = ind
-      }
-      if (ind < base) { state = "done"; next }
-      if (ind > base) next
-
-      body = trim(strip_comment(substr(line, base + 1)))
-      if (body == "") next
-      if (substr(body, 1, 1) == "-")
-        fail("modules: must be a mapping of module keys, found a sequence item (line " NR ")")
-      if (body ~ /^<</)
-        fail("merge keys (<<) under modules: are not supported (line " NR ")")
-      if (substr(body, 1, 1) == "?")
-        fail("complex keys (?) under modules: are not supported (line " NR ")")
-      ci = key_colon(body)
-      if (ci == 0)
-        fail("modules: entry is not a `key:` mapping (line " NR "): " body)
-      key = unquote(trim(substr(body, 1, ci - 1)))
-      if (key == "") fail("modules: has an entry with an empty key (line " NR ")")
-      if (seen(key)) fail("modules: has a duplicate key: " key " (line " NR ")")
-      see(key)
-      emit(key)
-      next
-    }
-
-    END {
-      if (failed) exit 2
-      if (!found) { printf("event.yaml: no modules: block\n") > "/dev/stderr"; exit 3 }
-      if (state == "flow") fail("unterminated flow mapping after modules:")
-      if (state == "block" && base < 0)
-        fail("modules: has no module keys under it — declare at least one module")
-      printf "%s", out
-    }
-  ' "$CONFIG"
+# Refuse to act on an absent env file, for the commands whose whole input it
+# is. Without this, `env_val` reads every key as empty and a missing .env is
+# indistinguishable from an event that runs no Secure Development: `teardown`
+# would print "nothing to tear down" and exit 0 on a box whose forks are all
+# still there. NOT called by `check` (it inspects the local toolchain) or
+# `secrets` (it CREATES the file).
+require_env_file() {
+  [ -f "${OUT:-.env}" ] || {
+    echo "${OUT:-.env} not found — run 'ctf-setup.sh secrets' first (or point --out at your env file)" >&2
+    exit 1
+  }
 }
 
-# modules.secure-development.score_ingest, normalised: prints "push" or
-# "poll" — anything else, or a missing key, is "poll", the same rule the app's
-# generate-event-config.mjs applies. Block style (what the wizard writes and
-# the example shows) and the one-line flow form are both read; the value is
-# scoped to the secure-development block so a stray `score_ingest:` elsewhere
-# is ignored.
-yaml_ingest() {
-  local v
-  v="$(awk '
-    function val(s) { sub(/^[^:]*:[ \t]*/, "", s); sub(/[ \t]*#.*$/, "", s); gsub(/["\047 \t]/, "", s); return s }
-    /^[ \t]*secure-development[ \t]*:[ \t]*\{/ {
-      # Flow mapping. It may run across several lines (the two-reader corpus
-      # has that form), so stay in flow mode until the closing brace.
-      inflow = (index($0, "}") == 0)
-      if (match($0, /score_ingest[ \t]*:[ \t]*["\047]?[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
-      next
-    }
-    inflow {
-      if (match($0, /score_ingest[ \t]*:[ \t]*["\047]?[A-Za-z]+/)) { print val(substr($0, RSTART, RLENGTH)); exit }
-      if (index($0, "}") > 0) inflow = 0
-      next
-    }
-    /^[ \t]*secure-development[ \t]*:/ { inblk = 1; ind = match($0, /[^ \t]/); next }
-    inblk && /^[ \t]*[^ \t#]/ { if (match($0, /[^ \t]/) <= ind) inblk = 0 }
-    inblk && /^[ \t]*score_ingest[ \t]*:/ { print val($0); exit }
-  ' "$CONFIG" 2>/dev/null)"
-  case "$v" in push) echo push ;; *) echo poll ;; esac
+# EVENT_URL, out of the env file — never out of an event config (ADR 43).
+#
+# It used to be an `event.url` field in the event config file config v2
+# deleted, which put a DEPLOYMENT fact in the EVENT file. One event is
+# deployed to a box, to AWS and to fly.io on three
+# different hostnames — that is why .env and .env.fly hold different
+# EVENT_URLs for one event — so a single `url:` could not be right for all of
+# them. Worse, it lost silently: EVENT_URL is what BETTER_AUTH_URL, the app's
+# HTTPS start-up guard and the CSRF origin check read, so a stale `event.url`
+# left sign-in working perfectly while every fork's score comment pointed
+# contestants at a dead leaderboard.
+env_url() {
+  env_val EVENT_URL
+}
+
+# The scorer image to mirror/build: an environment variable wins over the env
+# file, so a one-off `SCORE_IMAGE=... ctf-setup.sh org` can mirror a different
+# image without editing anything.
+#
+# This is the SOURCE, not the switch. Whether an event runs Secure
+# Development at all is `env_val SCORE_IMAGE` — the value the box itself
+# carries, the same one docker compose reads to decide which services exist —
+# so an exported variable cannot make a command act as if the box were
+# configured for Secure Development when its env file says otherwise.
+score_image() {
+  local v="${SCORE_IMAGE:-}"
+  [ -n "$v" ] || v="$(env_val SCORE_IMAGE)"
+  printf '%s' "$v"
+}
+
+# Does this event run Secure Development? NON-EMPTY SCORE_IMAGE in the env
+# file is the whole switch (config v2, #386): its containers only exist when
+# an image reference does, so the same value that names the image also says
+# whether there is anything to fork, mirror, poll or verify. Empty is not an
+# error — an event can run quiz, classic or ai alone, and those are app-side
+# only — so every caller says "this event does not run Secure Development"
+# rather than just "nothing to do".
+runs_secdev() {
+  [ -n "$(env_val SCORE_IMAGE)" ]
 }
 
 # Exactly "poll" or "push", nothing else — the wizard re-asks until this says
 # yes. SCORE_INGEST is not just a label: docker-compose.yml expands it into
 # the Caddyfile mount path (caddy/Caddyfile.${SCORE_INGEST}), so a typo such
-# as "pussh" written to .env fails the bring-up looking for a file that does
-# not exist, and step 8's profile choice would quietly fall back to poll
-# meanwhile. Case-sensitive on purpose: those are the two file names.
+# as "pussh" written to the env file fails the bring-up looking for a file
+# that does not exist, and step 8's profile choice would quietly fall back to
+# poll meanwhile. Case-sensitive on purpose: those are the two file names.
 valid_ingest() {
   case "$1" in poll | push) return 0 ;; *) return 1 ;; esac
-}
-
-# The operative switch is SCORE_INGEST in .env — docker-compose.yml and the
-# Caddy profile read that. event.yaml's score_ingest documents the same choice
-# for the other readers, and nothing reconciles the two by itself: the wizard
-# writes both from one answer, and this names the drift when they disagree.
-# A warning, not a failure — the stack still comes up, in .env's mode, which
-# is the fact the organizer most needs to hear.
-ingest_mismatch_warn() {
-  local env_mode yaml_mode
-  env_mode="$(env_val SCORE_INGEST)"; [ -n "$env_mode" ] || env_mode=poll
-  yaml_mode="$(yaml_ingest)"
-  [ "$env_mode" = "$yaml_mode" ] && return 0
-  printf '%s⚠️  score ingest disagrees: %s has SCORE_INGEST=%s but %s says score_ingest: %s.%s\n' \
-    "$C_YELLOW" "${OUT:-.env}" "$env_mode" "$CONFIG" "$yaml_mode" "$C_RESET"
-  printf '    The stack runs in %s mode — SCORE_INGEST is what compose reads. Make them agree:\n' "$env_mode"
-  printf '      either  SCORE_INGEST=%s in %s\n' "$yaml_mode" "${OUT:-.env}"
-  printf '      or      score_ingest: %s under modules.secure-development in %s (then rebuild the app)\n\n' "$env_mode" "$CONFIG"
-  return 0
-}
-
-# The module keys this build KNOWS how to provision-check for. Mirrors
-# sync/src/config.js's KNOWN_MODULES — the two readers parse the same
-# event.yaml in different languages with no shared code, and AGENTS.md's
-# lockstep-readers rule requires they still agree in BEHAVIOUR: a MISSING
-# secure-development block is tolerated (every caller below skips its
-# fork-based provisioning), an UNKNOWN key is still a hard error. Only
-# secure-development has anything here to fork/render/check; quiz is scored
-# entirely app-side.
-KNOWN_MODULES="secure-development quiz classic ai"
-
-# Top-level keys directly under `modules:`, one per line. Exit status is part
-# of the contract: nonzero means "could not parse", NOT "no modules" — every
-# caller must treat a failure as fatal (see has_module / check_known_modules).
-yaml_module_keys() {
-  _yaml_modules
-}
-
-# Is module $1 declared under modules: at all? A module is enabled by
-# PRESENCE and disabled by omission (docs/modules.md §1) — there is no
-# `enabled:` key to check instead.
-#
-# FAILS CLOSED: a boolean cannot express "I could not read the file", and
-# every caller spells this `if ! has_module secure-development; then <skip
-# all provisioning>` — so returning "absent" on a parse error would turn a
-# malformed (or merely unsupported) event.yaml into a silent, successful
-# no-op. On a parse error this aborts the whole script instead. Callers
-# already run check_known_modules first, so this is the second line of
-# defence, not the only one.
-has_module() {
-  local keys
-  if ! keys="$(yaml_module_keys)"; then
-    echo "event.yaml: cannot read the modules: block — refusing to guess what is enabled" >&2
-    exit 1
-  fi
-  printf '%s\n' "$keys" | grep -qx "$1"
-}
-
-# Does event.yaml declare a top-level `modules:` key at all? A config with NO
-# modules: block has nothing enabled, ever — that's malformed config, not a
-# "nothing to provision" state. Mirrors sync/src/config.js:49
-# (`if (!modules || typeof modules !== "object") throw ...`): a config
-# missing `modules` entirely is rejected there too, distinct from a present
-# `modules:` block that merely lacks `secure-development` (which IS
-# tolerated — see has_module above / the callers that use it).
-yaml_has_modules_block() {
-  grep -qE '^modules[[:space:]]*:' "$CONFIG"
-}
-
-# Fail loudly on a malformed modules: section: either no modules: block at
-# all, or a module key event.yaml declares that this build doesn't
-# recognize. A PRESENT modules: block that simply lacks secure-development is
-# fine (callers below tolerate that via has_module); an ABSENT modules: block
-# or an unrecognized key never is — same two checks as sync/src/config.js's
-# loadConfig, so an organizer's typo (or an empty event.yaml) doesn't
-# silently no-op in one reader while crash-looping the other.
-check_known_modules() {
-  yaml_has_modules_block || { echo "event.yaml: modules.secure-development is required" >&2; return 1; }
-  # Command substitution, not a process substitution feeding `while` — a
-  # pipeline/redirect swallows the parser's exit status, and "could not parse"
-  # must never be read as "no modules declared" (that is precisely how a flow-
-  # style config used to provision nothing while reporting success).
-  local keys k
-  keys="$(yaml_module_keys)" || return 1
-  while IFS= read -r k; do
-    [ -n "$k" ] || continue
-    case " $KNOWN_MODULES " in
-      *" $k "*) ;;
-      *) echo "event.yaml: unknown module: $k (known modules: $KNOWN_MODULES)" >&2; return 1 ;;
-    esac
-  done <<EOF
-$keys
-EOF
 }
 
 run() {
@@ -981,21 +760,19 @@ render_workflows() {
   # (trailing slash stripped). Empty when EVENT_URL is unset — the workflow
   # only renders the footer link when the value is a real http(s) URL.
   #
-  # SAYS SO when it is missing. This used to read event.yaml's `event.url`, and
-  # organizers who had that set but no EVENT_URL would otherwise get workflows
-  # with the footer link silently dropped — every scored PR losing the one
-  # link that sends a contestant back to the leaderboard, with nothing to
-  # explain it. A warning, not a failure: a link-less footer is a degraded
-  # comment, not a broken event.
+  # SAYS SO when it is missing, rather than rendering workflows whose footer
+  # link is silently dropped — every scored PR would lose the one link that
+  # sends a contestant back to the leaderboard, with nothing to explain it. A
+  # warning, not a failure: a link-less footer is a degraded comment, not a
+  # broken event.
   local base_url lb_url=""
-  base_url="$(yaml_url)"
+  base_url="$(env_url)"
   base_url="${base_url%/}"
   case "$base_url" in
     http://*|https://*) lb_url="$base_url/leaderboard" ;;
     *)
       echo "WARNING: EVENT_URL is not set in ${OUT:-.env} (or is not http/https)." >&2
-      echo "         The score comments will carry no leaderboard link." >&2
-      echo "         The event URL moved here from event.yaml's event.url." >&2 ;;
+      echo "         The score comments will carry no leaderboard link." >&2 ;;
   esac
   local wfdir="dist/workflows" t app_url dest
   for t in "$@"; do
@@ -1087,43 +864,48 @@ cmd_secrets() {
     echo "GITHUB_APP_INSTALLATION_ID="
     echo "EVENT_URL=http://localhost"
     echo "SCORE_INGEST=poll"
+    # The two keys the deleted event config file used to carry (config v2,
+    # #386). Emitted even though they are empty: a key that is absent is a
+    # key nobody knows to fill in, and both fail CLOSED — no org means
+    # nothing to poll or fork, and no admin means a /admin nobody can open.
+    echo "# GITHUB_ORG: the disposable per-event GitHub org. The app links forks"
+    echo "# there, sync polls its repos, and ctf-setup provisions it."
+    echo "GITHUB_ORG="
+    echo "# ADMIN_LOGINS: comma-separated GitHub logins allowed into /admin."
+    echo "# EMPTY LOCKS EVERYONE OUT — /admin forbids every login (fail closed)."
+    echo "ADMIN_LOGINS="
     echo "# SCORE_IMAGE: your own scorer image, built from scorer/ (docs/scorer.md),"
     echo "# e.g. ghcr.io/<your-event-org>/score:latest. No default — the upstream"
-    echo "# image is private and the kit does not assume access to it."
+    echo "# image is private and the kit does not assume access to it. NON-EMPTY"
+    echo "# is also how this box says the event runs Secure Development at all."
     echo "SCORE_IMAGE="
   } > "$out"
   )
-  echo "wrote $out — fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY, SCORE_IMAGE"
+  echo "wrote $out — fill in GITHUB_ORG, ADMIN_LOGINS, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY, SCORE_IMAGE"
 }
 
 cmd_org() {
-  require_config
-  check_known_modules || exit 1
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-
-  # No secure-development module: there is nothing fork-based to provision
-  # (quiz is scored entirely app-side). This is not an error — a module is
-  # enabled by presence and disabled by omission — so report it and stop
-  # before even resolving SCORE_IMAGE (the quiz-only path needs no scorer
-  # image, and --dry-run must make zero gh/docker calls either way).
-  if ! has_module secure-development; then
-    echo "== event.yaml has no secure-development module — no provisioned content to fork; nothing to do."
+  require_env_file
+  # The switch first: with SCORE_IMAGE empty this event does not run Secure
+  # Development, so there is nothing fork-based to provision (quiz, classic
+  # and ai are scored entirely app-side). Not an error — but not silent
+  # either: an organizer who MEANT to run it and left SCORE_IMAGE empty gets
+  # told how to turn it on. Asked before the org check so an app-only event
+  # needs no GITHUB_ORG at all, and before any gh/docker call so --dry-run
+  # stays dry.
+  if ! runs_secdev; then
+    echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; nothing to fork."
+    echo "   To run it: build your own scorer image (docs/scorer.md), set SCORE_IMAGE in ${OUT:-.env}, and re-run."
     return 0
   fi
 
-  # Scorer source image: SCORE_IMAGE env var, else .env. Deliberately NO
-  # upstream default — the kit assumes zero upstream access: build your own
-  # image from scorer/ (docs/scorer.md) and point SCORE_IMAGE at it. Resolved
-  # up front so a missing image fails before any forks are created.
-  local src="${SCORE_IMAGE:-}"
-  if [ -z "$src" ] && [ -f "$OUT" ]; then
-    src="$(sed -n 's/^SCORE_IMAGE=//p' "$OUT" | tail -1)"
-  fi
-  [ -n "$src" ] || {
-    echo "SCORE_IMAGE not set: build your own scorer image (see docs/scorer.md) and set SCORE_IMAGE in $OUT or the environment" >&2
-    exit 1
-  }
+  # The image to MIRROR, which an exported SCORE_IMAGE may override for a
+  # one-off run. Deliberately NO upstream default — the kit assumes zero
+  # upstream access: build your own from scorer/ (docs/scorer.md).
+  local src; src="$(score_image)"
+
+  local org; org="$(env_val GITHUB_ORG)"
+  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — Secure Development forks into an org; set it (or run the wizard)" >&2; exit 1; }
 
   require_targets
   echo "== provisioning $org (idempotent — re-run safe)"
@@ -1149,19 +931,19 @@ EOF
 }
 
 # Just the workflow-render step of cmd_org — for re-rendering after an
-# event.yaml edit without re-running forks or the image mirror.
+# EVENT_URL change (the footer link) or a template fix, without re-running
+# forks or the image mirror.
 cmd_render() {
-  require_config
-  check_known_modules || exit 1
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-
-  # No secure-development module: nothing fork-based to render a scoring
-  # workflow for. Not an error — same reasoning as cmd_org.
-  if ! has_module secure-development; then
-    echo "== event.yaml has no secure-development module — no provisioned content to render; nothing to do."
+  require_env_file
+  # No SCORE_IMAGE: nothing fork-based to render a scoring workflow for. Not
+  # an error — same reasoning as cmd_org.
+  if ! runs_secdev; then
+    echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; no workflows to render."
     return 0
   fi
+
+  local org; org="$(env_val GITHUB_ORG)"
+  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — the rendered workflow names the event org; set it (or run the wizard)" >&2; exit 1; }
 
   require_targets
   local targets_arr=()
@@ -1180,17 +962,16 @@ cmd_render() {
 # reports "already done" for a fork that is current, so this is safe to run
 # on a whim and safe to re-run after a partial failure.
 cmd_upgrade() {
-  require_config
-  check_known_modules || exit 1
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-
-  # Same reasoning as cmd_org/cmd_render: a quiz-only event has no forks, so
+  require_env_file
+  # Same reasoning as cmd_org/cmd_render: an app-only event has no forks, so
   # there is no workflow to upgrade. Not an error.
-  if ! has_module secure-development; then
-    echo "== event.yaml has no secure-development module — no forks to upgrade; nothing to do."
+  if ! runs_secdev; then
+    echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; no forks to upgrade."
     return 0
   fi
+
+  local org; org="$(env_val GITHUB_ORG)"
+  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — set it (or run the wizard) before upgrading forks" >&2; exit 1; }
 
   local want; want="$(template_workflow_version)" || exit 1
   require_targets
@@ -1213,19 +994,15 @@ cmd_upgrade() {
 }
 
 cmd_teardown() {
-  require_config
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  # No secure-development module: nothing was ever forked to archive. Not an
-  # error — same reasoning as cmd_org/cmd_render/cmd_upgrade. Deliberately
-  # does NOT run check_known_modules first (see the "unknown module key"
-  # bats test): an event.yaml with an unrecognized module key elsewhere is
-  # still safe to tear down, since has_module only looks for
-  # secure-development among whatever keys parse.
-  if ! has_module secure-development; then
-    echo "== event.yaml has no secure-development module — nothing to tear down."
+  require_env_file
+  # No SCORE_IMAGE: nothing was ever forked to archive. Not an error — same
+  # reasoning as cmd_org/cmd_render/cmd_upgrade.
+  if ! runs_secdev; then
+    echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; nothing to tear down."
     return 0
   fi
+  local org; org="$(env_val GITHUB_ORG)"
+  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — set it (or run the wizard) before tearing an org down" >&2; exit 1; }
   require_targets
   local t
   for t in $(all_targets); do
@@ -1278,9 +1055,8 @@ set_env_var() {
 # and open it against the event org's App-creation page. Removes the manual
 # JSON copy-paste; the organizer still clicks Create/Install in GitHub's UI.
 cmd_app_manifest() {
-  require_config
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+  local org; org="$(env_val GITHUB_ORG)"
+  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — set it (or run the wizard) first" >&2; exit 1; }
   local manifest="$SCRIPT_DIR/../sync/app-manifest.json"
   [ -f "$manifest" ] || { echo "manifest not found: $manifest" >&2; exit 1; }
 
@@ -1365,7 +1141,7 @@ cmd_app_config() {
 # The OAuth callback the app registers with GitHub: <EVENT_URL>/api/auth/callback/github.
 # EVENT_URL comes from .env (secrets writes it); default to localhost for a local box.
 event_url() {
-  local u; u="$(sed -n 's/^EVENT_URL=//p' "${OUT:-.env}" 2>/dev/null | tail -1)"
+  local u; u="$(env_url)"
   [ -n "$u" ] || u="http://localhost"
   printf '%s' "$u"
 }
@@ -1374,9 +1150,8 @@ event_url() {
 # exact field values. OAuth Apps have no manifest/create API (UI-only), so
 # unlike the GitHub App flow this only opens + guides — it cannot auto-fill.
 cmd_oauth_app() {
-  require_config
-  local org; org="$(yaml_org)"
-  [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
+  local org; org="$(env_val GITHUB_ORG)"
+  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — set it (or run the wizard) first" >&2; exit 1; }
   local url callback
   url="https://github.com/organizations/${org}/settings/applications/new"
   callback="$(event_url)/api/auth/callback/github"
@@ -1418,13 +1193,6 @@ cmd_oauth_config() {
 }
 
 # --- wizard -----------------------------------------------------------------
-# Read a single value out of the .env (empty if the file or key is absent).
-env_val() {
-  local out="${OUT:-.env}"
-  [ -f "$out" ] || return 0
-  sed -n "s/^$1=//p" "$out" | tail -1
-}
-
 wiz_step() { echo; printf '%s── %s%s\n' "$C_BOLD$C_CYAN" "$1" "$C_RESET"; }
 
 # ASCII banner shown at the top of the wizard.
@@ -1495,14 +1263,20 @@ wiz_ask() {
   printf -v "$__var" '%s' "$__reply"
 }
 
-# Join a whitespace-separated list into a "a, b, c" string for a YAML flow list.
-# Commas in the answer are treated as separators too: an organizer typing
-# "alice, bob" at a space-separated prompt otherwise emitted `[alice,, bob]` —
-# a flow sequence with a null item in it.
+# Normalise a list typed at a prompt into the comma-separated form the app
+# parses: "alice, Bob  carol" -> "alice,Bob,carol". Spaces AND commas are both
+# separators, because organizers type both — and ADMIN_LOGINS is split on
+# commas ONLY (apps/web/src/lib/admin-logins.ts), so "alice bob" left as typed
+# would be one junk entry that matches nobody and an /admin that forbids them
+# both. Prints nothing for an empty or separators-only answer, which is what
+# makes the caller's "at least one admin" refusal fire.
+#
+# No spaces after the commas: this value is written to an env file that
+# docker compose interpolates, where the shape stays a plain single token.
 csv_of() {
   local out="" x
   for x in $(printf '%s' "$1" | tr ',' ' '); do
-    if [ -n "$out" ]; then out="$out, $x"; else out="$x"; fi
+    out="$out${out:+,}$x"
   done
   printf '%s' "$out"
 }
@@ -1539,146 +1313,142 @@ require_targets() {
   fi
 }
 
-# Validate an answer to the "which modules" question. Every token must be a
-# key from KNOWN_MODULES (the same list check_known_modules enforces on an
-# existing file, mirroring sync/src/config.js) and at least ONE must be given
-# — an event with no modules is not a thing, and all three readers reject a
-# `modules:` block with no keys under it. Commas are tolerated ("quiz, x").
-# Echoes the selection in KNOWN_MODULES order so the emitted file is
-# deterministic regardless of how the answer was typed, and deduped.
-wiz_modules() {
-  local want k m out=""
-  want="$(printf '%s' "$1" | tr ',' ' ')"
-  for m in $want; do
-    case " $KNOWN_MODULES " in
-      *" $m "*) ;;
-      *) echo "  unknown module: $m (known modules: $KNOWN_MODULES)" >&2; return 1 ;;
-    esac
-  done
-  for k in $KNOWN_MODULES; do
-    case " $want " in *" $k "*) out="$out${out:+ }$k" ;; esac
-  done
-  if [ -z "$out" ]; then
-    echo "  at least one module must be enabled (known modules: $KNOWN_MODULES)" >&2
+# Step 3 of the wizard: the whole bootstrap plane, asked and written.
+# $1 = the env file; $2 = 1 when step 2 has already asked for EVENT_URL in
+# this run, so it is not asked twice. Sets WIZ_SCORE_IMAGE (the SCORE_IMAGE this run settled
+# on) for the later steps, which must not re-read the file under --dry-run
+# where nothing was written.
+#
+# Three keys, and only three: GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE.
+# Everything an organizer used to put in the deleted event config file — the
+# event's name and branding, which modules run, which Secure Development
+# targets run, the schedule — is a RUNTIME setting in /admin now (config v2,
+# #386), so it is neither asked here nor written anywhere on disk.
+#
+# Its own function, not inline in cmd_wizard, so the suite can drive the
+# questions with piped answers instead of walking nine steps to reach one
+# write. Every answer defaults to what the file already carries: re-running
+# the wizard is the documented recovery path, and an Enter-through must not
+# switch the org, drop an admin or turn Secure Development off.
+wiz_event_basics() {
+  local out="$1" ev_org ev_admins ev_score ev_ingest ev_url adm_default sd_default
+  echo "  Answer a few questions to write $out (Enter accepts the [default])."
+  echo "  The event's name, the modules that run and the Secure Development"
+  echo "  targets are runtime settings — set them in /admin once it is up."
+
+  wiz_ask ev_org "GitHub org (disposable per-event org)" "$(env_val GITHUB_ORG)"
+
+  # The login running the wizard, so Enter accepts and the empty-admins path
+  # disappears for the common case. NOT under --dry-run: that makes zero gh
+  # calls (AGENTS.md), which is exactly why the refusal below is reachable.
+  adm_default="$(env_val ADMIN_LOGINS)"
+  if [ -z "$adm_default" ] && [ "$DRY_RUN" -ne 1 ]; then
+    adm_default="$(gh api user --jq .login 2>/dev/null || true)"
+  fi
+  wiz_ask ev_admins "Admin GitHub login(s), comma-separated" "$adm_default"
+  ev_admins="$(csv_of "$ev_admins")"
+  # Fail CLOSED, and say so, rather than writing the lockout: an empty
+  # ADMIN_LOGINS makes /admin forbid EVERY login (admin-auth.ts), which is
+  # silent until an organizer tries to open the panel mid-event.
+  if [ -z "$ev_admins" ]; then
+    echo "  refusing to write $out: at least one admin login is required — /admin would forbid everyone" >&2
     return 1
   fi
-  printf '%s' "$out"
-}
 
-# What to offer as the default answer to the modules question: whatever the
-# existing event.yaml already declares (filtered to keys this build knows),
-# otherwise secure-development. Re-running the wizard over a half-finished
-# quiz-only config must not silently switch the organizer back to a module
-# they deliberately did not pick. An unreadable file just falls back — the
-# wizard is the one place that REWRITES event.yaml, so refusing to guess here
-# would strand the organizer in the editor the wizard exists to replace.
-wiz_module_default() {
-  local keys k out=""
-  if [ -f "$CONFIG" ]; then
-    if keys="$(yaml_module_keys 2>/dev/null)"; then
-      for k in $KNOWN_MODULES; do
-        if printf '%s\n' "$keys" | grep -qx "$k"; then out="$out${out:+ }$k"; fi
-      done
+  # The one setup-time fact left about Secure Development: whether its
+  # containers run at all. SCORE_IMAGE non-empty IS that answer, everywhere
+  # (compose profiles, this script's own fork/mirror/poll steps).
+  #
+  # ask_yn hard-answers "no" under --dry-run so a rehearsal never mutates
+  # anything; here that would narrate an event with Secure Development OFF
+  # for a box whose env file has SCORE_IMAGE set, and steps 4-7 would
+  # describe a run the real wizard would not make. So under --dry-run take
+  # the DEFAULT, which is that file's own answer.
+  sd_default=N
+  if [ -n "$(env_val SCORE_IMAGE)" ]; then sd_default=Y; fi
+  local sd_yes=1
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  Run Secure Development (fork the six targets and score patch PRs)? [$sd_default] (dry-run: default)"
+    [ "$sd_default" = Y ] || sd_yes=0
+  elif ! ask_yn "  Run Secure Development (fork the six targets and score patch PRs)?" "$sd_default"; then
+    sd_yes=0
+  fi
+  ev_score=""
+  ev_ingest=""
+  if [ "$sd_yes" -eq 1 ]; then
+    ev_score="$(env_val SCORE_IMAGE)"
+    if [ -z "$ev_score" ]; then ev_score="ghcr.io/$ev_org/score:latest"; fi
+    if [ -z "$ev_org" ]; then
+      echo "  refusing to write $out: Secure Development forks into a GitHub org — GITHUB_ORG cannot be empty" >&2
+      return 1
+    fi
+    echo "  Secure Development provisions all six from targets.tsv: $(all_targets)."
+    # How score comments reach the leaderboard. SCORE_INGEST is not a label:
+    # docker-compose.yml expands it into the Caddyfile mount path and step 8
+    # reads it to pick profiles, so the answer is asked here and WRITTEN to
+    # the env file — the wizard used to write it to the deleted event config
+    # file only, and an organizer who answered "push" got a push label on a
+    # poll deployment with no warning (#372/#374).
+    ev_ingest="$(env_val SCORE_INGEST)"
+    [ -n "$ev_ingest" ] || ev_ingest=poll
+    wiz_ask ev_ingest "Score ingest (poll | push)" "$ev_ingest"
+    # Re-ask until it is exactly one of the two: a typo becomes a Caddyfile
+    # path that does not exist and a failed bring-up. Bounded, so an
+    # exhausted stdin (EOF) cannot spin; under --dry-run the default always
+    # passes, so this never runs.
+    local tries=0
+    while [ "$DRY_RUN" -ne 1 ] && ! valid_ingest "$ev_ingest" && [ "$tries" -lt 3 ]; do
+      echo "  Score ingest must be exactly 'poll' or 'push'."
+      wiz_ask ev_ingest "Score ingest (poll | push)" poll
+      tries=$((tries + 1))
+    done
+    if ! valid_ingest "$ev_ingest"; then
+      echo "  refusing to write $out: score ingest must be exactly 'poll' or 'push'" >&2
+      return 1
     fi
   fi
-  if [ -z "$out" ]; then out="secure-development"; fi
-  printf '%s' "$out"
-}
 
-# Render the event.yaml the wizard's answers describe, to stdout (so it can be
-# diffed against setup/test/corpus/ in tests rather than only observed through
-# a file the wizard wrote).
-#
-# Emits a block ONLY for the modules that were enabled, and only the keys each
-# module actually has: secure-development carries score_ingest; quiz, classic
-# and ai carry nothing — quiz's attempt cap and retry cooldown, classic's
-# submission cooldown, and ai's cooldown and per-challenge signing keys are
-# runtime /admin settings in Redis, not build-time config, so there is
-# nothing to ask for and nothing to write. Nor does secure-development carry
-# `targets:` any more (config v2 PR2, #386): every event forks all six
-# targets.tsv targets regardless, and which ones actually RUN is an /admin ->
-# Secure Development -> Targets runtime setting, not something the wizard
-# collects or writes here.
-# Fails closed on an empty or unknown selection instead of emitting a
-# `modules:` block with no keys under it, which every reader rejects.
-#
-# EVERY key in KNOWN_MODULES needs an arm here. KNOWN_MODULES drives both the
-# wizard's prompt (wiz_modules' accept list) and the prompt string itself, so a
-# key that is offered but has no arm below dead-ends the organizer at the write
-# step with "unknown module" AFTER they have answered every question. The
-# `corpus: the wizard still emits exactly the X fixture` tests in
-# setup/test/module_readers.bats are what keep the two in step — note they call
-# this function directly, because every wizard test runs --dry-run and never
-# reaches the emitter.
-#
-# Args: name dates org modules ingest admins
-#
-# No `url`: the event's URL is EVENT_URL in .env. It is a DEPLOYMENT fact, and
-# one event.yaml is deployed to a box, to AWS and to fly.io on three different
-# hostnames — which is exactly why .env and .env.fly hold different EVENT_URLs
-# for one event.
-wiz_event_yaml() {
-  local name="$1" dates="$2" org="$3" mods="$4" ingest="$5" admins="$6" m
-  if [ -z "$mods" ]; then
-    echo "event.yaml: at least one module must be enabled (known modules: $KNOWN_MODULES)" >&2
-    return 1
+  # A deployment fact, not an event one (ADR 43): one event is served from a
+  # box, from AWS and from fly.io on three hostnames. Step 2 asks when it
+  # CREATES the file and tells us so ($2); this covers the file that existed
+  # without the key, and never asks the same value twice in one run.
+  ev_url=""
+  if [ "${2:-0}" -ne 1 ]; then
+    wiz_ask ev_url "Event URL contestants reach" "$(env_url)"
   fi
-  printf 'event:\n  name: "%s"\n%sgithub:\n  org: %s\nmodules:\n' \
-    "$name" "$dates" "$org"
-  for m in $mods; do
-    case "$m" in
-      secure-development)
-        printf '  secure-development:\n    score_ingest: %s\n' "$ingest"
-        ;;
-      quiz) printf '  quiz: {}\n' ;;
-      classic) printf '  classic: {}\n' ;;
-      ai) printf '  ai: {}\n' ;;
-      *) echo "event.yaml: unknown module: $m" >&2; return 1 ;;
-    esac
-  done
-  # `admins:` only. Neither `hints:` nor `teams:` is emitted any more, because
-  # nothing has ever read either one — `generate-event-config.mjs` mentions
-  # neither word — and a key that cannot change the answer misleads whichever
-  # value it carries. An organizer who wrote `hints: { enabled: false }` still
-  # got hints; one who wrote `teams: { max_size: 6 }` still got a cap of 4.
-  # Emitting `hints: { enabled: true }` had been an earlier attempt to stop the
-  # key lying by agreeing with the app, which fixed the value and not the
-  # problem.
-  #
-  # Where each setting actually lives:
-  #   hints    on by default (hint-defaults.ts: HINT_DEFAULT_ENABLED), turned
-  #            off in /admin — ADR 31.
-  #   teams    always available; /admin opens and closes registration AND
-  #            sets the per-team member cap ("Players per team"). The 4 in
-  #            team-store.ts is only the default that field falls back to.
-  #
-  # A config written before this change still parses: the generator warns on
-  # both keys rather than failing.
-  printf 'admins: [%s]\n' "$(csv_of "$admins")"
-}
 
-# Is an existing event.yaml complete enough to skip the config questions? Org
-# (checked by the caller) plus a parseable modules: block — that's the whole
-# answer now (config v2 PR2, #386): secure-development no longer needs a
-# targets list to be "complete" (every event forks all six regardless), so
-# there is nothing left to demand here beyond a modules: block this reader
-# can actually read.
-wiz_config_complete() {
-  yaml_module_keys >/dev/null 2>&1
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would write GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to $out"
+    [ -z "$ev_ingest" ] || echo "  DRY-RUN: would set SCORE_INGEST=$ev_ingest in $out"
+    [ -z "$ev_url" ] || echo "  DRY-RUN: would set EVENT_URL=$ev_url in $out"
+  else
+    set_env_var "$out" GITHUB_ORG "$ev_org"
+    set_env_var "$out" ADMIN_LOGINS "$ev_admins"
+    set_env_var "$out" SCORE_IMAGE "$ev_score"
+    [ -z "$ev_url" ] || set_env_var "$out" EVENT_URL "$ev_url"
+    echo "  ✅ wrote GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to $out"
+    # Only when Secure Development is on: without it there is no ingest to
+    # configure, and writing one would suggest a switch that does nothing.
+    if [ -n "$ev_ingest" ]; then
+      set_env_var "$out" SCORE_INGEST "$ev_ingest"
+      echo "  ✅ SCORE_INGEST=$ev_ingest in $out"
+    fi
+  fi
+  WIZ_SCORE_IMAGE="$ev_score"
 }
 
 # The default front door: walk a brand-new organizer from zero to a running,
 # scored event, doing every automatable step and guiding + verifying each
-# UI-only one. Resumable — it inspects state (check/doctor/.env/event.yaml) and
+# UI-only one. Resumable — it inspects state (check/doctor/the env file) and
 # only prompts for what's missing, so re-running picks up where you left off.
 # The discrete subcommands remain for scripting/CI; the wizard just orchestrates
 # them. Stops with instructions whenever it needs you to do something off-box
 # (edit a file, click Create in GitHub's UI); complete it and re-run.
 cmd_wizard() {
   local out="${OUT:-.env}"
-  # The modules step 3 enabled, for the later steps to key off when there is no
-  # written config to read them back from (--dry-run). Empty = never asked.
-  WIZ_MODULES=""
+  # The SCORE_IMAGE step 3 settled on, for the later steps to key off when
+  # there is nothing written to read it back from (--dry-run).
+  WIZ_SCORE_IMAGE=""
   wiz_banner
   printf '%sOWASP CTF setup wizard%s — walks you to a running, scored event. Safe to re-run — it resumes.\n' "$C_BOLD" "$C_RESET"
   [ "$DRY_RUN" -eq 1 ] && echo "(dry-run: nothing will be changed)"
@@ -1699,7 +1469,12 @@ cmd_wizard() {
   fi
 
   # 2. Secrets (.env).
+  #
+  # `url_asked` stops step 3 asking for EVENT_URL a second time on a first
+  # run: this step already has the answer, and two prompts for one value read
+  # as a bug in the wizard.
   wiz_step "2/9  Secrets ($out)"
+  local url_asked=0
   if [ -f "$out" ]; then
     echo "  ✅ $out present"
   elif [ "$DRY_RUN" -eq 1 ]; then
@@ -1710,165 +1485,84 @@ cmd_wizard() {
     wiz_ask ev_url "Box URL contestants reach (https:// for a real event)" "$(env_val EVENT_URL)"
     set_env_var "$out" EVENT_URL "$ev_url"
     echo "  ✅ EVENT_URL=$ev_url"
+    url_asked=1
   fi
 
-  # 3. Event config.
-  wiz_step "3/9  Event config ($CONFIG)"
-  if [ -f "$CONFIG" ] && [ -n "$(yaml_org)" ] && wiz_config_complete; then
-    echo "  ✅ $CONFIG (org: $(yaml_org))"
-  else
-    echo "  Answer a few questions to write $CONFIG (Enter accepts the [default])."
-    local ev_name ev_org ev_admins ev_mods ev_reply ev_url ev_ingest ev_start ev_end adm_default
-    adm_default=""
-    [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
-    wiz_ask ev_name    "Event name" "OWASP CTF"
-    echo "  Note: the event name is a runtime setting now (/admin → Event → Identity); this value is written to $CONFIG for the wizard's own bookkeeping and is not read by the app."
-    wiz_ask ev_org     "GitHub org (disposable per-event org)" ""
-    while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_org" ]; do
-      echo "  org is required."
-      wiz_ask ev_org   "GitHub org (disposable per-event org)" ""
-    done
-    wiz_ask ev_admins  "Admin GitHub login(s), space-separated" "$adm_default"
-    # WHICH modules the event runs decides what else there is to ask: a module
-    # is enabled by appearing under modules: (docs/modules.md §1), so this one
-    # answer is the whole shape of the file. Re-asked until it names at least
-    # one known module; under --dry-run the default always is one, so this
-    # cannot spin.
-    #
-    # "start with", not "enable": quiz and classic are switchable from /admin
-    # during the event without a rebuild (ADR 52), so this answer is the
-    # STARTING set and the fallback, not a permanent decision. Secure
-    # Development genuinely is decided here — it needs services and forks that
-    # only setup can provision.
-    ev_mods=""
-    while [ -z "$ev_mods" ]; do
-      wiz_ask ev_reply "Modules to start with — subset of: $KNOWN_MODULES" "$(wiz_module_default)"
-      if ! ev_mods="$(wiz_modules "$ev_reply")"; then
-        ev_mods=""
-        if [ "$DRY_RUN" -eq 1 ]; then exit 1; fi
-      fi
-    done
-    WIZ_MODULES="$ev_mods"
-    # Only secure-development has anything else to configure, and even it is
-    # only asked for score ingest now — NOT targets (config v2 PR2, #386):
-    # every event provisions all six targets.tsv targets, and which ones
-    # actually run is chosen at runtime in /admin, not decided here. A
-    # quiz-only event is never asked either question, since it forks nothing.
-    ev_ingest="poll"
-    case " $ev_mods " in
-      *" secure-development "*)
-        echo "  Note: which targets run is a runtime setting now (/admin → Secure Development → Targets); this build always provisions all six from targets.tsv: $(all_targets)."
-        wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
-        # Re-ask until it is exactly one of the two: the answer becomes a
-        # Caddyfile path in compose, so a typo is a failed bring-up, not a
-        # label. Under --dry-run the default always passes, so this cannot
-        # spin.
-        while [ "$DRY_RUN" -ne 1 ] && ! valid_ingest "$ev_ingest"; do
-          echo "  Score ingest must be exactly 'poll' or 'push'."
-          wiz_ask ev_ingest "Score ingest (poll | push)" "poll"
-        done
-        ;;
-    esac
-    # Written to .env, NOT to event.yaml. The URL is a deployment fact, and
-    # the same event.yaml is deployed to a box, to AWS and to fly.io on three
-    # different hostnames. Step 2 already asks when it creates .env; this
-    # covers the case where .env existed but carried no EVENT_URL, and
-    # re-writing the same value is harmless.
-    wiz_ask ev_url     "Event URL contestants reach" "$(env_val EVENT_URL)"
-    if [ "$DRY_RUN" -ne 1 ] && [ -n "$ev_url" ]; then
-      set_env_var "$out" EVENT_URL "$ev_url"
-    fi
-    wiz_ask ev_start   "Event start (ISO 8601 e.g. 2026-10-01T09:00:00-03:00, blank to skip)" ""
-    ev_end=""
-    [ -z "$ev_start" ] || wiz_ask ev_end "Event end (ISO 8601, blank to skip)" ""
-    # Optional start/end drive the app's countdown + display dates; emitted only
-    # when a start was given (end is nested under it).
-    local ev_dates=""
-    if [ -n "$ev_start" ]; then
-      ev_dates="  start: $ev_start
-"
-      [ -z "$ev_end" ] || ev_dates="$ev_dates  end: $ev_end
-"
-    fi
-    # The ingest answer goes to BOTH files. event.yaml's score_ingest is what
-    # the app and sync read; SCORE_INGEST in .env is what docker-compose.yml
-    # and the Caddy profile read, and step 8 below reads it to pick profiles.
-    # Writing only the first — as this wizard did — meant an organizer who
-    # answered "push" got a push label, a poll deployment and no warning
-    # (issue #372). Only when secure-development is on: without it there is
-    # no ingest to configure and .env keeps its template value.
-    case " $ev_mods " in
-      *" secure-development "*)
-        if [ "$DRY_RUN" -eq 1 ]; then
-          echo "  DRY-RUN: would set SCORE_INGEST=$ev_ingest in $out"
-        else
-          set_env_var "$out" SCORE_INGEST "$ev_ingest"
-          echo "  ✅ SCORE_INGEST=$ev_ingest in $out"
-        fi ;;
-    esac
-    if [ "$DRY_RUN" -eq 1 ]; then
-      echo "  DRY-RUN: would write $CONFIG (org: $ev_org, modules: $ev_mods)"
-    else
-      # Render to a temp file first: a redirect straight onto $CONFIG truncates
-      # it BEFORE the emitter can refuse, which would leave an organizer with
-      # an empty event.yaml where their old one used to be.
-      if wiz_event_yaml "$ev_name" "$ev_dates" "$ev_org" \
-           "$ev_mods" "$ev_ingest" "$ev_admins" > "$CONFIG.tmp"; then
-        mv "$CONFIG.tmp" "$CONFIG"
-        echo "  ✅ wrote $CONFIG (org: $ev_org, modules: $ev_mods)"
-      else
-        rm -f "$CONFIG.tmp"
-        echo "  Could not write $CONFIG — re-run the wizard." >&2
-        exit 1
-      fi
-    fi
+  # 3. Event basics — the whole of what this wizard writes.
+  #
+  # Already answered when there is an admin (the one key every event needs;
+  # empty makes /admin forbid everyone), the Secure Development question has
+  # been PUT at all (the SCORE_IMAGE line exists, empty or not — `secrets`
+  # writes it empty, so only a hand-rolled file lacks it), and, if that
+  # answer was yes, an org to fork into. An app-only event legitimately has
+  # no GITHUB_ORG, so demanding one here would re-ask it every single run.
+  wiz_step "3/9  Event basics ($out)"
+  local basics_done=0
+  if [ -n "$(env_val ADMIN_LOGINS)" ] && env_has SCORE_IMAGE; then
+    if ! runs_secdev || [ -n "$(env_val GITHUB_ORG)" ]; then basics_done=1; fi
   fi
-  local org=""; [ -f "$CONFIG" ] && org="$(yaml_org)"
+  if [ "$basics_done" -eq 1 ]; then
+    # Resumed run: the bootstrap plane is already answered. Print what it
+    # turns on (none of it is a secret) and move on — re-asking would risk an
+    # Enter-through changing it. Turning Secure Development ON later is an
+    # edit to this file, not a re-run, so say where the switch is.
+    local have_org; have_org="$(env_val GITHUB_ORG)"
+    echo "  ✅ $out (org: ${have_org:-<none>}, admins: $(env_val ADMIN_LOGINS))"
+    if runs_secdev; then
+      echo "     Secure Development: on (SCORE_IMAGE=$(env_val SCORE_IMAGE))"
+    else
+      echo "     Secure Development: off — set SCORE_IMAGE in $out (or re-run with SCORE_IMAGE removed) to turn it on"
+    fi
+    WIZ_SCORE_IMAGE="$(env_val SCORE_IMAGE)"
+  elif ! wiz_event_basics "$out" "$url_asked"; then
+    echo "  Fix that and re-run the wizard — it resumes." >&2
+    exit 1
+  fi
 
   # Everything from here on that touches forks, the scorer image or the poll
-  # App belongs to ONE module, secure-development. A quiz-only event has no
-  # repos to fork, no image to build and nothing to poll, so those steps are
-  # reported as not-applicable rather than asking an organizer for credentials
-  # they will never use. Read from the config when there is one (the
-  # authoritative answer, including on a resumed run) and otherwise from what
-  # step 3 just collected; with neither — only reachable under --dry-run with
-  # no config at all — assume the full poll stack, the historical default.
-  local secdev=1 provisioned=0
-  if [ -f "$CONFIG" ]; then
-    if ! has_module secure-development; then secdev=0; fi
-  elif [ -n "$WIZ_MODULES" ]; then
-    case " $WIZ_MODULES " in *" secure-development "*) ;; *) secdev=0 ;; esac
-  fi
+  # App belongs to Secure Development, and SCORE_IMAGE is the one fact that
+  # says whether this event runs it (config v2, #386). An app-only event has
+  # no repos to fork, no image to build and nothing to poll, so those steps
+  # are reported as not-applicable rather than asking an organizer for
+  # credentials they will never use.
+  local secdev=0 provisioned=0
+  if [ -n "$WIZ_SCORE_IMAGE" ]; then secdev=1; fi
+  local org=""
+  org="$(env_val GITHUB_ORG)"
 
   # 4. Scorer image.
   wiz_step "4/9  Scorer image (SCORE_IMAGE)"
+  local img="$WIZ_SCORE_IMAGE"
   if [ "$secdev" -eq 0 ]; then
-    echo "  ⏭  not needed — no secure-development module (nothing to score in a fork)"
-  elif [ -n "$(env_val SCORE_IMAGE)" ]; then
-    echo "  ✅ SCORE_IMAGE=$(env_val SCORE_IMAGE)"
+    echo "  ⏭  not needed — SCORE_IMAGE is empty, so this event does not run Secure Development"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    # Zero docker calls under --dry-run (AGENTS.md), so the local-presence
+    # probe below is narrated rather than run.
+    echo "  DRY-RUN: would check whether $img is built locally and offer to build it (linux/amd64)"
+  elif docker image inspect "$img" >/dev/null 2>&1; then
+    # Present locally: nothing to build. Say how it reaches the forks anyway
+    # — `org` mirrors it into the event org, and that push needs a login.
+    echo "  ✅ SCORE_IMAGE=$img (built locally)"
+    echo "     Push it before provisioning:  docker login ghcr.io && docker push $img"
+  elif ask_yn "  Build the scorer image ($img) now?" Y; then
+    # linux/amd64 REQUIRED: GitHub runners are amd64; an arm64 image (the
+    # default on Apple Silicon) fails the fork's scoring Action with "no
+    # matching manifest for linux/amd64".
+    docker build --platform linux/amd64 -t "$img" "$SCRIPT_DIR/../scorer"
+    echo "  ✅ built (linux/amd64) $img"
+    printf '  %sPush it before provisioning%s — the org step mirrors it and forks pull it:\n' "$C_YELLOW" "$C_RESET"
+    echo "     docker login ghcr.io   # once, with a token that has write:packages"
+    echo "     docker push $img"
   else
-    local img="ghcr.io/$org/score:latest"
-    if ask_yn "  Build the scorer image ($img) now?" Y; then
-      # linux/amd64 REQUIRED: GitHub runners are amd64; an arm64 image (the
-      # default on Apple Silicon) fails the fork's scoring Action with "no
-      # matching manifest for linux/amd64".
-      docker build --platform linux/amd64 -t "$img" "$SCRIPT_DIR/../scorer"
-      set_env_var "$out" SCORE_IMAGE "$img"
-      echo "  ✅ built (linux/amd64) + set SCORE_IMAGE=$img"
-      printf '  %sPush it before provisioning%s — the org step mirrors it and forks pull it:\n' "$C_YELLOW" "$C_RESET"
-      echo "     docker login ghcr.io   # once, with a token that has write:packages"
-      echo "     docker push $img"
-    else
-      echo "  Skipped. Build later (amd64), set SCORE_IMAGE in $out, and push:"
-      echo "     docker build --platform linux/amd64 -t $img $SCRIPT_DIR/../scorer"
-      echo "     docker login ghcr.io && docker push $img"
-    fi
+    echo "  Skipped. Build later (amd64) and push:"
+    echo "     docker build --platform linux/amd64 -t $img $SCRIPT_DIR/../scorer"
+    echo "     docker login ghcr.io && docker push $img"
   fi
 
   # 5. Sync GitHub App (poll auth).
   wiz_step "5/9  Sync GitHub App (poll auth)"
   if [ "$secdev" -eq 0 ]; then
-    echo "  ⏭  not needed — no secure-development module (nothing to poll)"
+    echo "  ⏭  not needed — this event does not run Secure Development (nothing to poll)"
   elif [ -n "$(env_val GITHUB_APP_ID)" ] && [ -n "$(env_val GITHUB_APP_PRIVATE_KEY)" ]; then
     echo "  ✅ GitHub App configured"
   elif [ "$DRY_RUN" -eq 1 ]; then
@@ -1893,7 +1587,19 @@ cmd_wizard() {
   elif [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would open the OAuth-app page, then prompt Client ID + hidden secret"
   else
-    if ask_yn "  Open the OAuth-app page now?" Y; then cmd_oauth_app; fi
+    # Every event needs sign-in, Secure Development or not — but `oauth-app`
+    # opens the ORG's registration page, and an app-only event has no org. It
+    # would exit 1 naming GITHUB_ORG and take the wizard down with it, so
+    # point at the personal-account page instead (registering it there is
+    # already a documented option).
+    if [ -z "$org" ]; then
+      echo "  No event org, so register the OAuth app on your own account:"
+      echo "    https://github.com/settings/applications/new"
+      echo "    Homepage URL:                $(event_url)"
+      echo "    Authorization callback URL:  $(event_url)/api/auth/callback/github"
+    elif ask_yn "  Open the OAuth-app page now?" Y; then
+      cmd_oauth_app
+    fi
     pause_confirm "  Press Enter once you've registered the app and generated a client secret…"
     while :; do
       wiz_ask CLIENT_ID "  OAuth Client ID" ""
@@ -1903,37 +1609,43 @@ cmd_wizard() {
   fi
 
   # 7. Create + provision the org.
-  wiz_step "7/9  Event org ($org)"
-  # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
-  # and the closing doctor sweep below are narrated, not run.
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY-RUN: would check that org $org exists (gh api orgs/$org)"
-  elif gh_ok "orgs/$org"; then
-    echo "  ✅ org $org exists"
-  else
-    echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
-    pause_confirm "  Press Enter once the org exists…"
-    if ! gh_ok "orgs/$org"; then
-      echo "  Still can't see org $org — create it, then re-run."
-      exit 0
-    fi
-  fi
+  #
+  # The org exists for ONE reason: Secure Development forks into it. An
+  # app-only event has no org (GITHUB_ORG is legitimately empty), so this
+  # whole step — including the "create it, then re-run" stop, which used to
+  # end such a run at step 7 with steps 8 and 9 never reached — is skipped
+  # rather than asked.
+  wiz_step "7/9  Event org (${org:-<none>})"
   if [ "$secdev" -eq 0 ]; then
-    echo "  ⏭  nothing to provision — no secure-development module (no targets to fork)"
-  elif [ -z "$(env_val SCORE_IMAGE)" ]; then
-    echo "  SCORE_IMAGE unset — build it (step 4) before provisioning. Skipping."
-  elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
-    # A failed provisioning is a stop, not a shrug: pausing for UI steps on
-    # forks that do not exist, then bringing the stack up against them,
-    # would only move the failure somewhere less legible.
-    if cmd_org; then
-      provisioned=1
-    else
-      echo "  Provisioning failed — fix the error above, then re-run (the wizard resumes)." >&2
-      exit 1
-    fi
+    echo "  ⏭  not needed — this event does not run Secure Development (no org to fork into)"
   else
-    echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
+    # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
+    # and the closing doctor sweep below are narrated, not run.
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  DRY-RUN: would check that org $org exists (gh api orgs/$org)"
+    elif gh_ok "orgs/$org"; then
+      echo "  ✅ org $org exists"
+    else
+      echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
+      pause_confirm "  Press Enter once the org exists…"
+      if ! gh_ok "orgs/$org"; then
+        echo "  Still can't see org $org — create it, then re-run."
+        exit 0
+      fi
+    fi
+    if ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
+      # A failed provisioning is a stop, not a shrug: pausing for UI steps on
+      # forks that do not exist, then bringing the stack up against them,
+      # would only move the failure somewhere less legible.
+      if cmd_org; then
+        provisioned=1
+      else
+        echo "  Provisioning failed — fix the error above, then re-run (the wizard resumes)." >&2
+        exit 1
+      fi
+    else
+      echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
+    fi
   fi
   # The UI-only steps come NOW, before verification, not after it. doctor used
   # to run right here, the instant provisioning finished, and only then did the
@@ -1943,11 +1655,11 @@ cmd_wizard() {
   # has just printed the checklist; pause on it, bring the stack up, and
   # verify once at the very end (step 9).
   #
-  # Only when the forks were actually provisioned in THIS run: with
-  # SCORE_IMAGE unset or the offer declined there is nothing on GitHub to
-  # detach or grant yet, and a pause would ask the organizer to confirm work
-  # that does not exist. --dry-run never provisions, so it narrates the path a
-  # real run would take when secure-development is on.
+  # Only when the forks were actually provisioned in THIS run: with the offer
+  # declined there is nothing on GitHub to detach or grant yet, and a pause
+  # would ask the organizer to confirm work that does not exist. --dry-run
+  # never provisions, so it narrates the path a real run would take when
+  # Secure Development is on.
   if [ "$DRY_RUN" -eq 1 ] && [ "$secdev" -eq 1 ]; then
     echo
     echo "  DRY-RUN: would pause for the UI-only steps (fork-network detach, package Read grant)"
@@ -1961,32 +1673,27 @@ cmd_wizard() {
 
   # 8. Bring the containers up.
   #
-  # Compose profiles follow the ENABLED MODULES: `app` always, plus the
-  # score-ingest profile (poll or push — both carry the scorer, which belongs
-  # to secure-development just as `sync` does) only when that module is
-  # configured. A quiz-only event needs neither: it has nothing to poll and no
-  # scorer image to pull, and asking for one would fail the bring-up outright.
-  # `secdev` above is that answer, config-derived when a config exists and
-  # answer-derived under --dry-run when one was never written.
+  # Compose profiles follow SCORE_IMAGE: `app` always, plus the score-ingest
+  # profile (poll or push — both carry the scorer, which belongs to Secure
+  # Development just as `sync` does) only when this event runs it. An
+  # app-only event needs neither: it has nothing to poll and no scorer image
+  # to pull, and asking for one would fail the bring-up outright.
+  #
+  # No build-arg: the app reads GITHUB_ORG and ADMIN_LOGINS from the env file
+  # at RUN time now (config v2, #386) — nothing is baked into the image, so
+  # changing an admin is an edit and a restart, not a rebuild.
   wiz_step "8/9  Bring the containers up"
   local profiles=(--profile app)
   if [ "$secdev" -eq 1 ]; then
-    # Say so before printing a command that will run in .env's mode, so an
-    # organizer resuming with an older .env is not left to find out from the
-    # admin panel's "Sync" line that the box is polling a push event.
-    [ -f "$CONFIG" ] && ingest_mismatch_warn
     if [ "$(env_val SCORE_INGEST)" = "push" ]; then
       profiles=(--profile push "${profiles[@]}")
     else
       profiles=(--profile poll "${profiles[@]}")
     fi
   fi
-  cat <<EOF
-  EVENT_CONFIG_B64="\$(base64 < $CONFIG | tr -d '\n')" \\
-    docker compose ${profiles[*]} up -d --build
-EOF
+  echo "  docker compose ${profiles[*]} up -d --build"
   if ask_yn "  Bring the containers up now?" Y; then
-    EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')" docker compose "${profiles[@]}" up -d --build
+    docker compose "${profiles[@]}" up -d --build
   fi
 
   # 9. Verify — last, on purpose (issue #370). This is the wizard's closing
@@ -1994,22 +1701,34 @@ EOF
   # a clean doctor table here means the event is ready, and a ⚠️ names the
   # one thing still to do. --dry-run makes zero gh calls, so it narrates.
   wiz_step "9/9  Verify"
-  # secdev first, then dry-run: a quiz-only dry run must say the same thing
+  # secdev first, then dry-run: an app-only dry run must say the same thing
   # the real run would — nothing to verify — not that it would run doctor.
   if [ "$secdev" -eq 0 ]; then
-    echo "  ⏭  nothing provisioned to verify — no secure-development module"
+    echo "  ⏭  nothing provisioned to verify — this event does not run Secure Development"
   elif [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would verify the org with 'ctf-setup.sh doctor'"
   else
     ( cmd_doctor ) || true
   fi
 
+  # The closing screen. It names the KEYS the bootstrap file carries, never
+  # their values: the same file holds BETTER_AUTH_SECRET, SRH_TOKEN,
+  # SCORER_TOKEN and REDIS_PASSWORD, and a wizard that echoed them would put
+  # every secret in a scrollback and a CI log.
   echo
-  echo "== Done. Open $(env_val EVENT_URL), sign in, and check /admin."
+  local open_at; open_at="$(env_url)"
+  if [ -n "$open_at" ]; then
+    echo "== Done. Open $open_at, sign in, and check /admin."
+  else
+    echo "== Done. Set EVENT_URL in $out, then open it, sign in and check /admin."
+  fi
+  echo "   $out is the whole bootstrap plane: GITHUB_ORG, ADMIN_LOGINS, SCORE_IMAGE,"
+  echo "   EVENT_URL and the secrets. Everything else — which modules run, the event's"
+  echo "   name and branding, the schedule, hint policy, caps — is set in /admin."
   echo "   Re-run 'ctf-setup.sh doctor' anytime to re-verify provisioning."
   if [ "$secdev" -eq 1 ]; then
-    echo "   Secure Development provisions all six targets.tsv targets; choose which"
-    echo "   ones actually run in /admin -> Secure Development -> Targets."
+    echo "   Secure Development provisions all six from targets.tsv: $(all_targets)."
+    echo "   Choose which ones actually run in /admin -> Secure Development -> Targets."
   fi
 }
 
@@ -2027,7 +1746,7 @@ if [ "$CMD" != "__selftest" ]; then
     app-config) cmd_app_config ;;
     oauth-app) cmd_oauth_app ;;
     oauth-config) cmd_oauth_config ;;
-    *) echo "usage: ctf-setup.sh [wizard|check|secrets|org|render|upgrade|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config] [--dry-run] [--config event.yaml] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2
+    *) echo "usage: ctf-setup.sh [wizard|check|secrets|org|render|upgrade|teardown|doctor|app-manifest|app-config|oauth-app|oauth-config] [--dry-run] [--out .env] [--app-id N] [--pem path] [--installation-id N] [--client-id ID]" >&2
        echo "  run with no subcommand (or 'wizard') for the guided step-by-step setup" >&2; exit 2 ;;
   esac
 fi

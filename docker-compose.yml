@@ -204,12 +204,20 @@ services:
   sync:
     profiles: ["poll"]
     build: ./sync
-    # unless-stopped would restart even on a clean exit 0 (e.g. a quiz-only
-    # event.yaml with no polled module — see sync/src/index.js's main()),
-    # turning "nothing to do" into a silent restart-loop. on-failure only
-    # restarts on a genuine nonzero-exit crash.
+    # Config v2 (#386) removed the "nothing to poll" exit 0: whether sync runs
+    # at all is this profile's call, so if the container is up it polls. The
+    # only clean-exit case left is a refusal — a missing GITHUB_ORG exits 1
+    # naming the key (sync/src/index.js's main()) — and on-failure restarting
+    # that is what an organizer wants: the log line repeats until the key is
+    # set, instead of one message scrolling away in a container nothing brings
+    # back. unless-stopped would behave the same here; on-failure is kept as
+    # the narrower policy.
     restart: on-failure
     environment:
+      # The org the poller reads score comments from. sync refuses to start
+      # when it is empty, logging `ctf-sync: GITHUB_ORG is not set` — so it
+      # must be passed through here or setting it in .env does nothing.
+      GITHUB_ORG: ${GITHUB_ORG:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       GITHUB_APP_INSTALLATION_ID: ${GITHUB_APP_INSTALLATION_ID:-}
@@ -221,24 +229,12 @@ services:
       # the admin-panel freeze never reaches the poller.
       UPSTASH_REDIS_REST_URL: http://srh:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
-      # The same base64 event.yaml the app takes as a BUILD arg, read here at
-      # START-UP instead. Empty in a normal compose bring-up, where the bind
-      # mount below is the real source — sync treats an empty value as absent
-      # (sync/src/config.js), so setting it for the app's build does not
-      # change what a mounted sync reads.
-      #
-      # It exists for deployments with no host to bind-mount FROM: the
-      # single-machine Fly deployment runs every container on one machine with
-      # no repo checkout on it, so `./event.yaml` names nothing there. See
-      # docs/fly.md and ADR 42.
-      EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
       # The poller's cursor. Same reasoning as redis's REDIS_DIR above: the
       # default is exactly what compose has always used, and .env.fly moves it
       # to /data/sync/state.json so both services fit the single volume a Fly
       # machine allows. sync creates the parent directory itself.
       STATE_PATH: ${STATE_PATH:-/state/state.json}
     volumes:
-      - ./event.yaml:/config/event.yaml:ro
       - sync-state:/state
     depends_on: [scorer, srh]
     networks: [frontend]

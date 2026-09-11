@@ -1586,6 +1586,26 @@ flag-submission form classic uses, right below the launcher.
 
 ## Verifying it works
 
+### The org and the bootstrap keys: `ctf-setup.sh doctor`
+
+Read-only, no `--dry-run` needed, and the first thing to run when something
+looks wrong. Alongside the per-fork provisioning matrix (see
+[docs/hosting.md](hosting.md#fork-setup-and-the-contest-flow)) it checks
+three facts that have no other alarm:
+
+- **`ADMIN_LOGINS` is non-empty.** Empty means `/admin` forbids every login,
+  which is silent until an organizer tries to open the panel mid-event.
+- **`GITHUB_ORG` is set.** `doctor` takes no separate org argument —
+  `GITHUB_ORG` *is* the org it inspects, so there is no second value for it
+  to disagree with; what it catches is the key being absent. With Secure
+  Development off (no `SCORE_IMAGE`) that is only a warning: an app-only
+  event has no org.
+- **The `sync` GitHub App is installed on the org.** Without it the poller
+  authenticates against nothing and no score ever reaches the leaderboard.
+  Checked by App id against the org's installations, and it **fails closed**:
+  a `gh` error (a token without `admin:org`, say) reports "not verified" and a
+  non-zero exit, never "installed".
+
 ### Which build is live: `GET /health`
 
 Public, unauthenticated, and the fastest way to answer "did my fix reach the
@@ -1665,15 +1685,20 @@ org, an OAuth app, or a real contestant PR? One command:
 
 This generates a throwaway `.env.dev-stack` if you have no `.env` (never
 touches or overwrites a real one), builds the scorer image locally from
-`scorer/` and the app image from `apps/web/` (the app takes no build-time
-config; the throwaway `.env.dev-stack` gets starter `ADMIN_LOGINS` and
-`GITHUB_ORG` values from an `event.yaml` or the shipped `event.yaml.example`
-if one is lying around, and leaves both blank otherwise), brings up `redis`,
+`scorer/` and the app image from `apps/web/`, brings up `redis`,
 `srh`, `scorer`, `app` and `caddy`, and seeds a few demo players onto the
 leaderboard through the scorer's real bearer-authed `POST /score` — the same
 endpoint a scored PR hits, so it exercises the real validation and Redis-write
 path rather than poking Redis keys directly. It prints the URL to open when
 it's done.
+
+It needs no `event.yaml` — there is no config file any more (#386). The two
+identities it has to know, `ADMIN_LOGINS` and `GITHUB_ORG`, come from your
+environment if you exported them, else from `.env`, and `ADMIN_LOGINS` falls
+back to whatever login `gh` is authenticated as; each is read at start-up, so
+changing one means a restart, not a rebuild. Everything else — the event's
+name, which modules run, which Secure Development targets — is an `/admin`
+setting.
 
 Watch a new score land live, without a real PR:
 

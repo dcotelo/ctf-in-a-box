@@ -93,8 +93,8 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
     // The admin panel's secure-development target selection (config-v2): a
     // JSON array of target ids in `ctf:admin:settings.secureDevTargets`,
     // absent/empty meaning "all six" — the same default the pre-config-v2
-    // event.yaml `targets:` list always resolved to for a fully-enabled
-    // module. Unlike isPaused/getResetAt, this method does NOT catch and
+    // static target list always resolved to for a fully-enabled module.
+    // Unlike isPaused/getResetAt, this method does NOT catch and
     // fail open (or fail to some other silently-wrong default): a poller
     // that cannot read the override must not guess which subset to poll —
     // guessing "all six" on a Redis blip would score targets the organizer

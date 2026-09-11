@@ -1,8 +1,0 @@
-# targets:
-event:
-  name: "OWASP Chapter Classic CTF"
-github:
-  org: my-event-org
-modules:
-  classic: {}
-admins: [your-github-login]

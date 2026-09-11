@@ -667,17 +667,23 @@ ENV
   echo "$output" | grep -qF "== app: $name"
 }
 
-@test "sync can take its config from EVENT_CONFIG_B64" {
-  # The single-machine deployment has no repo checkout to bind-mount
-  # ./event.yaml from, so sync must accept the config the same way the app
-  # does. Without this the poller reads a file that is not there.
-  grep -qF 'EVENT_CONFIG_B64' "$REPO/sync/src/config.js"
+@test "sync reads GITHUB_ORG from the environment" {
+  # The single-machine deployment has no repo checkout to bind-mount a config
+  # file from, which is why config v2 (#386) made the environment the poller's
+  # only config plane. Without this the deployed poller has no org to poll.
+  #
+  # The READ, not the name: config.js's comments name GITHUB_ORG too, so a
+  # bare `grep GITHUB_ORG` would still pass with the read deleted.
+  grep -qF 'env.GITHUB_ORG' "$REPO/sync/src/config.js"
 }
 
-@test "docker-compose.yml passes EVENT_CONFIG_B64 through to sync" {
+@test "docker-compose.yml passes GITHUB_ORG through to sync" {
   # The render carries whatever compose declares; if the variable is not wired
-  # in the source file it cannot reach the deployed poller.
-  grep -qF 'EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}' "$REPO/docker-compose.yml"
+  # into the SYNC service it cannot reach the deployed poller. Scoped to that
+  # service on purpose — `app` declares the same key, so a whole-file grep
+  # would pass with sync's line deleted.
+  sync_env="$(awk '/^  sync:/{f=1;next} /^[^ ]/{f=0} /^  [a-z]/{if(f)f=0} f' "$REPO/docker-compose.yml")"
+  echo "$sync_env" | grep -qF 'GITHUB_ORG: ${GITHUB_ORG:-}'
 }
 
 @test "the deploy passes a prebuilt image so flyctl does not try to build one" {
@@ -762,17 +768,20 @@ ENV
 # One URL, in one place.
 # ---------------------------------------------------------------------------
 
-@test "event.yaml carries no url: the URL is EVENT_URL" {
-  # A deployment fact in the event file: one event.yaml goes to a box, to AWS
-  # and to fly.io on three hostnames, which is why .env and .env.fly hold
-  # different EVENT_URLs for one event.
-  [ -z "$(grep -E '^  url:' "$REPO/event.yaml.example")" ]
-}
-
-@test "ctf-setup reads the URL from .env, not from event.yaml" {
-  # It renders the leaderboard link into every fork's score comment. Reading a
-  # stale event.url left sign-in working while contestants got a dead link.
-  grep -qF "sed -n 's/^EVENT_URL=//p'" "$REPO/setup/ctf-setup.sh"
+@test "ctf-setup reads the URL from the env file, and from nowhere else" {
+  # It renders the leaderboard link into every fork's score comment. The URL
+  # is a DEPLOYMENT fact (ADR 43): one event is served from a box, from AWS
+  # and from fly.io on three hostnames, which is why .env and .env.fly hold
+  # different EVENT_URLs for one event. It used to be an `event.url` field in
+  # the config file config v2 deleted, and a stale one left sign-in working
+  # while contestants got a dead leaderboard link.
+  #
+  # Asserted on env_url's BODY, not just on the string EVENT_URL appearing
+  # somewhere: the whole point is that the one reader resolves it out of the
+  # env file.
+  body="$(awk '/^env_url\(\) \{/{f=1} f{print} /^}/{if(f)exit}' "$REPO/setup/ctf-setup.sh")"
+  [ -n "$body" ] || { echo "env_url() is gone from ctf-setup.sh"; return 1; }
+  echo "$body" | grep -qF 'env_val EVENT_URL'
 }
 
 @test "the scorer mirror is checked for a linux/amd64 build" {

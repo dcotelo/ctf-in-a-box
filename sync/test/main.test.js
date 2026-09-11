@@ -1,15 +1,15 @@
-// main()'s half of the "a single module can run an event alone" contract.
+// main()'s half of the config-v2 contract: sync no longer decides "am I
+// enabled" — if the container runs, it polls. Whether sync runs at all is
+// the compose profile's call, not a module key in a config file. So the only
+// thing left for main() to guard against is a genuinely broken config (e.g.
+// GITHUB_ORG unset): that must refuse loudly at startup, not crash-loop
+// silently or fall through with a half-built cfg.
 //
-// loadConfig returning `null` for an event.yaml with no polled module is only
-// half the story — main() has to ACT on it: log, return, and let the process
-// exit 0 so compose's `restart: on-failure` leaves it exited instead of
-// restarting it forever. That guard was previously untested: deleting
-// `if (!cfg) return` left the entire suite green, because main() was a
-// module-private function no test could reach.
-//
-// Every collaborator is injected here, so these tests need no config file, no
+// Every collaborator is injected here, so these tests need no real env, no
 // Redis, no GitHub, and — crucially — no way for the infinite poll loop to
-// actually run away: `sleep` throws a sentinel to end the second iteration.
+// actually run away: `sleep` throws a sentinel to end the second iteration,
+// and `exit` throws the same sentinel so a startup refusal doesn't actually
+// kill the test process.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { main } from "../src/index.js";
@@ -17,7 +17,7 @@ import { main } from "../src/index.js";
 const STOP = new Error("stop-the-poll-loop");
 
 function spyDeps(overrides = {}) {
-  const calls = { readState: 0, makeRedis: 0, tick: [], writeState: [], sleep: [], log: [], logErr: [] };
+  const calls = { readState: 0, makeRedis: 0, tick: [], writeState: [], sleep: [], log: [], logErr: [], exit: [] };
   const deps = {
     log: (m) => calls.log.push(m),
     logErr: (m) => calls.logErr.push(m),
@@ -39,23 +39,31 @@ function spyDeps(overrides = {}) {
       calls.sleep.push(ms);
       throw STOP; // one iteration is all we need to prove it entered the loop
     },
+    exit: (code) => {
+      calls.exit.push(code);
+      throw STOP; // like sleep, unwinds main() without actually killing the test
+    },
     ...overrides,
   };
   return { deps, calls };
 }
 
-test("a null config logs the reason and returns without starting the poller", async () => {
-  const { deps, calls } = spyDeps({ load: () => null });
+test("a config error at startup logs 'ctf-sync: <message>' and exits 1, before touching state/redis/the loop", async () => {
+  const { deps, calls } = spyDeps({
+    load: () => {
+      throw new Error("GITHUB_ORG is not set");
+    },
+  });
 
-  await main(deps); // must RESOLVE — a throw here would exit nonzero and restart
+  await assert.rejects(() => main(deps), (err) => err === STOP);
 
-  assert.deepEqual(calls.log, ["ctf-sync: no polled module enabled, nothing to do"]);
-  // Nothing beyond the guard may have run: no state file read, no Redis
-  // client, no tick, no sleep.
+  assert.deepEqual(calls.logErr, ["ctf-sync: GITHUB_ORG is not set"]);
+  assert.deepEqual(calls.exit, [1]);
   assert.equal(calls.readState, 0);
   assert.equal(calls.makeRedis, 0);
   assert.deepEqual(calls.tick, []);
   assert.deepEqual(calls.sleep, []);
+  assert.deepEqual(calls.log, []);
 });
 
 test("a valid config proceeds: state, redis, then the poll loop", async () => {
@@ -88,18 +96,7 @@ test("a valid config proceeds: state, redis, then the poll loop", async () => {
   assert.match(calls.logErr[0], /polling test-event-org every 30000ms/);
   assert.equal(calls.logErr.length, 1);
   assert.deepEqual(calls.log, []);
-});
-
-test("the guard is on the config, not on a falsy-but-present one", async () => {
-  // A config object is a config object even with zero ingested state: only
-  // loadConfig's explicit `null` (no polled module) means "nothing to do".
-  const cfg = { org: "o", statePath: "/s", pollIntervalMs: 1000 };
-  const { deps, calls } = spyDeps({ load: () => cfg });
-
-  await assert.rejects(() => main(deps), (err) => err === STOP);
-
-  assert.equal(calls.tick.length, 1);
-  assert.deepEqual(calls.log, []);
+  assert.deepEqual(calls.exit, []);
 });
 
 // With no admin override readable at all (no Redis client), tick() falls

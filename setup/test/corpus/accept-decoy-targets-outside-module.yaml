@@ -1,9 +1,0 @@
-# targets: dvwa
-github:
-  org: test-event-org
-targets: [webgoat]
-modules:
-  secure-development:
-    targets: [dvwa]
-decoys:
-  targets: [juice-shop]
