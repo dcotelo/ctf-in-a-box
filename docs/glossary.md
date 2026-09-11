@@ -96,7 +96,10 @@ Its `modules:` list is the *starting* set, not the live truth: modules are
 switched at runtime from `/admin` (`enabledModules` on `ctf:admin:settings`,
 [ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup))
 with the baked set as the outage fallback — Secure Development's *targets*
-stay setup-configured, and no module toggle needs a rebuild.
+moved to `/admin` too (config v2, #386 PR 2; `secureDevTargets`, defaulting
+to all six), and no module toggle or target change needs a rebuild.
+`ctf-setup.sh` still forks and provisions all six targets unconditionally,
+whatever `event.yaml` says.
 
 ## The project's names
 

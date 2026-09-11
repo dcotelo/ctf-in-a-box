@@ -341,6 +341,8 @@ step rather than widening this one. `docs/modules.md` is explicit that the
 single-scored-module state is a v1 constraint, not a permanent architectural
 stance.
 
+*Amended 2026-09-11 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `yaml_targets` no longer exists — config v2 PR 2 deleted target extraction from `ctf-setup.sh`'s reader entirely and replaced it with `all_targets()`, which forks all six `targets.tsv` targets unconditionally, regardless of `event.yaml`. Which of the six an event actually **serves** is a runtime `/admin` → Secure Development → Targets setting now (`secureDevTargets` in `ctf:admin:settings`), not a module config-block field. The two-enumeration reasoning above is otherwise unchanged.*
+
 ## ADR 11. Vendor the contestant app into `apps/web/`; upstream stays read-only
 
 **Status.** Accepted.
@@ -365,7 +367,7 @@ this is a deliberate, tracked fork, not an untracked copy-paste.
 
 ## ADR 12. Build-time config generation over runtime config
 
-**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event's identity (name, tagline, location, contact e-mail, Discord invite) moved to a runtime `/admin` setting; only dates, the enabled-target subset, the fork org (`github.org`) and the bootstrap `admins` allowlist are still generated at build time.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event's identity (name, tagline, location, contact e-mail, Discord invite) and, as of PR 2, which Secure Development targets an event serves, both moved to runtime `/admin` settings; only dates, the fork org (`github.org`) and the bootstrap `admins` allowlist are still generated at build time.
 
 **Context.** Event identity (name, dates, targets, branding) needs to
 reach the app somehow. A runtime option (read `event.yaml` on every
@@ -383,6 +385,8 @@ path).
 
 *Amended 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `lib/site.ts`'s `getSite()` reads the event's name, tagline, location, contact e-mail and Discord invite from `ctf:admin:settings` at request time instead, failing open to the spec defaults ("OWASP CTF" / empty) when Redis has none stored. The generated module still carries those same field names (nothing reads them there any more) and still carries dates, the enabled-target subset, the fork org and the admins allowlist, which remain build-time as this decision describes.*
 
+*Amended 2026-09-11 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386) (config v2 PR 2): the enabled-target subset is no longer part of this bake either. `generate-event-config.mjs` still emits a `targets` field, but it is always `[]` now — `secure-development.targets` is not read from `event.yaml` or any `EVENT_*` env var as an authoritative source any more. Which of the six targets an event serves is `lib/enabled-apps.ts`'s job instead: a per-request filter reading `secureDevTargets` from `ctf:admin:settings`, defaulting to all six, exactly parallel to how identity moved to `getSite()` above. Only dates, the fork org and the admins allowlist are still generated at build time.*
+
 **Consequences.** For the fields that remain build-time — dates, targets,
 fork org and admins — static generation and `metadata` exports keep working
 exactly as the vendored app already used them: no runtime config-fetch code
@@ -398,7 +402,7 @@ so it isn't a surprise.
 
 ## ADR 13. Closed `AppId` union; config selects a subset; unknown values fail the build
 
-**Status.** Accepted.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386) (config v2 PR 2) — *selection* moved to runtime; the closed union itself is unchanged.
 
 **Context.** The target catalogue (`juice-shop`, `dvwa`, `webgoat`,
 `securityshepherd`, `vulnerableapp`, `vampi`) is fixed for
@@ -417,6 +421,8 @@ config load — one contract, enforced twice, in the two places that read
 `event.yaml`. `enabledApps` in `apps.ts` is then a simple filter: catalogue
 ∩ config, so nav, challenge list, and leaderboard columns for a disabled
 target vanish with no per-page conditional logic.
+
+*Amended 2026-09-11 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `event.yaml` no longer selects the subset, and neither `generate-event-config.mjs` nor `sync/src/config.js` validates a target name against the union any more — `secure-development.targets` is accepted in any shape (absent, empty, a scalar, an unknown id) and ignored by both. The closed `AppId` union itself is untouched (still the same six ids, still the type every reader and the catalogue share); what moved is where a subset is CHOSEN — `ctf:admin:settings`'s `secureDevTargets`, validated by `apps/web/src/lib/secure-dev-targets.ts`'s `normalizeSecureDevTargets`/`checkSecureDevTargets` against that same union, not by a build-time reader. `apps.ts`'s `enabledApps` filter is gone with it: `src/lib/enabled-apps.ts`'s `getEnabledApps` does catalogue ∩ live-set instead, resolved per request (or per sync tick) from Redis rather than once at build time.*
 
 ## ADR 14. Neutral defaults; no DEF CON 34 in the platform
 
@@ -577,7 +583,11 @@ already published. The check-gaming exposure decision 17 guarded against
 is accepted as a trade-off rather than treated as a blocker.
 
 **Consequences.** All six targets score out of the box; `event.yaml` can
-name any subset. Points come from `catalogue.<target>.json`'s `difficulty`
+name any subset.
+
+*Amended 2026-09-11 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `event.yaml` no longer names the subset — config v2 PR 2 made `modules.secure-development.targets` inert in every reader. Provisioning (`ctf-setup.sh org`) forks all six unconditionally, and which of the six an event actually serves is a runtime `/admin` → Secure Development → Targets setting instead, defaulting to all six. What this decision settles is unaffected: all six targets score `0 / N` unpatched, and the rubric ships public.*
+
+Points come from `catalogue.<target>.json`'s `difficulty`
 rather than a YAML `points:` field, so the price list has one source.
 Challenge ids are the catalogue key lowercased — the keys are CamelCase
 and all 321 fail `RUBRIC_ID`, while lowercasing collides on none.
@@ -990,6 +1000,8 @@ while `sync` and `ctf-setup.sh` treat it as a valid config with nothing
 enabled. That asymmetry is safe in the direction it points — the strict
 reader fails loudly at build time, it does not silently provision less — but
 it is the known gap to close if the corpus is ever extended to all three.
+
+*Amended 2026-09-11 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386) (config v2 PR 2): the corpus WAS extended to all three, and the reader lineup changed shape on the way. `apps/web/scripts/__tests__/generate-event-config.test.ts` now runs this same corpus through the app's reader, in its own differential suite, with a `KNOWN_DIVERGENCES` set for exactly the one asymmetry this paragraph names (the empty-`modules:` case) — so "not in that corpus" is no longer true. `sync/test/module-readers.differential.test.js`, on the other hand, is GONE: it existed to pin that `sync`'s reader extracted the same `secure-development.targets` list as bash's, and once neither reader treated that key as authoritative any more there was nothing left for it to differentially assert (`sync`'s module-KEY accept/reject logic is unchanged and still agrees with the other two, just no longer proven against this corpus by name). Net effect: two test files, not three, still cover three readers.*
 
 ## ADR 25. Building a leaderboard with no scoring backend
 
@@ -2856,6 +2868,8 @@ and no explanation.
 - **Disabling is refused too**, not only enabling. The scorer would keep
   ingesting scores for a module contestants can no longer see, which is worse
   than either end state.
+
+*Amended 2026-09-11 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386) (config v2 PR 2): the second bullet's "provisioning input" is no longer accurate either — `ctf-setup.sh org` forks all six `targets.tsv` targets unconditionally now, reading nothing from `event.yaml` to decide which. Which of the six an event actually serves to contestants (and which the sync poller reads) is a THIRD thing, alongside module enablement and target provisioning, that moved to a runtime `/admin` → Secure Development → Targets setting (`secureDevTargets`) — see [docs/operations.md](operations.md#targets). The first and third bullets are otherwise unaffected: the module still has no services running when disabled, and disabling is still refused.*
 
 The panel shows its row with the reason on it rather than hiding the control or
 leaving one that always errors.
