@@ -96,14 +96,16 @@ variable "acm_certificate_arn" {
 
 // --- what this event runs --------------------------------------------------
 
-variable "event_yaml_b64" {
-  description = "base64 of event.yaml. BAKED INTO THE APP IMAGE at build time, not read here — deploy.sh passes it to the build. Kept as a required input so the module refuses to describe a stack whose image was built without it."
+variable "github_org" {
+  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal: the app falls back to bare repo names, but sync (when it runs) refuses to start without one."
   type        = string
+  default     = ""
+}
 
-  validation {
-    condition     = length(var.event_yaml_b64) > 0
-    error_message = "event_yaml_b64 is required: an app image built without it silently has an empty admins list, so /admin 403s for everyone (see AGENTS.md)."
-  }
+variable "admin_logins" {
+  description = "Comma-separated GitHub logins allowed into /admin. Read by the app at runtime (config v2, #386) — mirrored into the app task definition like scorer_image. Empty means nobody can open /admin."
+  type        = string
+  default     = ""
 }
 
 variable "enable_secure_development" {

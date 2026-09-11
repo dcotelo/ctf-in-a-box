@@ -215,6 +215,11 @@ resource "aws_ecs_task_definition" "app" {
       // and that is the ONLY module enabled before an organizer switches
       // others on in /admin (issue #386).
       { name = "SCORE_IMAGE", value = var.enable_secure_development ? var.scorer_image : "" },
+      // Config v2 (#386): no build-time bake. The app reads these from its
+      // own environment now, plain (non-secret) values, the same way
+      // SCORE_IMAGE travels above.
+      { name = "GITHUB_ORG", value = var.github_org },
+      { name = "ADMIN_LOGINS", value = var.admin_logins },
     ]
 
     secrets = local.app_secrets
@@ -320,6 +325,9 @@ resource "aws_ecs_task_definition" "sync" {
 
     environment = [
       { name = "UPSTASH_REDIS_REST_URL", value = local.upstash_url },
+      // sync refuses to start without this (sync/src/config.js) — it decides
+      // which org's PRs it polls, unlike the app's fallback to bare repo names.
+      { name = "GITHUB_ORG", value = var.github_org },
     ]
 
     secrets          = local.worker_secrets

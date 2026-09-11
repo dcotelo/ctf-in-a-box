@@ -1,6 +1,6 @@
 # Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
 #
-# Only three inputs have no default: domain, event_yaml_b64 and app_image.
+# Only two inputs have no default: domain and app_image.
 # Everything below them is optional and shown at its default.
 
 region = "us-east-1"
@@ -15,15 +15,6 @@ name = "owasp-ctf"
 # The event's public hostname. Required, not optional: the session cookie is
 # Secure, so there is no working HTTP mode to fall back to.
 domain = "ctf.example.org"
-
-# base64 of your event.yaml. NOT a secret — it is the public event config.
-#   event_yaml_b64 = filebase64("../../event.yaml")
-#
-# Terraform does not read this to configure anything: the app bakes event.yaml
-# into its IMAGE at build time, which deploy.sh does. It is a required input so
-# the module refuses to describe a stack whose image was built without one —
-# that build produces an empty admins list and /admin 403s for everyone.
-event_yaml_b64 = ""
 
 # The app image ECS runs. deploy.sh writes the real value into
 # image.auto.tfvars (Terraform loads it automatically), so you do not maintain
@@ -49,6 +40,17 @@ route53_zone_id     = ""
 acm_certificate_arn = ""
 
 # --- what this event runs ----------------------------------------------------
+
+# The GitHub org the target forks live in. Read by the app (and by sync, when
+# it runs) at runtime — this is the `.env`-equivalent of GITHUB_ORG for the
+# wizard-driven path. Empty falls back to bare repo names for the app; sync
+# refuses to start without one.
+# github_org = "your-event-org"
+
+# Comma-separated GitHub logins allowed into /admin. Read by the app at
+# runtime — the `.env`-equivalent of ADMIN_LOGINS. Empty means nobody can
+# open /admin.
+# admin_logins = "octocat,defunkt"
 
 # false for a quiz-only or classic-only event: no scorer, no sync, no GitHub.
 # Same rule as the compose profiles.

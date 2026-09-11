@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 #
-# Build the app image with event.yaml baked in, push it to this module's ECR
-# repository, and hand Terraform the tag to run.
+# Build the app image, push it to this module's ECR repository, and hand
+# Terraform the tag to run.
 #
-# Terraform cannot build an image, and the app's `event.yaml` is baked at BUILD
-# time via `EVENT_CONFIG_B64` — an unset arg silently yields an empty `admins`
-# list (so /admin 403s for everyone) and neutral branding. On the old EC2 box
-# that bake happened on the instance at bring-up; on Fargate the image is
-# prebuilt, so the bake moves into the deploy. That is what this script owns.
+# Terraform cannot build an image, so a deploy is always two steps: this
+# script builds and pushes; `terraform apply` (or `--apply` below) rolls it
+# out. Config v2 (#386) removed the app's build-time config entirely — it
+# reads GITHUB_ORG and ADMIN_LOGINS from its environment at runtime now
+# (ecs.tf's app container definition), so this script has nothing left to
+# bake and no file to require.
 #
-# The tag is CONTENT-ADDRESSED: `<revision>-<config-hash>`. ECR here is
+# The tag is CONTENT-ADDRESSED to the revision that built it. ECR here is
 # `IMMUTABLE` (registry.tf says why), so re-pushing a tag is an error rather
 # than an overwrite — and with a content-addressed tag that error only ever
 # means "nothing changed", which this script reports and skips instead of
-# failing. Same code plus same config produces the same tag, every time.
+# failing. Same code produces the same tag, every time.
 #
 # The tag reaches Terraform through `image.auto.tfvars`, which Terraform loads
 # on its own and .gitignore excludes. `terraform.tfvars` stays yours: this
-# script never edits it, so a deploy cannot quietly rewrite your event config.
+# script never edits it.
 #
 # --dry-run prints every docker/aws/terraform command and runs NONE of them,
 # with secret values redacted — deploy/fly/deploy.sh printed them in full once,
@@ -31,24 +32,20 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 DRY_RUN=""
 SKIP_BUILD=""
 APPLY=""
-CONFIG="$ROOT/event.yaml"
 
 usage() {
   cat <<'EOT'
 usage: deploy/aws-terraform/deploy.sh [--dry-run] [--skip-build] [--apply]
-                                      [--config path/to/event.yaml]
 
-Builds the app image with event.yaml baked in, pushes it to the ECR repository
-this module created, and writes the resulting tag to image.auto.tfvars.
+Builds the app image, pushes it to the ECR repository this module created,
+and writes the resulting tag to image.auto.tfvars.
 
 --apply      also runs `terraform apply` once the image is pushed. Without it
              the script stops after writing image.auto.tfvars and prints the
              command to run.
---skip-build reuses the image already in ECR for this revision and config.
-             Refused when that tag is not there yet — there would be nothing
-             to deploy.
+--skip-build reuses the image already in ECR for this revision. Refused when
+             that tag is not there yet — there would be nothing to deploy.
 --dry-run    prints every command and makes none of them. Secrets redacted.
---config     path to event.yaml. Defaults to the repo root's.
 
 Requires an applied stack: the ECR URL and region come from `terraform output`,
 so the script never duplicates configuration that already lives in state.
@@ -69,10 +66,6 @@ while [ $# -gt 0 ]; do
     APPLY=1
     shift
     ;;
-  --config)
-    CONFIG="${2:-}"
-    shift 2
-    ;;
   -h | --help)
     usage
     exit 0
@@ -87,14 +80,13 @@ done
 
 # Every external call goes through `run`, so --dry-run cannot leak a real one.
 # Anything that looks like a secret is redacted in the printed form: a dry run
-# exists to be pasted into a terminal or a review, and the build arg below
-# carries the entire event config.
+# exists to be pasted into a terminal or a review.
 redacted() {
   local out=""
   local arg=""
   for arg in "$@"; do
     case "$arg" in
-    EVENT_CONFIG_B64=* | *SECRET* | *TOKEN* | *PASSWORD*)
+    *SECRET* | *TOKEN* | *PASSWORD*)
       out="$out ${arg%%=*}=<redacted>"
       ;;
     *) out="$out $arg" ;;
@@ -122,33 +114,9 @@ need docker "build and push the app image"
 need aws "log in to ECR and read the stack's outputs"
 need terraform "read the stack's outputs"
 
-# --- the config bake ---------------------------------------------------------
-#
-# Refused rather than defaulted. This path still bakes the file, and a missing
-# one produces an image with no admins and generic branding — a failure that
-# surfaces hours later as "/admin 403s for everyone", the most expensive
-# mistake this kit has.
-#
-# Config v2 (#386) has already deleted the file and its example from the repo:
-# the app takes GITHUB_ORG and ADMIN_LOGINS from the environment now, and this
-# module's bake is removed in part 6 together with its plan test. Until then
-# this path needs a config file you supply yourself, so the refusal names that
-# constraint instead of an example file that no longer exists.
-if [ ! -f "$CONFIG" ]; then
-  echo "FAIL: no event config at $CONFIG" >&2
-  echo "      This deploy path still bakes one into the app image; without it" >&2
-  echo "      the image ships an empty admins list and neutral branding." >&2
-  echo "      The file is gone from the repo as of #386 and this module moves" >&2
-  echo "      to .env in part 6 — until then, pass --config with your own copy" >&2
-  echo "      and do not deploy from this branch between parts 5 and 6." >&2
-  exit 1
-fi
-
-EVENT_CONFIG_B64="$(base64 < "$CONFIG" | tr -d '\n')"
-
-# Content address: the revision that built it, plus a hash of the config baked
-# into it. The config half matters — two images from one commit differ when the
-# event changes, and a tag that ignored that would name the wrong one.
+# Content address: the revision that built it. Two images from one commit are
+# identical now that the app takes no build-time config, so the revision alone
+# names the image.
 if REV="$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null)"; then
   if [ -n "$(git -C "$ROOT" status --porcelain -- apps/web 2>/dev/null)" ]; then
     # Scoped to apps/web, for the reason deploy/fly/deploy.sh gives: the image
@@ -160,13 +128,7 @@ else
   REV="nogit"
 fi
 
-if command -v shasum > /dev/null 2>&1; then
-  CONFIG_HASH="$(shasum -a 256 "$CONFIG" | cut -c1-8)"
-else
-  CONFIG_HASH="$(sha256sum "$CONFIG" | cut -c1-8)"
-fi
-
-TAG="${REV}-${CONFIG_HASH}"
+TAG="$REV"
 
 # --- where it goes -----------------------------------------------------------
 #
@@ -199,7 +161,6 @@ REPO_NAME="${REPO_URL##*/}"
 IMAGE="${REPO_URL}:${TAG}"
 
 echo "=> app image  $IMAGE"
-echo "   config     $CONFIG ($CONFIG_HASH)"
 echo "   revision   $REV"
 
 # --- is it already there? ----------------------------------------------------
@@ -219,20 +180,19 @@ fi
 
 if [ -n "$SKIP_BUILD" ] && [ -z "$ALREADY" ] && [ -z "$DRY_RUN" ]; then
   echo "FAIL: --skip-build, but $TAG is not in ECR yet — nothing to deploy." >&2
-  echo "      That tag is derived from this revision and this event.yaml, so" >&2
-  echo "      the image for them has never been built. Drop --skip-build." >&2
+  echo "      That tag is derived from this revision, so the image for it has" >&2
+  echo "      never been built. Drop --skip-build." >&2
   exit 1
 fi
 
 if [ -n "$ALREADY" ]; then
-  echo "   ECR already has $TAG — same revision, same config. Skipping build."
+  echo "   ECR already has $TAG — same revision. Skipping build."
 elif [ -n "$SKIP_BUILD" ]; then
   echo "   --skip-build: assuming $TAG is present"
 else
   echo "=> building"
   run docker build \
     --file "$ROOT/apps/web/Dockerfile" \
-    --build-arg "EVENT_CONFIG_B64=$EVENT_CONFIG_B64" \
     --build-arg "APP_BUILD_REV=$REV" \
     --build-arg "APP_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --tag "$IMAGE" \

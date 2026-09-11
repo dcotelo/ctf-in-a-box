@@ -116,10 +116,11 @@ mock_provider "random" {
 variables {
   domain          = "ctf.example.org"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
-  event_yaml_b64  = "ZXZlbnQ6CiAgbmFtZTogVGVzdAo="
   app_image       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/owasp-ctf-app:v1"
   scorer_image    = "ghcr.io/example/scorer:v1"
   sync_image      = "ghcr.io/example/sync:v1"
+  github_org      = "owasp-ctf-test"
+  admin_logins    = "octocat,defunkt"
 }
 
 // --- the input contracts, each one refused at PLAN time --------------------
@@ -225,6 +226,34 @@ run "secure_development_event_runs_scorer_and_sync" {
     ])
     error_message = "app container must receive SCORE_IMAGE so the default module set matches the deployment"
   }
+
+  // Config v2 (#386): no build-time bake. GITHUB_ORG and ADMIN_LOGINS are
+  // runtime environment reads, mirrored into the task definitions like
+  // SCORE_IMAGE above — this is the assertion `terraform validate` cannot
+  // make on its own, since it never inspects the rendered container JSON.
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "GITHUB_ORG" && e.value == var.github_org
+    ])
+    error_message = "app container must receive GITHUB_ORG, or forks resolve to bare repo names."
+  }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "ADMIN_LOGINS" && e.value == var.admin_logins
+    ])
+    error_message = "app container must receive ADMIN_LOGINS, or /admin 403s for everyone."
+  }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.sync[0].container_definitions)[0].environment :
+      e.name == "GITHUB_ORG" && e.value == var.github_org
+    ])
+    error_message = "sync container must receive GITHUB_ORG too — sync/src/config.js refuses to start without one."
+  }
 }
 
 // Final-review finding #3 (issue #386): the app must never receive a
@@ -306,18 +335,6 @@ run "a_floating_srh_tag_is_refused" {
   }
 
   expect_failures = [var.srh_image]
-}
-
-run "a_missing_event_config_is_refused" {
-  command = plan
-
-  variables {
-    event_yaml_b64 = ""
-  }
-
-  // An app image built without it silently has an empty admins list, so
-  // /admin 403s for everyone. Failing here beats discovering that at the door.
-  expect_failures = [var.event_yaml_b64]
 }
 
 run "snapshots_cannot_be_turned_off" {

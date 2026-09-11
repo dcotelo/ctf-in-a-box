@@ -80,13 +80,13 @@ that step 3's secrets are encrypted with. One targeted apply creates both.
 
 ```sh
 cd deploy/aws-terraform
-cp terraform.tfvars.example terraform.tfvars    # edit: domain, event_yaml_b64
+cp terraform.tfvars.example terraform.tfvars    # edit: domain, github_org, admin_logins
 terraform init
 terraform apply \
   -target=aws_ecr_repository.main \
   -target=aws_kms_alias.secrets                 # the registry and the secrets key
 #   ... now store the secrets (step 3), with --key-id ...
-./deploy.sh                                     # build with event.yaml baked in, push
+./deploy.sh                                     # build, push
 terraform apply                                 # the rest of the stack
 ```
 
@@ -103,16 +103,17 @@ generates for you, the ALB with its ACM certificate, the ECR repository, and the
 Fargate services for whichever modules this event runs — a quiz-only event
 brings up no scorer and no poller, the same rule as the compose profiles.
 
-**`deploy.sh` owns the config bake, and Terraform cannot.** The app image bakes
-`event.yaml` at build time through `EVENT_CONFIG_B64`; an image built without it
-ships an empty `admins` list, so `/admin` 403s for everyone and the branding
-goes generic. On the EC2 box that bake happened on the instance at bring-up; ECS
-pulls a prebuilt image, so it becomes a step of the deploy.
+**`deploy.sh` builds and pushes the image; Terraform cannot.** The app takes no
+build-time configuration at all (config v2, #386): `github_org` and
+`admin_logins` are two Terraform variables, set in `terraform.tfvars` — this
+path's equivalent of the wizard's `.env` — and mirrored into the app's
+task-definition environment the same way `scorer_image` is. Change either and
+`terraform apply` rolls it out; nothing has to be rebuilt or repushed.
 
-The tag is content-addressed — revision plus a hash of the config — and ECR is
-set to immutable tags, so re-running with nothing changed reports "already
-there" and skips the build instead of failing. `./deploy.sh --dry-run` prints
-every command and runs none of them.
+The image tag is content-addressed to the git revision, and ECR is set to
+immutable tags, so re-running with nothing changed reports "already there" and
+skips the build instead of failing. `./deploy.sh --dry-run` prints every
+command and runs none of them.
 
 Watch a rollout:
 
