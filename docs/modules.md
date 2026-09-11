@@ -37,126 +37,95 @@ module (forensics, api-security, cloud, …) must satisfy to plug in, with
 module that actually exercises the GitHub-mediated scoring contract (§2–3,
 §6–8) that `quiz` and `classic` deliberately bypass.
 
-The platform sections of `event.yaml` (`event`, `github`, `admins`) are
-shared (there is deliberately no `teams:` or `hints:` block — see ADR 31's
-amendment; both are `/admin` runtime knobs). Everything module-specific — target list, challenge
-catalogue, scoring transport — lives under `modules.<name>`. For the
+There is no event configuration file. The platform's own bootstrap facts
+(`GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `EVENT_URL`) live in `.env`, and
+everything an organizer changes — which modules run, what a module's content
+is, hints, teams — lives in the `ctf:admin:settings` hash behind `/admin`
+([ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)).
+A module therefore has no config-file namespace of its own to claim; what it
+needs from an organizer it asks for in the panel. For the
 higher-level split of what the control plane owns versus what a module
 supplies, see the [platform-and-modules table](architecture.md#platform-and-modules);
 the sections below are the enforceable contract behind it.
 
-## Section 1. Module identity & config block
+## Section 1. Module identity & registration
 
-1. MUST be registered in the three known-module lists item 3 describes below,
-   the ones `scripts/check-module-registries.mjs` compares — that
-   registration is what makes a module id valid platform-wide, independent of
-   any `event.yaml` content. A module MAY ALSO carry setup-time configuration
-   under a kebab-case key in `event.yaml`'s top-level `modules:` map, but
-   only when it has setup-time configuration to hold: in this release only
-   `secure-development` does, and only one field —
-   `score_ingest` (poll/push, the ingest transport that must be picked before
-   the boxes come up). `quiz`, `classic` and `ai` have no setup-time settings
-   at all, and so no block. Example, `secure-development`'s block
-   (`event.yaml.example`):
+1. MUST be registered as a `ModuleId` in `apps/web/src/lib/modules.ts` — the
+   union and the registry beside it are the whole list of module ids the
+   platform knows. That registration is what makes an id valid platform-wide,
+   and it is the only place an id is declared: **there is no config-file
+   namespace** a module can appear under, no `modules:` map, and no `enabled:`
+   key for a module to invent (#386). A module MUST NOT expect one.
 
-   ```yaml
-   modules:
-     secure-development:
-       score_ingest: poll             # poll | push
-   ```
-
-   `secure-development` used to carry a second field here, `targets` — which
-   of the six vulnerable apps the event runs. Config v2 (#386 PR 2) moved
-   that to a *runtime* `/admin` → Secure Development → Targets setting
-   (`secureDevTargets` in `ctf:admin:settings`, read per request by the app
-   and per tick by the sync poller — see
-   [docs/operations.md](operations.md#targets)); provisioning
-   (`ctf-setup.sh org`) forks all six of `setup/targets.tsv` unconditionally
-   now, regardless of that setting. A `targets:` key under
-   `secure-development` is still accepted in the file — in any shape, absent,
-   empty, a scalar, an unknown id — but all three readers ignore it.
+   A module that needs a setup-time fact — something the containers must know
+   before they can start — asks for an `.env` key, and the kit has exactly one
+   such module-owned key today: `SCORE_IMAGE`, whose non-emptiness *is*
+   `secure-development`'s "this deployment runs me" answer (§1.2 below and
+   [docs/hosting.md](hosting.md#the-four-bootstrap-keys)). Anything an
+   organizer might change mid-event is a runtime `/admin` setting instead, not
+   an env key. `quiz`, `classic` and `ai` need no bootstrap key at all.
 
 2. MUST be **runtime-toggleable**, like every other module. Organizers switch
    modules on and off from `/admin` during an event, and the live set lives in
    `ctf:admin:settings`
    ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
-   amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386)). The
-   deployment's starting set and its outage fallback are the
-   `SCORE_IMAGE`-derived default — secure-development alone when a scorer
-   image exists, nothing when it does not — not anything read from
-   `event.yaml`. The `modules:` block from item 1, where a module has one,
-   holds setup-time configuration only; it does not enable or disable
-   anything.
+   superseded by
+   [ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)).
+   The deployment's starting set and its outage fallback are the
+   `SCORE_IMAGE`-derived default — `secure-development` alone when a scorer
+   image exists, nothing when it does not. Nothing is read from a file, and
+   nothing is baked into an image.
 
    A module whose services are **profile-gated** — chosen once, when the
    stack comes up, not when a switch is flipped (`docker-compose.yml`
-   profiles; `secure-development`'s `scorer` and `sync`) — MUST expose that
-   availability fact to the app as a runtime env var (`SCORE_IMAGE` is the
-   worked example) and refuse enabling when it is absent, with the reason,
-   in both the panel and the server. `secure-development` is the worked
-   example; `quiz`, `classic` and `ai` need no such env var, since their
-   routes, nav entries and tabs ship in every `app` image regardless.
+   profiles; `secure-development`'s `scorer` and `sync` under `secdev`) — MUST
+   expose that availability fact to the app as a runtime env var (`SCORE_IMAGE`
+   is the worked example) and refuse enabling when it is absent, with the
+   reason, in both the panel and the server. `quiz`, `classic` and `ai` need no
+   such env var, since their routes, nav entries and tabs ship in every `app`
+   image regardless.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.
 
-3. MUST NOT expect dynamic/plugin-style registration in v1. **Three**
-   independent readers parse the same `event.yaml`, and each enumerates the
-   module keys it knows explicitly, failing on anything else: the poll
-   service's config loader (`sync/src/config.js`), the app's build-time
-   generator (`apps/web/scripts/generate-event-config.mjs`), and the
-   provisioning script (`setup/ctf-setup.sh`, whose `KNOWN_MODULES` is
-   enforced by `check_known_modules`). In `sync`:
+3. MUST NOT expect dynamic/plugin-style registration in v1. Registration is
+   deliberate: a module id exists because the kit ships code for it, and adding
+   one means editing that code. This is a v1 constraint, not a permanent
+   architectural stance.
 
-   ```js
-   export const KNOWN_MODULES = ["secure-development", "quiz", "classic", "ai"];
-   const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
-   if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
-   ```
-
-   An organizer who writes `modules.forensics: {...}` today gets a loud
-   startup failure (`sync/test/config.test.js`, "rejects unknown module
-   key"), not a silently ignored block. Note what `KNOWN_MODULES` means:
-   the ids `sync` *tolerates* in the file, not the ids it scores — it scores
-   exactly one, the separate `MODULE` literal. **An unknown key and a
-   missing module are not the same failure.** `sync` rejects the former
-   (any key outside `KNOWN_MODULES`, or `modules:` absent entirely) but
-   tolerates the latter: `if (!mod) return null;` when
-   `modules.secure-development` itself is simply not configured, which is
-   what lets a quiz-only event run `sync` to a clean exit instead of a
-   crash loop (see [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
-   for why the line is drawn there). All three lists MUST stay in step,
-   because all three read the same file: an id the app accepts and `sync`
-   rejects crash-loops the poller and silently freezes the leaderboard, and
-   an id the app and `sync` accept but `ctf-setup.sh` does not aborts
-   provisioning outright.
-
-   Adding a module means extending all three readers to recognize the new
-   key and, if it carries setup-time settings of its own, validate their
-   shape the way `secure-development`'s block once validated a non-empty
-   `targets` array drawn from a known target enum — that validation is gone
-   now (config v2, #386 PR 2: no reader treats `targets:` as authoritative
-   any more, so none of them enforce a shape on it), but a module that adds a
-   *real* setup-time field should still fail loudly on a bad one the way that
-   field used to. What `setup/ctf-setup.sh` needs is the new key in its
-   `KNOWN_MODULES` mirror (`check_known_modules`/`has_module`), for the same
-   missing-vs-unknown distinction `sync` draws — see §7 below for what it
-   gates. A module with its own provisioning (forks, GitHub Apps, anything
-   `ctf-setup.sh` must do before the event) adds its own step there, the way
+   What a new module has to touch depends on how far into the platform it
+   reaches. A purely app-side module (`quiz`, `classic`, `ai`) is the app
+   registry and nothing else — neither `sync` nor `setup/ctf-setup.sh` knows
+   those ids exist, and neither needs to. A module with **provisioning** of its
+   own (forks, GitHub Apps, package grants — anything `ctf-setup.sh` must do
+   before the event) adds its own step to that script, the way
    `secure-development`'s per-target fork loop (`all_targets()`, unconditional
-   now — see item 1 above) does. Registration is deliberate, not dynamic;
-   this is a v1 constraint, not a permanent architectural stance.
+   since #386) does. A module with **targets** duplicates its target list the
+   way `secure-development` does, and `scripts/check-module-registries.mjs` is
+   what keeps the copies honest: it parses the three independently-maintained
+   lists — `sync/src/config.js`'s `TARGETS`, `apps/web/src/lib/apps.ts`'s
+   `AppId` union, and the names in `scorer/src/targets.js` — and fails if any
+   two disagree. It is a check, never a generator (ADR 10, amended by ADR 55:
+   the *registration* stays deliberate and duplicated; only the *selection*
+   moved to runtime). A target list that disagrees across those three is the
+   failure the check exists to catch: an id the app renders and `sync` does not
+   poll is a challenge nobody can ever score.
 
-   A module's presence under `modules:` configures it; it does not enable it
-   (#386). There is no `enabled:` key — a module MUST NOT invent one.
+4. Which of a module's **targets or content items are live** is a runtime
+   `/admin` setting, never a setup-time one. `secure-development` is the worked
+   example: `ctf-setup.sh org` forks and provisions all six of
+   `setup/targets.tsv` unconditionally, and `secureDevTargets` in
+   `ctf:admin:settings` picks the subset contestants actually see — read per
+   request by the app and per tick by the sync poller (see
+   [docs/operations.md](operations.md#targets)). Points already banked on a
+   target later removed from the list keep counting; removing a target hides a
+   board, it does not rewrite history.
 
-4. A module's config block is free to define its own shape. Note that in v1
-   `score_ingest` is documentation-of-intent inside `event.yaml` — neither
-   reader acts on it. The actual poll/push switch is the separate
-   `SCORE_INGEST` env var consumed by `docker-compose.yml` and the Caddy
-   profile. A module MUST keep any such config-file fields and the runtime
-   env vars that actually implement them in sync until the loader is
-   extended to read them.
+   The ingest transport is the one thing still chosen before the boxes come up,
+   and it is an `.env` key (`SCORE_INGEST`, `poll` or `push`) read by
+   `docker-compose.yml` and the Caddy profile — one declaration, no second copy
+   to drift (#372/#374). A module MUST NOT add a second knob that has to agree
+   with an existing one.
 
 5. MUST state whether it is **Archivable**: whether its content is wholly
    self-contained in Redis, and therefore carried whole by the whole-event
@@ -314,8 +283,10 @@ but never the launch keypair); the remaining gap is narrower — the AI tab has
 no bundle button of its own, so a board is moved through the archive rather
 than a per-module export. See [docs/ai-module.md](ai-module.md) for what an external
 challenge site must implement to integrate with it. An id outside the
-registry still fails the build loudly (`generate-event-config.mjs`'s
-`validateModules`, mirrored by `sync/src/config.js`'s `KNOWN_MODULES` check).
+registry is rejected wherever it is offered: the `/admin` settings route
+validates `enabledModules` against `ALL_MODULE_IDS` and answers an unknown id
+with an `AdminValidationError`, and `isModuleId` guards every other read, so
+a stray id can never turn into a half-enabled module.
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
@@ -411,13 +382,13 @@ third module isn't mistaken for a fully general n-module platform:
   third board.
 - **`sync` still doesn't score anything for `quiz` or `classic`, by design,
   not as a gap.**
-  `sync/src/config.js`'s `KNOWN_MODULES` tolerates both keys purely so an
-  `event.yaml` the app builds from can't crash-loop the poller (the two
-  services mount the same file); `sync` still scores `secure-development`
+  `sync` has no notion of those ids at all — since config v2 (#386) it reads
+  `.env` plus the Secure Development target list in `ctf:admin:settings`, and
+  nothing else; it scores `secure-development`
   alone, because neither app-side module ever produces a score for GitHub to
   relay in the
   first place — both grade server-side inside the app's own Redis keys (see
-  the architecture doc). Per-module `score_ingest`/rubric plumbing was for a
+  the architecture doc). Per-module ingest/rubric plumbing was for a
   module that needs scorer-mediated scoring; `quiz` and `classic` are proof
   one doesn't
   always need it, not evidence that plumbing is still missing.
@@ -753,7 +724,7 @@ of one module's shape.
    experience in the module; the minimum an organizer must do before the
    event, as an ordered checklist in dependency order; on every step, whether
    it happens **in this panel** or **outside it** (`ctf-setup.sh`, the GitHub
-   org, `event.yaml`); what is safe to change mid-event and what is not; and
+   org, `.env`); what is safe to change mid-event and what is not; and
    a link to the module's section of [operations.md](operations.md).
 
    A step may declare a `check` naming a count the module's own admin panel
@@ -844,8 +815,8 @@ gets to skip sections that apply to it.
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):
 
 1. **Fork** each of the six `targets.tsv` targets into the event org,
-   unconditionally (config v2, #386 PR 2: provisioning no longer reads a
-   subset from `event.yaml` — which targets contestants actually see is
+   unconditionally (config v2, #386: provisioning reads no subset from
+   anywhere — which targets contestants actually see is
    chosen afterward, at runtime, in `/admin`)
    (`gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name" --clone=false`).
 
@@ -936,17 +907,16 @@ build-time vendoring step first). Until then, a new module `<name>` with target
 
 | File | What to add |
 |---|---|
-| `sync/src/config.js` | add `<name>` to `KNOWN_MODULES`; add `<t>` to `TARGETS` + `REPO_NAMES` |
-| `apps/web/scripts/generate-event-config.mjs` | mirror the module-key + target validation |
+| `sync/src/config.js` | add `<t>` to `TARGETS` + `REPO_NAMES` (sync has no module list — see §1.3) |
 | `apps/web/src/lib/modules.ts` | register the module's display name / description |
 | `apps/web/src/lib/apps.ts` | add `<t>` to `AppId` / `REPO_NAMES` / `apps[]` |
 | `scorer/src/targets.js` | add `<t>`'s scoring shape (`name` / `catalogueFile` / `byName` / `defaultConcurrency` / `urlEnv`) |
 | `scorer/entrypoints/<t>.sh` | the target's bring-up |
 | `scorer/rubric.owasp/<t>/` | the vendored rubric, with its catalogue at `tests/challenges/catalogue.<t>.json` |
-| `setup/ctf-setup.sh` | add `<name>` to `KNOWN_MODULES` |
+| `setup/ctf-setup.sh` | the module's own provisioning step, if it has one (§7) |
 | `apps/web/src/lib/metrics-store.ts` | add `<name>` to the per-login read list, the `earnedRows` fold and the `modules` split, or Insights reports nothing for it (§10.4) |
 | `apps/web/src/lib/activity-keys.ts` | add a `<name>-solve` type and call `logActivity` from the module's submit route on FRESH solves only (id in `detail`, never the answer), or the admin Activity tab never sees the module |
-| `event.yaml.example` + README target table | document the target |
+| README target table + [docs/operations.md](operations.md) | document the target for organizers |
 
 Parity guards catch the most common drift: `scorer/test/targets.test.js`
 (targets.js ↔ entrypoints ↔ rubric dirs) and `apps/web` `apps.test.ts` /
@@ -962,9 +932,6 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 
 | File | What it added |
 |---|---|
-| `sync/src/config.js` | add `classic` to `KNOWN_MODULES` (tolerated so the shared `event.yaml` can't crash-loop the poller; `classic` never produces a score for `sync` to relay — §2) |
-| `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
-| `setup/ctf-setup.sh` | recognise the `classic` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz` (§7) |
 | `apps/web/src/lib/classic-keys.ts` | key names/builders, the flag comparison forms (`normalizeFlag`, `caseSensitiveFlagForm`, `flagComparisonForm`), challenge-id generation — dependency-free, shared by the client-side admin form and the server-only store |
 | `apps/web/src/lib/classic-store.ts` | the module's own `ctf:classic:*` Redis store, its atomic flag-grading Lua script, and the admin/contestant secrecy split |
 | `apps/web/src/lib/markdown.ts` + `apps/web/src/components/markdown.tsx` | the restricted Markdown parser and its node-tree-to-React renderer for challenge descriptions |
@@ -973,7 +940,7 @@ different, smaller set of files, since none of `scorer/`'s rows apply and
 | `apps/web/src/components/admin-classic-controls.tsx` | the organizer's cooldown knob, category manager, and challenge authoring UI |
 | `apps/web/src/lib/leaderboard/module-contributions.ts` + `apps/web/src/lib/leaderboard/team-fold.ts` | the leaderboard overlay (points added, never attributed) and the union-by-item team dedupe it shares with `quiz` |
 | `apps/web/src/lib/modules.ts` | register display name/description/nav plus the `home`/`guide`/`rules`/`faq`/`terms`/`routeCard` copy blocks (§5.5–5.7) |
-| `event.yaml.example` + `README.md` | document the module |
+| `README.md` | document the module |
 
 `ai`'s actual footprint in this PR series — a module shaped like `classic`
 (no target, no scorer, app-side grading) but with an external launch step and
@@ -981,9 +948,6 @@ two independent ways to report a solve back:
 
 | File | What it added |
 |---|---|
-| `sync/src/config.js` | add `ai` to `KNOWN_MODULES` (tolerated, same reasoning as `classic` — `ai` never produces a score for `sync` to relay — §2) |
-| `apps/web/scripts/generate-event-config.mjs` | mirror the module-key validation |
-| `setup/ctf-setup.sh` | recognise the `ai` block; `org`/`render`/`doctor` report nothing to provision for it, same as `quiz`/`classic` (§7) |
 | `apps/web/src/lib/ai-keys.ts` | key names/builders, challenge-id generation, the `AiMode` shape, `validateUrlTemplate` — dependency-free, shared by the admin form and the server-only store (`HintTarget` itself lives in `hint-store.ts`, below) |
 | `apps/web/src/lib/ai-defaults.ts` | the module's shared constants (`AI_COOLDOWN_SEC`, …) the server and the admin UI both need, so neither can drift from the other |
 | `apps/web/src/lib/ai-token.ts` | the launch token: EdDSA/Ed25519 signing and verification (`signLaunchToken`), plus the HMAC signing helper for a `mode: "event"` solve report (`signEventBody`) — see [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric) for why the two are different key types |
@@ -1006,7 +970,7 @@ two independent ways to report a solve back:
 | `apps/web/src/lib/demo-fixture.ts` | demo seed data for the `ai` board, gated the same way `quiz`'s and `classic`'s are — a disabled `ai` module leaves the seed byte-for-byte identical to pre-`ai` behavior |
 | `apps/web/src/lib/modules.ts` | register display name/description/nav plus the `home`/`guide`/`rules`/`faq`/`terms`/`routeCard` copy blocks (§5.5–5.7) |
 | `docs/decisions.md` | [ADR 53](decisions.md#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric) — why the launch token is asymmetric while event signatures stay symmetric |
-| `docs/ai-module.md` + `event.yaml.example` + `README.md` | the external integrator's contract, and documenting the module for organizers |
+| `docs/ai-module.md` + `README.md` | the external integrator's contract, and documenting the module for organizers |
 
 `ai` has no per-tab bulk import/export button of its own, unlike `quiz` and
 `classic` (§5), but its catalogue does ride the whole-event archive bundle,

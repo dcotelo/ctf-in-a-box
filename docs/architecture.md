@@ -7,7 +7,7 @@ title: Architecture
 # Architecture
 
 What runs where, how a score gets from a contestant's PR to the leaderboard,
-how an organizer's `event.yaml` and admin-panel settings configure the app,
+how `.env` and the admin panel configure the app,
 and what the security model actually rests on. For *why* these choices were made instead
 of alternatives, see [docs/decisions.md](decisions.md). For the contract a
 new CTF vertical must satisfy, see [docs/modules.md](modules.md). For
@@ -18,8 +18,8 @@ day-to-day operation, see [docs/operations.md](operations.md).
 OWASP CTF is a **control plane** with **modules** plugged into it. The split
 is deliberate: the platform never knows what a challenge *is*, only how a score
 arrives and how a leaderboard renders; a module never re-implements org
-provisioning, teams, ingestion, or ranking. `event.yaml`'s `modules:` map
-accepts more than one registered module id — `secure-development` (targets,
+provisioning, teams, ingestion, or ranking. More than one module can be
+enabled at once — `secure-development` (targets,
 GitHub-mediated scoring, the worked example throughout this doc), `quiz`
 (a self-paced single/multi-select question bank, scored entirely inside the
 app — see [Quiz data flow](#quiz-data-flow) below), `classic` (a
@@ -41,7 +41,7 @@ the registry still fails the build loudly; the boundary is the
 | The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
 | The **admin panel** runtime overrides (freeze, hints, registration, module enablement, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
-| **Event config** schema, top-level (`event.start`/`end`, `github`, `admins`) baked into the app (build-time flow below); the event's identity (name, tagline, location, contact, Discord) is a runtime `/admin` setting instead (#386). | Its `modules.<name>` config block and the loader/validator entry that recognizes it (contract §1). |
+| The **two config planes** (runtime config flow below): the `.env` bootstrap keys every container reads at start, and the `ctf:admin:settings` hash `/admin` writes and every reader re-reads live — including the event's identity, the enabled module set and the Secure Development target list (#386). | Its entry in the static module registry, plus whatever runtime settings it adds to that same hash through the validated settings path (contract §1). |
 
 Everything below — the services, the score data flow, the security model — is
 the platform. Where `secure-development` fills a module slot (its targets, its
@@ -110,11 +110,11 @@ state; everything else that touches scores goes through it.
 | Service | Source | Responsibility |
 |---|---|---|
 | `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. |
-| `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. Event dates are baked in at build time (see below); the event's name and other identity fields, and which Secure Development targets run, are both runtime `/admin` settings instead. |
-| `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["poll", "push"]` — both ingest modes need it, unlike `sync`, which is `["poll"]` only — and a single-module event without `secure-development` never brings it up; see [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules). |
+| `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. It reads nothing at build time: `ADMIN_LOGINS` and `GITHUB_ORG` come from the environment at container start, and the event's dates, name and other identity fields, which modules run and which Secure Development targets run are all runtime `/admin` settings (see below). |
+| `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["secdev", "push"]` — both ingest modes need it, unlike `sync`, which is `["secdev"]` only — and an event with no `SCORE_IMAGE` never brings it up; see [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules), superseded by [ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:8-alpine` (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)), `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
-| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["poll"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag and master-reset epoch every tick and writes a heartbeat (see "Organizer admin panel" below). Tolerates `modules.secure-development` being absent from `event.yaml` (e.g. a quiz-only event): it logs `no polled module enabled, nothing to do` and exits `0` rather than polling anything — `restart: on-failure` (not `unless-stopped`) is what keeps that clean exit from being restarted as if it were a crash. |
+| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["secdev"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag, master-reset epoch and Secure Development target list every tick and writes a heartbeat (see "Organizer admin panel" below). It no longer decides whether it is enabled — the compose profile does, so if the container is up it polls; a missing `GITHUB_ORG` is therefore a genuine misconfiguration and `sync` refuses to start, naming the key, under `restart: on-failure` so the refusal repeats in the log rather than being retried forever as a crash. |
 
 ## Data flow for a score
 
@@ -769,16 +769,15 @@ keys without open-coding the strings.
 
 ## Organizer admin panel (runtime overrides)
 
-`event.yaml`'s `admins` allowlist (checked case-insensitively against the
+`.env`'s `ADMIN_LOGINS` (checked case-insensitively against the
 signed-in GitHub login, `apps/web/src/lib/admin-auth.ts`'s `requireAdmin`)
-gates a small runtime-override layer that sits alongside the build-time
-config above — this one *is* readable/writable while the stack is running,
-without a rebuild:
+gates the runtime-override layer described above — the plane that *is*
+readable and writable while the stack is running, without a restart:
 
 - **`ctf:admin:settings`** (Redis hash, `apps/web/src/lib/admin-store.ts`) —
   two-state `paused` (`"1"` or absent, absent meaning false) and
   `teamRegistrationOpen`, plus a set of **three-state** knobs where a value or
-  its absence means "no override, use the build-time default":
+  its absence means "no override, use the code default":
 
   | field | what it gates |
   | --- | --- |
@@ -829,17 +828,18 @@ without a rebuild:
   which **fails open** (a settings-read error resolves to registry defaults,
   because a wrong display name is cosmetic where a wrong gate decision awards
   points). Since ADR 52 (amended by #386), **which modules are enabled is
-  runtime too**: the Event tab's per-module switches write `enabledModules`
+  runtime too** (and since ADR 55 it is the *only* place they are decided):
+  the Event tab's per-module switches write `enabledModules`
   on this same hash, the `SCORE_IMAGE`-derived default is the starting set
   and the outage fallback (`apps/web/src/lib/enabled-modules.ts`'s
   `getEnabledModuleIds()`), and the title/blurb validation above is checked
   against the *live* set.
 - **`ctf:admin:admins`** (Redis SET, ADR 44) — logins granted admin at
-  runtime, on top of the ones baked into the image from `event.yaml`. A set
+  runtime, on top of the ones `ADMIN_LOGINS` names in `.env`. A set
   rather than a settings field because membership *is* the whole value.
-  **Baked admins are not revocable here**: they are the recovery path if a
+  **Bootstrap admins are not revocable here**: they are the recovery path if a
   runtime grant goes wrong, so no sequence of clicks and no compromised admin
-  session can lock everyone out of `/admin`. `requireAdmin` checks the baked
+  session can lock everyone out of `/admin`. `requireAdmin` checks the env
   list first, without touching Redis, and **fails closed** — an unreachable
   store denies rather than resolving to an empty list.
 
@@ -1068,94 +1068,72 @@ hints come back on. See
 which supersedes the v1 limitation recorded in
 [#19](decisions.md#adr-19-organizer-admin-panel-runtime-override-layer).
 
-## Build-time config flow
+## Runtime config flow
 
-<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram. The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the bake supplies only the event's dates and the admins list, while which modules are enabled, the event's runtime identity, and which Secure Development targets run are all decided at runtime in /admin, not baked; next build statically renders only those baked dates and the admins list — never the event's runtime identity or its Secure Development target list, both of which resolve fresh from ctf:admin:settings on every request. The event's dates are baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields a neutral date range and an empty admins list; the event's identity (name, tagline, location, contact, Discord) and its Secure Development target list are both runtime /admin settings instead (issue #386), never baked.">
+<img src="assets/diagrams/runtime-config-flow.svg" alt="Animated diagram of the two configuration planes an event is built from, with no config file between them. Bootstrap plane: the wizard or the organizer writes GITHUB_ORG, ADMIN_LOGINS, SCORE_IMAGE and EVENT_URL into .env; docker compose up reads them, adding the secdev profile only when SCORE_IMAGE is non-empty; the app, sync and scorer containers read those keys from their process environment once, at start, so changing one is a restart and never a rebuild. Runtime plane: the organizer changes everything else live in /admin — which modules run, which Secure Development targets run, the event's identity, the scoring schedule, hints and team caps — and each change is written to the single ctf:admin:settings hash in Redis, which the app re-reads on every request and the sync poller re-reads on every tick. The app image itself takes no configuration build-arg at all, so the same image runs every event and a build can no longer ship an empty admins list.">
 
-The event's dates and the bootstrap admins allowlist are not runtime config —
-they're baked into the `app` image at build time. Two things are deliberately
-**not** part of this bake, both runtime `ctf:admin:settings` reads instead:
-the event's identity (name, tagline, location, contact e-mail, Discord
-invite), a runtime `/admin` → Event → Identity setting (issue #386), read
-fresh on every request and defaulting to "OWASP CTF" / empty when Redis has
-none stored — see [docs/operations.md](operations.md)'s Event tab section —
-and, since config v2 (#386 PR 2), which of the six Secure Development targets
-the event runs, a runtime `/admin` → Secure Development → Targets setting
-(`secureDevTargets`), read per request by the app and per tick by the sync
-poller, defaulting to all six when nothing is stored — see
-[docs/operations.md](operations.md#targets).
+**No image in this kit takes a configuration build-arg** (config v2, #386).
+Every fact about an event reaches the running system one of exactly two ways.
 
-1. The organizer edits `event.yaml` (see `event.yaml.example`).
-2. `EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n')` is passed as the
-   `EVENT_CONFIG_B64` build arg to `docker compose --profile app build app`
-   (`docker-compose.yml`'s `app.build.args`).
-3. `apps/web/Dockerfile` decodes it: `echo "$EVENT_CONFIG_B64" | base64 -d
-   > /app/event.yaml`, and sets `EVENT_CONFIG=/app/event.yaml` for the
-   build step. An empty/unset build arg skips this — no `event.yaml` is
-   written, and the generator falls through to its next input.
-4. `pnpm build`'s `prebuild` hook runs
-   `apps/web/scripts/generate-event-config.mjs` (also wired to `predev` and
-   `pretest`), which resolves config with priority **`EVENT_CONFIG` yaml
-   file > `EVENT_*` env vars > neutral defaults** — the same
-   unknown-module rejection rule as `sync/src/config.js` (see
-   [decisions.md #13](decisions.md#adr-13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build)).
-   It validates every key under `event.yaml`'s `modules:` map against a fixed
-   set of registered ids (today: `secure-development`, `quiz`, `classic`, `ai`) and
-   emits a structured `modules` array (one entry per registered, enabled id)
-   plus a derived back-compat `targets` array that is always `[]` when built
-   from an `event.yaml` file (config v2, #386 PR 2: the yaml's
-   `secure-development.targets` is inert, kept only so nothing that still
-   destructures the field breaks). `EVENT_TARGETS`, used only for a
-   file-less build, is still read and validated (`validateEnvTargets`) and
-   still fails the build on an unknown target. It writes
-   `apps/web/src/lib/event-config.generated.ts` (gitignored — a typed `const`
-   module) and fails the build loudly (non-zero exit) on invalid input,
-   including an unregistered module id.
-5. `src/lib/event-config.ts` imports the generated module and derives
-   `eventConfig` from it — the event's dates and the admins list are decided
-   here, at build time. `src/lib/apps.ts` is a pure catalogue now (all six
-   targets, unconditionally): it imports `eventConfig` only for `githubOrg`,
-   to build fork links, and no longer derives any build-time enabled subset.
-   Which targets an event actually **serves** is
-   `src/lib/enabled-apps.ts`'s job instead — a per-request filter over that
-   same static catalogue, reading `secureDevTargets` from
-   `ctf:admin:settings` (defaulting to all six), exactly parallel to how
-   `enabled-modules.ts` sits on top of the static module registry. `lib/site.ts`'s
-   `getSite()` ignores `eventConfig`'s own `name`/`theme`/`location`/`contactEmail`/
-   `discordUrl` fields entirely: the event's identity is resolved from
-   `ctf:admin:settings` instead, at request time (#386). Which MODULES are enabled is
-   not: `src/lib/modules.ts` only holds the module registry (`MODULE_DEFS`,
-   `ALL_MODULE_IDS`) and `moduleDefsFor`, which maps the RUNTIME enabled set
-   — resolved per request from `ctf:admin:settings` by `lib/enabled-modules.ts`
-   and `lib/resolved-modules.ts` — to registry entries (display name,
-   description, nav); nothing reads the generated build-time module list for
-   enablement (#386). The nav follows that same runtime path:
-   `resolved-modules.ts`'s `getNavLinks`/`getNavGroups` run `site.ts`'s
-   `buildNavLinks`/`buildNavGroups` over the LIVE resolved-module list,
-   splicing a module's nav entry into the flat list iff that module is
-   enabled right now and defines one (`nav` is optional in the registry
-   type, so a module with no contestant route contributes no link —
-   `secure-development`, `quiz`, `classic` and `ai` each define one now that
-   `/ai` exists). The header and
-   the footer diverge from there: the footer (`getNavLinks`) always renders
-   that flat list, but the header (`getNavGroups`) collapses it further —
-   exactly one module still renders as a plain link, but two or more collapse
-   into a single "Challenges" dropdown (`buildNavGroups`) whose items read
-   each module's `title`, not its `nav.label` (see `docs/modules.md`'s
-   "Where a rename reaches, honestly" for why the two labels differ).
-6. `next build` statically renders pages against the build-time values it
-   still has — the event's dates are compiled in, not read at request time.
-   Which targets render is NOT among them any more: `/challenges` reads
-   `enabled-apps.ts`'s live filter on every request (it is a dynamic route,
-   `ƒ` in the build output, not `○`), the same way every page already reads
-   the event's name and other identity fields from `getSite()` at request
-   time.
+**Bootstrap — `.env`, read once at container start.** Four keys, plus the
+secrets: `ADMIN_LOGINS` (who may reach `/admin`), `GITHUB_ORG` (the org whose
+forks are linked and polled), `SCORE_IMAGE` (which scorer image to run, and by
+its non-emptiness whether the event runs Secure Development at all), and
+`EVENT_URL` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
+The app reads the first two through `src/lib/bootstrap-env.ts`, a
+`server-only` module — no `process.env` read ever reaches a client bundle,
+which is what keeps the admin list off the wire. Changing any of them is an
+`.env` edit and a container recreate; there is no rebuild, and nothing is
+compiled in.
 
-Changing `event.yaml` after the stack is already running requires an
-explicit rebuild of the `app` image (`docker compose --profile app build
-app`) — `docker compose up` alone won't pick up the edit, since Compose
-only rebuilds an image when told to
-([Rebuilding the app after a config change](hosting.md#rebuilding-the-app-after-a-config-change)).
+**Runtime — the `ctf:admin:settings` hash, re-read per request.** Everything
+an organizer changes during an event: the live module set
+(`lib/enabled-modules.ts` → `lib/resolved-modules.ts` over the static
+`modules.ts` registry), the live Secure Development target list
+(`lib/enabled-apps.ts`, a per-request filter over `apps.ts`'s static
+catalogue of all six), the event's identity — name, tagline, location, contact
+e-mail, Discord invite — through `lib/site.ts`'s request-cached `getSite()`,
+the scoring schedule and the freeze, the hint policy, and the team caps. The
+dates line and the countdown are derived from the scoring window rather than
+stored separately (`lib/event-dates.ts`). `sync` re-reads the target list on
+every tick through its own Redis client, and `scorer` reads the same pause and
+window fields — the three-reader lockstep the rest of this document describes.
+
+Two fail directions, deliberately opposite and worth knowing apart:
+
+- **`ADMIN_LOGINS` fails CLOSED.** Empty, unset, or every entry failing the
+  GitHub-login shape check means *nobody* is an admin — never "no allowlist
+  configured, let the runtime grants decide". Runtime grants
+  ([ADR 44](decisions.md#adr-44-runtime-admin-grants-with-the-baked-list-as-the-recovery-path))
+  stack on top of the env list and can never remove an entry from it, which is
+  what keeps the recovery path intact.
+- **A failed settings read fails OPEN**, to the defaults: not paused, the
+  `SCORE_IMAGE`-derived module set, all six targets, the neutral identity. A
+  Redis blip must never drop live submissions or lock a board. `sync` is the
+  one deliberate exception — a tick that cannot read the target list polls
+  nothing and records `lastError` rather than guessing at which repos to
+  score.
+
+`GITHUB_ORG` disagrees between two readers on purpose: the app degrades
+gracefully (a bare repo name where a fork link would go), while `sync`'s
+`loadConfig` throws at startup with the key named, because for the poller a
+missing org is a genuine misconfiguration, not "nothing to poll".
+
+Which modules and targets exist at all is still static code — the `ModuleId`
+union and registry in `apps/web/src/lib/modules.ts`, the `AppId` union in
+`apps.ts`, `sync/src/config.js`'s `TARGETS` and `scorer/src/targets.js`, with
+`scripts/check-module-registries.mjs` failing if the three target lists
+disagree. Registration is deliberate and duplicated
+([ADR 10](decisions.md#adr-10-eventyamls-module-namespace-deliberate-not-dynamic-registration),
+[ADR 13](decisions.md#adr-13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build));
+only *selection* moved to runtime
+([ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)).
+
+Pages are dynamic (`ƒ` in the build output, not `○`) precisely because of
+this: `/` resolves the module nav through a build-time-unreachable Redis read,
+so it must never be statically prerendered — CI asserts that
+`apps/web/.next/server/app/index.html` does not exist after a production
+build.
 
 ## Security model
 
@@ -1273,16 +1251,15 @@ only rebuilds an image when told to
 |---|---|---|
 | Unit (sync) | `sync/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Config loading/validation, comment parsing and the author grammar, cursor/ETag handling, submit retry semantics, state persistence — in isolation, no network or Docker. |
 | Unit (scorer) | `scorer/test/*.test.js`, run via `npm test` (Node's built-in test runner) | Rubric loading/validation, probe grammar + evaluation, the judge's report format (the score-action regexes and the sync marker, pinned verbatim), serve auth/validation/monotonic-replay semantics, leaderboard aggregation, and both solve stores (memory, and Redis-via-SRH against a mocked endpoint) — in isolation, no network or Docker. |
-| Unit (app) | `apps/web/src/lib/__tests__/*`, `apps/web/scripts/__tests__/generate-event-config.test.ts`, run via `vitest run` | Event-config generation (yaml/env/defaults precedence, unknown-module rejection, timezone-independent date formatting — `secure-development.targets` is accepted in any shape and never validated, config v2 #386 PR 2), module/app enablement filtering (`enabled-apps.ts`'s live, per-request target filter, defaulting to all six), site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; with the quiz module disabled a source's teams pass through untouched and no quiz block is read at all; with it enabled, quiz points are added to an entry's and a deduped team's totals, a quiz-less entry gets no quiz block, and quiz activity can't demote a patched-heavy row on an upstash-shaped board) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. The quiz store itself (`src/lib/__tests__/quiz-store*.test.ts`) covers all-or-nothing set comparison, the attempt cap and cooldown (including the atomic grading script's authority over the JS-side pre-check, and its fail-closed behavior on a lookup error), and question authoring validation; `components/__tests__/{admin-quiz-controls,quiz-board}.test.tsx` cover the authoring form and the contestant answer UI. The derived-plumbing rules get their own direct coverage, since neither is observable in a static render: `src/lib/__tests__/quiz-id.test.ts` pins that `generateQuestionId` always emits an id `QUIZ_ID_RE` accepts (across a corpus of punctuation-only, non-Latin, emoji and over-long prompts) and that two identical prompts never collide, and `admin-quiz-controls.test.tsx` pins that `payloadFromEditor` submits an existing question's stored id no matter how the draft was rewritten, plus `reorderQuestions`'s recomputed `order` values. The drag handlers themselves are deliberately NOT unit-tested — this repo has no testing-library and does not want one — which is why every decision they make lives in those two pure functions instead. The answer-key boundary is pinned from both sides: `listQuestions` never issues a command against `ctf:quiz:key` while `listQuestionsForAdmin` returns the set paired by question id (`quiz-store.test.ts`), `GET /api/admin/quiz` returns it for an admin and returns a body with no answer data at all for a 401/403 (`app/api/quiz/__tests__/routes.test.ts`), the admin edit draft prefills it (`admin-quiz-controls.test.tsx`) while the collapsed question list doesn't paint it, and `/quiz`'s page-level view model strips it even when the store hands one over (`app/(site)/quiz/__tests__/page-view-model.test.tsx`, with `quiz-board.test.tsx`'s markup check as the independent second guard). |
+| Unit (app) | `apps/web/src/lib/__tests__/*`, run via `vitest run` | Bootstrap-env parsing (`ADMIN_LOGINS` case/whitespace/empties, the `SCORE_IMAGE`-derived default module set), timezone-independent date formatting from the scoring window, module/app enablement filtering (`enabled-apps.ts`'s live, per-request target filter, defaulting to all six), site config derivation, and — `apps/web/src/lib/leaderboard/__tests__/{module-contributions,rank,pipeline}.test.ts` — the module-contribution overlay's attribution (`secure-development` attributed not added, no double counting; a penalised row's module points equal its net points; with the quiz module disabled a source's teams pass through untouched and no quiz block is read at all; with it enabled, quiz points are added to an entry's and a deduped team's totals, a quiz-less entry gets no quiz block, and quiz activity can't demote a patched-heavy row on an upstash-shaped board) and the cross-module-completion/points/earliest-activity ranking — including the regression that ordering is already correct with hints disabled, since `withHintPenalties` no-ops in that case and must not be the thing doing the re-rank, and the pinned re-ordering of an Upstash-shaped board onto the breadth-first rule. The quiz store itself (`src/lib/__tests__/quiz-store*.test.ts`) covers all-or-nothing set comparison, the attempt cap and cooldown (including the atomic grading script's authority over the JS-side pre-check, and its fail-closed behavior on a lookup error), and question authoring validation; `components/__tests__/{admin-quiz-controls,quiz-board}.test.tsx` cover the authoring form and the contestant answer UI. The derived-plumbing rules get their own direct coverage, since neither is observable in a static render: `src/lib/__tests__/quiz-id.test.ts` pins that `generateQuestionId` always emits an id `QUIZ_ID_RE` accepts (across a corpus of punctuation-only, non-Latin, emoji and over-long prompts) and that two identical prompts never collide, and `admin-quiz-controls.test.tsx` pins that `payloadFromEditor` submits an existing question's stored id no matter how the draft was rewritten, plus `reorderQuestions`'s recomputed `order` values. The drag handlers themselves are deliberately NOT unit-tested — this repo has no testing-library and does not want one — which is why every decision they make lives in those two pure functions instead. The answer-key boundary is pinned from both sides: `listQuestions` never issues a command against `ctf:quiz:key` while `listQuestionsForAdmin` returns the set paired by question id (`quiz-store.test.ts`), `GET /api/admin/quiz` returns it for an admin and returns a body with no answer data at all for a 401/403 (`app/api/quiz/__tests__/routes.test.ts`), the admin edit draft prefills it (`admin-quiz-controls.test.tsx`) while the collapsed question list doesn't paint it, and `/quiz`'s page-level view model strips it even when the store hands one over (`app/(site)/quiz/__tests__/page-view-model.test.tsx`, with `quiz-board.test.tsx`'s markup check as the independent second guard). |
 | Live Lua (app) | `apps/web/src/lib/__tests__/{classic-store,quiz-store,ai-store}.lua.upstash.test.ts` and the `{admin-store,hint-store,team-store}.upstash.test.ts` suites, all `describe.skipIf`-gated through `live-redis.ts`'s `liveConfigured` on `UPSTASH_REDIS_REST_URL`/`_TOKEN`; the `app` CI job brings up `redis` + `srh` (digest-pinned like `docker-compose.yml`), sets `CTF_LUA_SUITES_REQUIRED=1` so a skip fails the job, and runs every `*.upstash.test.ts` file serially (`vitest run upstash --no-file-parallelism` — `admin-store` and `hint-store` share the fixed `ctf:admin:settings` hash) | The three older suites, one store each: `admin-store` pins the settings write + audit append as one atomic step and the audit cap; `hint-store` the hint reveal under a policy the suite seeds itself (a player with no solves on the target is refused with `forbidden` and charged nothing, the first reveal charges the organizer's configured price — not the baked default — once a solve is seeded, the second is free, and a missing hint charges nothing); `team-store` the team scripts (the four-player cap, one team per player, a populated team's captain refused with `Transfer or disband before leaving` as a no-op, then transfer → leave → the last member's leave deleting the team hash, member set and join-code index while every user hash survives). Each was checked against a one-line store mutation (the gate condition flipped; the key deletion dropped; the captain rule weakened) and went red (#235). The three grading scripts — the scoring authority — EXECUTED against a real Redis, on run-unique keys: `missing`/`already`/`incorrect`/`correct`/`cooldown`/`exhausted`/`mode` verdicts, the exact attempts and solve rows written, that a refused submission writes nothing, the cooldown boundary (refused at `now < lastAtMs + cooldownMs`, graded at equality), the `>=` cap, `maxAttempts = 0` as uncapped, a first-ever submission with a cooldown set (no attempts row, so `lastAtMs` is nil), `solvecount` keyed by the challenge and the two totals by the login, the case-sensitive form chosen only for a `caseSensitive` record, and ai's event path (no flag compare, no attempts row, `source` recorded, a `mode: "flag"` challenge refused). Each of the six single-line Lua mutations the 2026-08-25 review found survivable (already-solved polarity, `and lastAtMs`, login-keyed solvecount, `>` cap, mode refusal, case-sensitive branch) fails at least one of these. The mocked `*.grade.test.ts` suites still pin what the stores hand the scripts (key and argument order); together the two layers cover the chain. |
-| Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `event.yaml` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, and YAML-parsing edge cases (flow-style config, blank entries, decoy keys) — no real `gh`/`docker` calls needed. |
-| Module-key corpus | `setup/test/corpus/` (fixtures), asserted from two sides — `setup/test/module_readers.bats` (bash) and `apps/web/scripts/__tests__/generate-event-config.test.ts`'s corpus differential suite (the app) | That THREE independent `modules:` parsers in three languages sharing no code — `ctf-setup.sh`, `sync/src/config.js`, and the app's `generate-event-config.mjs` — ACCEPT and REJECT the same `event.yaml` files. Each fixture records its verdict in its filename, so agreeing with the corpus is agreeing with each other. Covers block style at 2/4/8 spaces, flow style on one line and across several, quoted keys, interleaved comments, CRLF, a bare `modules:`, an absent one, unknown keys, merge keys, tabs and sequences where a mapping belongs. The bash side additionally asserts the organizer-visible behaviour (flow style really forks and renders; an unparseable block fails CLOSED in `org` and `doctor` rather than printing "nothing to do"). There is no longer a THIRD, sync-side run of this corpus (config v2, #386 PR 2 deleted `sync/test/module-readers.differential.test.js` once `sync/src/config.js` stopped reading `secure-development.targets` at all): sync's module-KEY accept/reject rules are unchanged and still agree with the other two, covered instead by its own unit tests. `secure-development.targets` used to be a second axis this corpus pinned (extracted targets, not just accept/reject); no reader treats that key as authoritative any more, so all three now agree it is inert in every shape — absent, empty, a scalar, an unknown id. See [ADR 24](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one). |
+| Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `.env` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, the wizard's answers, and the `.env` reader's edge cases (trailing comments, blank values, a missing file refused rather than read as "no Secure Development") — no real `gh`/`docker` calls needed. |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
-| Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` twice — once with an `EVENT_CONFIG_B64` override, once without — and asserts: with no Redis behind the build, all six targets render regardless of a baked `secure-development.targets` list (config v2, #386 PR 2 made that key inert — which targets contestants see is an `/admin` setting read at request time, defaulting to all six), fork links follow the config's `github.org`, and both builds (config'd and default) render the identity default "OWASP CTF" in the page `<title>` — proving identity fails open to the spec default rather than reading a name baked from `event.yaml` (#386). This is the layer that proves the build-time config flow actually reaches rendered HTML, not just the generated TS module. |
+| Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` **once**, with no config build-arg (there is none to pass since #386), then runs that same image three times with different runtime environments and asserts what each renders: with `GITHUB_ORG` and `SCORE_IMAGE` set, all six targets render and every fork link follows `GITHUB_ORG`, while the landing page presents Secure Development as the only default board; with `SCORE_IMAGE` empty, nothing is enabled and the landing page renders its no-boards copy pointing at `/admin`; with nothing set, `/challenges` renders bare repo names and no fork link, and the page `<title>` is the identity default "OWASP CTF" — proving identity fails open to its default rather than being read from anywhere baked. It also pins `/health`'s build stamp, which is the only thing the image still carries from build args. This is the layer that proves the runtime config flow actually reaches rendered HTML. |
 | Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
-| Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Builds the real app image bound to a `modules: { quiz: {} }` config (no `secure-development` at all), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. Separately brings up `sync` through the real `docker-compose.yml` against the same config and asserts it exits `0`, logs the clean no-op reason, and — sampled over several seconds — stays exited rather than being restarted. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile poll --profile app` must still contain both. |
-| Docker acceptance (classic-only) | `scripts/acceptance-classic-only.sh` | The classic module's sibling of the quiz-only script, following every one of its design decisions: builds the real app image bound to a `modules: { classic: {} }` config, seeds a challenge and a solve straight into Redis, and asserts `/flags` shows the challenge by title, `/challenges` 404s, `/leaderboard` shows the contestant's classic points by login, and the `--profile app` line-up contains no secure-development service. |
-| Docker acceptance (ai-only) | `scripts/acceptance-ai-only.sh` | The ai module's sibling of the quiz-only/classic-only scripts, following the same design decisions: builds the real app image bound to a `modules: { ai: {} }` config, seeds a challenge and a contestant's solve straight into Redis, and asserts `/ai` shows the challenge by title without leaking its flag, `/ai/<id>` 200s while `/ai/<bad-id>` 404s, `/challenges`, `/flags` and `/quiz` all 404, `/leaderboard` shows the contestant's ai points by login, `GET /api/ai/launch-key` mints the keypair internally and serves its public key with no OAuth/cookie/session available, the `--profile app` line-up contains no secure-development service, and `sync` exits `0` and stays exited with nothing to poll. |
+| Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Boots the real app image with `SCORE_IMAGE` empty and `quiz` enabled through the admin settings route (no config file exists to bind it to), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile secdev --profile app` — what a non-empty `SCORE_IMAGE` derives — must still contain both. Separately brings `sync` up under `secdev` with no `GITHUB_ORG` and asserts it refuses at start-up, naming the key, with a non-zero exit. |
+| Docker acceptance (classic-only) | `scripts/acceptance-classic-only.sh` | The classic module's sibling of the quiz-only script, following every one of its design decisions: boots the real app image with `SCORE_IMAGE` empty and `classic` enabled at runtime, seeds a challenge and a solve straight into Redis, and asserts `/flags` shows the challenge by title, `/challenges` 404s, `/leaderboard` shows the contestant's classic points by login, and the `--profile app` line-up contains no secure-development service. |
+| Docker acceptance (ai-only) | `scripts/acceptance-ai-only.sh` | The ai module's sibling of the quiz-only/classic-only scripts, following the same design decisions: boots the real app image with `SCORE_IMAGE` empty and `ai` enabled at runtime, seeds a challenge and a contestant's solve straight into Redis, and asserts `/ai` shows the challenge by title without leaking its flag, `/ai/<id>` 200s while `/ai/<bad-id>` 404s, `/challenges`, `/flags` and `/quiz` all 404, `/leaderboard` shows the contestant's ai points by login, `GET /api/ai/launch-key` mints the keypair internally and serves its public key with no OAuth/cookie/session available, and the `--profile app` line-up contains no secure-development service. |
 | Vacuous-pass sweep | `scorer/tools/vacuous-sweep.mjs` | Points every target's rubric at an in-process HTTP stub that is UP but USELESS (three personalities: empty-200, not-found, server-error) and fails if any challenge passes — a challenge that "blocks the exploit" against a stub proves nothing. Must report 0; wired into CI only once the count reached 0/321. |
 
 CI (`.github/workflows/ci.yml`) carries a `changes` gate (native `git diff`,

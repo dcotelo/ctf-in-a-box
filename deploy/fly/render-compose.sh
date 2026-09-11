@@ -39,8 +39,8 @@
 #      the machine config carries no `secrets` key at all. Every container came
 #      up without its credentials while `fly secrets list` showed all fourteen
 #      as `Deployed` — the app answering 500 from better-auth's default-secret
-#      error, the scorer refusing to start, sync falling back to a mounted
-#      event.yaml that does not exist on a Fly machine.
+#      error, the scorer refusing to start, and sync refusing to poll with no
+#      org or token to poll with.
 #
 #      The compensation is real, though: per-service scoping that Fly's global
 #      secrets cannot express. The app never receives REDIS_PASSWORD, and redis

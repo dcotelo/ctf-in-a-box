@@ -197,7 +197,7 @@ while a step the panel can verify is still to do**; once questions or
 challenges or categories exist it collapses to the line, and stays collapsed
 while the counts are still loading ("checking…") rather than accuse a set-up
 module on first paint. Steps done outside the panel (`ctf-setup.sh`, the
-GitHub org, `event.yaml`) are not repeated — the screen exists only while the
+GitHub org, `.env`) are not repeated — the screen exists only while the
 module is enabled, so they are behind you; the linked guide has them. A
 second line, **What is safe to change mid-event**, opens the safe / not-safe
 lists. All of it is registry content (the module contract's §5.9), not copy
@@ -262,9 +262,9 @@ line on a page.
 The panel offers:
 
 - **Identity** (Event tab, top of the page) — how the event names itself, a
-  runtime `/admin` setting (issue #386): `event.yaml`'s
-  `event.name/theme/location/contact/discord` are no longer read. Five
-  fields, each restoring its default when left blank: **Event name** (≤80
+  runtime `/admin` setting (issue #386). It is the only place these five
+  fields exist: there is no config file to set them in and nothing is baked
+  into the image. Each restores its default when left blank: **Event name** (≤80
   characters; blank restores "OWASP CTF"; shown in page titles, the header,
   the leaderboard, and this panel's own master-reset confirmation),
   **Tagline** (≤160; one line under the event name on the landing page;
@@ -333,12 +333,12 @@ The panel offers:
   never comes back on its own once the deployment has a scorer image again.
 
   **What is on before you touch anything:** Secure Development, and only
-  when the deployment has a scorer image; otherwise nothing. Quiz, Classic
-  and AI always start off. `event.yaml`'s `modules:` block no longer
-  influences enablement, or which Secure Development targets run — that
-  `targets:` key is ignored entirely now (#386); if the settings read fails
-  the app falls back to that same "all six" default rather than to a
-  surprise.
+  when the deployment has a scorer image (`SCORE_IMAGE` in `.env`); otherwise
+  nothing. Quiz, Classic and AI always start off. Nothing else influences
+  enablement — there is no config file and no baked default (#386) — and
+  which Secure Development targets run is a separate setting on that module's
+  own tab; if the settings read fails the app falls back to that same "all
+  six" default rather than to a surprise.
 
   **What a contestant sees.** The module's nav link disappears from the header
   and the footer, and its route stops resolving — with a page that says the
@@ -669,8 +669,9 @@ master reset requires type-to-confirm. Opening a different question or
 challenge while an unsaved draft is open also asks before discarding it —
 the module forms sit below the list, so every list control stays clickable
 while you write.
-**The panel accepts only the event's name** as that phrase — `event.yaml`'s
-`name`, exactly as baked into the running build. The route behind the button,
+**The panel accepts only the event's name** as that phrase — exactly the
+**Event name** currently set on the Event tab's Identity section (or its
+default, `OWASP CTF`, if you have not changed it). The route behind the button,
 `POST /api/admin/reset`, additionally accepts the literal `RESET` as its
 `confirm` value; that is a raw-API fallback for a scripted reset, and the
 panel never offers it.
@@ -678,8 +679,9 @@ panel never offers it.
 When the `quiz` module is enabled, the master reset also clears every
 contestant's quiz answers and attempts (and the two aggregate point/answered
 counters the leaderboard reads) — but it deliberately **keeps your authored
-questions and their answer keys**, the same way it keeps `event.yaml`-derived
-admin settings. A reset event doesn't mean re-building the quiz from scratch.
+questions and their answer keys**, the same way it keeps the event's
+identity and policy settings. A reset event doesn't mean re-building the quiz
+from scratch.
 See [Quiz](#quiz) below.
 
 **A reset that cannot finish now fails instead of reporting a count.** The
@@ -724,9 +726,9 @@ cannot read the list polls **nothing** that tick and records the failure as
 the poller's `lastError`, rather than guessing (a wrong guess here would mean
 scoring the wrong repos or none at all).
 
-`event.yaml`'s `modules.secure-development.targets` key, if a config still
-carries one, is ignored — this panel, not the file, is the only place the
-running set is chosen. The [event archive](#archiving-and-replaying-an-event)
+This panel is the only place the running set is chosen; there is no file and
+no environment variable that also names targets, so nothing can disagree with
+it. The [event archive](#archiving-and-replaying-an-event)
 carries the setting: an export's snapshot includes `secureDevTargets`, and
 importing one restores exactly the target list it was exported with.
 
@@ -889,9 +891,10 @@ and `location` — are applied, through the same validated settings patch as
 every other policy field, before anything destructive runs — a restore or a
 repeat run of the same CTF renames itself without a rebuild. The bundle's
 `dates` and `ctfStartsAt` are informational only (they travel with the
-export for the record — see above) and are **not** reapplied on import:
-both remain baked from `event.yaml` at build time until a later PR of #386,
-so importing a bundle never overwrites them. **Contact e-mail and Discord
+export for the record — see above) and are **not** reapplied on import: both
+are derived from the **Scoring opens** / **Scoring closes** schedule, which an
+organizer sets for the new run on the Event tab, so importing a bundle never
+overwrites this event's actual dates. **Contact e-mail and Discord
 invite are deliberately left
 out of the bundle**, even though both are runtime settings too: they are
 organizer PII (a private inbox, an invite link), not needed to replay the
@@ -1692,7 +1695,7 @@ endpoint a scored PR hits, so it exercises the real validation and Redis-write
 path rather than poking Redis keys directly. It prints the URL to open when
 it's done.
 
-It needs no `event.yaml` — there is no config file any more (#386). The two
+It needs no config file — there is no such thing any more (#386). The two
 identities it has to know, `ADMIN_LOGINS` and `GITHUB_ORG`, come from your
 environment if you exported them, else from `.env`, and `ADMIN_LOGINS` falls
 back to whatever login `gh` is authenticated as; each is read at start-up, so

@@ -96,12 +96,16 @@ Work down this list — each item is a different subsystem:
    Actions tab, then `./setup/ctf-setup.sh doctor` for the fork's
    provisioning row (workflow present? version current? image grant
    observed?). `upgrade` re-applies a stale workflow.
-3. **Is `sync` actually polling?** `docker compose logs -f sync`. A clean
-   `no polled module enabled, nothing to do` + exit 0 means your
-   `event.yaml` has no `secure-development` module — that's correct for a
-   quiz/classic-only event, and wrong if you expected scoring. A tick log
-   with `dropped` counts names why a comment was refused (forged author,
-   unknown target, malformed marker).
+3. **Is `sync` actually polling?** `docker compose logs -f sync`. No `sync`
+   container at all means the stack came up without `--profile secdev` —
+   correct for an event with no `SCORE_IMAGE`, wrong if you expected scoring.
+   A container that exits non-zero with `ctf-sync: GITHUB_ORG is not set`
+   means the key is missing from `.env`; set it and bring the stack back up.
+   A tick that polls **nothing** and records a `lastError` means the poller
+   could not read the Secure Development target list from
+   `ctf:admin:settings` — it waits rather than guessing, so fix Redis and the
+   next tick catches up. A tick log with `dropped` counts names why a comment
+   was refused (forged author, unknown target, malformed marker).
 4. **Is the score comment authored by `github-actions[bot]`?** Only that
    author is trusted — a comment posted any other way (including by you) is
    dropped by design.

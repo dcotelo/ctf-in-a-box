@@ -252,7 +252,8 @@ suggestions.
   an exploit only because the app wasn't actually up/reachable yet looks
   like a pass but proves nothing.
 - **There is no config file any more: `.env` bootstraps, `/admin` runs the
-  event.** `event.yaml` and its `EVENT_CONFIG_B64` bake are gone (#386) —
+  event.** The old event config file and its base64 build-arg bake were
+  deleted by #386 (ADR 55) —
   no image takes a config build-arg, so bring the box up as `docker compose
   --profile secdev --profile app up -d --build` (drop `--profile secdev` on an
   event with no `SCORE_IMAGE`). Three `.env` keys are read at RUNTIME and

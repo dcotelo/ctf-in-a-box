@@ -64,7 +64,7 @@ implements none of:
 
 - `profiles:` — every service in the file is deployed
 - `${VAR}` interpolation — `${SRH_TOKEN}` arrives as that literal string
-- build `args:` — so `EVENT_CONFIG_B64` could never be baked
+- build `args:` — so no image can be handed build-time configuration
 
 and it rejects a file where more than one service declares `build:`
 (`only one service can specify build`), which `docker-compose.yml` does twice.
@@ -103,11 +103,10 @@ deploys. `-h`/`--help` prints the same list.
 |---|---|---|
 | `--dry-run` | both | Print every `fly` command, run none; secret values redacted |
 | `--env-file <path>` | both | The Fly env file `init` writes and a deploy reads. Default `.env.fly` |
-| `--config <path>` | both | The `event.yaml` baked into the app image and handed to `sync`. Default `event.yaml` |
 | `--from <path>` | `init` only | The compose `.env` copied (or `--refresh`ed) from. Default `.env` |
 | `--region <code>` | `init` only | Write `FLY_REGION` without prompting; three lowercase letters, validated; ignored if the env file already has one |
-| `--refresh` | `init` only | Re-copy the external-system credentials from `--from`, overwriting; leaves `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN`, `REDIS_PASSWORD` |
-| `--skip-build` | deploy only | Reuse the images already in Fly's registry; will not pick up an `event.yaml` change |
+| `--refresh` | `init` only | Re-copy the external-system credentials from `--from` — including `GITHUB_ORG` and `ADMIN_LOGINS` — overwriting; leaves `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN`, `REDIS_PASSWORD`, then falls through to the top-up prompts |
+| `--skip-build` | deploy only | Reuse the images already in Fly's registry; safe for a config change, since the app image bakes nothing but its health-check build stamp |
 
 `--from`, `--region` and `--refresh` are parsed on a deploy too, and ignored.
 
@@ -129,8 +128,9 @@ Each of these caught a real mistake:
 - secret values redacted in `--dry-run`, which makes no `fly` calls at all
 - env file chmod 600 even when it already existed
 - a missing variable is named individually, not as a list
-- `--skip-build` says plainly that `event.yaml` will not be picked up, because
-  that config is baked into the app image at build time
+- `--skip-build` is safe for a configuration change: since config v2 (#386)
+  the app image bakes nothing but its health-check build stamp, and
+  `GITHUB_ORG`/`ADMIN_LOGINS` reach the machine as runtime environment
 - images built `--platform linux/amd64`; an arm64 image deploys cleanly and
   then dies with an exec format error
 

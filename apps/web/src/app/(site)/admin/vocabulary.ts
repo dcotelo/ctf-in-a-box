@@ -15,7 +15,7 @@
 // duplication is therefore real, and a test pins every entry against the
 // registry so it cannot drift.
 //
-// An event that RENAMES a module in `event.yaml` is not covered here: the
+// An event that RENAMES a module from /admin is not covered here: the
 // rename reaches the contestant-facing surfaces and the tab, and these two
 // admin readouts keep the registry name. Naming them after the registry is
 // still strictly better than `ai` and "Sec-dev", and threading a resolved

@@ -112,8 +112,9 @@ counts). All `next/font`, self-hosted.
 - State colors keep their meanings from the redesign: green only for
   scored/solved, red only for failed/destructive, amber only for
   pending/attention/focus.
-- Event copy stays `event.yaml`-driven; the `$ owasp-ctf` wordmark is the
-  kit's brand and the one deliberate exception.
+- Event copy stays organizer-driven — the event's name and identity are
+  runtime `/admin` settings (#386); the `$ owasp-ctf` wordmark is the kit's
+  brand and the one deliberate exception.
 - **A number the board ranks by is never `hidden sm:`-only.** The
   leaderboard's `solved` / `members` columns are desktop-only for width
   reasons, so both rows restate them as a compact line under the name below

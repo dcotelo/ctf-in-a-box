@@ -18,7 +18,7 @@ import AdminModuleSetup, {
 const setup: ModuleSetupContent = {
   experience: "Contestants answer questions on the quiz page and are graded on submit.",
   steps: [
-    { title: "Enable the module", where: "outside", body: "Add it under modules in event.yaml, or switch it on from the Event tab." },
+    { title: "Enable the module", where: "outside", body: "Set SCORE_IMAGE in .env, or switch it on from the Event tab." },
     { title: "Author at least one question", where: "panel", check: { count: "items", noun: "questions" } },
     { title: "Add a category", where: "panel", check: { count: "categories", noun: "categories", one: "category" } },
   ],

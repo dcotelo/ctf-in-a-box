@@ -240,8 +240,8 @@ they are not. A machine's containers receive only their own environment, which
 comes from the compose file. With the values stripped, every container started
 without credentials while `fly secrets list` reported all fourteen as
 `Deployed` — the app answering 500 from better-auth's default-secret error, the
-scorer refusing to start, sync falling back to an `event.yaml` that does not
-exist on a Fly machine.
+scorer refusing to start, and sync refusing to poll with no org or token to
+poll with.
 
 `deploy.sh` still sets `fly secrets` as well, so nothing regresses if Fly
 changes this.

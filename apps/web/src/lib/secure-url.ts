@@ -5,7 +5,7 @@
 // WHY THIS EXISTS. better-auth derives the session cookie's `Secure` flag from
 // the scheme of its baseURL. Ship an event on `http://ctf.example.org` and
 // every session cookie — including an organizer's, whose login is in
-// `event.yaml`'s `admins` — travels in cleartext on whatever conference wifi
+// `.env`'s `ADMIN_LOGINS` — travels in cleartext on whatever conference wifi
 // the contestants are sharing. This app has no server-side session store: the
 // cookie IS the identity, so sniffing one is a full admin takeover, not a
 // nuisance. The default in .env.example is `http://localhost`, which is

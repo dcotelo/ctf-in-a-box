@@ -48,7 +48,7 @@
       `Co-authored-by:` trailers for an AI tool/agent).
 - [ ] Docs updated if this changes user-facing behavior or commands.
 - [ ] **Breaking changes declared**: if this changes a published contract
-      (event.yaml schema, a `ctf:*` Redis key name or value shape, scorer
+      (an `.env` key, a `ctf:*` Redis key name or value shape, scorer
       HTTP payloads, a `ctf-setup.sh` subcommand/flag), the summary above
       says so explicitly and includes an upgrade note for a running event.
       Write "None" if there are none — the breaking-change pre-merge check

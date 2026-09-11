@@ -484,14 +484,17 @@ the code, and every value the containers need — `ADMIN_LOGINS`,
 `GITHUB_ORG`, `SCORE_IMAGE`, `SCORE_INGEST` — is read from `.env` when they
 start. Pick the command by what that file says:
 
-| `.env` | Command |
+| Your event | Command |
 |---|---|
-| `SCORE_IMAGE` set, `SCORE_INGEST=poll` (or unset) | `docker compose --profile secdev --profile app up -d --build` |
-| `SCORE_IMAGE` set, `SCORE_INGEST=push` | `docker compose --profile push --profile app up -d --build` |
-| `SCORE_IMAGE` empty — no Secure Development | `docker compose --profile app up -d --build` |
+| Secure Development in poll mode (`SCORE_IMAGE` set, `SCORE_INGEST=poll`) | `docker compose --profile secdev --profile app up -d --build` |
+| Secure Development in push mode (`SCORE_IMAGE` set, `SCORE_INGEST=push`) | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| No Secure Development (`SCORE_IMAGE` empty) — quiz and/or classic and/or ai | `docker compose --profile app up -d --build` |
 
-`ctf-setup.sh wizard` prints (and offers to run) the right one for the
-`.env` it wrote, so you do not have to pick by hand.
+Quiz, Classic and AI need no profile of their own: they are app-side modules,
+they run inside the `app` container, and an organizer switches them on from
+`/admin` at any time without touching compose. `ctf-setup.sh wizard` prints
+(and offers to run) the right line for the `.env` you answered into, so you do
+not have to pick by hand.
 
 Prefer the cloud over your own machine? [Deploy on AWS](aws.md) ships a
 Terraform module for an ECS Fargate stack behind an ALB, over managed
@@ -550,9 +553,10 @@ This sets `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`; the app
 reads them at runtime. `EVENT_URL` in `.env` is **the** event URL — Caddy, the app's
 auth flow, the HTTPS start-up guard, the CSRF origin check and the leaderboard
 link in every fork's score comment all read it, and nothing else carries a
-second copy. `event.yaml` used to have a `url:` field beside it; it was a
-deployment fact in the event file, it disagreed silently, and a build now
-fails if one is left behind. You can also set both by hand instead of using the helpers, and you may
+second copy. The deleted config file used to carry a `url:` field beside it;
+it was a deployment fact living in an event file, it disagreed silently, and
+it is gone ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
+You can also set both by hand instead of using the helpers, and you may
 register the OAuth app on your personal account rather than the org.
 
 > **Use HTTPS for any real event.** Set `EVENT_URL` to `https://<your-domain>`
@@ -579,61 +583,94 @@ register the OAuth app on your personal account rather than the org.
 
 ## Configuration
 
-`event.yaml` uses a **modules** schema. Platform settings (`event`, `github`,
-`admins`) sit at the top level; challenge content is
-namespaced under `modules.<name>`, one block per registered module id. Four
-ids are registered today:
+**There is no configuration file.** Since #386 an event is configured in
+exactly two places, and the split between them is the whole design: what a box
+needs before it can answer its first request lives in `.env`, and everything
+an organizer changes while the event runs lives in Redis behind `/admin`.
 
-```yaml
-modules:
-  secure-development:
-    score_ingest: poll             # poll | push — the only setup-time
-                                    # setting left. Which of the six targets
-                                    # run is chosen at runtime instead, from
-                                    # /admin → Secure Development → Targets
-                                    # (#386); a targets: key here is accepted
-                                    # but ignored.
-  quiz: {}                        # single/multi-select question bank, scored
-                                    # app-side — see docs/operations.md's "Quiz"
-  classic: {}                     # jeopardy-style flag board, scored app-side
-                                    # — see docs/operations.md's "Classic"
-  ai: {}                          # externally hosted AI/LLM challenges,
-                                    # authored in /admin (mode flag/event/both,
-                                    # launch URL, categories, hints,
-                                    # aiCooldownSec). See docs/ai-module.md for
-                                    # what an external challenge site must
-                                    # implement to integrate, and
-                                    # docs/modules.md §5.
-```
+| Plane | Where | Who writes it | What lives there |
+|---|---|---|---|
+| **Bootstrap** — facts the containers need at start | `.env` | the wizard, or you, once per deployment | `GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `EVENT_URL`, and the secrets |
+| **Runtime** — everything an organizer tunes during the event | the `ctf:admin:settings` hash in Redis | `/admin`, live | which modules run, which Secure Development targets run, the event's identity, the scoring schedule, freeze, hint policy, team caps |
 
-**`ai` is new to the module-id enum in this release, and adding it breaks
-nothing.** The set of accepted ids only grew: every `event.yaml` that was
-valid before is still valid, and an event already running needs no change and
-no Redis migration — it keeps whatever `modules:` block it was built with.
-Adding `ai:` here sets the BUILD-time baseline, and that part needs a
-rebuild: `event.yaml` is baked into the `app` image, not read at runtime, so
-this is what an already-running event's *default* module set stays pinned
-to until its next build. That is a separate path from the **runtime**
-toggle above — an organizer can also flip `ai` on or off live from
-`/admin`'s module list, same as quiz and classic, without a rebuild, because
-the route/nav/tab code for `ai` ships in every `app` image regardless of
-what `event.yaml` baked in (see "Which profiles do I need?" above). The
-distinction that survives either path is ordering, not availability: a
-module `event.yaml` baked in keeps its authored position in the nav, while
-one enabled only at runtime is appended in registry order (`modules.ts`'s
-`moduleDefsFor`).
-Module authors and anything that switches exhaustively over the module id —
-`apps/web/src/lib/modules.ts`'s `ModuleId` and the two remaining
-`KNOWN_MODULES` readers (`sync`, `setup`) — must now handle `"ai"`. The app
-itself no longer reads `event.yaml` at all.
+Bootstrap keys are read at container **start**, not at build: changing one is
+an `.env` edit plus a restart, never a rebuild. Runtime settings are read on
+every request and take effect immediately, with no restart at all. See
+[ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)
+for why the old baked config file was retired.
 
-`modules:` no longer enables anything, for any of the four ids — presence in
-this block used to turn a module on, and no longer does. Enablement lives in
-`/admin` → Event → Modules instead. Only one key left under any module's
-block still has a build-time effect: `score_ingest` under
-`secure-development`, read by `ctf-setup.sh` and `sync`. Everything else a
-block might carry — including a `targets:` key under `secure-development` —
-is accepted and ignored.
+### The four bootstrap keys
+
+Everything else in `.env` is a secret or a transport detail (see
+[Environment variables](#environment-variables) for the complete list). These
+four are the event's identity to the machine:
+
+| Key | Required | What it drives | Empty or unset means |
+|---|---|---|---|
+| `ADMIN_LOGINS` | **yes** | Comma-separated GitHub logins (matched case-insensitively) allowed into `/admin`. Read by `lib/bootstrap-env.ts` at start. | **Nobody is an admin** — `/admin` 403s every login, including yours. This fails CLOSED on purpose; there is no "no allowlist, let everyone in" state. |
+| `GITHUB_ORG` | when running Secure Development | The event org contestants fork the target repos under. Drives every fork link the app renders, the policy-page prose, and the repos `sync` polls. | The app renders a plain repo name instead of a broken link, and `sync` refuses to start at all, logging `ctf-sync: GITHUB_ORG is not set`. |
+| `SCORE_IMAGE` | when running Secure Development | Your scorer image, built from `scorer/` and pushed somewhere the box and the forks can pull it. | The event does not run Secure Development — see below. |
+| `EVENT_URL` | **yes** | **The** event URL: Caddy's TLS host, the auth callback origin, the HTTPS start-up guard, the CSRF origin check, and the leaderboard link in every score comment ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). | Defaults to `http://localhost`, which is fine only for a local trial. |
+
+**`SCORE_IMAGE` is how a box says whether it runs Secure Development.** It is
+not just "which image to pull": it is the one setup-time fact left about that
+module, and three things read it as the answer.
+
+1. **The compose profile.** `scripts/dev-stack` and Fly's
+   `deploy/fly/render-compose.sh` add `--profile secdev` **iff `SCORE_IMAGE`
+   is non-empty** — the one place the question is answered at `up` time, and
+   derived rather than a second knob to drift (the lesson of #372/#374).
+2. **The default module set.** On a first boot against an empty Redis — and as
+   the fail-open answer when the settings read fails — a box with
+   `SCORE_IMAGE` set enables `secure-development` and nothing else; a box
+   without it enables nothing, and the landing page renders its explicit
+   no-boards state pointing at `/admin`.
+3. **The admin toggle.** With `SCORE_IMAGE` empty, `/admin`'s Secure
+   Development switch is disabled with that reason named — there would be no
+   scorer container for it to talk to.
+
+`ctf-setup.sh` reads it the same way: with no `SCORE_IMAGE` it skips every
+fork, mirror and poll step instead of failing.
+
+### What `/admin` owns
+
+Everything below is a runtime setting in `ctf:admin:settings`, changed from the
+panel while the event is running, and covered in
+[docs/operations.md](operations.md#organizer-admin-panel):
+
+- **Which modules run** — Event → Modules. Quiz, Classic and AI are switched on
+  and off live; so is Secure Development, whenever `SCORE_IMAGE` is set.
+- **Which Secure Development targets run** — Secure Development → Targets. The
+  setup script forks and provisions all six; the panel picks the live subset,
+  and `sync` re-reads it every tick.
+- **The event's identity** — Event → Identity: name (default `OWASP CTF`),
+  tagline, location, contact e-mail, Discord invite.
+- **The scoring schedule and the freeze** — Event → Schedule: scoring opens,
+  scoring closes, and the manual pause.
+- **Hints, teams and caps** — the hint switch and prices, the registration
+  window, and players per team.
+- **Module content** — quiz questions, classic challenges and flags, AI
+  challenges: all authored in the panel, all exportable through the event
+  archive.
+
+None of it needs a restart, a rebuild, or an edit on the box.
+
+### Modules: registration is code, enablement is runtime
+
+Four module ids are registered today — `secure-development`, `quiz`, `classic`
+and `ai`. **Registration is deliberately static** (ADR 35): a module id exists
+because the kit ships code for it — `apps/web/src/lib/modules.ts`'s `ModuleId`
+union and its registry are the whole list. There is no config-file namespace to
+add one to and no dynamic discovery; see
+[docs/modules.md](modules.md) for what a new module has to provide.
+
+**Enablement is entirely runtime.** Every `app` image ships the routes, nav
+entries and admin tabs for all four, so switching one on in `/admin` → Event →
+Modules takes effect on the next request, and switching it off hides it the
+same way. Nothing about which modules run is decided at build time any more,
+and nothing about it is decided in `.env` — except that `SCORE_IMAGE` decides
+whether Secure Development *can* be switched on at all, because that module is
+the only one with containers of its own.
 
 Enabling a module changes the **landing page**, not just the nav: the
 platform frame (event name, dates, countdown, CTAs, Discord link, progress
@@ -644,40 +681,17 @@ never advertises forking a target or opening a PR. See
 [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for the `home`
 block contract.
 
-Which of the six Secure Development targets an event actually runs is a
-runtime `/admin` → Secure Development → Targets setting now (#386 PR 2), not
-`modules.secure-development.targets` — see
-[docs/operations.md](operations.md#targets). A second module block is legal:
-the app no longer reads `event.yaml` at all; the two remaining readers —
-the poll service's config loader (`sync/src/config.js`'s `KNOWN_MODULES`)
-and the provisioning script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) —
-recognize
-`secure-development`, `quiz`, `classic` and `ai` as known ids and reject anything
-else loudly.
-Adding `quiz:` turns on a real second module: a "Quiz" nav link and a `/quiz`
-page for contestants, a Quiz section in `/admin` for authoring questions
-(prompt, choices, correct answer(s), points, order) and tuning its two
-retry-gate knobs, and quiz points added on top of the combined leaderboard —
-see [docs/operations.md](operations.md)'s "Quiz" section for the organizer
-walkthrough and [docs/modules.md §5](modules.md#section-5-ui--presentation-contract)
-for the underlying contract.
-
 **`secure-development` is not required — a single module is enough to run an
-event.** `sync`'s config loader tolerates its absence (`sync/src/config.js`'s
-`loadConfig` returns `null` when `modules.secure-development` is missing) and
-`ctf-setup.sh`'s `org`/`render`/`doctor` each skip fork-based provisioning and
-report "nothing to provision/check" instead of failing. What's still an error
-in both readers is a `modules:` block that's missing entirely, or a key
-neither recognizes at all — the tolerance is specifically for a *known*
-module simply not being configured, not for a malformed file. A quiz-only
-`event.yaml` (`modules: { quiz: {} }`, no `secure-development` block at all)
+event.** `ctf-setup.sh`'s `org`/`render`/`doctor` each skip fork-based
+provisioning and report "nothing to provision/check" instead of failing when
+no `SCORE_IMAGE` is set, and `sync` is simply never started. A quiz-only event
 is therefore a supported event on its own: `/challenges` 404s (that route
 doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
 the landing page, the leaderboard, and `/profile` all compose from whatever
 modules *are* enabled instead of assuming `secure-development` is one of
 them. See [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for
 the UI composition contract and [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
-for why the missing-vs-unknown distinction is drawn where it is.
+for why a module reader's missing-vs-unknown distinction is drawn where it is.
 
 **Boot a quiz-only event with `docker compose --profile app up -d --build`**
 — just the `app` profile, and no build-args at all. Secure Development's
@@ -696,20 +710,11 @@ org in `.env`, or refuses to start at all if `GITHUB_ORG` is empty, logging
 set. You still need a `SCORE_IMAGE` for the scorer that profile also brings
 up.
 
-Copy `event.yaml.example` and fill in `github.org`, the `modules:` you want,
-and `admins` (GitHub logins) — the URL is not in this file, it is `EVENT_URL`
-in `.env`, because one `event.yaml` is deployed to a box, to AWS and to fly.io
-on three different hostnames. Or let
-[the wizard](#quickstart-zero-to-a-scored-event) write the file from your
-answers, which is the same schema with none of the YAML. Only
-`secure-development` has a setup-time setting left to give it —
-`score_ingest` — and `quiz`/`classic`/`ai` have none. There is
-deliberately **no `teams:` or `hints:` block** — both keys existed once,
-were never read, and were removed rather than left as documentation-of-intent
-(ADR 31's amendment; `generate-event-config.mjs` warns if it finds either).
-Team size is the `/admin` Event tab's "players per team" knob, and **hints
-have exactly one switch: `/admin`'s hint controls**, a runtime override
-stored in Redis. It is live, survives restarts,
+### Hints and teams have no bootstrap knob
+
+Neither is an `.env` key: team size is the `/admin` Event tab's "players per
+team" knob, and **hints have exactly one switch: `/admin`'s hint controls**, a
+runtime override stored in Redis (ADR 31). It is live, survives restarts,
 and governs everything — whether a hint can be bought, whether the challenges
 page offers the button, and whether the leaderboard shows hint penalties. There
 is no environment variable and no rebuild involved; see
@@ -719,54 +724,27 @@ The one thing an organizer setting cannot do is turn hints on without
 `UPSTASH_REDIS_REST_*` credentials — hint text lives only in Upstash, so
 without them there is nothing to reveal. What a
 module must provide to
-plug in — config block, scoring contract, transports, security requirements,
+plug in — scoring contract, transports, security requirements,
 provisioning — is documented in [docs/modules.md](modules.md).
-
-### Every key the build reads
-
-This is the complete set of `event.yaml` keys `apps/web/scripts/generate-event-config.mjs`
-reads (verify against the generator itself — see [the source](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/scripts/generate-event-config.mjs)).
-Anything not listed is ignored, silently except for the two keys named at the
-bottom. The five `event.*` identity keys below are ignored **since #386** —
-the event's identity is a runtime `/admin` → Event → Identity setting now,
-not a build input; see [docs/operations.md](operations.md)'s Event tab
-section for the five fields and their limits.
-
-| Key | Required | What it drives |
-|---|---|---|
-| `event.name` | ignored since #386 | Set from `/admin` → Event → Identity → Event name instead (default `OWASP CTF`). |
-| `event.theme` | ignored since #386 | Set from `/admin` → Event → Identity → Tagline instead. |
-| `event.start` | ignored since #386 | Set from `/admin` → Event → Schedule → Scoring opens instead. |
-| `event.end` | ignored since #386 | Set from `/admin` → Event → Schedule → Scoring closes instead. |
-| `event.location` | ignored since #386 | Set from `/admin` → Event → Identity → Location instead. |
-| `event.contact` | ignored since #386 | Set from `/admin` → Event → Identity → Contact e-mail instead. |
-| `event.discord` | ignored since #386 | Set from `/admin` → Event → Identity → Discord invite instead. |
-| `event.url` | removed | No longer read at all — set `EVENT_URL` in `.env` instead ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
-| `github.org` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `GITHUB_ORG` in `.env` instead, read at runtime. An empty/unset value means no fork links on `/challenges` (`sync` still reads its own copy of the org separately; see `sync`'s own config). |
-| `modules` | yes | The enabled-module map described above — at least one known id, `score_ingest` under `secure-development`. |
-| `modules.secure-development.targets` | ignored since #386 | Accepted in any shape (absent, empty, a scalar, an unknown id) and never validated or read. Which targets run is set from `/admin` → Secure Development → Targets instead (default all six); `ctf-setup.sh` forks all six regardless of this key. |
-| `admins` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `ADMIN_LOGINS` in `.env` instead (comma-separated GitHub logins), read at runtime. An empty/unset value 403s everyone at `/admin`. |
-| `hints`, `teams` | ignored | Not read. Hints are an `/admin` → Hints runtime setting; teams are `/admin` → Event registration/cap runtime settings. The key in `event.yaml` is silently ignored. |
 
 ### Changing a setting after the stack is running
 
+| What you changed | What it takes |
+|---|---|
+| Anything in `/admin` — modules, targets, identity, schedule, hints, teams, content | Nothing. It is live on the next request. |
+| `ADMIN_LOGINS`, `GITHUB_ORG`, `EVENT_URL`, a secret | Edit `.env`, then `docker compose --profile secdev --profile app up -d` to recreate the containers with the new environment. No rebuild. |
+| `SCORE_IMAGE` (adding or dropping Secure Development's containers) | Edit `.env`, then bring the stack up with — or without — `--profile secdev`. |
+| The app's own code (a kit upgrade) | `docker compose --profile app build app`, then `up -d`. |
+
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
-reads no build-time config at all: `ADMIN_LOGINS` and `GITHUB_ORG` are `.env`
-keys read at container start, so changing either only needs a restart, not a
-rebuild. Dates come from the scoring schedule (**Scoring opens** / **Scoring
-closes**) set in `/admin` → Event, same as name, tagline, location, contact
-e-mail and Discord invite — all runtime `/admin` settings, read on every
-request. The URL is likewise not baked: it is `EVENT_URL` in `.env`, read at
-runtime (ADR 43). The fork org (`GITHUB_ORG`) also drives every "fork this
-repo" link the app renders, so contestants are pointed at the org
-`ctf-setup org` actually forked into.
-
-So no image rebuild is ever needed for a config change: edit `.env` and
-restart the `app` service for `ADMIN_LOGINS`, `GITHUB_ORG` or `EVENT_URL`;
-everything else — event identity, schedule, modules and Secure Development
-targets — is a runtime `/admin` setting that takes effect on the next
-request, no restart at all.
+reads **no build-time configuration at all**, and no image in the kit takes a
+config build-arg. That is the point of #386: an image is the same image on
+every box, and a build that forgot a variable can no longer ship an event with
+an empty admin list. Dates come from the scoring schedule (**Scoring opens** /
+**Scoring closes**) set in `/admin` → Event, same as name, tagline, location,
+contact e-mail and Discord invite — all runtime settings, read on every
+request.
 
 ### Environment variables
 
@@ -788,9 +766,8 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 | `REDIS_PASSWORD` | `redis`, `srh` | **required** (`:?`) | Redis `requirepass`. Unset *or empty* fails `up` at interpolation rather than starting an open Redis; only `srh` can reach `redis:6379`. |
 | `SRH_TOKEN` | `srh`; `app`/`scorer`/`sync` as `UPSTASH_REDIS_REST_TOKEN` | required | Bearer token in front of the Redis REST proxy every service talks to. |
 | `SCORE_INGEST` | compose (Caddyfile choice) | `poll` | `poll` or `push`: mounts `caddy/Caddyfile.<mode>`. Must match the `--profile` you pass. |
-| `SCORE_IMAGE` | `scorer` image | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. `ctf-setup org` refuses to run until it is set. |
+| `SCORE_IMAGE` | `scorer` image; `scripts/dev-stack` and `deploy/fly/render-compose.sh` as the `secdev` switch | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. Non-empty also *means* the event runs Secure Development — it picks the `secdev` profile and the default module set. `ctf-setup org` refuses to run until it is set. |
 | `EVENT_URL` | `caddy` as `EVENT_HOST`; `app` as `BETTER_AUTH_URL` | `http://localhost` | **The** event URL — TLS host, auth callback origin, HTTPS start-up guard, CSRF origin check. `https://` for any real event. |
-| `EVENT_CONFIG_B64` | `sync` at start-up (the `app` build arg is ignored: the image bakes nothing since #386 part 4; the arg itself goes in part 6) | empty | Base64 of `event.yaml` for `sync` only. `sync` treats empty as absent and reads the bind mount instead. |
 | `REDIS_DIR` | `redis` | `/data` | Where the append-only file lives inside the volume. Fly sets `/data/redis` (one volume per machine, see [docs/fly.md](fly.md)). |
 | `STATE_PATH` | `sync` | `/state/state.json` | The poller's cursor file. Fly sets `/data/sync/state.json`. |
 | `EVENT_HOST`, `SRH_MODE`, `REDISCLI_AUTH` | `caddy`, `srh`, `redis` | *fixed* | Derived by compose: Caddy's host from `EVENT_URL`, `srh`'s config mode (`env`), `redis-cli`'s password from `REDIS_PASSWORD` so `docker compose exec redis redis-cli` authenticates itself. |
@@ -815,6 +792,7 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 
 | Variable | Read by | Default | Meaning |
 |---|---|---|---|
+| `GITHUB_ORG` | `sync` | required | The event org whose forked target repos are polled. `sync` refuses to start without it, logging `ctf-sync: GITHUB_ORG is not set` — for the poller a missing org is a misconfiguration, not "nothing to poll". Which targets inside the org are polled is a runtime `/admin` setting `sync` re-reads every tick. |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | `sync` | required | The poll GitHub App; the key is base64-encoded PEM. `sync` refuses to start without both. |
 | `GITHUB_APP_INSTALLATION_ID` | `sync` | auto-discovered | Pin the installation when the App has more than one. |
 | `SCORER_TOKEN` | `sync`; `scorer` as `CTF_SCORE_BEARER_TOKEN` | required | Bearer token `sync` presents to `POST /score`. |
@@ -822,7 +800,6 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 | `POLL_INTERVAL_MS` | `sync` | `30000` | *override*. Integer in `1..1789569705` (`floor((2^31-1)/1.2)`, headroom for the +20% jitter); anything else refuses at boot rather than tight-looping. |
 | `GITHUB_API_URL` | `sync` | `https://api.github.com` | *override*. `scripts/smoke.sh` points it at `mock-github`. |
 | `COMMENT_AUTHOR` | `sync` | `github-actions[bot]` | *override*. The only login whose `<!-- ctf-score -->` markers are ingested as points. |
-| `EVENT_CONFIG` | `sync` | `/config/event.yaml` | *override*. Path of the bind-mounted `event.yaml`; a non-empty `EVENT_CONFIG_B64` wins over it. |
 
 **Scorer, `score serve`** (`scorer/src/serve.js`, on the box):
 
