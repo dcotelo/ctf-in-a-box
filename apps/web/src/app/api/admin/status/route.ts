@@ -19,7 +19,8 @@ type LeaderboardFreshness = { players: number; lastUpdatedAt: string | null } | 
 // the organizer's count agreeing with the board they are looking at.
 async function readLeaderboardFreshness(): Promise<LeaderboardFreshness> {
   try {
-    const { entries } = await getLeaderboardSource()
+    const source = await getLeaderboardSource();
+    const { entries } = await source
       .getLeaderboard()
       .then(withModuleContributions);
     let lastUpdatedAt: string | null = null;

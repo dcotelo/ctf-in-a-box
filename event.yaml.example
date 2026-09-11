@@ -15,92 +15,43 @@ github:
   org: my-event-org                # disposable per-event org; also the fork org the app's challenge links point at
                                    # (the OAuth app's client id and secret live in .env as
                                    # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET, not here — see .env.example)
-# The modules this event STARTS with, and the set it falls back to if Redis is
-# unreachable — not the live truth. Quiz, Classic and AI can be switched on and
-# off from /admin during the event, without a rebuild (issue #175), and
-# editing this file mid-event changes nothing until you rebuild. Secure
-# Development is the exception: it is configured HERE and only here, because
-# it needs its scorer and sync services and its provisioned forks, none of
-# which the app can conjure. See docs/operations.md and ADR 52.
+# `modules:` is SETUP-TIME config only. It configures secure-development's
+# `targets` and `score_ingest` — the only module with setup-time settings —
+# and nothing else here enables or disables anything. Organizers switch
+# Quiz, Classic, AI and Secure Development on and off from /admin during the
+# event, without a rebuild (issue #175, ADR 52). The default set is
+# secure-development alone when `SCORE_IMAGE` is set in .env, and nothing
+# otherwise — a fresh box therefore shows "No boards are open yet." on the
+# landing page until an organizer enables a board. See docs/operations.md's
+# Event tab → Modules and docs/modules.md §1–2.
 modules:
   secure-development:
     targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
-  quiz: {}                         # single/multi-select question bank, scored
-                                    # app-side (no targets/score_ingest of its
-                                    # own — nothing to configure but presence).
-                                    # Turns on: a "Quiz" nav link and /quiz page
-                                    # for contestants; a Quiz section in /admin
-                                    # to author questions (prompt, choices,
-                                    # correct answer(s), points, order) and
-                                    # tune the two retry-gate knobs (max
-                                    # attempts, default 3; retry cooldown,
-                                    # default 5 min); and quiz points added on
-                                    # top of the combined leaderboard, deduped
-                                    # per team by question. See
-                                    # docs/operations.md's "Quiz" section and
-                                    # docs/modules.md §5.
-  classic: {}                      # jeopardy-style flag board, scored app-side
-                                    # (no targets/score_ingest of its own —
-                                    # nothing to configure but presence).
-                                    # Turns on: a "Flags" nav link and /flags
-                                    # page for contestants; a Classic section
-                                    # in /admin to manage categories and author
-                                    # challenges (title, category, Markdown
-                                    # description, points, flag) and tune the
-                                    # submission-cooldown knob (in SECONDS,
-                                    # default 5, no attempt cap); and classic
-                                    # points added on top of the combined
-                                    # leaderboard, deduped per team by
-                                    # challenge. A flag is stored in plaintext
-                                    # and visible to anyone with /admin access.
-                                    # See docs/operations.md's "Classic"
-                                    # section and docs/modules.md §5.
-  ai: {}                           # externally hosted AI/LLM challenges (no
-                                    # targets/score_ingest of its own —
-                                    # nothing to configure but presence).
-                                    # Turns on: an "AI Challenges" nav link
-                                    # and /ai page for contestants; an AI
-                                    # section in /admin to author challenges
-                                    # (mode flag/event/both, the external
-                                    # launch URL, categories, an optional paid
-                                    # hint) and tune the submission-cooldown
-                                    # knob (aiCooldownSec, in SECONDS, default
-                                    # 5); and ai points added on top of the
-                                    # combined leaderboard, deduped per team by
-                                    # challenge. Each challenge is hosted on a
-                                    # site outside the box — the organizer
-                                    # authors it here, but building or running
-                                    # that external site is a separate job; see
-                                    # docs/ai-module.md for what it must
-                                    # implement to integrate. Adding the id
-                                    # broke no existing config: every
-                                    # event.yaml that was valid before still
-                                    # is, and a running event needs no change.
-                                    # See docs/modules.md §5.
+  # quiz, classic and ai have no setup-time settings — there is nothing to
+  # configure but presence, and presence configures nothing now either (see
+  # docs/modules.md §5 and docs/operations.md's Quiz / Classic / AI
+  # sections). Both readers (generate-event-config.mjs, sync) still accept a
+  # `quiz: {}` / `classic: {}` / `ai: {}` block here if an older event.yaml
+  # has one — it is inert, not wrong.
 # Don't want to write this file by hand? `./setup/ctf-setup.sh` (the wizard)
-# asks which modules to enable and then asks only what those modules need —
-# targets + score_ingest for secure-development, nothing for quiz, classic or
-# ai — and writes the result here. An answer naming none of them emits no
-# secure-development block at all.
+# still writes this file and still asks which modules to enable — that answer
+# writes one block per module named: `secure-development` with its `targets`
+# + `score_ingest`, and an empty `quiz: {}` / `classic: {}` / `ai: {}` for the
+# others. None of those blocks enables anything any more: Quiz, Classic, AI
+# and Secure Development are all switched on from /admin after the box is up.
+# PR 3 of #386 removes the wizard's module question.
 #
-# A module is enabled by APPEARING under modules:. There is no `enabled:` key —
-# omitting a module's block entirely is what disables it. A module's block
-# holds only its own settings (`quiz`'s, `classic`'s and `ai`'s have none yet,
-# hence `{}`).
+# Enablement lives in /admin now, not this file — see the comment above
+# `modules:`. A quiz-only or classic-only event needs none of this file's
+# module machinery: it has no `secure-development` block here, leaves
+# `SCORE_IMAGE` empty in .env (so Secure Development is never even offered),
+# and the organizer enables the Quiz or Classic board from /admin once the
+# box is up.
 #
-# `secure-development` is optional too — a single module is enough to run an
-# event, and `quiz`/`classic` can run alone or together. A quiz-only event
-# drops the block above entirely and looks like this
-# (the `modules:` key itself must still be present — an event.yaml with no
-# `modules:` block at all is rejected by both readers):
-#
-#   modules:
-#     quiz: {}
-#
-# A classic-only event looks the same shape, just with `classic: {}` instead
-# (or alongside it — `modules: { quiz: {}, classic: {} }` runs both app-side
-# modules with no secure-development block at all).
+# The one constraint this file still enforces: the `modules:` key itself
+# must be present — an event.yaml with no `modules:` key at all is rejected
+# by both readers (generate-event-config.mjs, sync).
 #
 # `sync` tolerates `secure-development` being absent (it exits cleanly with
 # nothing to poll) and `ctf-setup.sh org`/`render`/`doctor` skip fork

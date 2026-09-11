@@ -4,38 +4,59 @@
 // flip a module can never disagree about when it is locked or what the
 // confirmation says.
 //
-// The last LIVE module cannot be switched off — the server refuses a set that
-// would end up empty (ADR 24's runtime analogue), and a control that always
-// errors is worse than one that explains itself. "Live" is counted over
-// every enabled module, INCLUDING the ones that cannot be toggled: on a
-// secure-development + quiz event, quiz is not "the last one" — secure-
-// development is serving too. What makes a set legal is that SOMETHING is
-// live, not that something switchable is live.
+// Secure Development is runtime-toggleable now (#386): it locks only when
+// the deployment has no scorer image, mirroring the server's own refusal.
+// Every other module — including the last live one — can be switched off;
+// an empty event is legal, and the landing page says so instead of showing
+// a broken board.
+
+import { ALL_MODULE_IDS, moduleDefById } from "@/lib/modules";
 
 export type ModuleToggleChoice = {
   id: string;
   label: string;
-  /** False for secure-development, which is provisioning rather than a flag.
-   *  `reason` says so on the row instead of leaving a dead control. */
+  /** False only for secure-development on a deployment with no scorer
+   *  image. `reason` says so on the row instead of leaving a dead control. */
   toggleable: boolean;
   reason?: string;
 };
 
+/** One row per registered module. Secure Development is locked only when
+ *  the deployment has no scorer image — the server refuses the same write,
+ *  this is the panel's copy of that rule (issue #386). Nothing else is
+ *  locked: switching the last board off is an organizer's decision, and the
+ *  landing page says so instead of showing an empty grid. */
+export function moduleChoices(secureDevAvailable: boolean): readonly ModuleToggleChoice[] {
+  return ALL_MODULE_IDS.map((id) => ({
+    id: id as string,
+    label: moduleDefById(id)?.displayName ?? (id as string),
+    toggleable: id !== "secure-development" || secureDevAvailable,
+    reason:
+      id === "secure-development" && !secureDevAvailable
+        ? "This deployment has no scorer image (SCORE_IMAGE is unset), so Secure Development cannot run here. Configure SCORE_IMAGE for this deployment and redeploy."
+        : undefined,
+  }));
+}
+
 /** What the switch for one module shows: on or off, whether it can be
- *  flipped, and the one sentence that explains a locked switch. */
+ *  flipped, and the one sentence that explains a locked switch.
+ *
+ *  A non-toggleable module that is already ON is not locked (issue #386): a
+ *  stored secure-development can outlive its scorer image. It stays
+ *  switchable off directly (`disabled: false`) — but the server now strips
+ *  it from what gets stored on ANY module write, not just a direct toggle
+ *  (admin-store's carry-forward rule, CodeRabbit round 1 finding B), so the
+ *  help text says so rather than implying the switch is the only way off.
+ *  Only a non-toggleable module that is OFF stays locked, since turning it
+ *  ON is the one write the server still refuses. */
 export function moduleToggleState(
   mod: ModuleToggleChoice,
   live: ReadonlySet<string>,
-  /** Every live module the registry knows, toggleable or not. */
-  liveCount: number,
 ): { on: boolean; disabled: boolean; help: string | undefined } {
   const on = live.has(mod.id);
-  const isLastOn = on && mod.toggleable && liveCount === 1;
-  return {
-    on,
-    disabled: !mod.toggleable || isLastOn,
-    help: !mod.toggleable && mod.reason ? mod.reason : isLastOn ? "The only module left — an event has to serve something." : undefined,
-  };
+  if (mod.toggleable) return { on, disabled: false, help: undefined };
+  if (on) return { on, disabled: false, help: `${mod.reason} It is switched off on your next change to any module.` };
+  return { on, disabled: true, help: mod.reason };
 }
 
 /** The confirmation for flipping one module, and the enabled set it writes.

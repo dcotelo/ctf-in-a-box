@@ -2,7 +2,7 @@
 // Keep route copy in one place so the header, footer, and metadata stay in sync.
 
 import { eventConfig } from "@/lib/event-config";
-import { enabledModules, SECURE_AGENT_PLAYBOOK_URL } from "@/lib/modules";
+import { SECURE_AGENT_PLAYBOOK_URL } from "@/lib/modules";
 
 export const event = {
   name: eventConfig.name,
@@ -67,18 +67,8 @@ const trailingNavLinks: NavLink[] = [
   { href: "/faq", label: "FAQ" },
 ];
 
-// Module-owned nav entries, in registry order, filtered to modules that
-// actually have a contestant route — a module gets no entry only if the
-// registry omits `nav` for it (see modules.ts).
-const moduleNavLinks: NavLink[] = enabledModules
-  .filter((m) => m.nav)
-  .map((m) => m.nav as NavLink);
-
-// Order here drives the header nav left-to-right.
-export const navLinks: NavLink[] = [...leadingNavLinks, ...moduleNavLinks, ...trailingNavLinks];
-
-/** Pure builder for the resolved-module nav: same platform link order as
- *  `navLinks` above, but with each module link's label replaced by the
+/** Pure builder for the resolved-module nav: platform links flank the live
+ *  module links, in that order, with each module link's label replaced by the
  *  organizer's EXPLICIT rename when there is one — see resolved-modules.ts
  *  for where the modules come from. A module with no `nav` entry contributes
  *  nothing. Pure — no I/O — so it's testable on its own with plain object

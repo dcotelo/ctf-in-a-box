@@ -165,10 +165,6 @@ export default function AdminEventTab({
   nowMs,
 }: AdminEventTabProps) {
   const live = new Set(liveModuleIds);
-  // The lock rule and the confirmation copy live in module-toggle.ts, shared
-  // with each module panel's header switch. The count is over every live
-  // module, toggleable or not — that file says why.
-  const liveCount = moduleChoices.filter((m) => live.has(m.id)).length;
   // Effective state for the schedule section's readout — the same
   // toggle-AND-window rule effectivePaused / effectiveRegistrationOpen apply
   // server-side, built on the shared outsideWindow. `nowMs` is the shell's
@@ -197,7 +193,7 @@ export default function AdminEventTab({
           </p>
         </div>
         {moduleChoices.map((mod) => {
-          const toggle = moduleToggleState(mod, live, liveCount);
+          const toggle = moduleToggleState(mod, live);
           // One status key per module row, not one for the whole
           // `enabledModules` write: "Saved" belongs beside the switch that
           // was flipped, not beside every module at once. The same key the

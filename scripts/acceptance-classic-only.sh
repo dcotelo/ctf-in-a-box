@@ -233,6 +233,10 @@ docker exec co-redis redis-cli HSET ctf:classic:solved "$CONTESTANT_LOGIN" 1 >/d
 docker exec co-redis redis-cli HSET "ctf:classic:solves:$CONTESTANT_LOGIN" "$CHALLENGE_ID" \
   '{"points":'"$CHALLENGE_POINTS"',"at":"2026-08-19T00:00:00.000Z"}' >/dev/null
 
+# Config v2 (#386): modules are switched on in ctf:admin:settings, not by
+# being present in event.yaml. Without this the board is OFF and /flags 404s.
+docker exec co-redis redis-cli HSET ctf:admin:settings enabledModules classic >/dev/null
+
 # ---------------------------------------------------------------------------
 # Build + boot the app bound to the classic-only config. EVENT_CONFIG_B64 is
 # a BUILD-time arg (apps/web/Dockerfile) — always pass it, never fall through

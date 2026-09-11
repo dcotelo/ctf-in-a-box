@@ -10,8 +10,10 @@ import { phaseFromSettings } from "@/components/phase";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { enabledApps, joinAppNames } from "@/lib/apps";
+import { defaultModuleIds } from "@/lib/enabled-modules";
 import { eventConfig } from "@/lib/event-config";
 import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
+import { secureDevAvailable } from "@/lib/module-defaults";
 import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
 import AdminControls from "@/app/(site)/admin/admin-controls";
 import AdminHeader from "@/app/(site)/admin/admin-header";
@@ -81,6 +83,8 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
         <AdminControls
           initial={settings}
           demoMode={process.env.DEMO_MODE === "1"}
+          defaultModuleIds={defaultModuleIds}
+          secureDevAvailable={secureDevAvailable(process.env)}
           modules={modules}
           setups={setups}
           initialTab={tab}

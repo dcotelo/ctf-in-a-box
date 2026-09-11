@@ -36,6 +36,12 @@ services:
       # Runtime flag: exposes the /admin "Seed demo data" button + its route.
       # Set to "1" only for demos (dev-stack does). Never in a real event.
       DEMO_MODE: ${DEMO_MODE:-}
+      # Runtime flag, not a build arg: non-empty means this deployment runs
+      # Secure Development (the scorer and sync containers exist), and that is
+      # the ONLY module enabled before an organizer switches others on in
+      # /admin (issue #386). Empty means no scorer image — the SD toggle is
+      # refused and nothing is enabled by default.
+      SCORE_IMAGE: ${SCORE_IMAGE:-}
       # "=1" downgrades the http:// refusal on a non-loopback EVENT_URL to a
       # startup warning — for deliberately TLS-less closed networks only
       # (docs/hosting.md). Read at runtime by the app, so it must be passed

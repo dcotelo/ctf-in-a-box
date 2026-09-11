@@ -268,6 +268,10 @@ docker exec ao-redis redis-cli HSET ctf:ai:solvecount "$CHALLENGE_ID" 1 >/dev/nu
 docker exec ao-redis redis-cli HSET "ctf:ai:solves:$CONTESTANT_LOGIN" "$CHALLENGE_ID" \
   '{"points":'"$CHALLENGE_POINTS"',"at":"2026-08-19T00:00:00.000Z","source":"flag"}' >/dev/null
 
+# Config v2 (#386): modules are switched on in ctf:admin:settings, not by
+# being present in event.yaml. Without this the board is OFF and /ai 404s.
+docker exec ao-redis redis-cli HSET ctf:admin:settings enabledModules ai >/dev/null
+
 # ---------------------------------------------------------------------------
 # Build + boot the app bound to the ai-only config. EVENT_CONFIG_B64 is a
 # BUILD-time arg (apps/web/Dockerfile) — always pass it, never fall through

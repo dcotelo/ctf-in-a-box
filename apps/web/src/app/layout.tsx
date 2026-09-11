@@ -3,7 +3,8 @@ import { Poppins, Barlow, Geist_Mono } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
 import { event } from "@/lib/site";
-import { enabledModules } from "@/lib/modules";
+import { moduleDefById } from "@/lib/modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getNavGroups } from "@/lib/resolved-modules";
 import "./globals.css";
 
@@ -24,23 +25,22 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// What this event actually is, in the enabled modules' own words. This used to
-// hardcode "patch real vulnerabilities in OWASP training apps" — secure-
-// development's pitch, served as the description of EVERY page, including on
-// an event that runs no such module. Taglines come off the registry (they are
-// not organizer-overridable, unlike title/blurb), so this stays a static
-// `metadata` object: no request-time read, nothing for the build to freeze.
-// A module with no `home` contributes nothing, and an event whose modules all
-// lack one falls back to the event name and its dates alone.
-const moduleTaglines = enabledModules
-  .map((m) => m.home?.tagline)
-  .filter(Boolean)
-  .join(" · ");
-
-export const metadata: Metadata = {
-  title: { default: event.name, template: `%s · ${event.name}` },
-  description: `${event.name}${moduleTaglines ? ` — ${moduleTaglines}` : ""}${event.dates ? ` — ${event.dates}` : ""}${event.location ? `, ${event.location}` : ""}.`,
-};
+// The description names the live modules' own taglines (registry copy, not
+// organizer-overridable). Reading the live set here puts one cached settings
+// read behind the metadata — the same read the layout body already makes for
+// the nav, deduped by react.cache. ADR 52 kept this baked because a baked set
+// existed; issue #386 removed it.
+export async function generateMetadata(): Promise<Metadata> {
+  const live = await getEnabledModuleIds();
+  const moduleTaglines = [...live]
+    .map((id) => moduleDefById(id)?.home?.tagline)
+    .filter(Boolean)
+    .join(" · ");
+  return {
+    title: { default: event.name, template: `%s · ${event.name}` },
+    description: `${event.name}${moduleTaglines ? ` — ${moduleTaglines}` : ""}${event.dates ? ` — ${event.dates}` : ""}${event.location ? `, ${event.location}` : ""}.`,
+  };
+}
 
 export default async function RootLayout({
   children,

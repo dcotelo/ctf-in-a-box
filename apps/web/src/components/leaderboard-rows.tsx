@@ -54,11 +54,13 @@ export function EntryRow({
   // ARE that module's, so a per-module heading would just restate the header
   // above it. Show it only once a second module can contribute.
   //
-  // The count comes off the `modules` prop rather than importing
-  // `enabledModules` here, so this stays a Client Component with no registry
-  // import — but WHICH modules are on is still build-time truth
-  // (`resolveModules` maps `enabledModules`, i.e. `eventConfig.modules`).
-  // Only a module's NAME is runtime; enabling or disabling one is a rebuild.
+  // The count comes off the `modules` prop rather than importing the
+  // registry here, so this stays a Client Component with no server-only
+  // import — the caller already resolved `modules` from the LIVE enabled
+  // set (`resolveModules` over `getEnabledModuleIds()`/`getResolvedModules()`,
+  // issue #386), so this just reads however many of those it was handed.
+  // Both which modules are on and a module's name are runtime now; neither
+  // needs a rebuild.
   const multiModule = modules.length > 1;
   // The same function the comparator ranks on — see `completedCount`.
   const solved = completedCount(entry);

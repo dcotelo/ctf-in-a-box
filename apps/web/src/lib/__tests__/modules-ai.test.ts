@@ -9,21 +9,22 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import { enabledModules, isModuleEnabled } from "@/lib/modules";
+import { moduleDefById, resolveModules } from "@/lib/modules";
 
 describe("ai module registration", () => {
-  it("is enabled from config and carries its display metadata", () => {
-    expect(isModuleEnabled("ai")).toBe(true);
-    const mod = enabledModules.find((m) => m.id === "ai")!;
-    expect(mod.displayName).toBe("AI Challenges");
-    expect(mod.description).toBeTruthy();
+  it("resolves onto the live set and carries its display metadata", () => {
+    const [mod] = resolveModules({}, new Set(["ai"]));
+    expect(mod.id).toBe("ai");
+    const def = moduleDefById("ai")!;
+    expect(def.displayName).toBe("AI Challenges");
+    expect(def.description).toBeTruthy();
   });
 
   it("gives ai its own nav entry now that /ai exists", () => {
-    expect(enabledModules.find((m) => m.id === "ai")!.nav).toEqual({ href: "/ai", label: "AI Challenges" });
+    expect(moduleDefById("ai")!.nav).toEqual({ href: "/ai", label: "AI Challenges" });
   });
 
   it("owns no targets — it is a pure app module with no compose service", () => {
-    expect(enabledModules.find((m) => m.id === "ai")!.targets).toEqual([]);
+    expect(moduleDefById("ai")!.targets).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as classicStore from "@/lib/classic-store";
 import * as quizStore from "@/lib/quiz-store";
 import * as aiStore from "@/lib/ai-store";
@@ -7,11 +7,6 @@ import * as adminStore from "@/lib/admin-store";
 const m = vi.hoisted(() => ({
   exportClassic: vi.fn(), exportQuiz: vi.fn(), exportAi: vi.fn(),
   getAdminSettings: vi.fn(), effectivePaused: vi.fn(),
-  // A plain, mutated-in-place array (never reassigned) so `vi.mock`'s
-  // captured reference below stays live across tests — a test that wants a
-  // different baked set mutates its contents rather than pointing the mock
-  // at a new array.
-  bakedModuleIds: ["classic", "quiz"] as string[],
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/classic-store", () => ({ exportBundle: m.exportClassic, clearChallenges: vi.fn(), importBundle: vi.fn() }));
@@ -23,13 +18,12 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
   contactEmail: "org@example.com", admins: ["alice"], githubOrg: "org", discordUrl: "d",
   targets: [], modules: [{ id: "quiz" }],
 } }));
-// event-store.ts's own Finding-A reconciliation (`reconcileEnabledModuleIds`)
-// reads `bakedModuleIds` from `@/lib/modules`. Mocked directly (rather than
-// relying on the real modules.ts derived from the `@/lib/event-config` mock
-// above) so individual tests can set exactly which ids this "box" was built
-// with, independent of the unrelated eventConfig fixture other tests share.
+// event-store.ts's reconciliation (`reconcileEnabledModuleIds`) only needs
+// `isModuleId` from `@/lib/modules` now — module availability is decided by
+// `secureDevAvailable`/`defaultEnabledModules` (from the real, unmocked,
+// pure `@/lib/module-defaults`, driven by `process.env.SCORE_IMAGE`), not by
+// any baked/build-time set.
 vi.mock("@/lib/modules", () => ({
-  bakedModuleIds: m.bakedModuleIds,
   isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "ai", "secure-development"].includes(v),
 }));
 
@@ -45,6 +39,10 @@ beforeEach(() => {
     scoringStartsAt: "2026-01-01T00:00:00Z", paused: true, updatedBy: "alice", updatedAt: "x",
   });
   m.effectivePaused.mockReturnValue(true);
+});
+
+afterEach(() => {
+  delete process.env.SCORE_IMAGE;
 });
 
 describe("exportEventBundle", () => {
@@ -84,19 +82,35 @@ describe("exportEventBundle", () => {
   });
 
   it("names Secure Development as not archivable when enabled", async () => {
+    process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
     m.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["secure-development", "classic"], paused: true });
     const { warnings } = await exportEventBundle(new Date());
     expect(warnings.some((w) => /secure development/i.test(w))).toBe(true);
   });
 
-  it("exports the RESOLVED enabledModuleIds, not the raw possibly-undefined settings field (fixture's box falls back to eventConfig's baked modules)", async () => {
+  // CodeRabbit round 1, finding F: a stored secure-development can outlive
+  // its scorer image (admin-store's carry-forward rule) — the export must
+  // not report it as live: no "not archivable" warning, and it must not ride
+  // along in bundle.settings.enabledModuleIds for a later re-import to
+  // reconcile away.
+  it("narrows secure-development out of the export when there is no scorer image, even if stored", async () => {
+    delete process.env.SCORE_IMAGE;
+    m.getAdminSettings.mockResolvedValue({ enabledModuleIds: ["secure-development", "classic"], paused: true });
+    const { bundle, warnings } = await exportEventBundle(new Date());
+    expect(bundle.settings.enabledModuleIds).toEqual(["classic"]);
+    expect(warnings.some((w) => /secure development/i.test(w))).toBe(false);
+  });
+
+  it("exports the RESOLVED enabledModuleIds, not the raw possibly-undefined settings field (falls back to this deployment's default modules)", async () => {
+    process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
     m.getAdminSettings.mockResolvedValue({ hintCost: 50, paused: true, enabledModuleIds: undefined });
     const { bundle } = await exportEventBundle(new Date());
-    // The mocked eventConfig fixture bakes only `quiz` — with no runtime
-    // override, exportEventBundle falls back to that baked set to decide
-    // which modules to include, and bundle.settings.enabledModuleIds must
-    // carry that SAME resolved array rather than dropping the key.
-    expect(bundle.settings.enabledModuleIds).toEqual(["quiz"]);
+    // With no runtime override, exportEventBundle falls back to
+    // `defaultEnabledModules(process.env)` — secure-development alone when
+    // this deployment has a scorer image, empty otherwise — and
+    // bundle.settings.enabledModuleIds must carry that SAME resolved array
+    // rather than dropping the key.
+    expect(bundle.settings.enabledModuleIds).toEqual(["secure-development"]);
   });
 
   // aiCooldownSec rides EVENT_POLICY_FIELDS beside classicCooldownSec (see
@@ -209,8 +223,6 @@ describe("importEventBundle", () => {
   beforeEach(() => {
     m.getAdminSettings.mockResolvedValue({ paused: true });
     m.effectivePaused.mockReturnValue(true);
-    m.bakedModuleIds.length = 0;
-    m.bakedModuleIds.push("classic", "quiz");
     vi.mocked(classicStore.importBundle).mockResolvedValue({ created: 0, updated: 0, categories: 1 });
     vi.mocked(quizStore.importBundle).mockResolvedValue({ created: 0, updated: 0 });
     vi.mocked(adminStore.resetEvent).mockResolvedValue({ cleared: {}, resetAt: "x" });
@@ -337,43 +349,48 @@ describe("importEventBundle", () => {
     expect(patch.teamMaxMembers).toBe(6);
   });
 
-  // Finding A: reconcile enabledModuleIds against the box's baked module set
-  // before it ever reaches updateAdminSettings, instead of letting a
-  // cross-SD import throw AdminValidationError (a 500 at the route).
-  it("reconciles a bundle's secure-development against a box that wasn't built with it, and names it in skipped", async () => {
-    // Baked set deliberately excludes secure-development — mirrors admin-store's
-    // own SD-refusal check, which is keyed only off secure-development
-    // membership, not the other module ids.
-    m.bakedModuleIds.length = 0;
-    m.bakedModuleIds.push("classic", "quiz");
+  // Finding A: reconcile enabledModuleIds against this deployment's actual
+  // availability before it ever reaches updateAdminSettings, instead of
+  // letting a cross-SD import throw AdminValidationError (a 500 at the
+  // route). Availability is `secureDevAvailable(process.env)` — driven by
+  // SCORE_IMAGE — not any baked/build-time set.
+  it("applies a bundle that enables secure-development when this deployment has a scorer image", async () => {
+    process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
     const { skipped } = await importEventBundle(
       {
         ...bundleFixture(),
-        settings: { ...bundleFixture().settings, enabledModuleIds: ["classic", "quiz", "secure-development"] },
+        settings: { ...bundleFixture().settings, enabledModuleIds: ["secure-development", "quiz"] },
       },
       "alice",
     );
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
-    expect(patch.enabledModules).toEqual(["classic", "quiz"]);
-    expect(skipped.some((s) => /secure.development/i.test(s))).toBe(true);
+    expect(patch.enabledModules).toEqual(["secure-development", "quiz"]);
+    // Only the always-present branding notice — nothing secure-development
+    // related, since this deployment can actually run it.
+    expect(skipped.some((s) => /secure.development/i.test(s))).toBe(false);
   });
 
-  it("passes a set that already matches the box's baked modules through unchanged, with no extra skipped entry", async () => {
-    m.bakedModuleIds.length = 0;
-    m.bakedModuleIds.push("classic", "quiz");
-    const { skipped } = await importEventBundle(bundleFixture(), "alice");
+  it("drops secure-development with a skipped entry when there is no scorer image", async () => {
+    delete process.env.SCORE_IMAGE;
+    const { skipped } = await importEventBundle(
+      {
+        ...bundleFixture(),
+        settings: { ...bundleFixture().settings, enabledModuleIds: ["secure-development", "quiz"] },
+      },
+      "alice",
+    );
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
-    expect(patch.enabledModules).toEqual(["classic", "quiz"]);
-    // Only the always-present branding notice — nothing module-related.
-    expect(skipped).toEqual([expect.stringMatching(/baked at build time|rebuild/i)]);
+    expect(patch.enabledModules).toEqual(["quiz"]);
+    expect(skipped.some((s) => /no scorer image/.test(s))).toBe(true);
   });
 
-  it("keeps secure-development enabled when the box is baked with it but the bundle's set omits it", async () => {
-    m.bakedModuleIds.length = 0;
-    m.bakedModuleIds.push("classic", "quiz", "secure-development");
-    const { skipped } = await importEventBundle(bundleFixture(), "alice");
+  it("applies an explicitly empty enabledModuleIds set", async () => {
+    const { skipped } = await importEventBundle(
+      { ...bundleFixture(), settings: { ...bundleFixture().settings, enabledModuleIds: [] } },
+      "alice",
+    );
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
-    expect(patch.enabledModules).toEqual(expect.arrayContaining(["classic", "quiz", "secure-development"]));
-    expect(skipped.some((s) => /secure development/i.test(s))).toBe(true);
+    expect(patch.enabledModules).toEqual([]);
+    expect(skipped.some((s) => /secure.development/i.test(s))).toBe(false);
   });
 });

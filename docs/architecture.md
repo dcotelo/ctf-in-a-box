@@ -791,7 +791,7 @@ without a rebuild:
   | `teamMaxMembers` | players per team (ADR 45) |
   | `scoringStartsAt` / `scoringEndsAt` | the scheduled freeze window |
   | `registrationStartsAt` / `registrationEndsAt` | the team-registration window |
-  | `enabledModules` | the live module set (ADR 52) — absent means "use `event.yaml`'s baked set" |
+  | `enabledModules` | the live module set (ADR 52, amended by #386) — absent means "use the `SCORE_IMAGE`-derived default" |
 
   plus `updatedBy`/`updatedAt` and `resetAt` (the master-reset epoch `sync`
   honours — see below). Every reader applies **override-else-default**
@@ -828,11 +828,12 @@ without a rebuild:
   request-scoped reader is `lib/resolved-modules.ts`'s `getResolvedModules()`,
   which **fails open** (a settings-read error resolves to registry defaults,
   because a wrong display name is cosmetic where a wrong gate decision awards
-  points). Since ADR 52, **which modules are enabled is runtime too**: the
-  Event tab's per-module switches write `enabledModules` on this same hash,
-  `event.yaml`'s `modules:` is the starting set and the outage fallback
-  (`apps/web/src/lib/enabled-modules.ts`'s `getEnabledModuleIds()`), and the
-  title/blurb validation above is checked against the *live* set.
+  points). Since ADR 52 (amended by #386), **which modules are enabled is
+  runtime too**: the Event tab's per-module switches write `enabledModules`
+  on this same hash, the `SCORE_IMAGE`-derived default is the starting set
+  and the outage fallback (`apps/web/src/lib/enabled-modules.ts`'s
+  `getEnabledModuleIds()`), and the title/blurb validation above is checked
+  against the *live* set.
 - **`ctf:admin:admins`** (Redis SET, ADR 44) — logins granted admin at
   runtime, on top of the ones baked into the image from `event.yaml`. A set
   rather than a settings field because membership *is* the whole value.
@@ -1069,7 +1070,7 @@ which supersedes the v1 limitation recorded in
 
 ## Build-time config flow
 
-<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram. The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the site modules derive enabledModules and nav links from it; next build statically renders all of it. Event identity is baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list.">
+<img src="assets/diagrams/build-time-config-flow.svg" alt="Animated diagram. The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the bake supplies event identity, secure-development's target list, and the admins list, while which modules are enabled is decided at runtime in /admin, not baked; next build statically renders all of it. Event identity is baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list.">
 
 Event identity (name, dates, URL, enabled targets, admins) is not runtime
 config — it's baked into the `app` image at build time:
@@ -1098,15 +1099,21 @@ config — it's baked into the `app` image at build time:
    `apps/web/src/lib/event-config.generated.ts` (gitignored — a typed `const`
    module) and fails the build loudly (non-zero exit) on invalid input,
    including an unregistered module id.
-5. `src/lib/event-config.ts`, `src/lib/modules.ts`, `src/lib/apps.ts`, and
-   `src/lib/site.ts` import the generated module and derive `eventConfig`,
-   `enabledModules`, `enabledApps`, and the site-wide `event` object from
-   it. `modules.ts`'s `enabledModules` maps the generated `modules` array to
-   each id's registry entry (display name, description, nav) — enablement
-   comes from config, display metadata lives in code — and `site.ts`'s
-   `moduleNavLinks`/`buildNavLinks` splice a module's nav entry into the flat
-   list iff that module is enabled and defines one (`nav` is optional in the
-   registry type, so a module with no contestant route contributes no link —
+5. `src/lib/event-config.ts` and `src/lib/apps.ts` import the generated
+   module and derive `eventConfig` and the build-time `enabledApps` subset
+   from it — event identity, secure-development's target list, and the
+   admins list are decided here, at build time. Which MODULES are enabled is
+   not: `src/lib/modules.ts` only holds the module registry (`MODULE_DEFS`,
+   `ALL_MODULE_IDS`) and `moduleDefsFor`, which maps the RUNTIME enabled set
+   — resolved per request from `ctf:admin:settings` by `lib/enabled-modules.ts`
+   and `lib/resolved-modules.ts` — to registry entries (display name,
+   description, nav); nothing reads the generated build-time module list for
+   enablement (#386). The nav follows that same runtime path:
+   `resolved-modules.ts`'s `getNavLinks`/`getNavGroups` run `site.ts`'s
+   `buildNavLinks`/`buildNavGroups` over the LIVE resolved-module list,
+   splicing a module's nav entry into the flat list iff that module is
+   enabled right now and defines one (`nav` is optional in the registry
+   type, so a module with no contestant route contributes no link —
    `secure-development`, `quiz`, `classic` and `ai` each define one now that
    `/ai` exists). The header and
    the footer diverge from there: the footer (`getNavLinks`) always renders

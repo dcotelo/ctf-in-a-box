@@ -29,7 +29,8 @@ import { getLeaderboardSource } from "@/lib/leaderboard/source";
 import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
 import { withTeamStandings } from "@/lib/leaderboard/team-standings";
-import { DOCS_URL, isModuleEnabled, type HomeContext } from "@/lib/modules";
+import { DOCS_URL, type HomeContext } from "@/lib/modules";
+import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { hasTeam } from "@/lib/team-store";
 import { event } from "@/lib/site";
@@ -64,7 +65,14 @@ export default async function Home() {
   const topByPoints = [...enabledApps].sort((a, b) => b.maxPoints - a.maxPoints).slice(0, 2);
   const topAppsList = joinAppNames(topByPoints.map((a) => a.name));
 
-  const secureDevelopment = isModuleEnabled("secure-development");
+  // One snapshot for every live-set question on this page (CodeRabbit round 1
+  // finding A) — `getEnabledModuleIds()` is `cache()`-memoized per request,
+  // so this and the quiz/classic reads below share the same underlying
+  // settings read regardless; reading `.has()` off ONE local instead of
+  // awaiting `isModuleLive` three times just makes that a snapshot in the
+  // code, not only in the cache.
+  const live = await getEnabledModuleIds();
+  const secureDevelopment = live.has("secure-development");
 
   // Live facts handed to every module's copy, built once so two modules can't
   // disagree about how many targets the event has.
@@ -98,9 +106,11 @@ export default async function Home() {
   // Per-board item counts for the game cards. Quiz and classic are one read
   // each and only when enabled; a failed read drops the count line, never the
   // card.
+  const quizLive = live.has("quiz");
+  const classicLive = live.has("classic");
   const [quizCount, classicCount] = await Promise.all([
-    isModuleEnabled("quiz") ? listQuestions().then((q) => q.length).catch(() => null) : Promise.resolve(null),
-    isModuleEnabled("classic") ? listChallenges().then((c) => c.length).catch(() => null) : Promise.resolve(null),
+    quizLive ? listQuestions().then((q) => q.length).catch(() => null) : Promise.resolve(null),
+    classicLive ? listChallenges().then((c) => c.length).catch(() => null) : Promise.resolve(null),
   ]);
   const countFor = (id: string): string | null => {
     if (id === "secure-development")
@@ -136,7 +146,8 @@ export default async function Home() {
   let topRowsAreTeams = false;
   if (phaseInfo && phaseInfo.phase !== "registration") {
     try {
-      const data = await getLeaderboardSource()
+      const source = await getLeaderboardSource();
+      const data = await source
         .getLeaderboard()
         .then(withModuleContributions)
         .then(withTeamStandings)
@@ -244,28 +255,38 @@ export default async function Home() {
           <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             {sections.length === 1 ? "The game" : "The games"}
           </h2>
-          <div className={`grid grid-cols-1 gap-4 ${gamesGrid}`}>
-            {sections.map((section) => (
-              <article
-                key={section.id}
-                className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
-              >
-                <h3 className="text-lg font-bold text-white">{section.title}</h3>
-                <p className="flex-1 text-sm leading-relaxed text-zinc-400">{section.intro}</p>
-                {countFor(section.id) && (
-                  <p className="font-mono text-xs tabular-nums text-[#8f8f9b]">{countFor(section.id)}</p>
-                )}
-                {section.cta && (
-                  <Link
-                    href={section.cta.href}
-                    className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#2563eb]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
-                  >
-                    {section.cta.label}
-                  </Link>
-                )}
-              </article>
-            ))}
-          </div>
+          {sections.length === 0 ? (
+            // Zero modules is a legal state now (issue #386): a fresh
+            // deployment with no scorer image, or an organizer who switched
+            // everything off. Say so — an empty grid reads as a broken page.
+            <div className="rounded-lg border border-white/[0.06] bg-[#16162a] px-6 py-10 text-center">
+              <p className="text-lg font-semibold text-white">No boards are open yet.</p>
+              <p className="mt-2 text-sm text-muted">An organizer switches them on in the admin panel.</p>
+            </div>
+          ) : (
+            <div className={`grid grid-cols-1 gap-4 ${gamesGrid}`}>
+              {sections.map((section) => (
+                <article
+                  key={section.id}
+                  className="ds-card flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-[#16162a] p-6"
+                >
+                  <h3 className="text-lg font-bold text-white">{section.title}</h3>
+                  <p className="flex-1 text-sm leading-relaxed text-zinc-400">{section.intro}</p>
+                  {countFor(section.id) && (
+                    <p className="font-mono text-xs tabular-nums text-[#8f8f9b]">{countFor(section.id)}</p>
+                  )}
+                  {section.cta && (
+                    <Link
+                      href={section.cta.href}
+                      className="mt-1 inline-flex w-fit items-center rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#2563eb]/45 hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]"
+                    >
+                      {section.cta.label}
+                    </Link>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* A module's optional thesis section. For secure-development this is

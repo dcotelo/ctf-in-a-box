@@ -67,4 +67,10 @@ describe.skipIf(!liveConfigured)("admin-store against a live SRH proxy", () => {
     const settings = await getAdminSettings();
     expect(settings.paused).toBe(false);
   });
+
+  it("round-trips an explicitly empty module set", async () => {
+    const s = await updateAdminSettings({ enabledModules: [] }, "alice");
+    expect(s.enabledModuleIds).toEqual([]);
+    expect((await getAdminSettings()).enabledModuleIds).toEqual([]);
+  });
 });

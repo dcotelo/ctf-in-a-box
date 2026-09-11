@@ -10,23 +10,27 @@ vi.mock("@/lib/event-config", () => ({
   },
 }));
 
-import { ALL_MODULE_ROUTES, enabledModules, isModuleEnabled, moduleDefById } from "@/lib/modules";
+import { ALL_MODULE_ROUTES, resolveModules, moduleDefById, type ModuleId } from "@/lib/modules";
 import type { OrgContext, RulesContext } from "@/lib/modules";
 
+// The live set is now the sole source of enablement (issue #386): there is no
+// more baked list to derive it from, so tests that need "both modules on"
+// pass this explicitly.
+const ENABLED = new Set<ModuleId>(["secure-development", "quiz"]);
+
 describe("module registry", () => {
-  it("derives the enabled modules from config, in registry order", () => {
-    expect(enabledModules.map((m) => m.id)).toEqual(["secure-development", "quiz"]);
-    expect(isModuleEnabled("quiz")).toBe(true);
+  it("resolves the live set in registry order", () => {
+    expect(resolveModules({}, ENABLED).map((m) => m.id)).toEqual(["secure-development", "quiz"]);
   });
 
   it("gives secure-development its display metadata and nav entry", () => {
-    const mod = enabledModules.find((m) => m.id === "secure-development")!;
+    const mod = moduleDefById("secure-development")!;
     expect(mod.displayName).toBe("Secure Development");
     expect(mod.nav).toEqual({ href: "/challenges", label: "Challenges" });
   });
 
   it("gives quiz its own nav entry now that /quiz exists", () => {
-    expect(enabledModules.find((m) => m.id === "quiz")!.nav).toEqual({ href: "/quiz", label: "Quiz" });
+    expect(moduleDefById("quiz")!.nav).toEqual({ href: "/quiz", label: "Quiz" });
   });
 
   it("registers classic with its own route, distinct from secure-development's", () => {
@@ -36,24 +40,13 @@ describe("module registry", () => {
 });
 
 describe("module registry — negative enablement", () => {
-  it("omits a module from enabledModules and isModuleEnabled when it is absent from config", async () => {
-    vi.resetModules();
-    vi.doMock("@/lib/event-config", () => ({
-      eventConfig: {
-        targets: ["dvwa"],
-        // secure-development is deliberately omitted here.
-        modules: [{ id: "quiz" }],
-      },
-    }));
+  it("resolves an empty live set to no modules", () => {
+    expect(resolveModules({}, new Set())).toEqual([]);
+  });
 
-    const { enabledModules: enabled, isModuleEnabled: isEnabled } = await import("@/lib/modules");
-
-    expect(enabled.map((m) => m.id)).toEqual(["quiz"]);
-    expect(enabled.some((m) => m.id === "secure-development")).toBe(false);
-    expect(isEnabled("secure-development")).toBe(false);
-
-    vi.doUnmock("@/lib/event-config");
-    vi.resetModules();
+  it("resolves a live set of just quiz to exactly the quiz def", () => {
+    const resolved = resolveModules({}, new Set(["quiz"]));
+    expect(resolved.map((m) => m.id)).toEqual(["quiz"]);
   });
 });
 

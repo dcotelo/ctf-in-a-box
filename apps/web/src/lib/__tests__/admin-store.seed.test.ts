@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn(),
-  upstashPipeline: vi.fn<(c: (string | number)[][]) => Promise<{ result?: unknown }[]>>(),
-  isModuleEnabled: vi.fn<(id: string) => boolean>(),
+  upstashPipeline: vi.fn<(c: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/upstash", () => ({ upstashEval: mocks.upstashEval, upstashPipeline: mocks.upstashPipeline }));
-vi.mock("@/lib/modules", () => ({ isModuleEnabled: mocks.isModuleEnabled }));
 
 import { seedDemoData, SEED_CATEGORIES_SCRIPT } from "@/lib/admin-store";
 import { upsertQuestion } from "@/lib/quiz-store";
@@ -26,17 +24,31 @@ import {
   DEMO_AI_SOLVES,
 } from "@/lib/demo-fixture";
 
+/** The settings-read shape `getAdminSettings` decodes `enabledModules` from —
+ *  a comma-joined id list on the ONE hash the seed's schedule clamp and its
+ *  module gates now share a single read of (issue #386). Call this before
+ *  `seedDemoData` to control which modules the NEXT read sees; it queues onto
+ *  `upstashPipeline` with `mockResolvedValueOnce`, so it must be the very next
+ *  call — which the settings read always is, since it happens first. */
+function mockEnabledModules(ids: readonly string[]) {
+  mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["enabledModules", ids.join(",")] }]);
+}
+
 beforeEach(() => {
   mocks.upstashPipeline.mockReset();
   // Answers BOTH pipelines the seed now runs: the settings read (HGETALL,
-  // which the clamp consumes — empty hash = no schedule = unclamped) and the
+  // which the clamp consumes — empty hash = no schedule = unclamped — and
+  // which the module gates below now also read `enabledModules` off) and the
   // write batch (whose return is unused).
-  mocks.upstashPipeline.mockResolvedValue([{ result: [] }]);
-  mocks.isModuleEnabled.mockReset();
-  // ai is deliberately left OFF by default (only quiz + classic on), so the
-  // large existing block of assertions below stays byte-for-byte identical to
-  // pre-ai behavior; ai gets its own describe block with its own mock.
-  mocks.isModuleEnabled.mockImplementation((id) => id === "quiz" || id === "classic");
+  //
+  // ai is deliberately left OFF by default (only secure-development + quiz +
+  // classic on), so the large existing block of assertions below stays
+  // byte-for-byte identical to pre-ai behavior; ai gets its own describe
+  // block with its own mock. secure-development stays on by default too —
+  // most of this file's assertions read `ctf:solves:<target>` rows, which
+  // only exist when it is live (issue #386's carry-forward gate); the one
+  // no-secure-development case gets its own dedicated test below.
+  mocks.upstashPipeline.mockResolvedValue([{ result: ["enabledModules", "secure-development,quiz,classic"] }]);
 });
 
 
@@ -101,6 +113,36 @@ describe("seedDemoData", () => {
     expect(JSON.parse(String(lpush![2]))).toMatchObject({ by: "alice", action: "seed" });
   });
 
+  // CodeRabbit round 2, finding F1: the settings read now also decides WHICH
+  // modules get demo rows, so it gates a write — it must fail closed. A
+  // transient read error used to be swallowed (`.catch(() => null)`) and
+  // seed the deployment-default module set regardless of what the organizer
+  // actually enabled; it must instead abort the seed with no write issued.
+  it("aborts the seed when the settings read fails, instead of seeding the default module set", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ error: "NOAUTH Authentication required." }]);
+
+    await expect(seedDemoData("alice")).rejects.toThrow("NOAUTH Authentication required.");
+    expect(mocks.upstashPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  // CodeRabbit round 1, finding E: the ctf:solves:<target> writes (and the
+  // `solves` count derived from them) used to run unconditionally, off the
+  // fixture alone — showing solves for a module this event isn't even
+  // serving. Gated on `live.has("secure-development")`, same as quiz/classic/
+  // ai below.
+  it("skips secure-development's demo solves entirely when it is not live", async () => {
+    mockEnabledModules(["quiz"]);
+    const out = await seedDemoData("alice");
+    expect(out.solves).toBe(0);
+
+    const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
+    const solveCmds = cmds.filter((c) => c[0] === "HSET" && String(c[1]).startsWith("ctf:solves:"));
+    expect(solveCmds.length).toBe(0);
+
+    const lpush = cmds.find((c) => c[0] === "LPUSH");
+    expect(JSON.parse(String(lpush![2]))).toMatchObject({ solves: 0 });
+  });
+
   it("spreads EACH contestant's solves across the window so lines interleave", async () => {
     await seedDemoData("bob");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
@@ -133,6 +175,12 @@ describe("seedDemoData", () => {
           new Date(startMs).toISOString(),
           "scoringEndsAt",
           new Date(endMs).toISOString(),
+          // Same default as the outer beforeEach — this override replaces the
+          // WHOLE settings read, so it has to restate enabledModules too, or
+          // the fallback default (empty, no SCORE_IMAGE in the test env)
+          // would silently drop quiz out of what this test exercises.
+          "enabledModules",
+          "secure-development,quiz,classic",
         ],
       },
     ]);
@@ -155,7 +203,14 @@ describe("seedDemoData", () => {
   it("falls back to the unclamped window when the schedule is entirely in the future", async () => {
     const startMs = Date.now() + 60 * 60 * 1000; // opens in an hour
     mocks.upstashPipeline.mockResolvedValueOnce([
-      { result: ["scoringStartsAt", new Date(startMs).toISOString()] },
+      {
+        result: [
+          "scoringStartsAt",
+          new Date(startMs).toISOString(),
+          "enabledModules",
+          "secure-development,quiz,classic",
+        ],
+      },
     ]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
@@ -255,8 +310,8 @@ describe("seedDemoData", () => {
     }
   });
 
-  it("writes no ctf:quiz:* keys when the quiz module is disabled", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
+  it("does not seed quiz content when quiz is not live", async () => {
+    mockEnabledModules(["classic"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:quiz:"))).toBe(false);
@@ -367,14 +422,14 @@ describe("seedDemoData", () => {
   });
 
   it("writes no ctf:classic:* keys when the classic module is disabled", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "quiz");
+    mockEnabledModules(["quiz"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
     expect(cmds.some((c) => String(c[1]).startsWith("ctf:classic:"))).toBe(false);
   });
 
   it("seeds ai challenges + flag/flagnorm (flag mode only) + signing keys, with NO flag in the public record", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mockEnabledModules(["ai"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
@@ -455,7 +510,7 @@ describe("seedDemoData", () => {
   });
 
   it("seeds ai solves so aggregates agree with the per-login rows and solvecount", async () => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mockEnabledModules(["ai"]);
     await seedDemoData("alice");
     const cmds = mocks.upstashPipeline.mock.calls.at(-1)![0];
 
@@ -658,7 +713,7 @@ describe("seedDemoData", () => {
 // arguments, and that nothing writes those keys behind its back.
 describe("seedDemoData hands its category work to one atomic script", () => {
   beforeEach(() => {
-    mocks.isModuleEnabled.mockImplementation((id) => id === "classic" || id === "ai");
+    mockEnabledModules(["classic", "ai"]);
   });
 
   it("writes both category keys ONLY through the script, never a bare SET", async () => {

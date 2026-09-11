@@ -297,31 +297,31 @@ The panel offers:
   the toggle is a switch, not a delete. Use it to pull a broken board out of an
   event without losing what contestants have already done.
 
-  Two things it refuses, both on purpose:
+  For Secure Development specifically: switching it off does not stop the
+  poller or the scorer — ingestion keeps running underneath, and any points
+  it records while the board is off show up on the board again the moment
+  you switch it back on.
 
-  - **The last module.** An event has to serve something; a site with every
-    module off has no content and no explanation for the people looking at it.
-    The panel greys out that last switch rather than letting you find out from
-    an error.
+  One thing it refuses, on purpose: **Secure Development on a deployment with
+  no scorer image.** The scorer and sync containers are chosen when the stack
+  comes up (`SCORE_IMAGE` in `.env`), and the app cannot start one, so the
+  switch is greyed out with that reason and the server refuses the write.
+  Everything else — including switching the last board off — is yours. An
+  event with nothing on shows "No boards are open yet" and points at this
+  panel.
 
-    "Last" counts **every live module, including the ones you cannot switch**.
-    On an event running Secure Development plus Quiz, Quiz is the last
-    *switchable* module but not the last live one — Secure Development is still
-    serving — so Quiz can be switched off and the event is left perfectly
-    legal. What makes a set legal is that something is live, not that something
-    switchable is.
-  - **Secure Development, in either direction.** It is configured at setup and
-    only there — it needs its `scorer` and `sync` services (which are not even
-    running on an event that never enabled it; see the profiles table in
-    [hosting](hosting.md)) and its provisioned forks, which only
-    `ctf-setup.sh` can create. Its row shows the reason instead of a control
-    that would always fail. See [ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup).
+  A Secure Development left **on** from before the scorer image was removed
+  is not force-disabled outright — it is hidden from contestants (the module
+  contract's usual "switched off" behaviour) and drops out of the stored
+  enabled set automatically the next time you change any module here, so it
+  never comes back on its own once the deployment has a scorer image again.
 
-  **`event.yaml`'s `modules:` is now the starting set and the fallback, not the
-  live truth.** Editing it mid-event changes nothing until you rebuild — the
-  same trap `hints:` and `teams:` already have. If Redis is unreachable the app
-  falls back to that baked set rather than to "nothing enabled", so an outage
-  cannot blank the event.
+  **What is on before you touch anything:** Secure Development, and only
+  when the deployment has a scorer image; otherwise nothing. Quiz, Classic
+  and AI always start off. `event.yaml`'s `modules:` block no longer
+  influences enablement (it still carries Secure Development's `targets`
+  until #386 lands fully); if Redis is unreachable the app falls back to that
+  same default rather than to a surprise.
 
   **What a contestant sees.** The module's nav link disappears from the header
   and the footer, and its route stops resolving — with a page that says the
@@ -329,9 +329,8 @@ The panel offers:
   already solved is affected. It is deliberately not the generic "that page
   doesn't exist, your link is wrong or out of date": their link was right, the
   page was there a minute ago, and sending them to hunt for a better URL wastes
-  their time mid-event. `/challenges` says something different again, because
-  Secure Development is never switched off at runtime — there it reports that
-  the event does not run that module, and promises no return.
+  their time mid-event. `/challenges` behaves like the other boards' switched-off
+  pages.
 
   A newly enabled module's own **admin tab** appears on the next page load,
   since the tab strip is rendered server-side.
@@ -841,10 +840,10 @@ hand when you rebuild with an updated `event.yaml` to match.
 
 ## Quiz
 
-When `event.yaml`'s `modules:` map includes `quiz: {}` (see
-`event.yaml.example`), contestants get a second, self-paced way to earn
-points: single- and multiple-choice questions, answered directly in the app
-alongside Secure Development's patch challenges. It doesn't touch GitHub,
+Switch Quiz on from `/admin` → Event → Modules and contestants get a second,
+self-paced way to earn points: single- and multiple-choice questions,
+answered directly in the app alongside Secure Development's patch
+challenges. It doesn't touch GitHub,
 the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#quiz-data-flow) for how it scores
 entirely inside the app.
@@ -1048,11 +1047,10 @@ retry knobs are global settings, not per-question ones.
 
 ## Classic
 
-When `event.yaml`'s `modules:` map includes `classic: {}` (see
-`event.yaml.example`), contestants get a jeopardy-style flag board: a set of
-organizer-authored challenges, each hiding a flag, graded the instant a
-contestant submits a matching string. Like the quiz, it doesn't touch
-GitHub, the scorer, or `sync` at all — see
+Switch Classic on from `/admin` → Event → Modules and contestants get a
+jeopardy-style flag board: a set of organizer-authored challenges, each
+hiding a flag, graded the instant a contestant submits a matching string.
+Like the quiz, it doesn't touch GitHub, the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#classic-data-flow) for how it scores
 entirely inside the app.
 
@@ -1271,11 +1269,10 @@ or a binary for contestants to download.
 
 ## AI
 
-When `event.yaml`'s `modules:` map includes `ai: {}` (see
-`event.yaml.example`), contestants get a third way to earn points:
-prompt-injection and guardrail challenges hosted on an **external** site,
-graded **inside** the box. Like the quiz and classic, it doesn't touch
-GitHub, the scorer, or `sync` at all — see
+Switch AI on from `/admin` → Event → Modules and contestants get a third way
+to earn points: prompt-injection and guardrail challenges hosted on an
+**external** site, graded **inside** the box. Like the quiz and classic, it
+doesn't touch GitHub, the scorer, or `sync` at all — see
 [docs/architecture.md](architecture.md#ai-data-flow) for how it scores
 entirely inside the app, and how a solve can arrive back three different
 ways.

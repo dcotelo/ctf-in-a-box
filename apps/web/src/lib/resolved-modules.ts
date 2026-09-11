@@ -1,9 +1,7 @@
 import "server-only";
 import { cache } from "react";
-import { connection } from "next/server";
-import { getAdminSettings } from "@/lib/admin-store";
 import { buildNavLinks, buildNavGroups, type NavEntry, type NavLink } from "@/lib/site";
-import { bakedModuleIds } from "@/lib/enabled-modules";
+import { getAdminSettingsSnapshot, getEnabledModuleIds } from "@/lib/enabled-modules";
 import {
   moduleDefById,
   resolveModules,
@@ -34,24 +32,40 @@ import {
  *  HTML for every route that doesn't otherwise opt out of prerendering.
  *  `connection()` forces this (and therefore the whole nav) to resolve
  *  per-request instead, so a renamed module shows up without a rebuild.
+ *  (Lives inside `getAdminSettingsSnapshot`/`getEnabledModuleIds` now, not
+ *  called again here — see below.)
+ *
+ *  ONE settings snapshot and ONE live-set snapshot, both `cache()`-memoized
+ *  in `@/lib/enabled-modules` (CodeRabbit round 1 finding A) — not a second,
+ *  independent `getAdminSettings()` read of its own. Before this, a page
+ *  that called both `getResolvedModules()` and `isModuleLive()`/
+ *  `getEnabledModuleIds()` in the same request paid for two settings reads
+ *  that could, on an unlucky Redis blip landing between them, disagree —
+ *  and this function built its live set from the RAW `enabledModuleIds`,
+ *  skipping the narrowing (`secure-development` dropped without a scorer
+ *  image) that `getEnabledModuleIds` applies. That let the landing page show
+ *  the Secure Development card while `isModuleLive("secure-development")`
+ *  answered false for the very same request. Sourcing the live set from
+ *  `getEnabledModuleIds()` instead means the narrowing applies HERE too, by
+ *  construction — there is no second place for it to be forgotten.
+ *
+ *  The names half still fails open independently of the live-set half: a
+ *  settings-read failure inside `getAdminSettingsSnapshot` gives registry
+ *  names (via `moduleOverrides ?? {}`) AND, through `getEnabledModuleIds`'s
+ *  own fail-open path, the default module set.
  *
  *  Wrapped in React's `cache()` (the vendored Next docs' own prescription for
  *  non-`fetch` memoization — see the App Router glossary's "Memoization"
- *  entry) so the settings read is deduped WITHIN one request: the root
- *  layout (nav), a page's `generateMetadata`, and that same page's body can
- *  all call this and only the first pays for `getAdminSettings()`. This is
+ *  entry) for the same reason as `getEnabledModuleIds`: the root layout
+ *  (nav), a page's `generateMetadata`, and that same page's body can all call
+ *  this and only the first pays for the underlying reads. This is
  *  request-scoped only — React resets the cache between requests — so it
  *  does NOT reintroduce the stale-until-rebuild bug Task 3 fixed: an
  *  organizer's rename is still live on the very next request. Do not add a
  *  TTL or any cross-request cache here. */
 export const getResolvedModules = cache(async (): Promise<readonly ResolvedModule[]> => {
-  await connection();
-  // ONE read for both halves — the names and the live set come out of the same
-  // settings hash, so asking twice would double the cost of every render for
-  // nothing. Both halves fail open, and independently: a read failure gives
-  // registry names AND the baked module set.
-  const settings = await getAdminSettings().catch(() => null);
-  return resolveModules(settings?.moduleOverrides ?? {}, new Set(settings?.enabledModuleIds ?? bakedModuleIds));
+  const [settings, live] = await Promise.all([getAdminSettingsSnapshot(), getEnabledModuleIds()]);
+  return resolveModules(settings?.moduleOverrides ?? {}, live);
 });
 
 /** The site nav, with organizer renames applied — the ONE accessor every

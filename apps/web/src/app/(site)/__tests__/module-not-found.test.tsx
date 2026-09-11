@@ -41,10 +41,18 @@ const text = (html: string) => html.replace(/&#x27;|&#39;/g, "'").replace(/&amp;
 
 const WRONG_LINK = /link is just wrong|out of date|doesn't exist/i;
 
+// challenges/not-found.tsx branches on secureDevAvailable(process.env) — the
+// "switched off" copy below is the has-a-scorer-image case (CodeRabbit
+// round 1 finding D). Set it for this whole suite so the shared loop below
+// keeps exercising that branch; the scorer-less branch gets its own
+// describe further down, which deletes it just for that render.
+process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
+
 describe("a switched-off module's 404", () => {
   for (const [label, Component, name] of [
     ["flags", FlagsNotFound, "Classic CTF"],
     ["quiz", QuizNotFound, "Quiz"],
+    ["challenges", ChallengesNotFound, "Secure Development"],
   ] as const) {
     describe(label, async () => {
       const html = text(renderToStaticMarkup(await Component()));
@@ -71,23 +79,35 @@ describe("a switched-off module's 404", () => {
   }
 });
 
-describe("secure-development's 404", async () => {
-  // Not runtime-toggleable (ADR 52), so this route means "not part of this
-  // event" rather than "switched off". Promising it can come back would leave
-  // contestants waiting for something no organizer can do from the panel.
-  const html = text(renderToStaticMarkup(await ChallengesNotFound()));
-
-  it("says the event does not run it, rather than that it was switched off", () => {
-    expect(html).toMatch(/doesn't run|isn't part of this event/i);
-    expect(html).not.toMatch(/switched off/i);
+// CodeRabbit round 1, finding D: a deployment with no scorer image at all
+// never ran secure-development, so "an organizer turned the module off... it
+// can come back" is false for it — there is nothing to come back from. That
+// deployment gets its own copy instead.
+describe("challenges' 404 on a deployment with no scorer image at all", () => {
+  it("says the module isn't available here, not that it was switched off", async () => {
+    delete process.env.SCORE_IMAGE;
+    try {
+      const html = text(renderToStaticMarkup(await ChallengesNotFound()));
+      expect(html).toContain("Secure Development");
+      expect(html).toMatch(/isn't available on this event/i);
+      // Not the "switched off" claim — this deployment never ran it.
+      expect(html).not.toMatch(/switched off/i);
+      expect(html).not.toMatch(WRONG_LINK);
+      expect(html).toMatch(/nothing you have already solved is affected/i);
+      expect(html).toMatch(/what this event does have open/i);
+    } finally {
+      process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
+    }
   });
 
-  it("does not promise it can come back mid-event", () => {
-    expect(html).not.toMatch(/come back/i);
-  });
-
-  it("still absolves the visitor's link", () => {
-    expect(html).toMatch(/link is fine/i);
-    expect(html).not.toMatch(WRONG_LINK);
+  it("still carries the eyebrow, unchanged", async () => {
+    delete process.env.SCORE_IMAGE;
+    try {
+      const html = text(renderToStaticMarkup(await ChallengesNotFound()));
+      expect(html).toContain("Not running");
+    } finally {
+      process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
+    }
   });
 });
+

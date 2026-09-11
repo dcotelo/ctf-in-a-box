@@ -16,6 +16,7 @@ import {
   SECURE_DEV_TERMS,
 } from "../../__tests__/secure-dev-terms";
 
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {
     name: "Quiz Night",
@@ -35,7 +36,10 @@ vi.mock("@/lib/event-config", () => ({
 
 import CodeOfConduct from "@/app/(site)/code-of-conduct/page";
 
-const html = renderToStaticMarkup(CodeOfConduct());
+// `await` because the page became async when secure-development joined the
+// runtime-toggleable set (issue #386): it reads the live set to decide its
+// wording. Rendering the un-awaited call suspends instead of failing clearly.
+const html = await CodeOfConduct().then(renderToStaticMarkup);
 
 describe("/code-of-conduct in a quiz-only event", () => {
   it("keeps the whole of the platform's conduct copy", () => {

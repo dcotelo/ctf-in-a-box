@@ -8,12 +8,15 @@
  * a request scope. A unit test calling the leaderboard fold or a page function
  * directly has no request scope, so the real module cannot run there.
  *
- * Why it reads through `@/lib/modules` rather than taking a set: the fixtures
- * express enablement two different ways — most mock `@/lib/event-config` and
- * let the real registry derive `bakedModuleIds` from it, while a few mock
- * `@/lib/modules` itself and stub `isModuleEnabled`. Delegating to whichever
- * is present means neither has to be rewritten, and neither can drift from the
- * enablement the rest of the file assumes.
+ * Why it reads through `@/lib/modules` or `@/lib/event-config` rather than
+ * taking a set: the fixtures express enablement two different ways — most
+ * mock `@/lib/event-config` and declare `modules: [...]` directly, while a few
+ * mock `@/lib/modules` itself and stub `isModuleEnabled`. Delegating to
+ * whichever is present means neither has to be rewritten, and neither can
+ * drift from the enablement the rest of the file assumes. `bakedModuleIds` no
+ * longer exists on `@/lib/modules` (issue #386 removed the baked set), so this
+ * now reads the fixture's `@/lib/event-config` module list directly instead of
+ * a derived registry export.
  *
  * A test that wants a RUNTIME set DIFFERENT from the baked one must not use
  * this — mock `@/lib/enabled-modules` inline with the set it wants, which is
@@ -21,6 +24,7 @@
  * pre-#175 behaviour in tests that predate runtime enablement, not to model it.
  */
 import * as modules from "@/lib/modules";
+import * as eventConfigModule from "@/lib/event-config";
 import type { ModuleId } from "@/lib/modules";
 
 // Restated rather than imported: a file that mocks `@/lib/modules` may not
@@ -35,9 +39,9 @@ const KNOWN: readonly ModuleId[] = ["secure-development", "quiz", "classic", "ai
  *  it does not yield undefined — so probing has to be wrapped rather than
  *  null-checked. Getting this wrong reads as "37 tests fail with a message
  *  about a missing export", which is exactly what it did. */
-function tryRead<T>(name: string): T | undefined {
+function tryRead<T>(source: object, name: string): T | undefined {
   try {
-    return (modules as unknown as Record<string, T>)[name];
+    return (source as unknown as Record<string, T>)[name];
   } catch {
     return undefined;
   }
@@ -46,19 +50,20 @@ function tryRead<T>(name: string): T | undefined {
 function bakedIds(): ModuleId[] {
   // `isModuleEnabled` FIRST, and the order is load-bearing. A fixture that
   // stubs it is stating the enablement it wants tested, and that stub has to
-  // win; a fixture that only mocks `@/lib/event-config` gets the real
-  // function, which derives from that same mock — so this branch is right in
-  // both cases. Reading `bakedModuleIds` first got the second case right and
-  // silently ignored the first, which reads as a page not 404ing when the
+  // win; a fixture that only mocks `@/lib/event-config` gets no `isModuleEnabled`
+  // stub at all, so this branch is right in both cases. Reading the
+  // event-config module list first would get the second case right and
+  // silently ignore the first, which reads as a page not 404ing when the
   // test just said its module was disabled.
-  const isEnabled = tryRead<(id: ModuleId) => boolean>("isModuleEnabled");
+  const isEnabled = tryRead<(id: ModuleId) => boolean>(modules, "isModuleEnabled");
   if (typeof isEnabled === "function") return KNOWN.filter((id) => isEnabled(id));
-  const baked = tryRead<readonly ModuleId[]>("bakedModuleIds");
-  if (Array.isArray(baked)) return [...baked];
+  const declaredConfig = tryRead<{ modules?: readonly { id: ModuleId }[] }>(eventConfigModule, "eventConfig");
+  const declared = declaredConfig?.modules;
+  if (Array.isArray(declared)) return declared.map((m) => m.id);
   return [...KNOWN];
 }
 
-export const bakedModuleIds: readonly ModuleId[] = KNOWN;
+export const defaultModuleIds: readonly ModuleId[] = KNOWN;
 
 export async function getEnabledModuleIds(): Promise<ReadonlySet<ModuleId>> {
   return new Set(bakedIds());
@@ -66,4 +71,34 @@ export async function getEnabledModuleIds(): Promise<ReadonlySet<ModuleId>> {
 
 export async function isModuleLive(id: ModuleId): Promise<boolean> {
   return bakedIds().includes(id);
+}
+
+// `getResolvedModules` (in `@/lib/resolved-modules`) reads its settings
+// snapshot through THIS function now, not `@/lib/admin-store` directly
+// (CodeRabbit round 1 finding A) — so a fixture using this double for
+// enablement still needs a working `getAdminSettingsSnapshot` for
+// `moduleOverrides` (organizer renames). Delegating to the real
+// `getAdminSettings` preserves exactly what `getResolvedModules` used to do
+// itself: whatever a consuming test file already mocks (or does not mock,
+// and lets fail open) on `@/lib/admin-store` keeps working unchanged.
+//
+// Imported LAZILY, inside the function body, rather than at the top of this
+// file: `@/lib/admin-store` carries `import "server-only"`, which throws
+// unconditionally outside Next's RSC bundling (the raw npm package has no
+// other guard) unless a test mocks it away — most consumers of this double
+// (gate/code-of-conduct/privacy's quiz-only fixtures among them) mock
+// NEITHER `server-only` nor `@/lib/admin-store`, because they only ever call
+// `isModuleLive`/`getEnabledModuleIds`, never anything that reaches this
+// function. A static top-level import would load (and crash on) `server-only`
+// for every one of those files whether or not they ever call this; the
+// dynamic import here only runs — and only needs a mock — for a fixture that
+// actually calls `getAdminSettingsSnapshot`, i.e. one that also exercises
+// `@/lib/resolved-modules`.
+export async function getAdminSettingsSnapshot() {
+  try {
+    const { getAdminSettings } = await import("@/lib/admin-store");
+    return await getAdminSettings();
+  } catch {
+    return null;
+  }
 }

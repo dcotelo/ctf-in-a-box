@@ -27,7 +27,8 @@ export async function loadTeamStanding(
 ): Promise<TeamPanelData> {
   if (!team) return { standing: null, memberEntries: [] };
   try {
-    const data = await getLeaderboardSource()
+    const source = await getLeaderboardSource();
+    const data = await source
       .getLeaderboard()
       .then(withModuleContributions)
       .then(withTeamStandings)

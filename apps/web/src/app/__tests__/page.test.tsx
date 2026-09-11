@@ -33,7 +33,7 @@ vi.mock("@/lib/team-store", () => ({ hasTeam: async () => false, getViewerTeam: 
 // synthetic board for one render.
 const board = vi.hoisted(() => ({ data: null as unknown }));
 vi.mock("@/lib/leaderboard/source", () => ({
-  getLeaderboardSource: () => ({
+  getLeaderboardSource: async () => ({
     getLeaderboard: async () => {
       if (board.data) return board.data;
       throw new Error("no leaderboard in this fixture");
@@ -41,11 +41,14 @@ vi.mock("@/lib/leaderboard/source", () => ({
   }),
 }));
 vi.mock("next/server", () => ({ connection: async () => {} }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // `getResolvedModules` falls back to the baked shim's ALL-module
+  // `defaultModuleIds` unless this names the shipped config's own set.
+  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["secure-development"] }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
-// layout.tsx is imported for its `metadata` export; its font loaders are
+// layout.tsx is imported for its `generateMetadata` export; its font loaders are
 // build-time Next magic with no runtime implementation under Vitest.
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "" });
@@ -59,10 +62,11 @@ vi.mock("next/image", () => ({
 }));
 
 import Home from "@/app/page";
-import { metadata } from "@/app/layout";
+import { generateMetadata } from "@/app/layout";
 import { eventConfig } from "@/lib/event-config";
 
 const html = await Home().then(renderToStaticMarkup);
+const metadata = await generateMetadata();
 
 describe("landing page frame", () => {
   it("renders the event name as the headline", () => {

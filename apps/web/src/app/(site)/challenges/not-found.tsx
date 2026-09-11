@@ -8,27 +8,45 @@
 // a working browser; telling them otherwise sends them hunting for a better
 // URL that does not exist.
 //
-// Unlike quiz and classic, secure-development is NOT runtime-toggleable
-// (ADR 52) — it needs its scorer, its poller and its provisioned forks. So on
-// this route the module is not "switched off" but simply not part of this
-// event, and the copy says so: there is no organizer action that brings it
-// back mid-event, and implying otherwise would have contestants waiting.
+// secure-development is runtime-toggleable now (issue #386): its switch
+// locks only on a deployment with no scorer image, exactly like the other
+// modules' switches lock for their own reasons. So this route means the same
+// thing /flags and /quiz's boundaries do — "switched off, not gone" — for a
+// deployment that HAS a scorer image, and carries the same copy.
+//
+// A deployment with NO scorer image at all is a different claim, not a
+// harsher version of the same one (CodeRabbit round 1 finding D): this event
+// never ran secure-development, an organizer never "turned it off", and it
+// is not coming "back" from anywhere. Saying so anyway would be the same
+// false promise the other boundaries exist to avoid making, just aimed at a
+// different fact.
 //
 // Inherits the `(site)` layout, so the nav and footer are already there — the
 // body deliberately renders neither.
 
 import NotFoundBody, { getNotFoundRoutes } from "@/components/not-found-body";
 import { moduleDefById } from "@/lib/modules";
+import { secureDevAvailable } from "@/lib/module-defaults";
 
 export default async function ChallengesNotFound() {
   const routes = await getNotFoundRoutes();
   const name = moduleDefById("secure-development")?.displayName ?? "This module";
+  if (!secureDevAvailable(process.env)) {
+    return (
+      <NotFoundBody
+        routes={routes}
+        eyebrow="Not running"
+        title={`${name} isn't available on this event`}
+        description={`This event runs without a scorer, so ${name} can't be played here. Your link is fine and nothing you have already solved is affected. Here is what this event does have open.`}
+      />
+    );
+  }
   return (
     <NotFoundBody
       routes={routes}
       eyebrow="Not running"
-      title={`This event doesn't run ${name}`}
-      description={`${name} isn't part of this event. Your link is fine — it points at a module this particular CTF was not set up with, rather than at a page that is broken or gone. Here is what this event does have open.`}
+      title={`${name} is switched off`}
+      description={`This event isn't running ${name} at the moment. Your link is fine and nothing you have already solved is affected — an organizer turned the module off, and it can come back just as quickly. Here is what this event does have open.`}
     />
   );
 }

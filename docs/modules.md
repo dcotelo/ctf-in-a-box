@@ -47,8 +47,14 @@ the sections below are the enforceable contract behind it.
 
 ## Section 1. Module identity & config block
 
-1. MUST live under a kebab-case key in `event.yaml`'s top-level `modules:`
-   map — one config block per module. Example, `secure-development`'s block
+1. MUST be registered in the three known-module lists item 3 describes below,
+   the ones `scripts/check-module-registries.mjs` compares — that
+   registration is what makes a module id valid platform-wide, independent of
+   any `event.yaml` content. A module MAY ALSO carry setup-time configuration
+   under a kebab-case key in `event.yaml`'s top-level `modules:` map, but
+   only when it has setup-time configuration to hold: in this release only
+   `secure-development` does (`targets`, `score_ingest`); `quiz`, `classic`
+   and `ai` have none, and so no block. Example, `secure-development`'s block
    (`event.yaml.example`):
 
    ```yaml
@@ -58,22 +64,26 @@ the sections below are the enforceable contract behind it.
        score_ingest: poll             # poll | push
    ```
 
-2. MUST state whether it can be **enabled at runtime**. Presence in
-   `event.yaml`'s `modules:` is the STARTING set and the outage fallback, not
-   the live truth: organizers switch modules on and off from `/admin` during an
-   event, and the live set lives in `ctf:admin:settings`
-   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)).
+2. MUST be **runtime-toggleable**, like every other module. Organizers switch
+   modules on and off from `/admin` during an event, and the live set lives in
+   `ctf:admin:settings`
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
+   amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386)). The
+   deployment's starting set and its outage fallback are the
+   `SCORE_IMAGE`-derived default — secure-development alone when a scorer
+   image exists, nothing when it does not — not anything read from
+   `event.yaml`. The `modules:` block from item 1, where a module has one,
+   holds setup-time configuration only; it does not enable or disable
+   anything.
 
-   A module is runtime-toggleable only if **everything it needs already
-   exists** when the switch is flipped. Concretely, enabling it must require no
-   more than a route, a nav entry, a tab and data it keeps in Redis. If it
-   needs a **container** (`docker-compose.yml` profiles are chosen at
-   `up` time and the app cannot start one) or **provisioning** (forks, an App
-   installation, per-repo workflows — `ctf-setup.sh`'s work, holding a key the
-   web tier deliberately does not have, ADR 41), it is configured at setup and
-   its toggle must be **refused with the reason**, in both directions.
-   `secure-development` is the worked example of the second kind; `quiz`,
-   `classic` and `ai` are the first.
+   A module whose services are **profile-gated** — chosen once, when the
+   stack comes up, not when a switch is flipped (`docker-compose.yml`
+   profiles; `secure-development`'s `scorer` and `sync`) — MUST expose that
+   availability fact to the app as a runtime env var (`SCORE_IMAGE` is the
+   worked example) and refuse enabling when it is absent, with the reason,
+   in both the panel and the server. `secure-development` is the worked
+   example; `quiz`, `classic` and `ai` need no such env var, since their
+   routes, nav entries and tabs ship in every `app` image regardless.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.
@@ -121,8 +131,8 @@ the sections below are the enforceable contract behind it.
    instead. Registration is deliberate, not dynamic; this is a v1 constraint,
    not a permanent architectural stance.
 
-   A module is enabled by **being present** under `modules:` and disabled by
-   being omitted. There is no `enabled:` key — a module MUST NOT invent one.
+   A module's presence under `modules:` configures it; it does not enable it
+   (#386). There is no `enabled:` key — a module MUST NOT invent one.
 
 4. A module's config block is free to define its own shape beyond
    `targets`. Note that in v1 `score_ingest` is documentation-of-intent
@@ -254,14 +264,15 @@ the sections below are the enforceable contract behind it.
 ## Section 5. UI / presentation contract
 
 **Honesty constraint up front:** the vendored contestant app (`apps/web/`,
-see `apps/web/VENDORED.md`) now derives its module registry from `event.yaml`
-rather than hardcoding a single module. `src/lib/modules.ts`'s
-`enabledModules` maps every id under `event.yaml`'s `modules:` block (surfaced
-through the generator, `apps/web/scripts/generate-event-config.mjs`, which
-emits a structured `modules` array plus a derived back-compat `targets` array)
-to a `ModuleDef` — display name, description, and nav entry are code-side
-registry data (`REGISTRY` in `modules.ts`); whether a module is *live* is
-entirely config-driven. Four ids are registered today, all four
+see `apps/web/VENDORED.md`) now derives its module registry from a runtime
+set rather than hardcoding a single module. `src/lib/modules.ts`'s
+`moduleDefsFor` maps every enabled id to a `ModuleDef` — display name,
+description, and nav entry are code-side registry data (`REGISTRY` in
+`modules.ts`); whether a module is *live* is decided at runtime, from the
+`ctf:admin:settings` set that defaults to Secure Development alone when the
+deployment has a `SCORE_IMAGE`, otherwise nothing
+([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
+amended by #386). Four ids are registered today, all four
 **real, working modules** rather than registry-proving placeholders:
 `secure-development` (targets, catalogue,
 GitHub-mediated scoring — the worked example throughout this document),
@@ -292,9 +303,10 @@ registry still fails the build loudly (`generate-event-config.mjs`'s
 
 Display metadata (item 1) and the enablement rule (item 4) now hold for real
 across the app, not just as a filter over one hardcoded target list:
-`src/lib/site.ts`'s `moduleNavLinks` splices a module's nav entry into the
-header iff that module is enabled *and* defines a `nav` — all three app-side
-modules do now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`,
+`resolved-modules.ts`'s `getNavLinks`/`getNavGroups`, running `site.ts`'s
+`buildNavLinks`/`buildNavGroups` over the LIVE resolved-module list, splice a
+module's nav entry into the header iff that module is enabled *and* defines a
+`nav` — all three app-side modules do now, `quiz`'s pointing at `/quiz` (`apps/web/src/app/(site)/quiz/`,
 rendering `components/quiz-board.tsx`), `classic`'s at `/flags`
 (`apps/web/src/app/(site)/flags/`, rendering `components/challenge-board.tsx`)
 and `ai`'s at `/ai` (`apps/web/src/app/(site)/ai/`, rendering that same
@@ -527,12 +539,16 @@ of one module's shape.
    patched/total shape.
 
 4. **Enablement rule.** A module's UI surfaces (nav entry, challenge list,
-   leaderboard columns) MUST appear if and only if the module's key is
-   present under `event.yaml`'s `modules:` map — the same map the config
-   loader validates (section 1). Nothing about a module absent from
-   `modules:` may leak into nav, leaderboard, or challenge listings; an
-   organizer who omits a module from their event config gets an app with no
-   trace of it, not a greyed-out or hidden-but-present surface. This reaches
+   leaderboard columns) MUST appear if and only if the module's id is in the
+   runtime live set — `getEnabledModuleIds()` / `isModuleLive()` in
+   `apps/web/src/lib/enabled-modules.ts`, backed by `ctf:admin:settings`'s
+   `enabledModules`, which defaults to Secure Development alone when the
+   deployment has a `SCORE_IMAGE` and to nothing otherwise
+   ([ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup),
+   amended by #386). Nothing about a module outside that set may leak into
+   nav, leaderboard, or challenge listings; a contestant on an event that
+   hasn't switched a module on gets an app with no trace of it, not a
+   greyed-out or hidden-but-present surface. This reaches
    the module's own dedicated route, not just its nav entry: a disabled
    module's page MUST 404, not merely disappear from the header — worked
    example, `/challenges` (`app/(site)/challenges/page.tsx`) calls

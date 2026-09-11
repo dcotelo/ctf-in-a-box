@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 // getResolvedModules calls connection() before the settings read (see the
@@ -47,7 +47,64 @@ vi.mock("@/lib/event-config", () => ({
 const getAdminSettings = vi.fn();
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings }));
 
-beforeEach(() => vi.resetModules());
+type MockedSettings = { moduleOverrides?: unknown; enabledModuleIds?: string[] } | null;
+
+// getResolvedModules now sources its settings snapshot AND its live set from
+// `@/lib/enabled-modules` (CodeRabbit round 1 finding A) instead of reading
+// `getAdminSettings()` a second time and skipping the secure-development
+// narrowing. Reimplemented here against the SAME mocked `getAdminSettings`
+// above, rather than mocked away as a black box, so this file's
+// `getAdminSettings.mockResolvedValue(...)` calls keep driving both the
+// nav-rename tests AND the live-set tests exactly as before.
+//
+// `defaultModuleIds` stays a fixed two-module fixture independent of
+// `process.env.SCORE_IMAGE` — matching the rest of this file's fixture — but
+// the secure-development NARROWING is the real, unmocked
+// `secureDevAvailable` from the pure `@/lib/module-defaults`, so a test can
+// still exercise it by toggling `process.env.SCORE_IMAGE`.
+//
+// Registered with `vi.doMock` INSIDE `beforeEach`, not the usual hoisted
+// `vi.mock` at module scope: a hoisted factory runs exactly ONCE for the
+// whole file (confirmed empirically — the `settingsPromise` memo below leaked
+// its first resolved/rejected value into every later test when this was a
+// plain `vi.mock`, the same way the `react` cache mock's WeakMap persists
+// across `vi.resetModules()` on purpose). `doMock` + a fresh call per test
+// gives `getResolvedModules`'s ONE-settings-read-per-request property an
+// actually fresh "request" (a fresh `settingsPromise` closure) every test,
+// which is what `vi.resetModules()` gives the REAL, unmocked
+// `enabled-modules.ts`/`resolved-modules.ts` for free (a fresh `cache()`-
+// wrapped function each import) — this hand-written mock has to do it by
+// hand instead of getting it from a real `cache()` call.
+async function mockEnabledModules() {
+  const { secureDevAvailable } = await vi.importActual<typeof import("@/lib/module-defaults")>("@/lib/module-defaults");
+  const defaultModuleIds = ["secure-development", "quiz"];
+  let settingsPromise: Promise<MockedSettings> | null = null;
+  const getAdminSettingsSnapshot = (): Promise<MockedSettings> =>
+    settingsPromise ?? (settingsPromise = getAdminSettings().catch(() => null));
+  vi.doMock("@/lib/enabled-modules", () => ({
+    defaultModuleIds,
+    getAdminSettingsSnapshot,
+    getEnabledModuleIds: async () => {
+      const settings = await getAdminSettingsSnapshot();
+      const resolved = new Set(settings?.enabledModuleIds ?? defaultModuleIds);
+      if (!secureDevAvailable(process.env)) resolved.delete("secure-development");
+      return resolved;
+    },
+  }));
+}
+
+beforeEach(async () => {
+  vi.resetModules();
+  await mockEnabledModules();
+  // Most of this file's tests assume secure-development survives the
+  // narrowing above; the one test that cares about SCORE_IMAGE being unset
+  // sets/restores it itself.
+  process.env.SCORE_IMAGE = "ghcr.io/x/score:latest";
+});
+
+afterEach(() => {
+  delete process.env.SCORE_IMAGE;
+});
 
 describe("getResolvedModules", () => {
   it("applies stored overrides", async () => {
@@ -82,6 +139,22 @@ describe("getResolvedModules", () => {
 
     expect(getAdminSettings).toHaveBeenCalledTimes(1);
     expect(second).toBe(first);
+  });
+
+  // CodeRabbit round 1, finding A: before this fix, getResolvedModules built
+  // its live set from the RAW `enabledModuleIds` on the settings object,
+  // skipping the secure-development narrowing `getEnabledModuleIds` applies
+  // — so the landing page could show the Secure Development card on a
+  // deployment with no scorer image, in the same request `isModuleLive`
+  // answers false for it. Sourcing the live set from `getEnabledModuleIds()`
+  // closes that: the narrowing applies here too, by construction.
+  it("does not resolve secure-development when SCORE_IMAGE is unset even if stored", async () => {
+    delete process.env.SCORE_IMAGE;
+    getAdminSettings.mockResolvedValue({ moduleOverrides: {}, enabledModuleIds: ["secure-development", "quiz"] });
+    const { getResolvedModules } = await import("@/lib/resolved-modules");
+    const ids = (await getResolvedModules()).map((m) => m.id);
+    expect(ids).not.toContain("secure-development");
+    expect(ids).toContain("quiz");
   });
 });
 

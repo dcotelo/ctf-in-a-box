@@ -4,14 +4,18 @@ import { ADMIN_ADMINS_KEY, LOGIN_RE } from "@/lib/admin-admins";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
 import { SCORE_COOLDOWN_MIN_MAX } from "@/lib/scoring-defaults";
 import {
-  bakedModuleIds,
-  isModuleEnabled,
   isModuleId,
   MODULE_TITLE_MAX,
   MODULE_BLURB_MAX,
   type ModuleId,
   type ModuleOverrides,
 } from "@/lib/modules";
+// `defaultEnabledModules`, not `defaultModuleIds` from `@/lib/enabled-modules`:
+// that module imports `getAdminSettings` from this one, so importing it back
+// here would be a cycle. `module-defaults.ts` is the pure, dependency-free
+// source both sides compute the same default from; admin-store is
+// `server-only`, so calling it with `process.env` here is safe.
+import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
 import {
   DEMO_CONTESTANTS,
   DEMO_TEAMS,
@@ -190,14 +194,14 @@ export type AdminSettings = {
   /** Organizer-authored title/blurb overrides, keyed by module id. Unknown or
    *  disabled module ids are dropped on read (see decodeSettings). */
   moduleOverrides: ModuleOverrides;
-  /** The modules this event actually serves, overriding `event.yaml`'s baked
-   *  set (issue #175). **Null means "no override" — use the baked set**, which
-   *  is what makes `event.yaml` the seed and the outage fallback rather than
-   *  the live truth.
-   *
-   *  Read here but not yet written by anything: the admin control that sets it
-   *  is the second half of #175. Unknown ids are dropped on read, so a module
-   *  removed from the registry cannot re-enable itself from stale state. */
+  /** The modules this event actually serves (issue #386). Three states:
+   *  - absent (`null`) — nothing stored, the deployment default applies
+   *    (`defaultEnabledModules`: secure-development alone when a scorer
+   *    image is configured, otherwise nothing).
+   *  - `[]` — the organizer explicitly switched every module off.
+   *  - a list — those ids, with any the registry no longer knows dropped;
+   *    if that drop empties the list, it decodes back to `null` (a stale
+   *    field is not a decision to show nothing). */
   enabledModuleIds: ModuleId[] | null;
 };
 
@@ -331,16 +335,15 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
   };
 }
 
-/** Decodes the runtime enablement set: a comma-separated id list, or absent.
+/** Decodes the runtime enablement set.
  *
- *  Returns null — "no override, use the baked set" — for absent, empty, and
- *  for a value that survives filtering with nothing left. That last case is
- *  the one worth stating: a stored set naming only ids the registry no longer
- *  knows would otherwise decode to "enable nothing", turning a stale field
- *  into a site with no content. Falling back to baked is the same fail-open
- *  rule the rest of this resolution follows. */
+ *  - absent            → null: nothing stored, the deployment default applies
+ *  - ""                → []:   the organizer switched every module off (#386)
+ *  - "quiz, classic"   → ["quiz","classic"], unknown ids dropped
+ *  - only unknown ids  → null: a stale field is not a decision to show nothing */
 function decodeEnabledModuleIds(raw: string | undefined): ModuleId[] | null {
-  if (typeof raw !== "string" || raw.trim() === "") return null;
+  if (typeof raw !== "string") return null;
+  if (raw.trim() === "") return [];
   const ids = raw
     .split(",")
     .map((s) => s.trim())
@@ -498,32 +501,49 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       if (!Array.isArray(v) || v.some((id) => !isModuleId(id))) {
         throw new AdminValidationError(k, "enabledModules must be an array of known module ids");
       }
-      const requested = [...new Set(v as ModuleId[])];
+      let requested = [...new Set(v as ModuleId[])];
 
-      // Refusal 1: the last module. ADR 24 already refuses a present-but-empty
-      // `modules: {}` at build time, and the runtime analogue has to agree —
-      // otherwise the same configuration is legal through one door and illegal
-      // through the other. An event with nothing enabled is a contestant-facing
-      // site with no content and no explanation.
-      if (requested.length === 0) {
-        throw new AdminValidationError(k, "at least one module must stay enabled");
-      }
-
-      // Refusal 2: secure-development, in either direction. It is not a flag —
-      // it is compose profiles (`scorer` and `sync` are not running on an event
-      // that never enabled it, and the app cannot start containers) plus fork
-      // provisioning that only `ctf-setup.sh` can do, holding a GitHub App key
-      // the web tier deliberately does not have (ADR 41). Disabling is refused
-      // too: the scorer would keep ingesting scores for a module contestants
-      // can no longer see, which is a worse state than either end.
+      // The one refusal left (issue #386): Secure Development needs the scorer
+      // and sync containers, which exist only when the stack was brought up
+      // with a SCORE_IMAGE. Enabling it here would show a board no run can
+      // ever score. Fail closed; the panel disables the switch for the same
+      // reason, this is the server's copy of that rule.
+      //
+      // But refuse only a NEW enable. A deployment that had a scorer image
+      // when SD was switched on can still have it stored after SCORE_IMAGE is
+      // removed — every write here replaces the whole set, so if a carried-
+      // forward SD were refused too, the Modules section would deadlock: any
+      // write short of dropping SD fails, and SD's own switch is locked off
+      // (module-toggle.ts), so there is no way to drop it either. Read the
+      // current hash to tell "already stored" from "new"; a read failure
+      // means "cannot confirm it is already stored", so it refuses too.
+      //
+      // Ruling (CodeRabbit round 1, finding B): secure-development is NEVER
+      // WRITTEN when unavailable, carried-forward or not — a stale read
+      // between this check and the write below must never be able to
+      // re-store it. The read here only ever picks refuse-vs-strip: on a
+      // genuinely new enable it refuses (as before); on a carry-forward it
+      // STRIPS the id from what gets written instead of passing it through.
+      // A concurrent SD-disable landing between this read and our write can
+      // therefore at worst turn a strip into a refusal (the stale read still
+      // sees it "stored", so this write silently drops it same as before) —
+      // it can never turn a strip back into a store, because stripping never
+      // depends on the read succeeding: this whole branch only ever removes
+      // the id from `requested`, never adds it back.
       const sdId: ModuleId = "secure-development";
-      if (requested.includes(sdId) !== bakedModuleIds.includes(sdId)) {
-        throw new AdminValidationError(
-          k,
-          "secure-development is configured at setup, not at runtime — it needs its scorer and sync services and its provisioned forks",
-        );
+      if (requested.includes(sdId) && !secureDevAvailable(process.env)) {
+        const stored = await getAdminSettings()
+          .then((s) => s.enabledModuleIds ?? [])
+          .catch((): ModuleId[] => []);
+        const addingSd = !stored.includes(sdId);
+        if (addingSd) {
+          throw new AdminValidationError(
+            k,
+            "secure-development cannot be enabled here — this deployment has no scorer image (SCORE_IMAGE is unset)",
+          );
+        }
+        requested = requested.filter((id) => id !== sdId);
       }
-
       fields.push(k, requested.join(","));
       changed[k] = requested.join(",") as unknown as boolean;
     } else if (MODULE_FIELD_RE.test(k)) {
@@ -891,8 +911,6 @@ function raiseSolveCounts(cmds: (string | number)[][], key: string, counts: Map<
 export async function seedDemoData(actor: string): Promise<{ contestants: number; teams: number; solves: number }> {
   const now = Date.now();
   const windowMs = 6 * 60 * 60 * 1000;
-  let total = 0;
-  for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
 
   const cmds: (string | number)[][] = [];
   // The seed window: the last ~6h, CLAMPED to the scoring schedule when one
@@ -903,11 +921,27 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // open. A schedule entirely in the future has no valid past instant to
   // clamp to, so it falls back to the unclamped window — future-dated solves
   // would be a worse lie than a mistimed one.
-  // Best-effort: a settings blip must not fail the seed — it just seeds
-  // unclamped, which is yesterday's behavior.
-  const settings = await getAdminSettings().catch(() => null);
-  const scoringStartMs = settings?.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
-  const scoringEndMs = settings?.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
+  // Fail closed: this read now also decides WHICH modules get demo rows
+  // (issue #386), so it gates a write. A settings blip must abort the seed,
+  // not fall back to seeding every module's data regardless of what the
+  // organizer actually enabled — let getAdminSettings() throw and propagate.
+  const settings = await getAdminSettings();
+  // The live module set, same read: which of quiz/classic/ai to seed demo
+  // data for must follow what this event is actually serving (issue #386),
+  // not what happened to be baked at build time.
+  const live = new Set(settings.enabledModuleIds ?? defaultEnabledModules(process.env));
+  // Secure Development demo data — only when the module is live, same gate
+  // reasoning as quiz/classic/ai below: a deployment with no scorer image
+  // (or one that switched the board off) must get a seed byte-for-byte
+  // identical to having no secure-development data at all, not solve rows
+  // for a board that isn't running.
+  const secureDevLive = live.has("secure-development");
+  let total = 0;
+  if (secureDevLive) {
+    for (const c of DEMO_CONTESTANTS) for (const ids of Object.values(c.solves)) total += ids.length;
+  }
+  const scoringStartMs = settings.scoringStartsAt ? Date.parse(settings.scoringStartsAt) : NaN;
+  const scoringEndMs = settings.scoringEndsAt ? Date.parse(settings.scoringEndsAt) : NaN;
   let end = Number.isFinite(scoringEndMs) ? Math.min(now, scoringEndMs) : now;
   let base = Math.max(end - windowMs, Number.isFinite(scoringStartMs) ? scoringStartMs : end - windowMs);
   if (!(base < end)) {
@@ -920,18 +954,20 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // block), so every line rises throughout and they interleave. A per-contestant
   // sub-slot phase ((ci+0.5)/n) staggers otherwise-identical tick times so lines
   // don't land exactly on top of each other.
-  DEMO_CONTESTANTS.forEach((c, ci) => {
-    const kc = Object.values(c.solves).reduce((m, ids) => m + ids.length, 0);
-    let j = 0;
-    for (const [target, ids] of Object.entries(c.solves)) {
-      for (const id of ids) {
-        const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
-        const ts = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
-        cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
-        j++;
+  if (secureDevLive) {
+    DEMO_CONTESTANTS.forEach((c, ci) => {
+      const kc = Object.values(c.solves).reduce((m, ids) => m + ids.length, 0);
+      let j = 0;
+      for (const [target, ids] of Object.entries(c.solves)) {
+        for (const id of ids) {
+          const frac = kc > 0 ? (j + (ci + 0.5) / n) / kc : 0.5;
+          const ts = new Date(base + Math.min(0.999, frac) * spanMs).toISOString();
+          cmds.push(["HSET", `ctf:solves:${target}`, `${c.login}:${id}`, ts]);
+          j++;
+        }
       }
-    }
-  });
+    });
+  }
   const createdAt = new Date(base).toISOString();
   for (const t of DEMO_TEAMS) {
     cmds.push(["HSET", `ctf:team:${t.slug}`, "name", t.name, "captain", t.captain, "createdAt", createdAt, "joinCode", t.slug.slice(0, 6)]);
@@ -958,7 +994,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
 
   // Quiz demo data — only when the module is enabled, so a disabled quiz
   // module leaves the seed byte-for-byte identical to pre-quiz behavior.
-  const quizEnabled = isModuleEnabled("quiz");
+  const quizEnabled = live.has("quiz");
   let quizAnswersSeeded = 0;
   if (quizEnabled) {
     // Write the public question + its correct-answer key with the SAME
@@ -1033,7 +1069,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // Classic demo data — only when the module is enabled, so a disabled
   // classic module leaves the seed byte-for-byte identical to pre-classic
   // behavior (same reasoning as the quiz gate above).
-  const classicEnabled = isModuleEnabled("classic");
+  const classicEnabled = live.has("classic");
   let classicSolvesSeeded = 0;
   if (classicEnabled) {
     // Public challenge record ONLY — built field by field from `Challenge`'s
@@ -1128,7 +1164,7 @@ export async function seedDemoData(actor: string): Promise<{ contestants: number
   // module-wide identity material, minted lazily on first real use
   // (`getAiLaunchKeys` in ai-store.ts), never fixture data. Writing one here
   // would hand every seeded demo event the SAME hardcoded private key.
-  const aiEnabled = isModuleEnabled("ai");
+  const aiEnabled = live.has("ai");
   let aiSolvesSeeded = 0;
   if (aiEnabled) {
     // Public challenge record ONLY, built field by field from `AiChallenge`'s

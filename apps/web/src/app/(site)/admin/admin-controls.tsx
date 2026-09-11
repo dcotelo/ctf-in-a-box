@@ -36,7 +36,6 @@ import { nextScheduleBoundary } from "@/lib/schedule-window";
 import { phaseFromSettings } from "@/components/phase";
 import {
   ALL_MODULE_IDS,
-  bakedModuleIds,
   moduleDefById,
   type ModuleSetupContent,
   type ResolvedModule,
@@ -54,11 +53,12 @@ import AdminAdminsTab from "./admin-admins-tab";
 import AdminActivityTab from "./admin-activity-tab";
 import AdminInsightsTab from "./admin-insights-tab";
 import AdminSupportTab from "./admin-support-tab";
-import AdminEventTab, { type ModuleChoice } from "./admin-event-tab";
+import AdminEventTab from "./admin-event-tab";
 import AdminHintsTab from "./admin-hints-tab";
 import AdminSettingsCard from "@/components/admin/settings-card";
 import AdminSecureDevTab from "./admin-secure-dev-tab";
 import AdminModulePanel from "./admin-module-panel";
+import { moduleChoices } from "./module-toggle";
 import type { CommitNumber, ConfirmState } from "./types";
 import { adminTabHref, tabFromLocation } from "@/app/(site)/admin/admin-tabs";
 
@@ -77,24 +77,6 @@ const MODULE_DEFAULTS = new Map(
     return [id as string, { title: def?.displayName ?? id, blurb: def?.description ?? "" }];
   }),
 );
-
-/** Every registry module as a toggle row (issue #175), in registry order.
- *
- *  Includes the ones this event has switched OFF — the whole point is to turn
- *  one back on, and a switch you cannot see is not a switch.
- *
- *  secure-development is present but not toggleable, with the reason on the
- *  row rather than a control that always errors. It is not a flag: its scorer
- *  and sync services are not running on an event that never enabled it (the
- *  app cannot start containers), and its targets are forks that only
- *  `ctf-setup.sh` can provision, holding a GitHub App key the web tier
- *  deliberately does not have. */
-const MODULE_CHOICES: readonly ModuleChoice[] = ALL_MODULE_IDS.map((id) => ({
-  id: id as string,
-  label: moduleDefById(id)?.displayName ?? (id as string),
-  toggleable: id !== "secure-development",
-  reason: id === "secure-development" ? "Configured at setup — it needs its scorer, its sync poller and its provisioned forks." : undefined,
-}));
 
 // The URL⇄tab rules live in admin-tabs.ts, which carries no `"use client"`,
 // because the two routes CALL them on the server and a function exported from
@@ -171,6 +153,8 @@ function ChangedAt({ iso }: { iso: string }) {
 export default function AdminControls({
   initial,
   demoMode = false,
+  defaultModuleIds,
+  secureDevAvailable,
   modules,
   setups,
   initialTab,
@@ -179,6 +163,14 @@ export default function AdminControls({
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
+  /** The module set this deployment starts with, when nothing is stored in
+   *  ctf:admin:settings — computed server-side from SCORE_IMAGE (issue #386),
+   *  since a client bundle has no access to that env var. */
+  defaultModuleIds: readonly string[];
+  /** Whether this deployment has a scorer image, computed server-side from
+   *  SCORE_IMAGE. The only reason Secure Development's switch locks — see
+   *  module-toggle.ts. */
+  secureDevAvailable: boolean;
   /** Modules with the organizer's naming already applied (see
    *  lib/resolved-modules.ts). Render `title` — a `ResolvedModule` has no
    *  `displayName`, by design. */
@@ -529,12 +521,16 @@ export default function AdminControls({
   // starts and stops with the phase without a page reload.
   const eventLive = phaseFromSettings(settings, settingsAt).phase === "live";
 
+  // The row set for the module switches (Event's rows and each module
+  // panel's header switch) — locked only for secure-development without a
+  // scorer image (module-toggle.ts). `useMemo` because this is a client
+  // component: a fresh array/object identity on every render would defeat
+  // the tabs below that key off it.
+  const moduleChoicesList = useMemo(() => moduleChoices(secureDevAvailable), [secureDevAvailable]);
   // The enabled set as the module switches see it (Event's rows and each
-  // module panel's header): the runtime set, or the baked one when no
-  // override is stored. `liveModuleCount` is counted over every registry
-  // module, toggleable or not — see module-toggle.ts.
-  const liveModuleIds: readonly string[] = settings.enabledModuleIds ?? bakedModuleIds;
-  const liveModuleCount = MODULE_CHOICES.filter((m) => liveModuleIds.includes(m.id)).length;
+  // module panel's header): the runtime set, or the default one when no
+  // override is stored.
+  const liveModuleIds: readonly string[] = settings.enabledModuleIds ?? defaultModuleIds;
 
   return (
     <div className="flex flex-col gap-4">
@@ -573,7 +569,7 @@ export default function AdminControls({
                   teamMaxMembersInput={teamMaxMembersInput}
                   setTeamMaxMembersInput={setTeamMaxMembersInput}
                   commitNumber={commitNumber}
-                  moduleChoices={MODULE_CHOICES}
+                  moduleChoices={moduleChoicesList}
                   liveModuleIds={liveModuleIds}
                   nowMs={settingsAt}
                 />
@@ -607,9 +603,8 @@ export default function AdminControls({
                 // free; only the controls inside it are module-specific.
                 <AdminModulePanel
                   mod={modules.find((m) => m.id === tab.id)!}
-                  choice={MODULE_CHOICES.find((c) => c.id === tab.id) ?? { id: tab.id, label: tab.label, toggleable: true }}
+                  choice={moduleChoicesList.find((c) => c.id === tab.id) ?? { id: tab.id, label: tab.label, toggleable: true }}
                   liveModuleIds={liveModuleIds}
-                  liveCount={liveModuleCount}
                   setup={setups?.[tab.id]}
                   inventory={inventory[tab.id]}
                   defaults={MODULE_DEFAULTS.get(tab.id) ?? { title: tab.label, blurb: "" }}

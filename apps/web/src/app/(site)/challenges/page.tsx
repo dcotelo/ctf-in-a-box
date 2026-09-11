@@ -65,7 +65,8 @@ export default async function ChallengesPage() {
   let solved: Partial<Record<string, string[]>> = {};
   if (login) {
     try {
-      const profile = await getLeaderboardSource().getUser(login);
+      const source = await getLeaderboardSource();
+      const profile = await source.getUser(login);
       for (const app of profile?.apps ?? []) {
         const patched = (app.challenges ?? []).filter((c) => c.status === "patched").map((c) => c.key);
         if (patched.length > 0) solved[app.app] = patched;

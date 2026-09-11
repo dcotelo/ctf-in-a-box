@@ -22,7 +22,7 @@ modules:
 YAML
 
 cleanup() {
-  docker rm -f web-acceptance web-default >/dev/null 2>&1 || true
+  docker rm -f web-acceptance web-default web-noscorer >/dev/null 2>&1 || true
   rm -f "$CFG"
 }
 trap cleanup EXIT
@@ -47,7 +47,8 @@ docker build -f apps/web/Dockerfile -t ctf-web:acceptance \
   --build-arg APP_BUILD_REV="$ACCEPTANCE_REV" \
   --build-arg APP_BUILT_AT=2026-01-01T00:00:00Z .
 docker run -d --name web-acceptance -p 3100:3000 \
-  -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3100 ctf-web:acceptance
+  -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3100 \
+  -e SCORE_IMAGE=ghcr.io/example/score:acceptance ctf-web:acceptance
 
 HOME_HTML=$(wait_for_html http://localhost:3100/)
 CHALLENGES_HTML=$(wait_for_html http://localhost:3100/challenges)
@@ -76,6 +77,18 @@ expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does n
 if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
   echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
 fi
+
+echo "--- with a scorer image, secure-development is the only default board"
+# "The game" alone is a substring of "The games" and would pass with 0 or
+# many boards on the page too — pin the exact singular heading instead.
+expect_in "$HOME_HTML" "The game</h2>" "landing page does not present exactly one board"
+if grep -qF "No boards are open yet." <<< "$HOME_HTML"; then
+  echo "FAIL: landing page shows the no-boards state although a scorer image is set"; exit 1
+fi
+for route in /quiz /flags /ai; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3100$route")
+  if [ "$code" != "404" ]; then echo "FAIL: $route returned $code, want 404 — a content module is on by default"; exit 1; fi
+done
 
 echo "--- /admin renders its shell, on both URL shapes"
 # Issue #312: every /admin URL 500'd in production for a release while this
@@ -119,10 +132,20 @@ for leak in BETTER_AUTH GITHUB_CLIENT SRH_TOKEN REDIS_PASSWORD UPSTASH; do
   fi
 done
 
+echo "--- without a scorer image, nothing is enabled and the landing page says so"
+docker run -d --name web-noscorer -p 3102:3000 \
+  -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3102 ctf-web:acceptance
+NOSCORER_HTML=$(wait_for_html http://localhost:3102/)
+expect_in "$NOSCORER_HTML" "No boards are open yet." "no-scorer build did not render the no-boards state"
+expect_in "$NOSCORER_HTML" "An organizer switches them on in the admin panel." "no-boards state lacks the pointer to /admin"
+code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3102/challenges)
+if [ "$code" != "404" ]; then echo "FAIL: /challenges returned $code without a scorer image, want 404"; exit 1; fi
+
 echo "--- default build is neutral (no DEF CON, name OWASP CTF)"
 docker build -f apps/web/Dockerfile -t ctf-web:default-check . >/dev/null
 docker run -d --name web-default -p 3101:3000 \
-  -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3101 ctf-web:default-check
+  -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3101 \
+  -e SCORE_IMAGE=ghcr.io/example/score:acceptance ctf-web:default-check
 DEFAULT_HTML=$(wait_for_html http://localhost:3101/)
 DEFAULT_CHALLENGES_HTML=$(wait_for_html http://localhost:3101/challenges)
 if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build carries DC34"; exit 1; fi

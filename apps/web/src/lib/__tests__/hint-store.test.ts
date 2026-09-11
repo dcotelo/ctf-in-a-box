@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   upstashEval: vi.fn<(script: string, keys: string[], args: (string | number)[]) => Promise<unknown>>(),
   upstashPipeline: vi.fn<(commands: (string | number)[][]) => Promise<{ result?: unknown; error?: string }[]>>(),
   getAdminSettings: vi.fn(),
-  isModuleEnabled: vi.fn<(id: string) => boolean>(),
+  isModuleLive: vi.fn<(id: string) => Promise<boolean>>(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -20,8 +20,8 @@ vi.mock("@/lib/upstash", () => ({
 vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: mocks.getAdminSettings,
 }));
-vi.mock("@/lib/modules", () => ({
-  isModuleEnabled: mocks.isModuleEnabled,
+vi.mock("@/lib/enabled-modules", () => ({
+  isModuleLive: mocks.isModuleLive,
 }));
 
 type HintStore = typeof import("@/lib/hint-store");
@@ -61,7 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Hints belong to the Secure Development module; every test below assumes
   // it is enabled unless it says otherwise.
-  mocks.isModuleEnabled.mockReturnValue(true);
+  mocks.isModuleLive.mockResolvedValue(true);
   // Default: no admin override present, so every test not exercising the
   // override sees only the baked env default (as before this override existed).
   mocks.getAdminSettings.mockResolvedValue({ ...BASE_SETTINGS });
@@ -100,7 +100,7 @@ describe("revealHint", () => {
 
   it("gates classic hints on the CLASSIC module, not secure-development", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id: string) => id === "classic");
+    mocks.isModuleLive.mockImplementation(async (id: string) => id === "classic");
     mocks.upstashEval.mockResolvedValueOnce(["charged", "text", 10]);
     // classic on, secure-development off: classic reveals work…
     await expect(store.revealHint("octocat", "classic", "web-robots-only")).resolves.toMatchObject({ ok: true });
@@ -123,7 +123,7 @@ describe("revealHint", () => {
 
   it("gates ai hints on the AI module, not secure-development", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id: string) => id === "ai");
+    mocks.isModuleLive.mockImplementation(async (id: string) => id === "ai");
     mocks.upstashEval.mockResolvedValueOnce(["charged", "text", 10]);
     // ai on, secure-development off: ai reveals work…
     await expect(store.revealHint("octocat", "ai", "prompt-injection-1")).resolves.toMatchObject({ ok: true });
@@ -325,25 +325,50 @@ describe("hintGate", () => {
 
   it("refuses outright when the secure-development module is disabled", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id) => id !== "secure-development");
+    mocks.isModuleLive.mockImplementation(async (id) => id !== "secure-development");
     mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0, hintsEnabled: true }));
     expect(await store.hintGate("octocat", "juice-shop")).toEqual({ allowed: false, reason: "disabled" });
-    // Fails closed before any settings or Redis read.
+    // Refuses on the module answer alone — makes no second read (settings or
+    // Redis) once that answer is known.
     expect(mocks.getAdminSettings).not.toHaveBeenCalled();
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
 
+  // The module read fails OPEN to the deployment default inside
+  // enabled-modules.ts on a settings-read failure — but that fallback lives
+  // INSIDE isModuleLive. An unexpected throw escaping that wrapper (a bug, an
+  // infra error) is a different case, and must not be swallowed into "live":
+  // no charge may run and no hint may be revealed off the back of it.
+  it("propagates a rejected live-module lookup instead of treating it as live", async () => {
+    const store = await loadStore();
+    mocks.isModuleLive.mockRejectedValueOnce(new Error("settings unreachable"));
+    await expect(store.hintGate("alice", "classic")).rejects.toThrow("settings unreachable");
+    // Bails before the config read — the gate never reaches resolveHintConfig.
+    expect(mocks.getAdminSettings).not.toHaveBeenCalled();
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
+  it("charges nothing when the live-module lookup rejects", async () => {
+    const store = await loadStore();
+    mocks.isModuleLive.mockRejectedValueOnce(new Error("settings unreachable"));
+    await expect(store.revealHint("alice", "classic", "web-robots-only")).rejects.toThrow(
+      "settings unreachable",
+    );
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+
   it("gates the ai target on the AI module directly, not secure-development", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id) => id === "secure-development");
+    mocks.isModuleLive.mockImplementation(async (id) => id === "secure-development");
     mocks.getAdminSettings.mockResolvedValue(settings({ hintsMinSolves: 0, hintsEnabled: true }));
     expect(await store.hintGate("octocat", "ai")).toEqual({ allowed: false, reason: "disabled" });
-    // Fails closed before any settings or Redis read.
+    // Refuses on the module answer alone — makes no second read (settings or
+    // Redis) once that answer is known.
     expect(mocks.getAdminSettings).not.toHaveBeenCalled();
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
 
     // Positive twin: ai on (secure-development irrelevant).
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mocks.isModuleLive.mockImplementation(async (id) => id === "ai");
     expect(await store.hintGate("octocat", "ai")).toEqual({ allowed: true });
   });
 
@@ -511,7 +536,7 @@ describe("isHintTarget", () => {
 describe("getAiHintIds", () => {
   it("returns the HKEYS of ctf:ai:hints when the ai module is enabled", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mocks.isModuleLive.mockImplementation(async (id) => id === "ai");
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["prompt-injection-1"] }]);
     expect(await store.getAiHintIds()).toEqual(["prompt-injection-1"]);
     expect(mocks.upstashPipeline).toHaveBeenCalledWith([["HKEYS", "ctf:ai:hints"]]);
@@ -519,7 +544,7 @@ describe("getAiHintIds", () => {
 
   it("returns [] when the ai module is disabled", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockReturnValue(false);
+    mocks.isModuleLive.mockResolvedValue(false);
     expect(await store.getAiHintIds()).toEqual([]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
@@ -531,7 +556,7 @@ describe("getAiHintIds", () => {
   // other read here.
   it("degrades to [] when the settings read (resolveHintConfig) rejects", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id) => id === "ai");
+    mocks.isModuleLive.mockImplementation(async (id) => id === "ai");
     mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
     await expect(store.getAiHintIds()).resolves.toEqual([]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
@@ -541,7 +566,7 @@ describe("getAiHintIds", () => {
 describe("getClassicHintIds", () => {
   it("returns the HKEYS of ctf:classic:hints when the classic module is enabled", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
+    mocks.isModuleLive.mockImplementation(async (id) => id === "classic");
     mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["sql-injection-1"] }]);
     expect(await store.getClassicHintIds()).toEqual(["sql-injection-1"]);
     expect(mocks.upstashPipeline).toHaveBeenCalledWith([["HKEYS", "ctf:classic:hints"]]);
@@ -549,7 +574,7 @@ describe("getClassicHintIds", () => {
 
   it("returns [] when the classic module is disabled", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockReturnValue(false);
+    mocks.isModuleLive.mockResolvedValue(false);
     expect(await store.getClassicHintIds()).toEqual([]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();
   });
@@ -557,7 +582,7 @@ describe("getClassicHintIds", () => {
   // getAiHintIds' exact twin: same fix, same shape.
   it("degrades to [] when the settings read (resolveHintConfig) rejects", async () => {
     const store = await loadStore();
-    mocks.isModuleEnabled.mockImplementation((id) => id === "classic");
+    mocks.isModuleLive.mockImplementation(async (id) => id === "classic");
     mocks.getAdminSettings.mockRejectedValueOnce(new Error("upstash down"));
     await expect(store.getClassicHintIds()).resolves.toEqual([]);
     expect(mocks.upstashPipeline).not.toHaveBeenCalled();

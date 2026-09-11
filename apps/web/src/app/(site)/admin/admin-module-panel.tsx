@@ -36,7 +36,6 @@ export default function AdminModulePanel({
   mod,
   choice,
   liveModuleIds,
-  liveCount,
   setup,
   inventory,
   defaults,
@@ -53,12 +52,9 @@ export default function AdminModulePanel({
   mod: ResolvedModule;
   /** The registry's row for this module (label, whether it can be toggled). */
   choice: ModuleToggleChoice;
-  /** The ids live right now: the runtime set, or the baked one when no
+  /** The ids live right now: the runtime set, or the default one when no
    *  override is stored. */
   liveModuleIds: readonly string[];
-  /** Every live module the registry knows, toggleable or not — see
-   *  module-toggle.ts for why the count is not "the toggleable ones". */
-  liveCount: number;
   setup?: ModuleSetupContent;
   inventory?: ModuleInventory;
   /** Registry defaults for the identity editor's placeholders. */
@@ -78,7 +74,7 @@ export default function AdminModulePanel({
   children: (settings: ModuleSettingsSlot) => ReactNode;
 }) {
   const live = new Set(liveModuleIds);
-  const toggle = moduleToggleState(choice, live, liveCount);
+  const toggle = moduleToggleState(choice, live);
   const settingsSlot: ModuleSettingsSlot = {
     identity: (
       <AdminModuleIdentity

@@ -57,14 +57,17 @@ vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({ refresh: vi.fn() }),
 }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // `getResolvedModules` falls back to the baked shim's ALL-module
+  // `defaultModuleIds` unless this names the fixture's own set.
+  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["quiz"] }),
   // The page reads the registration window for the team card's
   // closed-state explanation (issue #217).
   effectiveRegistrationOpen: () => true,
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
+vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: async () => ({ getUser }) }));
 vi.mock("@/lib/team-store", () => ({
   getViewerTeam,
   // The page renders the cap through the same resolver joinTeam enforces

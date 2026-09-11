@@ -53,7 +53,7 @@ beforeEach(() => {
   getSyncStatus.mockResolvedValue(null);
   listQuestions.mockResolvedValue([{ id: "q1" }, { id: "q2" }]);
   // The quiz-only scoring source: no rows, ever.
-  getLeaderboardSource.mockReturnValue({
+  getLeaderboardSource.mockResolvedValue({
     getLeaderboard: vi.fn().mockResolvedValue({
       entries: [],
       teams: [],
@@ -80,7 +80,7 @@ describe("GET /api/admin/status on a quiz-only event", () => {
 
   it("still degrades to null when the source read fails", async () => {
     getQuizTotals.mockResolvedValue(new Map());
-    getLeaderboardSource.mockReturnValue({
+    getLeaderboardSource.mockResolvedValue({
       getLeaderboard: vi.fn().mockRejectedValue(new Error("source down")),
     });
     const res = await GET(new Request("http://x/api/admin/status"));

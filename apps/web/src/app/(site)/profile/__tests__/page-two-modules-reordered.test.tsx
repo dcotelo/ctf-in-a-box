@@ -1,5 +1,5 @@
 // The actual proof that the per-module block loop is driven off the
-// enabled-module LIST and not a hard-coded branch pair.
+// resolved-module LIST and not a hard-coded branch pair.
 //
 // `page-two-modules.test.tsx`'s block-count assertion does NOT prove this: a
 // mutation that replaces the loop with
@@ -8,16 +8,18 @@
 // emits 2 blocks on a 2-module fixture, so a count check alone passes both
 // the real implementation and the regression.
 //
-// What a hard-coded branch pair CANNOT do, but a loop over the resolved
-// module list trivially does, is follow the ORDER an organizer declared
-// their modules in `event.yaml`. This fixture declares quiz BEFORE
-// secure-development (the reverse of every other fixture in this suite,
-// and of the order a branch pair would be written in), then asserts the
-// quiz block renders first. A hard-coded pair (in either likely writing
-// order) fails this: it either always emits secure-development first, or,
-// if reversed to match, breaks `page-two-modules.test.tsx`'s own
-// registry-order assertion instead — there is no fixed branch order that
-// satisfies both fixtures at once, which is exactly the point.
+// What a hard-coded branch pair (in registry-order writing) still gets
+// right is ORDER — issue #386 removed the organizer-declared order entirely:
+// `resolveModules` now always orders its result by the REGISTRY
+// (`ALL_MODULE_IDS`), never by the Set's iteration order or by
+// `event.yaml`'s declaration order (see modules-resolve.test.ts,
+// "orders the result by the registry, regardless of the set's own order").
+// This fixture declares quiz BEFORE secure-development in event.yaml —
+// the reverse of every other fixture in this suite — specifically to prove
+// that declaration order is now IGNORED: the block loop still renders
+// secure-development first, because that is the registry's order. A block
+// loop keyed off event-config order (the pre-#386 behaviour) would get this
+// backwards.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -56,14 +58,17 @@ vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({ refresh: vi.fn() }),
 }));
+vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/admin-store", () => ({
-  getAdminSettings: async () => ({ moduleOverrides: {} }),
+  // `getResolvedModules` falls back to the baked shim's ALL-module
+  // `defaultModuleIds` unless this names the fixture's own set.
+  getAdminSettings: async () => ({ moduleOverrides: {}, enabledModuleIds: ["quiz", "secure-development"] }),
   // The page reads the registration window for the team card's
   // closed-state explanation (issue #217).
   effectiveRegistrationOpen: () => true,
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
-vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: () => ({ getUser }) }));
+vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: async () => ({ getUser }) }));
 vi.mock("@/lib/team-store", () => ({
   getViewerTeam,
   // The page renders the cap through the same resolver joinTeam enforces
@@ -108,13 +113,13 @@ beforeEach(() => {
   listQuestions.mockResolvedValue([{}, {}, {}, {}, {}]);
 });
 
-describe("/profile block order follows the enabled-module list", () => {
-  it("renders the quiz block before secure-development's when the organizer declares quiz first", async () => {
+describe("/profile block order follows the registry, not event.yaml's declaration order", () => {
+  it("renders the secure-development block before quiz's even though the organizer declared quiz first", async () => {
     const html = renderToStaticMarkup(await ProfilePage());
     const quizAt = html.indexOf(">Quiz<");
     const secureDevAt = html.indexOf(">Secure Development<");
     expect(quizAt).toBeGreaterThanOrEqual(0);
     expect(secureDevAt).toBeGreaterThanOrEqual(0);
-    expect(quizAt).toBeLessThan(secureDevAt);
+    expect(secureDevAt).toBeLessThan(quizAt);
   });
 });
