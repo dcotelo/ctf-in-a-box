@@ -214,7 +214,9 @@ export default async function Home() {
               {event.location}
             </p>
           )}
-          {phaseInfo?.phase === "registration" && event.ctfStartsAt && <EventCountdown />}
+          {phaseInfo?.phase === "registration" && event.ctfStartsAt && (
+            <EventCountdown startsAt={event.ctfStartsAt} />
+          )}
 
           <div className="mt-2 flex flex-wrap items-center gap-5">
             <HeroCta

@@ -2,9 +2,9 @@
 // Keep route copy in one place so the header, footer, and metadata stay in sync.
 
 import { cache } from "react";
-import { eventConfig } from "@/lib/event-config";
 import { getAdminSettingsSnapshot } from "@/lib/enabled-modules";
 import { DEFAULT_EVENT_IDENTITY, type EventIdentityOverrides } from "@/lib/event-identity";
+import { formatDateRange } from "@/lib/event-dates";
 import { SECURE_AGENT_PLAYBOOK_URL } from "@/lib/modules";
 import type { NavEntry, NavGroup, NavLink } from "@/lib/site-nav";
 
@@ -50,10 +50,17 @@ export type Site = {
   privacyContactEmail: string;
 };
 
-/** Pure merge: the organizer's stored identity over the spec defaults.
- *  `dates`/`ctfStartsAt` are the two identity facts still baked from
- *  event.yaml (PR 3 of #386 derives them from the scoring schedule). */
-export function resolveSite(overrides: EventIdentityOverrides | null): Site {
+/** Pure merge: the organizer's stored identity over the spec defaults, plus
+ *  the two identity facts derived from the admin scoring schedule rather than
+ *  stored themselves — `dates` (the landing page's dates line) and
+ *  `ctfStartsAt` (the countdown's target). `schedule` is `null` when there is
+ *  no settings snapshot to read (fail-open); either bound inside it may
+ *  independently be `null` (no override stored) — `formatDateRange` treats a
+ *  missing/unparseable bound as absent rather than throwing. */
+export function resolveSite(
+  overrides: EventIdentityOverrides | null,
+  schedule: { scoringStartsAt: string | null; scoringEndsAt: string | null } | null,
+): Site {
   const o = overrides ?? {};
   return {
     // `||`, not `??`, for eventName ONLY: an empty string is a valid "no
@@ -67,10 +74,8 @@ export function resolveSite(overrides: EventIdentityOverrides | null): Site {
     location: o.eventLocation ?? DEFAULT_EVENT_IDENTITY.eventLocation,
     contactEmail: o.eventContact ?? DEFAULT_EVENT_IDENTITY.eventContact,
     discordUrl: o.eventDiscord ?? DEFAULT_EVENT_IDENTITY.eventDiscord,
-    // Still sourced from event.yaml until PR 3 of #386 derives these from the
-    // scoring schedule instead.
-    dates: eventConfig.dates,
-    ctfStartsAt: eventConfig.ctfStartsAt,
+    dates: formatDateRange(schedule?.scoringStartsAt ?? null, schedule?.scoringEndsAt ?? null),
+    ctfStartsAt: schedule?.scoringStartsAt ?? null,
     secureAgentPlaybookUrl: SECURE_AGENT_PLAYBOOK_URL,
     owaspPrivacyUrl: "https://policy.owasp.org/operational/privacy",
     owaspCodeOfConductUrl: "https://policy.owasp.org/operational/code-of-conduct",
@@ -86,7 +91,10 @@ export function resolveSite(overrides: EventIdentityOverrides | null): Site {
  *  props from a server ancestor. */
 export const getSite = cache(async (): Promise<Site> => {
   const settings = await getAdminSettingsSnapshot();
-  return resolveSite(settings?.eventIdentity ?? null);
+  return resolveSite(settings?.eventIdentity ?? null, {
+    scoringStartsAt: settings?.scoringStartsAt ?? null,
+    scoringEndsAt: settings?.scoringEndsAt ?? null,
+  });
 });
 
 // Platform-level pages that exist regardless of which modules are enabled.

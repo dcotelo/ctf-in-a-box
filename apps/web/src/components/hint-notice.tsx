@@ -14,19 +14,24 @@
 //   says exactly that instead of sending contestants hunting for bulbs.
 
 import EventCountdown from "./event-countdown";
-// ctfStartsAt is still baked (PR 3 of #386 moves it to the scoring schedule).
-import { eventConfig } from "@/lib/event-config";
 
 export default function HintNotice({
   active,
   cost,
   signedIn = false,
   anyMarked = true,
+  startsAt,
 }: {
   active: boolean;
   cost: number;
   signedIn?: boolean;
   anyMarked?: boolean;
+  /** The countdown's target — a server caller's `getSite().ctfStartsAt`, not
+   *  read here directly (this component has no page caller today; its only
+   *  mount site is its own test — see `mock-data-notice.tsx` for the pattern
+   *  a real caller follows). Required, like `EventCountdown`'s own prop, so a
+   *  future caller can't forget to wire it. */
+  startsAt: string | null;
 }) {
   if (active) {
     return (
@@ -67,7 +72,7 @@ export default function HintNotice({
           </p>
         </div>
       </div>
-      {eventConfig.ctfStartsAt && <EventCountdown variant="compact" hideWhenComplete />}
+      {startsAt && <EventCountdown startsAt={startsAt} variant="compact" hideWhenComplete />}
     </div>
   );
 }

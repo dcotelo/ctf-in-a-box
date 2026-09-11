@@ -2,10 +2,15 @@
 // data. Only rendered while LEADERBOARD_SOURCE=mock — see getLeaderboardSourceMode.
 
 import EventCountdown from "./event-countdown";
-// ctfStartsAt is still baked (PR 3 of #386 moves it to the scoring schedule).
-import { eventConfig } from "@/lib/event-config";
 
-export default function MockDataNotice() {
+export default function MockDataNotice({
+  startsAt,
+}: {
+  /** The countdown's target — the caller's `getSite().ctfStartsAt` (the
+   *  leaderboard page already reads it for this same request). Required,
+   *  like `EventCountdown`'s own prop. */
+  startsAt: string | null;
+}) {
   return (
     <div className="ds-card flex flex-col gap-4 rounded-lg border border-[#d4a017]/30 bg-[#d4a017]/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="max-w-xl">
@@ -17,7 +22,7 @@ export default function MockDataNotice() {
           Once the CTF opens and the first patches land, this board switches over to live scores.
         </p>
       </div>
-      {eventConfig.ctfStartsAt && <EventCountdown variant="compact" hideWhenComplete />}
+      {startsAt && <EventCountdown startsAt={startsAt} variant="compact" hideWhenComplete />}
     </div>
   );
 }

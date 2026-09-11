@@ -21,7 +21,14 @@ export async function POST(request: Request) {
   let name: string;
   try {
     const settings = await getAdminSettings();
-    name = resolveSite(settings.eventIdentity).name;
+    // Only `.name` is used here — the schedule fields feed `dates`/
+    // `ctfStartsAt`, neither read by this route — but resolveSite now
+    // requires the argument, so hand it the same settings read rather than
+    // `null`, matching every other resolveSite call site in this codebase.
+    name = resolveSite(settings.eventIdentity, {
+      scoringStartsAt: settings.scoringStartsAt,
+      scoringEndsAt: settings.scoringEndsAt,
+    }).name;
   } catch (err) {
     console.error("[admin/reset] settings read failed", adminErrorLabel(err));
     return NextResponse.json({ error: "settings read failed" }, { status: 503 });

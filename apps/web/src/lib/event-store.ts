@@ -29,8 +29,11 @@ const LIVE_WARNING = "This event is live — do not publish this bundle while co
  *  though both are runtime settings now (issue #386) — they are organizer
  *  PII: a private inbox and an invite link, neither needed to replay the
  *  event, and not safe to hand out in a bundle an organizer might publish or
- *  share. `dates`/`ctfStartsAt` are still informational-only, baked from
- *  `event.yaml` until PR 3 of #386 derives them from the scoring schedule.
+ *  share. `dates`/`ctfStartsAt` are informational-only: a snapshot of what
+ *  `resolveSite` derived from the scoring schedule AT EXPORT TIME, not a
+ *  portable setting — the schedule itself (`scoringStartsAt`/`EndsAt`) is
+ *  excluded from `bundle.settings` below, same as every other run-state
+ *  field, so a re-import never restores this event's actual dates.
  *  `bundle.settings` deliberately omits every schedule/run field
  *  (`scoringStartsAt`/`EndsAt`, `registrationStartsAt`/`EndsAt`, `paused`,
  *  `updatedBy`, `updatedAt`) — those are per-EVENT-RUN state, not portable
@@ -41,8 +44,12 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
   // Redis blip between two independent reads could otherwise write an archive
   // whose event.name is the fail-open default while bundle.settings came from
   // the good getAdminSettings() read that already succeeded (getAdminSettings
-  // throws on failure; getSite() fails open to null instead).
-  const site = resolveSite(settings.eventIdentity);
+  // throws on failure; getSite() fails open to null instead). The schedule
+  // fields feeding `dates`/`ctfStartsAt` come off this SAME `settings`, too.
+  const site = resolveSite(settings.eventIdentity, {
+    scoringStartsAt: settings.scoringStartsAt,
+    scoringEndsAt: settings.scoringEndsAt,
+  });
   const warnings: string[] = [];
 
   // Narrow out secure-development BEFORE `isEnabled`/the bundle write, same

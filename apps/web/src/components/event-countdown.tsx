@@ -6,8 +6,6 @@
 // real countdown only appears after a useEffect runs post-hydration.
 
 import { useEffect, useState } from "react";
-// ctfStartsAt is still baked (PR 3 of #386 moves it to the scoring schedule).
-import { eventConfig } from "@/lib/event-config";
 import { getRemaining, type Remaining } from "@/lib/countdown";
 
 const UNITS: [keyof Remaining, string][] = [
@@ -18,9 +16,15 @@ const UNITS: [keyof Remaining, string][] = [
 ];
 
 export default function EventCountdown({
+  startsAt,
   variant = "hero",
   hideWhenComplete = false,
 }: {
+  /** ISO instant the CTF opens — the admin scoring schedule's
+   *  `scoringStartsAt` (`Site.ctfStartsAt`, from `getSite()`). `null` (no
+   *  schedule set) or an unparseable string both render nothing — the caller
+   *  never has to pre-check, matching the null-safe callers this replaces. */
+  startsAt: string | null;
   /** "hero" — large centered blocks for the homepage. "compact" — smaller
    *  inline row for embedding in a page banner (e.g. the leaderboard). */
   variant?: "hero" | "compact";
@@ -29,11 +33,15 @@ export default function EventCountdown({
    *  happens at zero (e.g. the leaderboard's mock-data notice). */
   hideWhenComplete?: boolean;
 }) {
-  const targetMs = eventConfig.ctfStartsAt ? new Date(eventConfig.ctfStartsAt).getTime() : 0;
+  const parsedMs = startsAt ? new Date(startsAt).getTime() : NaN;
+  const targetMs = Number.isFinite(parsedMs) ? parsedMs : null;
   const [mounted, setMounted] = useState(false);
   const [remaining, setRemaining] = useState<Remaining | null>(null);
 
   useEffect(() => {
+    // No valid target: nothing to tick, and the component renders null below
+    // regardless — skip subscribing to the clock at all.
+    if (targetMs === null) return;
     const tick = () => {
       setMounted(true);
       setRemaining(getRemaining(targetMs));
@@ -48,6 +56,10 @@ export default function EventCountdown({
       clearInterval(interval);
     };
   }, [targetMs]);
+
+  // Hooks above must run unconditionally, so the null/unparseable bail-out
+  // lives here, after them — never before.
+  if (targetMs === null) return null;
 
   if (mounted && !remaining) {
     if (hideWhenComplete) return null;
