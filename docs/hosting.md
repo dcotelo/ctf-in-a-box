@@ -16,11 +16,13 @@ running the event once it is up see [docs/operations.md](operations.md).
 
 **The fastest path is the wizard** — run `ctf-setup.sh` with no subcommand and
 it walks the whole sequence below. It **asks for each value inline** — your box
-URL, the `event.yaml` fields (org, admins, **which modules to enable**, dates),
+URL, the event org, the admin logins, whether you run **Secure Development**,
 and the App/OAuth credentials — showing the instructions and GitHub URL for
-each, and writing `.env` and `event.yaml` for you as you answer. No editing
-config by hand between steps. It does every automatable step, guides + verifies
-each UI-only one, and resumes if you stop:
+each, and writing `.env` for you as you answer. There is no config file to
+edit between steps: `.env` is the whole bootstrap plane, and everything else
+(the event's name and dates, **which modules run**, which Secure Development
+targets) is a runtime `/admin` setting. It does every automatable step,
+guides + verifies each UI-only one, and resumes if you stop:
 
 ```sh
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
@@ -29,10 +31,10 @@ each UI-only one, and resumes if you stop:
 Every discrete step is also its own subcommand — `check`, `secrets`, `org`,
 `render`, `upgrade`, `teardown`, `doctor`, `app-manifest`, `app-config`,
 `oauth-app`, `oauth-config` — with the global flags `--dry-run` (print
-mutating commands instead of running them), `--config <path>` (default
-`event.yaml`) and `--out <path>` (default `.env`, for `secrets`). The
-numbered sequence below names each one where it's used; `teardown` is covered
-in [operations.md](operations.md#running-an-event).
+mutating commands instead of running them) and `--out <path>` (default
+`.env`, the file every subcommand reads and `secrets` writes). The numbered
+sequence below names each one where it's used; `teardown` is covered in
+[operations.md](operations.md#running-an-event).
 
 ![The guided setup wizard in a terminal: an ASCII banner, then numbered steps — a resumed run, where the secrets, event config and scorer image already in place are ticked off and the wizard continues from the first step still to do](assets/wizard.jpg)
 
@@ -104,11 +106,13 @@ docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --
 #    MANUAL: edit SCORE_IMAGE=ghcr.io/<your-org>/score:latest in .env
 #    (the wizard builds + pins amd64 for you at step 4)
 
-# 4. Create your event config from the example, then edit it.
-cp event.yaml.example event.yaml
-#    MANUAL edit: github.org, admins=[your login].  (The URL is EVENT_URL in
-#    .env, not here; which Secure Development targets run is chosen later,
-#    at runtime, from /admin — see step 10 below.)
+# 4. Fill in the two bootstrap identities in .env, by hand or with the wizard.
+#    MANUAL edit: GITHUB_ORG=<your event org>, ADMIN_LOGINS=<your login>.
+#    Both are read at RUNTIME with no baked default: an empty ADMIN_LOGINS
+#    403s everyone at /admin, and an empty GITHUB_ORG leaves the poller
+#    refusing to start. The event's name and dates, which modules run and
+#    which Secure Development targets run are all /admin settings — see
+#    step 10 below.
 
 # 5. Create the disposable GitHub org — UI-ONLY, ctf-setup never creates it:
 #    https://github.com/account/organizations/new
@@ -147,12 +151,11 @@ cp event.yaml.example event.yaml
 ```
 
 ```sh
-# 9. Bring the containers up. EVENT_CONFIG_B64 is REQUIRED — building the app without
-#    it yields neutral defaults (empty admins → /admin 403 for everyone).
-#    The profiles follow your enabled modules — see "Which profiles do I need?"
-#    below; this is the poll-mode secure-development line-up.
-EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
-  docker compose --profile poll --profile app up -d --build
+# 9. Bring the containers up. Everything the containers need is in .env —
+#    there is no config file to bake in. The profiles follow your enabled
+#    modules — see "Which profiles do I need?" below; this is the poll-mode
+#    secure-development line-up.
+docker compose --profile poll --profile app up -d --build
 
 # 10. Verify: watch the poller heartbeat, open the app, sign in, hit /admin.
 docker compose logs -f sync

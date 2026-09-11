@@ -251,15 +251,20 @@ suggestions.
   score 0 on every challenge. Watch for vacuous passes: a test that "blocks"
   an exploit only because the app wasn't actually up/reachable yet looks
   like a pass but proves nothing.
-- **The app bakes `event.yaml` at BUILD time via the `EVENT_CONFIG_B64`
-  build-arg.** Building the app without it (`docker compose build app` with the
-  arg unset) silently yields neutral defaults — an empty `admins` list, so
-  `/admin` 403s for everyone. Always bring the box up as `EVENT_CONFIG_B64="$(base64
-  < event.yaml | tr -d '\n')" docker compose --profile poll --profile app up
-  -d --build`. `scripts/dev-stack` already does this. The event's identity
-  (name, tagline, location, contact e-mail, Discord invite) is a runtime
-  `/admin` setting since #386 and is unaffected by the bake — admins are
-  still baked until PR 3 of #386 removes `event.yaml` entirely.
+- **There is no config file any more: `.env` bootstraps, `/admin` runs the
+  event.** `event.yaml` and its `EVENT_CONFIG_B64` bake are gone (#386) —
+  bring the box up as `docker compose --profile poll --profile app up -d
+  --build` (the profile flag is still `--profile poll`; #386's next PR
+  renames it). Three `.env` keys are read at RUNTIME and nothing falls back
+  to a baked default: `ADMIN_LOGINS` (empty 403s everyone at `/admin` —
+  fail-closed, `bootstrap-env.ts`), `GITHUB_ORG` (empty means no fork links
+  on `/challenges`, and `sync` refuses to start at all, logging
+  `ctf-sync: GITHUB_ORG is not set`), and **`SCORE_IMAGE`, which is how a box
+  says whether it runs Secure Development** — non-empty means the scorer and
+  sync containers exist and SD is the one module enabled before an organizer
+  switches others on; empty means the SD toggle is refused and `ctf-setup.sh`
+  skips every fork/mirror/poll step. Everything else (the event's identity,
+  which modules run, which targets) is a runtime `/admin` setting.
 - **Compose profiles follow the enabled MODULES.** `app` is always on.
   `secure-development`'s two services are profiled *differently*, and that is
   deliberate: `scorer` carries `["poll", "push"]` (both ingest modes need it),
