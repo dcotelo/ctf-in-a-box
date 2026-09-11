@@ -259,6 +259,148 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+# --- doctor: check (a) ADMIN_LOGINS (issue #382) ----------------------------
+
+@test "doctor check (a): fails and names the key when ADMIN_LOGINS is empty" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=\nSCORE_IMAGE=\n' > .env
+  run bash "$SCRIPT" doctor --dry-run
+  printf '%s' "$output" | grep -qF -- "❌ ADMIN_LOGINS is empty"
+  printf '%s' "$output" | grep -qF -- "nobody can open /admin"
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor check (a): passes when ADMIN_LOGINS is set" {
+  _env_fixture_no_secdev
+  run bash "$SCRIPT" doctor --dry-run
+  printf '%s' "$output" | grep -qF -- "✅ ADMIN_LOGINS: organizer"
+}
+
+# --- doctor: check (b) GITHUB_ORG (issue #382) -------------------------------
+
+@test "doctor check (b): fails when GITHUB_ORG is empty and Secure Development is on" {
+  printf 'GITHUB_ORG=\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
+  run bash "$SCRIPT" doctor --dry-run
+  printf '%s' "$output" | grep -qF -- "❌ GITHUB_ORG is empty"
+  printf '%s' "$output" | grep -qF -- "Secure Development is on"
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor check (b): only warns when GITHUB_ORG is empty and Secure Development is off" {
+  printf 'GITHUB_ORG=\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\n' > .env
+  run bash "$SCRIPT" doctor --dry-run
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -qF -- "⚠️  GITHUB_ORG is empty"
+  [ -z "$(printf '%s' "$output" | grep -F -- '❌ GITHUB_ORG')" ]
+}
+
+@test "doctor check (b): passes when GITHUB_ORG is set" {
+  run bash "$SCRIPT" doctor --dry-run
+  printf '%s' "$output" | grep -qF -- "✅ GITHUB_ORG: test-event-org"
+}
+
+# --- doctor: check (c) sync GitHub App installed on the org (issue #382) ----
+#
+# `gh api "orgs/$org/installations" --jq '.installations[].app_id'` is the
+# read this check makes (R4). ANY gh error — non-zero exit OR a successful
+# call with empty output — reports "not verified" and fails closed; it must
+# never read as "installed". Runs only when Secure Development is on
+# (runs_secdev): an app-only event has no sync poller/pusher needing a token.
+
+# Same shape as write_gh_grant_stub above: a canned gh answering exactly the
+# endpoint this check reads and refusing everything else, so a stray call
+# elsewhere in doctor surfaces as a loud failure instead of a silent pass.
+write_gh_installations_stub() {  # $1 = newline-separated "app_id app_slug" rows (may be empty)
+  mkdir -p stubs
+  cat > stubs/gh <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"orgs/test-event-org/installations"*"--jq"*)
+    printf '%s\n' "$1"
+    ;;
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+}
+
+@test "doctor check (c): passes when GITHUB_APP_ID is among the org's installations" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  write_gh_installations_stub "$(printf '99 other-app\n42 ctf-sync')"
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- "✅ sync App (GITHUB_APP_ID=42) installed on test-event-org"
+}
+
+@test "doctor check (c): fails and prints the generic install URL when the App is not installed" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  write_gh_installations_stub "$(printf '99 other-app\n7 another-app')"
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- "❌ sync App (GITHUB_APP_ID=42) not installed on test-event-org"
+  printf '%s' "$output" | grep -qF -- "https://github.com/organizations/test-event-org/settings/installations"
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor check (c): a gh error reports not verified, never installed" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  mkdir -p stubs
+  cat > stubs/gh <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- "not verified"
+  printf '%s' "$output" | grep -qF -- "admin:org scope"
+  [ -z "$(printf '%s' "$output" | grep -F -- '✅ sync App')" ]
+  [ -z "$(printf '%s' "$output" | grep -F -- 'installed on')" ]
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor check (c): an empty-but-successful installations list is also not verified, not 'not installed'" {
+  # A real empty org (zero installations of anything) is indistinguishable
+  # here from a scope error that silently produced no output — R4 says treat
+  # both as unverified rather than confidently asserting "not installed".
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  write_gh_installations_stub ""
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- "not verified"
+  [ -z "$(printf '%s' "$output" | grep -F -- 'not installed on')" ]
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor check (c): fails closed on an empty GITHUB_APP_ID, naming the key, with no gh call" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=\n' > .env
+  mkdir -p stubs
+  # Any call at all is a failure of this test's premise.
+  printf '#!/usr/bin/env bash\necho "gh $*" >> "%s/gh.calls"\nexit 1\n' "$BATS_TEST_TMPDIR" > stubs/gh
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- "❌ GITHUB_APP_ID is empty"
+  [ -z "$(grep -F 'installations' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null || true)" ]
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor check (c): skipped entirely for an app-only event (no Secure Development)" {
+  _env_fixture_no_secdev
+  run bash "$SCRIPT" doctor --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F -- 'sync App')" ]
+  [ -z "$(printf '%s' "$output" | grep -F -- 'GITHUB_APP_ID')" ]
+}
+
+@test "doctor check (c) under --dry-run: zero gh calls, narrates instead" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  mkdir -p "$BATS_TEST_TMPDIR/stubbin"
+  printf '#!/usr/bin/env bash\necho "gh $*" >> "%s/gh.calls"\nexit 1\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/stubbin/gh"
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --dry-run
+  printf '%s' "$output" | grep -qF -- "DRY-RUN: would check whether the sync App (GITHUB_APP_ID=42) is installed on test-event-org"
+  [ -z "$(grep -F 'installations' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null || true)" ]
+}
+
 @test "check succeeds with no .env at all (regression fix)" {
   # `check` inspects the local toolchain only — it must not demand any config
   # file to tell an organizer whether gh/docker/openssl are usable.

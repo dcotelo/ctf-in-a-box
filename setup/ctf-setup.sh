@@ -351,8 +351,41 @@ do_step() {
 cmd_doctor() {
   require_env_file
   local org; org="$(env_val GITHUB_ORG)"
-  [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — set it (or run the wizard) before inspecting an org" >&2; exit 1; }
   local rc=0 t id cell name want_v have
+
+  # Check (a) — ADMIN_LOGINS (issue #382). Always checked, regardless of
+  # Secure Development: an event with no admins is broken either way, and the
+  # failure (every login 403s on /admin) is otherwise silent until someone
+  # tries the panel.
+  local admins; admins="$(env_val ADMIN_LOGINS)"
+  if [ -n "$admins" ]; then
+    printf '%s✅ ADMIN_LOGINS: %s%s\n' "$C_GREEN" "$admins" "$C_RESET"
+  else
+    printf '%s❌ ADMIN_LOGINS is empty — nobody can open /admin; set it in .env and restart the app%s\n' \
+      "$C_RED" "$C_RESET"
+    rc=1
+  fi
+
+  # Check (b) — GITHUB_ORG. This command takes no --org flag, so "the org
+  # doctor inspects" IS `env_val GITHUB_ORG`, resolved once into $org above —
+  # the two cannot disagree today, only be missing. Whether a missing value
+  # is tolerable depends on whether this event runs Secure Development at
+  # all: an app-only event has no org to fork into and none is required.
+  if [ -n "$org" ]; then
+    printf '%s✅ GITHUB_ORG: %s%s\n' "$C_GREEN" "$org" "$C_RESET"
+  elif runs_secdev; then
+    printf '%s❌ GITHUB_ORG is empty in %s — Secure Development is on (SCORE_IMAGE set) but there is no org to fork into; set it (or run the wizard)%s\n' \
+      "$C_RED" "${OUT:-.env}" "$C_RESET"
+    rc=1
+  else
+    printf '%s⚠️  GITHUB_ORG is empty in %s — fine for now: this event does not run Secure Development%s\n' \
+      "$C_YELLOW" "${OUT:-.env}" "$C_RESET"
+  fi
+  echo
+
+  # Nothing org-scoped left to inspect without an org: SD-on already failed
+  # loudly above; SD-off simply has nothing further to check here.
+  [ -n "$org" ] || return $rc
 
   if gh_ok "orgs/$org"; then
     printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
@@ -381,7 +414,7 @@ cmd_doctor() {
   if ! runs_secdev; then
     printf '%sℹ️  SCORE_IMAGE is empty in %s — this event does not run Secure Development: no provisioned content to check (nothing forked, nothing to inspect here).%s\n' \
       "$C_CYAN" "${OUT:-.env}" "$C_RESET"
-    return 0
+    return $rc
   fi
 
   # Fails loudly (naming targets.tsv) if it can't produce a target list —
@@ -428,6 +461,55 @@ cmd_doctor() {
   else
     printf '%s⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
   fi
+
+  # Check (c) — the sync GitHub App (GITHUB_APP_ID) is installed on the org
+  # (issue #382). Only meaningful when Secure Development runs at all: an
+  # app-only event has no poller/pusher that needs a token, so there is
+  # nothing to verify — but we are past the `runs_secdev` early-return above,
+  # so it is always true here.
+  local sync_app_id; sync_app_id="$(env_val GITHUB_APP_ID)"
+  if [ -z "$sync_app_id" ]; then
+    printf '%s❌ GITHUB_APP_ID is empty in %s — sync cannot mint tokens without it%s\n' \
+      "$C_RED" "${OUT:-.env}" "$C_RESET"
+    rc=1
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    printf 'DRY-RUN: would check whether the sync App (GITHUB_APP_ID=%s) is installed on %s\n' \
+      "$sync_app_id" "$org"
+  else
+    # `gh api ... --jq` fails closed two ways we must not conflate with "not
+    # installed": a non-zero exit (missing admin:org scope, network, a
+    # revoked token) and empty output from an otherwise-successful call —
+    # both are treated as UNVERIFIED, never as "installed", so a broken token
+    # never reads as a clean bill of health (R4 / #382).
+    local sync_rows sync_found_id="" sync_found_slug=""
+    if sync_rows="$(gh api "orgs/$org/installations" \
+        --jq '.installations[] | "\(.app_id) \(.app_slug)"' 2>/dev/null)" && [ -n "$sync_rows" ]; then
+      sync_found_id="$(printf '%s\n' "$sync_rows" | awk -v id="$sync_app_id" '$1==id{print $1; exit}')"
+      sync_found_slug="$(printf '%s\n' "$sync_rows" | awk -v id="$sync_app_id" '$1==id{print $2; exit}')"
+      if [ "$sync_found_id" = "$sync_app_id" ]; then
+        printf '%s✅ sync App (GITHUB_APP_ID=%s) installed on %s%s\n' \
+          "$C_GREEN" "$sync_app_id" "$org" "$C_RESET"
+      else
+        # Not among the org's current installations, so its slug cannot be
+        # known from this same response either — fall back to the generic
+        # installations settings page.
+        printf '%s❌ sync App (GITHUB_APP_ID=%s) not installed on %s%s\n' \
+          "$C_RED" "$sync_app_id" "$org" "$C_RESET"
+        if [ -n "$sync_found_slug" ]; then
+          printf '    install it: https://github.com/organizations/%s/settings/apps/%s/installations\n' \
+            "$org" "$sync_found_slug"
+        else
+          printf '    install it: https://github.com/organizations/%s/settings/installations\n' "$org"
+        fi
+        rc=1
+      fi
+    else
+      printf '%s❌ sync App (GITHUB_APP_ID=%s) not verified (gh api orgs/%s/installations failed — the token needs admin:org scope)%s\n' \
+        "$C_RED" "$sync_app_id" "$org" "$C_RESET"
+      rc=1
+    fi
+  fi
+
   # No API exposes the per-fork "Manage Actions access" grants directly, so
   # this is verified by OBSERVATION instead — see `pull_grant_status`. It is
   # the one provisioning step with no API and the one whose failure looks like
