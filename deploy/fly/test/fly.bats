@@ -248,7 +248,7 @@ ENV
   cd "$REPO"
   run env SRH_TOKEN=t SCORER_TOKEN=t BETTER_AUTH_SECRET=t REDIS_PASSWORD=p \
     GITHUB_CLIENT_ID=i GITHUB_CLIENT_SECRET=s SCORE_IMAGE=x \
-    docker compose -f docker-compose.yml --profile poll --profile app config redis sync
+    docker compose -f docker-compose.yml --profile secdev --profile app config redis sync
   echo "$output" | grep -qF 'REDIS_DIR: /data'
   echo "$output" | grep -qF 'STATE_PATH: /state/state.json'
 }

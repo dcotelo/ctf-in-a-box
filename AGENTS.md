@@ -253,10 +253,10 @@ suggestions.
   like a pass but proves nothing.
 - **There is no config file any more: `.env` bootstraps, `/admin` runs the
   event.** `event.yaml` and its `EVENT_CONFIG_B64` bake are gone (#386) —
-  bring the box up as `docker compose --profile poll --profile app up -d
-  --build` (the profile flag is still `--profile poll`; #386's next PR
-  renames it). Three `.env` keys are read at RUNTIME and nothing falls back
-  to a baked default: `ADMIN_LOGINS` (empty 403s everyone at `/admin` —
+  no image takes a config build-arg, so bring the box up as `docker compose
+  --profile secdev --profile app up -d --build` (drop `--profile secdev` on an
+  event with no `SCORE_IMAGE`). Three `.env` keys are read at RUNTIME and
+  nothing falls back to a baked default: `ADMIN_LOGINS` (empty 403s everyone at `/admin` —
   fail-closed, `bootstrap-env.ts`), `GITHUB_ORG` (empty means no fork links
   on `/challenges`, and `sync` refuses to start at all, logging
   `ctf-sync: GITHUB_ORG is not set`), and **`SCORE_IMAGE`, which is how a box
@@ -265,16 +265,20 @@ suggestions.
   switches others on; empty means the SD toggle is refused and `ctf-setup.sh`
   skips every fork/mirror/poll step. Everything else (the event's identity,
   which modules run, which targets) is a runtime `/admin` setting.
-- **Compose profiles follow the enabled MODULES.** `app` is always on.
+- **Compose profiles follow `SCORE_IMAGE`.** `app` is always on.
   `secure-development`'s two services are profiled *differently*, and that is
-  deliberate: `scorer` carries `["poll", "push"]` (both ingest modes need it),
-  `sync` carries `["poll"]` only — in push mode the fork's Action POSTs to the
-  scorer directly, so there is no poller to run. A quiz-only event boots with
-  `--profile app` alone — it has no scorer image to pull, and the compose
-  fallback is a private upstream one. So: never give a secure-development
-  service the default (profile-less) treatment, and never add a `depends_on`
-  from `app` to a profiled service — that drags it into every `up` and
-  re-breaks the quiz-only boot.
+  deliberate: `scorer` carries `["secdev", "push"]` (both ingest modes need
+  it), `sync` carries `["secdev"]` only — in push mode the fork's Action POSTs
+  to the scorer directly, so there is no poller to run. Whoever brings the
+  stack up adds `--profile secdev` **iff `SCORE_IMAGE` is non-empty**, which
+  is the one place "does this event run Secure Development" is answered and
+  never a second knob — `scripts/dev-stack` and `deploy/fly/render-compose.sh`
+  both derive it that way (Fly always has one; `deploy.sh` requires it). A
+  quiz-only event boots with `--profile app` alone — it has no scorer image to
+  pull, and the compose fallback is a private upstream one. So: never give a
+  secure-development service the default (profile-less) treatment, and never
+  add a `depends_on` from `app` to a profiled service — that drags it into
+  every `up` and re-breaks the quiz-only boot.
 - **Every compose service must name its network.** `docker-compose.yml`
   assigns each service to `frontend` or `backend` explicitly (only `srh` is on
   both — that split is what keeps `app` from reaching `redis:6379`; see ADR

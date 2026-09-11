@@ -156,8 +156,26 @@ env_value() {
   echo "${v:-$default}"
 }
 
+# Does this stack run Secure Development? One answer, from one key: a
+# non-empty SCORE_IMAGE (config v2, #386). Exported wins over the env file,
+# exactly as compose resolves it — cmd_up builds a local scorer image and
+# exports the tag, so `up` always has it.
+secdev_enabled() {
+  local score_image="${SCORE_IMAGE:-}"
+  if [ -z "$score_image" ]; then score_image="$(env_value SCORE_IMAGE)"; fi
+  [ -n "$score_image" ]
+}
+
+# `app` is always on; `secdev` (the scorer and sync containers) is added iff
+# SCORE_IMAGE is non-empty, which is how every other entry point derives it —
+# see deploy/fly/render-compose.sh and docker-compose.yml's scorer comment.
 compose() {
-  docker compose --env-file "$ENV_FILE" -f docker-compose.yml --profile app "$@"
+  local -a profiles
+  profiles=(--profile app)
+  if secdev_enabled; then
+    profiles+=(--profile secdev)
+  fi
+  docker compose --env-file "$ENV_FILE" -f docker-compose.yml "${profiles[@]}" "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -309,8 +327,7 @@ cmd_up() {
 
   # Nothing to bake: the app reads ADMIN_LOGINS and GITHUB_ORG from its
   # environment at start-up (config v2, #386), so the image is config-free and
-  # a changed value needs a restart, not a rebuild. docker-compose.yml still
-  # declares the old EVENT_CONFIG_B64 build arg; unset, it is inert.
+  # a changed value needs a restart, not a rebuild.
 
   # Build stamp for GET /health, so a local stack reports the same fields
   # production does. The sha is deliberately left empty rather than faked: a
@@ -337,13 +354,20 @@ cmd_up() {
   # What the CONTAINERS got, in their precedence order — an exported value
   # (even an empty one) beats the env file for compose, so reading the file
   # alone could print an allowlist the app is not using.
-  local admins org org_note
+  local admins org org_note profiles
   if [ "${ADMIN_LOGINS+x}" = x ]; then admins="$ADMIN_LOGINS"; else admins="$(env_value ADMIN_LOGINS)"; fi
   if [ "${GITHUB_ORG+x}" = x ]; then org="$GITHUB_ORG"; else org="$(env_value GITHUB_ORG)"; fi
   if [ -n "$org" ]; then
     org_note="$org (fork links on /challenges point there)"
   else
     org_note="<none set> — /challenges shows bare repo names, no fork links"
+  fi
+  # Which profiles this bring-up actually used, and why — the derivation is
+  # SCORE_IMAGE and nothing else.
+  if secdev_enabled; then
+    profiles="app, secdev (SCORE_IMAGE is set, so scorer + sync run)"
+  else
+    profiles="app (SCORE_IMAGE is empty, so no scorer and no sync)"
   fi
 
   cat <<SUMMARY
@@ -354,6 +378,7 @@ cmd_up() {
  Open:            $event_url
  Leaderboard:     $event_url/leaderboard
  Env file:        $ENV_FILE (no config file: every setting is .env or /admin)
+ Profiles:        $profiles
  GITHUB_ORG:      $org_note
 
  Seeded demo players (real scorer POST /score, so this is the same

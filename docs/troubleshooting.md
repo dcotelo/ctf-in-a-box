@@ -59,7 +59,7 @@ this repo), then restart the app container — no rebuild needed, since this is
 a runtime read, not a build arg:
 
 ```sh
-docker compose --profile poll --profile app up -d
+docker compose --profile secdev --profile app up -d
 ```
 
 (Quiz/classic-only events: `--profile app` alone.) Compose must also be
@@ -144,7 +144,7 @@ repair exists.
 
 **Fix.** Read the first error line of `docker compose logs sync`. If state
 is beyond repair on an old version: `docker compose down && docker volume rm
-<project>_sync-state && docker compose --profile poll --profile app up -d` —
+<project>_sync-state && docker compose --profile secdev --profile app up -d` —
 losing the cursor is safe; poll mode re-reads scores from the PR comments
 and the scorer's writes are idempotent on replay.
 

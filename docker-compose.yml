@@ -16,7 +16,6 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        EVENT_CONFIG_B64: ${EVENT_CONFIG_B64:-}
         # Build stamp for GET /health. Both optional: unset reports
         # "unknown"/null rather than failing, so a plain `docker compose build`
         # keeps working. `dev-stack` and deploy/fly/deploy.sh fill them in.
@@ -73,17 +72,21 @@ services:
     # The scorer belongs to the secure-development module, exactly as `sync`
     # does — it exists to score PRs against forked targets. A quiz-only event
     # has nothing for it to serve, so it is PROFILED rather than left in the
-    # default set: with no profile, `docker compose --profile poll --profile
-    # app up -d` pulled it on every event, and a quiz-only organizer (who has
-    # no SCORE_IMAGE and no access to the private upstream fallback below)
-    # could not bring the documented stack up at all.
+    # default set: carrying no profile at all, it was pulled by every
+    # documented `up`, and a quiz-only organizer (who has no SCORE_IMAGE and
+    # no access to the private upstream fallback below) could not bring the
+    # documented stack up at all.
     #
-    # Both score-ingest modes need it — poll (sync submits to it) and push
-    # (the fork's Action POSTs to it through caddy) — so it carries both, and
-    # the documented poll-mode command is unchanged. Quiz-only events simply
-    # pass neither. docs/hosting.md's "Which profiles do I need?" table is the
+    # `secdev` is the module's own profile (config v2, issue #386): whoever
+    # brings the stack up adds it iff SCORE_IMAGE is non-empty, so "does this
+    # event run Secure Development" is answered once, from one key, and never
+    # from a second knob — see scripts/dev-stack and
+    # deploy/fly/render-compose.sh. `push` is the score-ingest variant that
+    # needs the scorer without a poller (the fork's Action POSTs to it through
+    # caddy), so the scorer carries both. Quiz-only events pass neither.
+    # docs/hosting.md's "Which profiles do I need?" table is the
     # organizer-facing version of this comment.
-    profiles: ["poll", "push"]
+    profiles: ["secdev", "push"]
     # Set SCORE_IMAGE in .env to your own build from scorer/ (docs/scorer.md).
     # The fallback is the upstream image, which is private — it only pulls if
     # the OWASP-CTF maintainers granted you access. Kept as a fallback (not
@@ -202,7 +205,10 @@ services:
     networks: [backend]
 
   sync:
-    profiles: ["poll"]
+    # `secdev` only, never `push`: in push mode the fork's Action POSTs to the
+    # scorer directly, so there is no poller to run. Same derivation as the
+    # scorer above — the profile is added iff SCORE_IMAGE is non-empty.
+    profiles: ["secdev"]
     build: ./sync
     # Config v2 (#386) removed the "nothing to poll" exit 0: whether sync runs
     # at all is this profile's call, so if the container is up it polls. The

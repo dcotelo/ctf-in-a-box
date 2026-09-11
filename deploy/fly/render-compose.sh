@@ -70,8 +70,10 @@ EVENT_CONFIG=""
 # caddy has no job there — and profiling it would have made the edge opt-in for
 # every local bring-up, turning a forgotten flag into an event with no ingress.
 SERVICES="app scorer sync srh redis"
-# Compose profiles to select with. Poll mode is the documented default.
-PROFILES="--profile poll --profile app"
+# Compose profiles to select with. Fly always runs Secure Development — see
+# deploy.sh's `require SCORE_IMAGE` — so the default carries `secdev`, the
+# profile the scorer and sync live under since config v2 (#386).
+PROFILES="--profile secdev --profile app"
 
 usage() {
   cat <<'EOF'
@@ -79,7 +81,7 @@ usage: deploy/fly/render-compose.sh --out FILE [--env-file .env.fly]
                                     --app-image REF --sync-image REF
                                     --scorer-image REF [--event-config event.yaml]
                                     [--services "a b c"]
-                                    [--profiles "--profile poll --profile app"]
+                                    [--profiles "--profile secdev --profile app"]
 
 Renders docker-compose.yml to a Fly-deployable compose file.
 

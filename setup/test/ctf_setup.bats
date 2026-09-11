@@ -793,16 +793,16 @@ _stub_prereqs() {
   # carry secure-development's sync + scorer (docker-compose.yml, ADR 26).
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -F -- '--profile poll')" ]
+  [ -z "$(echo "$output" | grep -F -- '--profile secdev')" ]
   [ -z "$(echo "$output" | grep -F -- '--profile push')" ]
   echo "$output" | grep -qF 'docker compose --profile app up -d --build'
 }
 
-@test "wizard prints the poll profiles for a Secure Development event" {
+@test "wizard prints the secdev profiles for a Secure Development event" {
   _stub_prereqs
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
+  echo "$output" | grep -qF 'docker compose --profile secdev --profile app up -d --build'
 }
 
 @test "wizard follows .env's SCORE_INGEST when it says push" {
@@ -854,7 +854,7 @@ _stub_prereqs() {
   echo "$output" | grep -qF '4/9  Scorer image'
   echo "$output" | grep -qF '5/9  Sync GitHub App'
   echo "$output" | grep -qF '7/9  Event org (test-event-org)'
-  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
+  echo "$output" | grep -qF 'docker compose --profile secdev --profile app up -d --build'
 }
 
 @test "wizard: an app-only event is never asked for score ingest" {

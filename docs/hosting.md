@@ -166,10 +166,10 @@ docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --
 
 ```sh
 # 9. Bring the containers up. Everything the containers need is in .env —
-#    there is no config file to bake in. The profiles follow your enabled
-#    modules — see "Which profiles do I need?" below; this is the poll-mode
-#    secure-development line-up.
-docker compose --profile poll --profile app up -d --build
+#    there is no config file to bake in. The profiles follow SCORE_IMAGE —
+#    see "Which profiles do I need?" below; this is the secure-development
+#    line-up.
+docker compose --profile secdev --profile app up -d --build
 
 # 10. Verify: watch the poller heartbeat, open the app, sign in, hit /admin.
 docker compose logs -f sync
@@ -355,7 +355,7 @@ fix it by hand, add one line to `.env` and bring the stack back up:
 
 ```sh
 echo "REDIS_PASSWORD=$(openssl rand -hex 24)" >> .env
-docker compose --profile poll --profile app up -d
+docker compose --profile secdev --profile app up -d
 ```
 
 Nothing else changes: no data migration, and the `redis-data` volume is
@@ -446,27 +446,27 @@ requirements ship in-kit — the scoring workflow reads the
 — and Caddy only exposes the `/score` route externally when running with the
 `push` Caddyfile.
 
-Start the poll pipeline with `docker compose --profile poll --profile app up
--d` — the `poll` profile brings up `sync` and the `scorer`, and `app` brings
+Start the poll pipeline with `docker compose --profile secdev --profile app up
+-d` — the `secdev` profile brings up `sync` and the `scorer`, and `app` brings
 up the contestant-facing app. Push mode does not need `sync` running, so it
 uses `--profile push --profile app` instead (the `push` profile carries the
 scorer without the poller).
 
 ### Which profiles do I need?
 
-Compose profiles follow your **enabled modules**, not your taste: `app` is
-always on, and the score-ingest profile — `poll` or `push`, whichever
+Compose profiles follow **`SCORE_IMAGE`**, not your taste: `app` is always
+on, and Secure Development's own profile — `secdev`, or `push` if that is the
 `SCORE_INGEST` you set — carries everything `secure-development` needs. The
 `scorer` is part of that module (it exists to score PRs against forked
-targets), so it carries both ingest profiles — `["poll", "push"]` — while
-`sync` carries `["poll"]` alone, since push mode has the fork's Action POST
-to the scorer directly and needs no poller. A quiz-only event must not be
-asked to pull a scorer image it has no reason to own.
+targets), so it carries both — `["secdev", "push"]` — while `sync` carries
+`["secdev"]` alone, since push mode has the fork's Action POST to the scorer
+directly and needs no poller. A quiz-only event must not be asked to pull a
+scorer image it has no reason to own.
 
 **Profiles and `SCORE_IMAGE` are two separate choices that have to agree, not
 one setting picking both.** You choose the profile at `up`: `--profile app`
 alone for a quiz/classic/ai-only event; with Secure Development,
-`--profile poll --profile app` when `SCORE_INGEST` is `poll` (or unset) and
+`--profile secdev --profile app` when `SCORE_INGEST` is `poll` (or unset) and
 `--profile push --profile app` when it is `push` — the `push` profile is what
 mounts the Caddyfile with the `/score` route. Either Secure Development
 profile needs an *accessible* `SCORE_IMAGE` — the compose fallback image is
@@ -476,7 +476,7 @@ DEFAULT module set (what an organizer sees on first opening `/admin`, and
 the outage fallback) follows `SCORE_IMAGE` on its own: Secure Development
 alone when it is set, nothing when it is not — Quiz, Classic and AI are
 switched on from the panel (#386). Nothing enforces that the two agree, so
-keep them in sync yourself: never bring the `poll` profile up without a
+keep them in sync yourself: never bring the `secdev` profile up without a
 `SCORE_IMAGE`, or the scorer container has nothing to score against.
 
 Nothing is baked into the images any more (#386): `--build` only rebuilds
@@ -486,7 +486,7 @@ start. Pick the command by what that file says:
 
 | `.env` | Command |
 |---|---|
-| `SCORE_IMAGE` set, `SCORE_INGEST=poll` (or unset) | `docker compose --profile poll --profile app up -d --build` |
+| `SCORE_IMAGE` set, `SCORE_INGEST=poll` (or unset) | `docker compose --profile secdev --profile app up -d --build` |
 | `SCORE_IMAGE` set, `SCORE_INGEST=push` | `docker compose --profile push --profile app up -d --build` |
 | `SCORE_IMAGE` empty — no Secure Development | `docker compose --profile app up -d --build` |
 
@@ -679,22 +679,22 @@ them. See [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) 
 the UI composition contract and [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
 for why the missing-vs-unknown distinction is drawn where it is.
 
-**Boot a quiz-only event with `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose --profile app up -d --build`**
-— just the `app` profile, and the same `EVENT_CONFIG_B64` every `--build`
-needs. The score-ingest profiles (`poll` / `push`) carry
-`secure-development`'s two services, `sync` and the `scorer`, and a quiz-only
-event has no use for either: nothing to poll, and no scorer image to pull
+**Boot a quiz-only event with `docker compose --profile app up -d --build`**
+— just the `app` profile, and no build-args at all. Secure Development's
+profiles (`secdev` / `push`) carry that module's two services, `sync` and the
+`scorer`, and a quiz-only event has no use for either: nothing to poll, and no scorer image to pull
 (the compose fallback is the maintainers' private image, so asking for it
 fails the bring-up). See the [profiles table](#which-profiles-do-i-need)
 above.
 
-If you do pass `--profile poll` anyway — say you enabled `secure-development`
-mid-event and then dropped it again — `sync` starts, logs `ctf-sync: no
-polled module enabled, nothing to do` and exits `0` rather than entering the
-poll loop (`sync/src/index.js`'s `main()`), and `docker-compose.yml`'s `sync`
-service is `restart: on-failure` (changed from `unless-stopped`) so that
-clean exit isn't treated as a crash and restarted forever. You still need a
-`SCORE_IMAGE` for the scorer that profile also brings up.
+If you do pass `--profile secdev` anyway — say you enabled
+`secure-development` mid-event and then dropped it again — `sync` polls the
+org in `.env`, or refuses to start at all if `GITHUB_ORG` is empty, logging
+`ctf-sync: GITHUB_ORG is not set` and exiting non-zero
+(`sync/src/index.js`'s `main()`); `docker-compose.yml`'s `sync` service is
+`restart: on-failure`, so that refusal repeats in the log until the key is
+set. You still need a `SCORE_IMAGE` for the scorer that profile also brings
+up.
 
 Copy `event.yaml.example` and fill in `github.org`, the `modules:` you want,
 and `admins` (GitHub logins) — the URL is not in this file, it is `EVENT_URL`
