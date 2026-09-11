@@ -230,7 +230,7 @@ describe("GitHub OAuth callback error banner", () => {
       searchParams: Promise.resolve({ error: "application_suspended" }),
     }).then(renderToStaticMarkup);
     expect(withError).toContain('role="alert"');
-    expect(withError).toContain("suspended");
+    expect(withError).toContain("sign-in app has been suspended");
     expect(withError).toContain("Try again");
   });
 
