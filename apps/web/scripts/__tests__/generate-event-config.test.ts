@@ -47,9 +47,10 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"ctfStartsAt": "2026-10-01T09:00:00-03:00"`);
     expect(out).toContain(`"githubOrg": "evt"`);
     expect(out).toContain(`"discordUrl": "https://discord.gg/chapter"`);
-    expect(out).toMatch(/"targets":\s*\[\s*"dvwa",\s*"vampi"\s*\]/);
+    // targets: is inert here (config v2, #386 PR 2) — present in the yaml
+    // above only to show it is tolerated, not read.
+    expect(out).toMatch(/"targets":\s*\[\]/);
     expect(out).toContain(`"dcotelo"`);
-    expect(out).not.toContain("juice-shop");
   });
 
   it("yaml without github.org falls back to the OWASP-CTF default", () => {
@@ -87,25 +88,30 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"discordUrl": ""`);
   });
 
-  it("rejects unknown module, unknown target, bad dates", () => {
+  it("rejects unknown module and bad dates", () => {
     const bad = (yaml: string) => expect(() => generate({}, yaml)).toThrow();
     bad("modules: { forensics: {} }");
-    bad("modules:\n  secure-development:\n    targets: [nope]");
     bad('event: { name: X, start: "not-a-date" }\nmodules:\n  secure-development:\n    targets: [dvwa]');
   });
 
-  // targets is optional and inert here (config v2, #386 PR 2): the web app
+  // targets is optional and INERT here (config v2, #386 PR 2): the web app
   // reads its runtime target list from admin settings, not from this
-  // generated field, so an empty or absent `targets:` is a legal
-  // secure-development config now — see the comment on `validateTargets`.
-  // `setup/ctf-setup.sh` and `sync/src/config.js` still require a non-empty
-  // list (provisioning and polling both still need it), so this is a
-  // deliberate, documented divergence in the corpus differential suite below.
-  it("allows an empty or absent targets list under secure-development", () => {
+  // generated field, so this reader ignores `targets:` completely, in any
+  // shape — see the comment on `ignoreYamlTargets`. `setup/ctf-setup.sh` and
+  // `sync/src/config.js` agree: neither reads or validates the key either, so
+  // all three module-key readers agree on every corpus fixture again — see
+  // the corpus differential suite below.
+  it("ignores targets: in any shape under secure-development — absent, empty, a scalar, or an unknown id", () => {
     expect(generate({}, "modules:\n  secure-development:\n    targets: []")).toMatch(
       /"targets":\s*\[\]/,
     );
     expect(generate({}, "modules:\n  secure-development:\n    score_ingest: poll")).toMatch(
+      /"targets":\s*\[\]/,
+    );
+    expect(generate({}, "modules:\n  secure-development:\n    targets: dvwa")).toMatch(
+      /"targets":\s*\[\]/,
+    );
+    expect(generate({}, "modules:\n  secure-development:\n    targets: [nope]")).toMatch(
       /"targets":\s*\[\]/,
     );
   });
@@ -148,7 +154,7 @@ describe("generate-event-config", () => {
     expect(result).toContain(`"dates": "October 1–2, 2026"`);
   });
 
-  it("accepts two modules and derives targets from secure-development", () => {
+  it("accepts two modules; secure-development's targets: is present but inert", () => {
     const out = generate({}, [
       'event: { name: "Two Module Event" }',
       "github: { org: acme }",
@@ -158,9 +164,9 @@ describe("generate-event-config", () => {
       "admins: [alice]",
     ].join("\n"));
     expect(out).toMatch(
-      /"modules":\s*\[\s*\{\s*"id":\s*"secure-development",\s*"targets":\s*\[\s*"dvwa"\s*\],\s*"scoreIngest":\s*"poll"\s*\},\s*\{\s*"id":\s*"quiz"\s*\}\s*\]/
+      /"modules":\s*\[\s*\{\s*"id":\s*"secure-development",\s*"targets":\s*\[\]\s*,\s*"scoreIngest":\s*"poll"\s*\},\s*\{\s*"id":\s*"quiz"\s*\}\s*\]/
     );
-    expect(out).toMatch(/"targets":\s*\[\s*"dvwa"\s*\]/);
+    expect(out).toMatch(/"targets":\s*\[\]/);
   });
 
   it("still rejects an unregistered module id", () => {
@@ -218,33 +224,20 @@ describe("generate-event-config corpus differential", () => {
   // its own instead, so the exception stays visible rather than silently
   // dropped.
   //
-  // Two more joined it in config v2 (#386 PR 2), in the OPPOSITE direction:
-  // this reader is now the LOOSER one on `secure-development.targets`. The
-  // web app stopped reading `eventConfig.targets` as authoritative — it reads
-  // `secureDevTargets` from admin settings at request time instead (see
-  // `validateTargets`'s doc comment) — so an empty or absent targets list is a
-  // legal config for THIS reader, while `setup/ctf-setup.sh` and
-  // `sync/src/config.js` still reject it: they still need a real fork/poll
-  // list, which this PR does not touch.
-  const KNOWN_DIVERGENCES = new Set([
-    "accept-flow-empty-mapping.yaml",
-    "reject-empty-targets-list.yaml",
-    "reject-secure-development-without-targets.yaml",
-  ]);
+  // `secure-development.targets` used to be a second divergence here (config
+  // v2 #386 PR 2 made this reader ignore the key entirely while the bash and
+  // sync readers still validated it), but that lasted only through PR 2's
+  // Task 6: `ctf-setup.sh` and `sync/src/config.js` now ignore `targets:` too
+  // (every event forks/polls all six targets.tsv targets regardless), so all
+  // three readers agree on every targets-shape fixture again. The four
+  // formerly-reject-* fixtures this affected were renamed to accept-* (see
+  // setup/test/module_readers.bats's history) rather than kept as a
+  // documented exception.
+  const KNOWN_DIVERGENCES = new Set(["accept-flow-empty-mapping.yaml"]);
 
   const fixtures = readdirSync(CORPUS)
     .filter((f) => f.endsWith(".yaml"))
     .sort();
-
-  // The `# targets: a,b` header a fixture records (empty when there are none).
-  function recordedTargets(file: string): string[] {
-    const line = readFileSync(join(CORPUS, file), "utf8")
-      .split("\n")
-      .map((l) => l.replace(/\r$/, ""))
-      .find((l) => l.startsWith("# targets:"));
-    if (!line) return [];
-    return line.slice("# targets:".length).split(",").map((t) => t.trim()).filter(Boolean);
-  }
 
   type Verdict = { verdict: "accept" | "reject"; targets: string[]; error?: string };
 
@@ -312,25 +305,23 @@ describe("generate-event-config corpus differential", () => {
     expect(mismatches).toEqual([]);
   });
 
-  it("extracts each accepted fixture's recorded targets", () => {
+  // `targets:` is inert to this reader now — it never derives a non-empty
+  // list from event.yaml, regardless of what a fixture's shape or `# targets:`
+  // header records — so every accepted fixture's derived list is `[]`.
+  it("derives an empty targets list from every accepted fixture", () => {
     const mismatches: string[] = [];
     for (const f of fixtures.filter((x) => x.startsWith("accept-") && !KNOWN_DIVERGENCES.has(x))) {
-      const want = recordedTargets(f);
       const got = verdict(f);
-      if (JSON.stringify(got.targets) !== JSON.stringify(want)) {
-        mismatches.push(`${f}: want [${want}], got [${got.targets}]`);
+      if (got.targets.length !== 0) {
+        mismatches.push(`${f}: want [], got [${got.targets}]`);
       }
     }
     expect(mismatches).toEqual([]);
   });
 
-  it("the documented divergences stay divergences", () => {
+  it("the one documented divergence stays a divergence", () => {
     // ADR 24: this reader is stricter on a present-but-empty `modules: {}`.
     expect(verdict("accept-flow-empty-mapping.yaml").verdict).toBe("reject");
-    // #386 PR 2: this reader is looser on secure-development's targets list —
-    // see the KNOWN_DIVERGENCES comment above.
-    expect(verdict("reject-empty-targets-list.yaml").verdict).toBe("accept");
-    expect(verdict("reject-secure-development-without-targets.yaml").verdict).toBe("accept");
   });
 });
 

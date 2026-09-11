@@ -63,24 +63,34 @@ function displayDates(startIso, endIso) {
   return `${formatDate(startDate.y, startDate.m, startDate.d)} – ${formatDate(endDate.y, endDate.m, endDate.d)}, ${endDate.y}`;
 }
 
-// `targets` is optional and inert here (config v2, #386 PR 2): the web app no
+// `targets` is optional and INERT here (config v2, #386 PR 2): the web app no
 // longer derives its runtime target list from event.yaml at all — it reads
 // `secureDevTargets` from `ctf:admin:settings` at request time instead (see
 // lib/secure-dev-targets.ts / lib/enabled-apps.ts), defaulting to all six.
 // This generated field only feeds `eventConfig.targets`/`ModuleConfig.targets`,
-// which nothing in the app treats as authoritative any more. So: absent
-// stays absent (`[]`, no failure — a bare `secure-development: {}` or one with
-// only `score_ingest` is a legal config now), and a present list is still
-// checked against the known ids (a typo here is still worth failing loudly
-// on) but is no longer required to be non-empty.
+// which nothing in the app treats as authoritative any more. So this reader
+// ignores the key completely, in any shape — absent, empty, a scalar, an
+// unknown id, a well-formed list, anything: the derived list is always `[]`
+// and nothing here ever fails because of it. A bare `secure-development: {}`
+// or one with only `score_ingest` is a legal config.
 //
-// `setup/ctf-setup.sh` and `sync/src/config.js` still require a non-empty
-// list — provisioning (which repos to fork) and the poller (which repos to
-// poll) both still need it — so this is a deliberate, one-reader-of-three
-// divergence from the shared corpus, exactly like ADR 24's. See the corpus
-// differential test below for the two fixtures this affects.
-function validateTargets(targets) {
-  if (targets === undefined) return [];
+// `setup/ctf-setup.sh` and `sync/src/config.js` agree: neither reads or
+// validates `targets:` any more either (every event forks/polls all six
+// targets.tsv targets regardless). All three module-key readers therefore
+// agree on every fixture in the shared corpus again — see the corpus
+// differential test below.
+//
+// This is distinct from `EVENT_TARGETS` below, which is a build-arg
+// fallback for a file-less build, not part of the event.yaml module-key
+// corpus, and is still validated.
+function ignoreYamlTargets() {
+  return [];
+}
+
+/** Still validated: `EVENT_TARGETS` is a fallback for a file-less build (no
+ *  EVENT_CONFIG yaml at all), not an event.yaml module key, so it is outside
+ *  the three-reader corpus parity above and keeps failing loudly on a typo. */
+function validateEnvTargets(targets) {
   if (!Array.isArray(targets)) fail("targets must be a list");
   const bad = targets.filter((t) => !TARGETS.includes(t));
   if (bad.length) fail(`unknown target(s): ${bad.join(", ")}`);
@@ -99,7 +109,7 @@ function validateTargets(targets) {
 const MODULE_VALIDATORS = {
   "secure-development": (mod) => ({
     id: "secure-development",
-    targets: validateTargets(mod?.targets),
+    targets: ignoreYamlTargets(),
     scoreIngest: mod?.score_ingest === "push" ? "push" : "poll",
   }),
   quiz: () => ({ id: "quiz" }),
@@ -201,7 +211,7 @@ function fromYaml(path) {
 
 function fromEnv(env) {
   const envTargets = env.EVENT_TARGETS
-    ? validateTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim()))
+    ? validateEnvTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim()))
     : TARGETS;
   return {
     name: env.EVENT_NAME,

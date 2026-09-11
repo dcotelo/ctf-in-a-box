@@ -16,26 +16,25 @@
 # reject down. Each fixture records its expected verdict in its FILENAME
 # (accept-*.yaml / reject-*.yaml). This file runs the corpus through the bash
 # reader; apps/web/scripts/__tests__/generate-event-config.test.ts runs the
-# SAME files through the app's reader (its own corpus differential suite,
-# with a documented KNOWN_DIVERGENCES set for the app's stricter/looser
-# edges). There is no longer a sync-side differential suite over this corpus
-# (config v2 PR2, #386): sync/test/module-readers.differential.test.js was
-# deleted once sync/src/config.js stopped reading targets at all (see
-# below) — sync's module-KEY accept/reject rules are unchanged and still
-# agree with this reader and the app's.
+# SAME files through the app's reader (its own corpus differential suite, with
+# a documented KNOWN_DIVERGENCES set for the one remaining, unrelated ADR 24
+# edge — a present-but-empty `modules: {}`). There is no longer a sync-side
+# differential suite over this corpus (config v2 PR2, #386):
+# sync/test/module-readers.differential.test.js was deleted once
+# sync/src/config.js stopped reading targets at all (see below) — sync's
+# module-KEY accept/reject rules are unchanged and still agree with this
+# reader and the app's.
 #
 # Targets used to be a second axis this file pinned (a leading `# targets:
 # a,b` comment on each accepted fixture, extracted via a since-removed
 # yaml_targets()). Config v2 PR2 removed target extraction from this reader
-# entirely: every event forks all six targets.tsv targets regardless of
-# what (if anything) `targets:` says (see all_targets() in ctf-setup.sh), so
-# a `targets:` key — absent, empty, a scalar, an unknown id, anything — is
-# now tolerated and simply never looked at. BASH_TARGETS_NOW_TOLERATED below
-# names the four fixtures whose reject- filename recorded exactly that
-# validation, which this reader no longer performs; they are intentionally
-# NOT renamed, because the app's generate-event-config.test.ts still keys
-# off these same filenames and is stricter on two of the four (see its own
-# KNOWN_DIVERGENCES).
+# entirely: every event forks all six targets.tsv targets regardless of what
+# (if anything) `targets:` says (see all_targets() in ctf-setup.sh), so a
+# `targets:` key — absent, empty, a scalar, an unknown id, anything — is now
+# tolerated and simply never looked at. `sync/src/config.js` and
+# apps/web/scripts/generate-event-config.mjs made the same change (Task 7),
+# so the four fixtures this affected were renamed from reject-* to accept-*:
+# all three readers agree on them again, with no divergence left to document.
 #
 # Add a fixture whenever a new event.yaml shape shows up — that is the whole
 # point of a corpus over a handful of hand-written cases.
@@ -52,11 +51,6 @@ setup() {
 bash_verdict() {
   if bash "$SCRIPT" render --config "$1" >/dev/null 2>&1; then echo accept; else echo reject; fi
 }
-
-# Fixtures named reject-* whose only defect was a secure-development
-# targets: shape (absent, empty, a scalar, an unknown id) — see the header
-# comment above. This reader now accepts every one of them.
-BASH_TARGETS_NOW_TOLERATED="reject-secure-development-without-targets.yaml reject-empty-targets-list.yaml reject-targets-scalar.yaml reject-unknown-target.yaml"
 
 @test "corpus: is big enough and covers both verdicts" {
   local n a r
@@ -79,27 +73,15 @@ BASH_TARGETS_NOW_TOLERATED="reject-secure-development-without-targets.yaml rejec
   [ -z "$bad" ]
 }
 
-@test "corpus: the bash reader's verdict matches every fixture's recorded verdict, except the documented targets divergences" {
+@test "corpus: the bash reader's verdict matches every fixture's recorded verdict" {
   local f want got fails=""
   for f in "$CORPUS"/*.yaml; do
-    case " $BASH_TARGETS_NOW_TOLERATED " in *" $(basename "$f") "*) continue ;; esac
     case "$(basename "$f")" in accept-*) want=accept ;; *) want=reject ;; esac
     got="$(bash_verdict "$f")"
     if [ "$got" != "$want" ]; then fails="$fails
   $(basename "$f"): want $want, got $got"; fi
   done
   echo "mismatches:$fails"
-  [ -z "$fails" ]
-}
-
-@test "corpus: the four reject-* targets fixtures are accepted here despite the filename" {
-  # Pins the intentional divergence named in BASH_TARGETS_NOW_TOLERATED: this
-  # reader no longer validates secure-development's targets: shape at all.
-  local f fails=""
-  for f in $BASH_TARGETS_NOW_TOLERATED; do
-    if [ "$(bash_verdict "$CORPUS/$f")" != "accept" ]; then fails="$fails $f"; fi
-  done
-  echo "not accepted:$fails"
   [ -z "$fails" ]
 }
 
@@ -149,7 +131,7 @@ BASH_TARGETS_NOW_TOLERATED="reject-secure-development-without-targets.yaml rejec
   # Config v2 PR2 (#386): a targets: key is not read or validated at all any
   # more, so its absence never refuses the run — doctor reaches the per-target
   # matrix and checks all six targets.tsv rows regardless.
-  run bash "$SCRIPT" doctor --config "$CORPUS/reject-secure-development-without-targets.yaml"
+  run bash "$SCRIPT" doctor --config "$CORPUS/accept-secure-development-without-targets.yaml"
   [ -z "$(printf '%s' "$output" | grep -F 'no targets under modules.secure-development')" ]
   printf '%s' "$output" | grep -qE '^dvwa '
   printf '%s' "$output" | grep -qE '^juice-shop '
