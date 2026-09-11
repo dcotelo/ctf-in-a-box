@@ -702,8 +702,10 @@ ready to run for real. See [Classic](#classic) below.
 Also on the **Secure Development** tab: which of the six targets (Juice Shop,
 DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI) this event actually
 runs, as a checkbox list. `ctf-setup.sh org` forks and provisions all six for
-every event — six forks, six scoring workflows, six package Read grants —
-regardless of this setting; the checkboxes decide which of those six
+every event that provisions Secure Development at all — six forks, six
+scoring workflows, six package Read grants — regardless of this setting; an
+event with no `secure-development` block forks and grants nothing (see
+[modules.md](modules.md)). The checkboxes decide which of those six
 contestants see and which the sync poller reads, not which get provisioned.
 At least one target must stay checked — the last box is disabled, the same
 lock as the last live module's Enabled switch, because unchecking every

@@ -1102,10 +1102,12 @@ poller, defaulting to all six when nothing is stored — see
    It validates every key under `event.yaml`'s `modules:` map against a fixed
    set of registered ids (today: `secure-development`, `quiz`, `classic`, `ai`) and
    emits a structured `modules` array (one entry per registered, enabled id)
-   plus a derived back-compat `targets` array that is always `[]` now
-   (config v2, #386 PR 2: `secure-development.targets` is read from neither
-   the yaml nor any env var any more — it is inert, kept only so nothing that
-   still destructures the field breaks). It writes
+   plus a derived back-compat `targets` array that is always `[]` when built
+   from an `event.yaml` file (config v2, #386 PR 2: the yaml's
+   `secure-development.targets` is inert, kept only so nothing that still
+   destructures the field breaks). `EVENT_TARGETS`, used only for a
+   file-less build, is still read and validated (`validateEnvTargets`) and
+   still fails the build on an unknown target. It writes
    `apps/web/src/lib/event-config.generated.ts` (gitignored — a typed `const`
    module) and fails the build loudly (non-zero exit) on invalid input,
    including an unregistered module id.
