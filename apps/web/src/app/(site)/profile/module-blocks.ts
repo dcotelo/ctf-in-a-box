@@ -119,6 +119,24 @@ export type ModuleRow = { done: number; total: number; unit: string; earned: num
 // here, and because what a module imports is part of its contract.
 export { atLeast, unionDenominators } from "@/lib/leaderboard/denominators";
 
+/** The ONE secure-development points ceiling, read by `moduleRow`'s own row,
+ *  `remainingFor`'s footer line, and `maxPointsAcrossModules`'s header — all
+ *  three used to compute this independently (two of them straight off
+ *  `profile?.maxPoints`), so a profile whose `maxPoints` sat below the
+ *  catalogue total showed the header at the catalogue ceiling while the row
+ *  and the footer showed the lower, profile-derived number (issue #383
+ *  follow-up). Viewer-independent (`enabledTotalMaxPoints`, the same sum of
+ *  the enabled targets' catalogue points the Challenges page shows) rather
+ *  than `profile?.maxPoints`, which is 0 until the scorer has ingested this
+ *  login's first score; `atLeast(…, securePoints)` still floors it at
+ *  whatever is banked, for a target removed from the event after points were
+ *  scored on it. Contributes 0 when the module isn't live — the exact gate
+ *  every caller already applied around this number, kept here so the three
+ *  callers cannot drift onto three different gates either. */
+function secureDevCeiling(input: ProfileModuleInput, securePoints: number): number {
+  return input.secureDev ? atLeast(enabledTotalMaxPoints, securePoints) : 0;
+}
+
 export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): ModuleRow {
   const detail = progress.detail;
   switch (detail.kind) {
@@ -135,9 +153,6 @@ export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): 
       return { done: detail.solved, total: d.total, unit: moduleUnit("ai"), earned: progress.points, max: d.max };
     }
     case "secure-development":
-      // `profile.maxPoints` is the sum of the targets' own ceilings (see
-      // lambda/mock getUser) — it used to arrive as a hardcoded 0 from the
-      // live source, which is what rendered "8 / 0 pts" here.
       return {
         done: progress.completed,
         // Clamped like every other denominator here: a target removed from
@@ -146,9 +161,9 @@ export function moduleRow(progress: ModuleProgress, input: ProfileModuleInput): 
         total: atLeast(input.challengeCount, progress.completed),
         unit: moduleUnit("secure-development"),
         earned: progress.points,
-        // Clamped for the same reason as the count above: dropping a target
-        // from the event shrinks the ceiling while its banked points stay.
-        max: atLeast(input.profile?.maxPoints ?? 0, progress.points),
+        // The same ceiling the header (`maxPointsAcrossModules`) and the
+        // footer (`remainingFor`) read — see `secureDevCeiling`.
+        max: secureDevCeiling(input, progress.points),
       };
     default: {
       const unhandled: never = detail;
@@ -235,10 +250,13 @@ export function remainingFor(modules: readonly ResolvedModule[], input: ProfileM
     // Clamped rather than unioned, for the reason `atLeast` gives: this
     // catalogue is baked from the rubrics, so it has no per-item identity to
     // union over — it can only lose a whole target from under banked points.
+    // Ceiling from `secureDevCeiling` — the same one `moduleRow`'s row and
+    // `maxPointsAcrossModules`'s header read, so this footer line can't drift
+    // from either.
     "secure-development": input.secureDev
       ? {
           earned: input.profile?.points ?? 0,
-          max: atLeast(input.profile?.maxPoints ?? 0, input.profile?.points ?? 0),
+          max: secureDevCeiling(input, input.profile?.points ?? 0),
         }
       : undefined,
     quiz: input.quiz ? { earned: input.quiz.total?.points ?? 0, max: quiz.max } : undefined,
@@ -252,19 +270,16 @@ export function remainingFor(modules: readonly ResolvedModule[], input: ProfileM
 
 /** The all-module points ceiling, on the same union semantics as each row's —
  *  so the header's "N of M pts available" cannot disagree with the rows under
- *  it after a solved challenge is deleted (issue #330). secure-development
- *  contributes the live catalogue's own ceiling (`enabledTotalMaxPoints`, the
- *  same sum of the enabled targets' points the Challenges page shows) rather
- *  than `profile?.maxPoints` — that field only exists once the scorer has
- *  ingested this login's first score, so a fresh login read a ceiling missing
- *  the whole secure-development term until then (issue #383). `atLeast(…,
- *  securePoints)` still floors it at whatever is banked, since a target
- *  removed from the event after points were scored on it must not shrink the
- *  ceiling below the banked amount. */
+ *  it after a solved challenge is deleted (issue #330), NOR with
+ *  secure-development's own row and the "still winnable" footer line (issue
+ *  #383 and its follow-up): all three read the secure-development term
+ *  through the same `secureDevCeiling`, so a profile whose `maxPoints` sits
+ *  below the live catalogue total — or is 0 because the scorer has never
+ *  ingested a score for this login — cannot make this header disagree with
+ *  what `moduleRow` and `remainingFor` show underneath it. */
 export function maxPointsAcrossModules(input: ProfileModuleInput, securePoints: number): number {
   const quiz = unionDenominators(input.quiz?.questions ?? [], input.quiz?.viewer.answered ?? {});
   const classic = unionDenominators(input.classic?.challenges ?? [], input.classic?.viewer.solved ?? {});
   const ai = unionDenominators(input.ai?.challenges ?? [], input.ai?.viewer.solved ?? {});
-  const secure = input.secureDev ? atLeast(enabledTotalMaxPoints, securePoints) : 0;
-  return secure + quiz.max + classic.max + ai.max;
+  return secureDevCeiling(input, securePoints) + quiz.max + classic.max + ai.max;
 }
