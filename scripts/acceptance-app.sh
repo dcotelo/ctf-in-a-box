@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Proves a kit event.yaml still drives event identity (name, github.org) at
-# BUILD time; the event's name is a runtime admin setting now (issue #386),
-# so a build with no Redis behind it must fail open to the spec default
-# rather than render nothing, an error, or a name baked from this file.
-# Also proves the app's challenge fork links follow event.yaml's github.org
-# rather than a hardcoded OWASP-CTF (self-hosted contestants must fork the
-# org the kit actually created, not the upstream canonical one).
+# Proves what a kit event.yaml still drives at BUILD time versus what is a
+# runtime /admin setting now, on this branch. `github.org` is still baked in:
+# the app's challenge fork links must follow it rather than a hardcoded
+# OWASP-CTF (self-hosted contestants must fork the org the kit actually
+# created, not the upstream canonical one). The event's name and which
+# Secure Development targets run are BOTH runtime /admin settings now (issue
+# #386) and are not baked at all, so a build with no Redis behind it must
+# fail open to their spec defaults — the name, and all six targets — rather
+# than render nothing, an error, or a name baked from this file.
 #
 # `modules.secure-development.targets` below is deliberately baked in and
 # deliberately INERT (config v2 PR2, #386): which Secure Development targets
