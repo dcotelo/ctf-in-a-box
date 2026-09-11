@@ -34,7 +34,8 @@ patch that satisfies the exact probe string without actually fixing the vuln.
 
 2. **One file per target**, named `<target>.yaml`. The `target:` field inside
    the file MUST match the filename stem, and both must match the target id used
-   by the event (`event.yaml`, the consumer workflow's `TARGET`). Example:
+   by the event — the Secure Development target list in `/admin`, and the
+   consumer workflow's `TARGET`. Example:
    `juice-shop.yaml` with `target: juice-shop`.
 
 3. Write honest, declarative probes that **assert the fix, not the exploit** —

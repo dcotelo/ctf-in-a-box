@@ -69,8 +69,9 @@ const data = (entries: LeaderboardEntry[], teams: TeamStanding[] = []): Leaderbo
 });
 
 /** Quiz and classic disabled by default (only secure-development enabled),
- *  matching the checked-in event.yaml today. Tests that need one of the
- *  app-side modules override this. */
+ *  matching what a box with a non-empty SCORE_IMAGE and no `/admin` changes
+ *  enables — the default module set since config v2 (#386). Tests that need
+ *  one of the app-side modules override this. */
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.isModuleEnabled.mockImplementation((id: string) => id === "secure-development");

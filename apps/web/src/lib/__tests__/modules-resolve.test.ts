@@ -157,9 +157,9 @@ describe("resolveModules with a live module set", () => {
   });
 
   it("resolves a module the baked config never mentioned", () => {
-    // classic is not in this fixture's event.yaml, so there is no config entry
-    // to build a def from — the registry has to supply one. Without this a
-    // runtime-enabled module resolves to nothing and renders blank.
+    // The overrides argument is empty, so there is no per-module entry to
+    // build a def from — the registry has to supply one. Without this a
+    // module enabled at runtime resolves to nothing and renders blank.
     const resolved = resolveModules({}, new Set(["classic"]));
     expect(resolved.map((m) => m.id)).toEqual(["classic"]);
     expect(resolved[0].title).toBeTruthy();
@@ -168,8 +168,8 @@ describe("resolveModules with a live module set", () => {
   it("orders the result by the registry, regardless of the set's own order", () => {
     // There is no more baked-first-then-appended ordering (issue #386):
     // `moduleDefsFor` filters `ALL_MODULE_IDS` in registry order, so the
-    // result's order never depends on the Set's iteration order or on
-    // event.yaml.
+    // result's order never depends on the Set's iteration order or on the
+    // order `/admin` happened to enable them in.
     const ids = resolveModules({}, new Set(["classic", "quiz", "secure-development"])).map((m) => m.id);
     expect(ids).toEqual(["secure-development", "quiz", "classic"]);
   });

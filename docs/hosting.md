@@ -690,8 +690,11 @@ doesn't exist without the module that owns it), and `/how-to-play`, `/rules`,
 the landing page, the leaderboard, and `/profile` all compose from whatever
 modules *are* enabled instead of assuming `secure-development` is one of
 them. See [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for
-the UI composition contract and [the ADR](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
-for why a module reader's missing-vs-unknown distinction is drawn where it is.
+the UI composition contract and [ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)
+for where module registration and enablement live now — the app's registry and
+the `/admin` settings, with `SCORE_IMAGE` as the one switch Secure Development
+answers to. [ADR 24](decisions.md#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one)
+records why an unconfigured module is tolerated while an unknown one is not.
 
 **Boot a quiz-only event with `docker compose --profile app up -d --build`**
 — just the `app` profile, and no build-args at all. Secure Development's

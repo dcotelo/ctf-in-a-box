@@ -897,7 +897,7 @@ reason decision 22 gives.
 
 ## ADR 24. Tolerating a missing module vs rejecting an unknown one
 
-**Status.** Accepted.
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — both readers this ADR is about are gone with `event.yaml`: `sync` no longer parses a module block at all (`loadConfig` reads `.env`, and the only module question left for it is whether it was started), `ctf-setup.sh` reads the same `.env` keys, and the `KNOWN_MODULES` list each carried is deleted. Module registration now lives in the app's `ModuleId` registry (`apps/web/src/lib/modules.ts`) with the duplicated target lists `scripts/check-module-registries.mjs` compares, and enablement is a runtime `/admin` setting. What survives is the distinction itself, applied one layer up: an unconfigured module is a legitimate event shape, an unrecognized module id is still refused. The body below is kept as the record of the decision as it stood.
 
 **Context.** Two independent readers parse the same `event.yaml` for module
 keys and share no code: `sync/src/config.js` (JS, the poller) and
@@ -1071,7 +1071,7 @@ gaining a second code path for "no backend at all."
 
 ## ADR 26. Compose profiles follow the enabled modules
 
-**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — the profile is named `secdev` now, not `poll`, and it follows **`SCORE_IMAGE`** rather than a module list in a config file: whoever brings the stack up adds `--profile secdev` iff `SCORE_IMAGE` is non-empty, which `scripts/dev-stack` and `deploy/fly/render-compose.sh` do for you. Every conclusion below survives the rename unchanged — `scorer` carries both ingest profiles and `sync` only the poll one, no Secure Development service gets the profile-less treatment, and `app` never declares a `depends_on` on a profiled service. The body below is kept as the record of the decision as it stood.
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — the profile is named `secdev` now, not `poll`, and it follows **`SCORE_IMAGE`** rather than a module list in a config file: whoever brings the stack up adds `--profile secdev` iff `SCORE_IMAGE` is non-empty, which `scripts/dev-stack` and `deploy/fly/render-compose.sh` do for you. Every conclusion below survives the rename unchanged — `scorer` carries `["secdev", "push"]` because both ingest modes need it while `sync` carries `["secdev"]` alone (push mode has the fork POST to the scorer, so there is no poller to run), no Secure Development service gets the profile-less treatment, and `app` never declares a `depends_on` on a profiled service. The body below is kept as the record of the decision as it stood.
 
 **Context.** `docker-compose.yml` put `sync` behind `profiles: ["poll"]` but
 left `scorer` in the default (profile-less) set, and `app` carried

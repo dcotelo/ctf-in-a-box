@@ -489,9 +489,12 @@ reviews:
         quietly starting unauthenticated.
 
         Profiles — a service's `profiles:` no longer matching the modules that
-        need it. scorer is ["poll","push"]; sync is ["poll"] only. A quiz-only
-        or classic-only event must never be required to pull the private
-        scorer image.
+        need it. scorer is ["secdev","push"]; sync is ["secdev"] only. The
+        `secdev` profile is DERIVED, never a second knob: whoever brings the
+        stack up adds it iff SCORE_IMAGE is non-empty (scripts/dev-stack,
+        deploy/fly/render-compose.sh, ctf-setup.sh's wizard step 8). A
+        quiz-only or classic-only event must never be required to pull the
+        private scorer image.
 
         Caddyfile.poll gaining a /score route, or any route giving poll mode
         inbound scoring surface. Push mode's /score route belongs only in

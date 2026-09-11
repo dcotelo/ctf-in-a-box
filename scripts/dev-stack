@@ -364,8 +364,14 @@ cmd_up() {
   fi
   # Which profiles this bring-up actually used, and why — the derivation is
   # SCORE_IMAGE and nothing else.
+  #
+  # Names the CONTAINERS, not the profile's full membership: `up` starts
+  # redis, srh, scorer, app and caddy by name and deliberately leaves `sync`
+  # out — polling needs a real GitHub org and App credentials, which a dev
+  # stack has not got. Saying "scorer + sync run" sent people looking for a
+  # poller container that was never started.
   if secdev_enabled; then
-    profiles="app, secdev (SCORE_IMAGE is set, so scorer + sync run)"
+    profiles="app, secdev (SCORE_IMAGE is set, so the scorer runs; sync is not started — no GitHub org to poll)"
   else
     profiles="app (SCORE_IMAGE is empty, so no scorer and no sync)"
   fi
