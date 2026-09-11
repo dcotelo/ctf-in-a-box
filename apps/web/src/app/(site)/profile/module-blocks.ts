@@ -23,8 +23,10 @@ import type { Question, QuizTotal, ViewerQuiz } from "@/lib/quiz-store";
 export type ProfileModuleInput = {
   profile: UserProfile | null;
   appsRecord: Partial<Record<AppId, AppProgress>>;
-  /** The event's completable secure-development challenges, already resolved
-   *  through the same helper the public board uses. */
+  /** The event's completable secure-development challenges — the LIVE target
+   *  list's total (lib/enabled-apps.ts's `getEnabledTotals()`, issue #386, PR
+   *  2), resolved through the same `challengeTotal` helper the public board
+   *  uses, not a build-time constant. */
   challengeCount: number;
   secureDev: boolean;
   quiz?: { total?: QuizTotal; questions: Question[]; maxPoints: number; viewer: ViewerQuiz };

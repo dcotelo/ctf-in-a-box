@@ -10,11 +10,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEnabled } = vi.hoisted(() => ({
+const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEnabled, getEnabledApps, getEnabledTotals } = vi.hoisted(() => ({
   getResolvedModules: vi.fn(),
   getChallengeCatalog: vi.fn(),
   getHintAvailability: vi.fn(),
   isModuleEnabled: vi.fn(),
+  // The live target list (issue #386, PR 2) — defaulted to the real
+  // catalogue's full six in the outer beforeEach below, so every existing
+  // test here keeps the behaviour it always had; only the new
+  // runtime-narrowed-target-list case below overrides it.
+  getEnabledApps: vi.fn(),
+  getEnabledTotals: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -26,6 +32,7 @@ vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules }));
+vi.mock("@/lib/enabled-apps", () => ({ getEnabledApps, getEnabledTotals }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog }));
 vi.mock("@/lib/hint-store", () => ({
   getHintAvailability,
@@ -43,6 +50,7 @@ vi.mock("@/lib/modules", async (importOriginal) => ({
 }));
 
 import ChallengesPage, { generateMetadata } from "@/app/(site)/challenges/page";
+import { apps } from "@/lib/apps";
 
 const resolved = (titleOverride?: string) => [
   {
@@ -60,6 +68,14 @@ beforeEach(() => {
   isModuleEnabled.mockReturnValue(true);
   getChallengeCatalog.mockResolvedValue(null);
   getHintAvailability.mockResolvedValue({});
+  // Default: every existing test here predates runtime target selection
+  // (issue #386, PR 2) and expects the full catalogue, same as the old
+  // build-time `enabledApps`.
+  getEnabledApps.mockResolvedValue(apps);
+  getEnabledTotals.mockResolvedValue({
+    challenges: apps.reduce((sum, a) => sum + a.challengeCount, 0),
+    maxPoints: apps.reduce((sum, a) => sum + a.maxPoints, 0),
+  });
 });
 
 describe("challenges page gate", () => {
@@ -92,5 +108,24 @@ describe("/challenges with an organizer override", () => {
 
   it("uses the override as the page heading", async () => {
     expect(renderToStaticMarkup(await ChallengesPage())).toContain("Round 1");
+  });
+});
+
+// Issue #386, PR 2: which targets render is now an /admin runtime choice
+// (lib/enabled-apps.ts), not a build-time fact — this is the one render-level
+// proof that narrowing it actually changes what the page shows, not just
+// that the plumbing type-checks.
+describe("/challenges with a runtime-narrowed target list", () => {
+  beforeEach(() => {
+    getResolvedModules.mockResolvedValue(resolved());
+    const dvwa = apps.find((a) => a.id === "dvwa")!;
+    getEnabledApps.mockResolvedValue([dvwa]);
+    getEnabledTotals.mockResolvedValue({ challenges: dvwa.challengeCount, maxPoints: dvwa.maxPoints });
+  });
+
+  it("renders only the admin-selected target — DVWA present, WebGoat absent", async () => {
+    const html = renderToStaticMarkup(await ChallengesPage());
+    expect(html).toContain("DVWA");
+    expect(html).not.toContain("WebGoat");
   });
 });

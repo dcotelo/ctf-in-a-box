@@ -63,8 +63,25 @@ function displayDates(startIso, endIso) {
   return `${formatDate(startDate.y, startDate.m, startDate.d)} – ${formatDate(endDate.y, endDate.m, endDate.d)}, ${endDate.y}`;
 }
 
+// `targets` is optional and inert here (config v2, #386 PR 2): the web app no
+// longer derives its runtime target list from event.yaml at all — it reads
+// `secureDevTargets` from `ctf:admin:settings` at request time instead (see
+// lib/secure-dev-targets.ts / lib/enabled-apps.ts), defaulting to all six.
+// This generated field only feeds `eventConfig.targets`/`ModuleConfig.targets`,
+// which nothing in the app treats as authoritative any more. So: absent
+// stays absent (`[]`, no failure — a bare `secure-development: {}` or one with
+// only `score_ingest` is a legal config now), and a present list is still
+// checked against the known ids (a typo here is still worth failing loudly
+// on) but is no longer required to be non-empty.
+//
+// `setup/ctf-setup.sh` and `sync/src/config.js` still require a non-empty
+// list — provisioning (which repos to fork) and the poller (which repos to
+// poll) both still need it — so this is a deliberate, one-reader-of-three
+// divergence from the shared corpus, exactly like ADR 24's. See the corpus
+// differential test below for the two fixtures this affects.
 function validateTargets(targets) {
-  if (!Array.isArray(targets) || targets.length === 0) fail("targets must be a non-empty list");
+  if (targets === undefined) return [];
+  if (!Array.isArray(targets)) fail("targets must be a list");
   const bad = targets.filter((t) => !TARGETS.includes(t));
   if (bad.length) fail(`unknown target(s): ${bad.join(", ")}`);
   return targets;

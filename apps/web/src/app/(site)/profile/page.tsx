@@ -26,7 +26,7 @@ import {
 import TeamCard from "@/components/team-card";
 import TeamProgress from "@/components/team-progress";
 import type { AppId } from "@/lib/apps";
-import { enabledAppsById } from "@/lib/apps";
+import { getEnabledApps, getEnabledAppsById, getEnabledTotals } from "@/lib/enabled-apps";
 import { auth } from "@/lib/auth";
 import {
   getAiTotals,
@@ -128,6 +128,9 @@ export default async function ProfilePage() {
     resolvedModules,
     maxMembers,
     adminSettings,
+    enabledAppsById,
+    enabledTotals,
+    enabledApps,
   ] =
     await Promise.all([
       getLeaderboardSource().then((source) => source.getUser(login)),
@@ -156,6 +159,9 @@ export default async function ProfilePage() {
       // registration closed reads why, instead of forms that refuse them.
       // Fail-open like the routes' own reads: an error means "open".
       getAdminSettings().catch(() => null),
+      getEnabledAppsById(),
+      getEnabledTotals(),
+      getEnabledApps(),
     ]);
 
   // Live/mock team membership from the store wins; fall back to whatever the
@@ -179,7 +185,7 @@ export default async function ProfilePage() {
   // with nothing submitted read `0 non-patched / 0 total` on an event with a
   // full catalogue to work through.
   const patchedCount = profile?.patched ?? 0;
-  const challengeCount = challengeTotal(profile?.total ?? 0);
+  const challengeCount = challengeTotal(enabledTotals.challenges, profile?.total ?? 0);
   // Hint spend is deducted and the app-side modules' points are added, in that
   // order, as overlays — the exact same math (and order) as the leaderboard's
   // withHintPenalties (subtract, floor at 0) followed by
@@ -396,7 +402,7 @@ export default async function ProfilePage() {
               <div key={m.id} data-testid="module-block" className="ds-card rounded-lg border border-white/[0.06] bg-[#16162a] p-4">
                 <ProgressRow label={m.title} level="module" {...summary}>
                   {isSecureDev ? (
-                    <AppBreakdown entry={moduleEntry} showPoints />
+                    <AppBreakdown entry={moduleEntry} showPoints enabledApps={enabledApps} />
                   ) : list ? (
                     <ChallengeList items={list.items} unit={summary.unit} doneWord={list.doneWord} />
                   ) : undefined}

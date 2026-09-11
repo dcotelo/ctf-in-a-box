@@ -33,7 +33,7 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, aiCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
-  enabledModuleIds: null, eventIdentity: {},
+  enabledModuleIds: null, eventIdentity: {}, secureDevTargets: null,
     });
   });
 
@@ -102,12 +102,33 @@ describe("getAdminSettings", () => {
       // Absent from the hash => null => "no override, use the baked set".
       enabledModuleIds: null,
       eventIdentity: {},
+      secureDevTargets: null,
     });
   });
 
   it("decodes a stored \"0\" for teamRegistrationOpen as closed", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: ["teamRegistrationOpen", "0"] }]);
     expect((await getAdminSettings()).teamRegistrationOpen).toBe(false);
+  });
+
+  // Secure-development targets (issue #386, PR 2) — decoded through
+  // normalizeSecureDevTargets, same contract as its own unit tests: known ids
+  // only, deduplicated, in catalogue order; anything that survives to nothing
+  // decodes to null ("no override, use the default"), same reading as
+  // enabledModuleIds' unknown-only case above.
+  it("decodes a stored secureDevTargets list, reordered to catalogue order", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["secureDevTargets", '["vampi","dvwa"]'] }]);
+    expect((await getAdminSettings()).secureDevTargets).toEqual(["dvwa", "vampi"]);
+  });
+
+  it("decodes an empty stored secureDevTargets list as null — no override, use the default", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["secureDevTargets", "[]"] }]);
+    expect((await getAdminSettings()).secureDevTargets).toBeNull();
+  });
+
+  it("decodes garbage secureDevTargets as null rather than throwing", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["secureDevTargets", "not-json"] }]);
+    expect((await getAdminSettings()).secureDevTargets).toBeNull();
   });
 });
 
@@ -445,7 +466,7 @@ describe("scheduled windows", () => {
     quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, aiCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
     updatedBy: null, updatedAt: null, moduleOverrides: {}, enabledModuleIds: null,
-    eventIdentity: {},
+    eventIdentity: {}, secureDevTargets: null,
   };
   const T = (iso: string) => Date.parse(iso);
 

@@ -11,6 +11,8 @@ import {
   type ModuleOverrides,
 } from "@/lib/modules";
 import { EVENT_IDENTITY_KEYS, checkEventIdentityValue, isEventIdentityKey, type EventIdentityOverrides } from "@/lib/event-identity";
+import { normalizeSecureDevTargets } from "@/lib/secure-dev-targets";
+import type { AppId } from "@/lib/apps";
 // `defaultEnabledModules`, not `defaultModuleIds` from `@/lib/enabled-modules`:
 // that module imports `getAdminSettings` from this one, so importing it back
 // here would be a cycle. `module-defaults.ts` is the pure, dependency-free
@@ -208,6 +210,15 @@ export type AdminSettings = {
    *  actually stored; `resolveSite()` in lib/site.ts lays them over the
    *  defaults. Absent field = default. */
   eventIdentity: EventIdentityOverrides;
+  /** Which of the six secure-development targets this event runs (issue
+   *  #386, PR 2), read by `lib/enabled-apps.ts` per request. `null` means
+   *  nothing stored (or the stored value decoded to nothing survivable) —
+   *  the deployment default (`DEFAULT_SECURE_DEV_TARGETS`, all six) applies.
+   *  Unlike `enabledModuleIds`, there is no explicit-empty state: emptying
+   *  every target would leave the secure-development board live with
+   *  nothing to show, so `normalizeSecureDevTargets` treats a stored empty
+   *  (or all-unknown) list the same as absent. */
+  secureDevTargets: AppId[] | null;
 };
 
 // The window check itself lives in schedule-window.ts (a dependency-free
@@ -350,6 +361,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     moduleOverrides,
     enabledModuleIds: decodeEnabledModuleIds(h.enabledModules),
     eventIdentity,
+    secureDevTargets: normalizeSecureDevTargets(h.secureDevTargets),
   };
 }
 

@@ -87,12 +87,27 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"discordUrl": ""`);
   });
 
-  it("rejects unknown module, unknown target, bad dates, empty targets", () => {
+  it("rejects unknown module, unknown target, bad dates", () => {
     const bad = (yaml: string) => expect(() => generate({}, yaml)).toThrow();
     bad("modules: { forensics: {} }");
     bad("modules:\n  secure-development:\n    targets: [nope]");
-    bad("modules:\n  secure-development:\n    targets: []");
     bad('event: { name: X, start: "not-a-date" }\nmodules:\n  secure-development:\n    targets: [dvwa]');
+  });
+
+  // targets is optional and inert here (config v2, #386 PR 2): the web app
+  // reads its runtime target list from admin settings, not from this
+  // generated field, so an empty or absent `targets:` is a legal
+  // secure-development config now — see the comment on `validateTargets`.
+  // `setup/ctf-setup.sh` and `sync/src/config.js` still require a non-empty
+  // list (provisioning and polling both still need it), so this is a
+  // deliberate, documented divergence in the corpus differential suite below.
+  it("allows an empty or absent targets list under secure-development", () => {
+    expect(generate({}, "modules:\n  secure-development:\n    targets: []")).toMatch(
+      /"targets":\s*\[\]/,
+    );
+    expect(generate({}, "modules:\n  secure-development:\n    score_ingest: poll")).toMatch(
+      /"targets":\s*\[\]/,
+    );
   });
 
   it("display dates are independent of build-machine timezone (TZ=UTC)", () => {
@@ -202,7 +217,20 @@ describe("generate-event-config corpus differential", () => {
   // is excluded from the blanket agreement assertion below and asserted on
   // its own instead, so the exception stays visible rather than silently
   // dropped.
-  const KNOWN_DIVERGENCE = "accept-flow-empty-mapping.yaml";
+  //
+  // Two more joined it in config v2 (#386 PR 2), in the OPPOSITE direction:
+  // this reader is now the LOOSER one on `secure-development.targets`. The
+  // web app stopped reading `eventConfig.targets` as authoritative — it reads
+  // `secureDevTargets` from admin settings at request time instead (see
+  // `validateTargets`'s doc comment) — so an empty or absent targets list is a
+  // legal config for THIS reader, while `setup/ctf-setup.sh` and
+  // `sync/src/config.js` still reject it: they still need a real fork/poll
+  // list, which this PR does not touch.
+  const KNOWN_DIVERGENCES = new Set([
+    "accept-flow-empty-mapping.yaml",
+    "reject-empty-targets-list.yaml",
+    "reject-secure-development-without-targets.yaml",
+  ]);
 
   const fixtures = readdirSync(CORPUS)
     .filter((f) => f.endsWith(".yaml"))
@@ -271,10 +299,10 @@ describe("generate-event-config corpus differential", () => {
     expect(reject.length).toBeGreaterThanOrEqual(12);
   });
 
-  it("agrees with every fixture's recorded verdict, except the one documented divergence (ADR 24)", () => {
+  it("agrees with every fixture's recorded verdict, except the documented divergences (ADR 24, #386 PR 2)", () => {
     const mismatches: string[] = [];
     for (const f of fixtures) {
-      if (f === KNOWN_DIVERGENCE) continue;
+      if (KNOWN_DIVERGENCES.has(f)) continue;
       const want = f.startsWith("accept-") ? "accept" : "reject";
       const got = verdict(f);
       if (got.verdict !== want) {
@@ -286,7 +314,7 @@ describe("generate-event-config corpus differential", () => {
 
   it("extracts each accepted fixture's recorded targets", () => {
     const mismatches: string[] = [];
-    for (const f of fixtures.filter((x) => x.startsWith("accept-") && x !== KNOWN_DIVERGENCE)) {
+    for (const f of fixtures.filter((x) => x.startsWith("accept-") && !KNOWN_DIVERGENCES.has(x))) {
       const want = recordedTargets(f);
       const got = verdict(f);
       if (JSON.stringify(got.targets) !== JSON.stringify(want)) {
@@ -296,8 +324,13 @@ describe("generate-event-config corpus differential", () => {
     expect(mismatches).toEqual([]);
   });
 
-  it("the one documented divergence stays a divergence: this reader rejects an empty modules: {} (ADR 24)", () => {
-    expect(verdict(KNOWN_DIVERGENCE).verdict).toBe("reject");
+  it("the documented divergences stay divergences", () => {
+    // ADR 24: this reader is stricter on a present-but-empty `modules: {}`.
+    expect(verdict("accept-flow-empty-mapping.yaml").verdict).toBe("reject");
+    // #386 PR 2: this reader is looser on secure-development's targets list —
+    // see the KNOWN_DIVERGENCES comment above.
+    expect(verdict("reject-empty-targets-list.yaml").verdict).toBe("accept");
+    expect(verdict("reject-secure-development-without-targets.yaml").verdict).toBe("accept");
   });
 });
 

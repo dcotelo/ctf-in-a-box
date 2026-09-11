@@ -9,6 +9,7 @@
 // counts with no points.
 
 import type { ModuleId, ResolvedModule } from "@/lib/modules";
+import type { AppMeta } from "@/lib/apps";
 import AppBreakdown from "@/components/app-breakdown";
 import BoardItemLists from "@/components/board-item-lists";
 import ProgressRow, { moduleUnit } from "@/components/progress/progress-row";
@@ -71,7 +72,7 @@ const TEAM_ENTRY_STUB: Omit<LeaderboardEntry, "login" | "apps"> = {
   updatedAt: null,
 };
 
-export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modules = [] }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void; modules?: readonly ResolvedModule[] }) {
+export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modules = [], enabledApps }: { team: TeamStanding; topPoints: number; pointsByLogin?: Map<string, number>; isOpen: boolean; onToggle: () => void; modules?: readonly ResolvedModule[]; enabledApps: readonly AppMeta[] }) {
   const moduleRows = modules.filter((m) => team.modules?.[m.id]);
   return (
     <li className="ds-card group rounded-lg border border-white/[0.06] bg-[#16162a] transition-all hover:border-[#2563eb]/40 hover:bg-[#1a1a30]">
@@ -161,7 +162,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
             // an expansion with nothing in it.
             <div className="mt-4 border-t border-white/[0.06] pt-4">
               <p className="mb-3 text-xs uppercase tracking-wider text-muted">Target breakdown</p>
-              <AppBreakdown entry={{ ...TEAM_ENTRY_STUB, login: team.slug, apps: team.apps }} showPoints />
+              <AppBreakdown entry={{ ...TEAM_ENTRY_STUB, login: team.slug, apps: team.apps }} showPoints enabledApps={enabledApps} />
             </div>
           )}
           {moduleRows.length > 0 && (
@@ -171,7 +172,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
                   return (
                     <ProgressRow key={m.id} label={m.title} level="module" {...teamModuleRow(m.id, progress, team)}>
                       {progress.detail.kind === "secure-development" && team.apps ? (
-                        <AppBreakdown entry={{ ...TEAM_ENTRY_STUB, login: team.slug, apps: team.apps }} showPoints />
+                        <AppBreakdown entry={{ ...TEAM_ENTRY_STUB, login: team.slug, apps: team.apps }} showPoints enabledApps={enabledApps} />
                       ) : undefined}
                     </ProgressRow>
                   );

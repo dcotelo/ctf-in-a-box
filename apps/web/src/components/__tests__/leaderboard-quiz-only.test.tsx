@@ -73,6 +73,7 @@ describe("a leaderboard row on a quiz-only event", () => {
       onToggle={() => {}}
       capabilities={CAPS}
       modules={QUIZ_ONLY}
+      enabledApps={[]}
     />,
   );
 
@@ -102,6 +103,7 @@ describe("a leaderboard row on a secure-development event", () => {
         onToggle={() => {}}
         capabilities={CAPS}
         modules={WITH_SECURE_DEV}
+        enabledApps={[]}
       />,
     );
     expect(html).toContain(">solved<");
@@ -120,6 +122,7 @@ describe("the solved column", () => {
         onToggle={() => {}}
         capabilities={CAPS}
         modules={QUIZ_ONLY}
+        enabledApps={[]}
         {...props}
       />,
     );
@@ -161,7 +164,7 @@ describe("the solved column", () => {
 describe("the sort controls on a quiz-only event", () => {
   it("offers rank and points but not patched", () => {
     const html = renderToStaticMarkup(
-      <Leaderboard data={data} viewerLogin={null} modules={QUIZ_ONLY} />,
+      <Leaderboard data={data} viewerLogin={null} modules={QUIZ_ONLY} enabledApps={[]} />,
     );
     expect(html).toContain(">rank<");
     expect(html).toContain(">points<");
@@ -174,14 +177,14 @@ describe("the sort controls on a quiz-only event", () => {
   // away with the column it was protecting.
   it("offers the solved sort on a quiz-only event too", () => {
     const html = renderToStaticMarkup(
-      <Leaderboard data={data} viewerLogin={null} modules={QUIZ_ONLY} />,
+      <Leaderboard data={data} viewerLogin={null} modules={QUIZ_ONLY} enabledApps={[]} />,
     );
     expect(html).toContain(">solved<");
   });
 
   it("offers the same three keys where secure-development is enabled", () => {
     const html = renderToStaticMarkup(
-      <Leaderboard data={data} viewerLogin={null} modules={WITH_SECURE_DEV} />,
+      <Leaderboard data={data} viewerLogin={null} modules={WITH_SECURE_DEV} enabledApps={[]} />,
     );
     expect(html).toContain(">rank<");
     expect(html).toContain(">points<");

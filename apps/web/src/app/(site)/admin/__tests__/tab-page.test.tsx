@@ -20,6 +20,13 @@ const { requireAdmin, getAdminSettings, getSyncStatus, getResolvedModules, getMo
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
+// admin-panel.tsx now also reads getEnabledApps() (lib/enabled-apps.ts, issue
+// #386 PR 2), whose settings snapshot goes through `@/lib/enabled-modules`'s
+// `getAdminSettingsSnapshot`, which calls the real `connection()` — mocked
+// here so it can run outside a request scope; `@/lib/enabled-modules` itself
+// is left real so it falls through to the `getAdminSettings` mock below,
+// same as page.test.tsx's copy of this comment.
+vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));

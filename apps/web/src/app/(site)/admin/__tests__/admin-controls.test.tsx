@@ -153,6 +153,7 @@ const settings: AdminSettings = {
   moduleOverrides: {},
   enabledModuleIds: null,
   eventIdentity: {},
+  secureDevTargets: null,
 };
 
 describe("AdminControls tab shell", () => {

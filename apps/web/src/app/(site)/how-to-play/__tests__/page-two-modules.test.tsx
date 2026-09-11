@@ -14,6 +14,10 @@ vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
+    // The live target list now comes from here, not event.yaml's `targets`
+    // (issue #386, PR 2) — DVWA only, so the worked example below still
+    // takes the generic (non-Juice-Shop) branch for a real reason.
+    secureDevTargets: ["dvwa"],
   }),
 }));
 

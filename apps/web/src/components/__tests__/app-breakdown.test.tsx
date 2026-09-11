@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import AppBreakdown from "@/components/app-breakdown";
+import { apps } from "@/lib/apps";
 import type { LeaderboardEntry } from "@/lib/leaderboard/types";
 
 function entry(overrides: Partial<LeaderboardEntry>): LeaderboardEntry {
@@ -35,6 +36,7 @@ describe("AppBreakdown", () => {
     const html = renderToStaticMarkup(
       <AppBreakdown
         showPoints
+        enabledApps={apps}
         entry={entry({
           apps: {
             dvwa: {
@@ -67,6 +69,7 @@ describe("AppBreakdown", () => {
   it("keeps the compact grid for targets without a catalogue", () => {
     const html = renderToStaticMarkup(
       <AppBreakdown
+        enabledApps={apps}
         entry={entry({
           apps: { dvwa: { app: "dvwa", points: 0, maxPoints: 0, patched: 1, total: 2 } },
         })}

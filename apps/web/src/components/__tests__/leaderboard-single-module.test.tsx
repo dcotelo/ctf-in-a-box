@@ -21,6 +21,7 @@ vi.mock("next/image", () => ({
 
 import { EntryRow } from "@/components/leaderboard";
 import type { ResolvedModule } from "@/lib/modules";
+import { apps } from "@/lib/apps";
 import type { LeaderboardEntry } from "@/lib/leaderboard/types";
 
 const MODULES: readonly ResolvedModule[] = [
@@ -51,7 +52,7 @@ const entry: LeaderboardEntry = {
 
 describe("expanded row with a single enabled module", () => {
   const html = renderToStaticMarkup(
-    <EntryRow entry={entry} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
+    <EntryRow entry={entry} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} enabledApps={apps} />,
   );
 
   it("suppresses the per-module heading", () => {

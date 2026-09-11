@@ -9,7 +9,8 @@ import PageHeader from "@/components/page-header";
 import { phaseFromSettings } from "@/components/phase";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
-import { enabledApps, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps } from "@/lib/enabled-apps";
 import { defaultModuleIds } from "@/lib/enabled-modules";
 import { eventConfig } from "@/lib/event-config";
 import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
@@ -46,11 +47,12 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
   // fails open to the registry defaults internally (see
   // src/lib/resolved-modules.ts), and it is `cache()`d per request, so this
   // call rides along with whatever the root layout's nav already paid for.
-  const [settings, sync, modules, site] = await Promise.all([
+  const [settings, sync, modules, site, enabledApps] = await Promise.all([
     getAdminSettings().catch(() => null),
     getSyncStatus().catch(() => null),
     getResolvedModules(),
     getSite(),
+    getEnabledApps(),
   ]);
 
   // Each module's setup checklist, resolved HERE. The registry block is a

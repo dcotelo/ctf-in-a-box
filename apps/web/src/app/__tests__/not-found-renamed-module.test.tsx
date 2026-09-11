@@ -23,6 +23,11 @@ vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
+    // The live target list now comes from here, not event.yaml's `targets`
+    // (issue #386, PR 2) — one target, matching this fixture's old
+    // `eventConfig.targets` value, so "1 target" below still pins a real
+    // count rather than a coincidence of the default.
+    secureDevTargets: ["dvwa"],
   }),
 }));
 vi.mock("@/lib/event-config", () => ({

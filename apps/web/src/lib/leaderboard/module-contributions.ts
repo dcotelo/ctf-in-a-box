@@ -8,10 +8,11 @@ import {
   type ClassicTotal,
 } from "@/lib/classic-store";
 import { getEnabledModuleIds, isModuleLive } from "@/lib/enabled-modules";
+import { getEnabledTotals } from "@/lib/enabled-apps";
 import { getQuizTotals, getTeamQuizTotalsBatch, listQuestions, type QuizTotal } from "@/lib/quiz-store";
 import { rankByStanding } from "./rank";
 import type { AppProgress, LeaderboardData, LeaderboardEntry, ModuleProgress, TeamStanding } from "./types";
-import { enabledTotalChallenges, type AppId } from "@/lib/apps";
+import type { AppId } from "@/lib/apps";
 import type { ModuleId } from "@/lib/modules";
 
 /**
@@ -269,7 +270,7 @@ export async function withModuleContributions(data: LeaderboardData): Promise<Le
   // someone's solved count. The row clamps rather than rendering "28 / 21";
   // the clamp lives there because only a row knows its own numerator.
   const completable =
-    (secureDev ? enabledTotalChallenges : 0) + quizTotalQuestions + classicTotalChallenges + aiTotalChallenges;
+    (secureDev ? (await getEnabledTotals()).challenges : 0) + quizTotalQuestions + classicTotalChallenges + aiTotalChallenges;
 
   return { ...data, entries, teams, completable };
 }

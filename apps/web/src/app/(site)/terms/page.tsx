@@ -22,7 +22,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
-import { enabledApps, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps } from "@/lib/enabled-apps";
 import type { Copy, OrgContext } from "@/lib/modules";
 import { getModuleTerms, getResolvedModules } from "@/lib/resolved-modules";
 import { getSite } from "@/lib/site";
@@ -74,6 +75,7 @@ const FALLBACK: Record<"eligibility" | "scope" | "submissions", Copy[]> = {
 
 export default async function TermsPage() {
   const event = await getSite();
+  const enabledApps = await getEnabledApps();
   const ctx: OrgContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),

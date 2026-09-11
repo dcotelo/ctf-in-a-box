@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { enabledTotalChallenges } from "@/lib/apps";
+import { apps } from "@/lib/apps";
 import type { AiChallenge, AiTotal } from "@/lib/ai-store";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "../types";
 import { rankByStanding } from "../rank";
@@ -44,6 +44,16 @@ vi.mock("@/lib/ai-store", () => ({
 }));
 
 import { withModuleContributions } from "../module-contributions";
+
+// Real value, not a removed build-time constant (issue #386, PR 2):
+// `withModuleContributions` now reads the live target total through
+// `lib/enabled-apps.ts`'s `getEnabledTotals()`, which — with no admin
+// settings stored (the mocked `@/lib/enabled-modules` double above resolves
+// `getAdminSettingsSnapshot()` to null) — falls back to the default of all
+// six, filtered against this SAME real `apps` catalogue. Computing it here
+// off the same source keeps this test honest without pinning a number that
+// would silently drift from the catalogue.
+const enabledTotalChallenges = apps.reduce((sum, a) => sum + a.challengeCount, 0);
 
 const entry = (login: string, points: number, patched: number, lastSolveAt = "2026-08-01T10:00:00.000Z"): LeaderboardEntry => ({
   rank: 0, login, team: null, points, patched, failed: 0, total: 3,

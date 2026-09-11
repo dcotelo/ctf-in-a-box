@@ -14,7 +14,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
-import { enabledApps, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps } from "@/lib/enabled-apps";
 import type { RulesContext } from "@/lib/modules";
 import { getModuleRules, getResolvedModules } from "@/lib/resolved-modules";
 import { getSite } from "@/lib/site";
@@ -40,6 +41,7 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
 
 export default async function RulesPage() {
   const event = await getSite();
+  const enabledApps = await getEnabledApps();
   const ctx: RulesContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),

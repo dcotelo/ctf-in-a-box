@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import ChallengeGrid from "@/components/challenge-grid";
-import { enabledApps, enabledTotalChallenges, enabledTotalMaxPoints, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps, getEnabledTotals } from "@/lib/enabled-apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
 // No hint imports: Secure Development has no hint text and no producer for
@@ -12,8 +13,6 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
-
-const appList = joinAppNames(enabledApps.map((a) => a.name));
 
 /** This page's own name, with an organizer rename applied.
  *
@@ -32,6 +31,8 @@ async function pageTitle(): Promise<string> {
 // and for the same reason. The read is memoized per request, so resolving it
 // here and again in the component below costs one settings read, not two.
 export async function generateMetadata(): Promise<Metadata> {
+  const enabledApps = await getEnabledApps();
+  const appList = joinAppNames(enabledApps.map((a) => a.name));
   return {
     title: await pageTitle(),
     description: `${enabledApps.length} deliberately vulnerable ${enabledApps.length === 1 ? "app" : "apps"} to patch: ${appList}.`,
@@ -50,11 +51,13 @@ export default async function ChallengesPage() {
 
   // The page renders dynamically regardless — the root layout resolves module
   // names per request, so every route under it does (see resolved-modules.ts).
-  const [catalog, title, session] = await Promise.all([
+  const [catalog, title, session, enabledApps, enabledTotals] = await Promise.all([
     getChallengeCatalog(),
     pageTitle(),
     // For the viewer's own solved marks below.
     auth.api.getSession({ headers: await headers() }),
+    getEnabledApps(),
+    getEnabledTotals(),
   ]);
 
   // The viewer's own patched challenges, for the browser's solved state — the
@@ -80,7 +83,7 @@ export default async function ChallengesPage() {
   const appNoun = enabledApps.length === 1 ? "app" : "apps";
   const description = catalog
     ? `${catalog.total} challenges across ${enabledApps.length} vulnerable ${appNoun}, each tagged with its OWASP Top 10 category. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`
-    : `${enabledTotalChallenges} challenges across ${enabledApps.length} vulnerable ${appNoun}, worth ${enabledTotalMaxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
+    : `${enabledTotals.challenges} challenges across ${enabledApps.length} vulnerable ${appNoun}, worth ${enabledTotals.maxPoints} points total. Points scale with difficulty. Patch the regression test tied to each challenge to score it.`;
 
   return (
     <div className="flex flex-col gap-8">

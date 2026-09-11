@@ -1,4 +1,4 @@
-import { enabledApps as appList } from "@/lib/apps";
+import type { AppMeta } from "@/lib/apps";
 import ProgressRow, { moduleUnit } from "@/components/progress/progress-row";
 import ChallengeList, { type ProgressItem } from "@/components/progress/challenge-list";
 import type { ChallengeResult, LeaderboardEntry } from "@/lib/leaderboard/types";
@@ -34,9 +34,24 @@ export function challengeItems(challenges: ChallengeResult[]): ProgressItem[] {
  *  same target changed shape depending on what the source knew about it.
  *
  *  `showPoints` is opt-in and defaults to unset: a caller that passes none
- *  gets the count and the bar, and no points column. */
-export default function AppBreakdown({ entry, showPoints }: { entry: LeaderboardEntry; showPoints?: boolean }) {
-  const attempted = appList.filter((app) => entry.apps[app.id]);
+ *  gets the count and the bar, and no points column.
+ *
+ *  `enabledApps` is the event's LIVE target list (lib/enabled-apps.ts,
+ *  resolved server-side and threaded down as a prop — this is a leaf/client
+ *  component with no server-only import of its own), in catalogue order.
+ *  Filtering it rather than the full six-app catalogue keeps a target an
+ *  organizer has since switched off out of the breakdown even if a stale
+ *  scored row still names it. */
+export default function AppBreakdown({
+  entry,
+  showPoints,
+  enabledApps,
+}: {
+  entry: LeaderboardEntry;
+  showPoints?: boolean;
+  enabledApps: readonly AppMeta[];
+}) {
+  const attempted = enabledApps.filter((app) => entry.apps[app.id]);
   if (attempted.length === 0) {
     return <p className="text-sm text-muted">No app breakdown reported yet.</p>;
   }
