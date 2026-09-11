@@ -23,6 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import HintButton from "@/components/hint-button";
 import OwaspBadge from "@/components/owasp-badge";
 import ProgressSummary from "@/components/progress-summary";
+import { fillStyle } from "@/components/progress/progress-bar";
 import type { AppId, AppMeta } from "@/lib/apps";
 import { repoName } from "@/lib/apps";
 import type { CatalogChallenge, ChallengeCatalog } from "@/lib/challenges";
@@ -403,7 +404,7 @@ export default function ChallengeGrid({
                 <div aria-hidden className="mx-4 mb-0 h-1 overflow-hidden rounded-full bg-white/[0.06]">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-                    style={{ width: `${total > 0 ? (solvedCount / total) * 100 : 0}%` }}
+                    style={fillStyle(total > 0 ? (solvedCount / total) * 100 : 0, solvedCount)}
                   />
                 </div>
               )}
