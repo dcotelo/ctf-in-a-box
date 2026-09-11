@@ -21,7 +21,10 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   is now ignored completely, in any shape (absent, empty, a scalar, an
   unknown id) — every reader (the app's generator, `sync`, `ctf-setup.sh`)
   accepts the key without validating or reading it. Event archives now
-  carry `secureDevTargets` and restore it on import.
+  carry `secureDevTargets` and restore it on import; the bundle format
+  bumped to version 2 for it (a legacy v1 archive — one predating this
+  field — still imports, restoring everything else and leaving the stored
+  target list untouched).
 
 - **BREAKING: the event's name, tagline, location, contact e-mail and Discord
   invite are runtime settings edited on the admin Event tab (Identity

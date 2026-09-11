@@ -57,6 +57,7 @@ vi.mock("@/lib/site", async () => {
 vi.mock("@/lib/enabled-modules", () => ({ getAdminSettingsSnapshot: vi.fn(async () => null) }));
 
 import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
+import { EVENT_BUNDLE_VERSION } from "@/lib/event-io";
 import { getSite } from "@/lib/site";
 
 beforeEach(() => {
@@ -85,7 +86,7 @@ afterEach(() => {
 describe("exportEventBundle", () => {
   it("carries content but drops schedule/run settings and org PII", async () => {
     const { bundle } = await exportEventBundle(new Date("2026-06-01T00:00:00Z"));
-    expect(bundle.version).toBe(1);
+    expect(bundle.version).toBe(EVENT_BUNDLE_VERSION);
     expect(bundle.kind).toBe("archive");
     expect(bundle.settings.hintCost).toBe(50);
     expect("scoringStartsAt" in bundle.settings).toBe(false);

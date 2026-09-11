@@ -29,6 +29,8 @@ import AdminEventControls, {
   importReplaceConfirm,
 } from "@/components/admin-event-controls";
 
+// version: 1 deliberately — a legacy bundle predating secureDevTargets/
+// EVENT_BUNDLE_VERSION 2, still accepted (event-io.ts's EVENT_BUNDLE_MIN_VERSION).
 const validBundle: EventBundle = {
   version: 1,
   kind: "archive",
@@ -95,8 +97,10 @@ describe("AdminEventControls", () => {
   });
 
   it("shows client-side validation errors for an invalid pasted bundle", () => {
-    // `{"version":1}` satisfies the version check (EVENT_BUNDLE_VERSION is 1)
-    // but fails every other top-level check in parseEventBundle (event-io.ts):
+    // `{"version":1}` satisfies the version check (1 is still an accepted
+    // legacy version — EVENT_BUNDLE_MIN_VERSION through EVENT_BUNDLE_VERSION,
+    // see event-io.ts) but fails every other top-level check in
+    // parseEventBundle (event-io.ts):
     // kind, event, settings are all missing, and neither classic nor quiz is
     // present. That last failure emits the fragment "carries no modules" —
     // asserted here specifically because it appears ONLY inside a rendered
