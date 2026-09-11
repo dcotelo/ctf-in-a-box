@@ -201,8 +201,8 @@ rebuild; and a capped audit log on every admin action.
 | ![The classic board: challenges grouped by category as compact tiles — title, points, and a green check once solved — each opening the challenge's own page with the description and flag form](docs/assets/flags.jpg) | ![The quiz: single- and multi-select questions, each showing its point value and remaining attempts, graded on submit](docs/assets/quiz.jpg) |
 
 <sup>Captured from the contestant app running locally via <code>scripts/dev-stack up</code>
-with seeded demo players. The event name, branding, targets and links are all
-event-config driven.</sup>
+with seeded demo players. Targets and fork links are event-config driven; the
+event name and the rest of its branding are admin-panel settings.</sup>
 
 ## How it works
 

@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AdminSettings } from "@/lib/admin-store";
 import { nextScheduleBoundary } from "@/lib/schedule-window";
+import { DEFAULT_EVENT_IDENTITY } from "@/lib/event-identity";
 import { phaseFromSettings } from "@/components/phase";
 import {
   ALL_MODULE_IDS,
@@ -150,6 +151,27 @@ function ChangedAt({ iso }: { iso: string }) {
   return <time dateTime={iso} title={iso}>{label}</time>;
 }
 
+/** After a settings write: the name the Event tab's master-reset
+ *  confirmation should ask for. Unchanged unless the just-saved patch
+ *  touched `eventName` — in which case this reads the STORED value back off
+ *  the server's own response (never the raw patch value: a patch of
+ *  `{ eventName: "" }` is stored as "restore the default", not literally
+ *  ""), falling back to the spec default the same way `resolveSite` does.
+ *  Pulled out as a pure function — like `parseNumberCommit`/
+ *  `describeFieldError` elsewhere in this file's orbit — so
+ *  admin-controls.test.tsx can pin the derivation directly: this repo has no
+ *  jsdom/testing-library, so a live re-render of a stateful component can't
+ *  be observed from a test (see that file's header comment), but this
+ *  decision itself is pure and needs none. */
+export function nextEventNameAfterSave(
+  key: string,
+  current: string,
+  saved: Pick<AdminSettings, "eventIdentity">,
+): string {
+  if (key !== "eventName") return current;
+  return saved.eventIdentity.eventName ?? DEFAULT_EVENT_IDENTITY.eventName;
+}
+
 export default function AdminControls({
   initial,
   demoMode = false,
@@ -160,6 +182,7 @@ export default function AdminControls({
   initialTab,
   viewerLogin,
   sync = null,
+  eventName,
 }: {
   initial: AdminSettings;
   demoMode?: boolean;
@@ -196,8 +219,20 @@ export default function AdminControls({
    *  mode, which has no poller at all) — the default for callers (most
    *  tests) that don't care about it. */
   sync?: SyncStatus | null;
+  /** The resolved runtime event name (issue #386): resolved server-side by
+   *  getSite(); a client bundle cannot read settings. Threaded through to the
+   *  Event tab, which uses it for the master-reset confirmation phrase. */
+  eventName: string;
 }) {
   const [settings, setSettings] = useState(initial);
+  // The name the Event tab's master-reset confirmation asks for. Seeded from
+  // the server-resolved `eventName` prop, then re-derived (below, in
+  // `applyField`) from the POST response whenever the saved patch renamed the
+  // event — otherwise a rename left this stale at the pre-rename name, so a
+  // reset typed against the NEW name (shown everywhere else on this very
+  // panel) failed `getSite()`'s server-side check with "confirmation does not
+  // match the event name" (CodeRabbit round 1, #389).
+  const [currentEventName, setCurrentEventName] = useState(eventName);
   // The "now" the Event tab's schedule readout is evaluated at (epoch ms).
   // Stamped at mount, in the handlers that change settings, and — below — by
   // a timer at the next instant a scoring/registration window opens or
@@ -477,7 +512,14 @@ export default function AdminControls({
         setStatus(key, { state: "rejected", message: describeFieldError(label, result.error) });
         return false;
       }
-      if (result.settings) syncInputs(result.settings);
+      const saved = result.settings;
+      if (saved) {
+        syncInputs(saved);
+        // The reset modal's confirmation phrase must follow a rename
+        // immediately — the server's own name is the only source of truth
+        // for it (`getSite()` on the reset route).
+        setCurrentEventName((prev) => nextEventNameAfterSave(key, prev, saved));
+      }
       flashSaved(key);
       return true;
     } catch {
@@ -561,6 +603,7 @@ export default function AdminControls({
                   pending={pending}
                   demoMode={demoMode}
                   resetInfo={resetInfo}
+                  eventName={currentEventName}
                   applyField={applyField}
                   statusOf={statusOf}
                   setConfirm={setConfirm}

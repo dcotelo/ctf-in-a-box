@@ -86,6 +86,7 @@ const fieldClass =
  *  Exported (not just `AdminModuleIdentity`) so that test can invoke it
  *  directly and inspect the single element it returns. */
 export function IdentityField({
+  id,
   patchKey,
   stored,
   placeholder,
@@ -93,7 +94,15 @@ export function IdentityField({
   disabled,
   multiline,
   apply,
+  ariaDescribedBy,
+  ariaInvalid,
 }: {
+  /** Optional element id, for a caller that labels the field with a real
+   *  `<label htmlFor>` rather than wrapping it (e.g. the Event tab's Identity
+   *  section — see admin-event-tab.tsx). The module identity fields wrap
+   *  their own `<label>` instead and never pass this, so it defaults to
+   *  undefined — an input with no `id` is exactly as valid as one with one. */
+  id?: string;
   patchKey: string;
   stored: string;
   placeholder: string;
@@ -101,15 +110,26 @@ export function IdentityField({
   disabled: boolean;
   multiline: boolean;
   apply: (patch: Record<string, unknown>) => Promise<boolean>;
+  /** Points at a `FieldStatusLine`'s id when one is showing beside this
+   *  field — the same `aria-describedby` convention AdminSwitch and
+   *  AdminNumberField use. The module identity fields report no per-field
+   *  status today, so they never pass this and it defaults to undefined. */
+  ariaDescribedBy?: string;
+  /** Set alongside `ariaDescribedBy` when the status it points at is a
+   *  rejection, matching AdminSwitch/AdminNumberField's `aria-invalid`. */
+  ariaInvalid?: boolean;
 }) {
   const [input, setInput] = useState(stored);
 
   const shared = {
+    id,
     name: patchKey,
     value: input,
     placeholder,
     maxLength,
     disabled,
+    "aria-describedby": ariaDescribedBy,
+    "aria-invalid": ariaInvalid ? true : undefined,
     onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setInput(e.target.value),
     onBlur: (e: { currentTarget: { value: string } }) => {
       void commitIdentityField({ patchKey, input: e.currentTarget.value, stored, apply }).then(setInput);

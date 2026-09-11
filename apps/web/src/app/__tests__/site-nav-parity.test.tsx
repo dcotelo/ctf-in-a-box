@@ -173,13 +173,38 @@ describe("header groups module nav links; footer stays flat", () => {
 // render site resolves its links. That is exactly the mistake that shipped —
 // a footer built from `site.ts`'s static list rather than the resolved one —
 // and it catches a fourth call site the day someone adds it.
+// Strips full-line `//` comments and `import` statements before a file's
+// source is scanned for `SiteFooter` usage below. Both are real text this
+// file's own docs deliberately contain: the import line always reads
+// `import SiteFooter from ...` (a bare mention, not a render site), and more
+// than one render site documents the JSX-mount trap in a comment using the
+// exact `<SiteFooter navLinks={...} />` spelling as its own illustration.
+// Scanning unstripped text would count that import and that prose as render
+// sites, which is not what "renders N footer(s)" below is supposed to mean.
+function codeOnly(src: string): string {
+  return src
+    .split("\n")
+    .filter((line) => !/^\s*\/\//.test(line) && !/^\s*import\b/.test(line))
+    .join("\n");
+}
+
 describe("every SiteFooter render site resolves its nav links", () => {
   const appDir = fileURLToPath(new URL("../", import.meta.url));
 
   const files = readdirSync(appDir, { recursive: true, encoding: "utf8" })
     .filter((f) => f.endsWith(".tsx") && !f.includes("__tests__"))
     .map((f) => [f, readFileSync(join(appDir, f), "utf8")] as const)
-    .filter(([, src]) => src.includes("<SiteFooter"));
+    // `SiteFooter` is called and awaited as a plain function, not mounted as
+    // `<SiteFooter .../>` JSX: since it became an async Server Component
+    // (config v2, PR 1b), a nested `<SiteFooter>` element suspends under
+    // `renderToStaticMarkup` (the same trap `(site)/layout.tsx` documents for
+    // `PhaseLine`). The filter matches BOTH spellings — the call form
+    // `SiteFooter(` this codebase actually uses, and a JSX mount
+    // `<SiteFooter` a future regression might introduce — over `codeOnly`,
+    // so a wrong JSX mount stays visible to this describe (and trips the
+    // exact-file-list guard below) instead of silently falling out of the
+    // file list.
+    .filter(([, src]) => /(?:<|\b)SiteFooter[\s(]/.test(codeOnly(src)));
 
   it("finds every known render site", () => {
     // Guards the guard: if this drops to zero (a rename, a moved directory),
@@ -196,8 +221,9 @@ describe("every SiteFooter render site resolves its nav links", () => {
   // footer fed from the static list, which is the failure that matters.
   it.each(files.map(([f]) => f))("%s passes resolved links", (file) => {
     const src = files.find(([f]) => f === file)![1];
-    const rendered = src.match(/<SiteFooter/g)?.length ?? 0;
-    const passed = src.match(/<SiteFooter\s+navLinks=/g)?.length ?? 0;
+    const code = codeOnly(src);
+    const rendered = code.match(/(?:<|\b)SiteFooter[\s(]/g)?.length ?? 0;
+    const passed = code.match(/SiteFooter\(\s*\{\s*navLinks\b/g)?.length ?? 0;
     expect(passed, `${file} renders ${rendered} footer(s), ${passed} given navLinks`).toBe(rendered);
     expect(src, `${file} must resolve its nav links`).toContain("getNavLinks");
     expect(src, `${file} must not read site.ts's unresolved navLinks`).not.toMatch(

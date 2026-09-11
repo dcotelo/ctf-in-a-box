@@ -6,7 +6,8 @@
 // real countdown only appears after a useEffect runs post-hydration.
 
 import { useEffect, useState } from "react";
-import { event } from "@/lib/site";
+// ctfStartsAt is still baked (PR 3 of #386 moves it to the scoring schedule).
+import { eventConfig } from "@/lib/event-config";
 import { getRemaining, type Remaining } from "@/lib/countdown";
 
 const UNITS: [keyof Remaining, string][] = [
@@ -28,7 +29,7 @@ export default function EventCountdown({
    *  happens at zero (e.g. the leaderboard's mock-data notice). */
   hideWhenComplete?: boolean;
 }) {
-  const targetMs = event.ctfStartsAt ? new Date(event.ctfStartsAt).getTime() : 0;
+  const targetMs = eventConfig.ctfStartsAt ? new Date(eventConfig.ctfStartsAt).getTime() : 0;
   const [mounted, setMounted] = useState(false);
   const [remaining, setRemaining] = useState<Remaining | null>(null);
 

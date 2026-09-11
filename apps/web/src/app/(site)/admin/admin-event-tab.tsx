@@ -20,13 +20,60 @@ import { useEffect, useState } from "react";
 import type { AdminSettings } from "@/lib/admin-store";
 import { outsideWindow } from "@/lib/schedule-window";
 import { TEAM_MAX_MEMBERS, TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
-import { eventConfig } from "@/lib/event-config";
+import { DEFAULT_EVENT_IDENTITY, EVENT_IDENTITY_MAX, type EventIdentityKey } from "@/lib/event-identity";
 import AdminEventControls from "@/components/admin-event-controls";
-import AdminNumberField, { type FieldStatus } from "@/components/admin-number-field";
+import AdminNumberField, { FieldStatusLine, type FieldStatus } from "@/components/admin-number-field";
 import AdminSwitch from "@/components/admin-switch";
 import { FREEZE_HELP, freezeConfirm } from "./freeze-copy";
+import { IdentityField } from "./admin-module-identity";
 import { moduleToggleConfirm, moduleToggleState, type ModuleToggleChoice } from "./module-toggle";
 import type { CommitNumber, ConfirmState } from "./types";
+
+/** The Identity section's rows, in spec order. Exported for the test that
+ *  pins key/label/maxLength against the contract in lib/event-identity.ts. */
+export const EVENT_IDENTITY_ROWS: readonly {
+  key: EventIdentityKey;
+  label: string;
+  help: string;
+  placeholder: string;
+  maxLength: number;
+}[] = [
+  {
+    key: "eventName",
+    label: "Event name",
+    help: `Page titles, the header, the leaderboard and this panel's reset confirmation. Blank restores “${DEFAULT_EVENT_IDENTITY.eventName}”.`,
+    placeholder: DEFAULT_EVENT_IDENTITY.eventName,
+    maxLength: EVENT_IDENTITY_MAX.eventName,
+  },
+  {
+    key: "eventTheme",
+    label: "Tagline",
+    help: "One line under the event name on the landing page. Blank hides it.",
+    placeholder: "No tagline",
+    maxLength: EVENT_IDENTITY_MAX.eventTheme,
+  },
+  {
+    key: "eventLocation",
+    label: "Location",
+    help: "Shown beside the dates on the landing page and in the page description. Blank hides it.",
+    placeholder: "Not shown",
+    maxLength: EVENT_IDENTITY_MAX.eventLocation,
+  },
+  {
+    key: "eventContact",
+    label: "Contact e-mail",
+    help: "The organizers' inbox; the privacy and terms pages render it as a mailto: link. Blank hides it.",
+    placeholder: "Not shown",
+    maxLength: EVENT_IDENTITY_MAX.eventContact,
+  },
+  {
+    key: "eventDiscord",
+    label: "Discord invite",
+    help: "An https:// invite; the header, hero, rules, FAQ and 404 link to it. Blank hides every Discord mention.",
+    placeholder: "No Discord link",
+    maxLength: EVENT_IDENTITY_MAX.eventDiscord,
+  },
+];
 
 // datetime-local <-> ISO. The <input type="datetime-local"> value is a naive
 // local wall-clock string; JS parses it as local time, and we store the
@@ -119,6 +166,10 @@ export type AdminEventTabProps = {
   pending: boolean;
   demoMode: boolean;
   resetInfo: string | null;
+  /** The resolved runtime name — what the reset modal asks the organizer to
+   *  type. Resolved server-side by getSite(); a client bundle cannot read
+   *  settings. */
+  eventName: string;
   /** A write that belongs to one field or switch: reported into that row's
    *  status rather than the panel-wide error line (UX audit F2). */
   applyField: (key: string, patch: Record<string, unknown>, label: string) => Promise<boolean>;
@@ -152,6 +203,7 @@ export default function AdminEventTab({
   pending,
   demoMode,
   resetInfo,
+  eventName,
   applyField,
   statusOf,
   setConfirm,
@@ -184,6 +236,45 @@ export default function AdminEventTab({
   // repeating it would just duplicate the tab's own label.
   return (
     <section className="flex flex-col gap-4">
+      <section className="flex flex-col gap-3 border-b border-white/[0.06] pb-4">
+        <div>
+          <h3 className="text-white">Identity</h3>
+          <p className="text-sm text-muted">How the event names itself. Changes show on the next page load; blank restores the default.</p>
+        </div>
+        {EVENT_IDENTITY_ROWS.map((row) => {
+          const stored = settings.eventIdentity[row.key] ?? "";
+          const status = statusOf(row.key);
+          const hasLine = status.state !== "idle";
+          const statusId = `identity-${row.key}-status`;
+          const helpId = `identity-${row.key}-help`;
+          // The help paragraph is always in the description — it's static
+          // copy explaining the field, not a transient result — and the
+          // status line joins in only while one is showing, same pattern
+          // AdminSwitch/AdminNumberField use for their own status lines.
+          const describedBy = hasLine ? `${helpId} ${statusId}` : helpId;
+          return (
+            <div key={row.key} className="flex flex-col gap-1">
+              <label htmlFor={`identity-${row.key}`} className="text-sm text-white">{row.label}</label>
+              <IdentityField
+                key={`${row.key}-${stored}`}
+                id={`identity-${row.key}`}
+                patchKey={row.key}
+                stored={stored}
+                placeholder={row.placeholder}
+                maxLength={row.maxLength}
+                disabled={pending}
+                multiline={false}
+                apply={(patch) => applyField(row.key, patch, row.label)}
+                ariaDescribedBy={describedBy}
+                ariaInvalid={status.state === "rejected"}
+              />
+              <p id={helpId} className="text-xs text-muted">{row.help}</p>
+              <FieldStatusLine id={statusId} status={status} />
+            </div>
+          );
+        })}
+      </section>
+
       <section className="flex flex-col gap-2 border-b border-white/[0.06] pb-4">
         <div>
           <h3 className="text-white">Modules</h3>
@@ -426,7 +517,7 @@ export default function AdminEventTab({
               title: "Reset all event data?",
               danger: true,
               confirmLabel: "Wipe everything",
-              requireType: eventConfig.name,
+              requireType: eventName,
               body: (
                 <>
                   This permanently deletes every team, score, player record, and
@@ -436,7 +527,7 @@ export default function AdminEventTab({
                   challenge site must re-fetch it. This cannot be undone.
                 </>
               ),
-              onConfirm: () => doReset(eventConfig.name),
+              onConfirm: () => doReset(eventName),
             })
           }
           className="self-start rounded-md border border-[#e53e3e]/40 px-3 py-1.5 text-sm font-medium text-[#e53e3e] hover:bg-[#e53e3e]/10 disabled:opacity-50"

@@ -140,7 +140,7 @@ cp event.yaml.example event.yaml
 
 ```sh
 # 9. Bring the containers up. EVENT_CONFIG_B64 is REQUIRED — building the app without
-#    it yields neutral defaults (empty admins → /admin 403, generic branding).
+#    it yields neutral defaults (empty admins → /admin 403 for everyone).
 #    The profiles follow your enabled modules — see "Which profiles do I need?"
 #    below; this is the poll-mode secure-development line-up.
 EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" \
@@ -677,19 +677,20 @@ provisioning — is documented in [docs/modules.md](modules.md).
 This is the complete set of `event.yaml` keys `apps/web/scripts/generate-event-config.mjs`
 reads (verify against the generator itself — see [the source](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/scripts/generate-event-config.mjs)).
 Anything not listed is ignored, silently except for the two keys named at the
-bottom. Every `event.*` key is optional: the name falls back to `OWASP CTF`,
-and leaving any other one out hides what it drives rather than showing a
-placeholder.
+bottom. The five `event.*` identity keys below are ignored **since #386** —
+the event's identity is a runtime `/admin` → Event → Identity setting now,
+not a build input; see [docs/operations.md](operations.md)'s Event tab
+section for the five fields and their limits.
 
 | Key | Required | What it drives |
 |---|---|---|
-| `event.name` | no (default `OWASP CTF`) | The event name — header, page titles and metadata, the archive's identity block. |
-| `event.theme` | no | A short theme or tagline string, carried as event identity (`lib/site.ts`, the event archive). |
+| `event.name` | ignored since #386 | Set from `/admin` → Event → Identity → Event name instead (default `OWASP CTF`). |
+| `event.theme` | ignored since #386 | Set from `/admin` → Event → Identity → Tagline instead. |
 | `event.start` | no | ISO 8601 start. Drives the landing-page countdown and the display dates. An unparseable value fails the build. |
 | `event.end` | no | ISO 8601 end. Closes the display-date range (`October 1–2, 2026`); ignored without `start`, and an unparseable value fails the build. |
-| `event.location` | no | Shown beside the dates on the landing page and in the page description. |
-| `event.contact` | no | Organizer e-mail; the privacy and terms pages render it as a `mailto:` link. |
-| `event.discord` | no | Invite URL. The header, hero, rules, how-to-play, FAQ and 404 pages link to it; unset hides every Discord mention. |
+| `event.location` | ignored since #386 | Set from `/admin` → Event → Identity → Location instead. |
+| `event.contact` | ignored since #386 | Set from `/admin` → Event → Identity → Contact e-mail instead. |
+| `event.discord` | ignored since #386 | Set from `/admin` → Event → Identity → Discord invite instead. |
 | `event.url` | **must be absent** | The build fails and says so — the URL is `EVENT_URL` in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
 | `github.org` | yes | The event org: every "fork this repo" link, and the org `sync` polls (`sync` refuses to start without it; the app alone would default to `OWASP-CTF`). |
 | `modules` | yes | The enabled-module map described above — at least one known id, `targets` and `score_ingest` under `secure-development`. |
@@ -700,13 +701,16 @@ placeholder.
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
-bakes the keys in the table above — event name, theme, dates, location,
-contact, Discord link, enabled modules and targets, fork org and admins —
-from `event.yaml` at **image-build time**, via the `EVENT_CONFIG_B64` build
-arg. The URL is **not** among them: it is `EVENT_URL` in `.env`, read at
-runtime, and a `url:` left in `event.yaml` fails the build (ADR 43). The fork
-org also drives every "fork this repo" link the app renders, so contestants
-are pointed at the org `ctf-setup org` actually forked into.
+bakes the non-identity keys in the table above — dates, enabled-target list,
+fork org and admins — from `event.yaml` at **image-build time**, via the
+`EVENT_CONFIG_B64` build arg. Event name, tagline, location, contact e-mail
+and Discord invite are **not** among them since #386: those are runtime
+`/admin` settings, read on every request, so renaming an event or adding a
+Discord link never needs a rebuild. The URL is likewise **not** baked: it is
+`EVENT_URL` in `.env`, read at runtime, and a `url:` left in `event.yaml`
+fails the build (ADR 43). The fork org also drives every "fork this repo"
+link the app renders, so contestants are pointed at the org `ctf-setup org`
+actually forked into.
 
 Compose only rebuilds an image when told to, so `up -d` alone will not pick up
 an `event.yaml` edit:
@@ -716,8 +720,13 @@ EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile ap
 docker compose --profile poll --profile app up -d   # quiz-only: --profile app alone
 ```
 
-Building without `EVENT_CONFIG_B64` falls back to the neutral "OWASP CTF"
-defaults. See `apps/web/scripts/generate-event-config.mjs` for the full
+Building without `EVENT_CONFIG_B64` falls back to the neutral dates/targets/
+admins defaults — the event's name is unaffected either way, since it is a
+runtime `/admin` setting, not part of this bake: an organizer-stored name
+in `ctf:admin:settings` keeps showing regardless of what the image was
+built with, and "OWASP CTF" appears only when no runtime name has ever been
+stored (a fresh event, or a Redis wiped clean). See
+`apps/web/scripts/generate-event-config.mjs` for the full
 `EVENT_CONFIG` yaml > `EVENT_*` env var > default precedence, and
 [docs/architecture.md](architecture.md#build-time-config-flow) for the whole
 build-time config flow.

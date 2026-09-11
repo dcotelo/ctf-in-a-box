@@ -37,14 +37,18 @@ from before the kit required it is the common case), or run
 interpolation failure inside a script that pipes compose's stderr to
 `/dev/null` looks like an empty service list, not an error.
 
-## `/admin` 403s for every admin, or the site shows generic branding
+## `/admin` 403s for everyone, including you
 
-**Symptom.** The event name is the stock "OWASP CTF" instead of yours, and nobody —
-including you — can open `/admin`.
+**Symptom.** Nobody — including you — can open `/admin`; every listed admin
+gets the 403 wall.
 
 **Diagnosis.** The app image was built without `EVENT_CONFIG_B64`.
-`event.yaml` is baked at **build** time; building without the arg silently
-yields neutral defaults, including an **empty admins list**.
+`event.yaml`'s `admins` list (and targets, dates, fork org) are baked at
+**build** time; building without the arg silently yields neutral defaults,
+including an **empty admins list**. (The event's name and the rest of its
+branding are a separate, runtime `/admin` → Event → Identity setting since
+#386 — they default to "OWASP CTF" / empty either way, so a stock-looking
+name is not a symptom of this problem on its own.)
 
 **Fix.** Rebuild with the arg and recreate:
 

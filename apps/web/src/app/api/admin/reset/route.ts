@@ -1,17 +1,33 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { resetEvent } from "@/lib/admin-store";
-import { eventConfig } from "@/lib/event-config";
+import { getAdminSettings, resetEvent } from "@/lib/admin-store";
+import { resolveSite } from "@/lib/site";
 
 // Master reset: wipe all event data. Admin-gated + type-to-confirm, both
 // enforced server-side (never trust the client). The confirm value must match
-// the event name or the literal "RESET".
+// the RUNTIME event name (issue #386 — an organizer rename must be reflected
+// here, not the name baked at build time) or the literal "RESET".
 export async function POST(request: Request) {
   const gate = await requireAdmin(request.headers);
   if (!gate.ok) return NextResponse.json({ error: "forbidden" }, { status: gate.status });
 
   const body = (await request.json().catch(() => ({}))) as { confirm?: string };
-  if (body.confirm !== eventConfig.name && body.confirm !== "RESET") {
+
+  // Fail CLOSED, deliberately not `getSite()`: that helper's snapshot catches
+  // a settings-read error and serves the default name, which would let a
+  // Redis blip silently accept the default confirmation on a destructive
+  // route. getAdminSettings() throws on a failed HGETALL — refuse before any
+  // comparison or resetEvent() when it does.
+  let name: string;
+  try {
+    const settings = await getAdminSettings();
+    name = resolveSite(settings.eventIdentity).name;
+  } catch (err) {
+    console.error("[admin/reset] settings read failed", err);
+    return NextResponse.json({ error: "settings read failed" }, { status: 503 });
+  }
+
+  if (body.confirm !== name && body.confirm !== "RESET") {
     return NextResponse.json({ error: "confirmation does not match the event name" }, { status: 400 });
   }
 

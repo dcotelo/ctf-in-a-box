@@ -1,4 +1,11 @@
-// Footer shared by content routes. Plain Server Component — no interactivity.
+// Footer shared by content routes. An ASYNC Server Component — it awaits
+// getSite() internally — which means it MUST be called and awaited as a
+// plain function (`await SiteFooter({ navLinks })`), never mounted as JSX
+// (`<SiteFooter navLinks={...} />`): a nested async child suspends under
+// `renderToStaticMarkup`, the same trap (site)/layout.tsx's own note
+// documents for PhaseLine. See site-nav-parity.test.tsx's "every SiteFooter
+// render site resolves its nav links" describe, which asserts every call
+// site uses the call form.
 //
 // `navLinks` comes in as a PROP, resolved by the caller through
 // `getNavLinks()`, exactly as the root layout feeds <SiteHeader>. It used to
@@ -8,9 +15,10 @@
 // reach for the static list here.
 
 import Link from "next/link";
-import { event, legalLinks, type NavLink } from "@/lib/site";
+import { getSite, legalLinks, type NavLink } from "@/lib/site";
 
-export default function SiteFooter({ navLinks }: { navLinks: NavLink[] }) {
+export default async function SiteFooter({ navLinks }: { navLinks: NavLink[] }) {
+  const event = await getSite();
   return (
     <footer className="relative mt-auto border-t border-white/[0.06]">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#2563eb]/20 to-transparent" />

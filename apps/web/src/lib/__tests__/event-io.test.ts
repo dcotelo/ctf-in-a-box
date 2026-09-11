@@ -108,6 +108,29 @@ describe("parseEventBundle", () => {
     expect(res.bundle.quiz).toBeUndefined();
   });
 
+  // Finding M4: a non-string theme/location/dates (or non-string/non-null
+  // ctfStartsAt) is REJECTED like every other malformed bundle field, not
+  // silently ignored — event-store's `typeof bundle.event.theme === "string"`
+  // import guard would otherwise drop a wrong-typed value with no error at
+  // all.
+  it.each([
+    ["theme", 42, "event.theme"],
+    ["location", 42, "event.location"],
+    ["dates", 42, "event.dates"],
+    ["ctfStartsAt", 42, "event.ctfStartsAt"],
+  ])("rejects a non-string event.%s", (field, badValue, where) => {
+    const bad = { ...valid, event: { ...valid.event, [field]: badValue } };
+    const res = parseEventBundle(JSON.stringify(bad));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.errors.some((e) => e.where === where)).toBe(true);
+  });
+
+  it("accepts a null ctfStartsAt but rejects any other non-string value", () => {
+    const withNull = { ...valid, event: { ...valid.event, ctfStartsAt: null } };
+    expect(parseEventBundle(JSON.stringify(withNull)).ok).toBe(true);
+  });
+
   it("accumulates all errors rather than stopping at the first", () => {
     const res = parseEventBundle(JSON.stringify({ version: 99, kind: "nope", event: {}, settings: { paused: true } }));
     expect(res.ok).toBe(false);

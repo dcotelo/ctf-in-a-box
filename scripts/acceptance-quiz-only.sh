@@ -289,6 +289,24 @@ if ! echo "$LEADERBOARD_HTML" | grep -qF "$CONTESTANT_POINTS_FORMATTED"; then
 fi
 
 # ---------------------------------------------------------------------------
+# Identity is a runtime setting (issue #386), not a build-time bake: rename
+# through the hash — no rebuild, no restart — then prove the name reaches
+# the HTML. Presence in Redis is not discoverability, so the read has to be
+# a fresh request made AFTER the HSET, not the page fetched earlier.
+# ---------------------------------------------------------------------------
+echo "--- renaming the event at runtime and confirming the landing page picks it up"
+docker exec qo-redis redis-cli HSET ctf:admin:settings eventName "Acceptance CTF" >/dev/null
+RENAMED_HTML=$(curl -sf "$APP_URL/")
+if ! grep -qF -- "Acceptance CTF" <<< "$RENAMED_HTML"; then
+  echo "FAIL: landing page does not show the runtime event name"
+  exit 1
+fi
+if grep -qF -- "<title>OWASP CTF</title>" <<< "$RENAMED_HTML"; then
+  echo "FAIL: landing page title still shows the default after a rename"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # sync: through the real docker-compose.yml (see header comment for why),
 # only overriding its event.yaml mount. Must exit 0 and STAY exited — not
 # merely exit once and then get restarted by a too-eager restart policy.

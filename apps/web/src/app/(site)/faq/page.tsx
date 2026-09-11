@@ -20,23 +20,27 @@ import { enabledApps, joinAppNames } from "@/lib/apps";
 import type { FaqContext, ModuleFaq } from "@/lib/modules";
 import { getModuleFaq, getResolvedModules } from "@/lib/resolved-modules";
 import { getHintNotice } from "@/lib/hint-store";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
-export const metadata: Metadata = {
-  title: "FAQ",
-  // Module-agnostic: this page's questions come from whichever modules the
-  // event enables, so the description cannot name one of them (it used to say
-  // "secure development CTF" on every event, including one with no such
-  // module).
-  description: `Frequently asked questions about ${event.name}.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "FAQ",
+    // Module-agnostic: this page's questions come from whichever modules the
+    // event enables, so the description cannot name one of them (it used to
+    // say "secure development CTF" on every event, including one with no such
+    // module).
+    description: `Frequently asked questions about ${event.name}.`,
+  };
+}
 
 /** One module's question, as the registry writes it. Derived from `ModuleFaq`
  *  rather than restated, so a change to the block's shape fails here. */
 type FaqItem = NonNullable<ReturnType<ModuleFaq>["gettingStarted"]>[number];
 
 export default async function FaqPage() {
+  const event = await getSite();
   // The hint price is an /admin runtime setting, so the answer that quotes it
   // has to read the live value rather than restate the default (issue #315) —
   // the same value /challenges and the reveal button already render.

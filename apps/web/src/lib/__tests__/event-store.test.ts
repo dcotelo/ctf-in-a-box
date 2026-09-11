@@ -25,9 +25,37 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
 // any baked/build-time set.
 vi.mock("@/lib/modules", () => ({
   isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "ai", "secure-development"].includes(v),
+  // resolveSite() (real now — see the `@/lib/site` mock below) re-exports this
+  // verbatim onto `Site`; the mock needs to supply it or resolveSite throws.
+  SECURE_AGENT_PLAYBOOK_URL: "https://github.com/OWASP/secure-agent-playbook",
 }));
+// event-store.ts now builds the exported identity via `resolveSite(settings
+// .eventIdentity)` — the SAME settings read `getAdminSettings()` already did
+// — rather than a second `getSite()` HGETALL (finding I4: a Redis blip
+// between two independent reads could otherwise write an archive whose
+// event.name is the fail-open default while `bundle.settings` came from the
+// good read). Keep `resolveSite` REAL (pure — no I/O) via `importActual`, and
+// make `getSite` a mock that throws if event-store ever calls it again, so a
+// regression back to the two-read shape fails this suite immediately instead
+// of silently reintroducing the race.
+vi.mock("@/lib/site", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/site")>("@/lib/site");
+  return {
+    ...actual,
+    getSite: vi.fn(async () => {
+      throw new Error("event-store must not call getSite() — build identity via resolveSite(settings.eventIdentity) instead");
+    }),
+  };
+});
+// `resolveSite`'s real implementation imports `@/lib/enabled-modules` only
+// transitively (through `@/lib/site`'s own `getSite`, which this file never
+// calls) — but `@/lib/site`'s top-level import of it still runs on
+// `importActual` above, so stub it the same way site.test.ts does rather than
+// letting it reach the real Redis-backed chain.
+vi.mock("@/lib/enabled-modules", () => ({ getAdminSettingsSnapshot: vi.fn(async () => null) }));
 
 import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
+import { getSite } from "@/lib/site";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -37,6 +65,13 @@ beforeEach(() => {
   m.getAdminSettings.mockResolvedValue({
     hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"],
     scoringStartsAt: "2026-01-01T00:00:00Z", paused: true, updatedBy: "alice", updatedAt: "x",
+    eventIdentity: {
+      eventName: "Runtime CTF",
+      eventTheme: "Ship",
+      eventLocation: "Online",
+      eventContact: "org@example.org",
+      eventDiscord: "https://discord.gg/x",
+    },
   });
   m.effectivePaused.mockReturnValue(true);
 });
@@ -54,7 +89,10 @@ describe("exportEventBundle", () => {
     expect("scoringStartsAt" in bundle.settings).toBe(false);
     expect("paused" in bundle.settings).toBe(false);
     expect("updatedBy" in bundle.settings).toBe(false);
-    expect(bundle.event.name).toBe("Demo CTF");
+    expect(bundle.event.name).toBe("Runtime CTF");
+    // Finding I4: one settings read, not two — resolveSite over the settings
+    // already in hand, never a second getSite() HGETALL.
+    expect(getSite).not.toHaveBeenCalled();
     const s = JSON.stringify(bundle);
     expect(s).not.toContain("org@example.com");
     expect(s).not.toContain('"admins"');
@@ -185,7 +223,7 @@ describe("exportEventBundle", () => {
     //
     // "ctf:admin:audit" and "solvedAt" are dropped from the original token
     // list: neither is introducible through anything exportEventBundle
-    // actually reads (getAdminSettings(), eventConfig, or the content
+    // actually reads (getAdminSettings(), getSite(), or the content
     // modules' own exportBundle()). The audit log lives under a wholly
     // separate Redis key (`ctf:admin:audit`) this function's call graph never
     // touches, and solve timestamps are guarded by classic-store's/
@@ -334,11 +372,6 @@ describe("importEventBundle", () => {
     expect(quizStore.importBundle).not.toHaveBeenCalled();
   });
 
-  it("names build-time branding in skipped", async () => {
-    const { skipped } = await importEventBundle(bundleFixture(), "alice");
-    expect(skipped.some((s) => /baked at build time|rebuild/i.test(s))).toBe(true);
-  });
-
   it("drops a null scalar policy field instead of forwarding it (a fresh export round-trip carries these)", async () => {
     await importEventBundle(
       { ...bundleFixture(), settings: { ...bundleFixture().settings, hintCost: null, teamMaxMembers: 6 } },
@@ -392,5 +425,50 @@ describe("importEventBundle", () => {
     const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
     expect(patch.enabledModules).toEqual([]);
     expect(skipped.some((s) => /secure.development/i.test(s))).toBe(false);
+  });
+});
+
+// `bundleFixture()` above is the "paused event" fixture the rest of this
+// suite already uses for importEventBundle — reused here rather than a new
+// one, per the same pattern.
+describe("event identity in the archive (issue #386)", () => {
+  it("exports name/theme/location from the runtime identity, never contact or Discord", async () => {
+    const { bundle } = await exportEventBundle();
+    expect(bundle.event).toEqual({ name: "Runtime CTF", theme: "Ship", dates: "2026", location: "Online", ctfStartsAt: null });
+    expect(JSON.stringify(bundle)).not.toContain("discord.gg");
+    expect(JSON.stringify(bundle)).not.toContain("org@example.org");
+  });
+
+  describe("import", () => {
+    beforeEach(() => {
+      m.getAdminSettings.mockResolvedValue({ paused: true });
+      m.effectivePaused.mockReturnValue(true);
+      vi.mocked(classicStore.importBundle).mockResolvedValue({ created: 0, updated: 0, categories: 1 });
+      vi.mocked(quizStore.importBundle).mockResolvedValue({ created: 0, updated: 0 });
+      vi.mocked(adminStore.resetEvent).mockResolvedValue({ cleared: {}, resetAt: "x" });
+      vi.mocked(adminStore.updateAdminSettings).mockResolvedValue({} as Awaited<ReturnType<typeof adminStore.updateAdminSettings>>);
+    });
+
+    it("applies the bundle's name/theme/location through the settings patch, before anything destructive", async () => {
+      await importEventBundle({ ...bundleFixture(), event: { name: "Imported CTF", theme: "Again", location: "Montevideo" } }, "alice");
+      const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+      expect(patch).toMatchObject({ eventName: "Imported CTF", eventTheme: "Again", eventLocation: "Montevideo" });
+      expect(vi.mocked(adminStore.updateAdminSettings).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(adminStore.resetEvent).mock.invocationCallOrder[0],
+      );
+    });
+
+    it("leaves theme/location untouched when the bundle omits them", async () => {
+      await importEventBundle({ ...bundleFixture(), event: { name: "Only Name" } }, "alice");
+      const patch = vi.mocked(adminStore.updateAdminSettings).mock.calls[0][0];
+      expect(patch).toMatchObject({ eventName: "Only Name" });
+      expect(patch).not.toHaveProperty("eventTheme");
+      expect(patch).not.toHaveProperty("eventLocation");
+    });
+
+    it("no longer reports branding as skipped", async () => {
+      const { skipped } = await importEventBundle(bundleFixture(), "alice");
+      expect(skipped.join(" ")).not.toMatch(/baked at build time/);
+    });
   });
 });

@@ -365,7 +365,7 @@ this is a deliberate, tracked fork, not an untracked copy-paste.
 
 ## ADR 12. Build-time config generation over runtime config
 
-**Status.** Accepted.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event's identity (name, tagline, location, contact e-mail, Discord invite) moved to a runtime `/admin` setting; only dates, the enabled-target subset, the fork org (`github.org`) and the bootstrap `admins` allowlist are still generated at build time.
 
 **Context.** Event identity (name, dates, targets, branding) needs to
 reach the app somehow. A runtime option (read `event.yaml` on every
@@ -375,17 +375,24 @@ build.
 **Decision.** Generate a typed TS module
 (`src/lib/event-config.generated.ts`, gitignored) from `event.yaml` (or
 `EVENT_*` env vars, or neutral defaults) as a `prebuild`/`predev`/`pretest`
-npm hook (`apps/web/scripts/generate-event-config.mjs`), and have the
-app's static `metadata` exports and page content read from it at build
-time.
+npm hook (`apps/web/scripts/generate-event-config.mjs`), and have the app's
+static `metadata` exports and page content read the event's dates, targets,
+fork org and admins allowlist from it at build time (see the 2026-09-10
+amendment below for the event's identity fields, which no longer take this
+path).
 
-**Consequences.** Static generation and `metadata` exports keep working
-exactly as the vendored app already used them — no new runtime
-config-fetch code path, no risk of a slow or failing config read blocking
-a page render. The tradeoff is explicit and accepted: changing
-`event.yaml` requires an image rebuild (`docker compose --profile app
-build app`), not just a restart or a config hot-reload; `docs/hosting.md`
-calls this out directly under
+*Amended 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): `lib/site.ts`'s `getSite()` reads the event's name, tagline, location, contact e-mail and Discord invite from `ctf:admin:settings` at request time instead, failing open to the spec defaults ("OWASP CTF" / empty) when Redis has none stored. The generated module still carries those same field names (nothing reads them there any more) and still carries dates, the enabled-target subset, the fork org and the admins allowlist, which remain build-time as this decision describes.*
+
+**Consequences.** For the fields that remain build-time — dates, targets,
+fork org and admins — static generation and `metadata` exports keep working
+exactly as the vendored app already used them: no runtime config-fetch code
+path, no risk of a slow or failing config read blocking a page render. The
+event's identity fields no longer share that property — `getSite()` is
+exactly the runtime config-fetch path this decision originally avoided,
+scoped to those fields only (see the amendment above). The tradeoff for
+what remains baked is unchanged: changing `event.yaml` requires an image
+rebuild (`docker compose --profile app build app`), not just a restart or a
+config hot-reload; `docs/hosting.md` calls this out directly under
 [Rebuilding the app after a config change](hosting.md#rebuilding-the-app-after-a-config-change)
 so it isn't a surprise.
 
@@ -707,7 +714,7 @@ implied to be complete.
 
 ## ADR 20. Landing-page frame is code; module content is contributed, not organizer-authored
 
-**Status.** Accepted.
+**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event name (and tagline, location, contact e-mail, Discord invite) is a runtime `/admin` setting now, not baked — the frame's dates/countdown, logo, and the module `home` content stay exactly as this decision describes.
 
 **Context.** The landing page hardcoded `secure-development`'s own pitch — a
 tagline, a hero paragraph, four "how it works" steps, a "please use AI"
@@ -731,6 +738,8 @@ for a rebranding need that's already covered — the event name (decisions 12
 and 14) handles what the event is called, and the per-module title/blurb
 override (`docs/modules.md §5.1`) handles what each module is called. There
 was no remaining gap to justify taking on HTML sanitisation for.
+
+*Amended 2026-09-10 by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event name, tagline, location, contact e-mail and Discord invite are runtime `/admin` → Event → Identity settings, not part of this build-time frame — each is validated server-side (length caps, `https://` for Discord) rather than needing HTML sanitisation, the same reasoning this decision already applied to reject a rich-text field.*
 
 **Consequences.** An event's homepage always looks and functions like the
 kit — frame, countdown, nav, CTAs — and only the module-specific pitch

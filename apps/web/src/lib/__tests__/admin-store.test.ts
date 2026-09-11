@@ -33,7 +33,7 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, aiCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
-  enabledModuleIds: null,
+  enabledModuleIds: null, eventIdentity: {},
     });
   });
 
@@ -101,6 +101,7 @@ describe("getAdminSettings", () => {
       updatedBy: "alice", updatedAt: "2026-08-14T00:00:00Z", moduleOverrides: {},
       // Absent from the hash => null => "no override, use the baked set".
       enabledModuleIds: null,
+      eventIdentity: {},
     });
   });
 
@@ -444,6 +445,7 @@ describe("scheduled windows", () => {
     quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, aiCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
     updatedBy: null, updatedAt: null, moduleOverrides: {}, enabledModuleIds: null,
+    eventIdentity: {},
   };
   const T = (iso: string) => Date.parse(iso);
 
@@ -591,6 +593,89 @@ describe("module identity overrides", () => {
     const strArgs = args.map(String);
     expect(strArgs[4]).toBe("1"); // numDels = 1
     expect(strArgs.slice(5, 6)).toContain("moduleTitle:secure-development"); // the del target
+  });
+});
+
+describe("event identity fields (issue #386)", () => {
+  it("decodes only the stored identity fields, applying no defaults", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: ["eventName", "Demo CTF", "eventDiscord", "https://discord.gg/x"] }]);
+    const s = await getAdminSettings();
+    expect(s.eventIdentity).toEqual({ eventName: "Demo CTF", eventDiscord: "https://discord.gg/x" });
+  });
+  it("decodes an empty hash to no identity overrides", async () => {
+    mocks.upstashPipeline.mockResolvedValueOnce([{ result: [] }]);
+    expect((await getAdminSettings()).eventIdentity).toEqual({});
+  });
+  it("writes a trimmed name as an HSET pair", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings({ eventName: "  Demo CTF " }, "alice");
+    const strArgs = mocks.upstashEval.mock.calls[0][2].map(String);
+    const idx = strArgs.indexOf("eventName");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe("Demo CTF");
+  });
+  it("clears a field on an empty string (HDEL), never storing it", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings({ eventTheme: "   " }, "alice");
+    const strArgs = mocks.upstashEval.mock.calls[0][2].map(String);
+    expect(strArgs[4]).toBe("1"); // numDels
+    expect(strArgs[5]).toBe("eventTheme");
+    expect(strArgs.slice(6)).not.toContain("eventTheme");
+  });
+  it.each([
+    ["eventName", "x".repeat(81)],
+    ["eventName", "Demo‮CTF"],
+    ["eventContact", "not-an-email"],
+    ["eventDiscord", "http://discord.gg/x"],
+    ["eventDiscord", "discord.gg/x"],
+    ["eventTheme", 7],
+  ] as const)("rejects an invalid %s (%s) before any write", async (key, value) => {
+    await expect(updateAdminSettings({ [key]: value } as never, "alice")).rejects.toThrow(AdminValidationError);
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
+  });
+  it("accepts an e-mail and an https URL", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings({ eventContact: "org@example.org", eventDiscord: "https://discord.gg/x" }, "alice");
+    const strArgs = mocks.upstashEval.mock.calls[0][2].map(String);
+    expect(strArgs).toContain("org@example.org");
+    expect(strArgs).toContain("https://discord.gg/x");
+  });
+
+  // CodeRabbit round 2: eventDiscord can carry an invite/join token, and the
+  // audit line used to serialise the raw value into an admin-visible log.
+  // The stored HSET pair still needs the real value (asserted above) — only
+  // the audit JSON must be redacted.
+  it("never puts the eventDiscord value (or its token) into the audit record, and marks it set", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings({ eventDiscord: "https://discord.gg/SECRETTOKEN" }, "alice");
+    const args = mocks.upstashEval.mock.calls[0][2];
+    // ARGV[3] is the audit JSON line (see UPDATE_SCRIPT's own ARGV layout
+    // comment): [1]=updatedBy [2]=updatedAt [3]=auditLine ...
+    const auditLine = String(args[2]);
+    expect(auditLine).not.toContain("SECRETTOKEN");
+    expect(auditLine).not.toContain("https://discord.gg/SECRETTOKEN");
+    const audit = JSON.parse(auditLine);
+    expect(audit.changed).toEqual({ eventDiscord: "set" });
+    // The value itself is still written to the hash — only the audit is redacted.
+    const strArgs = args.map(String);
+    expect(strArgs).toContain("https://discord.gg/SECRETTOKEN");
+  });
+
+  it("marks a cleared identity field as \"cleared\" in the audit record, for all five keys", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings(
+      { eventName: "", eventTheme: "", eventLocation: "", eventContact: "", eventDiscord: "" },
+      "alice",
+    );
+    const auditLine = String(mocks.upstashEval.mock.calls[0][2][2]);
+    const audit = JSON.parse(auditLine);
+    expect(audit.changed).toEqual({
+      eventName: "cleared",
+      eventTheme: "cleared",
+      eventLocation: "cleared",
+      eventContact: "cleared",
+      eventDiscord: "cleared",
+    });
   });
 });
 

@@ -135,6 +135,31 @@ export function parseEventBundle(raw: string): EventParseResult {
 
   if (!isPlainObject(parsed.event) || typeof parsed.event.name !== "string") {
     errors.push({ where: "event", message: 'Bundle "event" must be an object with a string "name"' });
+  } else {
+    // A present-but-wrong-typed optional identity field is REJECTED, not
+    // silently dropped — every other bundle field follows that rule, and
+    // event-store's `typeof bundle.event.theme === "string"` guard at import
+    // would otherwise ignore a non-string value with no error at all (finding
+    // M4). `dates`/`ctfStartsAt` are still baked identity facts (PR 3 of #386
+    // derives them from the scoring schedule instead), so they get the same
+    // treatment as theme/location here even though nothing currently applies
+    // them on import.
+    if (parsed.event.theme !== undefined && typeof parsed.event.theme !== "string") {
+      errors.push({ where: "event.theme", message: '"event.theme" must be a string' });
+    }
+    if (parsed.event.location !== undefined && typeof parsed.event.location !== "string") {
+      errors.push({ where: "event.location", message: '"event.location" must be a string' });
+    }
+    if (parsed.event.dates !== undefined && typeof parsed.event.dates !== "string") {
+      errors.push({ where: "event.dates", message: '"event.dates" must be a string' });
+    }
+    if (
+      parsed.event.ctfStartsAt !== undefined &&
+      parsed.event.ctfStartsAt !== null &&
+      typeof parsed.event.ctfStartsAt !== "string"
+    ) {
+      errors.push({ where: "event.ctfStartsAt", message: '"event.ctfStartsAt" must be a string or null' });
+    }
   }
 
   if (!isPlainObject(parsed.settings)) {

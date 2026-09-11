@@ -14,7 +14,8 @@
 //   says exactly that instead of sending contestants hunting for bulbs.
 
 import EventCountdown from "./event-countdown";
-import { event } from "@/lib/site";
+// ctfStartsAt is still baked (PR 3 of #386 moves it to the scoring schedule).
+import { eventConfig } from "@/lib/event-config";
 
 export default function HintNotice({
   active,
@@ -66,7 +67,7 @@ export default function HintNotice({
           </p>
         </div>
       </div>
-      {event.ctfStartsAt && <EventCountdown variant="compact" hideWhenComplete />}
+      {eventConfig.ctfStartsAt && <EventCountdown variant="compact" hideWhenComplete />}
     </div>
   );
 }

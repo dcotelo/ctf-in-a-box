@@ -3,7 +3,7 @@ import { exportBundle as exportClassic, clearChallenges, importBundle as importC
 import { exportBundle as exportQuiz, clearQuestions, importBundle as importQuiz } from "@/lib/quiz-store";
 import { exportBundle as exportAi, clearAiChallenges, importBundle as importAi } from "@/lib/ai-store";
 import { effectivePaused, getAdminSettings, resetEvent, updateAdminSettings, type SettingsPatch } from "@/lib/admin-store";
-import { eventConfig } from "@/lib/event-config";
+import { resolveSite } from "@/lib/site";
 import { EVENT_BUNDLE_VERSION, EVENT_POLICY_FIELDS, type EventBundle, type EventPolicySettings } from "@/lib/event-io";
 import { isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
 import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
@@ -11,8 +11,6 @@ import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults
 const SD_WARNING =
   "Secure Development is enabled — its content (target repos, forks, rubrics) is not in the box and is NOT included in this bundle.";
 const LIVE_WARNING = "This event is live — do not publish this bundle while contestants can still play.";
-const BRANDING_SKIPPED =
-  "Event name, logo, and theme are baked at build time — rebuild with an updated event.yaml to fully repaint branding. Module title/blurb overrides were applied.";
 
 /** Assembles a whole-EVENT archive bundle for export: event metadata + policy
  *  settings + each enabled content module's own bundle. This is an
@@ -20,18 +18,30 @@ const BRANDING_SKIPPED =
  *  modules' own `exportBundle()` (which themselves only read their own
  *  challenge/question definitions, never solves/attempts), the
  *  `EVENT_POLICY_FIELDS`-picked subset of `getAdminSettings()`, and the
- *  handful of `eventConfig` fields picked below. No `ctf:user:*`/
+ *  runtime identity fields (`name`, `theme`, `dates`, `location`,
+ *  `ctfStartsAt`) resolved via `resolveSite` over that SAME settings read
+ *  (see below — no second HGETALL, no fail-open in an export). No
+ *  `ctf:user:*`/
  *  `ctf:team:*`/solve/attempt/hint/audit key is ever touched here.
  *
- *  `bundle.event` deliberately omits `contactEmail`, `admins`, `githubOrg`
- *  and `discordUrl` — organizer PII that is neither needed to replay the
- *  event nor safe to hand out in a bundle an organizer might publish or
- *  share. `bundle.settings` deliberately omits every schedule/run field
+ *  `bundle.event` deliberately omits `contactEmail` and `discordUrl` even
+ *  though both are runtime settings now (issue #386) — they are organizer
+ *  PII: a private inbox and an invite link, neither needed to replay the
+ *  event, and not safe to hand out in a bundle an organizer might publish or
+ *  share. `dates`/`ctfStartsAt` are still informational-only, baked from
+ *  `event.yaml` until PR 3 of #386 derives them from the scoring schedule.
+ *  `bundle.settings` deliberately omits every schedule/run field
  *  (`scoringStartsAt`/`EndsAt`, `registrationStartsAt`/`EndsAt`, `paused`,
  *  `updatedBy`, `updatedAt`) — those are per-EVENT-RUN state, not portable
  *  policy (see event-io.ts's header). */
 export async function exportEventBundle(now: Date = new Date()): Promise<{ bundle: EventBundle; warnings: string[] }> {
   const settings = await getAdminSettings();
+  // resolveSite over the SAME settings read, not a second getSite() call: a
+  // Redis blip between two independent reads could otherwise write an archive
+  // whose event.name is the fail-open default while bundle.settings came from
+  // the good getAdminSettings() read that already succeeded (getAdminSettings
+  // throws on failure; getSite() fails open to null instead).
+  const site = resolveSite(settings.eventIdentity);
   const warnings: string[] = [];
 
   // Narrow out secure-development BEFORE `isEnabled`/the bundle write, same
@@ -85,11 +95,11 @@ export async function exportEventBundle(now: Date = new Date()): Promise<{ bundl
     version: EVENT_BUNDLE_VERSION,
     kind: "archive",
     event: {
-      name: eventConfig.name,
-      theme: eventConfig.theme,
-      dates: eventConfig.dates,
-      location: eventConfig.location,
-      ctfStartsAt: eventConfig.ctfStartsAt,
+      name: site.name,
+      theme: site.theme,
+      dates: site.dates,
+      location: site.location,
+      ctfStartsAt: site.ctfStartsAt,
     },
     settings: policySettings,
     ...(isEnabled("classic") ? { classic: await exportClassic() } : {}),
@@ -134,9 +144,10 @@ export type EventImportSummary = {
  *  Only `EVENT_POLICY_FIELDS` keys present in `bundle.settings` are applied
  *  to admin settings; schedule/run fields (`paused`, `scoringStartsAt`, etc.)
  *  are never in that allowlist (see event-io.ts's header) and so can never
- *  leak into the patch. Branding (`event.yaml`-baked name/logo/theme) and
- *  Secure Development content are outside what a bundle can carry at all —
- *  both are reported back in `skipped` rather than silently dropped.
+ *  leak into the patch. `bundle.event.name` (always present) and its optional
+ *  `theme`/`location` are merged into that SAME patch — see below. Secure
+ *  Development content is outside what a bundle can carry at all — that is
+ *  reported back in `skipped` rather than silently dropped.
  *
  *  Fail-fast ordering: the settings patch is built and applied FIRST, right
  *  after the live-guard and before anything destructive. `updateAdminSettings`
@@ -146,7 +157,8 @@ export type EventImportSummary = {
  *  deployment's availability below, so it can't trigger that particular
  *  refusal) — applying it before `resetEvent`/clear/import means a
  *  malformed bundle is rejected with NOTHING destructive done yet, instead of
- *  failing after the board has already been wiped and half-replaced.
+ *  failing after the board has already been wiped and half-replaced. The
+ *  identity fields ride the same patch and so get the same guarantee.
  *  `resetEvent` is safe to run after: it keeps `ctf:admin:settings` (see its
  *  own doc comment in admin-store.ts) — it only freezes scoring and bumps the
  *  reset epoch — so it can never clobber the policy fields just written.
@@ -169,9 +181,14 @@ export async function importEventBundle(
   // bad bundle throws `AdminValidationError` here, before `resetEvent` or any
   // clear/import has run — see the fail-fast note above.
   const { patch, skipped: moduleSkipped } = buildPolicyPatch(bundle.settings);
-  if (Object.keys(patch).length > 0) {
-    await updateAdminSettings(patch, actor);
-  }
+  // The bundle's identity block is applied like any other setting (issue
+  // #386): through the one validated patch, before anything destructive.
+  // contact/Discord never travel in a bundle (organizer PII — see the
+  // header comment), so only these three can come back.
+  patch.eventName = bundle.event.name;
+  if (typeof bundle.event.theme === "string") patch.eventTheme = bundle.event.theme;
+  if (typeof bundle.event.location === "string") patch.eventLocation = bundle.event.location;
+  await updateAdminSettings(patch, actor);
 
   // Sweep run-state before touching content, so a mid-import failure never
   // leaves stale team/solve/hint state pointing at content that no longer
@@ -205,7 +222,7 @@ export async function importEventBundle(
     summary.ai = { created: a.created, updated: a.updated };
   }
 
-  const skipped: string[] = [BRANDING_SKIPPED, ...moduleSkipped];
+  const skipped: string[] = [...moduleSkipped];
 
   return { summary, skipped };
 }

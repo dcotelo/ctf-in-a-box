@@ -19,8 +19,11 @@ export default async function SiteLayout({
 }) {
   // Awaited here rather than mounted as <PhaseLine />: an async child inside
   // renderToStaticMarkup suspends (the not-found pages hit this same trap),
-  // and the nav-parity test renders this layout statically.
+  // and the nav-parity test renders this layout statically. `SiteFooter`
+  // became an async Server Component too (config v2, PR 1b) and hits the
+  // identical trap, so it's called and awaited the same way.
   const phaseLine = await PhaseLine();
+  const footer = await SiteFooter({ navLinks: await getNavLinks() });
   return (
     <>
       {/* The event's state, on every content page — see phase-line.tsx. */}
@@ -28,7 +31,7 @@ export default async function SiteLayout({
       <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
         {children}
       </main>
-      <SiteFooter navLinks={await getNavLinks()} />
+      {footer}
     </>
   );
 }

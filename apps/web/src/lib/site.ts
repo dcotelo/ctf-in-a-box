@@ -1,60 +1,93 @@
 // Central site config: event facts and primary navigation.
 // Keep route copy in one place so the header, footer, and metadata stay in sync.
 
+import { cache } from "react";
 import { eventConfig } from "@/lib/event-config";
+import { getAdminSettingsSnapshot } from "@/lib/enabled-modules";
+import { DEFAULT_EVENT_IDENTITY, type EventIdentityOverrides } from "@/lib/event-identity";
 import { SECURE_AGENT_PLAYBOOK_URL } from "@/lib/modules";
+import type { NavEntry, NavGroup, NavLink } from "@/lib/site-nav";
 
-export const event = {
-  name: eventConfig.name,
-  theme: eventConfig.theme,
-  dates: eventConfig.dates,
-  location: eventConfig.location,
-  ctfStartsAt: eventConfig.ctfStartsAt,
+// Re-exported verbatim so every existing consumer of these off `@/lib/site`
+// keeps working unchanged — see `site-nav.ts` for why they live there now
+// (a Client Component needs `isNavGroup` as a value without pulling in this
+// file's `enabled-modules`/`server-only` chain).
+export { isNavGroup } from "@/lib/site-nav";
+export type { NavLink, NavGroup, NavEntry } from "@/lib/site-nav";
+
+export type Site = {
+  name: string;
+  theme: string;
+  dates: string;
+  location: string;
+  ctfStartsAt: string | null;
 
   // Live contestant support during the event: scoring questions, stuck runs,
-  // organizer announcements. Sourced from event.yaml's event.discord (or
-  // EVENT_DISCORD) — the header, hero, rules, how-to-play, 404, and FAQ all
-  // funnel contestants here. "" (unset in event config, the default) means
-  // pages hide their Discord links and mentions entirely, same pattern as
-  // contactEmail below.
-  discordUrl: eventConfig.discordUrl,
+  // organizer announcements. Sourced from the organizer's stored identity (or
+  // the spec default) — the header, hero, rules, how-to-play, 404, and FAQ all
+  // funnel contestants here. "" (the default) means pages hide their Discord
+  // links and mentions entirely, same pattern as contactEmail below.
+  discordUrl: string;
+  // The CTF team's own inbox: the one address on this site that reaches the
+  // organizers rather than the Foundation. Use it for anything that
+  // needs a private, written channel and shouldn't go in a public Discord.
+  // "" (the default) means pages hide their contact-email lines.
+  contactEmail: string;
   // OWASP's own project: OWASP-grounded procedures an AI agent follows to do
   // security engineering work. The recommended way to point an agent at a target.
   // Defined in `modules.ts` (secure-development's registry copy links to it,
   // and that file cannot import this one without a cycle) and re-exported
-  // here so pages keep reading it off `event`, as they always have.
-  secureAgentPlaybookUrl: SECURE_AGENT_PLAYBOOK_URL,
+  // here so pages keep reading it off `Site`, as they always have.
+  secureAgentPlaybookUrl: string;
 
   // Governing policies. This site publishes short, specific notices and defers
   // to these as the authoritative documents — we don't restate them.
-  owaspPrivacyUrl: "https://policy.owasp.org/operational/privacy",
-  owaspCodeOfConductUrl: "https://policy.owasp.org/operational/code-of-conduct",
+  owaspPrivacyUrl: string;
+  owaspCodeOfConductUrl: string;
   // OWASP publishes no Terms of Service; the General Disclaimer is the analogue.
-  owaspDisclaimerUrl: "https://policy.owasp.org/operational/general-disclaimer",
-  // The CTF team's own inbox: the one address on this site that reaches the
-  // organizers rather than the Foundation. Use it for anything that
-  // needs a private, written channel and shouldn't go in a public Discord.
-  // "" (unset in event config) means pages hide their contact-email lines.
-  contactEmail: eventConfig.contactEmail,
+  owaspDisclaimerUrl: string;
   // As published on the OWASP privacy policy — note .com, not .org.
-  privacyContactEmail: "privacy@owasp.com",
-} as const;
+  privacyContactEmail: string;
+};
 
-export type NavLink = { href: string; label: string };
-
-/** A grouped nav entry: one dropdown parent label with its own child links.
- *  See `buildNavGroups` for when this appears instead of a flat `NavLink`. */
-export type NavGroup = { label: string; items: NavLink[] };
-
-/** One header nav slot: either a plain link or a dropdown group of them. */
-export type NavEntry = NavLink | NavGroup;
-
-/** True iff `entry` is a `NavGroup` rather than a plain `NavLink`. The two
- *  shapes don't overlap on any field, so this is a plain structural check —
- *  no discriminant tag needed. */
-export function isNavGroup(entry: NavEntry): entry is NavGroup {
-  return "items" in entry;
+/** Pure merge: the organizer's stored identity over the spec defaults.
+ *  `dates`/`ctfStartsAt` are the two identity facts still baked from
+ *  event.yaml (PR 3 of #386 derives them from the scoring schedule). */
+export function resolveSite(overrides: EventIdentityOverrides | null): Site {
+  const o = overrides ?? {};
+  return {
+    // `||`, not `??`, for eventName ONLY: an empty string is a valid "no
+    // override" state for the other four fields (each hides its own UI
+    // element when blank), but an empty <title>/headline is never desirable.
+    // The app's own write path already guards against writing "" here
+    // (validation), so this only matters for a hand-run
+    // `HSET ctf:admin:settings eventName ""`.
+    name: o.eventName || DEFAULT_EVENT_IDENTITY.eventName,
+    theme: o.eventTheme ?? DEFAULT_EVENT_IDENTITY.eventTheme,
+    location: o.eventLocation ?? DEFAULT_EVENT_IDENTITY.eventLocation,
+    contactEmail: o.eventContact ?? DEFAULT_EVENT_IDENTITY.eventContact,
+    discordUrl: o.eventDiscord ?? DEFAULT_EVENT_IDENTITY.eventDiscord,
+    // Still sourced from event.yaml until PR 3 of #386 derives these from the
+    // scoring schedule instead.
+    dates: eventConfig.dates,
+    ctfStartsAt: eventConfig.ctfStartsAt,
+    secureAgentPlaybookUrl: SECURE_AGENT_PLAYBOOK_URL,
+    owaspPrivacyUrl: "https://policy.owasp.org/operational/privacy",
+    owaspCodeOfConductUrl: "https://policy.owasp.org/operational/code-of-conduct",
+    owaspDisclaimerUrl: "https://policy.owasp.org/operational/general-disclaimer",
+    privacyContactEmail: "privacy@owasp.com",
+  };
 }
+
+/** The event's identity for this request: one cached read of the settings
+ *  snapshot (shared with the module nav — no second HGETALL), failing open to
+ *  the defaults when Redis is unreachable (spec §2). Server-only by
+ *  transitivity (`enabled-modules`); Client Components take these values as
+ *  props from a server ancestor. */
+export const getSite = cache(async (): Promise<Site> => {
+  const settings = await getAdminSettingsSnapshot();
+  return resolveSite(settings?.eventIdentity ?? null);
+});
 
 // Platform-level pages that exist regardless of which modules are enabled.
 // Module-owned entries (e.g. Challenges) are NOT listed here — they're

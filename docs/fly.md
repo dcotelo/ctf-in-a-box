@@ -163,8 +163,11 @@ Full reasoning, and the alternatives that lost, in
 
 The app reads its config from a bundle generated during `next build`, from the
 `EVENT_CONFIG_B64` build arg. Deploy without it and the build *succeeds*, with
-an empty `admins` list and generic branding — `/admin` then 403s for everyone,
-including you, with no error anywhere to explain it.
+an empty `admins` list — `/admin` then 403s for everyone, including you, with
+no error anywhere to explain it. (The event's name and branding are a
+separate runtime `/admin` setting since #386, so a missing build arg does not
+touch them — check the admins list and the 403, not the name, when this
+bites.)
 
 `deploy.sh` always passes it. This only bites if you build by hand, or use
 `--skip-build` after editing `event.yaml`.

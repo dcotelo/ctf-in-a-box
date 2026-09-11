@@ -44,7 +44,17 @@ import { POST as seedPOST } from "@/app/api/admin/seed/route";
 const req = (body?: unknown) =>
   new Request("http://x/api/admin/settings", { method: "POST", body: JSON.stringify(body ?? {}) });
 
-const SETTINGS = { paused: true, hintsEnabled: null, hintCost: null, updatedBy: "alice", updatedAt: "t" };
+// The reset route confirms against the RUNTIME name (issue #386), read via
+// getAdminSettings().eventIdentity + resolveSite — not the baked event.yaml
+// name mocked above — see the "runtime event name" cases below.
+const SETTINGS = {
+  paused: true,
+  hintsEnabled: null,
+  hintCost: null,
+  updatedBy: "alice",
+  updatedAt: "t",
+  eventIdentity: { eventName: "Runtime CTF" },
+};
 
 beforeEach(() => {
   requireAdmin.mockReset();
@@ -159,13 +169,13 @@ describe("POST /api/admin/reset", () => {
 
   it("401 for no session, without wiping anything", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 401 });
-    expect((await resetPOST(rreq({ confirm: "Test Event" }))).status).toBe(401);
+    expect((await resetPOST(rreq({ confirm: "Runtime CTF" }))).status).toBe(401);
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
   it("403 for a non-admin, without wiping anything", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 403 });
-    expect((await resetPOST(rreq({ confirm: "Test Event" }))).status).toBe(403);
+    expect((await resetPOST(rreq({ confirm: "Runtime CTF" }))).status).toBe(403);
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
@@ -175,9 +185,9 @@ describe("POST /api/admin/reset", () => {
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
-  it("wipes and returns counts when the event name matches", async () => {
+  it("wipes and returns counts when the runtime event name matches", async () => {
     resetEvent.mockResolvedValue({ cleared: { solves: 3, teams: 1 }, resetAt: "123" });
-    const res = await resetPOST(rreq({ confirm: "Test Event" }));
+    const res = await resetPOST(rreq({ confirm: "Runtime CTF" }));
     expect(res.status).toBe(200);
     expect(resetEvent).toHaveBeenCalledWith("alice");
     expect(await res.json()).toMatchObject({ cleared: { solves: 3 }, resetAt: "123" });
@@ -192,6 +202,23 @@ describe("POST /api/admin/reset", () => {
   it("503 on a reset failure", async () => {
     resetEvent.mockRejectedValue(new Error("upstash down"));
     expect((await resetPOST(rreq({ confirm: "RESET" }))).status).toBe(503);
+  });
+
+  it("503 when the settings read fails, refusing before any comparison or wipe (fail closed)", async () => {
+    // getAdminSettings() throws on a failed HGETALL — the route must map that
+    // to a refusal, never fall back to a default name the way the fail-open
+    // getSite() snapshot would (CodeRabbit round 2).
+    getAdminSettings.mockRejectedValue(new Error("upstash down"));
+    const res = await resetPOST(rreq({ confirm: "RESET" }));
+    expect(res.status).toBe(503);
+    expect(resetEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects the baked event.yaml name once the organizer renamed the event", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    const res = await resetPOST(rreq({ confirm: "Test Event" }));
+    expect(res.status).toBe(400);
+    expect(resetEvent).not.toHaveBeenCalled();
   });
 });
 

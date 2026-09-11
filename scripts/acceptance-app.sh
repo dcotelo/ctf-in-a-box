@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Proves a kit event.yaml drives the vendored app: custom name + reduced
-# target set visible in the built app; default build is neutral OWASP CTF.
+# Proves a kit event.yaml drives the vendored app's reduced target set; the
+# event's name is a runtime admin setting now (issue #386), so a build with
+# no Redis behind it must fail open to the spec default rather than render
+# nothing, an error, or a name baked from this file.
 # Also proves the app's challenge fork links follow event.yaml's github.org
 # rather than a hardcoded OWASP-CTF (self-hosted contestants must fork the
 # org the kit actually created, not the upstream canonical one).
@@ -62,8 +64,10 @@ expect_in() { # haystack needle what
   if ! grep -qF -- "$2" <<< "$1"; then echo "FAIL: $3 (missing: $2)"; exit 1; fi
 }
 
-echo "--- custom event name renders"
-expect_in "$HOME_HTML" "Acceptance CTF" "custom event name not rendered"
+echo "--- identity fails open to the default name (no Redis behind this run)"
+# Identity fails OPEN to the spec default when there is no Redis to read
+# (issue #386): the title must be the default name, not empty, not an error.
+expect_in "$HOME_HTML" "<title>OWASP CTF</title>" "landing page title is not the default event name without settings"
 echo "--- no DC34 branding"
 if echo "$HOME_HTML$CHALLENGES_HTML" | grep -qi "DEF CON"; then echo "FAIL: DC34 leaked"; exit 1; fi
 echo "--- only enabled targets appear"
@@ -149,7 +153,11 @@ docker run -d --name web-default -p 3101:3000 \
 DEFAULT_HTML=$(wait_for_html http://localhost:3101/)
 DEFAULT_CHALLENGES_HTML=$(wait_for_html http://localhost:3101/challenges)
 if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build carries DC34"; exit 1; fi
-expect_in "$DEFAULT_HTML" "OWASP CTF" "default build does not carry the neutral name"
+# "OWASP CTF" alone is vacuous: the landing page's evaluator card hardcodes
+# that string in prose regardless of the event's runtime identity. Assert the
+# actual title tag, like the identity-fails-open check near the top of this
+# script does.
+expect_in "$DEFAULT_HTML" "<title>OWASP CTF</title>" "default build does not carry the neutral name in the page title"
 
 echo "--- default build's fork links fall back to OWASP-CTF"
 expect_in "$DEFAULT_CHALLENGES_HTML" "github.com/OWASP-CTF/" "default build does not fall back to OWASP-CTF fork links"

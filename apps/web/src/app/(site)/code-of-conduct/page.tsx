@@ -15,14 +15,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { isModuleLive } from "@/lib/enabled-modules";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 import { eventConfig } from "@/lib/event-config";
 
-export const metadata: Metadata = {
-  title: "Code of Conduct",
-  description:
-    `The codes of conduct that govern ${event.name}, and how to report a problem.`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const event = await getSite();
+  return {
+    title: "Code of Conduct",
+    description:
+      `The codes of conduct that govern ${event.name}, and how to report a problem.`,
+  };
+}
 
 const ExternalLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a
@@ -36,6 +39,7 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
 );
 
 export default async function CodeOfConductPage() {
+  const event = await getSite();
   const secureDev = await isModuleLive("secure-development");
   return (
     <div className="flex flex-col gap-10">

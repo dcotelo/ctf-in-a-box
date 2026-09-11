@@ -1,6 +1,6 @@
 <svg viewBox="0 0 880 420" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
   <title id="ttl">Build-time config flow</title>
-  <desc id="desc">The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the bake supplies event identity, secure-development's target list, and the admins list, while which modules are enabled is decided at runtime in /admin, not baked; next build statically renders all of it. Event identity is baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list.</desc>
+  <desc id="desc">The organizer edits event.yaml, which is base64-encoded into the EVENT_CONFIG_B64 build arg; the Dockerfile decodes it back to a file; the prebuild script resolves config with priority yaml file over EVENT_* env vars over neutral defaults, and writes a typed, gitignored event-config.generated.ts; the bake supplies the event's dates, secure-development's target list, and the admins list, while which modules are enabled is decided at runtime in /admin, not baked; next build statically renders only those baked dates, targets, and the admins list — never the event's runtime identity, which getSite() resolves fresh from ctf:admin:settings on every request. The event's dates and targets are baked into the image at build time, not read at request time, so building with EVENT_CONFIG_B64 unset silently yields neutral defaults and an empty admins list; the event's identity (name, tagline, location, contact, Discord) is a runtime /admin setting instead (issue #386), never baked.</desc>
   <style>
     :root {
       --bg: #ffffff; --surface: #f6f8fa; --surface-2: #eaeef2; --border: #d0d7de;
@@ -89,9 +89,9 @@
   <text x="440" y="326" text-anchor="middle" font-size="13" fill="var(--text-bright)">next build</text>
   <text x="440" y="345" text-anchor="middle" font-size="10" fill="var(--text-muted)">baked into the image</text>
 
-  <text x="596" y="326" font-size="10" fill="var(--text-muted)">event identity is baked in at build</text>
-  <text x="596" y="342" font-size="10" fill="var(--text-muted)">time, never read at request time</text>
+  <text x="596" y="326" font-size="10" fill="var(--text-muted)">dates &amp; targets bake in at build time;</text>
+  <text x="596" y="342" font-size="10" fill="var(--text-muted)">identity is a runtime /admin setting</text>
 
   <text x="40" y="392" font-size="10" fill="var(--text-muted)">build the app with EVENT_CONFIG_B64 unset and it silently yields neutral defaults &#8212;</text>
-  <text x="40" y="408" font-size="10" fill="var(--text-muted)">an empty admins list, so /admin 403s for everyone, and generic branding</text>
+  <text x="40" y="408" font-size="10" fill="var(--text-muted)">an empty admins list, so /admin 403s for everyone</text>
 </svg>

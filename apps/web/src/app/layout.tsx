@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Poppins, Barlow, Geist_Mono } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import VisitBeacon from "@/components/visit-beacon";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 import { moduleDefById } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getNavGroups } from "@/lib/resolved-modules";
@@ -32,6 +32,7 @@ const geistMono = Geist_Mono({
 // existed; issue #386 removed it.
 export async function generateMetadata(): Promise<Metadata> {
   const live = await getEnabledModuleIds();
+  const event = await getSite();
   const moduleTaglines = [...live]
     .map((id) => moduleDefById(id)?.home?.tagline)
     .filter(Boolean)
@@ -48,6 +49,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const navLinks = await getNavGroups();
+  const site = await getSite();
   return (
     <html
       lang="en"
@@ -72,7 +74,7 @@ export default async function RootLayout({
         >
           Skip to content
         </a>
-        <SiteHeader navLinks={navLinks} />
+        <SiteHeader navLinks={navLinks} discordUrl={site.discordUrl} eventName={site.name} />
         {children}
         <VisitBeacon />
       </body>

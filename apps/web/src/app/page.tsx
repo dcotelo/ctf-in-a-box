@@ -33,7 +33,7 @@ import { DOCS_URL, type HomeContext } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { hasTeam } from "@/lib/team-store";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 
 /** The one action this visitor should take, by auth × team × phase. */
 function primaryAction(
@@ -58,6 +58,7 @@ function primaryAction(
 }
 
 export default async function Home() {
+  const event = await getSite();
   const catalog = await getChallengeCatalog();
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -128,6 +129,12 @@ export default async function Home() {
     auth.api.getSession({ headers: await headers() }),
     getNavLinks(),
   ]);
+  // Called and awaited, not mounted as `<SiteFooter navLinks={navLinks} />`:
+  // since `site-footer.tsx` became an async Server Component (config v2, PR
+  // 1b), mounting it as a nested JSX element suspends under
+  // `renderToStaticMarkup` — the same trap `(site)/layout.tsx` documents for
+  // `PhaseLine`.
+  const footer = await SiteFooter({ navLinks });
   const login = (session?.user as { login?: string } | undefined)?.login ?? null;
   // hasTeam, not getViewerTeam truthiness: hasTeam is the SAME fail-open,
   // mock-mode-aware answer the submission gates use, so the hero can never
@@ -414,7 +421,7 @@ export default async function Home() {
         </section>
       </div>
 
-      <SiteFooter navLinks={navLinks} />
+      {footer}
     </div>
   );
 }

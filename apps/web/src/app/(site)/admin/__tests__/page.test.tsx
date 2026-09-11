@@ -42,6 +42,18 @@ vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
+// admin-panel.tsx now also reads getSite() (issue #386) for the header/reset
+// confirmation name. Mocked directly rather than exercised for real: the real
+// chain runs through `connection()`, which throws outside a Next request
+// store (see lib/__tests__/site.test.ts and app/__tests__/page.test.tsx for
+// where that IS exercised).
+//
+// The name is DELIBERATELY distinct from the spec default ("OWASP CTF") and
+// from every settings fixture below: a regression that stops threading this
+// value through to AdminHeader (e.g. reverting to the baked event.yaml name)
+// would make the assertion below fail loudly instead of the test happening
+// to still pass because the mocked and the fallback names coincide.
+vi.mock("@/lib/site", () => ({ getSite: async () => ({ name: "Plumbed CTF" }) }));
 
 import AdminPage from "@/app/(site)/admin/page";
 
@@ -61,7 +73,7 @@ describe("admin page gate", () => {
       hintCost: null,
       updatedBy: null,
       updatedAt: null,
-      moduleOverrides: {},
+      moduleOverrides: {}, eventIdentity: {},
     });
     getSyncStatus.mockResolvedValue({
       lastPollAt: "2026-08-14T00:00:00Z",
@@ -78,7 +90,12 @@ describe("admin page gate", () => {
     expect(html).toMatch(/last poll|ingested/i);
   });
 
-  it("resolves each module's setup block server-side and renders it in that module's panel", async () => {
+  // Issue #386: the header names the RUNTIME event (getSite()), not the
+  // baked event.yaml name — this is the one place in this file that would
+  // catch admin-panel.tsx reverting `<AdminHeader eventName={...}>` back to
+  // `eventConfig.name`, since the mocked getSite() above returns a name no
+  // fixture or default shares.
+  it("names the event in the header from getSite(), not the baked config", async () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     getAdminSettings.mockResolvedValue({
       paused: false,
@@ -87,6 +104,23 @@ describe("admin page gate", () => {
       updatedBy: null,
       updatedAt: null,
       moduleOverrides: {},
+      eventIdentity: {},
+    });
+    getSyncStatus.mockResolvedValue(null);
+    const ui = await AdminPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(ui);
+    expect(html).toContain("Plumbed CTF");
+  });
+
+  it("resolves each module's setup block server-side and renders it in that module's panel", async () => {
+    requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
+    getAdminSettings.mockResolvedValue({
+      paused: false,
+      hintsEnabled: null,
+      hintCost: null,
+      updatedBy: null,
+      updatedAt: null,
+      moduleOverrides: {}, eventIdentity: {},
     });
     getSyncStatus.mockResolvedValue(null);
     const ui = await AdminPage({ searchParams: Promise.resolve({}) });
@@ -110,7 +144,7 @@ describe("admin page gate", () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     getAdminSettings.mockResolvedValue({
       paused: false, hintsEnabled: null, hintCost: null,
-      updatedBy: null, updatedAt: null, moduleOverrides: {},
+      updatedBy: null, updatedAt: null, moduleOverrides: {}, eventIdentity: {},
     });
     getSyncStatus.mockResolvedValue({
       lastPollAt: "2026-08-14T00:00:00Z", lastError: null,
@@ -128,7 +162,7 @@ describe("admin page gate", () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     getAdminSettings.mockResolvedValue({
       paused: false, hintsEnabled: null, hintCost: null,
-      updatedBy: null, updatedAt: null, moduleOverrides: {},
+      updatedBy: null, updatedAt: null, moduleOverrides: {}, eventIdentity: {},
     });
     getSyncStatus.mockResolvedValue({
       lastPollAt: "2026-08-14T00:00:00Z", lastError: null, ingested: 3, dropped: 2,
@@ -152,7 +186,7 @@ describe("admin page gate", () => {
       hintCost: null,
       updatedBy: null,
       updatedAt: null,
-      moduleOverrides: {},
+      moduleOverrides: {}, eventIdentity: {},
     });
     getSyncStatus.mockResolvedValue(null);
     const ui = await AdminPage({ searchParams: Promise.resolve({}) });
@@ -180,7 +214,7 @@ describe("?tab= deep link", () => {
     hintCost: null,
     updatedBy: null,
     updatedAt: null,
-    moduleOverrides: {},
+    moduleOverrides: {}, eventIdentity: {},
   };
 
   async function render(searchParams: Record<string, string | string[] | undefined>) {

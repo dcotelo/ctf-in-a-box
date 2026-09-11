@@ -14,13 +14,19 @@
 import SiteFooter from "@/components/site-footer";
 import NotFoundBody, { getNotFoundRoutes } from "@/components/not-found-body";
 import { getNavLinks } from "@/lib/resolved-modules";
-import { event } from "@/lib/site";
+import { getSite } from "@/lib/site";
 
 // `async` because it re-creates the footer, whose links are resolved
 // per-request (`not-found.js` may be a Server Component and may be async —
 // see the vendored not-found docs' "Data Fetching" example).
 export default async function NotFound() {
+  const event = await getSite();
   const routes = await getNotFoundRoutes();
+  // Called and awaited, not mounted as `<SiteFooter navLinks={...} />`: since
+  // `site-footer.tsx` became an async Server Component, mounting it as a
+  // nested JSX element suspends under `renderToStaticMarkup` (the exact trap
+  // `(site)/layout.tsx` already documents for `PhaseLine`).
+  const footer = await SiteFooter({ navLinks: await getNavLinks() });
   return (
     <>
       <main id="main-content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 sm:px-6 sm:py-16">
@@ -50,7 +56,7 @@ export default async function NotFound() {
           </p>
         </div>
       </main>
-      <SiteFooter navLinks={await getNavLinks()} />
+      {footer}
     </>
   );
 }

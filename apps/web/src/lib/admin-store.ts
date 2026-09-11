@@ -10,6 +10,7 @@ import {
   type ModuleId,
   type ModuleOverrides,
 } from "@/lib/modules";
+import { EVENT_IDENTITY_KEYS, checkEventIdentityValue, isEventIdentityKey, type EventIdentityOverrides } from "@/lib/event-identity";
 // `defaultEnabledModules`, not `defaultModuleIds` from `@/lib/enabled-modules`:
 // that module imports `getAdminSettings` from this one, so importing it back
 // here would be a cycle. `module-defaults.ts` is the pure, dependency-free
@@ -203,6 +204,10 @@ export type AdminSettings = {
    *    if that drop empties the list, it decodes back to `null` (a stale
    *    field is not a decision to show nothing). */
   enabledModuleIds: ModuleId[] | null;
+  /** The organizer's event identity fields (issue #386) — only the fields
+   *  actually stored; `resolveSite()` in lib/site.ts lays them over the
+   *  defaults. Absent field = default. */
+  eventIdentity: EventIdentityOverrides;
 };
 
 // The window check itself lives in schedule-window.ts (a dependency-free
@@ -264,6 +269,13 @@ export type SettingsPatch = {
   scoringEndsAt?: string | null;
   registrationStartsAt?: string | null;
   registrationEndsAt?: string | null;
+  /** Event identity (issue #386). "" clears the field back to its default,
+   *  the same contract as `moduleTitle:<id>`. */
+  eventName?: string;
+  eventTheme?: string;
+  eventLocation?: string;
+  eventContact?: string;
+  eventDiscord?: string;
 } & Partial<Record<ModuleFieldKey, string>>;
 
 const SCHEDULE_FIELDS = ["scoringStartsAt", "scoringEndsAt", "registrationStartsAt", "registrationEndsAt"] as const;
@@ -311,6 +323,11 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     else slot.blurb = value;
   }
 
+  const eventIdentity: EventIdentityOverrides = {};
+  for (const key of EVENT_IDENTITY_KEYS) {
+    if (typeof h[key] === "string") eventIdentity[key] = h[key];
+  }
+
   return {
     paused: h.paused === "1",
     hintsEnabled: h.hintsEnabled === undefined ? null : h.hintsEnabled === "1",
@@ -332,6 +349,7 @@ function decodeSettings(h: Record<string, string>): AdminSettings {
     updatedAt: h.updatedAt ?? null,
     moduleOverrides,
     enabledModuleIds: decodeEnabledModuleIds(h.enabledModules),
+    eventIdentity,
   };
 }
 
@@ -546,6 +564,26 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       }
       fields.push(k, requested.join(","));
       changed[k] = requested.join(",") as unknown as boolean;
+    } else if (isEventIdentityKey(k)) {
+      // Event identity (issue #386). Validation lives in event-identity.ts so
+      // the Event tab can share the limits; "" clears (HDEL) — the default is
+      // what blank restores, exactly like a module title override.
+      //
+      // The audit line never carries the value itself, only a redacted
+      // marker (CodeRabbit round 2): eventDiscord can embed an invite/join
+      // token in its URL, and eventContact is PII — recording either verbatim
+      // in an admin-visible log persists a secret/PII where "who changed
+      // what" only needs the field name. All five identity keys use the same
+      // marker for uniformity rather than special-casing just those two.
+      const check = checkEventIdentityValue(k, v);
+      if (!check.ok) throw new AdminValidationError(k, check.message);
+      if (check.value === "") {
+        dels.push(k);
+        changed[k] = "cleared" as unknown as boolean;
+      } else {
+        fields.push(k, check.value);
+        changed[k] = "set" as unknown as boolean;
+      }
     } else if (MODULE_FIELD_RE.test(k)) {
       const [, which, id] = MODULE_FIELD_RE.exec(k)!;
       // Fail closed: an id the registry does not know is a typo or a probe,
