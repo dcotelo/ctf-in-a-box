@@ -153,7 +153,11 @@ docker run -d --name web-default -p 3101:3000 \
 DEFAULT_HTML=$(wait_for_html http://localhost:3101/)
 DEFAULT_CHALLENGES_HTML=$(wait_for_html http://localhost:3101/challenges)
 if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build carries DC34"; exit 1; fi
-expect_in "$DEFAULT_HTML" "OWASP CTF" "default build does not carry the neutral name"
+# "OWASP CTF" alone is vacuous: the landing page's evaluator card hardcodes
+# that string in prose regardless of the event's runtime identity. Assert the
+# actual title tag, like the identity-fails-open check near the top of this
+# script does.
+expect_in "$DEFAULT_HTML" "<title>OWASP CTF</title>" "default build does not carry the neutral name in the page title"
 
 echo "--- default build's fork links fall back to OWASP-CTF"
 expect_in "$DEFAULT_CHALLENGES_HTML" "github.com/OWASP-CTF/" "default build does not fall back to OWASP-CTF fork links"
