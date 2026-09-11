@@ -23,8 +23,4 @@ describe("ai module registration", () => {
   it("gives ai its own nav entry now that /ai exists", () => {
     expect(moduleDefById("ai")!.nav).toEqual({ href: "/ai", label: "AI Challenges" });
   });
-
-  it("owns no targets — it is a pure app module with no compose service", () => {
-    expect(moduleDefById("ai")!.targets).toEqual([]);
-  });
 });

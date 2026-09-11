@@ -121,13 +121,11 @@ const twoModules: readonly ResolvedModule[] = [
     title: "Secure Development",
     blurb: "Find the vulnerability, patch it for real, ship the fix as a PR.",
     nav: { href: "/challenges", label: "Challenges" },
-    targets: ["juice-shop"],
   },
   {
     id: "quiz",
     title: "Quiz",
     blurb: "Answer security questions for points.",
-    targets: [],
   },
 ];
 
@@ -732,7 +730,7 @@ describe("module toggles", () => {
 describe("AdminControls ai panel", () => {
   const withAi: readonly ResolvedModule[] = [
     ...twoModules,
-    { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and jailbreak challenges hosted externally.", targets: [] },
+    { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and jailbreak challenges hosted externally." },
   ];
 
   it("renders the ai module's tab with a tenth destination and panel", () => {

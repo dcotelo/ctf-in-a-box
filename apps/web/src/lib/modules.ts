@@ -1,9 +1,6 @@
 // CTF module registry. Registration is deliberate: a new vertical is code
 // (an entry here) + config (a key under modules. in event.yaml) — never
 // config alone. See the kit's docs/modules.md for the full contract.
-import type { AppId } from "@/lib/apps";
-import { eventConfig } from "@/lib/event-config";
-
 export type ModuleId = "secure-development" | "quiz" | "classic" | "ai";
 
 /** Context handed to a module's home-page copy so it can interpolate live
@@ -273,8 +270,6 @@ export type ModuleDef = {
   /** Nav entry, rendered iff the module is enabled (module contract §5.4).
    *  Omitted by a module that has no contestant route yet. */
   nav?: { href: string; label: string };
-  /** Targets this module owns; empty for modules that have none (e.g. quiz). */
-  targets: readonly AppId[];
   /** Landing-page copy for this module, composed into `app/page.tsx` by the
    *  platform frame. Optional: a module with no `home` simply contributes
    *  nothing to the landing page, which is valid, not an error. Server code
@@ -318,7 +313,7 @@ export type ModuleDef = {
 
 // Display metadata per registered module. Registration is deliberate: an entry
 // here plus a key under `modules:` in event.yaml — never config alone.
-const REGISTRY: Record<ModuleId, Omit<ModuleDef, "targets">> = {
+const REGISTRY: Record<ModuleId, ModuleDef> = {
   "secure-development": {
     id: "secure-development",
     displayName: "Secure Development",
@@ -703,13 +698,13 @@ git push -u origin fix/<short-description>`,
       experience: `Contestants fork ${ctx.appList} under the ${ctx.githubOrg} GitHub org, patch a real vulnerability, and open a pull request. A GitHub Action in the fork scores the patch and the score reaches the leaderboard through the poller, or by a push to the scorer.`,
       steps: [
         {
-          title: "Choose the targets and scoring transport in event.yaml",
+          title: "Choose the scoring transport in event.yaml",
           where: "outside",
           body: [
-            { code: "modules.secure-development.targets" },
-            ` lists the apps to fork (this build: ${ctx.appList}) and `,
             { code: "score_ingest" },
-            " picks poll or push. Both are baked into the app image at build time, so changing them means a rebuild.",
+            " picks poll or push, baked into the app image at build time — changing it means a rebuild. Which targets this event actually runs is chosen on this tab's Targets list, not here: a fresh event runs all six, and provisioning (",
+            { code: "ctf-setup.sh org" },
+            ") always forks and scores all six regardless of what's later switched off.",
           ],
         },
         {
@@ -1563,18 +1558,12 @@ git push -u origin fix/<short-description>`,
   },
 };
 
-/** A full `ModuleDef` for EVERY registered module. `targets` still comes from
- *  `event.yaml` for secure-development in this release (PR 2 of #386 moves it
- *  to the admin panel); every other module has none. */
-const MODULE_DEFS: Record<ModuleId, ModuleDef> = Object.fromEntries(
-  (Object.keys(REGISTRY) as ModuleId[]).map((id) => [
-    id,
-    {
-      ...REGISTRY[id],
-      targets: id === "secure-development" ? (eventConfig.modules.find((c) => c.id === id)?.targets ?? []) : [],
-    },
-  ]),
-) as Record<ModuleId, ModuleDef>;
+/** A full `ModuleDef` for EVERY registered module — just `REGISTRY` itself
+ *  now. Which targets secure-development runs is no longer part of a
+ *  `ModuleDef` at all (issue #386, PR 2): it moved to the admin panel and
+ *  `ctf:admin:settings.secureDevTargets` (see lib/secure-dev-targets.ts and
+ *  lib/enabled-apps.ts), read per request rather than baked at build time. */
+const MODULE_DEFS: Record<ModuleId, ModuleDef> = REGISTRY;
 
 // There is deliberately no "enabled modules' routes" list here. One existed
 // (`enabledModuleRoutes`) for the pre-event gate, but the gate stopped using
@@ -1594,9 +1583,9 @@ const MODULE_DEFS: Record<ModuleId, ModuleDef> = Object.fromEntries(
  *  written out by hand there and asserted against this by proxy.test.ts, so
  *  registering a module with a route the proxy never sees fails a test instead
  *  of silently un-gating the new route. */
-export const ALL_MODULE_ROUTES: readonly string[] = (
-  Object.values(REGISTRY) as Omit<ModuleDef, "targets">[]
-).flatMap((m) => (m.nav ? [m.nav.href] : []));
+export const ALL_MODULE_ROUTES: readonly string[] = (Object.values(REGISTRY) as ModuleDef[]).flatMap((m) =>
+  m.nav ? [m.nav.href] : [],
+);
 
 /** Every module id the registry knows about, enabled or not — the vocabulary
  *  a runtime enablement set is validated against (issue #175). Derived from

@@ -26,10 +26,10 @@ import type { ResolvedModule } from "@/lib/modules";
 import type { LeaderboardData, LeaderboardEntry } from "@/lib/leaderboard/types";
 
 const QUIZ_ONLY: readonly ResolvedModule[] = [
-  { id: "quiz", title: "Quiz", blurb: "", targets: [] },
+  { id: "quiz", title: "Quiz", blurb: "" },
 ];
 const WITH_SECURE_DEV: readonly ResolvedModule[] = [
-  { id: "secure-development", title: "Secure Development", blurb: "", targets: [] },
+  { id: "secure-development", title: "Secure Development", blurb: "" },
 ];
 
 const CAPS = { apps: false, teams: false, challenges: false } as const;

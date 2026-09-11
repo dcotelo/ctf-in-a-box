@@ -25,7 +25,7 @@ import { apps } from "@/lib/apps";
 import type { LeaderboardEntry } from "@/lib/leaderboard/types";
 
 const MODULES: readonly ResolvedModule[] = [
-  { id: "secure-development", title: "Secure Development", blurb: "", targets: [] },
+  { id: "secure-development", title: "Secure Development", blurb: "" },
 ];
 
 const CAPS = { apps: true, teams: false, challenges: true } as const;

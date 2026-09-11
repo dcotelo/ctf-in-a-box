@@ -27,8 +27,8 @@ const CAPS = { apps: true, teams: true, challenges: true } as const;
 // `@/lib/modules`. Two modules, so the per-module heading is exercised (see
 // leaderboard-single-module.test.tsx for the one-module suppression case).
 const MODULES: readonly ResolvedModule[] = [
-  { id: "secure-development", title: "Secure Development", blurb: "", targets: [] },
-  { id: "quiz", title: "Quiz", blurb: "", targets: [] },
+  { id: "secure-development", title: "Secure Development", blurb: "" },
+  { id: "quiz", title: "Quiz", blurb: "" },
 ];
 
 function entry(overrides: Partial<LeaderboardEntry> = {}): LeaderboardEntry {
@@ -378,8 +378,8 @@ describe("per-module breakdown", () => {
         onToggle={() => {}}
         capabilities={CAPS}
         modules={[
-          { id: "secure-development", title: "Patch Track", blurb: "", targets: [] },
-          { id: "quiz", title: "Round 1", blurb: "", targets: [] },
+          { id: "secure-development", title: "Patch Track", blurb: "" },
+          { id: "quiz", title: "Round 1", blurb: "" },
         ]}
       enabledApps={apps} />,
     );
