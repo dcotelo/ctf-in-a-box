@@ -7,21 +7,15 @@ cd "$(dirname "$0")/.."
 SMOKE_APP_KEY_B64="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null | base64 | tr -d '\n')"
 export SRH_TOKEN=smoke-srh SCORER_TOKEN=smoke-scorer REDIS_PASSWORD=smoke-redis
 export GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY="$SMOKE_APP_KEY_B64" GITHUB_APP_INSTALLATION_ID=1
+# The org the mock-github fixture serves score comments under, and the one
+# key sync refuses to start without (config v2, #386 — the poller reads its
+# whole config from the environment, there is no config file to mount any
+# more). Which targets get polled is a runtime Redis read, so a fixture that
+# covers dvwa + juice-shop needs nothing declared here.
+export GITHUB_ORG=evt-org
 compose() { docker compose -f docker-compose.yml -f docker-compose.smoke.yml --profile poll "$@"; }
 
-# Fixture comments cover dvwa + juice-shop; write a minimal matching config to
-# a scratch file — never the organizer's real event.yaml. docker-compose.smoke.yml
-# mounts this over /config/event.yaml in the sync service (compose merges the
-# sync service's volumes list by target path, so this override replaces the
-# base compose file's ./event.yaml bind rather than stacking alongside it).
-cat > .smoke-event.yaml <<'YAML'
-github: { org: evt-org }
-modules:
-  secure-development:
-    targets: [juice-shop, dvwa]
-YAML
-
-cleanup() { compose down -v --remove-orphans >/dev/null 2>&1 || true; rm -f .smoke-event.yaml; }
+cleanup() { compose down -v --remove-orphans >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 compose up -d --build redis srh scorer mock-github sync

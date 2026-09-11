@@ -82,14 +82,14 @@ jobs:
             # that changes the grammar must run the suite that proves the
             # scorer still agrees with it.
             echo "scorer=$(m "^scorer/|^sync/src/parse\.js$|^scripts/acceptance-scorer\.sh$CI")"
-            # The modules: reader contract is shared between sync and
-            # ctf-setup.sh: setup/test/corpus/ is one corpus asserted from
-            # BOTH sides (sync/test/module-readers.differential.test.js and
-            # setup/test/module_readers.bats), and both sides also parse
-            # event.yaml.example. Each area therefore has to run when the
-            # corpus (or the example config) moves, or half the contract
-            # goes unchecked on the PR that breaks it.
-            echo "sync=$(m "^event\.yaml\.example|^sync/|^setup/test/corpus/|^setup/targets\.tsv$CI")"
+            # setup/targets.tsv is here for the reason given under `app`
+            # above: it is the only authoritative source of a fork's repo
+            # name, and sync keeps a copy pinned to it by
+            # sync/test/repo-names.differential.test.js — the one guard that
+            # catches the drift, which must therefore run on the commit that
+            # causes it. (The event.yaml reader corpus the two used to share
+            # went with the config file itself in #386.)
+            echo "sync=$(m "^sync/|^setup/targets\.tsv$CI")"
             # deploy/fly is here because its checks ARE shell: a bats suite
             # plus a shellcheck'd deploy script. There is no `terraform
             # validate` equivalent for fly.toml to give it its own job.
@@ -103,11 +103,11 @@ jobs:
             # they belong here; the .tf files belong to terraform.yml, which
             # has its own paths filter. Both jobs run when the module changes,
             # and each checks the half the other cannot see.
-            echo "shell=$(m "^event\.yaml\.example|^scripts/|^setup/|^deploy/fly/|^deploy/aws-terraform/deploy\.sh$|^deploy/aws-terraform/test/|^sync/Dockerfile$|^docker-compose\.yml$|^scorer/consumer-workflow\.example\.yml$|^scorer/entrypoint$CI")"
+            echo "shell=$(m "^scripts/|^setup/|^deploy/fly/|^deploy/aws-terraform/deploy\.sh$|^deploy/aws-terraform/test/|^sync/Dockerfile$|^docker-compose\.yml$|^scorer/consumer-workflow\.example\.yml$|^scorer/entrypoint$CI")"
             # `^sync/` is here because smoke runs the REAL sync service —
-            # docker-compose.smoke.yml overrides only its env and the mounted
-            # event.yaml. It is the one end-to-end proof the poll pipeline
-            # works, so the area most able to break it has to trigger it.
+            # docker-compose.smoke.yml overrides only its environment. It is
+            # the one end-to-end proof the poll pipeline works, so the area
+            # most able to break it has to trigger it.
             # Without this a change to the poller's own state handling merged
             # with the poll-pipeline test skipped, which is how it shipped the
             # crash-loop in #63.
@@ -119,29 +119,30 @@ jobs:
             # test/fixtures/ is here because docker-compose.smoke.yml builds
             # BOTH mock services (mock-github, mock-scorer) from it — a fixture
             # change is a smoke-behavior change nothing else runs.
-            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^sync/|^event\.yaml\.example|^\.env|^Caddyfile|^scorer/consumer-workflow|^test/fixtures/$CI")"
+            echo "smoke=$(m "^docker-compose|^scripts/smoke\.sh|^setup/|^sync/|^\.env|^Caddyfile|^scorer/consumer-workflow|^test/fixtures/$CI")"
             # Quiz-only spans BOTH areas it proves compose end to end: the app
-            # (module gating, /quiz, /leaderboard) and sync (the exits-0
-            # contract), plus docker-compose.yml itself (sync's restart
-            # policy the gate asserts on).
+            # (module gating, /quiz, /leaderboard) and sync (the
+            # refuses-without-GITHUB_ORG contract), plus docker-compose.yml
+            # itself (the sync service definition the gate brings up).
             echo "quiz=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-quiz-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
             # classic mirrors quiz's reasoning exactly: it spans the app
             # (module gating, /flags, /challenges 404, /leaderboard) and sync
-            # (the exits-0 contract), plus docker-compose.yml itself.
+            # (the refuses-without-GITHUB_ORG contract), plus
+            # docker-compose.yml itself.
             echo "classic=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-classic-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
             # ai mirrors quiz's and classic's reasoning exactly: it spans the
             # app (module gating, /ai, /ai/<id>, /challenges+/flags+/quiz
-            # 404, /leaderboard) and sync (the exits-0 contract), plus
-            # docker-compose.yml itself.
+            # 404, /leaderboard) and sync (the refuses-without-GITHUB_ORG
+            # contract), plus docker-compose.yml itself.
             echo "ai=$(m "^apps/web/|^sync/|^docker-compose\.yml$|^scripts/acceptance-ai-only\.sh$|^scripts/lib/acceptance-lib\.sh$CI")"
             # The Pages site is built from docs/ ALONE (pages.yml sets
             # `source: docs`), so only docs/ and the publishing workflow can
             # change what ships. README.md is in pages.yml's trigger paths but
             # is not part of the site, so it is deliberately absent here.
             echo "docs=$(m "^docs/|^\.github/workflows/pages\.yml$CI")"
-            # The six files this check compares, plus the check script
-            # itself and this workflow file (either is a behavior change).
-            echo "registries=$(m "^(sync/src/config\.js|setup/ctf-setup\.sh|apps/web/src/lib/modules\.ts|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|event\.yaml\.example|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
+            # The files this check compares, plus the check script itself and
+            # this workflow file (either is a behavior change).
+            echo "registries=$(m "^(sync/src/config\.js|setup/ctf-setup\.sh|apps/web/src/lib/modules\.ts|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
