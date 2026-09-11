@@ -117,12 +117,42 @@ need terraform "read the stack's outputs"
 # Content address: the revision that built it. Two images from one commit are
 # identical now that the app takes no build-time config, so the revision alone
 # names the image.
+#
+# A DIRTY apps/web needs more than a "-dirty" marker. This ECR repository is
+# IMMUTABLE, so the "is that tag already there?" lookup below skips the build
+# whenever the tag exists — and a bare `<rev>-dirty` names every uncommitted
+# state of that commit at once. The second dirty deploy would then ship the
+# FIRST one's image, silently. So the tag carries a short digest of the build
+# context's changes: the tracked diff under apps/web plus every untracked file
+# in it. Same working tree, same digest; a changed one gets its own tag.
+context_digest() {
+  {
+    git -C "$ROOT" diff HEAD -- apps/web
+    # node_modules/ and .next/ are gitignored, so --exclude-standard already
+    # drops them; naming them too keeps the context stable for anyone whose
+    # local ignore rules differ, and they are build OUTPUT, not build input.
+    git -C "$ROOT" -c core.quotePath=false ls-files --others --exclude-standard -- apps/web |
+      while IFS= read -r rel; do
+        case "$rel" in
+        apps/web/node_modules/* | apps/web/.next/*) continue ;;
+        esac
+        # The path as well as the content: an identical file added under a
+        # different name is a different build context.
+        echo "untracked:$rel"
+        if [ -f "$ROOT/$rel" ]; then
+          cat "$ROOT/$rel"
+        fi
+      done
+  } | git -C "$ROOT" hash-object --stdin
+}
+
 if REV="$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null)"; then
   if [ -n "$(git -C "$ROOT" status --porcelain -- apps/web 2>/dev/null)" ]; then
     # Scoped to apps/web, for the reason deploy/fly/deploy.sh gives: the image
     # is built from `apps/web`, so dirt anywhere else does not describe it. A
     # dirty app tree gets its own tag so it is never mistaken for the commit.
-    REV="${REV}-dirty"
+    DIGEST="$(context_digest)"
+    REV="${REV}-dirty-${DIGEST:0:8}"
   fi
 else
   REV="nogit"

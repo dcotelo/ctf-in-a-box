@@ -83,6 +83,64 @@ setup() {
   [ -n "$first" ] && [ "$first" = "$second" ]
 }
 
+# A throwaway repository, so the dirty-tree tests can dirty a build-context
+# file without touching the checkout the suite is running in. deploy.sh derives
+# its ROOT from its own location, so the copy has to sit at the same depth.
+fake_repo() {
+  local repo="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$repo/deploy/aws-terraform" "$repo/apps/web"
+  cp "$SCRIPT" "$repo/deploy/aws-terraform/deploy.sh"
+  printf 'FROM scratch\n' > "$repo/apps/web/Dockerfile"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email bats@example.invalid
+  git -C "$repo" config user.name bats
+  git -C "$repo" config commit.gpgsign false
+  git -C "$repo" add apps deploy
+  git -C "$repo" commit -qm init --no-gpg-sign
+  echo "$repo"
+}
+
+# The tag the dry run would hand Terraform.
+dry_run_tag() {
+  "$1/deploy/aws-terraform/deploy.sh" --dry-run |
+    sed -n 's/.*app_image = "\(.*\)".*/\1/p' | tail -1
+}
+
+@test "two different dirty apps/web trees do not get the same tag" {
+  # The regression: a bare "<rev>-dirty" names every uncommitted state of a
+  # commit at once. ECR here is IMMUTABLE, so the second dirty deploy finds the
+  # tag already present, skips the build, and ships the FIRST tree's image.
+  repo="$(fake_repo)"
+  printf 'FROM scratch\nRUN echo one\n' > "$repo/apps/web/Dockerfile"
+  first="$(dry_run_tag "$repo")"
+  printf 'FROM scratch\nRUN echo two\n' > "$repo/apps/web/Dockerfile"
+  second="$(dry_run_tag "$repo")"
+  [ -n "$first" ] && [ -n "$second" ] && [ "$first" != "$second" ]
+}
+
+@test "an untracked apps/web file changes the tag, and an unchanged tree does not" {
+  # Untracked files are build context too: `docker build apps/web` sends them.
+  # And the digest has to be reproducible, or "ECR already has it" could never
+  # fire and every deploy of an unchanged tree would rebuild.
+  repo="$(fake_repo)"
+  printf 'export const x = 1\n' > "$repo/apps/web/new-file.ts"
+  first="$(dry_run_tag "$repo")"
+  again="$(dry_run_tag "$repo")"
+  printf 'export const x = 2\n' > "$repo/apps/web/new-file.ts"
+  changed="$(dry_run_tag "$repo")"
+  [ -n "$first" ] && [ "$first" = "$again" ] && [ "$first" != "$changed" ]
+}
+
+@test "a dirty apps/web tree is tagged apart from the clean commit" {
+  repo="$(fake_repo)"
+  clean="$(dry_run_tag "$repo")"
+  printf 'FROM scratch\nRUN echo dirty\n' > "$repo/apps/web/Dockerfile"
+  dirty="$(dry_run_tag "$repo")"
+  # Named rather than implied: a dirty image must never be mistaken for the
+  # commit's, and the digest must not silently replace the marker.
+  [ -n "$clean" ] && [ "$clean" != "$dirty" ] && echo "$dirty" | grep -q -- '-dirty-[0-9a-f]\{8\}$'
+}
+
 @test "an empty terraform output is refused rather than used" {
   # `terraform output` can exit 0 and hand back nothing. Taken as valid it
   # builds a tag like ":abc123" and pushes it nowhere in particular — the
