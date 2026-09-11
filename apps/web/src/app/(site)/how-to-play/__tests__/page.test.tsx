@@ -76,6 +76,24 @@ describe("/how-to-play on a secure-development event", () => {
     expect(html).toContain('<span class="text-zinc-200">Login Bender</span>');
   });
 
+  // issue #379: every provisioned target's only scoring branch is `ctf` —
+  // ctf-setup.sh's ctf-branch step creates it and drop-old deletes
+  // master/main — so a PR opened against `main` (the worked example's old
+  // copy) has no base branch to land on.
+  it("opens the worked example's PR against ctf, not main", () => {
+    expect(html).toContain("gh pr create --repo OWASP-CTF/juice-shop --base ctf");
+    expect(html).not.toContain("--base main");
+    expect(html).toContain("the base branch is ctf");
+    expect(html).not.toContain("the base branch is main");
+  });
+
+  // The score-comment promise must name the ctf-score.yml workflow's actual
+  // heading ("## 🏆 CTF Patch Score"), not the invented "🏁 Score recorded".
+  it("promises the workflow's real score-comment heading", () => {
+    expect(html).toContain("CTF Patch Score");
+    expect(html).not.toContain("Score recorded");
+  });
+
   it("renders the platform's good-to-know and scoring cards", () => {
     expect(html).toContain("Good to know");
     expect(html).toContain("How scoring works");
