@@ -69,6 +69,16 @@ export async function tick(cfg, state, deps = {}) {
     log(why);
   };
 
+  // Read the pause flag FIRST, before the target list — it is fail-open and
+  // cheap (unlike getSecureDevTargets below), and reading it up front means
+  // the heartbeat this tick writes always carries the REAL paused value, even
+  // on the early return below. It used to be read only after the targets
+  // fetch, which made an unreadable-targets tick lie and report `paused:
+  // false` unconditionally regardless of the actual setting. This does not
+  // change WHEN the tick acts on it — the early-return-if-paused check below
+  // is still after the reset-epoch check, for the reason given there.
+  const paused = redis ? await redis.isPaused() : false;
+
   // Resolve THIS TICK's target list before anything else touches state or
   // Redis. With no admin override this is the app's full six-target
   // catalogue, but a transport error or an unparseable stored value must not
@@ -76,8 +86,8 @@ export async function tick(cfg, state, deps = {}) {
   // (silently widening scope back open) — either is a wrong guess dressed up
   // as a safe default. So a failure here fails the WHOLE tick closed: no
   // repo is polled, no cursor moves, and the heartbeat says why. This is
-  // deliberately unlike the isPaused/getResetAt reads below, which fail
-  // open/silent because a miss there already has its own safe direction.
+  // deliberately unlike the isPaused/getResetAt reads, which fail open/silent
+  // because a miss there already has its own safe direction.
   let targets;
   if (redis) {
     try {
@@ -89,7 +99,7 @@ export async function tick(cfg, state, deps = {}) {
         dropped: state.dropped,
         lastDrop: state.lastDrop ?? null,
         reposPolled: 0,
-        paused: false,
+        paused,
         lastError: `targets unreadable: ${err.message}`,
       });
       return state;
@@ -110,7 +120,7 @@ export async function tick(cfg, state, deps = {}) {
     }
   }
 
-  if (redis && (await redis.isPaused())) {
+  if (redis && paused) {
     await writeStatusSafely(redis, log, {
       lastPollAt: nowIso(),
       ingested: state.ingested,

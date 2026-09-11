@@ -102,9 +102,10 @@ export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yam
   // Array.isArray is not redundant: `modules: []` (or a `- quiz` sequence) is
   // typeof "object" and truthy, so without it a sequence where a mapping
   // belongs was accepted here as "nothing enabled" while ctf-setup.sh rejected
-  // the same file outright — a two-readers divergence the shared corpus in
-  // setup/test/corpus/ (run against the bash reader by
-  // setup/test/module_readers.bats) now pins.
+  // the same file outright. setup/test/module_readers.bats runs the shared
+  // corpus in setup/test/corpus/ against the BASH reader only; this reader's
+  // own pin is sync/test/config.test.js's "rejects modules: as a sequence,
+  // not as nothing enabled".
   if (!modules || typeof modules !== "object" || Array.isArray(modules)) {
     throw new Error(`event.yaml: modules.${MODULE} is required`);
   }

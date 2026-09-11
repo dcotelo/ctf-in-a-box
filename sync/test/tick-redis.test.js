@@ -69,6 +69,7 @@ test("unreadable targets → reposPolled 0, lastError set, state and cursors unc
   let status = null;
   const redis = {
     getSecureDevTargets: async () => { throw new Error("boom"); },
+    isPaused: async () => false,
     writeStatus: async (s) => { status = s; },
   };
   const state = baseState();
@@ -80,6 +81,24 @@ test("unreadable targets → reposPolled 0, lastError set, state and cursors unc
   assert.equal(state.ingested, 0);
   assert.equal(status.reposPolled, 0);
   assert.equal(status.paused, false);
+  assert.match(status.lastError, /targets unreadable: boom/);
+});
+
+// The pause flag is read BEFORE the targets fetch (it is fail-open and
+// cheap), specifically so an unreadable-targets tick's heartbeat still
+// carries the real value instead of hardcoding `paused: false` regardless of
+// the actual setting.
+test("unreadable targets while paused still reports the real paused value", async () => {
+  let status = null;
+  const redis = {
+    getSecureDevTargets: async () => { throw new Error("boom"); },
+    isPaused: async () => true,
+    writeStatus: async (s) => { status = s; },
+  };
+  const fetchImpl = () => { throw new Error("must not poll when targets are unreadable"); };
+  await tick(pollableCfg, baseState(), { redis, fetchImpl, log: () => {} });
+  assert.equal(status.reposPolled, 0);
+  assert.equal(status.paused, true);
   assert.match(status.lastError, /targets unreadable: boom/);
 });
 
@@ -110,4 +129,20 @@ test('stored ["vampi"] → only VAmPI polled', async () => {
   await tick(pollableCfg, baseState(), { redis, fetchImpl, log: () => {} });
   assert.equal(status.reposPolled, 1);
   assert.deepEqual(polled, ["VAmPI"]);
+});
+
+// R5: no Redis client at all (main() logs this once at boot, see
+// main.test.js) — tick() must still poll something rather than going dark.
+// TARGETS (all six) is the documented fallback; there is no `status` object
+// to read reposPolled from here (the final writeStatusSafely is itself
+// gated on `redis`), so this asserts on which repos were actually fetched.
+test("no redis client → falls back to polling all six targets", async () => {
+  const polled = [];
+  const fetchImpl = async (url) => {
+    polled.push(new URL(String(url)).pathname.split("/")[3]);
+    return { status: 200, headers: { get: () => null }, json: async () => [] };
+  };
+  await tick(pollableCfg, baseState(), { fetchImpl, log: () => {} }); // no `redis` key
+  assert.equal(polled.length, TARGETS.length);
+  assert.deepEqual(polled.sort(), Object.values(REPO_NAMES).sort());
 });

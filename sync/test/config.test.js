@@ -100,6 +100,28 @@ test("returns null when modules is present but empty", () => {
   assert.equal(loadConfig(writeYaml(`github: { org: my-org }\nmodules: {}\n`), ENV), null);
 });
 
+// modules: [] (or a `- quiz` sequence) is typeof "object" and truthy, so
+// without the Array.isArray guard in loadConfig it reads as "nothing
+// enabled" instead of the malformed config it is — the same divergence
+// setup/test/module_readers.bats pins for the bash reader (reject-modules-
+// empty-sequence.yaml / reject-modules-sequence-items.yaml in setup/test/
+// corpus/). This is the sync-side pin for the same rule.
+test("rejects modules: as a sequence, not as nothing enabled", () => {
+  assert.throws(() => loadConfig(writeYaml(`github: { org: my-org }\nmodules: []\n`), ENV), /modules.secure-development/);
+  assert.throws(() => loadConfig(writeYaml(`github: { org: my-org }\nmodules:\n  - quiz\n`), ENV), /modules.secure-development/);
+});
+
+// The shipped event.yaml.example is what an organizer copies to start a real
+// event — if sync's loadConfig cannot parse it, every event built from the
+// example crash-loops the poller on first boot. Read straight off disk
+// (not through writeYaml, which would just copy it) so this fails the moment
+// the example and this reader drift.
+test("accepts the shipped event.yaml.example", () => {
+  const p = new URL("../../event.yaml.example", import.meta.url);
+  const cfg = loadConfig(p, ENV);
+  assert.equal(cfg.org, "my-event-org");
+});
+
 const YAML = `github: { org: o }\nmodules:\n  secure-development:\n    targets: [dvwa]\n`;
 
 test("app mode: App creds yield authMode app and a functional getToken", () => {
