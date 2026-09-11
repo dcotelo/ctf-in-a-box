@@ -180,7 +180,11 @@ if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build car
 # script does.
 expect_in "$DEFAULT_HTML" "<title>OWASP CTF</title>" "default build does not carry the neutral name in the page title"
 
-echo "--- default build's fork links fall back to OWASP-CTF"
-expect_in "$DEFAULT_CHALLENGES_HTML" "github.com/OWASP-CTF/" "default build does not fall back to OWASP-CTF fork links"
+echo "--- with no GITHUB_ORG the default build renders bare repo names and no fork link"
+expect_in "$DEFAULT_CHALLENGES_HTML" "DVWA" "default build did not render the DVWA repo name"
+if echo "$DEFAULT_CHALLENGES_HTML" | grep -qE 'github\.com/[^"]+/DVWA'; then
+  echo "FAIL: default build still links a DVWA fork although GITHUB_ORG is unset"
+  exit 1
+fi
 
 echo "ACCEPTANCE PASS"
