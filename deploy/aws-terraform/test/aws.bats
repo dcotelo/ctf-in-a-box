@@ -153,6 +153,34 @@ dry_run_tag() {
   [ -n "$first" ] && [ -n "$second" ] && [ "$first" != "$second" ]
 }
 
+@test "retargeting a dangling symlink changes the tag" {
+  # `docker build` sends a symlink as its TARGET STRING, so two different
+  # targets are two different build contexts. Hashing anything that is not a
+  # regular file as a constant lost that: the link changed, the tag did not.
+  repo="$(fake_repo)"
+  ln -s target-a "$repo/apps/web/link"
+  first="$(dry_run_tag "$repo")"
+  rm "$repo/apps/web/link"
+  ln -s target-b "$repo/apps/web/link"
+  second="$(dry_run_tag "$repo")"
+  [ -n "$first" ] && [ -n "$second" ] && [ "$first" != "$second" ]
+}
+
+@test "a build-context path containing a newline is still hashed by content" {
+  # Read line-at-a-time, git QUOTES this pathname ("apps/web/na\nme"); the
+  # quoted string matches nothing on disk, so every edit to the file hashed as
+  # the same not-a-file record and the tag never moved. `-z` plus `read -d ''`
+  # is the fix, and a literal newline in the name is the only way to test it.
+  repo="$(fake_repo)"
+  nl_path="$repo/apps/web/na
+me"
+  printf 'one\n' > "$nl_path"
+  first="$(dry_run_tag "$repo")"
+  printf 'two\n' > "$nl_path"
+  second="$(dry_run_tag "$repo")"
+  [ -n "$first" ] && [ -n "$second" ] && [ "$first" != "$second" ]
+}
+
 @test "a dirty apps/web tree is tagged apart from the clean commit" {
   repo="$(fake_repo)"
   clean="$(dry_run_tag "$repo")"

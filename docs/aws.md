@@ -118,10 +118,12 @@ The image tag is content-addressed to the git revision, and ECR is set to
 immutable tags, so re-running with nothing changed reports "already there" and
 skips the build instead of failing. A dirty `apps/web` tree gets
 `<revision>-dirty-<digest>`, where the digest is taken over the uncommitted
-build context: change the tracked diff, or the set or contents of the untracked
-files under `apps/web`, and the tag changes with it. That is what keeps a
-work-in-progress deploy off the tag an earlier one already pushed, which on an
-immutable registry would have redeployed the earlier image.
+build context: change the tracked diff, or the set or contents of the
+untracked, non-ignored **build-input** files under `apps/web` — `node_modules`
+and `.next` are excluded, along with anything else your git ignore rules
+exclude — and the tag changes with it. That is what keeps a work-in-progress
+deploy off the tag an earlier one already pushed, which on an immutable
+registry would have redeployed the earlier image.
 `./deploy.sh --dry-run` prints every command and runs none of them.
 
 Watch a rollout:

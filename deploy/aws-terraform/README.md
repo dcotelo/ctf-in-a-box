@@ -166,10 +166,12 @@ The tag is content-addressed to the git revision, and the ECR repository is
 and skips the build rather than failing. A dirty `apps/web` tree is tagged
 `<revision>-dirty-<digest>`, where the digest is taken over the uncommitted
 build context: change the tracked diff, or the set or contents of the
-untracked files under `apps/web`, and the tag changes with it. That is what
-keeps a work-in-progress deploy from landing on the tag an earlier one already
-pushed — which, on an immutable registry, would have redeployed the earlier
-image. `deploy.sh --dry-run` prints every command and runs none of them.
+untracked, non-ignored **build-input** files under `apps/web` — `node_modules`
+and `.next` are excluded, as is anything else the ignore rules exclude — and
+the tag changes with it. A symlink counts as its target string, the way
+`docker build` sends it. That is what keeps a work-in-progress deploy from
+landing on the tag an earlier one already pushed — which, on an immutable
+registry, would have redeployed the earlier image. `deploy.sh --dry-run` prints every command and runs none of them.
 
 ## Variables
 

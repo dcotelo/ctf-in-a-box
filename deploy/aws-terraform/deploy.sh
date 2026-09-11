@@ -130,31 +130,48 @@ need terraform "read the stack's outputs"
 # a pathname and then its raw bytes is ambiguous: one file whose content reads
 # like the next record's header serializes exactly like two files, and the two
 # trees would share a tag. So nothing variable-length is ever concatenated —
-# every record is fixed-shape fields (a hex hash, or a pathname, which cannot
-# contain one) separated by NUL, which cannot occur in either.
+# every record is fixed-shape fields (a hex hash, a kind, or a pathname, none
+# of which can contain one) separated by NUL, which cannot occur in any.
 context_digest() {
   {
     # The tracked diff enters as ONE field: its own hash, not its bytes.
     printf 'diff\0%s\0' \
       "$(git -C "$ROOT" diff HEAD -- apps/web | git -C "$ROOT" hash-object --stdin)"
+    # `-z` + `read -d ''`, not line-at-a-time: without it git QUOTES a pathname
+    # containing a newline ("apps/web/na\nme"), the quoted string matches
+    # nothing on disk, and every later edit to that file hashes as the same
+    # not-a-file record. NUL is the one byte a pathname cannot hold, so it is
+    # the only safe delimiter — and `-z` suppresses the quoting outright,
+    # which is why core.quotePath is no longer set here.
+    #
     # node_modules/ and .next/ are gitignored, so --exclude-standard already
     # drops them; naming them too keeps the context stable for anyone whose
     # local ignore rules differ, and they are build OUTPUT, not build input.
-    git -C "$ROOT" -c core.quotePath=false ls-files --others --exclude-standard -- apps/web |
-      while IFS= read -r rel; do
+    git -C "$ROOT" ls-files -z --others --exclude-standard -- apps/web |
+      while IFS= read -r -d '' rel; do
         case "$rel" in
         apps/web/node_modules/* | apps/web/.next/*) continue ;;
         esac
-        # The path as well as the content: an identical file added under a
-        # different name is a different build context. `-` for anything that
-        # is not a readable regular file (a dangling symlink, say) — the name
-        # still counts, and the entry is still a fixed number of fields.
-        if [ -f "$ROOT/$rel" ]; then
+        # The path AND the kind AND the content: an identical file added under
+        # a different name is a different build context, and so is a path that
+        # stopped being a regular file without changing its bytes.
+        #
+        # -L before -f, because -f follows the link: a symlink is hashed by its
+        # TARGET STRING, which is what `docker build` puts in the context and
+        # what the old `-` lost — retargeting a dangling link changed the build
+        # and not the tag. `other` (a fifo, a socket) keeps the record shape
+        # with nothing to hash.
+        if [ -L "$ROOT/$rel" ]; then
+          kind="symlink"
+          hash="$(readlink "$ROOT/$rel" | git -C "$ROOT" hash-object --stdin)"
+        elif [ -f "$ROOT/$rel" ]; then
+          kind="file"
           hash="$(git -C "$ROOT" hash-object --no-filters -- "$ROOT/$rel")"
         else
+          kind="other"
           hash="-"
         fi
-        printf 'untracked\0%s\0%s\0' "$rel" "$hash"
+        printf 'untracked\0%s\0%s\0%s\0' "$rel" "$kind" "$hash"
       done
   } | git -C "$ROOT" hash-object --stdin
 }
