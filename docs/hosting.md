@@ -719,8 +719,8 @@ section for the five fields and their limits.
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
-bakes the non-identity keys in the table above — dates, fork org and admins —
-from `event.yaml` at **image-build time**, via the
+bakes the non-identity keys in the table above — dates, fork org and
+admins — from `event.yaml` at **image-build time**, via the
 `EVENT_CONFIG_B64` build arg. Event name, tagline, location, contact e-mail
 and Discord invite are **not** among them since #386: those are runtime
 `/admin` settings, read on every request, so renaming an event or adding a
