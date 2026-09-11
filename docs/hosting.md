@@ -773,7 +773,7 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 | `SCORE_INGEST` | compose (Caddyfile choice) | `poll` | `poll` or `push`: mounts `caddy/Caddyfile.<mode>`. Must match the `--profile` you pass. |
 | `SCORE_IMAGE` | `scorer` image | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. `ctf-setup org` refuses to run until it is set. |
 | `EVENT_URL` | `caddy` as `EVENT_HOST`; `app` as `BETTER_AUTH_URL` | `http://localhost` | **The** event URL — TLS host, auth callback origin, HTTPS start-up guard, CSRF origin check. `https://` for any real event. |
-| `EVENT_CONFIG_B64` | `app` **build arg**; `sync` at start-up | empty | Base64 of `event.yaml`. Required on every `--build`; without it the app bakes neutral defaults. `sync` treats empty as absent and reads the bind mount instead. |
+| `EVENT_CONFIG_B64` | `sync` at start-up (the `app` build arg is ignored: the image bakes nothing since #386 part 4; the arg itself goes in part 6) | empty | Base64 of `event.yaml` for `sync` only. `sync` treats empty as absent and reads the bind mount instead. |
 | `REDIS_DIR` | `redis` | `/data` | Where the append-only file lives inside the volume. Fly sets `/data/redis` (one volume per machine, see [docs/fly.md](fly.md)). |
 | `STATE_PATH` | `sync` | `/state/state.json` | The poller's cursor file. Fly sets `/data/sync/state.json`. |
 | `EVENT_HOST`, `SRH_MODE`, `REDISCLI_AUTH` | `caddy`, `srh`, `redis` | *fixed* | Derived by compose: Caddy's host from `EVENT_URL`, `srh`'s config mode (`env`), `redis-cli`'s password from `REDIS_PASSWORD` so `docker compose exec redis redis-cli` authenticates itself. |
