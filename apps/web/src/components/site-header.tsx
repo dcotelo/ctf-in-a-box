@@ -19,9 +19,11 @@ import NavDropdown from "@/components/nav-dropdown";
 export default function SiteHeader({
   navLinks,
   discordUrl,
+  eventName,
 }: {
   navLinks: NavEntry[];
   discordUrl: string;
+  eventName: string;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -32,13 +34,13 @@ export default function SiteHeader({
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#12121e]/80 backdrop-blur">
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        {/* The terminal-prompt wordmark IS the brand: green $, mono, OWASP
-            identity front and center. */}
+        {/* The terminal-prompt wordmark IS the brand: green $, mono, the
+            organizer's runtime event name front and center. */}
         <Link
           href="/"
           className="font-mono text-sm font-semibold tracking-tight text-white transition-colors hover:text-[#2563eb]"
         >
-          <span className="text-[#22c55e]">$</span> owasp-ctf
+          <span className="text-[#22c55e]">$</span> {eventName}
         </Link>
 
         {/* Desktop nav */}

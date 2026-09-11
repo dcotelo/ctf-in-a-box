@@ -74,7 +74,7 @@ export default async function RootLayout({
         >
           Skip to content
         </a>
-        <SiteHeader navLinks={navLinks} discordUrl={site.discordUrl} />
+        <SiteHeader navLinks={navLinks} discordUrl={site.discordUrl} eventName={site.name} />
         {children}
         <VisitBeacon />
       </body>
