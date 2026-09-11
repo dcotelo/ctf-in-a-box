@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { getAdminSettings, resetEvent } from "@/lib/admin-store";
+import { adminErrorLabel, getAdminSettings, resetEvent } from "@/lib/admin-store";
 import { resolveSite } from "@/lib/site";
 
 // Master reset: wipe all event data. Admin-gated + type-to-confirm, both
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const settings = await getAdminSettings();
     name = resolveSite(settings.eventIdentity).name;
   } catch (err) {
-    console.error("[admin/reset] settings read failed", err);
+    console.error("[admin/reset] settings read failed", adminErrorLabel(err));
     return NextResponse.json({ error: "settings read failed" }, { status: 503 });
   }
 
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     const result = await resetEvent(gate.login);
     return NextResponse.json(result);
   } catch (err) {
-    console.error("[admin/reset] reset failed", err);
+    console.error("[admin/reset] reset failed", adminErrorLabel(err));
     return NextResponse.json({ error: "reset failed" }, { status: 503 });
   }
 }

@@ -220,6 +220,45 @@ describe("POST /api/admin/reset", () => {
     expect(res.status).toBe(400);
     expect(resetEvent).not.toHaveBeenCalled();
   });
+
+  // Carried from #389 round 3: this route used to log the raw caught `err`.
+  // Node's console.error prints an Error's own enumerable properties too, so
+  // a decorated error (a wrapped Redis/HTTP error carrying a token, a URL
+  // with credentials, etc.) would leak them straight into the server log.
+  // adminErrorLabel(err) reduces it to "<name>: <message>" — prove the extra
+  // fields never make it into what gets logged, for both call sites this
+  // route logs an error from.
+  it("redacts a decorated resetEvent failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    resetEvent.mockRejectedValue(decorated);
+    const res = await resetPOST(rreq({ confirm: "RESET" }));
+    expect(res.status).toBe(503);
+    const logged = spy.mock.calls.flat().map(String).join("\n");
+    expect(logged).not.toContain("SECRET-TOKEN");
+    expect(logged).not.toContain("leaky.example");
+    expect(logged).toContain("Error: upstash down");
+    spy.mockRestore();
+  });
+
+  it("redacts a decorated settings-read failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    getAdminSettings.mockRejectedValue(decorated);
+    const res = await resetPOST(rreq({ confirm: "RESET" }));
+    expect(res.status).toBe(503);
+    const logged = spy.mock.calls.flat().map(String).join("\n");
+    expect(logged).not.toContain("SECRET-TOKEN");
+    expect(logged).not.toContain("leaky.example");
+    expect(logged).toContain("Error: upstash down");
+    spy.mockRestore();
+  });
 });
 
 describe("POST /api/admin/seed", () => {
