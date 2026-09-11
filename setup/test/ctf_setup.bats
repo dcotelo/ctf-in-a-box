@@ -1,19 +1,37 @@
 #!/usr/bin/env bats
 
+# Config v2 (#386): there is no event.yaml. The bootstrap plane is `.env` —
+# GITHUB_ORG (the event org), ADMIN_LOGINS (who may open /admin) and
+# SCORE_IMAGE, whose NON-EMPTINESS is how the box says "this event runs
+# Secure Development". Everything else an organizer changes — the module set,
+# the SD targets, identity, schedule — is a runtime /admin setting.
 setup() {
   cd "$BATS_TEST_TMPDIR"
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa, vampi]
-EOF
+  _env_fixture
   SCRIPT="$BATS_TEST_DIRNAME/../ctf-setup.sh"
 }
 
+# The default bootstrap .env: an event that RUNS Secure Development.
+_env_fixture() {
+  cat > .env <<'EOF'
+GITHUB_ORG=test-event-org
+ADMIN_LOGINS=organizer
+SCORE_IMAGE=ghcr.io/fixture/score:latest
+EOF
+}
+
+# ...and one that does not: SCORE_IMAGE empty, so every fork/scorer step is
+# skipped and only the app comes up.
+_env_fixture_no_secdev() {
+  cat > .env <<'EOF'
+GITHUB_ORG=test-event-org
+ADMIN_LOGINS=organizer
+SCORE_IMAGE=
+EOF
+}
+
 @test "org --dry-run plans the full idempotent sequence per target" {
-  run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
   echo "$output" | grep -qF "create refs/heads/ctf on test-event-org/DVWA from digininja/DVWA@d45ba3c"
@@ -26,18 +44,32 @@ EOF
   [ ! -e dist ]  # dry-run writes nothing
 }
 
-@test "org fails loudly when SCORE_IMAGE is unset (no upstream image default)" {
-  run bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF -- "SCORE_IMAGE not set"
+@test "org: an empty SCORE_IMAGE means no Secure Development — nothing forked, and it says how to enable it" {
+  # Config v2 (#386): SCORE_IMAGE is the switch. Empty is not an error any
+  # more (an app-only event has no scorer image), but it must not be silent
+  # either — an organizer who MEANT to run Secure Development and forgot the
+  # image would otherwise read "nothing to do" as "done".
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF -- "does not run Secure Development"
   echo "$output" | grep -qF -- "docs/scorer.md"
-  # Must fail before planning any mutation
+  # Must plan no mutation at all
   [ -z "$(echo "$output" | grep -F -- "gh repo fork")" ]
+  [ -z "$(echo "$output" | grep -F -- "docker pull")" ]
   [[ "$output" != *"ghcr.io/owasp-ctf/score"* ]]
 }
 
+@test "org: a missing GITHUB_ORG fails with a clean message naming the key" {
+  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
+  run bash "$SCRIPT" org --dry-run
+  [ "$status" -ne 0 ]
+  [ -z "$(echo "$output" | grep -F -- "gh repo fork")" ]
+  echo "$output" | grep -qF -- "GITHUB_ORG"
+}
+
 @test "render writes per-target workflows with all placeholders substituted" {
-  run bash "$SCRIPT" render --config event.yaml
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   [ -f dist/workflows/dvwa.ctf-score.yml ]
   [ -f dist/workflows/vampi.ctf-score.yml ]
@@ -55,7 +87,7 @@ EOF
 }
 
 @test "org --dry-run honors SCORE_IMAGE env var for the mirror source" {
-  run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/custom-score:v2 bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "docker pull ghcr.io/myorg/custom-score:v2"
   echo "$output" | grep -qF -- "docker tag ghcr.io/myorg/custom-score:v2 ghcr.io/test-event-org/score:latest"
@@ -63,19 +95,33 @@ EOF
 }
 
 @test "org --dry-run reads SCORE_IMAGE from .env when env var unset" {
-  echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > .env
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/other/score:pinned\n' > .env
+  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "docker pull ghcr.io/other/score:pinned"
   [[ "$output" == *"docker tag ghcr.io/other/score:pinned ghcr.io/test-event-org/score:latest"* ]]
 }
 
 @test "secrets generates all required values" {
-  run bash "$SCRIPT" secrets --config event.yaml --out .env.test
+  run bash "$SCRIPT" secrets --out .env.test
   [ "$status" -eq 0 ]
   for var in BETTER_AUTH_SECRET SRH_TOKEN SCORER_TOKEN REDIS_PASSWORD; do
     grep -qE "^${var}=.{20,}" .env.test
   done
+}
+
+# Config v2 (#386): the generated env file is the WHOLE bootstrap plane now,
+# so the two keys that used to live in event.yaml have to be in the template
+# an organizer edits — an absent key is one nobody knows to fill in, and an
+# empty ADMIN_LOGINS locks /admin for everyone (fail closed, by design).
+@test "secrets emits the bootstrap keys event.yaml used to carry" {
+  run bash "$SCRIPT" secrets --out .env.bootstrap.test
+  [ "$status" -eq 0 ]
+  grep -qx "GITHUB_ORG=" .env.bootstrap.test
+  grep -qx "SCORE_IMAGE=" .env.bootstrap.test
+  # Says what empty MEANS, right where it is empty.
+  grep -qF "/admin" .env.bootstrap.test
+  grep -qx "ADMIN_LOGINS=" .env.bootstrap.test
 }
 
 # Its own test, not just another entry in the loop above: docker-compose.yml
@@ -83,16 +129,16 @@ EOF
 # a weaker stack — it does not start at all. A generator that silently stopped
 # emitting it would strand every new organizer at the bring-up.
 @test "secrets generates a Redis password, without which compose refuses to start" {
-  run bash "$SCRIPT" secrets --config event.yaml --out .env.redispw.test
+  run bash "$SCRIPT" secrets --out .env.redispw.test
   [ "$status" -eq 0 ]
   grep -qE "^REDIS_PASSWORD=[0-9a-f]{32,}$" .env.redispw.test
 }
 
-@test "teardown --dry-run plans archive of all six target repos, regardless of event.yaml" {
-  # Config v2 PR2 (#386): event.yaml's targets: list is no longer read at all
-  # — every event tears down all six targets.tsv repos, ignoring the two
-  # (dvwa, vampi) this fixture's event.yaml happens to name.
-  run bash "$SCRIPT" teardown --dry-run --config event.yaml
+@test "teardown --dry-run plans archive of all six target repos" {
+  # Config v2 PR2 (#386): no targets list is read from anywhere — every event
+  # provisions, and tears down, all six targets.tsv repos. Which ones RUN is
+  # an /admin runtime setting.
+  run bash "$SCRIPT" teardown --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "gh repo archive test-event-org/DVWA --yes"
   echo "$output" | grep -qF -- "gh repo archive test-event-org/VAmPI --yes"
@@ -102,173 +148,38 @@ EOF
   [[ "$output" == *"gh repo archive test-event-org/SecurityShepherd --yes"* ]]
 }
 
-@test "an unknown target name in event.yaml's targets: is ignored — all six are still forked" {
-  # Config v2 PR2 (#386): targets: is no longer read/validated at all, so a
-  # garbage entry like "nope" is simply never looked at, and the real six
-  # targets.tsv targets are forked regardless of what event.yaml says.
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa, nope]
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  if printf '%s' "$output" | grep -qF -- "unknown target: nope"; then echo "FAIL: reported unknown target: nope"; return 1; fi
-  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
-  echo "$output" | grep -qF -- "gh repo fork juice-shop/juice-shop --org test-event-org --fork-name juice-shop"
-}
-
-@test "org with an empty (or absent) targets list still forks all six" {
-  # Config v2 PR2 (#386): a targets: key is ignored entirely, in any shape —
-  # empty, absent, malformed. It no longer gates provisioning; the running
-  # set is an /admin runtime setting instead.
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: []
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -F "event.yaml: no targets")" ]
-  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
-  echo "$output" | grep -qF -- "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
-}
-
-@test "org strips trailing comments from org field (HIGH fix #1)" {
-  cat > event.yaml <<'EOF'
-github:
-  org: my-event-org                # disposable per-event org
-modules:
-  secure-development:
-    targets: [dvwa, vampi]
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  # Must use exact org name without comment suffix
-  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org my-event-org --fork-name DVWA"
-  echo "$output" | grep -qF -- "docker tag ghcr.io/myorg/score:v1 ghcr.io/my-event-org/score:latest"
-  # Ensure comment is not included
-  [[ "$output" != *"disposable per-event org"* ]]
-}
-
-@test "teardown ignores an unknown target name in event.yaml and archives all six" {
-  # Config v2 PR2 (#386): teardown no longer reads event.yaml's targets: list
-  # at all, so "nope" is never looked at and never fails the run.
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa, nope]
-EOF
-  run bash "$SCRIPT" teardown --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  if printf '%s' "$output" | grep -qF -- "unknown target: nope"; then echo "FAIL: reported unknown target: nope"; return 1; fi
-  # Must NOT emit archive command with empty repo name
-  if printf '%s' "$output" | grep -qF -- "gh repo archive test-event-org/ --yes"; then echo "FAIL: archived an empty repo name"; return 1; fi
-  echo "$output" | grep -qF -- "gh repo archive test-event-org/DVWA --yes"
-}
-
 @test "teardown fails with missing org (MEDIUM fix #3)" {
-  cat > event.yaml <<'EOF'
-modules:
-  secure-development:
-    targets: [dvwa]
-EOF
-  run bash "$SCRIPT" teardown --dry-run --config event.yaml
+  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
+  run bash "$SCRIPT" teardown --dry-run
   [ "$status" -ne 0 ]
-  [[ "$output" == *"github.org missing"* ]]
+  [ -z "$(printf '%s' "$output" | grep -F 'gh repo archive')" ]
+  [[ "$output" == *"GITHUB_ORG"* ]]
 }
 
-@test "org handles flow-style github config (MEDIUM fix #3)" {
-  cat > event.yaml <<'EOF'
-github: { org: flow-event-org }
-modules:
-  secure-development:
-    targets: [dvwa, vampi]
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org flow-event-org --fork-name DVWA"
-  [[ "$output" == *"gh repo fork erev0s/VAmPI --org flow-event-org --fork-name VAmPI"* ]]
-}
-
-@test "a blank entry in targets: does not break anything — all six still render" {
-  # Config v2 PR2 (#386): targets: is never parsed for provisioning any more,
-  # so a blank list item is just inert text; every target still renders.
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa,,vampi]
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  v="$(template_version)"
-  echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"
-  [[ "$output" == *"render ctf-score.yml v$v (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
-  [[ "$output" == *"render ctf-score.yml v$v (TARGET=webgoat) and PUT to test-event-org/WebGoat:.github/workflows/ctf-score.yml on ctf"* ]]
-}
-
-@test "event.yaml's targets: list (real or decoy) has no effect — all six are always forked" {
-  # Config v2 PR2 (#386): with target extraction gone, a decoy targets: line
-  # outside modules.secure-development is just as inert as the real one
-  # inside it — both are ignored, and webgoat (named in neither) is forked
-  # anyway, because it is one of the six.
-  cat > event.yaml <<'EOF'
-notes:
-  targets: [webgoat]
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa, vampi]
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
-  echo "$output" | grep -qF -- "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
-  # webgoat is forked too — it's one of the six, regardless of either targets: line.
-  echo "$output" | grep -qF -- "gh repo fork WebGoat/WebGoat --org test-event-org --fork-name WebGoat"
-}
-
-@test "org: quiz-only config provisions nothing and succeeds" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-EOF
-  run bash "$SCRIPT" org --dry-run --config event.yaml
+@test "org: an app-only event (no SCORE_IMAGE) provisions nothing and succeeds" {
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
 }
 
-@test "render: quiz-only config writes nothing and succeeds" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-EOF
-  run bash "$SCRIPT" render --config event.yaml
+@test "render: an app-only event (no SCORE_IMAGE) writes nothing and succeeds" {
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   [ ! -d dist ]
 }
 
-@test "doctor: quiz-only config reports no provisioned content" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-EOF
-  run bash "$SCRIPT" doctor --dry-run --config event.yaml
+@test "teardown: an app-only event (no SCORE_IMAGE) archives nothing and succeeds" {
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE bash "$SCRIPT" teardown --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F 'gh repo archive')" ]
+}
+
+@test "doctor: an app-only event (no SCORE_IMAGE) reports no provisioned content" {
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE bash "$SCRIPT" doctor --dry-run
   [ "$status" -eq 0 ]
   printf '%s' "$output" | grep -qi 'no .*content'
 }
@@ -283,131 +194,16 @@ EOF
   mkdir -p brokentsv
   cp "$SCRIPT" brokentsv/ctf-setup.sh
   : > brokentsv/targets.tsv
-  run bash brokentsv/ctf-setup.sh doctor --dry-run --config event.yaml
+  run bash brokentsv/ctf-setup.sh doctor --dry-run
   printf '%s' "$output" | grep -qF 'targets.tsv'
   printf '%s' "$output" | grep -qF 'no targets to provision'
   [ "$status" -ne 0 ]
 }
 
-@test "unknown module key in event.yaml fails loudly (bash mirrors sync/src/config.js)" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  forensics:
-    targets: [dvwa]
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  printf '%s' "$output" | grep -qF 'unknown module: forensics'
-}
-
-@test "quiz alongside secure-development is a known combination, not rejected" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-  quiz: {}
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  printf '%s' "$output" | grep -qF 'gh repo fork digininja/DVWA'
-}
-
-@test "org: event.yaml with no modules: block at all fails (mirrors sync's requirement)" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-EOF
-  run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
-}
-
-@test "doctor: event.yaml with no modules: block at all fails" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-EOF
-  run bash "$SCRIPT" doctor --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
-}
-
-@test "render: event.yaml with no modules: block at all fails" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-EOF
-  run bash "$SCRIPT" render --config event.yaml
-  [ "$status" -ne 0 ]
-  printf '%s' "$output" | grep -qF 'modules.secure-development is required'
-}
-
-@test "org: a present modules: block that only lacks secure-development still succeeds" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-EOF
-  run bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  printf '%s' "$output" | grep -qF 'no provisioned content'
-}
-
-@test "teardown --dry-run still works with an unknown module key (no stranded organizer)" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  forensics:
-    targets: [dvwa]
-EOF
-  run bash "$SCRIPT" teardown --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  # teardown never runs check_known_modules — it only asks has_module whether
-  # "secure-development" is among the keys it can parse (here: "forensics"
-  # only, so nothing to tear down) — so an unrecognized module elsewhere is
-  # inert here — decisive part of this test is that it is NOT rejected by a
-  # module-key check at all.
-  [ -z "$(printf '%s' "$output" | grep -F 'unknown module')" ]
-}
-
-@test "app-manifest --dry-run still works with an unknown module key (no functional dependency on modules)" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  forensics: {}
-EOF
-  run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  printf '%s' "$output" | grep -qF 'organizations/test-event-org/settings/apps/new'
-}
-
-@test "oauth-app --dry-run still works with an unknown module key (no functional dependency on modules)" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  forensics: {}
-EOF
-  run bash "$SCRIPT" oauth-app --dry-run --config event.yaml
-  [ "$status" -eq 0 ]
-  printf '%s' "$output" | grep -qF 'organizations/test-event-org/settings/applications/new'
-}
-
-@test "missing config file gives clean error" {
-  run bash "$SCRIPT" org --dry-run --config nonexistent.yaml
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"config not found: nonexistent.yaml"* ]]
-}
-
-@test "check succeeds without event.yaml (regression fix)" {
-  # Create a directory with no event.yaml; stub tools so check passes
+@test "check succeeds with no .env at all (regression fix)" {
+  # `check` inspects the local toolchain only — it must not demand any config
+  # file to tell an organizer whether gh/docker/openssl are usable.
+  rm -f .env
   mkdir -p stubs
   cat > stubs/gh <<'EOF'
 #!/bin/bash
@@ -431,11 +227,11 @@ exit 0
 EOF
   chmod +x stubs/gh stubs/docker stubs/openssl
 
-  # Run check with stubs in PATH (no event.yaml in directory)
+  # Run check with stubs in PATH (no .env in the directory)
   PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" check
   [ "$status" -eq 0 ]
-  # Must NOT fail with "config not found"
-  [ -z "$(echo "$output" | grep -F -- "config not found")" ]
+  # Must NOT fail looking for a config file
+  [ -z "$(echo "$output" | grep -F -- "not found")" ]
   [[ "$output" == *"OK: prerequisites present"* ]]
 }
 
@@ -452,8 +248,8 @@ EOF
   [ "$status" -ne 0 ]; [[ "$output" == *"unknown target: nope"* ]]
 }
 
-@test "secrets succeeds without event.yaml (regression fix)" {
-  # secrets does not need event.yaml; should succeed even without it
+@test "secrets succeeds on a bare box with no config of any kind (regression fix)" {
+  rm -f .env
   run bash "$SCRIPT" secrets --out .env.secrets.test
   [ "$status" -eq 0 ]
   # Verify file was created with required variables
@@ -482,7 +278,7 @@ EOF
 }
 
 @test "org --dry-run forks from upstream (not OWASP-CTF)" {
-  run env SCORE_IMAGE=ghcr.io/myorg/s:v1 bash "$SCRIPT" org --dry-run --config event.yaml
+  run env SCORE_IMAGE=ghcr.io/myorg/s:v1 bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
   echo "$output" | grep -qF "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
@@ -544,11 +340,11 @@ EOF2
   # the first status column, so awk column 2 of the target's row is its fork
   # state. missing gh => ❌ + nonzero exit; found gh => ✅.
   make_gh_stub missing
-  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor
   [ "$status" -ne 0 ]
   [ "$(echo "$output" | awk '/^dvwa/{print $2}')" = "❌" ]
   make_gh_stub found
-  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor --config event.yaml
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" doctor
   [ "$(echo "$output" | awk '/^dvwa/{print $2}')" = "✅" ]
 }
 
@@ -573,7 +369,7 @@ EOF2
 }
 
 @test "app-manifest --dry-run targets the event org's App-creation URL" {
-  run bash "$SCRIPT" app-manifest --dry-run --config event.yaml
+  run bash "$SCRIPT" app-manifest --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "organizations/test-event-org/settings/apps/new"
   # redirect_url is REQUIRED by the create-from-manifest flow
@@ -611,7 +407,7 @@ EOF2
 }
 
 @test "oauth-app --dry-run prints the org OAuth-app URL + callback" {
-  run bash "$SCRIPT" oauth-app --dry-run --config event.yaml
+  run bash "$SCRIPT" oauth-app --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "organizations/test-event-org/settings/applications/new"
   [[ "$output" == *"/api/auth/callback/github"* ]]
@@ -633,12 +429,6 @@ EOF2
   [[ "$output" == *"--client-id is required"* ]]
 }
 
-@test "bare invocation runs the wizard (the default), not a usage error" {
-  run bash "$SCRIPT"
-  echo "$output" | grep -q "OWASP CTF setup wizard"
-  [ -z "$(echo "$output" | grep -F 'usage: ctf-setup.sh')" ]
-}
-
 # Stub gh/docker/openssl on PATH so the wizard's prerequisite step (cmd_check)
 # passes deterministically — CI runners have no `gh auth`, which would otherwise
 # make the wizard bail at step 1 before reaching the step under test.
@@ -650,47 +440,61 @@ _stub_prereqs() {
   done
 }
 
-@test "wizard prompts for event config inline when github.org is unset, without dead-ending" {
+# NOT --dry-run: the point is that a bare `ctf-setup.sh` dispatches to the
+# wizard rather than printing usage. Every tool is stubbed and CTF_NO_BROWSER
+# is set, because this is the one test that walks the REAL wizard — unstubbed,
+# it reached GitHub over the network and offered to bring the stack up.
+@test "bare invocation runs the wizard (the default), not a usage error" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-modules:
-  secure-development:
-    targets: [vampi]
-YAML
+  run env CTF_NO_BROWSER=1 PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT"
+  echo "$output" | grep -q "OWASP CTF setup wizard"
+  [ -z "$(echo "$output" | grep -F 'usage: ctf-setup.sh')" ]
+}
+
+@test "wizard asks the event basics inline when GITHUB_ORG is unset, without dead-ending" {
+  _stub_prereqs
+  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
   # No org -> the wizard must PROMPT inline (not halt): narrate the questions
   # under --dry-run and continue past step 3 to step 4 (proves no early exit).
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
   echo "$output" | grep -q "Answer a few questions to write"
   echo "$output" | grep -q "GitHub org (disposable per-event org)"
   echo "$output" | grep -q "4/9  Scorer image"
-  # The event name answer is bookkeeping only now (issue #386): nothing reads
-  # it from event.yaml, and the wizard says so right after the prompt.
-  echo "$output" | grep -q "the event name is a runtime setting now (/admin"
+  # Config v2 (#386): the event's identity, its module set and its schedule are
+  # runtime /admin settings — the wizard asks for none of them and says so.
+  echo "$output" | grep -qF "/admin"
+}
+
+# The one value the wizard cannot default on a fresh box: `gh api user` is a
+# gh call, and --dry-run makes none (AGENTS.md). An .env with an empty
+# ADMIN_LOGINS fails closed in the app — /admin forbids EVERY login
+# (admin-auth.ts) — which is silent until an organizer tries to open the
+# panel, so the wizard refuses to write one instead of shipping the lockout.
+@test "wizard refuses to write an .env with no admin logins" {
+  _stub_prereqs
+  rm -f .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ ! -f .env ]
+  echo "$output" | grep -qF "at least one admin login is required"
+  echo "$output" | grep -qF "/admin would forbid everyone"
+  [ "$status" -ne 0 ]
 }
 
 @test "wizard --dry-run walks every step to bring-up without blocking" {
   _stub_prereqs
-  rm -f .env event.yaml
-  # No .env, no event.yaml: every step must narrate and flow through to step 8
-  # instead of exiting early to make the operator edit a file and re-run.
+  # A complete bootstrap .env: every step must narrate and flow through to
+  # step 8 instead of exiting early to make the operator edit a file and
+  # re-run.
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "2/9  Secrets"
-  echo "$output" | grep -q "3/9  Event config"
+  echo "$output" | grep -q "3/9  Event basics"
   echo "$output" | grep -q "8/9  Bring the containers up"
 }
 
 @test "wizard pauses for the UI-only steps and verifies with doctor LAST" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-YAML
   # Issue #370. The order is the point: provisioning (7), then the pause for
   # the fork-detach / package-grant steps, then bring-up (8), and doctor as
   # the closing step (9) — never before the organizer could have done the UI
@@ -707,21 +511,15 @@ YAML
   [ "$up_at" -lt "$doctor_at" ]
 }
 
-@test "wizard: a quiz-only event has no UI-only steps to pause for" {
+@test "wizard: an app-only event has no UI-only steps to pause for" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-YAML
+  _env_fixture_no_secdev
   # No forks, no package — a pause here would be asking the organizer to
   # confirm work that does not exist. The 9/9 banner still closes the run,
   # but it says there is nothing to verify rather than that it would run
   # doctor (review finding on #376: the dry-run path must not claim a
   # verification the real path would skip).
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q '9/9  Verify'
   echo "$output" | grep -qF 'nothing provisioned to verify'
@@ -729,228 +527,61 @@ YAML
   [ -z "$(echo "$output" | grep -F 'would verify the org')" ]
 }
 
-@test "wizard prints the compose profiles the configured modules actually need" {
+@test "wizard prints app-only compose profiles when SCORE_IMAGE is empty" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-YAML
-  # A quiz-only event has no scorer image to pull and nothing to poll, so the
+  _env_fixture_no_secdev
+  # An app-only event has no scorer image to pull and nothing to poll, so the
   # bring-up it prints must NOT ask for the score-ingest profiles — those
   # carry secure-development's sync + scorer (docker-compose.yml, ADR 26).
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -F -- '--profile poll')" ]
   [ -z "$(echo "$output" | grep -F -- '--profile push')" ]
   echo "$output" | grep -qF 'docker compose --profile app up -d --build'
 }
 
-@test "wizard --dry-run says it would write the ingest answer to .env, not only event.yaml" {
+@test "wizard prints the poll profiles for a Secure Development event" {
   _stub_prereqs
-  rm -f .env event.yaml
-  # Issue #372. The wizard asked "Score ingest (poll | push)" and wrote the
-  # answer to event.yaml only; .env kept the template SCORE_INGEST=poll, and
-  # step 8 read .env to pick profiles — so "push" produced a push label on a
-  # poll deployment with no warning. Under --dry-run every answer is its
-  # default, so the value here is poll; what is pinned is that the write
-  # to .env happens at all, next to the event.yaml write.
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'would set SCORE_INGEST=poll in .env'
-}
-
-@test "wizard: a quiz-only event never touches SCORE_INGEST" {
-  _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-YAML
-  # Nothing to ingest, so the template value in .env is left alone — writing
-  # one would suggest a switch that does nothing for this event.
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -F 'SCORE_INGEST=')" ]
-}
-
-@test "wizard warns at bring-up when .env and event.yaml disagree on score ingest" {
-  _stub_prereqs
-  cat > .env <<'ENV'
-REDIS_PASSWORD=fixture
-SCORE_INGEST=poll
-ENV
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-    score_ingest: push
-YAML
-  # The live shape on 2026-09-09: event.yaml push, .env poll, box polling.
-  # The command it prints still follows .env (that IS what compose reads), and
-  # the warning names both values and both files so the fix is one edit.
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
-  echo "$output" | grep -qF 'SCORE_INGEST=poll but'
-  echo "$output" | grep -qF 'score_ingest: push'
 }
 
-@test "wizard stays quiet at bring-up when the two ingest switches agree" {
+@test "wizard follows .env's SCORE_INGEST when it says push" {
   _stub_prereqs
-  cat > .env <<'ENV'
-REDIS_PASSWORD=fixture
-SCORE_INGEST=push
-ENV
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-    score_ingest: push
-YAML
-  # A warning that also fires when nothing is wrong is one nobody reads — and
-  # this is the other half that makes the test above mean something.
+  # SCORE_INGEST in .env is what compose reads (it expands into the Caddyfile
+  # mount path), so it is also what the printed bring-up must follow — there
+  # is no second copy of this switch to disagree with any more (#372/#374).
+  _env_fixture
+  printf 'SCORE_INGEST=push\n' >> .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF 'docker compose --profile push --profile app up -d --build'
-  [ -z "$(echo "$output" | grep -F 'score ingest disagrees')" ]
-}
-
-@test "doctor warns when .env and event.yaml disagree on score ingest" {
-  _stub_prereqs
-  cat > .env <<'ENV'
-REDIS_PASSWORD=fixture
-SCORE_INGEST=push
-ENV
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-    score_ingest: poll
-YAML
-  # Either direction of drift is named; here .env is the one saying push.
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" doctor
-  echo "$output" | grep -qF 'SCORE_INGEST=push but'
-  echo "$output" | grep -qF 'score_ingest: poll'
-}
-
-@test "yaml_ingest reads block and flow style, scoped to secure-development, defaulting to poll" {
-  read_ingest() {
-    bash -c 'CMD=__selftest source "$1"; CONFIG="$2"; yaml_ingest' _ "$SCRIPT" "$1"
-  }
-  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n    score_ingest: push\n' > a.yaml
-  printf 'modules:\n  secure-development: {targets: [dvwa], score_ingest: push}\n' > b.yaml
-  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n' > c.yaml
-  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n    score_ingest: "poll"  # quoted, commented\n' > d.yaml
-  # A score_ingest: under another module must not leak into the answer.
-  printf 'modules:\n  secure-development:\n    targets: [dvwa]\n  quiz:\n    score_ingest: push\n' > e.yaml
-  # Flow style with a QUOTED value — valid YAML the app's parser reads as
-  # push; an unquoted-only regex read it as poll and raised a false mismatch
-  # (review finding on #374).
-  printf 'modules:\n  secure-development: {targets: [dvwa], score_ingest: "push"}\n' > f.yaml
-  # Flow mapping across several lines — the corpus accepts this form, so a
-  # reader that only looks at the opening line reports poll and raises a
-  # false mismatch (review finding on #374). Closing brace on its own line
-  # too, so "}" is not assumed to share a line with the last pair.
-  printf 'modules:\n  secure-development: {targets: [dvwa],\n    score_ingest: push\n  }\n  quiz: {score_ingest: poll}\n' > g.yaml
-  [ "$(read_ingest a.yaml)" = "push" ]
-  [ "$(read_ingest g.yaml)" = "push" ]
-  [ "$(read_ingest b.yaml)" = "push" ]
-  [ "$(read_ingest c.yaml)" = "poll" ]
-  [ "$(read_ingest d.yaml)" = "poll" ]
-  [ "$(read_ingest e.yaml)" = "poll" ]
-  [ "$(read_ingest f.yaml)" = "push" ]
-}
-
-@test "valid_ingest accepts exactly poll or push, so a typo never reaches .env" {
-  # Review finding on #374: wiz_ask accepts any text, and SCORE_INGEST=pussh
-  # would have compose mount caddy/Caddyfile.pussh and fail the bring-up.
-  # The wizard re-asks until this says yes; the helper is what it asks.
-  ok() { bash -c 'CMD=__selftest source "$1"; valid_ingest "$2"' _ "$SCRIPT" "$1"; }
-  ok poll
-  ok push
-  # Rejections spelled with `if … return 1` rather than `! ok …`: a negated
-  # command that is not the test's last statement is errexit-exempt and would
-  # pass silently (AGENTS.md).
-  for bad in pussh Poll "" "poll push" "push;rm -rf /"; do
-    if ok "$bad"; then echo "accepted '$bad'"; return 1; fi
-  done
-  ok poll
-}
-
-@test "wizard prints the poll profiles for a secure-development event" {
-  _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  secure-development:
-    targets: [dvwa]
-YAML
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
 }
 
 # --------------------------------------------------------------------------
-# Module-aware wizard: which questions get asked is a function of which
-# modules the organizer enables. The failure this guards against is an
-# organizer being made to pick vulnerable-app targets for an event that runs
-# only a quiz — and then getting an event.yaml with a secure-development block
-# they never asked for, which turns on nav, a challenge browser and
-# leaderboard columns for forks that do not exist.
+# Config v2 (#386): the wizard no longer asks which modules to enable — a
+# module is switched on at runtime in /admin, and the only setup-time fact
+# left about Secure Development is whether its containers run at all, which
+# is SCORE_IMAGE being set.
 # --------------------------------------------------------------------------
 
-@test "wizard asks which modules to enable, offering the known module keys" {
+@test "wizard asks whether to run Secure Development, not which modules" {
   _stub_prereqs
-  rm -f .env event.yaml
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  printf 'ADMIN_LOGINS=organizer\n' > .env
+  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz'
+  [ -z "$(echo "$output" | grep -F 'Modules to start with')" ]
+  [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
+  echo "$output" | grep -qF 'Run Secure Development'
 }
 
-@test "wizard: a quiz-only event is NEVER asked for targets or score ingest" {
+@test "wizard: the closing summary names every target Secure Development provisions" {
+  # Generated from targets.tsv, not a second hand-maintained list: a target
+  # added to the TSV and not to the summary is one no organizer is told about.
   _stub_prereqs
-  rm -f .env
-  # A half-finished quiz-only config (no org yet): the modules question
-  # defaults to what the file already declares, so re-running must not switch
-  # the organizer back to secure-development — nor ask them to pick targets
-  # for a module they deliberately did not enable.
-  cat > event.yaml <<'YAML'
-modules:
-  quiz: {}
-YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic ai [quiz]'
-  [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
-  [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
-}
-
-@test "wizard: a secure-development event is asked for score ingest, NOT targets — the summary names all six" {
-  # Config v2 PR2 (#386): the wizard stopped asking which targets to run — it
-  # always provisions all six from targets.tsv, and the running set is an
-  # /admin runtime setting. The old "Targets — subset of:" prompt is gone;
-  # in its place is a note naming every target the build will provision.
-  _stub_prereqs
-  rm -f .env event.yaml
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
-  echo "$output" | grep -qF 'Score ingest (poll | push)'
-  # Every target the provisioner knows must be named in the summary note —
-  # generated from targets.tsv, not a second hand-maintained list.
   local t fails=""
   for t in $(grep -v '^[[:space:]]*#' "$BATS_TEST_DIRNAME/../targets.tsv" | cut -f1); do
     if [ -z "$(echo "$output" | grep -F 'provisions all six from targets.tsv' | grep -F "$t")" ]; then fails="$fails $t"; fi
@@ -959,137 +590,144 @@ YAML
   [ -z "$fails" ]
 }
 
-@test "wizard: the modules answer defaults to what an existing config declares" {
+@test "wizard: an .env with no SCORE_IMAGE skips the scorer image and poll App steps" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-modules:
-  secure-development:
-    targets: [dvwa]
-  quiz: {}
-YAML
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Modules to start with — subset of: secure-development quiz classic ai [secure-development quiz]'
-}
-
-@test "wizard: a quiz-only event skips the scorer image and poll App steps" {
-  _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-YAML
-  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -F 'Build the scorer image')" ]
+  [ -z "$(echo "$output" | grep -F 'build the scorer image')" ]
   [ -z "$(echo "$output" | grep -F 'App-creation form')" ]
-  echo "$output" | grep -qF 'no secure-development module (nothing to poll)'
+  echo "$output" | grep -qF 'does not run Secure Development'
 }
 
-@test "wizard: a complete quiz-only config is not re-asked (no targets to demand)" {
+@test "wizard: a complete .env is not re-asked, and the summary lists the keys it holds" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -F 'Answer a few questions to write')" ]
-  echo "$output" | grep -qF "✅ event.yaml (org: test-event-org)"
+  echo "$output" | grep -qF "✅ .env (org: test-event-org"
+  echo "$output" | grep -qF "GITHUB_ORG"
+  echo "$output" | grep -qF "ADMIN_LOGINS"
 }
 
-@test "wizard: an enabled secure-development with no targets: key is NOT re-asked" {
-  # Config v2 PR2 (#386): targets are no longer part of config completeness —
-  # a secure-development event with nothing under it (no targets: at all) is
-  # just as complete as one that used to list some, since targets are never
-  # read from event.yaml any more.
+# The closing screen names the KEYS the bootstrap file carries so an organizer
+# can check it by hand — never their values, because the same file holds
+# BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN and REDIS_PASSWORD, and a wizard
+# that echoed them would put every secret in a scrollback and a CI log.
+@test "wizard's closing summary never echoes a secret from .env" {
   _stub_prereqs
-  rm -f .env
-  cat > event.yaml <<'YAML'
-github:
-  org: test-event-org
-modules:
-  secure-development: {}
-YAML
+  _env_fixture
+  printf 'BETTER_AUTH_SECRET=s3cret-auth-value\nREDIS_PASSWORD=s3cret-redis-value\n' >> .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -F 'Answer a few questions to write')" ]
-  echo "$output" | grep -qF "✅ event.yaml (org: test-event-org)"
-}
-
-@test "wiz_modules rejects an unknown module and an empty selection" {
-  run bash -c 'CMD=__selftest source "$1"; wiz_modules "quiz nonsense"' _ "$SCRIPT"
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF 'unknown module: nonsense'
-  run bash -c 'CMD=__selftest source "$1"; wiz_modules "  "' _ "$SCRIPT"
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF 'at least one module must be enabled'
-}
-
-@test "wiz_modules normalizes to KNOWN_MODULES order, deduped, commas allowed" {
-  run bash -c 'CMD=__selftest source "$1"; wiz_modules "quiz, secure-development, quiz"' _ "$SCRIPT"
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qx 'secure-development quiz'
-}
-
-@test "wiz_event_yaml refuses to write a modules: block with nothing under it" {
-  # All three readers reject a keyless modules: block, so emitting one would
-  # hand the organizer a config that provisions nothing and crash-loops sync.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org "" poll admin' _ "$SCRIPT"
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF 'at least one module must be enabled'
-}
-
-@test "wiz_event_yaml no longer asks or writes targets for secure-development" {
-  # Config v2 PR2 (#386): every event forks all six targets.tsv targets
-  # regardless of event.yaml, and which ones run is an /admin runtime
-  # setting — so wiz_event_yaml succeeds with no targets list at all, and
-  # the secure-development block it writes carries score_ingest only.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org secure-development poll admin' _ "$SCRIPT"
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'secure-development:'
-  echo "$output" | grep -qF 'score_ingest: poll'
-  [ -z "$(echo "$output" | grep -F 'targets:')" ]
-}
-
-@test "wiz_event_yaml emits no hints or teams key, because nothing reads either" {
-  # Neither key has ever been read — generate-event-config.mjs mentions neither
-  # word — so whatever value they carried misled the organizer. `hints:
-  # { enabled: false }` still served hints (ADR 31: /admin is the only hint
-  # switch); `teams: { max_size: 6 }` still capped teams at 4
-  # (TEAM_MAX_MEMBERS in team-store.ts). Both are gone rather than corrected,
-  # because a key that cannot change the answer misleads at any value.
-  #
-  # Both of those are history, not current behaviour: the member cap is an
-  # /admin field now ("Players per team", ADRs 44-45) and TEAM_MAX_MEMBERS is
-  # only what it falls back to. The keys stay unemitted either way.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz poll admin' _ "$SCRIPT"
-  [ "$status" -eq 0 ]
-  [ -z "$(echo "$output" | grep -E 'hints|teams')" ]
-}
-
-@test "wiz_event_yaml still emits the admins list it dropped those keys beside" {
-  # The three keys were emitted by one printf. Guard against the removal having
-  # taken admins with it — an empty admins list means /admin 403s for everyone,
-  # which is silent until an organizer tries to open the panel.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz poll dcotelo' _ "$SCRIPT"
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qx 'admins: \[dcotelo\]'
+  echo "$output" | grep -qF "GITHUB_ORG"
+  [ -z "$(echo "$output" | grep -F 's3cret-auth-value')" ]
+  [ -z "$(echo "$output" | grep -F 's3cret-redis-value')" ]
 }
 
 @test "wizard --dry-run does not build or push the scorer image" {
   _stub_prereqs
-  rm -f .env event.yaml
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  # Step 4 offers to build but must skip it under --dry-run (ask_yn answers no).
-  echo "$output" | grep -q "Build the scorer image"
+  # Step 4 narrates the build offer; --dry-run must not run docker at all.
+  echo "$output" | grep -qi "build"
   [ -z "$(echo "$output" | grep -F 'Successfully built')" ]
+}
+
+# --------------------------------------------------------------------------
+# Step 3 (`wiz_event_basics`) is the whole of what the wizard writes now:
+# GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE. Driven directly with piped
+# answers — the alternative is walking the full nine steps through the
+# GitHub-App and OAuth prompts to reach one write.
+# --------------------------------------------------------------------------
+
+# Answers, in prompt order: org, admin logins, run-Secure-Development?, URL.
+# `gh` is stubbed to FAIL so the admin default is empty unless .env carries
+# one: with a real, logged-in gh on PATH (a developer's laptop) the "who is
+# running this?" default would silently answer for the test.
+_basics() {
+  mkdir -p "$BATS_TEST_TMPDIR/nogh"
+  printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/nogh/gh"
+  chmod +x "$BATS_TEST_TMPDIR/nogh/gh"
+  printf '%s\n' "$@" | env PATH="$BATS_TEST_TMPDIR/nogh:$PATH" \
+    bash -c 'CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_event_basics .env' _ "$SCRIPT"
+}
+
+@test "wiz_event_basics defaults the admin list to the login running the wizard" {
+  # R3 / spec section 8: Enter accepts, so the empty-admins refusal never
+  # fires for the common case. `gh api user --jq .login` — gh's own JSON
+  # filtering, not a jq dependency (AGENTS.md).
+  mkdir -p "$BATS_TEST_TMPDIR/ghlogin"
+  printf '#!/bin/sh\n[ "$1" = api ] && echo wizard-runner\nexit 0\n' > "$BATS_TEST_TMPDIR/ghlogin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/ghlogin/gh"
+  : > .env
+  run env PATH="$BATS_TEST_TMPDIR/ghlogin:$PATH" bash -c \
+    'printf "my-event-org\n\nn\n\n" | { CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_event_basics .env; }' _ "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -qx 'ADMIN_LOGINS=wizard-runner' .env
+}
+
+@test "wiz_event_basics writes the three bootstrap keys and nothing else new" {
+  : > .env
+  run _basics my-event-org 'alice' y https://ctf.example.org
+  [ "$status" -eq 0 ]
+  grep -qx 'GITHUB_ORG=my-event-org' .env
+  grep -qx 'ADMIN_LOGINS=alice' .env
+  grep -qx 'EVENT_URL=https://ctf.example.org' .env
+  # "Run Secure Development? y" with no value yet defaults to the image
+  # reference the provisioner already mirrors into the event org.
+  grep -qx 'SCORE_IMAGE=ghcr.io/my-event-org/score:latest' .env
+}
+
+@test "wiz_event_basics refuses an empty admin list and writes nothing" {
+  : > .env
+  run _basics my-event-org '' y https://ctf.example.org
+  [ -z "$(grep -F 'GITHUB_ORG' .env)" ]
+  echo "$output" | grep -qF "at least one admin login is required"
+  echo "$output" | grep -qF "/admin would forbid everyone"
+  [ "$status" -ne 0 ]
+}
+
+@test "wiz_event_basics accepts spaces or commas between logins, writing one list" {
+  # The app splits ADMIN_LOGINS on commas only (admin-logins.ts), so an
+  # organizer typing "alice bob" at a comma-separated prompt would otherwise
+  # get ONE junk login and a panel that forbids them both.
+  : > .env
+  run _basics my-event-org 'alice, Bob  carol' n ''
+  [ "$status" -eq 0 ]
+  grep -qx 'ADMIN_LOGINS=alice,Bob,carol' .env
+}
+
+@test "wiz_event_basics leaves SCORE_IMAGE empty when Secure Development is declined" {
+  # Empty is the answer the rest of the kit reads as "this event runs no
+  # Secure Development" — so declining must write the key, empty, not skip it.
+  : > .env
+  run _basics my-event-org alice n ''
+  [ "$status" -eq 0 ]
+  grep -qx 'SCORE_IMAGE=' .env
+}
+
+@test "wiz_event_basics defaults to the values an existing .env already carries" {
+  # Re-running the wizard is the documented recovery path, so every answer
+  # must default to what is already there — an Enter-through must not switch
+  # the org, drop an admin or turn Secure Development off.
+  _env_fixture
+  printf 'EVENT_URL=https://ctf.example.org\n' >> .env
+  run _basics '' '' '' ''
+  [ "$status" -eq 0 ]
+  grep -qx 'GITHUB_ORG=test-event-org' .env
+  grep -qx 'ADMIN_LOGINS=organizer' .env
+  grep -qx 'EVENT_URL=https://ctf.example.org' .env
+  grep -qx 'SCORE_IMAGE=ghcr.io/fixture/score:latest' .env
+}
+
+@test "wiz_event_basics refuses Secure Development with no org to fork into" {
+  # SCORE_IMAGE non-empty means the scorer + sync containers run and every
+  # target is forked into GITHUB_ORG. Writing that pair with an empty org
+  # would defer the failure to `org` (and, for sync, to a crash loop).
+  : > .env
+  run _basics '' alice y ''
+  echo "$output" | grep -qF "GITHUB_ORG"
+  [ "$status" -ne 0 ]
 }
 
 @test "wizard builds the scorer image for linux/amd64 (runners are amd64)" {
@@ -1163,7 +801,7 @@ EOF2
   printf '#!/bin/sh\necho "STUB-XDG $*"\n' > stubs/xdg-open
   printf '#!/bin/sh\nexit 0\n' > stubs/gh
   chmod +x stubs/open stubs/xdg-open stubs/gh
-  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" oauth-app --config event.yaml
+  PATH="$(pwd)/stubs:$PATH" run bash "$SCRIPT" oauth-app
   [ -z "$(printf '%s' "$output" | grep -F 'STUB-OPEN')" ]
   printf '%s' "$output" | grep -qF 'open this manually:'
 }
@@ -1173,7 +811,7 @@ EOF2
   printf '#!/bin/sh\necho "STUB-OPEN $*"\n' > stubs/open
   printf '#!/bin/sh\nexit 0\n' > stubs/gh
   chmod +x stubs/open stubs/gh
-  PATH="$(pwd)/stubs:$PATH" CTF_NO_BROWSER=1 run bash "$SCRIPT" oauth-app --config event.yaml
+  PATH="$(pwd)/stubs:$PATH" CTF_NO_BROWSER=1 run bash "$SCRIPT" oauth-app
   printf '%s' "$output" | grep -qF 'open this manually:'
 }
 
@@ -1205,7 +843,7 @@ EOF
 
 @test "doctor reports a package grant as granted when a run pulled the image" {
   write_gh_grant_stub success
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   echo "$output" | grep -qF -- "per-fork package Read grant"
   printf '%s' "$output" | grep -qE '^  dvwa +✅ granted'
 }
@@ -1214,7 +852,7 @@ EOF
 # surfaces as "Scoring did not complete" on a contestant's PR.
 @test "doctor reports a package grant as MISSING when a run was refused the image" {
   write_gh_grant_stub failure
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +❌ MISSING'
   [ "$status" -ne 0 ]
 }
@@ -1223,7 +861,7 @@ EOF
 # never be reported as granted. VAmPI is in this state in every case above too.
 @test "doctor reports an unrun fork as unverified, never as granted" {
   write_gh_grant_stub success
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  vampi +⚠️  unverified'
   [ -z "$(printf '%s' "$output" | grep -E '^  vampi +✅')" ]
 }
@@ -1232,7 +870,7 @@ EOF
 # must read as unverified rather than as either verdict.
 @test "doctor treats a skipped pull step as unverified, not as a verdict" {
   write_gh_grant_stub skipped
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +⚠️  unverified'
 }
 
@@ -1248,7 +886,7 @@ case "$*" in
 esac
 EOF
   chmod +x stubs/gh
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +⚠️  unverified'
   [ -z "$(printf '%s' "$output" | grep -F '✅ granted')" ]
 }
@@ -1259,7 +897,7 @@ EOF
 # every fork's status to "unverified" — a check that quietly stops checking,
 # which is worse than no check. Pin the name from both sides.
 @test "the rendered workflow's pull step is named exactly what doctor looks for" {
-  run bash "$SCRIPT" render --config event.yaml
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   grep -qF -e '- name: Pull scorer image' dist/workflows/dvwa.ctf-score.yml
   grep -qF 'name == "Pull scorer image"' "$BATS_TEST_DIRNAME/../ctf-setup.sh"
@@ -1269,7 +907,7 @@ EOF
 # named for it, not implicitly inside `docker run` where it reads as a
 # scoring failure on the contestant's patch.
 @test "the rendered workflow pulls the scorer image before running it" {
-  run bash "$SCRIPT" render --config event.yaml
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   pull_line="$(grep -n 'docker pull' dist/workflows/dvwa.ctf-score.yml | head -1 | cut -d: -f1)"
   run_line="$(grep -n 'name: Run scorer' dist/workflows/dvwa.ctf-score.yml | head -1 | cut -d: -f1)"
@@ -1296,14 +934,14 @@ template_version() {
 
 @test "the template carries a version stamp and rendering preserves it" {
   grep -qE '^# ctf-workflow-version: [0-9]+$' "$BATS_TEST_DIRNAME/../../scorer/consumer-workflow.example.yml"
-  run bash "$SCRIPT" render --config event.yaml
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   grep -qE '^# ctf-workflow-version: [0-9]+$' dist/workflows/dvwa.ctf-score.yml
 }
 
 @test "upgrade --dry-run plans only the workflow step, never forks or the mirror" {
   v="$(template_version)"
-  run bash "$SCRIPT" upgrade --dry-run --config event.yaml
+  run bash "$SCRIPT" upgrade --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=dvwa)"
   echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=vampi)"
@@ -1313,16 +951,12 @@ template_version() {
   [ -z "$(printf '%s' "$output" | grep -F 'branch protection')" ]
 }
 
-@test "upgrade on a quiz-only event is a no-op, not an error" {
-  cat > event.yaml <<'EOF'
-github:
-  org: test-event-org
-modules:
-  quiz: {}
-EOF
-  run bash "$SCRIPT" upgrade --dry-run --config event.yaml
+@test "upgrade on an app-only event (no SCORE_IMAGE) is a no-op, not an error" {
+  _env_fixture_no_secdev
+  run env -u SCORE_IMAGE bash "$SCRIPT" upgrade --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no secure-development module"* ]]
+  [ -z "$(printf '%s' "$output" | grep -F 'render ctf-score.yml')" ]
+  [[ "$output" == *"does not run Secure Development"* ]]
 }
 
 # Writes a `gh` stub serving a committed ctf-score.yml whose version marker is
@@ -1348,7 +982,7 @@ EOF
 @test "doctor reports a fork on the template's version as current" {
   v="$(template_version)"
   write_gh_workflow_stub "$v"
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   echo "$output" | grep -qF -- "scoring workflow version (template is v$v)"
   printf '%s' "$output" | grep -qE "^  dvwa +✅ v$v"
 }
@@ -1357,7 +991,7 @@ EOF
 # workflow, with no way to find out.
 @test "doctor reports an older fork as stale and names the fix" {
   write_gh_workflow_stub 0
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +❌ pre-versioning'
   echo "$output" | grep -qF -- "ctf-setup.sh upgrade"
   [ "$status" -ne 0 ]
@@ -1367,14 +1001,14 @@ EOF
 # is there and correct-looking, with no marker at all.
 @test "doctor treats a workflow with no marker as stale, not as current" {
   write_gh_workflow_stub unstamped
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +❌ pre-versioning'
   [ -z "$(printf '%s' "$output" | grep -F '✅ v')" ]
 }
 
 @test "doctor distinguishes an absent workflow from a stale one" {
   write_gh_workflow_stub none
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +❌ absent'
   [[ "$output" == *"ctf-setup.sh org"* ]]
 }
@@ -1383,7 +1017,7 @@ EOF
 # clobber it backwards — that would silently REVERT a fix on a live event.
 @test "doctor flags a fork ahead of the template without calling it stale" {
   write_gh_workflow_stub 99
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +⚠️  v99'
   echo "$output" | grep -qF -- "AHEAD"
   [ -z "$(printf '%s' "$output" | grep -F 'stale')" ]
@@ -1395,18 +1029,19 @@ EOF
   mkdir -p stubs
   printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
   chmod +x stubs/gh
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --config event.yaml
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qE '^  dvwa +❌ absent'
   [ -z "$(printf '%s' "$output" | grep -F '✅ v')" ]
 }
 
-# The event URL moved from event.yaml's `event.url` to EVENT_URL in .env
-# (ADR 43). ctf-setup renders it into every fork's score-comment footer, so an
-# organizer who moved the file but not the value would otherwise lose that link
-# on every scored PR with nothing to explain it.
+# EVENT_URL lives in .env, not in any event file (ADR 43) — a box, an AWS
+# stack and a fly.io machine serve one event on three hostnames. ctf-setup
+# renders it into every fork's score-comment footer, so an organizer who left
+# it unset would otherwise lose that link on every scored PR with nothing to
+# explain it.
 
 @test "render warns when EVENT_URL is missing rather than dropping the link silently" {
-  run bash "$SCRIPT" render --config event.yaml
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF 'EVENT_URL is not set'
 }
@@ -1414,8 +1049,8 @@ EOF
 @test "render puts the leaderboard link in the workflow when EVENT_URL is set" {
   # The counterpart: the warning above must not be the only outcome, or it
   # would pass just as well against a reader that never works.
-  printf 'EVENT_URL=https://ctf.example.org\n' > .env
-  run bash "$SCRIPT" render --config event.yaml
+  printf 'EVENT_URL=https://ctf.example.org\n' >> .env
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -F 'EVENT_URL is not set')" ]
   grep -qF 'https://ctf.example.org/leaderboard' dist/workflows/dvwa.ctf-score.yml
@@ -1498,7 +1133,6 @@ EOF
     printf '#!/bin/sh\necho "%s $*" >> "%s/tool.calls"\nexit 0\n' "$c" "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/$c"
     chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
   done
-  rm -f .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "7/9  Event org"
@@ -1509,20 +1143,23 @@ EOF
   [ ! -s "$BATS_TEST_TMPDIR/tool.calls" ]
 }
 
-@test "org --dry-run --out reads SCORE_IMAGE from the named env file, not .env" {
-  rm -f .env
-  echo "SCORE_IMAGE=ghcr.io/other/score:pinned" > custom.env
+@test "org --dry-run --out reads the bootstrap keys from the named env file, not .env" {
+  # The whole bootstrap plane moves with --out, not just the secrets: an
+  # organizer keeping .env.fly beside .env must be able to provision from
+  # either without editing files between runs.
+  printf 'GITHUB_ORG=other-event-org\nSCORE_IMAGE=ghcr.io/other/score:pinned\n' > custom.env
   # `env -u`: an inherited SCORE_IMAGE would win before the file is read and
   # let this pass without exercising the --out lookup.
-  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run --config event.yaml --out custom.env
+  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run --out custom.env
   [ "$status" -eq 0 ]
+  echo "$output" | grep -qF "gh repo fork digininja/DVWA --org other-event-org"
   echo "$output" | grep -qF "docker pull ghcr.io/other/score:pinned"
 }
 
 @test "a value-taking flag with no value fails with the script's own message" {
-  run bash "$SCRIPT" org --dry-run --config
+  run bash "$SCRIPT" org --dry-run --out
   [ "$status" -eq 2 ]
-  echo "$output" | grep -qF -- "--config requires a value"
+  echo "$output" | grep -qF -- "--out requires a value"
 }
 
 # The generated env file holds BETTER_AUTH_SECRET, SRH_TOKEN, SCORER_TOKEN and
@@ -1530,7 +1167,7 @@ EOF
 # readable by every local user; it must be owner-only regardless of umask.
 @test "secrets writes the env file owner-only regardless of the caller's umask" {
   rm -f .env
-  run bash -c 'umask 022; bash "$0" secrets --config event.yaml --out .env.perms.test' "$SCRIPT"
+  run bash -c 'umask 022; bash "$0" secrets --out .env.perms.test' "$SCRIPT"
   [ "$status" -eq 0 ]
   [ -f .env.perms.test ]
   [ "$(ls -l .env.perms.test | cut -c1-10)" = "-rw-------" ]
@@ -1543,7 +1180,7 @@ EOF
   rm -f .env
   mkdir -p "$BATS_TEST_TMPDIR/elsewhere"   # the target is creatable; only the link is dangling
   ln -s "$BATS_TEST_TMPDIR/elsewhere/target.env" .env.link
-  run bash "$SCRIPT" secrets --config event.yaml --out .env.link
+  run bash "$SCRIPT" secrets --out .env.link
   [ "$status" -ne 0 ]
   [ ! -e "$BATS_TEST_TMPDIR/elsewhere/target.env" ]
 }
