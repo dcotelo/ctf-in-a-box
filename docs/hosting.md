@@ -591,8 +591,9 @@ module `event.yaml` baked in keeps its authored position in the nav, while
 one enabled only at runtime is appended in registry order (`modules.ts`'s
 `moduleDefsFor`).
 Module authors and anything that switches exhaustively over the module id —
-`apps/web/src/lib/modules.ts`'s `ModuleId`, `event-config.ts`, the three
-`KNOWN_MODULES` readers — must now handle `"ai"`.
+`apps/web/src/lib/modules.ts`'s `ModuleId` and the two remaining
+`KNOWN_MODULES` readers (`sync`, `setup`) — must now handle `"ai"`. The app
+itself no longer reads `event.yaml` at all.
 
 `modules:` no longer enables anything, for any of the four ids — presence in
 this block used to turn a module on, and no longer does. Enablement lives in
@@ -615,10 +616,10 @@ Which of the six Secure Development targets an event actually runs is a
 runtime `/admin` → Secure Development → Targets setting now (#386 PR 2), not
 `modules.secure-development.targets` — see
 [docs/operations.md](operations.md#targets). A second module block is legal:
-all three readers of `event.yaml` — the app's generator
-(`apps/web/scripts/generate-event-config.mjs`), the poll service's config
-loader (`sync/src/config.js`'s `KNOWN_MODULES`), and the provisioning
-script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) — recognize
+the app no longer reads `event.yaml` at all; the two remaining readers —
+the poll service's config loader (`sync/src/config.js`'s `KNOWN_MODULES`)
+and the provisioning script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) —
+recognize
 `secure-development`, `quiz`, `classic` and `ai` as known ids and reject anything
 else loudly.
 Adding `quiz:` turns on a real second module: a "Quiz" nav link and a `/quiz`
@@ -703,32 +704,31 @@ section for the five fields and their limits.
 |---|---|---|
 | `event.name` | ignored since #386 | Set from `/admin` → Event → Identity → Event name instead (default `OWASP CTF`). |
 | `event.theme` | ignored since #386 | Set from `/admin` → Event → Identity → Tagline instead. |
-| `event.start` | no | ISO 8601 start. Drives the landing-page countdown and the display dates. An unparseable value fails the build. |
-| `event.end` | no | ISO 8601 end. Closes the display-date range (`October 1–2, 2026`); ignored without `start`, and an unparseable value fails the build. |
+| `event.start` | ignored since #386 | Set from `/admin` → Event → Schedule → Scoring opens instead. |
+| `event.end` | ignored since #386 | Set from `/admin` → Event → Schedule → Scoring closes instead. |
 | `event.location` | ignored since #386 | Set from `/admin` → Event → Identity → Location instead. |
 | `event.contact` | ignored since #386 | Set from `/admin` → Event → Identity → Contact e-mail instead. |
 | `event.discord` | ignored since #386 | Set from `/admin` → Event → Identity → Discord invite instead. |
-| `event.url` | **must be absent** | The build fails and says so — the URL is `EVENT_URL` in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
+| `event.url` | removed | No longer read at all — set `EVENT_URL` in `.env` instead ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
 | `github.org` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `GITHUB_ORG` in `.env` instead, read at runtime. An empty/unset value means no fork links on `/challenges` (`sync` still reads its own copy of the org separately; see `sync`'s own config). |
 | `modules` | yes | The enabled-module map described above — at least one known id, `score_ingest` under `secure-development`. |
 | `modules.secure-development.targets` | ignored since #386 | Accepted in any shape (absent, empty, a scalar, an unknown id) and never validated or read. Which targets run is set from `/admin` → Secure Development → Targets instead (default all six); `ctf-setup.sh` forks all six regardless of this key. |
 | `admins` | moved to `.env` since #386 | The app no longer reads this from `event.yaml` at all — set `ADMIN_LOGINS` in `.env` instead (comma-separated GitHub logins), read at runtime. An empty/unset value 403s everyone at `/admin`. |
-| `hints`, `teams` | ignored | Not read; the build warns and tells you where the setting lives now (`/admin`). |
+| `hints`, `teams` | ignored | Not read. Hints are an `/admin` → Hints runtime setting; teams are `/admin` → Event registration/cap runtime settings. The key in `event.yaml` is silently ignored. |
 
 ### Rebuilding the app after a config change
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
-bakes the non-identity keys in the table above — dates, fork org and
-admins — from `event.yaml` at **image-build time**, via the
-`EVENT_CONFIG_B64` build arg. Event name, tagline, location, contact e-mail
-and Discord invite are **not** among them since #386: those are runtime
-`/admin` settings, read on every request, so renaming an event or adding a
-Discord link never needs a rebuild. The URL is likewise **not** baked: it is
-`EVENT_URL` in `.env`, read at runtime, and a `url:` left in `event.yaml`
-fails the build (ADR 43). The fork org also drives every "fork this repo"
-link the app renders, so contestants are pointed at the org `ctf-setup org`
-actually forked into.
+reads no build-time config at all: `ADMIN_LOGINS` and `GITHUB_ORG` are `.env`
+keys read at container start, so changing either only needs a restart, not a
+rebuild. Dates come from the scoring schedule (**Scoring opens** / **Scoring
+closes**) set in `/admin` → Event, same as name, tagline, location, contact
+e-mail and Discord invite — all runtime `/admin` settings, read on every
+request. The URL is likewise not baked: it is `EVENT_URL` in `.env`, read at
+runtime (ADR 43). The fork org (`GITHUB_ORG`) also drives every "fork this
+repo" link the app renders, so contestants are pointed at the org
+`ctf-setup org` actually forked into.
 
 Compose only rebuilds an image when told to, so `up -d` alone will not pick up
 an `event.yaml` edit:

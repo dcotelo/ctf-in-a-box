@@ -18,7 +18,13 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   empty or unset `GITHUB_ORG` means `/challenges` renders bare repo names
   with no fork link, rather than falling back to a baked org.
   `EVENT_CONFIG_B64` is now ignored by the app image entirely (`sync` still
-  reads its own copy, unaffected by this change).
+  reads its own copy, unaffected by this change); `docker compose build app`
+  still prints an unconsumed `EVENT_CONFIG_B64` build-arg warning until part
+  6 removes the arg. The app also no longer validates `event.yaml` at all —
+  a stale file is silently ignored (`sync` and `setup` still read and
+  validate their own copies until part 5), so a leftover `event.url` or
+  `hints:`/`teams:` block in it is likewise silently ignored rather than
+  failing or warning at build time.
 
 - **BREAKING: which Secure Development targets an event runs is chosen in
   `/admin`, not by `event.yaml`'s `targets:` key (#386, part 3).**

@@ -43,7 +43,7 @@ interpolation failure inside a script that pipes compose's stderr to
 gets the 403 wall.
 
 **Diagnosis.** `ADMIN_LOGINS` is empty or unset in `.env`, or it is set but
-the app was not restarted after you changed it. Since #386 part 3 the app no
+the app was not restarted after you changed it. Since #386 part 4 the app no
 longer bakes an admins list at build time — it reads the comma-separated
 `ADMIN_LOGINS` env var at runtime, and an empty set (unset, blank, or every
 entry failing the GitHub-login shape check) refuses every login, including

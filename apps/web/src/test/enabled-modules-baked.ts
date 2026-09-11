@@ -1,7 +1,13 @@
 /**
  * Test double for `@/lib/enabled-modules` — resolves every module question the
- * way a fixture's `@/lib/modules` mock (if any) already answers it, so a test
- * keeps one source of truth for "which modules does this event run".
+ * way a fixture's `@/lib/modules` mock (if any) already answers it, via that
+ * mock's `isModuleEnabled` export. This is not a single source of truth: a
+ * fixture that also mocks `@/lib/admin-store` (e.g. an `enabledModuleIds`
+ * field on a stubbed `getAdminSettings`) is stating a second, independent
+ * answer to the same question — `getAdminSettingsSnapshot` below just proxies
+ * to whatever the fixture mocked there, and never reads or reconciles it
+ * against `isModuleEnabled`. Keeping the two declarations in agreement is the
+ * fixture's job, not this shim's.
  *
  * Why a double is needed at all: the real resolver calls `connection()` to keep
  * itself out of Next's build-time prerender, and `connection()` throws outside
