@@ -7,6 +7,7 @@
 
 import { completedCount } from "@/lib/leaderboard/rank";
 import type { ResolvedModule } from "@/lib/modules";
+import type { AppMeta } from "@/lib/apps";
 import ModuleDetail from "@/components/module-detail";
 import AppBreakdown from "@/components/app-breakdown";
 import BoardItemLists from "@/components/board-item-lists";
@@ -37,6 +38,7 @@ export function EntryRow({
   capabilities,
   modules,
   completable,
+  enabledApps,
 }: {
   entry: LeaderboardEntry;
   topPoints: number;
@@ -45,6 +47,9 @@ export function EntryRow({
   onToggle: () => void;
   capabilities: LeaderboardData["capabilities"];
   modules: readonly ResolvedModule[];
+  /** The event's live target list — forwarded to `ModuleDetail`/`AppBreakdown`.
+   *  See app-breakdown.tsx's doc comment. */
+  enabledApps: readonly AppMeta[];
   /** The EVENT's total completable items, for the solved column's
    *  denominator. Undefined when nothing stamped it — the column then shows a
    *  bare count rather than inventing a total. */
@@ -182,11 +187,11 @@ export function EntryRow({
                       <span className="ml-2 font-mono text-zinc-300">{entry.modules![m.id]!.points} pts</span>
                     </p>
                   )}
-                  <ModuleDetail moduleId={m.id} progress={entry.modules![m.id]!} entry={entry} />
+                  <ModuleDetail moduleId={m.id} progress={entry.modules![m.id]!} entry={entry} enabledApps={enabledApps} />
                 </div>
               ))
           ) : capabilities.apps ? (
-            <AppBreakdown entry={entry} />
+            <AppBreakdown entry={entry} enabledApps={enabledApps} />
           ) : (
             <LegacyBreakdown entry={entry} />
           )}

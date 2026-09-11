@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { makeRedis, outsideWindow } from "../src/redis.js";
+import { TARGETS } from "../src/config.js";
 
 const PAST = "2000-01-01T00:00:00.000Z";
 const FUTURE = "2999-01-01T00:00:00.000Z";
@@ -138,4 +139,70 @@ test("a per-command error longer than 200 characters is capped in the log", asyn
   const sanitized = logs[0].replace(/^redis isPaused: upstash: /, "");
   assert.equal(sanitized.length, 200);
   assert.match(sanitized, /^ERR x+$/);
+});
+
+// ── getSecureDevTargets: the admin panel's secure-development target
+// selection, read fresh every tick ──────────────────────────────────────────
+//
+// Unlike isPaused/getResetAt above, this method must NOT fail open (or to any
+// other silently-wrong default) — a poller that cannot read the override must
+// not guess which subset to poll. So every failure mode here THROWS, and the
+// only assertion about "logs" is that there ISN'T one — this method never
+// calls `log` itself; the caller (tick) decides what to do with the throw.
+const hgetFetch = (result) => async () => new Response(JSON.stringify([{ result }]), { status: 200 });
+
+test("getSecureDevTargets: absent field polls all six", async () => {
+  const redis = makeRedis(env, hgetFetch(null));
+  assert.deepEqual(await redis.getSecureDevTargets(), TARGETS);
+});
+
+test("getSecureDevTargets: an empty string is absent, not an empty selection", async () => {
+  const redis = makeRedis(env, hgetFetch(""));
+  assert.deepEqual(await redis.getSecureDevTargets(), TARGETS);
+});
+
+test("getSecureDevTargets: a stored subset is returned in catalogue order, deduped", async () => {
+  const redis = makeRedis(env, hgetFetch(JSON.stringify(["vampi", "vampi", "dvwa"])));
+  assert.deepEqual(await redis.getSecureDevTargets(), ["dvwa", "vampi"]);
+});
+
+test("getSecureDevTargets: unknown ids are dropped, known ones kept", async () => {
+  const redis = makeRedis(env, hgetFetch(JSON.stringify(["vampi", "not-a-real-target"])));
+  assert.deepEqual(await redis.getSecureDevTargets(), ["vampi"]);
+});
+
+// CodeRabbit round 1 (issue #386 PR 3): a stored list that normalizes to NO
+// known target id used to fall back to "all six," silently widening scope
+// back open — the same wrong-default this whole method exists to refuse for
+// every other unreadable/invalid case. `[]` and an all-unknown list must
+// both throw instead, so `tick()`'s existing fail-closed path (poll nothing,
+// log why) is what actually runs.
+test("getSecureDevTargets: every stored id unknown throws instead of falling back to all six", async () => {
+  const redis = makeRedis(env, hgetFetch(JSON.stringify(["nope", "still-nope"])));
+  await assert.rejects(() => redis.getSecureDevTargets(), /secureDevTargets/);
+});
+
+test("getSecureDevTargets: an empty array (present but nothing selected) throws, distinct from an absent field", async () => {
+  const redis = makeRedis(env, hgetFetch(JSON.stringify([])));
+  await assert.rejects(() => redis.getSecureDevTargets(), /secureDevTargets/);
+});
+
+test("getSecureDevTargets: malformed JSON throws instead of silently defaulting", async () => {
+  const redis = makeRedis(env, hgetFetch("{not json"));
+  await assert.rejects(() => redis.getSecureDevTargets(), /secureDevTargets/);
+});
+
+test("getSecureDevTargets: a non-array JSON value throws", async () => {
+  const redis = makeRedis(env, hgetFetch(JSON.stringify({ vampi: true })));
+  await assert.rejects(() => redis.getSecureDevTargets(), /secureDevTargets/);
+});
+
+test("getSecureDevTargets: a transport error throws instead of failing open to all six", async () => {
+  const redis = makeRedis(env, async () => { throw new Error("network down"); });
+  await assert.rejects(() => redis.getSecureDevTargets(), /network down/);
+});
+
+test("getSecureDevTargets: a per-command error reply throws, unlike isPaused/getResetAt", async () => {
+  const redis = makeRedis(env, errorReplyFetch("WRONGTYPE Operation against a key holding the wrong kind of value"));
+  await assert.rejects(() => redis.getSecureDevTargets(), /WRONGTYPE/);
 });

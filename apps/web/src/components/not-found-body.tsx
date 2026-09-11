@@ -14,7 +14,8 @@
 
 import Link from "next/link";
 import PageHeader from "@/components/page-header";
-import { enabledApps, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps } from "@/lib/enabled-apps";
 import type { RulesContext } from "@/lib/modules";
 import { getModuleRouteCard, getResolvedModules } from "@/lib/resolved-modules";
 
@@ -39,6 +40,7 @@ export type NotFoundRoute = { href: string; label: string; body: string };
  *  in one pass, the same way the rest of this app hands server data to its
  *  components. */
 export async function getNotFoundRoutes(): Promise<NotFoundRoute[]> {
+  const enabledApps = await getEnabledApps();
   const ctx: RulesContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),

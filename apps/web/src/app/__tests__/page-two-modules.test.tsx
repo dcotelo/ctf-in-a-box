@@ -52,6 +52,10 @@ vi.mock("@/lib/admin-store", () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
     eventIdentity: { eventName: "Two-Track CTF" },
+    // The live target list now comes from here, not event.yaml's `targets`
+    // (issue #386, PR 2) — one target, matching this fixture's old
+    // `eventConfig.targets` value.
+    secureDevTargets: ["dvwa"],
   }),
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));

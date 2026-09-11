@@ -16,6 +16,7 @@ vi.mock("next/image", () => ({
 
 import Leaderboard, { EntryRow, TeamRow } from "@/components/leaderboard";
 import type { ResolvedModule } from "@/lib/modules";
+import { apps } from "@/lib/apps";
 import type { LeaderboardData, LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 const CAPS = { apps: true, teams: true, challenges: true } as const;
@@ -26,8 +27,8 @@ const CAPS = { apps: true, teams: true, challenges: true } as const;
 // `@/lib/modules`. Two modules, so the per-module heading is exercised (see
 // leaderboard-single-module.test.tsx for the one-module suppression case).
 const MODULES: readonly ResolvedModule[] = [
-  { id: "secure-development", title: "Secure Development", blurb: "", targets: [] },
-  { id: "quiz", title: "Quiz", blurb: "", targets: [] },
+  { id: "secure-development", title: "Secure Development", blurb: "" },
+  { id: "quiz", title: "Quiz", blurb: "" },
 ];
 
 function entry(overrides: Partial<LeaderboardEntry> = {}): LeaderboardEntry {
@@ -74,7 +75,7 @@ describe("Leaderboard", () => {
       teams: [team()],
       capabilities: { apps: false, teams: true, challenges: false },
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} enabledApps={apps} />);
 
     // Team rows render by default.
     expect(html).toContain("Red Team");
@@ -86,7 +87,7 @@ describe("Leaderboard", () => {
 
   it("shows the captain among members when a team row is expanded", () => {
     const html = renderToStaticMarkup(
-      <TeamRow team={team({ members: ["alice", "bob", "carol"], captain: "bob" })} topPoints={150} isOpen onToggle={() => {}} />,
+      <TeamRow team={team({ members: ["alice", "bob", "carol"], captain: "bob" })} topPoints={150} isOpen onToggle={() => {}} enabledApps={apps} />,
     );
     expect(html).toContain("alice");
     expect(html).toContain("bob");
@@ -106,7 +107,7 @@ describe("Leaderboard", () => {
         pointsByLogin={new Map([["alice", 14], ["bob", 4]])}
         isOpen
         onToggle={() => {}}
-      />,
+      enabledApps={apps} />,
     );
     expect(html).toMatch(/14\s*pts/);
     expect(html).toMatch(/4\s*pts/);
@@ -136,7 +137,7 @@ describe("Leaderboard", () => {
       ],
       series: [{ login: "alice", points: [{ t: "2026-08-01T00:00:00.000Z", score: 10 }] }],
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} enabledApps={apps} />);
     expect(html).toMatch(/Top 2 teams/);
   });
 
@@ -162,7 +163,7 @@ describe("Leaderboard", () => {
         },
       ],
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} enabledApps={apps} />);
     // No teams => no toggle at all, individual view stands alone.
     expect(html).not.toMatch(/aria-pressed/);
     expect(html).toContain("alice");
@@ -188,7 +189,7 @@ describe("Leaderboard", () => {
         },
       ],
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} enabledApps={apps} />);
     expect(html).toContain("Plots Secure Development scoring only");
     expect(html).toContain("Quiz points count toward the totals below but are not charted.");
   });
@@ -206,7 +207,7 @@ describe("Leaderboard", () => {
       ],
     });
     const sdOnly: readonly ResolvedModule[] = [MODULES[0]];
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={sdOnly} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={sdOnly} enabledApps={apps} />);
     // On a one-module event the series IS the whole story — a note would
     // qualify nothing.
     expect(html).not.toContain("scoring only");
@@ -220,7 +221,7 @@ describe("Leaderboard", () => {
     const board = data({
       entries: [entry({ login: "alice" }), entry({ rank: 2, login: "bob", points: 80 })],
     });
-    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} />);
+    const html = renderToStaticMarkup(<Leaderboard data={board} viewerLogin={null} modules={MODULES} enabledApps={apps} />);
     // Default sort is "rank", so the explainer is visible on first paint —
     // the moment the confusion would otherwise start.
     expect(html).toContain("Rank rewards breadth");
@@ -245,7 +246,7 @@ describe("per-challenge catalog", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <EntryRow entry={withChallenges} topPoints={100} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
+      <EntryRow entry={withChallenges} topPoints={100} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} enabledApps={apps} />,
     );
     // The per-target challenge list is still collapsed by default (some
     // targets have 100+ challenges), but the target's own ProgressRow is the
@@ -273,7 +274,7 @@ describe("per-challenge catalog", () => {
         },
       },
     });
-    const html = renderToStaticMarkup(<TeamRow team={withFlags} topPoints={150} isOpen onToggle={() => {}} />);
+    const html = renderToStaticMarkup(<TeamRow team={withFlags} topPoints={150} isOpen onToggle={() => {}} enabledApps={apps} />);
     expect(html).toContain(">Target breakdown<");
     // Reuses the same ProgressRow tree as the individual view, so each target
     // is a collapsed disclosure under its own name — and the count covers
@@ -288,7 +289,7 @@ describe("per-challenge catalog", () => {
   });
 
   it("omits the flags section for a team without per-challenge data", () => {
-    const html = renderToStaticMarkup(<TeamRow team={team()} topPoints={150} isOpen onToggle={() => {}} />);
+    const html = renderToStaticMarkup(<TeamRow team={team()} topPoints={150} isOpen onToggle={() => {}} enabledApps={apps} />);
     expect(html).not.toContain(">Target breakdown<");
   });
 
@@ -310,7 +311,7 @@ describe("per-challenge catalog", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <TeamRow team={withModules} topPoints={278} isOpen onToggle={() => {}} modules={MODULES} />,
+      <TeamRow team={withModules} topPoints={278} isOpen onToggle={() => {}} modules={MODULES} enabledApps={apps} />,
     );
     expect(html).toContain("Quiz");
     // The team board carries a module's points but no ceiling for it, so the
@@ -337,7 +338,7 @@ describe("per-challenge catalog", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <TeamRow team={withModules} topPoints={150} isOpen onToggle={() => {}} modules={[MODULES[0]]} />,
+      <TeamRow team={withModules} topPoints={150} isOpen onToggle={() => {}} modules={[MODULES[0]]} enabledApps={apps} />,
     );
     expect(html).not.toMatch(/6 solved/);
   });
@@ -353,7 +354,7 @@ describe("per-module breakdown", () => {
       },
     });
     const html = renderToStaticMarkup(
-      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
+      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen onToggle={() => {}} capabilities={CAPS} modules={MODULES} enabledApps={apps} />,
     );
     expect(html).toContain("Secure Development");
     expect(html).toContain("Quiz");
@@ -377,10 +378,10 @@ describe("per-module breakdown", () => {
         onToggle={() => {}}
         capabilities={CAPS}
         modules={[
-          { id: "secure-development", title: "Patch Track", blurb: "", targets: [] },
-          { id: "quiz", title: "Round 1", blurb: "", targets: [] },
+          { id: "secure-development", title: "Patch Track", blurb: "" },
+          { id: "quiz", title: "Round 1", blurb: "" },
         ]}
-      />,
+      enabledApps={apps} />,
     );
     expect(html).toContain("Round 1");
     expect(html).not.toContain(">Quiz<");
@@ -401,7 +402,7 @@ describe("per-module breakdown", () => {
   it("restates the solved count for narrow screens, where the column is hidden", () => {
     const e = entry({ patched: 8, total: 12 });
     const html = renderToStaticMarkup(
-      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen={false} onToggle={() => {}} capabilities={CAPS} modules={MODULES} />,
+      <EntryRow entry={e} topPoints={200} isOwn={false} isOpen={false} onToggle={() => {}} capabilities={CAPS} modules={MODULES} enabledApps={apps} />,
     );
     const narrow = html.match(/<p class="[^"]*sm:hidden[^"]*">(.*?)<\/p>/);
     expect(narrow, "no sm:hidden line in the row").not.toBeNull();
@@ -411,7 +412,7 @@ describe("per-module breakdown", () => {
 
   it("restates a team's member count for narrow screens", () => {
     const html = renderToStaticMarkup(
-      <TeamRow team={team({ members: ["alice", "bob", "carol"] })} topPoints={150} isOpen={false} onToggle={() => {}} />,
+      <TeamRow team={team({ members: ["alice", "bob", "carol"] })} topPoints={150} isOpen={false} onToggle={() => {}} enabledApps={apps} />,
     );
     const narrow = html.match(/<p class="[^"]*sm:hidden[^"]*">(.*?)<\/p>/);
     expect(narrow, "no sm:hidden line in the team row").not.toBeNull();

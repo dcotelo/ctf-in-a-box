@@ -8,6 +8,24 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: which Secure Development targets an event runs is chosen in
+  `/admin`, not by `event.yaml`'s `targets:` key (#386, part 3).**
+  `ctf-setup.sh org` now forks and provisions all six of `setup/targets.tsv`
+  for every event — six forks, six scoring workflows, six package Read
+  grants — unconditionally; the wizard no longer asks which targets to
+  enable. Which of the six contestants actually see (and which the sync
+  poller reads) is instead a runtime setting, **Secure Development →
+  Targets** on the admin panel, defaulting to all six and taking effect on
+  the next page load / next poll tick with no rebuild. At least one target
+  must stay selected. `modules.secure-development.targets` in `event.yaml`
+  is now ignored completely, in any shape (absent, empty, a scalar, an
+  unknown id) — every reader (the app's generator, `sync`, `ctf-setup.sh`)
+  accepts the key without validating or reading it. Event archives now
+  carry `secureDevTargets` and restore it on import; the bundle format
+  bumped to version 2 for it (a legacy v1 archive — one predating this
+  field — still imports, restoring everything else and leaving the stored
+  target list untouched).
+
 - **BREAKING: the event's name, tagline, location, contact e-mail and Discord
   invite are runtime settings edited on the admin Event tab (Identity
   section) (#386, part 2).** `event.yaml`'s
@@ -21,8 +39,10 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   and AI start off. Secure Development is now a normal switch, refused only
   when there is no scorer image. Switching the last board off is allowed;
   the landing page then says "No boards are open yet". `event.yaml`'s
-  `modules:` block still carries Secure Development's `targets` for now.
-  The app container receives `SCORE_IMAGE` from compose, Fly and ECS.
+  `modules:` block no longer carries Secure Development's `targets` either
+  (see part 3 above) — its only remaining setup-time setting is
+  `score_ingest`. The app container receives `SCORE_IMAGE` from compose,
+  Fly and ECS.
 
 - **README and docs screenshots caught up with the rename.** The wizard and
   `doctor` terminal shots still showed the CTF-in-a-box banner, the old

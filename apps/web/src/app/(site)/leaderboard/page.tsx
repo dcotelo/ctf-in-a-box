@@ -18,6 +18,7 @@ import { resolvePhase } from "@/components/phase-line";
 import { completedCount } from "@/lib/leaderboard/rank";
 import { getSite } from "@/lib/site";
 import { getResolvedModules } from "@/lib/resolved-modules";
+import { getEnabledApps } from "@/lib/enabled-apps";
 
 export async function generateMetadata(): Promise<Metadata> {
   const event = await getSite();
@@ -63,10 +64,11 @@ export default async function LeaderboardPage({
   // row whose points arrive later — a classic- or quiz-only contestant, or
   // an upstash-path team. Same story in docs/architecture.md, step 9 of the
   // score data flow.
-  const [data, session, modules] = await Promise.all([
+  const [data, session, modules, enabledApps] = await Promise.all([
     source.getLeaderboard().then(withModuleContributions).then(withTeamStandings).then(withHintPenalties),
     auth.api.getSession({ headers: await headers() }),
     getResolvedModules(),
+    getEnabledApps(),
   ]);
 
   // Pre-format relative times server-side so client and server render
@@ -122,6 +124,7 @@ export default async function LeaderboardPage({
         data={{ ...data, entries }}
         viewerLogin={session?.user?.login ?? null}
         modules={modules}
+        enabledApps={enabledApps}
       />
     </div>
   );

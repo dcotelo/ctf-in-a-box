@@ -88,14 +88,24 @@ EOF
   grep -qE "^REDIS_PASSWORD=[0-9a-f]{32,}$" .env.redispw.test
 }
 
-@test "teardown --dry-run plans archive per target repo" {
+@test "teardown --dry-run plans archive of all six target repos, regardless of event.yaml" {
+  # Config v2 PR2 (#386): event.yaml's targets: list is no longer read at all
+  # — every event tears down all six targets.tsv repos, ignoring the two
+  # (dvwa, vampi) this fixture's event.yaml happens to name.
   run bash "$SCRIPT" teardown --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "gh repo archive test-event-org/DVWA --yes"
-  [[ "$output" == *"gh repo archive test-event-org/VAmPI --yes"* ]]
+  echo "$output" | grep -qF -- "gh repo archive test-event-org/VAmPI --yes"
+  echo "$output" | grep -qF -- "gh repo archive test-event-org/juice-shop --yes"
+  echo "$output" | grep -qF -- "gh repo archive test-event-org/WebGoat --yes"
+  echo "$output" | grep -qF -- "gh repo archive test-event-org/VulnerableApp --yes"
+  [[ "$output" == *"gh repo archive test-event-org/SecurityShepherd --yes"* ]]
 }
 
-@test "unknown target in event.yaml fails loudly" {
+@test "an unknown target name in event.yaml's targets: is ignored — all six are still forked" {
+  # Config v2 PR2 (#386): targets: is no longer read/validated at all, so a
+  # garbage entry like "nope" is simply never looked at, and the real six
+  # targets.tsv targets are forked regardless of what event.yaml says.
   cat > event.yaml <<'EOF'
 github:
   org: test-event-org
@@ -104,11 +114,16 @@ modules:
     targets: [dvwa, nope]
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"unknown target: nope"* ]]
+  [ "$status" -eq 0 ]
+  if printf '%s' "$output" | grep -qF -- "unknown target: nope"; then echo "FAIL: reported unknown target: nope"; return 1; fi
+  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
+  echo "$output" | grep -qF -- "gh repo fork juice-shop/juice-shop --org test-event-org --fork-name juice-shop"
 }
 
-@test "org with empty targets list fails loudly instead of silently no-op'ing" {
+@test "org with an empty (or absent) targets list still forks all six" {
+  # Config v2 PR2 (#386): a targets: key is ignored entirely, in any shape —
+  # empty, absent, malformed. It no longer gates provisioning; the running
+  # set is an /admin runtime setting instead.
   cat > event.yaml <<'EOF'
 github:
   org: test-event-org
@@ -117,11 +132,10 @@ modules:
     targets: []
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF "event.yaml: no targets"
-  # Must fail before doing anything, including the image mirror plan.
-  [ -z "$(echo "$output" | grep -F "gh repo fork")" ]
-  [ -z "$(echo "$output" | grep -F "mirroring scorer image")" ]
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F "event.yaml: no targets")" ]
+  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
+  echo "$output" | grep -qF -- "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
 }
 
 @test "org strips trailing comments from org field (HIGH fix #1)" {
@@ -141,7 +155,9 @@ EOF
   [[ "$output" != *"disposable per-event org"* ]]
 }
 
-@test "teardown with unknown target exits non-zero and does not emit partial archive command (HIGH fix #2)" {
+@test "teardown ignores an unknown target name in event.yaml and archives all six" {
+  # Config v2 PR2 (#386): teardown no longer reads event.yaml's targets: list
+  # at all, so "nope" is never looked at and never fails the run.
   cat > event.yaml <<'EOF'
 github:
   org: test-event-org
@@ -150,10 +166,11 @@ modules:
     targets: [dvwa, nope]
 EOF
   run bash "$SCRIPT" teardown --dry-run --config event.yaml
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF -- "unknown target: nope"
+  [ "$status" -eq 0 ]
+  if printf '%s' "$output" | grep -qF -- "unknown target: nope"; then echo "FAIL: reported unknown target: nope"; return 1; fi
   # Must NOT emit archive command with empty repo name
-  [[ "$output" != *"gh repo archive test-event-org/ --yes"* ]]
+  if printf '%s' "$output" | grep -qF -- "gh repo archive test-event-org/ --yes"; then echo "FAIL: archived an empty repo name"; return 1; fi
+  echo "$output" | grep -qF -- "gh repo archive test-event-org/DVWA --yes"
 }
 
 @test "teardown fails with missing org (MEDIUM fix #3)" {
@@ -180,7 +197,9 @@ EOF
   [[ "$output" == *"gh repo fork erev0s/VAmPI --org flow-event-org --fork-name VAmPI"* ]]
 }
 
-@test "org pairs dvwa/vampi correctly with blank in targets list (MEDIUM fix #4)" {
+@test "a blank entry in targets: does not break anything — all six still render" {
+  # Config v2 PR2 (#386): targets: is never parsed for provisioning any more,
+  # so a blank list item is just inert text; every target still renders.
   cat > event.yaml <<'EOF'
 github:
   org: test-event-org
@@ -190,13 +209,17 @@ modules:
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  # Must pair correctly: dvwa's workflow into DVWA, vampi's into VAmPI
   v="$(template_version)"
   echo "$output" | grep -qF -- "render ctf-score.yml v$v (TARGET=dvwa) and PUT to test-event-org/DVWA:.github/workflows/ctf-score.yml on ctf"
   [[ "$output" == *"render ctf-score.yml v$v (TARGET=vampi) and PUT to test-event-org/VAmPI:.github/workflows/ctf-score.yml on ctf"* ]]
+  [[ "$output" == *"render ctf-score.yml v$v (TARGET=webgoat) and PUT to test-event-org/WebGoat:.github/workflows/ctf-score.yml on ctf"* ]]
 }
 
-@test "org ignores decoy targets line outside modules.secure-development (MEDIUM fix #5)" {
+@test "event.yaml's targets: list (real or decoy) has no effect — all six are always forked" {
+  # Config v2 PR2 (#386): with target extraction gone, a decoy targets: line
+  # outside modules.secure-development is just as inert as the real one
+  # inside it — both are ignored, and webgoat (named in neither) is forked
+  # anyway, because it is one of the six.
   cat > event.yaml <<'EOF'
 notes:
   targets: [webgoat]
@@ -208,11 +231,10 @@ modules:
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  # Must use the correct targets (dvwa, vampi), not the decoy (webgoat)
   echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
   echo "$output" | grep -qF -- "gh repo fork erev0s/VAmPI --org test-event-org --fork-name VAmPI"
-  # Must not fork webgoat
-  [[ "$output" != *"gh repo fork "*"WebGoat"* ]]
+  # webgoat is forked too — it's one of the six, regardless of either targets: line.
+  echo "$output" | grep -qF -- "gh repo fork WebGoat/WebGoat --org test-event-org --fork-name WebGoat"
 }
 
 @test "org: quiz-only config provisions nothing and succeeds" {
@@ -249,6 +271,22 @@ EOF
   run bash "$SCRIPT" doctor --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   printf '%s' "$output" | grep -qi 'no .*content'
+}
+
+@test "doctor: empty targets.tsv fails loudly, naming the file (require_targets guard)" {
+  # all_targets() exits 0 with empty output when targets.tsv is missing,
+  # unreadable or has no non-comment rows — require_targets() is the guard
+  # that turns that into a loud failure instead of a silent no-op (a
+  # header-only matrix exiting 0). Run against a COPY of the script so
+  # SCRIPT_DIR resolves to a directory with a broken targets.tsv, leaving the
+  # real setup/targets.tsv untouched.
+  mkdir -p brokentsv
+  cp "$SCRIPT" brokentsv/ctf-setup.sh
+  : > brokentsv/targets.tsv
+  run bash brokentsv/ctf-setup.sh doctor --dry-run --config event.yaml
+  printf '%s' "$output" | grep -qF 'targets.tsv'
+  printf '%s' "$output" | grep -qF 'no targets to provision'
+  [ "$status" -ne 0 ]
 }
 
 @test "unknown module key in event.yaml fails loudly (bash mirrors sync/src/config.js)" {
@@ -330,9 +368,11 @@ modules:
 EOF
   run bash "$SCRIPT" teardown --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  # teardown reads only the secure-development: block (yaml_targets is scoped
-  # to it), so an unrecognized module elsewhere is inert here — decisive part
-  # of this test is that it is NOT rejected by the module-key check at all.
+  # teardown never runs check_known_modules — it only asks has_module whether
+  # "secure-development" is among the keys it can parse (here: "forensics"
+  # only, so nothing to tear down) — so an unrecognized module elsewhere is
+  # inert here — decisive part of this test is that it is NOT rejected by a
+  # module-key check at all.
   [ -z "$(printf '%s' "$output" | grep -F 'unknown module')" ]
 }
 
@@ -898,19 +938,24 @@ YAML
   [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
 }
 
-@test "wizard: a secure-development event IS asked for targets, from targets.tsv" {
+@test "wizard: a secure-development event is asked for score ingest, NOT targets — the summary names all six" {
+  # Config v2 PR2 (#386): the wizard stopped asking which targets to run — it
+  # always provisions all six from targets.tsv, and the running set is an
+  # /admin runtime setting. The old "Targets — subset of:" prompt is gone;
+  # in its place is a note naming every target the build will provision.
   _stub_prereqs
   rm -f .env event.yaml
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
   echo "$output" | grep -qF 'Score ingest (poll | push)'
-  # Every target the provisioner knows must be on offer — the prompt is
+  # Every target the provisioner knows must be named in the summary note —
   # generated from targets.tsv, not a second hand-maintained list.
   local t fails=""
   for t in $(grep -v '^[[:space:]]*#' "$BATS_TEST_DIRNAME/../targets.tsv" | cut -f1); do
-    if [ -z "$(echo "$output" | grep -F 'Targets — subset of' | grep -F "$t")" ]; then fails="$fails $t"; fi
+    if [ -z "$(echo "$output" | grep -F 'provisions all six from targets.tsv' | grep -F "$t")" ]; then fails="$fails $t"; fi
   done
-  echo "missing from the targets prompt:$fails"
+  echo "missing from the summary:$fails"
   [ -z "$fails" ]
 }
 
@@ -959,7 +1004,11 @@ YAML
   echo "$output" | grep -qF "✅ event.yaml (org: test-event-org)"
 }
 
-@test "wizard: an enabled secure-development with no targets IS re-asked" {
+@test "wizard: an enabled secure-development with no targets: key is NOT re-asked" {
+  # Config v2 PR2 (#386): targets are no longer part of config completeness —
+  # a secure-development event with nothing under it (no targets: at all) is
+  # just as complete as one that used to list some, since targets are never
+  # read from event.yaml any more.
   _stub_prereqs
   rm -f .env
   cat > event.yaml <<'YAML'
@@ -970,7 +1019,8 @@ modules:
 YAML
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'Answer a few questions to write'
+  [ -z "$(echo "$output" | grep -F 'Answer a few questions to write')" ]
+  echo "$output" | grep -qF "✅ event.yaml (org: test-event-org)"
 }
 
 @test "wiz_modules rejects an unknown module and an empty selection" {
@@ -991,15 +1041,21 @@ YAML
 @test "wiz_event_yaml refuses to write a modules: block with nothing under it" {
   # All three readers reject a keyless modules: block, so emitting one would
   # hand the organizer a config that provisions nothing and crash-loops sync.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org "" "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org "" poll admin' _ "$SCRIPT"
   [ "$status" -ne 0 ]
   echo "$output" | grep -qF 'at least one module must be enabled'
 }
 
-@test "wiz_event_yaml refuses secure-development with no targets" {
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org secure-development "" poll admin' _ "$SCRIPT"
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qF 'secure-development needs at least one target'
+@test "wiz_event_yaml no longer asks or writes targets for secure-development" {
+  # Config v2 PR2 (#386): every event forks all six targets.tsv targets
+  # regardless of event.yaml, and which ones run is an /admin runtime
+  # setting — so wiz_event_yaml succeeds with no targets list at all, and
+  # the secure-development block it writes carries score_ingest only.
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org secure-development poll admin' _ "$SCRIPT"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'secure-development:'
+  echo "$output" | grep -qF 'score_ingest: poll'
+  [ -z "$(echo "$output" | grep -F 'targets:')" ]
 }
 
 @test "wiz_event_yaml emits no hints or teams key, because nothing reads either" {
@@ -1013,7 +1069,7 @@ YAML
   # Both of those are history, not current behaviour: the member cap is an
   # /admin field now ("Players per team", ADRs 44-45) and TEAM_MAX_MEMBERS is
   # only what it falls back to. The keys stay unemitted either way.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll admin' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz poll admin' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -E 'hints|teams')" ]
 }
@@ -1022,7 +1078,7 @@ YAML
   # The three keys were emitted by one printf. Guard against the removal having
   # taken admins with it — an empty admins list means /admin 403s for everyone,
   # which is silent until an organizer tries to open the panel.
-  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz "" poll dcotelo' _ "$SCRIPT"
+  run bash -c 'CMD=__selftest source "$1"; wiz_event_yaml n "" org quiz poll dcotelo' _ "$SCRIPT"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qx 'admins: \[dcotelo\]'
 }

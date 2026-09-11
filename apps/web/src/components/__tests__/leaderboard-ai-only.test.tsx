@@ -30,8 +30,8 @@ import type { LeaderboardEntry, TeamStanding } from "@/lib/leaderboard/types";
 
 const CAPS = { apps: true, teams: true, challenges: true } as const;
 
-const AI_MODULE: ResolvedModule = { id: "ai", title: "AI Challenges", blurb: "", targets: [] };
-const SD_MODULE: ResolvedModule = { id: "secure-development", title: "Secure Development", blurb: "", targets: [] };
+const AI_MODULE: ResolvedModule = { id: "ai", title: "AI Challenges", blurb: "" };
+const SD_MODULE: ResolvedModule = { id: "secure-development", title: "Secure Development", blurb: "" };
 
 function aiOnlyEntry(): LeaderboardEntry {
   return {
@@ -75,6 +75,7 @@ describe("an ai-only entry's expansion", () => {
         onToggle={() => {}}
         capabilities={CAPS}
         modules={[AI_MODULE]}
+        enabledApps={[]}
       />,
     );
     // ModuleDetail's ai arm — same "solved / total challenges" shape as classic's.
@@ -89,7 +90,7 @@ describe("an ai-only entry's expansion", () => {
 describe("an ai-only team's expansion", () => {
   it("shows the per-item Show-N list, and the module row's noun is ai's own 'cleared'", () => {
     const html = renderToStaticMarkup(
-      <TeamRow team={aiOnlyTeam()} topPoints={20} isOpen onToggle={() => {}} modules={[AI_MODULE, SD_MODULE]} />,
+      <TeamRow team={aiOnlyTeam()} topPoints={20} isOpen onToggle={() => {}} modules={[AI_MODULE, SD_MODULE]} enabledApps={[]} />,
     );
     expect(html).toContain('data-testid="board-item-lists"');
     // TeamRow had a noun ternary of its own that fell through to "solved"

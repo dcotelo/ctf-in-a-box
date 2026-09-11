@@ -33,6 +33,7 @@ const settings: AdminSettings = {
   moduleOverrides: {},
   enabledModuleIds: null,
   eventIdentity: {},
+  secureDevTargets: null,
 };
 
 const modules: readonly ResolvedModule[] = [{ id: "quiz", title: "Quiz", blurb: "b", targets: [] } as never];

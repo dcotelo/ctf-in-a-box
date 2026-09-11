@@ -4,20 +4,37 @@
 #
 # event.yaml's `modules:` block is read by THREE independent parsers in three
 # languages with no shared code (setup/ctf-setup.sh, sync/src/config.js,
-# apps/web/scripts/generate-event-config.mjs). They must agree on which files
-# they ACCEPT and which they REJECT, or an organizer gets a config one half of
-# the stack provisions and the other half refuses — which has now happened
-# twice, most recently when ctf-setup.sh's 2-space-only reader returned ZERO
-# keys for the flow style the docs themselves print, making org/render/doctor
-# exit 0 having provisioned nothing.
+# apps/web/scripts/generate-event-config.mjs). They must agree on which
+# MODULE KEYS a file declares that they ACCEPT and which they REJECT, or an
+# organizer gets a config one half of the stack provisions and the other half
+# refuses — which has now happened twice, most recently when ctf-setup.sh's
+# 2-space-only reader returned ZERO keys for the flow style the docs
+# themselves print, making org/render/doctor exit 0 having provisioned
+# nothing.
 #
-# setup/test/corpus/ holds the shared corpus that pins it down. Each fixture
-# records its expected verdict in its FILENAME (accept-*.yaml / reject-*.yaml)
-# and, for the accepted ones, the targets both readers must extract in a
-# leading `# targets: a,b` comment (empty for a quiz-only event). This file
-# runs the corpus through the bash reader; sync/test/module-readers.differential.test.js
-# runs the SAME files through sync's. Both assert against the same recorded
-# verdicts, so agreeing with the corpus is agreeing with each other.
+# setup/test/corpus/ holds the shared corpus that pins module-key accept/
+# reject down. Each fixture records its expected verdict in its FILENAME
+# (accept-*.yaml / reject-*.yaml). This file runs the corpus through the bash
+# reader; apps/web/scripts/__tests__/generate-event-config.test.ts runs the
+# SAME files through the app's reader (its own corpus differential suite, with
+# a documented KNOWN_DIVERGENCES set for the one remaining, unrelated ADR 24
+# edge — a present-but-empty `modules: {}`). There is no longer a sync-side
+# differential suite over this corpus (config v2 PR2, #386):
+# sync/test/module-readers.differential.test.js was deleted once
+# sync/src/config.js stopped reading targets at all (see below) — sync's
+# module-KEY accept/reject rules are unchanged and still agree with this
+# reader and the app's.
+#
+# Targets used to be a second axis this file pinned (a leading `# targets:
+# a,b` comment on each accepted fixture, extracted via a since-removed
+# yaml_targets()). Config v2 PR2 removed target extraction from this reader
+# entirely: every event forks all six targets.tsv targets regardless of what
+# (if anything) `targets:` says (see all_targets() in ctf-setup.sh), so a
+# `targets:` key — absent, empty, a scalar, an unknown id, anything — is now
+# tolerated and simply never looked at. `sync/src/config.js` and
+# apps/web/scripts/generate-event-config.mjs made the same change (Task 7),
+# so the four fixtures this affected were renamed from reject-* to accept-*:
+# all three readers agree on them again, with no divergence left to document.
 #
 # Add a fixture whenever a new event.yaml shape shows up — that is the whole
 # point of a corpus over a handful of hand-written cases.
@@ -29,19 +46,10 @@ setup() {
 }
 
 # The bash reader's verdict on a config, via the one subcommand that exercises
-# the whole contract (check_known_modules -> has_module -> yaml_targets) with
-# no gh/docker/network calls at all: `render`.
+# the whole contract (check_known_modules -> has_module) with no
+# gh/docker/network calls at all: `render`.
 bash_verdict() {
   if bash "$SCRIPT" render --config "$1" >/dev/null 2>&1; then echo accept; else echo reject; fi
-}
-
-# The `# targets: a,b` header a fixture records (empty when there are none).
-want_targets() {
-  sed -n 's/^# targets:[[:space:]]*//p' "$1" | head -1 | tr -d '\r' | tr -d ' '
-}
-
-got_targets() {
-  bash -c 'CMD=__selftest source "$1"; CONFIG="$2"; yaml_targets' _ "$SCRIPT" "$1" 2>/dev/null | tr -d '\r' | paste -sd, - | sed 's/,$//'
 }
 
 @test "corpus: is big enough and covers both verdicts" {
@@ -72,18 +80,6 @@ got_targets() {
     got="$(bash_verdict "$f")"
     if [ "$got" != "$want" ]; then fails="$fails
   $(basename "$f"): want $want, got $got"; fi
-  done
-  echo "mismatches:$fails"
-  [ -z "$fails" ]
-}
-
-@test "corpus: the bash reader extracts each accepted fixture's recorded targets" {
-  local f want got fails=""
-  for f in "$CORPUS"/accept-*.yaml; do
-    want="$(want_targets "$f")"
-    got="$(got_targets "$f")"
-    if [ "$got" != "$want" ]; then fails="$fails
-  $(basename "$f"): want [$want], got [$got]"; fi
   done
   echo "mismatches:$fails"
   [ -z "$fails" ]
@@ -131,10 +127,26 @@ got_targets() {
   printf '%s' "$output" | grep -qF 'tab indentation'
 }
 
-@test "doctor fails when secure-development is enabled but has no readable targets" {
-  run bash "$SCRIPT" doctor --config "$CORPUS/reject-secure-development-without-targets.yaml"
-  [ "$status" -ne 0 ]
-  printf '%s' "$output" | grep -qF 'no targets under modules.secure-development'
+@test "doctor no longer refuses secure-development with no targets: key — it checks all six" {
+  # Config v2 PR2 (#386): a targets: key is not read or validated at all any
+  # more, so its absence never refuses the run — doctor reaches the per-target
+  # matrix and checks all six targets.tsv rows regardless.
+  #
+  # Stubbed gh/docker/openssl on PATH — the same blanket exit-0 stub the
+  # wizard tests use (_stub_prereqs in ctf_setup.bats) — so this exercises the
+  # real cmd_doctor deterministically instead of making live `gh api` calls,
+  # and so its exit status (❌ cells fail the exit code) is a fixed value to
+  # assert on rather than whatever an unauthenticated API happens to return.
+  mkdir -p "$BATS_TEST_TMPDIR/stubbin"
+  for c in gh docker openssl; do
+    printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/stubbin/$c"
+    chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
+  done
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" doctor --config "$CORPUS/accept-secure-development-without-targets.yaml"
+  [ -z "$(printf '%s' "$output" | grep -F 'no targets under modules.secure-development')" ]
+  printf '%s' "$output" | grep -qE '^dvwa '
+  printf '%s' "$output" | grep -qE '^juice-shop '
+  [ "$status" -eq 1 ]
 }
 
 @test "a bare modules: key is rejected, not read as a quiz-only event" {
@@ -164,9 +176,13 @@ got_targets() {
 # The wizard emits event.yaml for people who never open one. Whatever it can
 # write therefore has to satisfy the same three readers as a hand-written file
 # — so its output IS corpus, kept honest by regenerating it here and diffing
-# against the committed fixtures (which both differential tests then run
-# through both readers). The `# targets:` header is corpus bookkeeping, not
-# something the wizard writes, so it is stripped before the comparison.
+# against the committed fixtures (which the app's own corpus differential
+# suite then runs through its reader too). The `# targets:` header, where a
+# fixture still carries one, is corpus bookkeeping the wizard never writes,
+# so it is stripped before the comparison; wiz_event_yaml itself no longer
+# takes or emits a targets list at all (config v2 PR2, #386), so the
+# secure-development fixtures below carry none any more, in the header or
+# the body.
 # --------------------------------------------------------------------------
 
 wiz_emit() {
@@ -179,21 +195,21 @@ WIZ_DATES='  start: 2026-10-01T09:00:00-03:00
 
 @test "corpus: the wizard still emits exactly the secure-development-only fixture" {
   wiz_emit "OWASP CTF" "$WIZ_DATES" my-event-org \
-    "secure-development" "juice-shop dvwa" poll "your-github-login" > got.yaml
+    "secure-development" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-secure-development-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
 
 @test "corpus: the wizard still emits exactly the quiz-only fixture" {
   wiz_emit "OWASP Chapter Quiz Night" "" my-event-org \
-    "quiz" "" poll "your-github-login" > got.yaml
+    "quiz" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-quiz-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
 
 @test "corpus: the wizard still emits exactly the classic-only fixture" {
   wiz_emit "OWASP Chapter Classic CTF" "" my-event-org \
-    "classic" "" poll "your-github-login" > got.yaml
+    "classic" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-classic-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
@@ -206,14 +222,14 @@ WIZ_DATES='  start: 2026-10-01T09:00:00-03:00
   # hard-failed at the write step with the organizer's answers already given.
   # This is the test that closes that gap for good.
   wiz_emit "OWASP Chapter AI Night" "" my-event-org \
-    "ai" "" poll "your-github-login" > got.yaml
+    "ai" poll "your-github-login" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-ai-only.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }
 
 @test "corpus: the wizard still emits exactly the both-modules fixture" {
   wiz_emit "OWASP CTF" "$WIZ_DATES" my-event-org \
-    "secure-development quiz" "juice-shop, dvwa" push "your-github-login alice" > got.yaml
+    "secure-development quiz" push "your-github-login alice" > got.yaml
   sed '/^# targets:/d' "$CORPUS/accept-wizard-both-modules.yaml" > want.yaml
   diff -u want.yaml got.yaml
 }

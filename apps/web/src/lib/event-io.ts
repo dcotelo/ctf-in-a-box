@@ -34,7 +34,25 @@ import { parseBundle as parseAiBundle, type AiBundle } from "@/lib/ai-io";
 import { parseBundle as parseClassicBundle, type ClassicBundle } from "@/lib/classic-io";
 import { parseBundle as parseQuizBundle, type QuizBundle } from "@/lib/quiz-io";
 
-export const EVENT_BUNDLE_VERSION = 1;
+// Bumped 1 -> 2 when `secureDevTargets` joined EVENT_POLICY_FIELDS (config
+// v2, issue #386 PR 3, CodeRabbit round 1): a box running the OLD code (the
+// unbumped version, with a narrower EVENT_POLICY_FIELDS that has never heard
+// of `secureDevTargets`) that receives an export from a box running this
+// code needs a clean "bundle version 2 is newer than this box supports"
+// refusal, not the confusing "field not allowed: secureDevTargets" an
+// unversioned schema change would produce. EXPORT always writes the current
+// version; IMPORT accepts anything from `EVENT_BUNDLE_MIN_VERSION` through
+// `EVENT_BUNDLE_VERSION` — see `parseEventBundle`'s version check below and
+// its v1-bundle test in event-io.test.ts.
+export const EVENT_BUNDLE_VERSION = 2;
+/** Oldest bundle version `parseEventBundle` still accepts. A v1 bundle never
+ *  carries `secureDevTargets` (the field did not exist yet) — its absence is
+ *  handled the same way every other optional policy field's absence already
+ *  is: `buildPolicyPatch` (event-store.ts) only touches a field that is
+ *  actually `in` the parsed settings object, so a v1 import leaves the box's
+ *  stored `secureDevTargets` untouched rather than resetting it to the
+ *  all-six default. */
+export const EVENT_BUNDLE_MIN_VERSION = 1;
 
 export const EVENT_POLICY_FIELDS = [
   "hintsEnabled",
@@ -50,6 +68,7 @@ export const EVENT_POLICY_FIELDS = [
   "teamRegistrationOpen",
   "moduleOverrides",
   "enabledModuleIds",
+  "secureDevTargets",
 ] as const;
 
 const EVENT_POLICY_FIELD_SET = new Set<string>(EVENT_POLICY_FIELDS);
@@ -118,14 +137,22 @@ export function parseEventBundle(raw: string): EventParseResult {
   const errors: EventImportError[] = [];
 
   const version = parsed.version;
-  if (typeof version !== "number" || version !== EVENT_BUNDLE_VERSION) {
+  if (
+    typeof version !== "number" ||
+    !Number.isInteger(version) ||
+    version < EVENT_BUNDLE_MIN_VERSION ||
+    version > EVENT_BUNDLE_VERSION
+  ) {
     if (typeof version === "number" && version > EVENT_BUNDLE_VERSION) {
       errors.push({
         where: "version",
-        message: `Bundle version ${version} is newer than this box supports (expected ${EVENT_BUNDLE_VERSION})`,
+        message: `Bundle version ${version} is newer than this box supports (expected ${EVENT_BUNDLE_MIN_VERSION}-${EVENT_BUNDLE_VERSION})`,
       });
     } else {
-      errors.push({ where: "version", message: `Unsupported bundle version: expected ${EVENT_BUNDLE_VERSION}` });
+      errors.push({
+        where: "version",
+        message: `Unsupported bundle version: expected ${EVENT_BUNDLE_MIN_VERSION}-${EVENT_BUNDLE_VERSION}, got ${String(version)}`,
+      });
     }
   }
 

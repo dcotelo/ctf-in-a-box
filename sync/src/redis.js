@@ -1,6 +1,8 @@
 // Minimal Upstash REST / SRH client for the sync poller — same wire protocol
 // as scorer/src/store.js and apps/web/src/lib/upstash.ts: POST /pipeline with
 // a JSON array of command arrays, bearer token, positional { result } replies.
+import { TARGETS } from "./config.js";
+
 const SYNC_STATUS_KEY = "ctf:sync:status";
 const ADMIN_SETTINGS_KEY = "ctf:admin:settings";
 
@@ -87,6 +89,42 @@ export function makeRedis(env = process.env, fetchImpl = fetch, log = console.er
         log(`redis getResetAt: ${err.message}`);
         return null; // treat as "no reset" on error — retries next tick
       }
+    },
+    // The admin panel's secure-development target selection (config-v2): a
+    // JSON array of target ids in `ctf:admin:settings.secureDevTargets`,
+    // absent/empty meaning "all six" — the same default the pre-config-v2
+    // event.yaml `targets:` list always resolved to for a fully-enabled
+    // module. Unlike isPaused/getResetAt, this method does NOT catch and
+    // fail open (or fail to some other silently-wrong default): a poller
+    // that cannot read the override must not guess which subset to poll —
+    // guessing "all six" on a Redis blip would score targets the organizer
+    // deliberately turned off, and guessing "none" would freeze scoring
+    // nobody asked to freeze. So this throws on a transport error, a
+    // per-command error reply, an unparseable value, OR a value that parses
+    // fine but normalizes to NO known target id at all (`[]`, `["unknown"]`,
+    // or any other list that shares nothing with TARGETS) — that last case
+    // used to silently fall back to "all six," which is exactly the
+    // silently-wrong-default this whole method exists to refuse. `tick()`
+    // (the only caller) treats every one of these as "skip this whole tick,
+    // and say so" rather than picking either wrong default. Known ids are
+    // also deduped and returned in TARGETS' catalogue order, not the stored
+    // order, so the rest of the poller never has to think about
+    // admin-supplied ordering.
+    async getSecureDevTargets() {
+      const [raw] = await pipeline([["HGET", ADMIN_SETTINGS_KEY, "secureDevTargets"]]);
+      if (raw === null || raw === undefined || raw === "") return TARGETS;
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new Error(`secureDevTargets: not valid JSON (${JSON.stringify(String(raw)).slice(0, 100)})`);
+      }
+      if (!Array.isArray(parsed)) throw new Error("secureDevTargets: expected a JSON array");
+      const known = TARGETS.filter((t) => parsed.includes(t));
+      if (known.length === 0) {
+        throw new Error(`secureDevTargets: no known target id in stored list (${JSON.stringify(parsed).slice(0, 100)})`);
+      }
+      return known;
     },
     async writeStatus(s) {
       try {

@@ -16,8 +16,8 @@ github:
                                    # (the OAuth app's client id and secret live in .env as
                                    # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET, not here — see .env.example)
 # `modules:` is SETUP-TIME config only. It configures secure-development's
-# `targets` and `score_ingest` — the only module with setup-time settings —
-# and nothing else here enables or disables anything. Organizers switch
+# `score_ingest` — the only setup-time setting any module has left — and
+# nothing else here enables or disables anything. Organizers switch
 # Quiz, Classic, AI and Secure Development on and off from /admin during the
 # event, without a rebuild (issue #175, ADR 52). The default set is
 # secure-development alone when `SCORE_IMAGE` is set in .env, and nothing
@@ -26,7 +26,6 @@ github:
 # Event tab → Modules and docs/modules.md §1–2.
 modules:
   secure-development:
-    targets: [juice-shop, dvwa]    # any subset of the six
     score_ingest: poll             # poll | push
   # quiz, classic and ai have no setup-time settings — there is nothing to
   # configure but presence, and presence configures nothing now either (see
@@ -34,10 +33,17 @@ modules:
   # sections). Both readers (generate-event-config.mjs, sync) still accept a
   # `quiz: {}` / `classic: {}` / `ai: {}` block here if an older event.yaml
   # has one — it is inert, not wrong.
+# `ctf-setup.sh org` provisions all six of `setup/targets.tsv`'s targets for
+# every event that enables secure-development — always, unconditionally, no
+# matter what (if anything) this file says. Which of the six contestants
+# actually see, and which the sync poller reads, is chosen afterward, at
+# runtime, from /admin → Secure Development → Targets — not from a
+# `targets:` key here. A `targets:` key under `secure-development` is still
+# accepted, in any shape, but every reader ignores it (#386 PR 2).
 # Don't want to write this file by hand? `./setup/ctf-setup.sh` (the wizard)
 # still writes this file and still asks which modules to enable — that answer
-# writes one block per module named: `secure-development` with its `targets`
-# + `score_ingest`, and an empty `quiz: {}` / `classic: {}` / `ai: {}` for the
+# writes one block per module named: `secure-development` with its
+# `score_ingest`, and an empty `quiz: {}` / `classic: {}` / `ai: {}` for the
 # others. None of those blocks enables anything any more: Quiz, Classic, AI
 # and Secure Development are all switched on from /admin after the box is up.
 # PR 3 of #386 removes the wizard's module question.

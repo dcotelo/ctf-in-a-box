@@ -63,8 +63,35 @@ function displayDates(startIso, endIso) {
   return `${formatDate(startDate.y, startDate.m, startDate.d)} – ${formatDate(endDate.y, endDate.m, endDate.d)}, ${endDate.y}`;
 }
 
-function validateTargets(targets) {
-  if (!Array.isArray(targets) || targets.length === 0) fail("targets must be a non-empty list");
+// `targets` is optional and INERT here (config v2, #386 PR 2): the web app no
+// longer derives its runtime target list from event.yaml at all — it reads
+// `secureDevTargets` from `ctf:admin:settings` at request time instead (see
+// lib/secure-dev-targets.ts / lib/enabled-apps.ts), defaulting to all six.
+// This generated field only feeds `eventConfig.targets`/`ModuleConfig.targets`,
+// which nothing in the app treats as authoritative any more. So this reader
+// ignores the key completely, in any shape — absent, empty, a scalar, an
+// unknown id, a well-formed list, anything: the derived list is always `[]`
+// and nothing here ever fails because of it. A bare `secure-development: {}`
+// or one with only `score_ingest` is a legal config.
+//
+// `setup/ctf-setup.sh` and `sync/src/config.js` agree: neither reads or
+// validates `targets:` any more either (every event forks/polls all six
+// targets.tsv targets regardless). All three module-key readers therefore
+// agree on every fixture in the shared corpus again — see the corpus
+// differential test below.
+//
+// This is distinct from `EVENT_TARGETS` below, which is a build-arg
+// fallback for a file-less build, not part of the event.yaml module-key
+// corpus, and is still validated.
+function ignoreYamlTargets() {
+  return [];
+}
+
+/** Still validated: `EVENT_TARGETS` is a fallback for a file-less build (no
+ *  EVENT_CONFIG yaml at all), not an event.yaml module key, so it is outside
+ *  the three-reader corpus parity above and keeps failing loudly on a typo. */
+function validateEnvTargets(targets) {
+  if (!Array.isArray(targets)) fail("targets must be a list");
   const bad = targets.filter((t) => !TARGETS.includes(t));
   if (bad.length) fail(`unknown target(s): ${bad.join(", ")}`);
   return targets;
@@ -82,7 +109,7 @@ function validateTargets(targets) {
 const MODULE_VALIDATORS = {
   "secure-development": (mod) => ({
     id: "secure-development",
-    targets: validateTargets(mod?.targets),
+    targets: ignoreYamlTargets(),
     scoreIngest: mod?.score_ingest === "push" ? "push" : "poll",
   }),
   quiz: () => ({ id: "quiz" }),
@@ -103,8 +130,11 @@ function validateModules(modules) {
     .map((id) => MODULE_VALIDATORS[id](modules[id]));
 }
 
-/** Back-compat: the flat target list every existing `enabledApps` consumer
- *  still reads. Empty when secure-development is not enabled. */
+/** Back-compat: the flat target list, always `[]` now (see the note above on
+ *  `ignoreYamlTargets` — nothing in the app treats this as authoritative).
+ *  Kept only so the generated config's shape (`eventConfig.targets` /
+ *  `ModuleConfig.targets`) still matches its type until PR 3 deletes this
+ *  generator outright; no runtime consumer reads it. */
 function derivedTargets(mods) {
   return mods.find((m) => m.id === "secure-development")?.targets ?? [];
 }
@@ -184,7 +214,7 @@ function fromYaml(path) {
 
 function fromEnv(env) {
   const envTargets = env.EVENT_TARGETS
-    ? validateTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim()))
+    ? validateEnvTargets(env.EVENT_TARGETS.split(",").map((s) => s.trim()))
     : TARGETS;
   return {
     name: env.EVENT_NAME,

@@ -19,7 +19,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ModuleCopy from "@/components/module-copy";
 import PageHeader from "@/components/page-header";
-import { enabledApps, joinAppNames, workedExampleVariant } from "@/lib/apps";
+import { joinAppNames, workedExampleVariant } from "@/lib/apps";
+import { getEnabledApps } from "@/lib/enabled-apps";
 import { moduleDefById, type GuideContext } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleGuide, getResolvedModules } from "@/lib/resolved-modules";
@@ -58,6 +59,7 @@ function CodeBlock({ code }: { code: string }) {
 
 export default async function HowToPlayPage() {
   const event = await getSite();
+  const enabledApps = await getEnabledApps();
   // Live facts handed to every module's copy, built once so two modules can't
   // disagree about how many targets the event has.
   const ctx: GuideContext = {

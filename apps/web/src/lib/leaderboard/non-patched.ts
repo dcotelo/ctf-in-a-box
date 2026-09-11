@@ -8,11 +8,14 @@
 // 0 total` on a 321-challenge event. Both call in here now; changing the rule
 // means changing it once.
 
-import { enabledTotalChallenges } from "@/lib/apps";
-
 /** How many secure-development challenges this event ships — the denominator.
- *  Baked from `event.yaml`'s `targets` at build time (see lib/apps.ts), so it
- *  is a fixed property of the event, not of what the contestant has done.
+ *  Read from the LIVE target list at request time (issue #386, PR 2 —
+ *  `lib/enabled-apps.ts`'s `getEnabledTotals()`), so `enabledTotal` is a fixed
+ *  property of the event as it is running RIGHT NOW, not of what the
+ *  contestant has done. Kept pure and parameterised rather than reading the
+ *  total itself: the caller already pays for one settings read per request
+ *  (`getEnabledTotals()` is `cache()`-wrapped), and a pure function is what
+ *  every existing test here fixtures directly.
  *
  *  That distinction is the whole point: a scored-results count reads as `0 of
  *  0` on a fresh account and GROWS as the contestant attempts more, which is
@@ -20,16 +23,8 @@ import { enabledTotalChallenges } from "@/lib/apps";
  *
  *  `sourceTotal` — whatever the active leaderboard source reported for this
  *  row — is the floor, not the value: a source that knows about more
- *  challenges than the vendored catalogue (a newer rubric behind an older app
- *  build) is believed rather than clamped, which also keeps `nonPatchedCount`
- *  from having to defend against a negative. */
-export function challengeTotal(sourceTotal: number): number {
-  return Math.max(enabledTotalChallenges, sourceTotal);
-}
-
-/** "Non-patched" = everything not yet fixed: failed runs AND challenges the
- *  contestant hasn't touched. Deliberately not called "failed" — someone who
- *  simply hasn't gotten to a challenge yet shouldn't read it as losing. */
-export function nonPatchedCount(patched: number, sourceTotal: number): number {
-  return Math.max(0, challengeTotal(sourceTotal) - patched);
+ *  challenges than the enabled target list (a newer rubric behind an older
+ *  app build) is believed rather than clamped. */
+export function challengeTotal(enabledTotal: number, sourceTotal: number): number {
+  return Math.max(enabledTotal, sourceTotal);
 }

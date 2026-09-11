@@ -30,6 +30,7 @@ const settings: AdminSettings = {
   moduleOverrides: {},
   enabledModuleIds: null,
   eventIdentity: {},
+  secureDevTargets: null,
 };
 
 function render(overrides: Partial<AdminSettings> = {}, inputs = { cost: "", minSolves: "", unlockAfter: "" }) {

@@ -94,9 +94,23 @@ export async function isModuleLive(id: ModuleId): Promise<boolean> {
 // dynamic import here only runs — and only needs a mock — for a fixture that
 // actually calls `getAdminSettingsSnapshot`, i.e. one that also exercises
 // `@/lib/resolved-modules`.
+//
+// The `import()` call itself is memoized into `adminStoreImport` at module
+// scope, rather than re-invoked inline on every call: two concurrent
+// first-ever callers (e.g. a page awaiting `Promise.all([getEnabledApps(),
+// getEnabledTotals()])`, both racing to resolve `@/lib/admin-store` for the
+// first time) otherwise raced Vitest's module runner — one got the mocked
+// module, the other resolved the real, unmocked one (which then throws on
+// the missing Upstash env and falls into the `catch` below), so the two
+// concurrent reads silently disagreed about the stored settings. Caching the
+// promise itself (not just its resolved value) means every caller, racing or
+// not, awaits the exact same in-flight import.
+let adminStoreImport: Promise<typeof import("@/lib/admin-store")> | undefined;
+
 export async function getAdminSettingsSnapshot() {
   try {
-    const { getAdminSettings } = await import("@/lib/admin-store");
+    adminStoreImport ??= import("@/lib/admin-store");
+    const { getAdminSettings } = await adminStoreImport;
     return await getAdminSettings();
   } catch {
     return null;

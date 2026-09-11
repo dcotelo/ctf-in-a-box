@@ -121,13 +121,11 @@ const twoModules: readonly ResolvedModule[] = [
     title: "Secure Development",
     blurb: "Find the vulnerability, patch it for real, ship the fix as a PR.",
     nav: { href: "/challenges", label: "Challenges" },
-    targets: ["juice-shop"],
   },
   {
     id: "quiz",
     title: "Quiz",
     blurb: "Answer security questions for points.",
-    targets: [],
   },
 ];
 
@@ -153,6 +151,7 @@ const settings: AdminSettings = {
   moduleOverrides: {},
   enabledModuleIds: null,
   eventIdentity: {},
+  secureDevTargets: null,
 };
 
 describe("AdminControls tab shell", () => {
@@ -387,6 +386,19 @@ describe("AdminControls panel contents", () => {
 
     const withDemo = renderToStaticMarkup(<AdminControls viewerLogin="organizer" eventName="OWASP CTF" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} demoMode />);
     expect(panelFor(withDemo, "event")).toMatch(/seed demo data/i);
+  });
+});
+
+// Presence is not discoverability: admin-target-list.test.tsx pins
+// `nextTargets` and AdminTargetList's own markup directly, but nothing short
+// of rendering the REAL panel proves the list is actually mounted on Secure
+// Development's tab rather than merely wired to compile.
+describe("AdminControls secure-development targets", () => {
+  it("mounts all six target checkboxes in the Secure Development panel", () => {
+    const html = renderToStaticMarkup(<AdminControls viewerLogin="organizer" eventName="OWASP CTF" defaultModuleIds={["secure-development"]} secureDevAvailable initial={settings} modules={twoModules} />);
+    const secureDev = panelFor(html, "secure-development");
+    const matches = [...secureDev.matchAll(/<input[^>]*name="secureDevTargets"[^>]*>/g)];
+    expect(matches).toHaveLength(6);
   });
 });
 
@@ -718,7 +730,7 @@ describe("module toggles", () => {
 describe("AdminControls ai panel", () => {
   const withAi: readonly ResolvedModule[] = [
     ...twoModules,
-    { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and jailbreak challenges hosted externally.", targets: [] },
+    { id: "ai", title: "AI Challenges", blurb: "Prompt-injection and jailbreak challenges hosted externally." },
   ];
 
   it("renders the ai module's tab with a tenth destination and panel", () => {

@@ -53,16 +53,28 @@ the sections below are the enforceable contract behind it.
    any `event.yaml` content. A module MAY ALSO carry setup-time configuration
    under a kebab-case key in `event.yaml`'s top-level `modules:` map, but
    only when it has setup-time configuration to hold: in this release only
-   `secure-development` does (`targets`, `score_ingest`); `quiz`, `classic`
-   and `ai` have none, and so no block. Example, `secure-development`'s block
+   `secure-development` does, and only one field —
+   `score_ingest` (poll/push, the ingest transport that must be picked before
+   the boxes come up). `quiz`, `classic` and `ai` have no setup-time settings
+   at all, and so no block. Example, `secure-development`'s block
    (`event.yaml.example`):
 
    ```yaml
    modules:
      secure-development:
-       targets: [juice-shop, dvwa]    # any subset of the six
        score_ingest: poll             # poll | push
    ```
+
+   `secure-development` used to carry a second field here, `targets` — which
+   of the six vulnerable apps the event runs. Config v2 (#386 PR 2) moved
+   that to a *runtime* `/admin` → Secure Development → Targets setting
+   (`secureDevTargets` in `ctf:admin:settings`, read per request by the app
+   and per tick by the sync poller — see
+   [docs/operations.md](operations.md#targets)); provisioning
+   (`ctf-setup.sh org`) forks all six of `setup/targets.tsv` unconditionally
+   now, regardless of that setting. A `targets:` key under
+   `secure-development` is still accepted in the file — in any shape, absent,
+   empty, a scalar, an unknown id — but all three readers ignore it.
 
 2. MUST be **runtime-toggleable**, like every other module. Organizers switch
    modules on and off from `/admin` during an event, and the live set lives in
@@ -120,27 +132,31 @@ the sections below are the enforceable contract behind it.
    provisioning outright.
 
    Adding a module means extending all three readers to recognize the new
-   key and validate its shape — the same way `secure-development`'s block
-   requires a non-empty `targets` array drawn from a known target enum
-   (`TARGETS` in `config.js`). What `setup/ctf-setup.sh` needs is the new key
-   in its `KNOWN_MODULES` mirror (`check_known_modules`/`has_module`), for the
-   same missing-vs-unknown distinction `sync` draws — see §7 below for what it
-   gates. Its `yaml_targets` needs no change: that one is scoped to the
-   `secure-development:` block by construction and provisions that module's
-   forks only, so a module with its own provisioning adds its own step
-   instead. Registration is deliberate, not dynamic; this is a v1 constraint,
-   not a permanent architectural stance.
+   key and, if it carries setup-time settings of its own, validate their
+   shape the way `secure-development`'s block once validated a non-empty
+   `targets` array drawn from a known target enum — that validation is gone
+   now (config v2, #386 PR 2: no reader treats `targets:` as authoritative
+   any more, so none of them enforce a shape on it), but a module that adds a
+   *real* setup-time field should still fail loudly on a bad one the way that
+   field used to. What `setup/ctf-setup.sh` needs is the new key in its
+   `KNOWN_MODULES` mirror (`check_known_modules`/`has_module`), for the same
+   missing-vs-unknown distinction `sync` draws — see §7 below for what it
+   gates. A module with its own provisioning (forks, GitHub Apps, anything
+   `ctf-setup.sh` must do before the event) adds its own step there, the way
+   `secure-development`'s per-target fork loop (`all_targets()`, unconditional
+   now — see item 1 above) does. Registration is deliberate, not dynamic;
+   this is a v1 constraint, not a permanent architectural stance.
 
    A module's presence under `modules:` configures it; it does not enable it
    (#386). There is no `enabled:` key — a module MUST NOT invent one.
 
-4. A module's config block is free to define its own shape beyond
-   `targets`. Note that in v1 `score_ingest` is documentation-of-intent
-   inside `event.yaml` — neither reader acts on it. The actual
-   poll/push switch is the separate `SCORE_INGEST` env var consumed by
-   `docker-compose.yml` and the Caddy profile. A module MUST keep any such
-   config-file fields and the runtime env vars that actually implement them
-   in sync until the loader is extended to read them.
+4. A module's config block is free to define its own shape. Note that in v1
+   `score_ingest` is documentation-of-intent inside `event.yaml` — neither
+   reader acts on it. The actual poll/push switch is the separate
+   `SCORE_INGEST` env var consumed by `docker-compose.yml` and the Caddy
+   profile. A module MUST keep any such config-file fields and the runtime
+   env vars that actually implement them in sync until the loader is
+   extended to read them.
 
 5. MUST state whether it is **Archivable**: whether its content is wholly
    self-contained in Redis, and therefore carried whole by the whole-event
@@ -827,7 +843,10 @@ gets to skip sections that apply to it.
 `ctf-setup.sh` implements `secure-development`'s provisioning today
 (`setup/ctf-setup.sh`, `cmd_org` / `cmd_teardown`):
 
-1. **Fork** each configured target into the event org
+1. **Fork** each of the six `targets.tsv` targets into the event org,
+   unconditionally (config v2, #386 PR 2: provisioning no longer reads a
+   subset from `event.yaml` — which targets contestants actually see is
+   chosen afterward, at runtime, in `/admin`)
    (`gh repo fork "$(prov_field "$t" 2)" --org "$org" --fork-name "$name" --clone=false`).
 
    **`setup/targets.tsv` is the canonical source of both halves of that

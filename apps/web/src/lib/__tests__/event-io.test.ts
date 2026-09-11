@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EVENT_BUNDLE_MIN_VERSION,
   EVENT_BUNDLE_VERSION,
   parseEventBundle,
   serializeEventBundle,
@@ -7,7 +8,7 @@ import {
 } from "@/lib/event-io";
 
 const valid: EventBundle = {
-  version: 1,
+  version: EVENT_BUNDLE_VERSION,
   kind: "archive",
   event: { name: "Demo CTF", theme: "web", dates: "2026", location: "online", ctfStartsAt: null },
   settings: { hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"], classicCooldownSec: 45, aiCooldownSec: 12 },
@@ -59,6 +60,40 @@ describe("parseEventBundle", () => {
   it("refuses a newer bundle version, no partial apply", () => {
     const res = parseEventBundle(JSON.stringify({ ...valid, version: EVENT_BUNDLE_VERSION + 1 }));
     expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.errors[0].message).toContain("newer than this box supports");
+  });
+
+  it("refuses a version older than EVENT_BUNDLE_MIN_VERSION", () => {
+    const res = parseEventBundle(JSON.stringify({ ...valid, version: EVENT_BUNDLE_MIN_VERSION - 1 }));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.errors[0].message).toContain("Unsupported bundle version");
+  });
+
+  it("refuses a fractional version — the range check must not admit an undefined schema", () => {
+    const res = parseEventBundle(JSON.stringify({ ...valid, version: 1.5 }));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.errors[0].where).toBe("version");
+    expect(res.errors[0].message).toContain("Unsupported bundle version");
+  });
+
+  // CodeRabbit round 1 (issue #386 PR 3): `secureDevTargets` joined
+  // EVENT_POLICY_FIELDS without a version bump, so a pre-change v1 parser
+  // (whose own EVENT_POLICY_FIELDS never heard of the field) would reject a
+  // bundle carrying it as "field not allowed" rather than a clean version
+  // mismatch. This box's own parser must still accept a genuine legacy v1
+  // bundle — one that predates the field and simply never carries it — and
+  // normalize it to the current version on the way in, same as any other
+  // accepted bundle.
+  it("accepts a legacy v1 bundle with no secureDevTargets field, normalized to the current version", () => {
+    const legacyV1: EventBundle = { ...valid, version: EVENT_BUNDLE_MIN_VERSION };
+    expect("secureDevTargets" in legacyV1.settings).toBe(false);
+    const res = parseEventBundle(JSON.stringify(legacyV1));
+    if (!res.ok) throw new Error(JSON.stringify(res.errors));
+    expect(res.bundle.version).toBe(EVENT_BUNDLE_VERSION);
+    expect("secureDevTargets" in res.bundle.settings).toBe(false);
   });
 
   it("refuses a non-archive kind", () => {
@@ -92,6 +127,15 @@ describe("parseEventBundle", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.errors.some((e) => e.where.startsWith("ai.challenges[0].urlTemplate"))).toBe(true);
+  });
+
+  // Issue #386, PR 2: secureDevTargets rides EVENT_POLICY_FIELDS alongside
+  // enabledModuleIds — an archive that carries it is not "field not allowed".
+  it("accepts settings carrying secureDevTargets", () => {
+    const withTargets = { ...valid, settings: { ...valid.settings, secureDevTargets: ["dvwa", "vampi"] } };
+    const res = parseEventBundle(JSON.stringify(withTargets));
+    if (!res.ok) throw new Error(JSON.stringify(res.errors));
+    expect(res.bundle.settings.secureDevTargets).toEqual(["dvwa", "vampi"]);
   });
 
   it("requires at least one module", () => {

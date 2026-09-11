@@ -666,6 +666,7 @@ export default function AdminControls({
                         settings={settings}
                         pending={pending}
                         apply={apply}
+                        applyField={applyField}
                         commitNumber={commitNumber}
                         statusOf={statusOf}
                         cooldownInput={cooldownInput}

@@ -380,19 +380,21 @@ cmd_doctor() {
   # at the top, not as a footnote under a green table.
   ingest_mismatch_warn
 
-  # secure-development IS enabled: it must have targets. Without this, an
-  # unreadable targets list printed an empty (headers-only) table and exited
-  # 0 — doctor reporting "all fine" for a config sync rejects outright
-  # ("targets must be a non-empty list"). Same check cmd_org makes.
-  yaml_targets | grep -q . || { echo "event.yaml: no targets under modules.secure-development" >&2; exit 1; }
+  # Fails loudly (naming targets.tsv) if it can't produce a target list —
+  # every loop below reads targets.tsv through all_targets(), which itself
+  # exits 0 with empty output on a missing/unreadable/empty file, so this
+  # runs once, up front, before any of them.
+  require_targets
 
+  # secure-development IS enabled: every event provisions all six targets.tsv
+  # targets, regardless of event.yaml (config v2 PR2, #386) — which ones
+  # actually RUN is chosen at runtime in /admin -> Secure Development.
   # One row per target, one column per provisioning step (+ fork-detach). Each
   # cell: ✅ done · ❌ missing (automatable — fails the exit code) · ⚠️ manual
   # step not yet done (advisory) · – not applicable to this target.
   printf '%s%-18s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s%s\n' "$C_BOLD" \
     "target" fork ctf old prot wkfl disI pr vapp detch "$C_RESET"
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
+  for t in $(all_targets); do
     name="$(prov_repo_name "$t")"
     printf '%-18s ' "$t"
     for id in $STEPS; do
@@ -408,7 +410,7 @@ cmd_doctor() {
     done
     if fork_detached "$org/$name"; then cell="✅"; else cell="⚠️"; fi
     printf '%s\n' "$cell"
-  done < <(yaml_targets)
+  done
 
   echo
   echo "legend: fork=forked ctf=ctf-branch old=drop-old prot=protected wkfl=workflow"
@@ -436,8 +438,7 @@ cmd_doctor() {
   if [ -n "$want_v" ]; then
     echo
     echo "scoring workflow version (template is v$want_v):"
-    while IFS= read -r t; do
-      [ -n "$t" ] || continue
+    for t in $(all_targets); do
       name="$(prov_repo_name "$t")"
       case "$(fork_workflow_version "$org/$name")" in
         none)
@@ -458,13 +459,12 @@ cmd_doctor() {
               "$t" "$C_RED" "$have" "$C_RESET" "$want_v"
           fi ;;
       esac
-    done < <(yaml_targets)
+    done
   fi
 
   echo
   echo "per-fork package Read grant (no API — read back from each fork's own scoring runs):"
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
+  for t in $(all_targets); do
     name="$(prov_repo_name "$t")"
     case "$(pull_grant_status "$org/$name")" in
       granted)
@@ -485,7 +485,7 @@ cmd_doctor() {
         printf '  %-18s %s⚠️  unverified%s — no run has reached the named pull step (needs a scoring run on workflow v2+); confirm by hand, or re-trigger a PR\n' \
           "$t" "$C_YELLOW" "$C_RESET" ;;
     esac
-  done < <(yaml_targets)
+  done
   printf '  package settings: https://github.com/orgs/%s/packages\n' "$org"
   return $rc
 }
@@ -603,19 +603,27 @@ yaml_url() {
 
 # ---------------------------------------------------------------------------
 # event.yaml's `modules:` block — the only place this script parses structured
-# YAML, and a contract it shares with a second reader written in another
-# language (sync/src/config.js, plus the app's
-# apps/web/scripts/generate-event-config.mjs). The two must agree on
-# accept/reject for the same file: setup/test/module_readers.bats and
-# sync/test/module-readers.differential.test.js run a shared corpus of
-# event.yaml shapes through BOTH and assert they do.
+# YAML, and a contract it shares with two other readers written in other
+# languages: sync/src/config.js and the app's
+# apps/web/scripts/generate-event-config.mjs. All three must agree on which
+# MODULE KEYS a file declares that they accept and which they reject:
+# setup/test/corpus/ is the shared fixture set, run against this reader by
+# setup/test/module_readers.bats and against the app's reader by its own
+# corpus differential suite
+# (apps/web/scripts/__tests__/generate-event-config.test.ts). There is no
+# longer a sync-side differential suite over this corpus (config v2 PR2,
+# #386): sync/test/module-readers.differential.test.js was deleted once
+# sync/src/config.js stopped reading targets at all — see below — but
+# sync's module-key accept/reject rules are unchanged and still agree with
+# this reader and the app's.
 #
-# Everything below FAILS CLOSED. If it cannot confidently parse the block it
-# errors (exit 2) instead of reporting "no modules" — a silently empty result
-# is indistinguishable from a quiz-only event and makes org/render/doctor
-# no-op on a perfectly valid config, which is exactly the bug this parser
-# replaced (the old one hard-coded 2-space block style and returned zero keys
-# for flow style, 4-space indent, quoted keys, tabs, or a bare `modules:`).
+# Everything below FAILS CLOSED on the module KEYS it parses. If it cannot
+# confidently parse the block it errors (exit 2) instead of reporting "no
+# modules" — a silently empty result is indistinguishable from a quiz-only
+# event and makes org/render/doctor no-op on a perfectly valid config, which
+# is exactly the bug this parser replaced (the old one hard-coded 2-space
+# block style and returned zero keys for flow style, 4-space indent, quoted
+# keys, tabs, or a bare `modules:`).
 #
 # Understood — every one of these is real YAML the other readers accept:
 #   - block style at ANY indent, ending at the first line indented less than
@@ -623,8 +631,8 @@ yaml_url() {
 #   - flow style: `modules: { quiz: {}, secure-development: { targets: [dvwa] } }`,
 #     including a flow mapping spread over several lines
 #   - quoted keys, interleaved comments, blank lines, CRLF, a leading &anchor
-#   - targets as a flow sequence (`targets: [a, b]`) or a block sequence
-#     (`- a` lines)
+#   - anything at all nested under a module key (this reader only extracts
+#     the KEY — see the "one module key per line" note below)
 # Rejected LOUDLY, never silently: tab indentation, a bare `modules:` with
 # nothing under it, a scalar or sequence value for `modules:`, sequence items
 # or merge keys (`<<:`) where module keys belong, an unterminated flow
@@ -639,11 +647,18 @@ yaml_url() {
 # said, with the same file blowing up much later at app build. Same shape as
 # the flow-style divergence this parser replaced, in miniature.
 #
-# want=keys    -> one module key per line
-# want=targets -> one target per line, scoped to modules.<mod> (a `targets:`
-#                 line anywhere else in the file is ignored)
+# One module key per line — nothing else. This used to also extract
+# modules.secure-development.targets (a second "want" mode of this same
+# scanner); config v2 PR2 (#386) removed target extraction entirely — every
+# event now forks all six targets.tsv targets (see all_targets()), so a
+# `targets:` key under secure-development, in ANY shape (absent, empty,
+# scalar, an unknown id), is tolerated and simply never looked at. Four
+# fixtures in setup/test/corpus/ are named reject-* for exactly the targets:
+# validation this reader no longer does; setup/test/module_readers.bats
+# documents them as known divergences rather than renaming files a second
+# reader (the app's) still keys off of.
 _yaml_modules() {
-  awk -v want="$1" -v mod="${2:-}" '
+  awk '
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
     function unquote(s,   c) {
       c = substr(s, 1, 1)
@@ -674,24 +689,8 @@ _yaml_modules() {
     function seen(key) { return index(seenbuf, "\n" key "\n") > 0 }
     function see(key) { seenbuf = seenbuf key "\n" }
     function emit(v) { out = out v "\n" }
-    function emit_list(inner,   n, a, i, t) {
-      n = split(inner, a, ",")
-      for (i = 1; i <= n; i++) { t = unquote(trim(a[i])); if (t != "") emit(t) }
-    }
-    # targets: [ ... ] out of a flow mapping value such as "{targets: [a, b]}"
-    function flow_targets(v,   s, i) {
-      if (!match(v, /(^|[{, \t])targets[ \t]*:[ \t]*\[/)) return
-      s = substr(v, RSTART + RLENGTH)
-      i = index(s, "]")
-      if (i == 0) fail("unterminated targets: [ ... ] under modules." mod)
-      emit_list(substr(s, 1, i - 1))
-    }
-    function pair(k, v) {
-      if (want == "keys") { emit(k); return }
-      if (k == mod) flow_targets(v)
-    }
     # Quote-aware scan of a flow mapping. Returns 1 when the mapping closed
-    # (keys/targets emitted), -1 when it needs more lines. Errors are fatal.
+    # (keys emitted), -1 when it needs more lines. Errors are fatal.
     function flow_scan(s,   i, c, q, depth, tok, st, key, saved, saved_seen) {
       saved = out                        # a partial scan must emit nothing
       # ...and must remember no keys either: a multi-line flow mapping is
@@ -708,7 +707,7 @@ _yaml_modules() {
           depth--
           if (depth == 0) {
             if (st == "key" && trim(tok) != "") fail("modules: is not a mapping of module keys near: " trim(tok))
-            if (st == "val") pair(key, tok)
+            if (st == "val") emit(key)
             if (trim(substr(s, i + 1)) != "") fail("unexpected text after the modules: mapping: " trim(substr(s, i + 1)))
             return 1
           }
@@ -727,7 +726,7 @@ _yaml_modules() {
             if (trim(tok) != "") fail("modules: entry is not a key: value pair near: " trim(tok))
             continue
           }
-          pair(key, tok); tok = ""; st = "key"; continue
+          emit(key); tok = ""; st = "key"; continue
         }
         tok = tok c
       }
@@ -746,42 +745,8 @@ _yaml_modules() {
       }
       return 0
     }
-    # targets out of the collected block-style subtree of modules.<mod>.
-    function block_targets(   n, a, i, j, k, ind, cb, body, rest, acc, item) {
-      n = split(modbuf, a, "\n")
-      cb = -1
-      for (i = 1; i <= n; i++) {
-        if (a[i] ~ /^[ \t]*$/ || a[i] ~ /^[ \t]*#/) continue
-        match(a[i], /^[ \t]*/); ind = RLENGTH
-        if (cb < 0) cb = ind
-        if (ind != cb) continue
-        body = trim(strip_comment(substr(a[i], cb + 1)))
-        j = key_colon(body)
-        if (j == 0) continue
-        if (unquote(trim(substr(body, 1, j - 1))) != "targets") continue
-        rest = trim(substr(body, j + 1))
-        if (rest == "") {
-          # block sequence: `- item` lines at or below the targets: key
-          for (k = i + 1; k <= n; k++) {
-            if (a[k] ~ /^[ \t]*$/ || a[k] ~ /^[ \t]*#/) continue
-            match(a[k], /^[ \t]*/); if (RLENGTH < cb) break
-            item = trim(strip_comment(substr(a[k], RLENGTH + 1)))
-            if (substr(item, 1, 1) != "-") break
-            item = unquote(trim(substr(item, 2)))
-            if (item != "") emit(item)
-          }
-          return
-        }
-        if (substr(rest, 1, 1) != "[") return   # a scalar: not a list, emit nothing
-        acc = rest
-        for (k = i + 1; index(acc, "]") == 0 && k <= n; k++) acc = acc " " trim(strip_comment(a[k]))
-        if (index(acc, "]") == 0) fail("unterminated targets: [ ... ] under modules." mod)
-        emit_list(substr(acc, 2, index(acc, "]") - 2))
-        return
-      }
-    }
 
-    BEGIN { state = "pre"; base = -1; out = ""; modbuf = ""; inmod = 0; found = 0; seenbuf = "\n" }
+    BEGIN { state = "pre"; base = -1; out = ""; found = 0; seenbuf = "\n" }
 
     {
       line = $0
@@ -828,9 +793,8 @@ _yaml_modules() {
         base = ind
       }
       if (ind < base) { state = "done"; next }
-      if (ind > base) { if (want == "targets" && inmod) modbuf = modbuf line "\n"; next }
+      if (ind > base) next
 
-      inmod = 0
       body = trim(strip_comment(substr(line, base + 1)))
       if (body == "") next
       if (substr(body, 1, 1) == "-")
@@ -846,12 +810,7 @@ _yaml_modules() {
       if (key == "") fail("modules: has an entry with an empty key (line " NR ")")
       if (seen(key)) fail("modules: has a duplicate key: " key " (line " NR ")")
       see(key)
-      val = trim(substr(body, ci + 1))
-      sub(/^&[^ \t]+[ \t]*/, "", val)
-      if (want == "keys") { emit(key); next }
-      if (key != mod) next
-      inmod = 1
-      if (val != "") { inmod = 0; if (substr(val, 1, 1) == "{") flow_targets(val) }
+      emit(key)
       next
     }
 
@@ -861,17 +820,9 @@ _yaml_modules() {
       if (state == "flow") fail("unterminated flow mapping after modules:")
       if (state == "block" && base < 0)
         fail("modules: has no module keys under it — declare at least one module")
-      if (want == "targets" && modbuf != "") block_targets()
       printf "%s", out
     }
   ' "$CONFIG"
-}
-
-# The targets of modules.secure-development, one per line. Empty output means
-# "no targets configured" — every caller treats that as an error when the
-# module IS enabled (mirroring sync's "targets must be a non-empty list").
-yaml_targets() {
-  _yaml_modules targets secure-development
 }
 
 # modules.secure-development.score_ingest, normalised: prints "push" or
@@ -879,7 +830,7 @@ yaml_targets() {
 # generate-event-config.mjs applies. Block style (what the wizard writes and
 # the example shows) and the one-line flow form are both read; the value is
 # scoped to the secure-development block so a stray `score_ingest:` elsewhere
-# is ignored, as with yaml_targets.
+# is ignored.
 yaml_ingest() {
   local v
   v="$(awk '
@@ -946,7 +897,7 @@ KNOWN_MODULES="secure-development quiz classic ai"
 # of the contract: nonzero means "could not parse", NOT "no modules" — every
 # caller must treat a failure as fatal (see has_module / check_known_modules).
 yaml_module_keys() {
-  _yaml_modules keys
+  _yaml_modules
 }
 
 # Is module $1 declared under modules: at all? A module is enabled by
@@ -1174,16 +1125,14 @@ cmd_org() {
     exit 1
   }
 
-  yaml_targets | grep -q . || { echo "event.yaml: no targets under modules.secure-development" >&2; exit 1; }
-
+  require_targets
   echo "== provisioning $org (idempotent — re-run safe)"
   local t
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
+  for t in $(all_targets); do
     echo "== $t -> $org/$(prov_repo_name "$t")"
     local id
     for id in $STEPS; do do_step "$id" "$t" "$org"; done
-  done < <(yaml_targets)
+  done
 
   mirror_image "$org" "$src"
 
@@ -1214,12 +1163,10 @@ cmd_render() {
     return 0
   fi
 
+  require_targets
   local targets_arr=()
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
-    targets_arr+=("$t")
-  done < <(yaml_targets)
-  [ ${#targets_arr[@]} -gt 0 ] || { echo "event.yaml: no targets" >&2; exit 1; }
+  local t
+  for t in $(all_targets); do targets_arr+=("$t"); done
   render_workflows "$org" "${targets_arr[@]}"
 }
 
@@ -1245,16 +1192,14 @@ cmd_upgrade() {
     return 0
   fi
 
-  yaml_targets | grep -q . || { echo "event.yaml: no targets under modules.secure-development" >&2; exit 1; }
-
   local want; want="$(template_workflow_version)" || exit 1
+  require_targets
   echo "== upgrading scoring workflows in $org to v$want (idempotent — re-run safe)"
   local t
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
+  for t in $(all_targets); do
     echo "== $t -> $org/$(prov_repo_name "$t")"
     do_step workflow "$t" "$org"
-  done < <(yaml_targets)
+  done
 
   # The workflow only re-runs on the NEXT push to an open PR, so an event
   # mid-flight keeps scoring against the old copy until then. Say so rather
@@ -1271,11 +1216,22 @@ cmd_teardown() {
   require_config
   local org; org="$(yaml_org)"
   [ -n "$org" ] || { echo "event.yaml: github.org missing" >&2; exit 1; }
-  while IFS= read -r t; do
-    [ -n "$t" ] || continue
+  # No secure-development module: nothing was ever forked to archive. Not an
+  # error — same reasoning as cmd_org/cmd_render/cmd_upgrade. Deliberately
+  # does NOT run check_known_modules first (see the "unknown module key"
+  # bats test): an event.yaml with an unrecognized module key elsewhere is
+  # still safe to tear down, since has_module only looks for
+  # secure-development among whatever keys parse.
+  if ! has_module secure-development; then
+    echo "== event.yaml has no secure-development module — nothing to tear down."
+    return 0
+  fi
+  require_targets
+  local t
+  for t in $(all_targets); do
     local r; r="$(prov_repo_name "$t")" || exit 1
     run gh repo archive "$org/$r" --yes
-  done < <(yaml_targets)
+  done
   echo "== uninstall the GitHub App and delete org secrets manually"
 }
 
@@ -1564,6 +1520,25 @@ all_targets() {
   printf '%s' "$out"
 }
 
+# Every command that provisions/inspects targets loops `for t in $(...)` over
+# all_targets() — and all_targets() exits 0 with EMPTY output when
+# targets.tsv is missing, unreadable or has no non-comment rows. Without this
+# guard that turns "the TSV is broken" into a silent no-op: `org` prints its
+# banner and forks nothing, `doctor` prints a header-only matrix, both exit 0
+# as if there were zero targets to provision rather than a broken input.
+#
+# Call this as a PLAIN statement before the loop, never as `$(require_targets)`
+# in the loop's own `in` list: `exit` inside a command substitution only kills
+# that subshell, so `for t in $(require_targets); do` would still exit 0 —
+# the loop just runs zero times, silently, which is the exact bug this guards
+# against. Called plain, `exit 1` here does what it looks like it does.
+require_targets() {
+  if [ -z "$(all_targets)" ]; then
+    echo "$PROVENANCE_TSV: no targets to provision (file missing, unreadable or empty)" >&2
+    exit 1
+  fi
+}
+
 # Validate an answer to the "which modules" question. Every token must be a
 # key from KNOWN_MODULES (the same list check_known_modules enforces on an
 # existing file, mirroring sync/src/config.js) and at least ONE must be given
@@ -1615,11 +1590,15 @@ wiz_module_default() {
 # a file the wizard wrote).
 #
 # Emits a block ONLY for the modules that were enabled, and only the keys each
-# module actually has: secure-development carries targets + score_ingest; quiz,
-# classic and ai carry nothing — quiz's attempt cap and retry cooldown,
-# classic's submission cooldown, and ai's cooldown and per-challenge signing
-# keys are runtime /admin settings in Redis, not build-time config, so there is
-# nothing to ask for and nothing to write.
+# module actually has: secure-development carries score_ingest; quiz, classic
+# and ai carry nothing — quiz's attempt cap and retry cooldown, classic's
+# submission cooldown, and ai's cooldown and per-challenge signing keys are
+# runtime /admin settings in Redis, not build-time config, so there is
+# nothing to ask for and nothing to write. Nor does secure-development carry
+# `targets:` any more (config v2 PR2, #386): every event forks all six
+# targets.tsv targets regardless, and which ones actually RUN is an /admin ->
+# Secure Development -> Targets runtime setting, not something the wizard
+# collects or writes here.
 # Fails closed on an empty or unknown selection instead of emitting a
 # `modules:` block with no keys under it, which every reader rejects.
 #
@@ -1632,14 +1611,14 @@ wiz_module_default() {
 # this function directly, because every wizard test runs --dry-run and never
 # reaches the emitter.
 #
-# Args: name dates org modules targets ingest admins
+# Args: name dates org modules ingest admins
 #
 # No `url`: the event's URL is EVENT_URL in .env. It is a DEPLOYMENT fact, and
 # one event.yaml is deployed to a box, to AWS and to fly.io on three different
 # hostnames — which is exactly why .env and .env.fly hold different EVENT_URLs
 # for one event.
 wiz_event_yaml() {
-  local name="$1" dates="$2" org="$3" mods="$4" targets="$5" ingest="$6" admins="$7" m
+  local name="$1" dates="$2" org="$3" mods="$4" ingest="$5" admins="$6" m
   if [ -z "$mods" ]; then
     echo "event.yaml: at least one module must be enabled (known modules: $KNOWN_MODULES)" >&2
     return 1
@@ -1649,12 +1628,7 @@ wiz_event_yaml() {
   for m in $mods; do
     case "$m" in
       secure-development)
-        if [ -z "$targets" ]; then
-          echo "event.yaml: secure-development needs at least one target" >&2
-          return 1
-        fi
-        printf '  secure-development:\n    targets: [%s]\n    score_ingest: %s\n' \
-          "$(csv_of "$targets")" "$ingest"
+        printf '  secure-development:\n    score_ingest: %s\n' "$ingest"
         ;;
       quiz) printf '  quiz: {}\n' ;;
       classic) printf '  classic: {}\n' ;;
@@ -1684,15 +1658,13 @@ wiz_event_yaml() {
 }
 
 # Is an existing event.yaml complete enough to skip the config questions? Org
-# (checked by the caller) plus, when secure-development is enabled, a
-# non-empty targets list. A quiz-only config HAS no targets by design —
-# demanding them here made the wizard re-ask every single run and offer to
-# overwrite a perfectly good quiz-only event.
+# (checked by the caller) plus a parseable modules: block — that's the whole
+# answer now (config v2 PR2, #386): secure-development no longer needs a
+# targets list to be "complete" (every event forks all six regardless), so
+# there is nothing left to demand here beyond a modules: block this reader
+# can actually read.
 wiz_config_complete() {
-  local keys
-  keys="$(yaml_module_keys 2>/dev/null)" || return 1
-  printf '%s\n' "$keys" | grep -qx secure-development || return 0
-  yaml_targets | grep -q .
+  yaml_module_keys >/dev/null 2>&1
 }
 
 # The default front door: walk a brand-new organizer from zero to a running,
@@ -1746,7 +1718,7 @@ cmd_wizard() {
     echo "  ✅ $CONFIG (org: $(yaml_org))"
   else
     echo "  Answer a few questions to write $CONFIG (Enter accepts the [default])."
-    local ev_name ev_org ev_admins ev_mods ev_reply ev_targets ev_url ev_ingest ev_start ev_end adm_default
+    local ev_name ev_org ev_admins ev_mods ev_reply ev_url ev_ingest ev_start ev_end adm_default
     adm_default=""
     [ "$DRY_RUN" -eq 1 ] || adm_default="$(gh api user --jq .login 2>/dev/null || true)"
     wiz_ask ev_name    "Event name" "OWASP CTF"
@@ -1777,17 +1749,15 @@ cmd_wizard() {
       fi
     done
     WIZ_MODULES="$ev_mods"
-    # Only secure-development has anything else to configure. A quiz-only event
-    # is never asked for targets it will never fork, and quiz's own knobs (max
-    # attempts, retry cooldown) are runtime /admin settings, not event.yaml.
-    ev_targets=""; ev_ingest="poll"
+    # Only secure-development has anything else to configure, and even it is
+    # only asked for score ingest now — NOT targets (config v2 PR2, #386):
+    # every event provisions all six targets.tsv targets, and which ones
+    # actually run is chosen at runtime in /admin, not decided here. A
+    # quiz-only event is never asked either question, since it forks nothing.
+    ev_ingest="poll"
     case " $ev_mods " in
       *" secure-development "*)
-        wiz_ask ev_targets "Targets — subset of: $(all_targets)" "$(all_targets)"
-        while [ "$DRY_RUN" -ne 1 ] && [ -z "$ev_targets" ]; do
-          echo "  secure-development needs at least one target."
-          wiz_ask ev_targets "Targets — subset of: $(all_targets)" "$(all_targets)"
-        done
+        echo "  Note: which targets run is a runtime setting now (/admin → Secure Development → Targets); this build always provisions all six from targets.tsv: $(all_targets)."
         wiz_ask ev_ingest  "Score ingest (poll | push)" "poll"
         # Re-ask until it is exactly one of the two: the answer becomes a
         # Caddyfile path in compose, so a typo is a failed bring-up, not a
@@ -1843,7 +1813,7 @@ cmd_wizard() {
       # it BEFORE the emitter can refuse, which would leave an organizer with
       # an empty event.yaml where their old one used to be.
       if wiz_event_yaml "$ev_name" "$ev_dates" "$ev_org" \
-           "$ev_mods" "$ev_targets" "$ev_ingest" "$ev_admins" > "$CONFIG.tmp"; then
+           "$ev_mods" "$ev_ingest" "$ev_admins" > "$CONFIG.tmp"; then
         mv "$CONFIG.tmp" "$CONFIG"
         echo "  ✅ wrote $CONFIG (org: $ev_org, modules: $ev_mods)"
       else
@@ -2037,6 +2007,10 @@ EOF
   echo
   echo "== Done. Open $(env_val EVENT_URL), sign in, and check /admin."
   echo "   Re-run 'ctf-setup.sh doctor' anytime to re-verify provisioning."
+  if [ "$secdev" -eq 1 ]; then
+    echo "   Secure Development provisions all six targets.tsv targets; choose which"
+    echo "   ones actually run in /admin -> Secure Development -> Targets."
+  fi
 }
 
 if [ "$CMD" != "__selftest" ]; then

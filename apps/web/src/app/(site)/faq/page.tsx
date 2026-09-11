@@ -16,7 +16,8 @@ import type { Metadata } from "next";
 import PageHeader from "@/components/page-header";
 import ModuleCopy from "@/components/module-copy";
 import FaqAccordion, { type QA } from "@/components/faq-accordion";
-import { enabledApps, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps } from "@/lib/enabled-apps";
 import type { FaqContext, ModuleFaq } from "@/lib/modules";
 import { getModuleFaq, getResolvedModules } from "@/lib/resolved-modules";
 import { getHintNotice } from "@/lib/hint-store";
@@ -41,6 +42,7 @@ type FaqItem = NonNullable<ReturnType<ModuleFaq>["gettingStarted"]>[number];
 
 export default async function FaqPage() {
   const event = await getSite();
+  const enabledApps = await getEnabledApps();
   // The hint price is an /admin runtime setting, so the answer that quotes it
   // has to read the live value rather than restate the default (issue #315) —
   // the same value /challenges and the reveal button already render.

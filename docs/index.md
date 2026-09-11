@@ -111,9 +111,10 @@ back by API.
 
 ## Targets (Secure Development module)
 
-The module's content is a set of vulnerable targets. Enable any subset in
-`event.yaml` — nine challenges for a two-hour club session, all 321 for a
-semester.
+The module's content is a set of vulnerable targets. Every event that
+provisions Secure Development provisions all six; pick any subset for
+contestants to actually see from `/admin` → Secure Development → Targets —
+nine challenges for a two-hour club session, all 321 for a semester.
 
 | Target | Challenges | Points |
 |---|---:|---:|

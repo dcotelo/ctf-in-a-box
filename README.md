@@ -239,7 +239,7 @@ by difficulty.
 | `securityshepherd` | 40 | 79 | HTTPS, three-container stack, strictly serial |
 | `juice-shop` | 38 | 141 | The only target whose difficulty runs to 6 stars |
 | `vampi` | 9 | 16 | Self-contained; the quickest end-to-end proof |
-| **Total** | **321** | **668** | Enable any subset in `modules.secure-development.targets` |
+| **Total** | **321** | **668** | Every event provisions all six; pick a subset in `/admin` → Secure Development → Targets |
 
 <sup>Counts are maintained by hand and pinned to the vendored rubric by
 <code>apps/web/src/lib/__tests__/apps-catalogue.test.ts</code> — re-check them

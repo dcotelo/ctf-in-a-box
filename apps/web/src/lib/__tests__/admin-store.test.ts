@@ -18,6 +18,7 @@ import {
   type AdminSettings,
 } from "@/lib/admin-store";
 import { TEAM_MAX_MEMBERS_MAX } from "@/lib/team-limits";
+import { SECURE_DEV_TARGETS_MESSAGE } from "@/lib/secure-dev-targets";
 
 beforeEach(() => {
   mocks.upstashEval.mockReset();
@@ -33,7 +34,7 @@ describe("getAdminSettings", () => {
       quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, aiCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
       scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
       updatedBy: null, updatedAt: null, moduleOverrides: {},
-  enabledModuleIds: null, eventIdentity: {},
+  enabledModuleIds: null, eventIdentity: {}, secureDevTargets: null,
     });
   });
 
@@ -102,12 +103,33 @@ describe("getAdminSettings", () => {
       // Absent from the hash => null => "no override, use the baked set".
       enabledModuleIds: null,
       eventIdentity: {},
+      secureDevTargets: null,
     });
   });
 
   it("decodes a stored \"0\" for teamRegistrationOpen as closed", async () => {
     mocks.upstashPipeline.mockResolvedValue([{ result: ["teamRegistrationOpen", "0"] }]);
     expect((await getAdminSettings()).teamRegistrationOpen).toBe(false);
+  });
+
+  // Secure-development targets (issue #386, PR 2) — decoded through
+  // normalizeSecureDevTargets, same contract as its own unit tests: known ids
+  // only, deduplicated, in catalogue order; anything that survives to nothing
+  // decodes to null ("no override, use the default"), same reading as
+  // enabledModuleIds' unknown-only case above.
+  it("decodes a stored secureDevTargets list, reordered to catalogue order", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["secureDevTargets", '["vampi","dvwa"]'] }]);
+    expect((await getAdminSettings()).secureDevTargets).toEqual(["dvwa", "vampi"]);
+  });
+
+  it("decodes an empty stored secureDevTargets list as null — no override, use the default", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["secureDevTargets", "[]"] }]);
+    expect((await getAdminSettings()).secureDevTargets).toBeNull();
+  });
+
+  it("decodes garbage secureDevTargets as null rather than throwing", async () => {
+    mocks.upstashPipeline.mockResolvedValue([{ result: ["secureDevTargets", "not-json"] }]);
+    expect((await getAdminSettings()).secureDevTargets).toBeNull();
   });
 });
 
@@ -445,7 +467,7 @@ describe("scheduled windows", () => {
     quizMaxAttempts: null, quizRetryAfterMin: null, classicCooldownSec: null, aiCooldownSec: null, teamMaxMembers: null, scoreCooldownMin: null,
     scoringStartsAt: null, scoringEndsAt: null, registrationStartsAt: null, registrationEndsAt: null,
     updatedBy: null, updatedAt: null, moduleOverrides: {}, enabledModuleIds: null,
-    eventIdentity: {},
+    eventIdentity: {}, secureDevTargets: null,
   };
   const T = (iso: string) => Date.parse(iso);
 
@@ -676,6 +698,34 @@ describe("event identity fields (issue #386)", () => {
       eventContact: "cleared",
       eventDiscord: "cleared",
     });
+  });
+});
+
+describe("secureDevTargets (issue #386, PR 2)", () => {
+  it("writes a deduplicated, catalogue-ordered JSON array as an HSET pair", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-11T00:00:00Z"]);
+    await updateAdminSettings({ secureDevTargets: ["vampi", "dvwa", "dvwa"] }, "alice");
+    const strArgs = mocks.upstashEval.mock.calls[0][2].map(String);
+    const idx = strArgs.indexOf("secureDevTargets");
+    expect(idx).toBeGreaterThan(-1);
+    expect(strArgs[idx + 1]).toBe('["dvwa","vampi"]');
+  });
+
+  it.each([[[]], [["nope"]], ["dvwa"]] as const)(
+    "rejects %j with the shared message and never reaches upstashEval",
+    async (value) => {
+      await expect(updateAdminSettings({ secureDevTargets: value as never }, "alice")).rejects.toMatchObject({
+        message: SECURE_DEV_TARGETS_MESSAGE,
+      });
+      expect(mocks.upstashEval).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a non-array, non-string value the same way", async () => {
+    await expect(updateAdminSettings({ secureDevTargets: 7 as never }, "alice")).rejects.toBeInstanceOf(
+      AdminValidationError,
+    );
+    expect(mocks.upstashEval).not.toHaveBeenCalled();
   });
 });
 

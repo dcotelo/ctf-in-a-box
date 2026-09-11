@@ -46,11 +46,18 @@ what the ones you picked actually need:
 
 | You enable | The wizard asks | The wizard skips |
 |---|---|---|
-| `secure-development` | targets, `score_ingest` (poll/push) | — |
-| `quiz` only | nothing extra | targets, score ingest, the scorer image, the poll GitHub App, and org fork-provisioning |
+| `secure-development` | `score_ingest` (poll/push) | — |
+| `quiz` only | nothing extra | score ingest, the scorer image, the poll GitHub App, and org fork-provisioning |
 | `classic` only | nothing extra | the same set `quiz` only skips |
 | `ai` only | nothing extra | the same set `quiz` only skips |
-| any combination including `secure-development` | targets, `score_ingest` | — |
+| any combination including `secure-development` | `score_ingest` | — |
+
+No module's wizard flow asks which targets to run any more (config v2, #386
+PR 2): `ctf-setup.sh org` forks and provisions all six of `setup/targets.tsv`
+for every event with `secure-development` enabled, whichever modules you
+picked, and which of the six contestants actually see is chosen afterward
+from `/admin` → Secure Development → Targets, live, with no rebuild — see
+[docs/operations.md](operations.md#targets).
 
 A quiz-only event is never asked to pick vulnerable apps it will never fork,
 and the `event.yaml` it writes has **no `secure-development` block at all** —
@@ -99,8 +106,9 @@ docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --
 
 # 4. Create your event config from the example, then edit it.
 cp event.yaml.example event.yaml
-#    MANUAL edit: github.org, modules.secure-development.targets,
-#    admins=[your login].  (The URL is EVENT_URL in .env, not here.)
+#    MANUAL edit: github.org, admins=[your login].  (The URL is EVENT_URL in
+#    .env, not here; which Secure Development targets run is chosen later,
+#    at runtime, from /admin — see step 10 below.)
 
 # 5. Create the disposable GitHub org — UI-ONLY, ctf-setup never creates it:
 #    https://github.com/account/organizations/new
@@ -547,8 +555,12 @@ ids are registered today:
 ```yaml
 modules:
   secure-development:
-    targets: [juice-shop, dvwa]    # any subset of the six
-    score_ingest: poll             # poll | push
+    score_ingest: poll             # poll | push — the only setup-time
+                                    # setting left. Which of the six targets
+                                    # run is chosen at runtime instead, from
+                                    # /admin → Secure Development → Targets
+                                    # (#386); a targets: key here is accepted
+                                    # but ignored.
   quiz: {}                        # single/multi-select question bank, scored
                                     # app-side — see docs/operations.md's "Quiz"
   classic: {}                     # jeopardy-style flag board, scored app-side
@@ -582,9 +594,13 @@ Module authors and anything that switches exhaustively over the module id —
 `apps/web/src/lib/modules.ts`'s `ModuleId`, `event-config.ts`, the three
 `KNOWN_MODULES` readers — must now handle `"ai"`.
 
-`modules:` no longer enables anything. Secure Development's block still
-carries its `targets` for `ctf-setup.sh` and sync; the other three ids are
-accepted and ignored. Enablement lives in `/admin` → Event → Modules.
+`modules:` no longer enables anything, for any of the four ids — presence in
+this block used to turn a module on, and no longer does. Enablement lives in
+`/admin` → Event → Modules instead. Only one key left under any module's
+block still has a build-time effect: `score_ingest` under
+`secure-development`, read by `ctf-setup.sh` and `sync`. Everything else a
+block might carry — including a `targets:` key under `secure-development` —
+is accepted and ignored.
 
 Enabling a module changes the **landing page**, not just the nav: the
 platform frame (event name, dates, countdown, CTAs, Discord link, progress
@@ -595,10 +611,11 @@ never advertises forking a target or opening a PR. See
 [docs/modules.md §5](modules.md#section-5-ui--presentation-contract) for the `home`
 block contract.
 
-`modules.secure-development.targets` is still the field that drives the
-app's target list, nav, challenge browser, and leaderboard columns for that
-module — nothing about that changed. A second module block is legal: all
-three readers of `event.yaml` — the app's generator
+Which of the six Secure Development targets an event actually runs is a
+runtime `/admin` → Secure Development → Targets setting now (#386 PR 2), not
+`modules.secure-development.targets` — see
+[docs/operations.md](operations.md#targets). A second module block is legal:
+all three readers of `event.yaml` — the app's generator
 (`apps/web/scripts/generate-event-config.mjs`), the poll service's config
 loader (`sync/src/config.js`'s `KNOWN_MODULES`), and the provisioning
 script (`setup/ctf-setup.sh`'s `KNOWN_MODULES`) — recognize
@@ -651,9 +668,9 @@ and `admins` (GitHub logins) — the URL is not in this file, it is `EVENT_URL`
 in `.env`, because one `event.yaml` is deployed to a box, to AWS and to fly.io
 on three different hostnames. Or let
 [the wizard](#quickstart-zero-to-a-scored-event) write the file from your
-answers, which is the same schema with none of the YAML. Only the modules you
-enable need their own settings: `modules.secure-development.targets` and
-`score_ingest` for that one, nothing for `quiz` or `classic`. There is
+answers, which is the same schema with none of the YAML. Only
+`secure-development` has a setup-time setting left to give it —
+`score_ingest` — and `quiz`/`classic`/`ai` have none. There is
 deliberately **no `teams:` or `hints:` block** — both keys existed once,
 were never read, and were removed rather than left as documentation-of-intent
 (ADR 31's amendment; `generate-event-config.mjs` warns if it finds either).
@@ -693,7 +710,8 @@ section for the five fields and their limits.
 | `event.discord` | ignored since #386 | Set from `/admin` → Event → Identity → Discord invite instead. |
 | `event.url` | **must be absent** | The build fails and says so — the URL is `EVENT_URL` in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). |
 | `github.org` | yes | The event org: every "fork this repo" link, and the org `sync` polls (`sync` refuses to start without it; the app alone would default to `OWASP-CTF`). |
-| `modules` | yes | The enabled-module map described above — at least one known id, `targets` and `score_ingest` under `secure-development`. |
+| `modules` | yes | The enabled-module map described above — at least one known id, `score_ingest` under `secure-development`. |
+| `modules.secure-development.targets` | ignored since #386 | Accepted in any shape (absent, empty, a scalar, an unknown id) and never validated or read. Which targets run is set from `/admin` → Secure Development → Targets instead (default all six); `ctf-setup.sh` forks all six regardless of this key. |
 | `admins` | yes, in practice | Bootstrap allowlist of GitHub logins for `/admin`. An empty list 403s everyone, which is what a build without `EVENT_CONFIG_B64` produces. |
 | `hints`, `teams` | ignored | Not read; the build warns and tells you where the setting lives now (`/admin`). |
 
@@ -701,8 +719,8 @@ section for the five fields and their limits.
 
 The contestant app (`apps/web/`, vendored — see
 [`apps/web/VENDORED.md`](https://github.com/dcotelo/owasp-ctf/blob/main/apps/web/VENDORED.md))
-bakes the non-identity keys in the table above — dates, enabled-target list,
-fork org and admins — from `event.yaml` at **image-build time**, via the
+bakes the non-identity keys in the table above — dates, fork org and
+admins — from `event.yaml` at **image-build time**, via the
 `EVENT_CONFIG_B64` build arg. Event name, tagline, location, contact e-mail
 and Discord invite are **not** among them since #386: those are runtime
 `/admin` settings, read on every request, so renaming an event or adding a
@@ -720,12 +738,14 @@ EVENT_CONFIG_B64=$(base64 < event.yaml | tr -d '\n') docker compose --profile ap
 docker compose --profile poll --profile app up -d   # quiz-only: --profile app alone
 ```
 
-Building without `EVENT_CONFIG_B64` falls back to the neutral dates/targets/
-admins defaults — the event's name is unaffected either way, since it is a
+Building without `EVENT_CONFIG_B64` falls back to the neutral dates/admins
+defaults — the event's name is unaffected either way, since it is a
 runtime `/admin` setting, not part of this bake: an organizer-stored name
 in `ctf:admin:settings` keeps showing regardless of what the image was
 built with, and "OWASP CTF" appears only when no runtime name has ever been
-stored (a fresh event, or a Redis wiped clean). See
+stored (a fresh event, or a Redis wiped clean). Which Secure Development
+targets run is likewise a runtime `/admin` setting, unaffected by this
+build-arg either way. See
 `apps/web/scripts/generate-event-config.mjs` for the full
 `EVENT_CONFIG` yaml > `EVENT_*` env var > default precedence, and
 [docs/architecture.md](architecture.md#build-time-config-flow) for the whole

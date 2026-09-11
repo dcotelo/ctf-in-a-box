@@ -333,9 +333,10 @@ The panel offers:
   **What is on before you touch anything:** Secure Development, and only
   when the deployment has a scorer image; otherwise nothing. Quiz, Classic
   and AI always start off. `event.yaml`'s `modules:` block no longer
-  influences enablement (it still carries Secure Development's `targets`
-  until #386 lands fully); if Redis is unreachable the app falls back to that
-  same default rather than to a surprise.
+  influences enablement, or which Secure Development targets run — that
+  `targets:` key is ignored entirely now (#386); if the settings read fails
+  the app falls back to that same "all six" default rather than to a
+  surprise.
 
   **What a contestant sees.** The module's nav link disappears from the header
   and the footer, and its route stops resolving — with a page that says the
@@ -695,6 +696,37 @@ points/solved/solve-count hashes the leaderboard reads) but deliberately
 same organizer content/contestant progress line the quiz reset draws. A
 rehearsal on the `classic` module wipes back to the challenge set you wrote,
 ready to run for real. See [Classic](#classic) below.
+
+### Targets
+
+Also on the **Secure Development** tab: which of the six targets (Juice Shop,
+DVWA, WebGoat, Security Shepherd, VulnerableApp, VAmPI) this event actually
+runs, as a checkbox list. `ctf-setup.sh org` forks and provisions all six for
+every event that provisions Secure Development at all — six forks, six
+scoring workflows, six package Read grants — regardless of this setting; an
+event with no `secure-development` block forks and grants nothing (see
+[modules.md](modules.md)). The checkboxes decide which of those six
+contestants see and which the sync poller reads, not which get provisioned.
+At least one target must stay checked — the last box is disabled, the same
+lock as the last live module's Enabled switch, because unchecking every
+target is what disabling the whole module is for.
+
+A change here reaches contestants on their **next page load** (the challenge
+browser, the leaderboard's per-app breakdown, and the module's setup-status
+counts all read the stored list at request time) and reaches the sync poller
+on its **next tick** (it re-reads the list from Redis every poll rather than
+once at startup). Absent — a fresh event, or one that has never touched this
+control — defaults to all six on both sides; a Redis read that fails during a
+page render also falls back to all six (fail open), but a poll tick that
+cannot read the list polls **nothing** that tick and records the failure as
+the poller's `lastError`, rather than guessing (a wrong guess here would mean
+scoring the wrong repos or none at all).
+
+`event.yaml`'s `modules.secure-development.targets` key, if a config still
+carries one, is ignored — this panel, not the file, is the only place the
+running set is chosen. The [event archive](#archiving-and-replaying-an-event)
+carries the setting: an export's snapshot includes `secureDevTargets`, and
+importing one restores exactly the target list it was exported with.
 
 ### Re-run cooldown
 

@@ -21,7 +21,8 @@ import HeroCta from "@/components/hero-cta";
 import PhaseLine, { resolvePhase, type EventPhase } from "@/components/phase-line";
 import SiteFooter from "@/components/site-footer";
 import { auth } from "@/lib/auth";
-import { enabledApps, enabledTotalChallenges, joinAppNames } from "@/lib/apps";
+import { joinAppNames } from "@/lib/apps";
+import { getEnabledApps, getEnabledTotals } from "@/lib/enabled-apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { listChallenges } from "@/lib/classic-store";
 import { listQuestions } from "@/lib/quiz-store";
@@ -60,6 +61,10 @@ function primaryAction(
 export default async function Home() {
   const event = await getSite();
   const catalog = await getChallengeCatalog();
+  // The live target list, read once per request (both cache()-wrapped on the
+  // same settings snapshot every other live-set question here shares) — see
+  // lib/enabled-apps.ts.
+  const [enabledApps, enabledTotals] = await Promise.all([getEnabledApps(), getEnabledTotals()]);
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
   const appList = joinAppNames(enabledApps.map((a) => a.name));
@@ -81,7 +86,11 @@ export default async function Home() {
     appCount: enabledApps.length,
     appList,
     topAppsList,
-    totalChallenges: catalog?.total ?? enabledTotalChallenges,
+    // The runtime enabled-target subset, never the scorer's catalogue total
+    // (CodeRabbit round 1): getChallengeCatalog() returns every rubric
+    // target, not the app's secureDevTargets subset, so catalog.total can
+    // overcount when targets are narrowed.
+    totalChallenges: enabledTotals.challenges,
   };
 
   // Registry order, organizer-resolved titles, plain strings only — see the
@@ -360,9 +369,7 @@ export default async function Home() {
                 {enabledApps.length} real {enabledApps.length === 1 ? "target" : "targets"}
               </p>
               <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                {catalog
-                  ? `${catalog.total} challenges up for grabs`
-                  : `${enabledTotalChallenges} challenges up for grabs`}
+                {enabledTotals.challenges} challenges up for grabs
               </h2>
               <p className="max-w-2xl text-base leading-relaxed text-zinc-400">
                 Each app is a well-known, deliberately vulnerable open-source project. Points scale with

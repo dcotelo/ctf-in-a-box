@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
-# Proves a kit event.yaml drives the vendored app's reduced target set; the
-# event's name is a runtime admin setting now (issue #386), so a build with
-# no Redis behind it must fail open to the spec default rather than render
-# nothing, an error, or a name baked from this file.
-# Also proves the app's challenge fork links follow event.yaml's github.org
-# rather than a hardcoded OWASP-CTF (self-hosted contestants must fork the
-# org the kit actually created, not the upstream canonical one).
+# Proves what a kit event.yaml still drives at BUILD time versus what is a
+# runtime /admin setting now, on this branch. `github.org` is still baked in:
+# the app's challenge fork links must follow it rather than a hardcoded
+# OWASP-CTF (self-hosted contestants must fork the org the kit actually
+# created, not the upstream canonical one). The event's name and which
+# Secure Development targets run are BOTH runtime /admin settings now (issue
+# #386) and are not baked at all, so a build with no Redis behind it must
+# fail open to their spec defaults — the name, and all six targets — rather
+# than render nothing, an error, or a name baked from this file.
 #
-# ChallengeGrid (the /challenges app list) is a Client Component, but
-# /challenges is statically prerendered at build time, so Next.js still emits
-# the rendered app names into the server HTML response body — no need to
+# `modules.secure-development.targets` below is deliberately baked in and
+# deliberately INERT (config v2 PR2, #386): which Secure Development targets
+# run is an admin-panel setting read from Redis at request time, not a
+# build-time one, and with no Redis behind this build every one of the six
+# targets.tsv targets renders regardless of what this file says. This script
+# pins that: DVWA and VAmPI (named in the config below) AND WebGoat (not
+# named at all) all render — the config's `targets:` list is not read. The
+# reverse — that the admin-chosen subset actually narrows what renders — is
+# pinned by the /challenges page's own vitest suite, not here.
+#
+# ChallengeGrid (the /challenges app list) is a Client Component, but its
+# server parent reads the live target list from Redis (`getEnabledApps`) and
+# passes it down as props, so the route renders dynamically (`ƒ /challenges`
+# in the build output, not `○`) and Next.js still emits the rendered app
+# names into the server HTML response body on every request — no need to
 # fall back to grepping the flight/__NEXT_DATA__ payload separately.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -70,14 +84,20 @@ echo "--- identity fails open to the default name (no Redis behind this run)"
 expect_in "$HOME_HTML" "<title>OWASP CTF</title>" "landing page title is not the default event name without settings"
 echo "--- no DC34 branding"
 if echo "$HOME_HTML$CHALLENGES_HTML" | grep -qi "DEF CON"; then echo "FAIL: DC34 leaked"; exit 1; fi
-echo "--- only enabled targets appear"
-expect_in "$CHALLENGES_HTML" "DVWA" "enabled target DVWA not rendered"
-expect_in "$CHALLENGES_HTML" "VAmPI" "enabled target VAmPI not rendered"
-if echo "$CHALLENGES_HTML" | grep -q "WebGoat"; then echo "FAIL: disabled target rendered"; exit 1; fi
+echo "--- all six targets render; event.yaml's targets: list is inert (#386 PR 2)"
+# With no Redis behind this build, the app has no secureDevTargets to read
+# and defaults to all six — DVWA and VAmPI (the two named above) AND WebGoat
+# (never named) must all render. Which targets actually run is chosen in
+# /admin at request time, not baked in here; that subset behaviour is pinned
+# by the /challenges page's own vitest suite, not this script.
+expect_in "$CHALLENGES_HTML" "DVWA" "target DVWA not rendered"
+expect_in "$CHALLENGES_HTML" "VAmPI" "target VAmPI not rendered"
+expect_in "$CHALLENGES_HTML" "WebGoat" "target WebGoat not rendered (targets: in event.yaml should be inert)"
 
 echo "--- fork links use event.yaml's github.org, not a hardcoded OWASP-CTF"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/DVWA" "fork link does not use github.org"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does not use github.org"
+expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/WebGoat" "fork link does not use github.org"
 if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
   echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
 fi

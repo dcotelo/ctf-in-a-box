@@ -47,9 +47,10 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"ctfStartsAt": "2026-10-01T09:00:00-03:00"`);
     expect(out).toContain(`"githubOrg": "evt"`);
     expect(out).toContain(`"discordUrl": "https://discord.gg/chapter"`);
-    expect(out).toMatch(/"targets":\s*\[\s*"dvwa",\s*"vampi"\s*\]/);
+    // targets: is inert here (config v2, #386 PR 2) — present in the yaml
+    // above only to show it is tolerated, not read.
+    expect(out).toMatch(/"targets":\s*\[\]/);
     expect(out).toContain(`"dcotelo"`);
-    expect(out).not.toContain("juice-shop");
   });
 
   it("yaml without github.org falls back to the OWASP-CTF default", () => {
@@ -87,12 +88,32 @@ describe("generate-event-config", () => {
     expect(out).toContain(`"discordUrl": ""`);
   });
 
-  it("rejects unknown module, unknown target, bad dates, empty targets", () => {
+  it("rejects unknown module and bad dates", () => {
     const bad = (yaml: string) => expect(() => generate({}, yaml)).toThrow();
     bad("modules: { forensics: {} }");
-    bad("modules:\n  secure-development:\n    targets: [nope]");
-    bad("modules:\n  secure-development:\n    targets: []");
     bad('event: { name: X, start: "not-a-date" }\nmodules:\n  secure-development:\n    targets: [dvwa]');
+  });
+
+  // targets is optional and INERT here (config v2, #386 PR 2): the web app
+  // reads its runtime target list from admin settings, not from this
+  // generated field, so this reader ignores `targets:` completely, in any
+  // shape — see the comment on `ignoreYamlTargets`. `setup/ctf-setup.sh` and
+  // `sync/src/config.js` agree: neither reads or validates the key either, so
+  // all three module-key readers agree on every corpus fixture again — see
+  // the corpus differential suite below.
+  it("ignores targets: in any shape under secure-development — absent, empty, a scalar, or an unknown id", () => {
+    expect(generate({}, "modules:\n  secure-development:\n    targets: []")).toMatch(
+      /"targets":\s*\[\]/,
+    );
+    expect(generate({}, "modules:\n  secure-development:\n    score_ingest: poll")).toMatch(
+      /"targets":\s*\[\]/,
+    );
+    expect(generate({}, "modules:\n  secure-development:\n    targets: dvwa")).toMatch(
+      /"targets":\s*\[\]/,
+    );
+    expect(generate({}, "modules:\n  secure-development:\n    targets: [nope]")).toMatch(
+      /"targets":\s*\[\]/,
+    );
   });
 
   it("display dates are independent of build-machine timezone (TZ=UTC)", () => {
@@ -133,7 +154,7 @@ describe("generate-event-config", () => {
     expect(result).toContain(`"dates": "October 1–2, 2026"`);
   });
 
-  it("accepts two modules and derives targets from secure-development", () => {
+  it("accepts two modules; secure-development's targets: is present but inert", () => {
     const out = generate({}, [
       'event: { name: "Two Module Event" }',
       "github: { org: acme }",
@@ -143,9 +164,9 @@ describe("generate-event-config", () => {
       "admins: [alice]",
     ].join("\n"));
     expect(out).toMatch(
-      /"modules":\s*\[\s*\{\s*"id":\s*"secure-development",\s*"targets":\s*\[\s*"dvwa"\s*\],\s*"scoreIngest":\s*"poll"\s*\},\s*\{\s*"id":\s*"quiz"\s*\}\s*\]/
+      /"modules":\s*\[\s*\{\s*"id":\s*"secure-development",\s*"targets":\s*\[\]\s*,\s*"scoreIngest":\s*"poll"\s*\},\s*\{\s*"id":\s*"quiz"\s*\}\s*\]/
     );
-    expect(out).toMatch(/"targets":\s*\[\s*"dvwa"\s*\]/);
+    expect(out).toMatch(/"targets":\s*\[\]/);
   });
 
   it("still rejects an unregistered module id", () => {
@@ -202,21 +223,21 @@ describe("generate-event-config corpus differential", () => {
   // is excluded from the blanket agreement assertion below and asserted on
   // its own instead, so the exception stays visible rather than silently
   // dropped.
-  const KNOWN_DIVERGENCE = "accept-flow-empty-mapping.yaml";
+  //
+  // `secure-development.targets` used to be a second divergence here (config
+  // v2 #386 PR 2 made this reader ignore the key entirely while the bash and
+  // sync readers still validated it), but that lasted only through PR 2's
+  // Task 6: `ctf-setup.sh` and `sync/src/config.js` now ignore `targets:` too
+  // (every event forks/polls all six targets.tsv targets regardless), so all
+  // three readers agree on every targets-shape fixture again. The four
+  // formerly-reject-* fixtures this affected were renamed to accept-* (see
+  // setup/test/module_readers.bats's history) rather than kept as a
+  // documented exception.
+  const KNOWN_DIVERGENCES = new Set(["accept-flow-empty-mapping.yaml"]);
 
   const fixtures = readdirSync(CORPUS)
     .filter((f) => f.endsWith(".yaml"))
     .sort();
-
-  // The `# targets: a,b` header a fixture records (empty when there are none).
-  function recordedTargets(file: string): string[] {
-    const line = readFileSync(join(CORPUS, file), "utf8")
-      .split("\n")
-      .map((l) => l.replace(/\r$/, ""))
-      .find((l) => l.startsWith("# targets:"));
-    if (!line) return [];
-    return line.slice("# targets:".length).split(",").map((t) => t.trim()).filter(Boolean);
-  }
 
   type Verdict = { verdict: "accept" | "reject"; targets: string[]; error?: string };
 
@@ -271,10 +292,10 @@ describe("generate-event-config corpus differential", () => {
     expect(reject.length).toBeGreaterThanOrEqual(12);
   });
 
-  it("agrees with every fixture's recorded verdict, except the one documented divergence (ADR 24)", () => {
+  it("agrees with every fixture's recorded verdict, except the documented divergences (ADR 24, #386 PR 2)", () => {
     const mismatches: string[] = [];
     for (const f of fixtures) {
-      if (f === KNOWN_DIVERGENCE) continue;
+      if (KNOWN_DIVERGENCES.has(f)) continue;
       const want = f.startsWith("accept-") ? "accept" : "reject";
       const got = verdict(f);
       if (got.verdict !== want) {
@@ -284,20 +305,23 @@ describe("generate-event-config corpus differential", () => {
     expect(mismatches).toEqual([]);
   });
 
-  it("extracts each accepted fixture's recorded targets", () => {
+  // `targets:` is inert to this reader now — it never derives a non-empty
+  // list from event.yaml, regardless of what a fixture's shape or `# targets:`
+  // header records — so every accepted fixture's derived list is `[]`.
+  it("derives an empty targets list from every accepted fixture", () => {
     const mismatches: string[] = [];
-    for (const f of fixtures.filter((x) => x.startsWith("accept-") && x !== KNOWN_DIVERGENCE)) {
-      const want = recordedTargets(f);
+    for (const f of fixtures.filter((x) => x.startsWith("accept-") && !KNOWN_DIVERGENCES.has(x))) {
       const got = verdict(f);
-      if (JSON.stringify(got.targets) !== JSON.stringify(want)) {
-        mismatches.push(`${f}: want [${want}], got [${got.targets}]`);
+      if (got.targets.length !== 0) {
+        mismatches.push(`${f}: want [], got [${got.targets}]`);
       }
     }
     expect(mismatches).toEqual([]);
   });
 
-  it("the one documented divergence stays a divergence: this reader rejects an empty modules: {} (ADR 24)", () => {
-    expect(verdict(KNOWN_DIVERGENCE).verdict).toBe("reject");
+  it("the one documented divergence stays a divergence", () => {
+    // ADR 24: this reader is stricter on a present-but-empty `modules: {}`.
+    expect(verdict("accept-flow-empty-mapping.yaml").verdict).toBe("reject");
   });
 });
 

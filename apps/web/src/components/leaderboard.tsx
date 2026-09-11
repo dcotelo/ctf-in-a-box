@@ -12,6 +12,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { completedCount } from "@/lib/leaderboard/rank";
 import type { ResolvedModule } from "@/lib/modules";
+import type { AppMeta } from "@/lib/apps";
 import ScoreTimeChart from "@/components/score-time-chart";
 import { EntryRow } from "@/components/leaderboard-rows";
 import { TeamRow } from "@/components/leaderboard-team-row";
@@ -92,10 +93,14 @@ export default function Leaderboard({
   data,
   viewerLogin,
   modules,
+  enabledApps,
 }: {
   data: LeaderboardData;
   viewerLogin: string | null;
   modules: readonly ResolvedModule[];
+  /** The event's live target list (lib/enabled-apps.ts), resolved server-side
+   *  and threaded down to every row's `AppBreakdown`/`ModuleDetail`. */
+  enabledApps: readonly AppMeta[];
 }) {
   // Teams are the primary competitive unit once they exist — default there
   // and let individual standings be the secondary, opt-in view.
@@ -281,6 +286,7 @@ export default function Leaderboard({
                 capabilities={data.capabilities}
                 modules={modules}
                 completable={data.completable}
+                enabledApps={enabledApps}
               />
             ))}
           </ul>
@@ -298,6 +304,7 @@ export default function Leaderboard({
               modules={modules}
               isOpen={expanded === team.slug}
               onToggle={() => setExpanded(expanded === team.slug ? null : team.slug)}
+              enabledApps={enabledApps}
             />
           ))}
         </ul>

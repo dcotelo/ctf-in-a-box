@@ -43,12 +43,13 @@ interpolation failure inside a script that pipes compose's stderr to
 gets the 403 wall.
 
 **Diagnosis.** The app image was built without `EVENT_CONFIG_B64`.
-`event.yaml`'s `admins` list (and targets, dates, fork org) are baked at
+`event.yaml`'s `admins` list (and dates, fork org) are baked at
 **build** time; building without the arg silently yields neutral defaults,
 including an **empty admins list**. (The event's name and the rest of its
-branding are a separate, runtime `/admin` → Event → Identity setting since
-#386 — they default to "OWASP CTF" / empty either way, so a stock-looking
-name is not a symptom of this problem on its own.)
+branding, and which Secure Development targets run, are separate runtime
+`/admin` settings since #386 — they default to "OWASP CTF" / empty / all
+six either way, so a stock-looking name or a full target list is not a
+symptom of this problem on its own.)
 
 **Fix.** Rebuild with the arg and recreate:
 

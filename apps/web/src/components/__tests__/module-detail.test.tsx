@@ -18,7 +18,7 @@ describe("ModuleDetail", () => {
       points: 40, completed: 4, lastActivityAt: null,
       detail: { kind: "quiz", answered: 4, total: 6, points: 40 },
     };
-    const html = renderToStaticMarkup(<ModuleDetail moduleId="quiz" progress={progress} entry={entry()} />);
+    const html = renderToStaticMarkup(<ModuleDetail moduleId="quiz" progress={progress} entry={entry()} enabledApps={[]} />);
     expect(html).toMatch(/4\s*\/\s*6/);
   });
 
@@ -27,7 +27,7 @@ describe("ModuleDetail", () => {
       points: 50, completed: 2, lastActivityAt: null,
       detail: { kind: "classic", solved: 2, total: 5, points: 50 },
     };
-    const html = renderToStaticMarkup(<ModuleDetail moduleId="classic" progress={progress} entry={entry()} />);
+    const html = renderToStaticMarkup(<ModuleDetail moduleId="classic" progress={progress} entry={entry()} enabledApps={[]} />);
     expect(html).toMatch(/2\s*\/\s*5/);
     expect(html).toContain("flags");
     // The quiz branch used to be an UNGUARDED fallthrough, so a third variant
@@ -43,7 +43,7 @@ describe("ModuleDetail", () => {
       points: 50, completed: 2, lastActivityAt: null,
       detail: { kind: "classic", solved: 2, total: 5, points: 50 },
     };
-    const html = renderToStaticMarkup(<ModuleDetail moduleId="quiz" progress={progress} entry={entry()} />);
+    const html = renderToStaticMarkup(<ModuleDetail moduleId="quiz" progress={progress} entry={entry()} enabledApps={[]} />);
     expect(html).toContain("flags");
     expect(html).not.toContain("answered");
   });
@@ -53,7 +53,7 @@ describe("ModuleDetail", () => {
       points: 20, completed: 2, lastActivityAt: null,
       detail: { kind: "ai", solved: 2, total: 3, points: 20 },
     };
-    const html = renderToStaticMarkup(<ModuleDetail moduleId="ai" progress={progress} entry={entry()} />);
+    const html = renderToStaticMarkup(<ModuleDetail moduleId="ai" progress={progress} entry={entry()} enabledApps={[]} />);
     expect(html).toMatch(/2\s*\/\s*3/);
     expect(html).toContain("challenges");
     expect(html).not.toContain("answered");
@@ -65,7 +65,7 @@ describe("ModuleDetail", () => {
       points: 30, completed: 3, lastActivityAt: null,
       detail: { kind: "secure-development", apps: {} },
     };
-    const html = renderToStaticMarkup(<ModuleDetail moduleId="secure-development" progress={progress} entry={entry()} />);
+    const html = renderToStaticMarkup(<ModuleDetail moduleId="secure-development" progress={progress} entry={entry()} enabledApps={[]} />);
     expect(html).toContain("No app breakdown reported yet.");
   });
 });

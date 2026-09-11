@@ -61,7 +61,6 @@ test("a null config logs the reason and returns without starting the poller", as
 test("a valid config proceeds: state, redis, then the poll loop", async () => {
   const cfg = {
     org: "test-event-org",
-    targets: ["dvwa", "vampi"],
     statePath: "/state/state.json",
     pollIntervalMs: 30000,
   };
@@ -82,19 +81,53 @@ test("a valid config proceeds: state, redis, then the poll loop", async () => {
   // Slept around the configured interval (±20% jitter), not the raw value.
   assert.equal(calls.sleep.length, 1);
   assert.ok(calls.sleep[0] >= 24000 && calls.sleep[0] <= 36000, `slept ${calls.sleep[0]}ms`);
-  // The startup banner names what it is polling; the no-op line must not appear.
-  assert.match(calls.logErr[0], /polling 2 repos in test-event-org/);
+  // The startup banner names the event, not a repo count — which targets get
+  // polled is now a per-tick Redis read, so a count printed once at boot
+  // would go stale the moment an organizer changes it in /admin. With a
+  // (fake) Redis client present, the "no Redis client" warning must not fire.
+  assert.match(calls.logErr[0], /polling test-event-org every 30000ms/);
+  assert.equal(calls.logErr.length, 1);
   assert.deepEqual(calls.log, []);
 });
 
 test("the guard is on the config, not on a falsy-but-present one", async () => {
   // A config object is a config object even with zero ingested state: only
   // loadConfig's explicit `null` (no polled module) means "nothing to do".
-  const cfg = { org: "o", targets: [], statePath: "/s", pollIntervalMs: 1000 };
+  const cfg = { org: "o", statePath: "/s", pollIntervalMs: 1000 };
   const { deps, calls } = spyDeps({ load: () => cfg });
 
   await assert.rejects(() => main(deps), (err) => err === STOP);
 
   assert.equal(calls.tick.length, 1);
   assert.deepEqual(calls.log, []);
+});
+
+// With no admin override readable at all (no Redis client), tick() falls
+// back to polling every target — worth telling the organizer at boot rather
+// than leaving it to be inferred from the poll logs.
+test("warns once at boot when there is no Redis client, and still starts the poll loop", async () => {
+  const cfg = { org: "o", statePath: "/s", pollIntervalMs: 1000 };
+  const logErrLines = [];
+  const tickCalls = [];
+  await assert.rejects(
+    () =>
+      main({
+        load: () => cfg,
+        log: () => {},
+        logErr: (m) => logErrLines.push(m),
+        readState: () => ({ repos: {} }),
+        makeRedisImpl: () => null,
+        runTick: async (c, state, opts) => {
+          tickCalls.push(opts);
+          return state;
+        },
+        writeState: () => {},
+        sleep: () => {
+          throw STOP;
+        },
+      }),
+    (err) => err === STOP,
+  );
+  assert.equal(tickCalls[0].redis, null);
+  assert.deepEqual(logErrLines, ["ctf-sync: polling o every 1000ms", "ctf-sync: no Redis client — polling all six targets"]);
 });
