@@ -253,11 +253,13 @@ suggestions.
   like a pass but proves nothing.
 - **The app bakes `event.yaml` at BUILD time via the `EVENT_CONFIG_B64`
   build-arg.** Building the app without it (`docker compose build app` with the
-  arg unset) silently yields neutral defaults — an empty `admins` list (so
-  `/admin` 403s for everyone) and generic branding. Always bring the box up as
-  `EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')" docker compose
-  --profile poll --profile app up -d --build`. `scripts/dev-stack` already
-  does this.
+  arg unset) silently yields neutral defaults — an empty `admins` list, so
+  `/admin` 403s for everyone. Always bring the box up as `EVENT_CONFIG_B64="$(base64
+  < event.yaml | tr -d '\n')" docker compose --profile poll --profile app up
+  -d --build`. `scripts/dev-stack` already does this. The event's identity
+  (name, tagline, location, contact e-mail, Discord invite) is a runtime
+  `/admin` setting since #386 and is unaffected by the bake — admins are
+  still baked until PR 3 of #386 removes `event.yaml` entirely.
 - **Compose profiles follow the enabled MODULES.** `app` is always on.
   `secure-development`'s two services are profiled *differently*, and that is
   deliberate: `scorer` carries `["poll", "push"]` (both ingest modes need it),
