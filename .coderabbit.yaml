@@ -64,10 +64,12 @@ reviews:
         limits, or a workflow running on pull_request_target.
     - label: "breaking-change"
       instructions: >
-        Apply when the PR changes the event.yaml schema, a registered module
-        id, a ctf:* Redis key name or value shape, the scorer's POST /score or
-        GET /leaderboard payloads, GET /api/public/scoring, or a ctf-setup.sh
-        subcommand or flag.
+        Apply when the PR removes or renames a `.env` key (`GITHUB_ORG`,
+        `ADMIN_LOGINS`, `SCORE_IMAGE`, `SCORE_INGEST`, or another key
+        `.env.example` lists) or a `ctf:admin:settings` field, a registered
+        module id, a ctf:* Redis key name or value shape, the scorer's POST
+        /score or GET /leaderboard payloads, GET /api/public/scoring, or a
+        ctf-setup.sh subcommand or flag.
     - label: "infrastructure"
       instructions: >
         Apply when the PR modifies docker-compose*.yml, a Dockerfile, the
@@ -288,9 +290,11 @@ reviews:
         ⚠️ WARNING: <description> — <fix> for:
 
         requireAdmin direction — must fail CLOSED; an unreachable store denies
-        rather than resolving to an empty list. Baked admins from event.yaml
-        are checked first without touching Redis and stay non-revocable at
-        runtime — they are the lockout recovery path.
+        rather than resolving to an empty list. `ADMIN_LOGINS` env admins are
+        checked first without touching Redis and stay non-revocable at
+        runtime — they are the lockout recovery path. An EMPTY `ADMIN_LOGINS`
+        must refuse every login, never fall open to "no allowlist configured,
+        let runtime grants decide".
 
         Override precedence — every reader is override-else-default
         (`settings.x ?? DEFAULT_X`), never the reverse.
@@ -383,9 +387,9 @@ reviews:
 
         Missing `set -euo pipefail`, or an error path that exits 0.
 
-        Fail-open parsing — an unparseable or unexpected event.yaml resulting
-        in "nothing to do" rather than a loud non-zero exit. The org and doctor
-        subcommands fail CLOSED.
+        Fail-open parsing — an unparseable or unexpected `.env` value (via
+        `env_val`) or wizard answer resulting in "nothing to do" rather than a
+        loud non-zero exit. The org and doctor subcommands fail CLOSED.
 
         Secret exposure — echoing a token, App key, or REDIS_PASSWORD; passing
         a secret as a command-line argument (visible in ps); writing one to a
@@ -633,7 +637,10 @@ reviews:
 
           FAIL CLOSED (a store error refuses) — requireAdmin; the quiz
           attempt/answer lookup; the classic cooldown lookup; the pre-event
-          gate throttle in gate-store; ctf-setup.sh's event.yaml parsing.
+          gate throttle in gate-store; ctf-setup.sh's `.env` parsing
+          (`env_val`); an empty `ADMIN_LOGINS` in `parseAdminLogins`/
+          `admin-auth.ts`; sync's `loadConfig(env)` refusing on a missing
+          `GITHUB_ORG`.
 
           Flag ⚠️ WARNING: <description> — <fix> when a change inverts one of
           these, when a NEW gate is added without its direction stated in a
@@ -699,9 +706,12 @@ reviews:
           Flag ⚠️ WARNING: <description> — <fix> on a change to a published
           contract without documentation:
 
-          event.yaml schema — removing or renaming a key, changing enum
-          membership (module ids, target ids), or making an optional key
-          required. event.yaml.example must change too.
+          Runtime config schema — removing or renaming a `.env` key
+          (`GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `SCORE_INGEST`, or
+          another key `.env.example` lists) or a `ctf:admin:settings` field,
+          changing enum membership (module ids, target ids), or making an
+          optional key required. `.env.example`, `ctf-setup.sh`'s wizard, and
+          the docs must change too.
 
           Module contract — anything in docs/modules.md a third-party module
           implements against.
@@ -719,9 +729,9 @@ reviews:
 
           ctf-setup.sh — removing or renaming a subcommand, flag, or prompt.
 
-          Environment and build args — removing or renaming EVENT_CONFIG_B64,
-          SCORE_INGEST, SCORE_IMAGE, LEADERBOARD_API_URL, LEADERBOARD_SOURCE,
-          UPSTASH_REDIS_REST_URL, DEMO_MODE, or similar.
+          Environment variables — removing or renaming GITHUB_ORG,
+          ADMIN_LOGINS, SCORE_INGEST, SCORE_IMAGE, LEADERBOARD_API_URL,
+          LEADERBOARD_SOURCE, UPSTASH_REDIS_REST_URL, DEMO_MODE, or similar.
 
           Required: a "Breaking changes" section in the PR description saying
           what changed and what an organizer or module author must update, plus
@@ -760,10 +770,10 @@ reviews:
           properties). A raw `err`, String(err) or JSON.stringify(err) handed
           to console.* there is the finding.
 
-          Base64 blobs — EVENT_CONFIG_B64, an Authorization header value, or
-          any long base64-looking string written to a log. Base64 is encoding,
-          not encryption. Acceptable: a short fingerprint (first 6 chars plus
-          length).
+          Base64 blobs — GITHUB_APP_PRIVATE_KEY, an Authorization header
+          value, or any long base64-looking string written to a log. Base64 is
+          encoding, not encryption. Acceptable: a short fingerprint (first 6
+          chars plus length).
 
           Acceptable: structured logging with explicit field allowlists,
           redaction at the logger level, correlation ids not derived from a

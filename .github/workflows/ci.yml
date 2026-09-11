@@ -236,8 +236,11 @@ jobs:
       # same posture as the terraform job.
       - run: bats deploy/fly/test/
       # The AWS module's stack is checked by `terraform test` in its own job.
-      # This covers the one part Terraform cannot see: deploy.sh, which owns
-      # the build-time `event.yaml` bake. Stubs stand in for docker/aws/
+      # This covers the one part Terraform cannot see: deploy.sh, which builds
+      # and pushes the app image and hands Terraform the tag to apply. Config
+      # v2 (#386) removed its build-time config bake entirely — the app now
+      # reads GITHUB_ORG/ADMIN_LOGINS from the container's runtime environment,
+      # so the script has nothing left to bake. Stubs stand in for docker/aws/
       # terraform, so --dry-run's "makes no real call" is asserted rather than
       # assumed, and no AWS account is used here either.
       - run: bats deploy/aws-terraform/test/

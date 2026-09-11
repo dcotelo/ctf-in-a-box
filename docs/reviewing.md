@@ -123,16 +123,28 @@ entry point, and its test asserts the link/nav/button exists — not merely
 that the route responds. This repo has shipped invisible-but-working
 features past green tests three times.
 
-**10. The build-time config bake.** The app bakes `event.yaml`'s dates and
-`admins` at build via `EVENT_CONFIG_B64`; building without it silently
-yields neutral defaults (an empty `admins` list, so `/admin` 403s
-everyone). The event's name and the rest of its branding, and which Secure
-Development targets run, are separate runtime `/admin` settings since #386,
-not part of this bake. Review anything touching build or deploy scripts for
-a path that could run the app build with the arg unset. This stays a
-reader-only invariant, with no matching `.coderabbit.yaml` rule: PR 3 of
-#386 deletes `EVENT_CONFIG_B64` and its bake entirely, so a machine-enforced
-rule for it would be dead code within one more PR of this same issue.
+**10. The app reads no build-time config.** Config v2 (#386) deleted
+`event.yaml` and its `EVENT_CONFIG_B64` bake: the app now reads its two
+bootstrap identities, `GITHUB_ORG` and `ADMIN_LOGINS`, from the process
+environment at runtime (`bootstrap-env.ts`), and everything else — the
+event's name and branding, which Secure Development targets run — is a
+runtime `/admin` setting in the `ctf:admin:settings` hash. A review should
+verify: no `process.env` read reaches a client component (a client bundle
+must never see who the admins are, and `process.env` there is empty or
+misleading anyway); an empty `ADMIN_LOGINS` fails CLOSED in
+`admin-auth.ts`/`isAdminLogin` — nobody is an admin, not "no allowlist
+configured, let runtime grants decide"; an empty `GITHUB_ORG` degrades
+gracefully in the app (`apps.ts` renders a bare repo name instead of a fork
+link) but sync's `loadConfig(env)` throws on it instead, because for sync a
+missing org is a genuine misconfiguration, not "nothing to poll" — the two
+components deliberately disagree; runtime `/admin` settings are read once
+per request through the `cache()`-memoized snapshot
+(`getAdminSettingsSnapshot`/`resolved-modules.ts`), not a second independent
+read that could disagree with the first on an unlucky Redis blip; and `/`
+is never statically prerendered (CI's `.next/server/app/index.html`
+must-not-exist check, ci.yml's `app` job) — a prerendered `/` would bake
+this request-time read into static HTML that never updates again without a
+rebuild.
 
 **11. The public surface is a named list, not a shape.** Exactly five routes
 under `/api` answer without a session or a verified launch token, and each is
