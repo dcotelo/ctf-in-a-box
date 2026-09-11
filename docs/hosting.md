@@ -465,10 +465,13 @@ asked to pull a scorer image it has no reason to own.
 
 **Profiles and `SCORE_IMAGE` are two separate choices that have to agree, not
 one setting picking both.** You choose the profile at `up`: `--profile app`
-alone for a quiz/classic/ai-only event, `--profile poll --profile app` when
-you are running Secure Development. The `poll` profile needs an *accessible*
-`SCORE_IMAGE` — the compose fallback image is private, so bringing `poll` up
-without your own `SCORE_IMAGE` set fails the pull. Separately, the app's
+alone for a quiz/classic/ai-only event; with Secure Development,
+`--profile poll --profile app` when `SCORE_INGEST` is `poll` (or unset) and
+`--profile push --profile app` when it is `push` — the `push` profile is what
+mounts the Caddyfile with the `/score` route. Either Secure Development
+profile needs an *accessible* `SCORE_IMAGE` — the compose fallback image is
+private, so bringing one up without your own `SCORE_IMAGE` set fails the
+pull. Separately, the app's
 DEFAULT module set (what an organizer sees on first opening `/admin`, and
 the outage fallback) follows `SCORE_IMAGE` on its own: Secure Development
 alone when it is set, nothing when it is not — Quiz, Classic and AI are

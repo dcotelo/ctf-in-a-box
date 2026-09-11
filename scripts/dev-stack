@@ -374,6 +374,9 @@ cmd_up() {
      1. Create a GitHub OAuth app, callback <EVENT_URL>/api/auth/callback/github.
      2. Put its client id/secret into $ENV_FILE (GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET).
      3. Put your GitHub login into $ENV_FILE's ADMIN_LOGINS (comma-separated).
+        An EXPORTED ADMIN_LOGINS overrides the file (that is compose's
+        precedence, and the value shown above is what the app got), so unset
+        it or export the new list before the next step.
      4. ./scripts/dev-stack down && ./scripts/dev-stack up   (restarts and picks
         up the new .env; no rebuild needed — ADMIN_LOGINS is read at start)
    Everything else — leaderboard, challenge browsing, seeded scores — works now.
